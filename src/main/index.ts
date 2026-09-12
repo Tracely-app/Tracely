@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { IPC_EVENTS } from '@shared/ipc-channels'
@@ -42,9 +43,51 @@ function handleOAuthUrl(url: string): void {
     })
 }
 
-if (!app.isDefaultProtocolClient(OAUTH_PROTOCOL)) {
-  app.setAsDefaultProtocolClient(OAUTH_PROTOCOL)
+/**
+ * Claims `tracely://` for THIS build, on every launch.
+ *
+ * Two things were wrong here and both produced the same silent failure: Google
+ * completes sign-in, redirects to `tracely://auth-callback?code=…`, Windows
+ * hands it to whatever owns the scheme, and if that is not a running Tracely
+ * the code is never exchanged. The login screen then sits on "Continue in the
+ * browser window that just opened" forever, with nothing to report — nothing
+ * calls back, so there is no error to show.
+ *
+ * **Dev was registering a dead handler.** With no exec path, Electron writes
+ * `"…\node_modules\electron\dist\electron.exe" "%1"` — the raw binary with no
+ * app to run — so after any `npm run dev` the INSTALLED app's Google login
+ * broke, and stayed broken, because the scheme now pointed at something that
+ * starts nothing. Measured on the owner's machine, 2026-09-11: that exact
+ * command was in HKCU, and invoking the protocol launched no process at all.
+ * Windows needs the exec path and the app path explicitly in dev.
+ *
+ * **The `isDefaultProtocolClient` guard made it sticky.** It is a fine test for
+ * "am I already registered", and a bad one for recovery: nothing re-asserted
+ * the claim, so a stale registration survived every later launch of the real
+ * app. Re-asserting unconditionally means launching the app you actually use
+ * repairs it, which is the only fix a user can perform without a registry
+ * editor.
+ */
+function registerOAuthProtocol(): void {
+  const claimed = app.isPackaged
+    ? app.setAsDefaultProtocolClient(OAUTH_PROTOCOL)
+    : // argv[1] is the app path electron was started with. Guarded because a
+      // launch shape without it would otherwise throw here, during startup,
+      // over a protocol that is not required for the app to run.
+      typeof process.argv[1] === 'string'
+      ? app.setAsDefaultProtocolClient(OAUTH_PROTOCOL, process.execPath, [
+          path.resolve(process.argv[1])
+        ])
+      : false
+
+  // Logged because this is otherwise invisible until someone tries to sign in
+  // with Google and nothing happens — which is a long way from the cause.
+  console.log(
+    `[auth] ${OAUTH_PROTOCOL}:// ${claimed ? 'registered to' : 'NOT registered for'} ` +
+      `${app.isPackaged ? app.getPath('exe') : 'dev'}`
+  )
 }
+registerOAuthProtocol()
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
