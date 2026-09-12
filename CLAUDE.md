@@ -125,6 +125,41 @@ There is no lint script configured. The two automated correctness checks are `np
 
 Claim detection and critique require a deployed Tracely Relay. Copy `.env.example` to `.env` and set `RELAY_URL` / `RELAY_TOKEN`. These are read once by `electron.vite.config.ts` and compiled directly into the main-process bundle via the `define` block (`__RELAY_URL__` / `__RELAY_TOKEN__`) — there's no runtime/user-facing way to change them; changing the relay means editing `.env` and rebuilding. Evidence search, scoring, citations, and the library all work with no relay configured.
 
+### `npm run dev` takes the `tracely://` scheme, and Google login goes with it
+
+Google's consent screen redirects to `tracely://auth-callback?code=…`, and
+exactly one program on Windows owns that scheme. Whichever Tracely started most
+recently owns it — dev included.
+
+**The symptom is silence, not an error.** Nothing calls back, so `LoginView`
+sits on *"Continue in the browser window that just opened"* forever with
+nothing to report. There is no failure to display: the code was handed to
+another program.
+
+- **Dev used to register a handler that started nothing.** With no exec path,
+  Electron writes `"…/node_modules/electron/dist/electron.exe" "%1"` — the raw
+  binary, no app — so after any `npm run dev` the INSTALLED app's Google login
+  broke and stayed broken. Measured on the owner's machine, 2026-09-11: that
+  exact command was the value of `HKCU\SOFTWARE\Classes\tracely\shell\open\command`,
+  and invoking the protocol started no process at all. Dev now passes
+  `process.execPath` plus the app path, which is what Windows needs.
+- **Relaunching the app repairs it**, and that was already true — the shipped
+  0.3.97 reclaimed the scheme correctly the moment it was launched, which is how
+  the guard was cleared as a suspect. `registerOAuthProtocol` re-asserts
+  unconditionally now so recovery does not depend on a stale
+  `isDefaultProtocolClient` ever returning true.
+- **Check the registry before reading any auth code.** One command answers it:
+  `(Get-ItemProperty 'HKCU:\SOFTWARE\Classes\tracely\shell\open\command').'(default)'`.
+  If that is not the build you are signing in from, nothing downstream matters.
+- **STABLE AND PREVIEW STILL SHARE ONE SCHEME**, and this is the remaining
+  hazard. `electron-builder.yml`'s `protocols:` block is shared, so both
+  register `tracely://` and the last one launched wins. Sign in from Preview
+  while stable owns the scheme and the callback reaches stable — which never
+  started that flow, so it has no PKCE verifier for the code and
+  `exchangeCodeForSession` fails with something opaque. A per-channel scheme
+  (`tracely-preview://`) is the fix and needs the matching redirect URL added to
+  the staging Supabase project's allowlist first, or OAuth breaks outright.
+
 ### Windows packaging gotcha
 
 `npm run dist:win` can fail the first time with `Cannot create symbolic link : A required privilege is not held by the client` while electron-builder extracts `winCodeSign` (irrelevant macOS `.dylib` symlinks, but the whole archive extraction is treated as failed). Fix: enable Settings → Privacy & Security → For developers → Developer Mode, then re-run.
