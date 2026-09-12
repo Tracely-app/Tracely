@@ -151,14 +151,36 @@ another program.
 - **Check the registry before reading any auth code.** One command answers it:
   `(Get-ItemProperty 'HKCU:\SOFTWARE\Classes\tracely\shell\open\command').'(default)'`.
   If that is not the build you are signing in from, nothing downstream matters.
-- **STABLE AND PREVIEW STILL SHARE ONE SCHEME**, and this is the remaining
-  hazard. `electron-builder.yml`'s `protocols:` block is shared, so both
-  register `tracely://` and the last one launched wins. Sign in from Preview
-  while stable owns the scheme and the callback reaches stable — which never
-  started that flow, so it has no PKCE verifier for the code and
-  `exchangeCodeForSession` fails with something opaque. A per-channel scheme
-  (`tracely-preview://`) is the fix and needs the matching redirect URL added to
-  the staging Supabase project's allowlist first, or OAuth breaks outright.
+- **THE SCHEME IS PER CHANNEL** (`shared/oauthScheme.ts`): stable answers on
+  `tracely://`, preview on `tracely-preview://`. They shared one until
+  2026-09-12, so the last build launched won it and a sign-in from the other
+  one delivered its authorization code to a build that never started that flow
+  — no PKCE verifier, and `exchangeCodeForSession` failing with something
+  opaque.
+  - **The scheme and the redirect URL are ONE decision read by two systems.**
+    Supabase only redirects to an allowlisted URL; Windows only delivers a
+    registered scheme. Both come from that leaf, and `isPreview` is passed IN
+    from `appIdentity.isPreviewBuild()` rather than re-derived — a second
+    derivation is the trap `appIdentity`'s own docstring is about.
+  - **ADDING A CHANNEL MEANS ADDING ITS REDIRECT URL FIRST.** Supabase refuses
+    an unlisted redirect before the browser ever returns to the app, so the
+    allowlist entry has to land before the build that uses it does.
+    `tracely-preview://auth-callback` is on the **staging** project
+    (`sxifbtelrtbsgnnwnmdf`); production is untouched and stable still uses
+    `tracely://`.
+  - **`electron-builder.yml`'s `protocols:` block is INERT on Windows**, which
+    is why this was fixed in code and not there. app-builder-lib reads it in
+    exactly three places — the macOS Info.plist, the APPX manifest and the
+    Linux `.desktop` file — and the NSIS templates never mention it. Windows
+    registration is `setAsDefaultProtocolClient` at runtime, full stop. Preview
+    is Windows-only (`preview.yml` is `windows-latest` and strips the
+    darwin/linux natives), so that value never reaches a shipped preview.
+  - **A preview installed before this still has `tracely://` pointed at
+    itself**, left over from when it claimed it. Harmless and self-healing:
+    launching stable re-asserts the claim, and a sign-in can only be started by
+    a build the user just launched. Deliberately NOT cleaned up with
+    `removeAsDefaultProtocolClient` — a destructive registry write to fix a
+    state that repairs itself on the next launch.
 
 ### Windows packaging gotcha
 
