@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node --test \"src/**/*.test.ts\"",
     "start": "electron-vite preview",
-    "dist:win": "npm run fetch-models && electron-vite build && electron-builder --win",
+    "dist:win": "npm run strip-foreign-natives && npm run fetch-models && electron-vite build && electron-builder --win",
     "dist:mac": "npm run fetch-models && electron-vite build && electron-builder --mac",
-    "release:win": "npm run preflight && npm run fetch-models && electron-vite build && electron-builder --win --publish always",
-    "preview:win": "npm run fetch-models && electron-vite build && electron-builder --win --publish always -c.appId=com.tracely.app.preview -c.productName=\"Tracely Preview\" -c.extraMetadata.name=tracely-preview -c.publish.releaseType=prerelease -c.publish.channel=preview -c.directories.output=release-preview",
+    "release:win": "npm run preflight && npm run strip-foreign-natives && npm run fetch-models && electron-vite build && electron-builder --win --publish always",
+    "preview:win": "npm run strip-foreign-natives && npm run fetch-models && electron-vite build && electron-builder --win --publish always -c.appId=com.tracely.app.preview -c.productName=\"Tracely Preview\" -c.extraMetadata.name=tracely-preview -c.publish.releaseType=prerelease -c.publish.channel=preview -c.directories.output=release-preview",
     "preflight": "node scripts/preflight.mjs",
     "fetch-models": "node scripts/fetch-models.mjs",
     "verify-packaged-ml": "node scripts/verify-packaged-ml.mjs",
@@ -37,7 +37,8 @@
     "check:eval-bundle": "node scripts/check-eval-bundle.mjs",
     "test:e2e": "electron-vite build --config e2e/electron.vite.e2e.config.mts && node --test \"e2e/**/*.spec.mjs\"",
     "ship:dry": "node scripts/ship.mjs --dry-run",
-    "live": "node scripts/live.mjs"
+    "live": "node scripts/live.mjs",
+    "strip-foreign-natives": "node scripts/strip-foreign-natives.mjs"
   },
   "dependencies": {
     "@fontsource/instrument-sans": "^5.3.0",

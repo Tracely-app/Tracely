@@ -162,15 +162,17 @@ jobs:
       # rejected an installer carrying "onnxruntime-node/bin/napi-v6/darwin
       # ... wrong platform". The guard was doing its job; nothing fed it a
       # clean tree.
+      # The list of what to remove lives in scripts/strip-foreign-natives.mjs
+      # now, because it was ONLY here: CI stripped and every local `npm run
+      # ship` did not, so previews built while the stable release died at
+      # afterPack. That script is also wired into preview:win / release:win /
+      # dist:win, which makes this step redundant — kept anyway, so the strip
+      # still happens if those npm scripts are ever reordered, and so the log
+      # says plainly that it ran. It is idempotent.
       - name: strip foreign-platform native binaries
         shell: bash
         run: |
-          rm -rf node_modules/onnxruntime-node/bin/napi-v6/darwin \
-                 node_modules/onnxruntime-node/bin/napi-v6/linux \
-                 node_modules/@img/sharp-darwin-arm64 \
-                 node_modules/@img/sharp-libvips-darwin-arm64 \
-                 node_modules/@img/sharp-darwin-x64 \
-                 node_modules/@img/sharp-libvips-darwin-x64
+          node scripts/strip-foreign-natives.mjs
           echo "remaining onnxruntime platforms:"
           ls node_modules/onnxruntime-node/bin/napi-v6/ || true
 
