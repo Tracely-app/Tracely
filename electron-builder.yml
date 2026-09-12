@@ -192,6 +192,24 @@ npmRebuild: false
 # built or published. See scripts/afterPack.js for why a green build is not
 # sufficient evidence here.
 afterPack: scripts/afterPack.js
+# NOT what registers the scheme on Windows, and this block is easy to mistake
+# for the thing that does. app-builder-lib reads `protocols` in exactly three
+# places — the macOS Info.plist, the APPX manifest and the Linux .desktop file.
+# The NSIS templates contain no reference to it at all, so a `--win` build
+# ignores this entirely and Windows registration comes from
+# `app.setAsDefaultProtocolClient` at runtime (see src/main/index.ts).
+#
+# Which is why the scheme is per-channel in code and hardcoded here: the
+# preview channel is Windows-only (preview.yml runs on windows-latest and
+# strips the darwin/linux natives), so on every build that ships this value is
+# inert. LEFT HARDCODED ON PURPOSE rather than overridden from `preview:win` —
+# an untested `-c.protocols…` override that silently fails to apply would look
+# exactly like one that worked.
+#
+# A mac or linux PREVIEW build would need this to become `tracely-preview`, or
+# its Info.plist would claim stable's scheme — the same collision, one platform
+# over. `asArray` is applied to both `protocols` and `schemes`, so a single
+# object with a bare string works if that day comes.
 protocols:
   - name: Tracely OAuth callback
     schemes:

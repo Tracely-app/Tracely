@@ -3,6 +3,8 @@ import { createClient, type Session, type User } from '@supabase/supabase-js'
 import { getMainWindow } from '../../windows/mainWindow'
 import { IPC_EVENTS } from '@shared/ipc-channels'
 import type { AuthUser } from '@shared/types'
+import { oauthRedirectUrlFor } from '@shared/oauthScheme'
+import { isPreviewBuild } from '../../appIdentity'
 import { fileSessionStorage, pruneForeignSessions } from './sessionStore'
 
 // Electron's bundled Node (v20.x as of Electron 32) has no native
@@ -29,7 +31,19 @@ declare const __RELAY_TOKEN__: string
 
 // The custom protocol Google's OAuth consent screen redirects back into
 // (registered in main/index.ts via app.setAsDefaultProtocolClient).
-export const OAUTH_REDIRECT_URL = 'tracely://auth-callback'
+//
+// A FUNCTION, not a const, and it must stay one: this module is imported at
+// main's top level, and reading `app.getName()` while the module graph is still
+// being evaluated is a needless dependency on import order. Called per sign-in
+// instead, which is neither hot nor early.
+//
+// Preview and stable answer on different schemes — see shared/oauthScheme.ts
+// for why. Whatever this returns must be on the redirect allowlist of the
+// Supabase project this build was compiled against, or the consent screen
+// refuses before the browser ever comes back.
+export function oauthRedirectUrl(): string {
+  return oauthRedirectUrlFor(isPreviewBuild())
+}
 
 let client: ReturnType<typeof createClient> | null = null
 
@@ -191,11 +205,11 @@ export async function deleteAccount(): Promise<void> {
 // (electron's shell.openExternal) — Electron apps can't embed a real Google
 // OAuth prompt in a BrowserWindow (Google blocks it), so the flow hands off
 // to the user's actual default browser and the redirect comes back via a
-// custom protocol (tracely://auth-callback) handled by main/index.ts.
+// custom protocol (<scheme>://auth-callback) handled by main/index.ts.
 export async function startGoogleOAuth(): Promise<string> {
   const { data, error } = await getSupabase().auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: OAUTH_REDIRECT_URL, skipBrowserRedirect: true }
+    options: { redirectTo: oauthRedirectUrl(), skipBrowserRedirect: true }
   })
   if (error) throw new Error(error.message)
   if (!data.url) throw new Error('Supabase did not return an OAuth URL')

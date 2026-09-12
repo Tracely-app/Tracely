@@ -2,6 +2,8 @@ import path from 'node:path'
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { IPC_EVENTS } from '@shared/ipc-channels'
+import { oauthSchemeFor } from '@shared/oauthScheme'
+import { isPreviewBuild } from './appIdentity'
 import { registerGlobalHotkey, registerScreenWatchHotkey, unregisterGlobalHotkey, unregisterScreenWatchHotkey } from './hotkey'
 import { registerIpcHandlers } from './ipc'
 import { setAccessTokenProvider, setPlanProvider } from './services/ai/identity'
@@ -23,7 +25,12 @@ import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './
 // Google's OAuth consent screen opens in the user's real default browser
 // (Electron can't embed it), then redirects to this custom scheme to hand
 // control back to the app.
-const OAUTH_PROTOCOL = 'tracely'
+//
+// PER CHANNEL, because exactly one program on Windows owns a scheme: stable
+// and preview both claiming `tracely://` meant the last one launched received
+// the other's authorization code, and had no PKCE verifier to exchange it
+// with. See shared/oauthScheme.ts.
+const OAUTH_PROTOCOL = oauthSchemeFor(isPreviewBuild())
 
 function handleOAuthUrl(url: string): void {
   if (!url.startsWith(`${OAUTH_PROTOCOL}://auth-callback`)) return
@@ -45,7 +52,7 @@ function handleOAuthUrl(url: string): void {
 }
 
 /**
- * Claims `tracely://` for THIS build, on every launch.
+ * Claims this channel's scheme for THIS build, on every launch.
  *
  * Two things were wrong here and both produced the same silent failure: Google
  * completes sign-in, redirects to `tracely://auth-callback?code=…`, Windows
