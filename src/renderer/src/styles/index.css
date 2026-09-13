@@ -425,6 +425,7 @@ input[type='range']::-webkit-slider-runnable-track {
 
 
 
+
 /* Figma anchors these by their own right edge + vertical center
    (-translate-x-full -translate-y-1/2 on a `left`/`top` coordinate), not
    by their top-left corner — using top-left like every other element here
