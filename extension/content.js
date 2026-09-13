@@ -14,7 +14,7 @@
 
    All API traffic goes through the extension's background service worker,
    which picks the engine: the local Tracely server when it's reachable
-   (all features), or direct api.anthropic.com calls when an API key is set
+   (all features), or direct api.openai.com calls when an API key is set
    on the options page (standalone — checks + web-search sources; cite-url
    and Docs write-back hide). Harness/plain test pages fetch directly.
 
@@ -93,9 +93,9 @@
   // The Faster↔Smarter slider — one control replacing the model + effort
   // dropdowns on both widget surfaces. Three stops; effort rides along.
   const SPEED_STOPS = [
-    { model: "claude-haiku-4-5", effort: "low" },
-    { model: "claude-sonnet-5", effort: "low" },
-    { model: "claude-opus-5", effort: "medium" },
+    { model: "gpt-5-nano", effort: "low" },
+    { model: "gpt-5.4", effort: "low" },
+    { model: "gpt-6-astra", effort: "medium" },
   ];
   function speedPos(model) {
     const i = SPEED_STOPS.findIndex((s) => s.model === model);
@@ -104,7 +104,7 @@
 
   /* ── plan gate ───────────────────────────────────────────────────────────
      Which stops of the Faster↔Smarter slider this account can reach: free
-     stops at Haiku, student at Sonnet, pro at Opus. The plan comes from the
+     stops at Fast, student at Balanced, pro at Thorough. The plan comes from the
      signed-in Supabase account, resolved by the SERVER (GET /api/entitlement)
      and relayed here by the background worker.
 
@@ -118,11 +118,11 @@
      Two exceptions open every stop, and neither is a loophole — in both the
      server has already decided there is no plan to apply:
      • `byoKey` — standalone mode. The call is served by the user's own
-       Anthropic API key, billed to them by Anthropic. Nothing of ours to meter.
+       OpenAI API key, billed to them by OpenAI. Nothing of ours to meter.
      • `unenforced` — the local server reported `enforced: false`: it has no
        Supabase project configured, so it clamps NOTHING. Locking the slider
-       here would show an upgrade prompt for a server that will serve Opus on
-       request — a lie in the one mode a plain `node server.js` runs in. */
+       here would show an upgrade prompt for a server that will serve the top
+       model on request — a lie in the one mode a plain `node server.js` runs in. */
   const ORDER_URL = "https://jointracely.com/order";
   const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
   let tier = { plan: "free", byoKey: false, unenforced: false };
@@ -356,7 +356,7 @@
   /* ── transport ─────────────────────────────────────────────────────────── */
 
   // Inside the real extension, ALL modes relay through the background worker,
-  // which picks the engine (local server vs standalone api.anthropic.com).
+  // which picks the engine (local server vs standalone api.openai.com).
   // The harness and plain-script test pages fetch the server directly.
   const useRelay = !harness && typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
 
@@ -564,7 +564,7 @@
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
-       the sentence checker. One Haiku call per structural change, cached
+       the sentence checker. One fast-model call per structural change, cached
        across reloads, so the whole feature costs a fraction of a cent. */
     const flowSaved = jsonParse(lsGet(FCACHE_KEY) ?? "null", null);
     let flowIssues = Array.isArray(flowSaved?.issues) ? flowSaved.issues : [];
@@ -668,7 +668,7 @@
       }
       lsSet(REG_KEY, JSON.stringify(reg));
     }
-    let settings = { model: "claude-haiku-4-5", effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = { model: SPEED_STOPS[0].model, effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -679,7 +679,7 @@
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
     let bridgeReady = false;  // Docs bridge configured server-side → in-doc edit buttons
-    let standaloneMode = false; // background worker is talking to api.anthropic.com directly
+    let standaloneMode = false; // background worker is talking to api.openai.com directly
     let docBusy = false;
     const docFixed = new Set();
     let autoSourceTimes = []; // rolling-hour guard on automatic source lookups
@@ -737,7 +737,7 @@
       } catch (err) {
         if (err?.kind === "no_key") {
           statusKind = "error";
-          statusMsg = "Add your Anthropic API key in Tracely's settings";
+          statusMsg = "Add your OpenAI API key in Tracely's settings";
         } else if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
@@ -2265,7 +2265,7 @@
     // ── widget UI ──
     const { shadow, root } = makeWidget();
     tierListeners.push(() => {
-      // On downgrade, clamp the STORED choice too — a stale opus setting must
+      // On downgrade, clamp the STORED choice too — a stale top-tier setting must
       // not sit in localStorage looking active (API calls already clamp, and
       // the server clamps again regardless of what we send).
       if (clampSettingsToPlan(settings)) lsSet(SETTINGS_KEY, JSON.stringify(settings));
@@ -2531,7 +2531,7 @@
     const cache = new Map();
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
-    let settings = { model: "claude-haiku-4-5", effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = { model: SPEED_STOPS[0].model, effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -2877,7 +2877,7 @@
       } catch (err) {
         if (err?.kind === "no_key") {
           statusKind = "error";
-          statusMsg = "Add your Anthropic API key in Tracely's settings";
+          statusMsg = "Add your OpenAI API key in Tracely's settings";
         } else if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;

@@ -1,33 +1,16 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { CheckError } from "./errors.js";
+import {
+  ALLOWED_MODELS,
+  DEFAULT_MODEL,
+  chooseModel,
+  hasApiKey,
+  structuredCall,
+  webSearchCall,
+} from "./llm.js";
 
-export class CheckError extends Error {
-  constructor(kind, message, { status = 400, retryAfter } = {}) {
-    super(message);
-    this.kind = kind;
-    this.status = status;
-    this.retryAfter = retryAfter;
-  }
-}
-
-const ALLOWED_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]);
-const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
-const DEFAULT_MODEL = "claude-haiku-4-5"; // cost mandate: cheap unless explicitly chosen
-const DEFAULT_EFFORT = "low";
-
-export function hasApiKey() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
-
-let client = null;
-let clientKey = null;
-function getClient() {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!client || clientKey !== key) {
-    client = new Anthropic({ apiKey: key, timeout: 120_000, maxRetries: 1 });
-    clientKey = key;
-  }
-  return client;
-}
+// Re-exported so every existing importer (server.js, tests) is unaffected by
+// CheckError having moved into its own module to break an import cycle.
+export { CheckError, hasApiKey };
 
 const FINDINGS_SCHEMA = {
   type: "object",
@@ -85,83 +68,46 @@ function userPrompt(text, sentences) {
   return `DOCUMENT:\n"""\n${text}\n"""\n\nSENTENCES TO EVALUATE:\n${list}\n\nReturn one finding per id.`;
 }
 
-// Server-side refusal fallbacks are recommended-by-default for claude-opus-5.
-// If the account/API rejects the parameter, we drop it once and remember.
-let fallbacksSupported = true;
-
 export async function runFactCheck({ text, sentences, model, effort, mock = false }) {
-  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
-  const chosenEffort = ALLOWED_EFFORT.has(effort) ? effort : DEFAULT_EFFORT;
-
+  const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
   // COST: never resend a whole long document as context — the sentences carry
   // their own text, and a short head (title/thesis) covers reference resolution.
   const context = text.length > 6000 ? text.slice(0, 2000) + "\n[… document trimmed for cost — judge sentences on their own text …]" : text;
-  return checkBatch({ text: context, sentences, model: chosenModel, effort: chosenEffort });
+  return checkBatch({ text: context, sentences, model: chosenModel });
 }
 
-async function checkBatch({ text, sentences, model, effort }) {
-  const anthropic = getClient();
-  // effort is rejected on claude-haiku-4-5 (400) — only opus/sonnet tiers take it
-  const outputConfig = { format: { type: "json_schema", schema: FINDINGS_SCHEMA } };
-  if (model !== "claude-haiku-4-5") outputConfig.effort = effort;
-  const params = {
-    model,
-    max_tokens: 32_000, // streaming request: room for thinking + a revision per sentence
-    system: [{ type: "text", text: systemPrompt(), cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: userPrompt(text, sentences) }],
-    output_config: outputConfig,
-  };
-
-  const useFallbacks = fallbacksSupported && model === "claude-opus-5";
-  let response;
+async function checkBatch({ text, sentences, model }) {
+  let result;
   try {
-    response = await createMessage(anthropic, params, useFallbacks);
+    result = await structuredCall({
+      model,
+      system: systemPrompt(),
+      user: userPrompt(text, sentences),
+      schema: FINDINGS_SCHEMA,
+      // Room for a revision per sentence, plus slack for long documents.
+      maxTokens: 16_000,
+      what: "fact check",
+      name: "findings",
+    });
   } catch (err) {
-    if (useFallbacks && err instanceof Anthropic.BadRequestError && /fallback/i.test(String(err.message))) {
-      fallbacksSupported = false;
-      try {
-        response = await createMessage(anthropic, params, false);
-      } catch (err2) {
-        throw mapApiError(err2);
-      }
-    } else {
-      throw mapApiError(err);
-    }
-  }
-
-  if (response.stop_reason === "refusal") {
-    throw new CheckError("refusal", "The model declined to evaluate this text.", { status: 502 });
-  }
-  if (response.stop_reason === "max_tokens") {
     // Output budget exhausted — split the batch so each retry makes progress.
-    if (sentences.length > 1) {
+    // A single sentence that still truncates has nothing left to split.
+    if (err?.kind === "truncated" && sentences.length > 1) {
       const mid = Math.ceil(sentences.length / 2);
-      const first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort });
-      const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort });
+      const first = await checkBatch({ text, sentences: sentences.slice(0, mid), model });
+      const second = await checkBatch({ text, sentences: sentences.slice(mid), model });
       return {
         findings: [...first.findings, ...second.findings],
         model: second.model,
         usage: addUsage(first.usage, second.usage),
       };
     }
-    throw new CheckError("server", "Response was truncated — try checking a smaller portion of text.", { status: 502 });
-  }
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock) {
-    throw new CheckError("server", "Model returned no text content.", { status: 502 });
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(textBlock.text);
-  } catch {
-    throw new CheckError("server", "Model returned unparseable output.", { status: 502 });
+    throw err;
   }
 
   const validIds = new Set(sentences.map((s) => s.id));
-  const findings = (Array.isArray(parsed.findings) ? parsed.findings : [])
+  const findings = (Array.isArray(result.parsed.findings) ? result.parsed.findings : [])
     .filter((f) => f && validIds.has(f.id))
     .map((f) => ({
       id: f.id,
@@ -171,26 +117,18 @@ async function checkBatch({ text, sentences, model, effort }) {
       confidence: ["high", "medium", "low"].includes(f.confidence) ? f.confidence : "medium",
     }));
 
-  return {
-    findings,
-    model: response.model,
-    usage: usageOf(response),
-  };
+  return { findings, model: result.model, usage: result.usage };
 }
 
 // ---------------------------------------------------------------------------
-// Source finding: uses Anthropic's server-side web_search tool (billed through
-// the same API key — no extra keys) to pull up candidate sources for a claim.
+// Source finding: uses OpenAI's built-in web_search tool (billed through the
+// same API key — no extra keys) to pull up candidate sources for a claim.
+// Search bills PER CALL on top of tokens, which is why this is the one path
+// with a caller-side budget (search/webBudget in server.js).
 // ---------------------------------------------------------------------------
 export async function findSources({ claim, correction, context, model, mock = false }) {
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockSources(claim, chosenModel);
-
-  const anthropic = getClient();
-  // The dynamic-filtering search variant needs Opus/Sonnet 5-tier; Haiku uses the basic one.
-  const searchTool = chosenModel === "claude-haiku-4-5"
-    ? { type: "web_search_20250305", name: "web_search", max_uses: 2 } // cost: each search bills ~1c
-    : { type: "web_search_20260209", name: "web_search", max_uses: 2 }; // cost: each search bills ~1c
 
   const sys = `You are Tracely's source finder. Given a claim from a document (and optionally a proposed correction), use web search to find authoritative sources that address it.
 
@@ -209,34 +147,15 @@ Rules:
     (context ? `\nDOCUMENT CONTEXT (excerpt):\n${context.slice(0, 3000)}\n` : "") +
     `\nFind sources, then output only the JSON object.`;
 
-  const params = {
+  // The web_search tool bills per call on top of tokens, which is why
+  // findSources is the one path with a caller-side budget (search/webBudget).
+  const { text: fullText, citations, model: usedModel, usage } = await webSearchCall({
     model: chosenModel,
-    max_tokens: 12_000,
     system: sys,
-    messages: [{ role: "user", content: userMsg }],
-    tools: [searchTool],
-    ...(chosenModel === "claude-haiku-4-5" ? {} : { output_config: { effort: "low" } }),
-  };
-
-  let response;
-  try {
-    response = await anthropic.messages.stream(params).finalMessage();
-    let guard = 0;
-    while (response.stop_reason === "pause_turn" && guard++ < 3) {
-      response = await anthropic.messages
-        .stream({ ...params, messages: [...params.messages, { role: "assistant", content: response.content }] })
-        .finalMessage();
-    }
-  } catch (err) {
-    throw mapApiError(err);
-  }
-
-  if (response.stop_reason === "refusal") {
-    throw new CheckError("refusal", "The model declined to research this claim.", { status: 502 });
-  }
-
-  const textBlocks = response.content.filter((b) => b.type === "text");
-  const fullText = textBlocks.map((b) => b.text).join("\n");
+    user: userMsg,
+    maxTokens: 6_000,
+    what: "source search",
+  });
 
   let sources = [];
   const jsonMatch = fullText.match(/\{[\s\S]*"sources"[\s\S]*\}/);
@@ -248,20 +167,15 @@ Rules:
   }
 
   // Harvest search citations as backup candidates (and to backfill a thin list).
-  const harvested = [];
-  for (const b of textBlocks) {
-    for (const c of b.citations ?? []) {
-      if (c?.url) {
-        harvested.push({
-          title: c.title || c.url,
-          url: c.url,
-          publisher: hostOf(c.url),
-          snippet: String(c.cited_text ?? "").slice(0, 220),
-          stance: "context",
-        });
-      }
-    }
-  }
+  // OpenAI hangs these off the text as url_citation annotations; they carry a
+  // title and URL but no excerpt, so the snippet stays empty here.
+  const harvested = citations.map((c) => ({
+    title: c.title || c.url,
+    url: c.url,
+    publisher: hostOf(c.url),
+    snippet: "",
+    stance: "context",
+  }));
 
   const seen = new Set();
   const merged = [];
@@ -283,7 +197,7 @@ Rules:
     throw new CheckError("server", "No usable sources came back — try again.", { status: 502 });
   }
 
-  return { sources: merged, model: response.model, usage: usageOf(response) };
+  return { sources: merged, model: usedModel, usage };
 }
 
 function hostOf(url) {
@@ -294,46 +208,8 @@ function hostOf(url) {
   }
 }
 
-function usageOf(response) {
-  const u = response.usage ?? {};
-  return {
-    input: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
-    output: u.output_tokens ?? 0,
-    cached: u.cache_read_input_tokens ?? 0,
-  };
-}
-
-async function createMessage(anthropic, params, withFallbacks) {
-  if (withFallbacks) {
-    return anthropic.beta.messages
-      .stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" })
-      .finalMessage();
-  }
-  return anthropic.messages.stream(params).finalMessage();
-}
-
 function addUsage(a, b) {
   return { input: a.input + b.input, output: a.output + b.output, cached: a.cached + b.cached };
-}
-
-function mapApiError(err) {
-  if (err instanceof Anthropic.AuthenticationError) {
-    return new CheckError("auth", "Anthropic rejected the API key. Check ANTHROPIC_API_KEY in tracely/.env", { status: 401 });
-  }
-  if (err instanceof Anthropic.RateLimitError) {
-    const retryAfter = Number(err.headers?.get?.("retry-after")) || 30;
-    return new CheckError("rate_limit", `Rate limited — retrying in ${retryAfter}s.`, { status: 429, retryAfter });
-  }
-  if (err instanceof Anthropic.APIConnectionError) {
-    return new CheckError("network", "Could not reach the Anthropic API — check your connection.", { status: 502 });
-  }
-  if (err instanceof Anthropic.APIError) {
-    if (err.status === 529) {
-      return new CheckError("overloaded", "Anthropic API is temporarily overloaded — will retry on the next cycle.", { status: 502 });
-    }
-    return new CheckError("server", `Anthropic API error (${err.status ?? "?"}): ${err.message}`, { status: 502 });
-  }
-  return new CheckError("server", `Unexpected error: ${err?.message ?? err}`, { status: 500 });
 }
 
 // ---------------------------------------------------------------------------
@@ -417,35 +293,19 @@ export async function runFlowCheck({ text, model, mock = false }) {
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockFlow(chosenModel);
 
-  const anthropic = getClient();
   // Flow is judged on structure, so the WHOLE piece goes in (clamped) — unlike
   // the sentence checker, a trimmed body would hide the very jumps we hunt.
   const body = text.length > 12_000 ? text.slice(0, 12_000) + "\n[… document truncated …]" : text;
-  const params = {
+
+  const { parsed, model: usedModel, usage } = await structuredCall({
     model: chosenModel,
-    max_tokens: 8_000,
-    system: [{ type: "text", text: flowSystemPrompt(), cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: `DOCUMENT:\n\n${body}\n\nFind the flow problems. Return an empty list if the piece already reads smoothly.` }],
-    output_config: { format: { type: "json_schema", schema: FLOW_SCHEMA } },
-  };
-
-  let response;
-  try {
-    response = await createMessage(anthropic, params, false);
-  } catch (err) {
-    throw mapApiError(err);
-  }
-  if (response.stop_reason === "refusal") {
-    throw new CheckError("refusal", "The model declined to review this document.", { status: 502 });
-  }
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  let parsed;
-  try {
-    parsed = JSON.parse(textBlock?.text ?? "{}");
-  } catch {
-    throw new CheckError("server", "Model returned unparseable output.", { status: 502 });
-  }
+    system: flowSystemPrompt(),
+    user: `DOCUMENT:\n\n${body}\n\nFind the flow problems. Return an empty list if the piece already reads smoothly.`,
+    schema: FLOW_SCHEMA,
+    maxTokens: 8_000,
+    what: "flow check",
+    name: "flow",
+  });
 
   // Only keep issues whose passage really is in the document — a paraphrased
   // anchor can't be located on the page, so it would render nothing.
@@ -460,7 +320,7 @@ export async function runFlowCheck({ text, model, mock = false }) {
     .filter((i) => i.passage.length >= 12 && hay.includes(norm(i.passage)))
     .slice(0, 3);
 
-  return { issues, model: response.model, usage: usageOf(response) };
+  return { issues, model: usedModel, usage };
 }
 
 function mockFlow(model) {

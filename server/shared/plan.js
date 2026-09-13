@@ -66,23 +66,26 @@ export function planFromMetadata(appMetadata) {
 
 // ── model tiers ────────────────────────────────────────────────────────
 // Named for what the reader gets rather than for a model, because the models
-// behind them have been renamed twice already. The ids must stay inside
-// factcheck.js's ALLOWED_MODELS or a clamp would silently fall back to the
-// default instead of to the plan's ceiling.
+// behind them have been renamed twice already — and the whole set changed
+// providers once. The ids here must be exactly lib/llm.js's MODEL_TIERS or a
+// clamp would silently fall back to the default instead of to the plan's
+// ceiling; test/models.test.js fails the build if they drift. This file stays
+// a leaf (no imports) so the browser and the tests can both load it, which is
+// why the mirror is pinned by a test rather than by an import.
 
 /** Cheapest first, like PLANS. */
 export const MODEL_TIERS = ["fast", "balanced", "thorough"];
 
 export const MODEL_FOR_TIER = {
-  fast: "claude-haiku-4-5",
-  balanced: "claude-sonnet-5",
-  thorough: "claude-opus-5",
+  fast: "gpt-5-nano",
+  balanced: "gpt-5.4",
+  thorough: "gpt-6-astra",
 };
 
 export const TIER_FOR_MODEL = {
-  "claude-haiku-4-5": "fast",
-  "claude-sonnet-5": "balanced",
-  "claude-opus-5": "thorough",
+  "gpt-5-nano": "fast",
+  "gpt-5.4": "balanced",
+  "gpt-6-astra": "thorough",
 };
 
 /** The best tier each plan may reach. Free never leaves `fast`. */

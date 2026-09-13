@@ -12,7 +12,7 @@ answers 503. That is the supported way to run Tracely locally, and it is what
 
 ## Env vars
 
-Put these in `~/tracely/.env` (same file as `ANTHROPIC_API_KEY`; the running
+Put these in `~/tracely/.env` (same file as `OPENAI_API_KEY`; the running
 server picks up changes without a restart).
 
 | Variable | Needed for | What it is |
@@ -32,9 +32,13 @@ checkout should set them.
 
 | Plan | Model ceiling | Source searches |
 | --- | --- | --- |
-| `free` | `claude-haiku-4-5` | 5 per calendar day, per account |
-| `student` | `claude-sonnet-5` | unlimited |
-| `pro` | `claude-opus-5` | unlimited |
+| `free` | `gpt-5-nano` (Fast) | 5 per calendar day, per account |
+| `student` | `gpt-5.4` (Balanced) | unlimited |
+| `pro` | `gpt-6-astra` (Thorough) | unlimited |
+
+The ids come from `lib/llm.js`'s `MODEL_TIERS` and are mirrored in
+`shared/plan.js` and three extension files; `test/models.test.js` fails the
+build if any copy drifts.
 
 `free` is the answer to every question the server cannot answer — no token, an
 expired token, Supabase unreachable, metadata holding something unexpected. It

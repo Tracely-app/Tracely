@@ -12,11 +12,14 @@ const $ = (id) => document.getElementById(id);
 
 /* ── Faster ↔ Smarter slider ↔ model mapping ─────────────────────────────── */
 
-const MODELS = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"];
+/* Mirrors lib/llm.js MODEL_TIERS and extension/background.js. The notes are
+   written around what the stop DOES rather than which model is behind it, so
+   the next model rename is one line here and no copy edits. */
+const MODELS = ["gpt-5-nano", "gpt-5.4", "gpt-6-astra"];
 const MODEL_NOTES = [
-  "Haiku — fastest and cheapest. A full essay costs well under a cent.",
-  "Sonnet — a balance of speed and rigor for everyday checking.",
-  "Opus — the sharpest judgment for subtle or high-stakes claims.",
+  "Fast — near-instant and very cheap. A full essay costs well under a cent.",
+  "Balanced — a little slower, noticeably better on subtle claims.",
+  "Thorough — the sharpest judgment, for high-stakes writing.",
 ];
 
 function paintSlider(pos) {
@@ -41,11 +44,12 @@ function paintSlider(pos) {
 
    Two flags open every stop, because in both the server has already decided
    there is no plan to apply:
-   • `byoKey` — standalone mode. The user's own Anthropic key pays Anthropic
+   • `byoKey` — standalone mode. The user's own OpenAI key pays OpenAI
      directly, so there is nothing of ours to meter.
    • `unenforced` — the local server reported `enforced: false`: no Supabase
      project is configured, so it clamps nothing. Showing an upgrade prompt
-     against a server that will serve Opus on request would be a lie. */
+     against a server that will serve the top model on request would be a
+     lie. */
 
 const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
@@ -58,11 +62,11 @@ function maxStop() {
 }
 
 function sliderHint() {
-  if (account.byoKey) return "Your own API key is paying Anthropic directly, so every stop is open.";
+  if (account.byoKey) return "Your own API key is paying OpenAI directly, so every stop is open.";
   if (account.unenforced) return "This local server has no accounts configured, so every stop is open.";
   if (maxStop() === MODELS.length - 1) return "How hard Tracely thinks. Faster is cheaper and near-instant; Smarter catches subtler problems.";
-  if (account.plan === "student") return "Student reaches Sonnet. Opus comes with Pro.";
-  return "Free runs on Faster (Haiku) — quick and accurate for everyday checking.";
+  if (account.plan === "student") return "Student reaches Balanced. Thorough comes with Pro.";
+  return "Free runs on Faster — quick and accurate for everyday checking.";
 }
 
 function applyPlanState() {

@@ -11,18 +11,18 @@ data, because we do not operate any servers.**
 
 - **The text you are checking.** When you enable Tracely on a site and it
   checks your writing, the relevant text is sent to exactly one of:
-  - **Anthropic** (api.anthropic.com), using **your own API key**, when you
-    run the extension standalone. Anthropic's handling of that data is
-    governed by their privacy policy (https://www.anthropic.com/privacy).
+  - **OpenAI** (api.openai.com), using **your own API key**, when you
+    run the extension standalone. OpenAI's handling of that data is
+    governed by their privacy policy (https://openai.com/policies/privacy-policy).
   - **Your own computer** (a local companion app at localhost:4477), if you
     run it. That data never leaves your machine except for the companion
-    app's own calls to Anthropic with your key.
+    app's own calls to OpenAI with your key.
 - **Source lookups.** Claim text may be sent as search queries to free
   scholarly indexes (OpenAlex, Crossref) to suggest citable sources.
 
 ## What is stored, and where
 
-- Your Anthropic API key, model preference, and the list of sites you have
+- Your OpenAI API key, model preference, and the list of sites you have
   enabled are stored in Chrome's extension storage **on your device only**.
 - Nothing is synced to us. There is no "us" server.
 

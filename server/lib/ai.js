@@ -1,30 +1,27 @@
 /**
  * AI pipeline calls — claim detection, critique, grading, structure, tracer.
- * Follows the house pattern in lib/factcheck.js: official @anthropic-ai/sdk,
- * cached client keyed on the env var, model allowlist, structured outputs via
- * output_config.format, streaming via .stream().finalMessage(), refusal and
- * max_tokens handled, errors mapped to CheckError, system prompts cached with
- * cache_control ephemeral. No temperature/top_p (rejected on opus-5).
+ * Every one of these funnels through lib/llm.js, the single place Tracely
+ * talks to OpenAI: model allowlist, strict JSON schemas, refusal/truncation
+ * handling and error mapping all live there, so this file is prompts + shape
+ * validation and nothing else.
  *
  * Exports (all async, all throw CheckError on failure):
  *   detectClaims({ text, model, effort })            → { claims: [{ text, sentence, start, end, claimType, confidence, query }], model, usage }
  *   critiqueClaim({ claim, sentence, citedRef, sources, model }) → { verdict, explanation, revision, overstated, confidence, model, usage }
  *   gradeDraft({ text, level, model })               → { components, model, usage } (counterargument may carry absent:true)
- *   gradeWithCustomRubric({ text, rubric, level, model }) → { components: [{title, points, score, quote, note}], custom: true, model, usage }
+ *   gradeWithCustomRubric({ text, rubric, level, model }) → { components, custom, model, usage }
  *   classifyStructure({ text, model })               → { paragraphs: [{ index, role, faults }], model, usage }
  *   tracerReply({ messages, draft, model })          → { reply, model, usage }
  *
  * MOCK MODE (TRACELY_MOCK=1): every function returns deterministic canned
  * output with no API calls, mirroring factcheck.js.
  */
-import Anthropic from "@anthropic-ai/sdk";
-import { CheckError } from "./factcheck.js";
+import { CheckError } from "./errors.js";
+import { ALLOWED_MODELS, DEFAULT_MODEL, structuredCall as llmCall, textCall } from "./llm.js";
 import { GUARDS } from "../shared/guards.js";
 import { MAX_CUSTOM_COMPONENTS, normalizeCustomComponents, RUBRIC } from "../shared/rubric.js";
 
-const ALLOWED_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]);
 const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
-const DEFAULT_MODEL = "claude-opus-5";
 const DEFAULT_EFFORT = "low";
 
 const CLAIM_TYPES = ["factual", "statistic", "causal", "opinion", "prediction"];
@@ -35,115 +32,21 @@ const MIN_CLAIM_CONFIDENCE = 0.35;
 const isMock = () => process.env.TRACELY_MOCK === "1";
 const chooseModel = (model) => (ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL);
 const chooseEffort = (effort) => (ALLOWED_EFFORT.has(effort) ? effort : DEFAULT_EFFORT);
-// output_config.effort is only valid on Opus/Sonnet-tier models; Haiku 4.5
-// rejects it with a 400, so we must omit it there.
-const supportsEffort = (model) => model !== "claude-haiku-4-5";
 const zeroUsage = () => ({ input: 0, output: 0, cached: 0 });
 
-// ── client + call plumbing (private copies — factcheck.js does not export these) ──
-let client = null;
-let clientKey = null;
-function getClient() {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!client || clientKey !== key) {
-    client = new Anthropic({ apiKey: key, timeout: 120_000, maxRetries: 1 });
-    clientKey = key;
-  }
-  return client;
-}
-
-function usageOf(response) {
-  const u = response.usage ?? {};
-  return {
-    input: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
-    output: u.output_tokens ?? 0,
-    cached: u.cache_read_input_tokens ?? 0,
-  };
-}
-
-function mapApiError(err) {
-  if (err instanceof CheckError) return err;
-  if (err instanceof Anthropic.AuthenticationError) {
-    return new CheckError("auth", "Anthropic rejected the API key. Check ANTHROPIC_API_KEY in tracely/.env", { status: 401 });
-  }
-  if (err instanceof Anthropic.RateLimitError) {
-    const retryAfter = Number(err.headers?.get?.("retry-after")) || 30;
-    return new CheckError("rate_limit", `Rate limited — retrying in ${retryAfter}s.`, { status: 429, retryAfter });
-  }
-  if (err instanceof Anthropic.APIConnectionError) {
-    return new CheckError("network", "Could not reach the Anthropic API — check your connection.", { status: 502 });
-  }
-  if (err instanceof Anthropic.APIError) {
-    if (err.status === 529) {
-      return new CheckError("overloaded", "Anthropic API is temporarily overloaded — will retry on the next cycle.", { status: 502 });
-    }
-    return new CheckError("server", `Anthropic API error (${err.status ?? "?"}): ${err.message}`, { status: 502 });
-  }
-  return new CheckError("server", `Unexpected error: ${err?.message ?? err}`, { status: 500 });
-}
-
-// Server-side refusal fallbacks are recommended-by-default for claude-opus-5.
-// If the account/API rejects the parameter, we drop it once and remember.
-let fallbacksSupported = true;
-
-async function streamMessage(params) {
-  const anthropic = getClient();
-  const useFallbacks = fallbacksSupported && params.model === "claude-opus-5";
-  try {
-    return await createMessage(anthropic, params, useFallbacks);
-  } catch (err) {
-    if (useFallbacks && err instanceof Anthropic.BadRequestError && /fallback/i.test(String(err.message))) {
-      fallbacksSupported = false;
-      try {
-        return await createMessage(anthropic, params, false);
-      } catch (err2) {
-        throw mapApiError(err2);
-      }
-    }
-    throw mapApiError(err);
-  }
-}
-
-async function createMessage(anthropic, params, withFallbacks) {
-  if (withFallbacks) {
-    return anthropic.beta.messages
-      .stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" })
-      .finalMessage();
-  }
-  return anthropic.messages.stream(params).finalMessage();
-}
-
-/** Run a structured-output call and return the parsed JSON payload. */
+/* Same signature the five callers below already use; `what` doubles as the
+ * json_schema name, which OpenAI requires to match /^[a-zA-Z0-9_-]+$/. */
 async function structuredCall({ model, effort, maxTokens, system, user, schema, what }) {
-  const response = await streamMessage({
+  return llmCall({
     model,
-    max_tokens: maxTokens,
-    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: user }],
-    output_config: {
-      ...(supportsEffort(model) ? { effort } : {}),
-      format: { type: "json_schema", schema },
-    },
+    effort,
+    maxTokens,
+    system,
+    user,
+    schema,
+    what,
+    name: what.replace(/[^a-zA-Z0-9_-]+/g, "_"),
   });
-
-  if (response.stop_reason === "refusal") {
-    throw new CheckError("refusal", `The model declined the ${what} request.`, { status: 502 });
-  }
-  if (response.stop_reason === "max_tokens") {
-    throw new CheckError("server", `The ${what} response was truncated — try a smaller portion of text.`, { status: 502 });
-  }
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock) {
-    throw new CheckError("server", `Model returned no text content for ${what}.`, { status: 502 });
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(textBlock.text);
-  } catch {
-    throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
-  }
-  return { parsed, model: response.model, usage: usageOf(response) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -659,39 +562,29 @@ export async function tracerReply({ messages, draft, model } = {}) {
   const draftText = typeof draft === "string" ? draft.slice(0, GUARDS.maxInputChars) : "";
   if (isMock()) return mockTracer({ history, draft: draftText, model: chosenModel });
 
-  const system = [
-    { type: "text", text: tracerSystemPrompt(), cache_control: { type: "ephemeral" } },
-  ];
-  if (draftText.trim()) {
-    // Own cache breakpoint: an unchanged draft is a prefix cache hit on every
-    // later turn of the conversation — only the message history re-bills.
-    system.push({ type: "text", text: `The student's current draft:\n"""\n${draftText}\n"""`, cache_control: { type: "ephemeral" } });
-  } else {
-    system.push({ type: "text", text: "The student has not shared a draft yet." });
-  }
+  // The draft rides in the instructions rather than the history so that an
+  // unchanged draft stays a stable prefix across turns — the same reason it
+  // used to carry its own cache breakpoint.
+  const system = draftText.trim()
+    ? `${tracerSystemPrompt()}\n\nThe student's current draft:\n"""\n${draftText}\n"""`
+    : `${tracerSystemPrompt()}\n\nThe student has not shared a draft yet.`;
 
-  const response = await streamMessage({
+  const { text: reply, model: usedModel, usage } = await textCall({
     model: chosenModel,
-    max_tokens: 8_000,
     system,
     messages: history,
-    ...(supportsEffort(chosenModel) ? { output_config: { effort: DEFAULT_EFFORT } } : {}),
+    maxTokens: 8_000,
+    what: "tracer reply",
+    effort: DEFAULT_EFFORT,
   });
 
-  if (response.stop_reason === "refusal") {
-    throw new CheckError("refusal", "The model declined to reply.", { status: 502 });
-  }
-  const reply = response.content
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
   if (!reply) {
-    // max_tokens with nothing but thinking, or an empty turn — either way there is no reply to store.
+    // An empty turn, or output budget spent entirely on reasoning — either way
+    // there is no reply to store.
     throw new CheckError("server", "The model returned an empty reply — try again.", { status: 502 });
   }
 
-  return { reply: reply.slice(0, 4000), model: response.model, usage: usageOf(response) };
+  return { reply: reply.slice(0, 4000), model: usedModel, usage };
 }
 
 // ── small shared helpers ───────────────────────────────────────────────

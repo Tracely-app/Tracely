@@ -4,9 +4,9 @@
    • SERVER mode — the local Tracely server (localhost:4477) is reachable:
      relay every API call to it exactly as before. The server keeps ALL
      features: web-search sources, URL citing, the Docs write-back bridge.
-   • STANDALONE mode — no server, but an Anthropic API key is configured on
+   • STANDALONE mode — no server, but an OpenAI API key is configured on
      the options page (chrome.storage.local): serve the core flows directly
-     from this worker with raw fetches to api.anthropic.com. Checks and
+     from this worker with raw fetches to api.openai.com. Checks and
      web-search source lookups work; cite-url and the Docs bridge do not
      (the widget hides them).
 
@@ -16,8 +16,8 @@
    can ask { type: "tracely-getState" } to learn the current mode.
 
    The relay is not an open proxy: it only talks to the local Tracely server
-   or api.anthropic.com, and only on the endpoints listed below. The API key
-   is read from chrome.storage.local and sent ONLY to api.anthropic.com.
+   or api.openai.com, and only on the endpoints listed below. The API key
+   is read from chrome.storage.local and sent ONLY to api.openai.com.
 
    Accounts: an optional Supabase sign-in (options page) puts an access token
    in chrome.storage.local, which rides along as an Authorization header on
@@ -48,9 +48,14 @@ const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/sourc
 const PROBE_INTERVAL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1500;
 
-const ALLOWED_MODELS = new Set(["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]);
+/* A hand copy of lib/llm.js's MODEL_TIERS. An MV3 worker cannot import from
+   the server tree, and the extension ships without a build step, so this is
+   the one unavoidable duplicate of those ids — test/models.test.js fails if
+   it stops matching. */
+const FAST_MODEL = "gpt-5-nano";
+const ALLOWED_MODELS = new Set([FAST_MODEL, "gpt-5.4", "gpt-6-astra"]);
 const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
-const DEFAULT_MODEL = "claude-haiku-4-5"; // cost mandate: cheap unless explicitly chosen
+const DEFAULT_MODEL = FAST_MODEL; // cost mandate: cheap unless explicitly chosen
 const VERDICTS = ["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"];
 
 /* ── server probe ────────────────────────────────────────────────────────── */
@@ -329,7 +334,7 @@ async function relay(path, body, { token = "", retried = false } = {}) {
   return { ok: true, data };
 }
 
-/* ── standalone engine: raw calls to api.anthropic.com ───────────────────── */
+/* ── standalone engine: raw calls to api.openai.com ──────────────────────── */
 
 function apiErr(kind, message) {
   const e = new Error(message);
@@ -337,30 +342,61 @@ function apiErr(kind, message) {
   return e;
 }
 
-async function anthropicFetch(apiKey, payload) {
+async function openaiFetch(apiKey, payload) {
   let res;
   try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
+    res = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(payload),
     });
   } catch {
-    throw apiErr("network", "Could not reach the Anthropic API — check your connection.");
+    throw apiErr("network", "Could not reach OpenAI — check your connection.");
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 401) throw apiErr("auth", "Anthropic rejected the API key — check it in Tracely options");
-    if (res.status === 429) throw apiErr("rate_limit", "Rate limited — try again in a minute");
-    if (res.status === 529) throw apiErr("overloaded", "Anthropic API is temporarily overloaded — try again shortly");
-    throw apiErr("server", data?.error?.message ?? `Anthropic error ${res.status}`);
+    if (res.status === 401) throw apiErr("auth", "OpenAI rejected the API key — check it in Tracely options");
+    if (res.status === 429) throw apiErr("rate_limit", "Rate limited or out of quota — try again in a minute");
+    if (res.status >= 500) throw apiErr("overloaded", "OpenAI had a server error — try again shortly");
+    throw apiErr("server", data?.error?.message ?? `OpenAI error ${res.status}`);
   }
   return data;
+}
+
+/* The Responses API returns a typed output array rather than a content list.
+   These three walk it the same way lib/llm.js does on the server. */
+function outputText(data) {
+  if (typeof data.output_text === "string" && data.output_text) return data.output_text;
+  let text = "";
+  for (const item of data.output ?? []) {
+    for (const part of item.content ?? []) {
+      if (part.type === "refusal") throw apiErr("refusal", "The model declined this request.");
+      if (part.type === "output_text" && typeof part.text === "string") text += part.text;
+    }
+  }
+  return text;
+}
+
+function outputCitations(data) {
+  const out = [];
+  for (const item of data.output ?? []) {
+    for (const part of item.content ?? []) {
+      for (const a of part.annotations ?? []) {
+        if (a?.type === "url_citation" && a.url) out.push({ url: a.url, title: a.title ?? "" });
+      }
+    }
+  }
+  return out;
+}
+
+const wasTruncated = (data) =>
+  data?.status === "incomplete" && data?.incomplete_details?.reason === "max_output_tokens";
+
+/* Reasoning effort is what the paid tier buys. gpt-5-nano is the free tier's
+   model and takes it too, but a model that rejects the parameter answers 400,
+   so it is only ever sent when the caller asked for a level above the floor. */
+function jsonFormat(name, schema) {
+  return { format: { type: "json_schema", name, schema, strict: true } };
 }
 
 function pickModel(bodyModel, cfgModel) {
@@ -440,22 +476,18 @@ async function standaloneCheck(body, cfg) {
 }
 
 async function checkBatch({ text, sentences, model, effort, apiKey }) {
-  // effort is rejected on claude-haiku-4-5 (400) — only opus/sonnet tiers take it
-  const outputConfig = { format: { type: "json_schema", schema: FINDINGS_SCHEMA } };
-  if (model !== "claude-haiku-4-5") outputConfig.effort = effort;
-
-  const response = await anthropicFetch(apiKey, {
+  const payload = {
     model,
-    max_tokens: 8000, // non-streaming fetch is fine at this size
-    system: [{ type: "text", text: checkSystemPrompt(), cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: checkUserPrompt(text, sentences) }],
-    output_config: outputConfig,
-  });
+    instructions: checkSystemPrompt(),
+    input: checkUserPrompt(text, sentences),
+    max_output_tokens: 16_000,
+    text: jsonFormat("findings", FINDINGS_SCHEMA),
+  };
+  if (effort && effort !== "low") payload.reasoning = { effort };
 
-  if (response.stop_reason === "refusal") {
-    throw apiErr("refusal", "The model declined to evaluate this text.");
-  }
-  if (response.stop_reason === "max_tokens") {
+  const response = await openaiFetch(apiKey, payload);
+
+  if (wasTruncated(response)) {
     // Output budget exhausted — split the batch so each retry makes progress.
     if (sentences.length > 1) {
       const mid = Math.ceil(sentences.length / 2);
@@ -466,11 +498,11 @@ async function checkBatch({ text, sentences, model, effort, apiKey }) {
     throw apiErr("server", "Response was truncated — try checking a smaller portion of text.");
   }
 
-  const textBlock = (response.content ?? []).find((b) => b.type === "text");
-  if (!textBlock) throw apiErr("server", "Model returned no text content.");
+  const raw = outputText(response);
+  if (!raw) throw apiErr("server", "Model returned no text content.");
   let parsed;
   try {
-    parsed = JSON.parse(textBlock.text);
+    parsed = JSON.parse(raw);
   } catch {
     throw apiErr("server", "Model returned unparseable output.");
   }
@@ -536,19 +568,17 @@ async function standaloneFlow(body, cfg) {
   if (!text.trim()) throw apiErr("bad_request", "No text to review.");
   const doc = text.length > 12_000 ? text.slice(0, 12_000) + "\n[… document truncated …]" : text;
 
-  const response = await anthropicFetch(cfg.apiKey, {
+  const response = await openaiFetch(cfg.apiKey, {
     model,
-    max_tokens: 8_000,
-    system: [{ type: "text", text: FLOW_SYSTEM, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: `DOCUMENT:\n\n${doc}\n\nFind the flow problems. Return an empty list if the piece already reads smoothly.` }],
-    output_config: { format: { type: "json_schema", schema: FLOW_SCHEMA } },
+    instructions: FLOW_SYSTEM,
+    input: `DOCUMENT:\n\n${doc}\n\nFind the flow problems. Return an empty list if the piece already reads smoothly.`,
+    max_output_tokens: 8_000,
+    text: jsonFormat("flow", FLOW_SCHEMA),
   });
 
-  if (response.stop_reason === "refusal") throw apiErr("refusal", "The model declined to review this document.");
-  const textBlock = (response.content ?? []).find((b) => b.type === "text");
   let parsed = {};
   try {
-    parsed = JSON.parse(textBlock?.text ?? "{}");
+    parsed = JSON.parse(outputText(response) || "{}");
   } catch {
     throw apiErr("server", "Model returned unparseable output.");
   }
@@ -592,41 +622,24 @@ async function standaloneSources(body, cfg) {
   const correction = body?.correction ? String(body.correction).slice(0, 2000) : "";
   const context = body?.context ? String(body.context).slice(0, 6000) : "";
 
-  // The dynamic-filtering search variant needs Opus/Sonnet 5-tier; Haiku uses the basic one.
-  const searchTool = model === "claude-haiku-4-5"
-    ? { type: "web_search_20250305", name: "web_search", max_uses: 2 }
-    : { type: "web_search_20260209", name: "web_search", max_uses: 2 };
-
   const userMsg =
     `CLAIM:\n${claim}\n` +
     (correction ? `\nPROPOSED CORRECTION:\n${correction}\n` : "") +
     (context ? `\nDOCUMENT CONTEXT (excerpt):\n${context.slice(0, 3000)}\n` : "") +
     `\nFind sources, then output only the JSON object.`;
 
-  const params = {
+  // OpenAI runs the search server-side and returns one finished response, so
+  // there is no pause/resume turn to drive here — the whole loop the previous
+  // provider needed is gone.
+  const response = await openaiFetch(cfg.apiKey, {
     model,
-    max_tokens: 12_000,
-    system: SOURCES_SYSTEM,
-    messages: [{ role: "user", content: userMsg }],
-    tools: [searchTool],
-    ...(model === "claude-haiku-4-5" ? {} : { output_config: { effort: "low" } }),
-  };
+    instructions: SOURCES_SYSTEM,
+    input: userMsg,
+    max_output_tokens: 6_000,
+    tools: [{ type: "web_search" }],
+  });
 
-  let response = await anthropicFetch(cfg.apiKey, params);
-  let guard = 0;
-  while (response.stop_reason === "pause_turn" && guard++ < 3) {
-    response = await anthropicFetch(cfg.apiKey, {
-      ...params,
-      messages: [...params.messages, { role: "assistant", content: response.content }],
-    });
-  }
-
-  if (response.stop_reason === "refusal") {
-    throw apiErr("refusal", "The model declined to research this claim.");
-  }
-
-  const textBlocks = (response.content ?? []).filter((b) => b.type === "text");
-  const fullText = textBlocks.map((b) => b.text).join("\n");
+  const fullText = outputText(response);
 
   let sources = [];
   const jsonMatch = fullText.match(/\{[\s\S]*"sources"[\s\S]*\}/);
@@ -637,21 +650,16 @@ async function standaloneSources(body, cfg) {
     } catch { /* fall through to citation harvest */ }
   }
 
-  // Harvest search citations as backup candidates (and to backfill a thin list).
-  const harvested = [];
-  for (const b of textBlocks) {
-    for (const c of b.citations ?? []) {
-      if (c?.url) {
-        harvested.push({
-          title: c.title || c.url,
-          url: c.url,
-          publisher: hostOf(c.url),
-          snippet: String(c.cited_text ?? "").slice(0, 220),
-          stance: "context",
-        });
-      }
-    }
-  }
+  // Harvest search citations as backup candidates (and to backfill a thin
+  // list). OpenAI hangs these off the text as url_citation annotations, which
+  // carry a title and URL but no excerpt.
+  const harvested = outputCitations(response).map((c) => ({
+    title: c.title || c.url,
+    url: c.url,
+    publisher: hostOf(c.url),
+    snippet: "",
+    stance: "context",
+  }));
 
   const seen = new Set();
   const merged = [];
@@ -714,12 +722,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
      the UIs open every model stop on either:
 
      • `byoKey` — standalone mode. The call is served by the user's own
-       Anthropic key and billed to them by Anthropic, so there is nothing of
-       ours to meter and no sign-in to require.
+       OpenAI key and billed to them by OpenAI, so there is nothing of ours
+       to meter and no sign-in to require.
      • `unenforced` — the local server reported `enforced: false`, meaning it
        has no Supabase project configured and clamps nothing. Locking the
        picker there would show an upgrade prompt for a server that will serve
-       Opus on request. That is the mode a plain `node server.js` with the
+       the top model on request. That is the mode a plain `node server.js` with the
        stock .env runs in.
 
      Both default to false on any non-answer, so an unreachable worker or a
