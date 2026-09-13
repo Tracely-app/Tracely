@@ -27,15 +27,51 @@
   if (window.__tracelyDocsHook) return;
   window.__tracelyDocsHook = true;
 
-  // Ask Docs to render its SVG annotation layer (the extension-compat layer
-  // added when Docs went canvas). kix only renders it when this global names
-  // an extension on Google's whitelist — the community-standard workaround
-  // (shipped by open-source extensions, see rikaikun PR #865) is to name a
-  // whitelisted one. This must run before kix bootstraps, which is exactly
-  // when this file runs (MAIN world, document_start). Long-term correct path:
-  // Google's whitelist request form for Tracely's own id.
+  /* Ask Docs to render its SVG annotation layer — the extension-compat layer
+     Google added when Docs moved to canvas. Must be set before kix bootstraps,
+     which is why this file is MAIN world / document_start.
+
+     THERE IS NO ALLOWLIST. This line used to carry Grammarly's extension id
+     (kbfnbcaeplbcioakkpcpgfkobkghlhen) on the widely-repeated belief that kix
+     checks the value against a list of approved extensions. That was true once
+     and is not true now. Read out of the live production bundle on 2026-09-13
+     (docs.client_js_prod.en.p7BVCzq-328, kix_core, sha256 9fcecfd3…84a3bb,
+     confirmed by three independent fetches):
+
+       rQf=function(a,c){return a?!1:c.Pa("kix-ealct")||sQf()!=""};
+       sQf=function(){return _.Fl._docs_annotate_canvas_by_ext||""};
+
+     The gate is a string-emptiness test. `_docs_annotate_canvas_by_ext` occurs
+     exactly once across kix_core/kix_app/kix_tertiary/kix_docos, and Grammarly's
+     id appears ZERO times in ~36MB of Docs client JS. The ~121-id array that was
+     dumped out of the bundle in December 2022 has been removed. Verified live in
+     a browser: the layer renders for a random unpublished id, and for the literal
+     string "totally-not-a-real-extension-id".
+
+     So the value buys nothing beyond being non-empty — but it is NOT inert, and
+     that is the reason this must be ours. Immediately after the gate passes kix
+     does:
+
+       this.VDa&&(r=sQf(),this.gb.jq("kixAnnotatedCanvasRequester",r),vMc(this.Vb,r))
+
+     — writing the string into the Docs error reporter's context map AND into a
+     client telemetry proto (field 172). Shipping Grammarly's id would file every
+     Docs error a Tracely install provokes under Grammarly's name in Google's own
+     telemetry. That is a misattribution we'd be authoring, quite apart from the
+     Chrome Web Store's "impersonates another entity" line.
+
+     Set this to Tracely's Web Store id once one is assigned — an id is what the
+     field means, and it is what every comparable extension (LanguageTool,
+     QuillBot, Wordtune, Ginger, ProWritingAid) sends. Until then a name that is
+     unambiguously ours is the honest value. test/models.test.js fails the build
+     if this ever becomes a third party's id again.
+
+     If Google restores a real allowlist, this simply stops rendering and
+     content.js falls through to the canvas-ledger path — see svgLocate() → null
+     in content.js. That fallback is why this was never worth impersonating for. */
+  const ANNOTATION_REQUESTER = "tracely";
   try {
-    window._docs_annotate_canvas_by_ext = "kbfnbcaeplbcioakkpcpgfkobkghlhen";
+    window._docs_annotate_canvas_by_ext = ANNOTATION_REQUESTER;
   } catch { /* never interfere */ }
 
   const MAX_ENTRIES_PER_CANVAS = 4000;

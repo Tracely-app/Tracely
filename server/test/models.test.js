@@ -101,3 +101,55 @@ test("the slider ladder and the plan ceilings are the same length", () => {
   const maxStop = Math.max(...[...stops[0][1].matchAll(/:\s*(\d+)/g)].map((m) => Number(m[1])));
   assert.equal(maxStop, ORDERED.length - 1);
 });
+
+/* ── the Docs annotation requester ────────────────────────────────────────
+ * extension/docs-hook.js sets window._docs_annotate_canvas_by_ext, which
+ * Google Docs gates its SVG annotation layer on. The value is NOT validated
+ * against any allowlist (verified against the live kix bundle, 2026-09-13 —
+ * the gate is `sQf() != ""`), but it IS reported to Google: kix writes it into
+ * the Docs error reporter's context under "kixAnnotatedCanvasRequester" and
+ * into a client telemetry proto.
+ *
+ * So a third party's id here is not a clever unlock, it is a misattribution —
+ * every Docs error a Tracely install provokes would be filed under that
+ * vendor's name. This file shipped Grammarly's id for months on the mistaken
+ * belief that an allowlist existed. These tests make putting one back a build
+ * failure rather than a plausible-looking line nobody re-examines.
+ */
+const FOREIGN_IDS = {
+  kbfnbcaeplbcioakkpcpgfkobkghlhen: "Grammarly",
+  hokifickgkhplphjiodbggjmoafhignh: "Microsoft Editor",
+  ghbmnnjooekpmoecnnnilnnbdlolhkhi: "Google Docs Offline",
+  gmbmikajjgmnabiglmofipeabaddhgne: "Google Translate",
+};
+
+test("the Docs annotation requester is set, and is not empty", () => {
+  const src = read("docs-hook.js");
+  const m = src.match(/const ANNOTATION_REQUESTER = "([^"]*)"/);
+  assert.ok(m, "ANNOTATION_REQUESTER not found in docs-hook.js");
+  assert.notEqual(m[1], "", "an empty string disables the annotation layer — the gate is a string-emptiness test");
+});
+
+test("the Docs annotation requester is not another vendor's extension id", () => {
+  const src = read("docs-hook.js");
+  for (const [id, owner] of Object.entries(FOREIGN_IDS)) {
+    // Allowed in the explanatory comment; never as the assigned value.
+    const assigned = new RegExp(`_docs_annotate_canvas_by_ext\\s*=\\s*["']${id}["']`);
+    assert.ok(!assigned.test(src), `docs-hook.js assigns ${owner}'s extension id to _docs_annotate_canvas_by_ext`);
+    const constant = new RegExp(`const ANNOTATION_REQUESTER = ["']${id}["']`);
+    assert.ok(!constant.test(src), `ANNOTATION_REQUESTER is ${owner}'s extension id`);
+  }
+});
+
+test("the Docs hook is scoped to documents, not to all of /document/*", () => {
+  // /document/* also matches the docs LIST page, where the flag can do nothing
+  // and only widens the surface we touch.
+  const manifest = JSON.parse(read("manifest.json"));
+  const hook = manifest.content_scripts.find((c) => (c.js ?? []).includes("docs-hook.js"));
+  assert.ok(hook, "docs-hook.js is not registered as a content script");
+  assert.deepEqual(hook.matches, ["https://docs.google.com/document/d/*"]);
+  // It must still run before kix bootstraps, in the page world, or the global
+  // is set too late to be read.
+  assert.equal(hook.world, "MAIN");
+  assert.equal(hook.run_at, "document_start");
+});
