@@ -90,19 +90,10 @@ export const tracelyApi = {
   onScreenWatchStatus: (cb: Parameters<typeof window.tracely.onScreenWatchStatus>[0]) =>
     window.tracely.onScreenWatchStatus(cb),
 
+  /** Whether an (anonymous) session exists at all — there is no sign-in. */
   getAuthUser: () => call(window.tracely.auth.getUser()),
-  signUp: (email: string, password: string, firstName: string) =>
-    call(window.tracely.auth.signUp({ email, password, firstName })),
-  signIn: (email: string, password: string) => call(window.tracely.auth.signIn({ email, password })),
-  signOut: () => call(window.tracely.auth.signOut()),
-  signInWithGoogle: () => call(window.tracely.auth.signInWithGoogle()),
-  updateAuthName: (firstName: string) => call(window.tracely.auth.updateName({ firstName })),
-  updateAuthUsername: (username: string) => call(window.tracely.auth.updateUsername({ username })),
-  deleteAuthAccount: () => call(window.tracely.auth.deleteAccount()),
-  /** The signed-in account's plan — see lib/plan.tsx, which is what reads it. */
+  /** The account's plan — see lib/plan.tsx, which is what reads it. */
   getPlan: () => call(window.tracely.auth.getPlan()),
   onAuthStateChanged: (cb: Parameters<typeof window.tracely.onAuthStateChanged>[0]) =>
-    window.tracely.onAuthStateChanged(cb),
-  onAuthOAuthError: (cb: Parameters<typeof window.tracely.onAuthOAuthError>[0]) =>
-    window.tracely.onAuthOAuthError(cb)
+    window.tracely.onAuthStateChanged(cb)
 }

@@ -31,15 +31,19 @@ import type {
 // useless for spotting a change you actually made.
 export const T0 = '2026-03-14T16:20:00.000Z'
 
+// The anonymous session the app creates for itself, which is the only
+// identity there is — no sign-in, so no email, no name, no username. Kept as
+// a fixture rather than inlined because `configured`/`getUser` still answer
+// with it and the harness logs those calls.
 export const user: AuthUser = {
   id: 'u_preview',
-  email: 'merrick@example.edu',
-  firstName: 'Merrick',
-  username: 'merrick'
+  email: null,
+  firstName: null,
+  username: null
 }
 
-// Local display profile — deliberately separate from `user` above, which is
-// the server-verified Supabase identity.
+// Local display profile. It is where a name actually lives now — `user` above
+// is the anonymous Supabase identity and carries none.
 export const profile: ProfileInfo = {
   firstName: 'Merrick',
   lastName: 'Han',

@@ -86,8 +86,7 @@ function openedLabel(iso: string, now: Date): string {
 export default function HomeView({
   onNavigate,
   onNewDocument,
-  onOpenDocument,
-  firstName
+  onOpenDocument
 }: {
   onNavigate: (tab: Tab) => void
   onNewDocument: () => void
@@ -101,7 +100,6 @@ export default function HomeView({
    * the control that means "show me the list".
    */
   onOpenDocument: (id: string) => void
-  firstName: string | null
 }): JSX.Element {
   const gradingLevel = useGradeLevel()
   const [screenWatch, setScreenWatch] = useState<ScreenWatchStatus | null>(null)
@@ -171,21 +169,24 @@ export default function HomeView({
             hotkey. Two X's a few pixels apart, doing one thing, is the reason
             the app's own window controls were deleted in the first place.
           */}
-          <h1 className="home-greeting">
-            {greetingFor(now.getHours())}
-            {/* The FIRST word only. `firstName` holds whatever was typed at
-                sign-up, which is routinely a full name — the greeting rendered
-                "Good afternoon, Merrick Han!" where the design greets you by
-                first name alone. */}
-            {firstName ? `, ${firstName.trim().split(/\s+/)[0]}` : ''}!
-          </h1>
+          {/* Unnamed, because nothing knows the name any more. It came from
+              the sign-up form, and there is no sign-up. This already rendered
+              as a bare "Good afternoon!" for any account that reached the app
+              without one, so the greeting loses a comma rather than a
+              branch. */}
+          <h1 className="home-greeting">{greetingFor(now.getHours())}!</h1>
         </header>
 
         <div className="home-statusrow">
           <p className={`home-status${screenWatch?.enabled ? ' on' : ''}`}>
             <span className="home-status-dot" aria-hidden="true" />
+            {/* `authRequired` is a 401 from the relay. It used to mean "you
+                are signed out" and said so; nobody signs in now, so when it
+                fires the account the app holds for itself could not be
+                established or refreshed — which is not something the reader
+                can act on by signing in, and must not tell them to. */}
             {screenWatch?.authRequired
-              ? 'Sign in to continue.'
+              ? 'Tracely cannot reach its account service. Checks are paused.'
               : screenWatch?.enabled
                 ? 'Tracely is running and ready.'
                 : 'Tracely is off.'}

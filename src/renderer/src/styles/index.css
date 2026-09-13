@@ -407,190 +407,9 @@ input[type='range']::-webkit-slider-runnable-track {
    centre when the window became freely resizable. The new Home is flow and
    grid, so that exception went with it. See views/HomeView.tsx. */
 
-.login-canvas {
-  display: flex;
-  /* `safe` matters. With plain `center`, an overflowing flex item is clipped at
-     BOTH ends and the top of the card becomes permanently unreachable — which
-     the Create Account form plus an error banner is tall enough to trigger.
-     `safe center` falls back to start-alignment once it would overflow, so the
-     scroll below can actually reach it. */
-  align-items: safe center;
-  justify-content: center;
-  overflow-y: auto;
-  padding: 16px 0;
-  /* `.home-canvas` is the window's drag handle, and Chromium blocks wheel
-     scroll inside a drag region — so without this the overflow above would be
-     unscrollable, exactly as it was on the Analyze card. */
-  -webkit-app-region: no-drag;
-}
-
-/* This screen is deliberately light-only: it paints its own white card with
-   hardcoded black type, before any theme is meaningful. Two elements leaked
-   theme variables into it — `.login-message` uses `.muted` and `.login-google`
-   is a `.btn-secondary` — and in dark mode became near-white text on that white
-   card. Pinned unconditionally rather than under a dark selector, because dark
-   is reachable two ways (an explicit `data-theme` and the system
-   `prefers-color-scheme` fallback) and a rule that only covers one of them is a
-   bug waiting to be re-reported. */
-.login-canvas .login-message.muted,
-.login-canvas .login-message {
-  color: rgba(0, 0, 0, 0.62);
-}
-
-.login-canvas .login-google.btn {
-  background: #fff;
-  color: #000;
-  border-color: rgba(0, 0, 0, 0.18);
-}
-
-.login-card {
-  width: 400px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 22px;
-}
-
-.login-brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-
-.login-logo {
-  width: 58px;
-  height: 58px;
-  object-fit: contain;
-}
-
-.login-title {
-  font-size: 32px;
-  font-weight: 500;
-  color: #000;
-}
-
-.login-name-prompt-copy {
-  margin: 0;
-  text-align: center;
-  font-size: 16px;
-  color: #1c1c1c;
-}
-
-.login-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-.login-tabs button {
-  flex: 1;
-  padding: 12px 4px;
-  border: none;
-  background: none;
-  color: rgba(0, 0, 0, 0.5);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.login-tabs button:hover {
-  color: #000;
-}
-
-.login-tabs button.active {
-  color: #000;
-  border-bottom-color: var(--accent);
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.login-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.login-field span {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: rgba(0, 0, 0, 0.5);
-}
-
-.login-field input {
-  padding: 13px 15px;
-  border: 1px solid rgba(0, 0, 0, 0.14);
-  border-radius: 9px;
-  background: #fff;
-  color: #000;
-  font-size: 14px;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.login-field input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-wash);
-}
-
-.login-submit {
-  width: 100%;
-  margin-top: 4px;
-  padding: 14px 16px;
-  font-size: 15px;
-}
-
-.login-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: rgba(0, 0, 0, 0.4);
-  font-size: 12px;
-}
-
-.login-divider::before,
-.login-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.login-google {
-  width: 100%;
-  padding: 13px 16px;
-  font-size: 14px;
-}
-
-.login-message {
-  margin: 0;
-  text-align: center;
-  font-size: 13px;
-}
-
-.login-message-retry {
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
-}
+/* The `.login-*` rules stood here — the sign-in and name-prompt screens, and
+   the light-only pinning their hardcoded white card needed. Both screens are
+   gone; the app has no sign-in. See views/App.tsx. */
 
 /* .home-closeicon and its hover rule were deleted with the element — the
    close button is .winctl-close now. */
@@ -604,7 +423,6 @@ input[type='range']::-webkit-slider-runnable-track {
    close button means a long name runs into empty card instead of off it. */
 
 .
-
 
 .
 
@@ -2363,27 +2181,6 @@ textarea:disabled {
   padding: 13px 12px 16px;
 }
 
-.settings-signout {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: var(--danger);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-  border-radius: 12px;
-  transition: background 0.12s ease;
-}
-
-.settings-signout:hover {
-  background: var(--score-low-wash);
-}
-
 .settings-build-version {
   display: block;
   padding: 8px 12px 0;
@@ -2406,74 +2203,6 @@ textarea:disabled {
      the whole card and Settings has nowhere left to drag the window from. */
   -webkit-app-region: no-drag;
   margin-top: 12px;
-}
-
-.auth-panel {
-  padding-bottom: 20px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-strong);
-}
-
-.auth-panel-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  margin-bottom: 10px;
-}
-
-.auth-panel-row-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--label);
-  flex-shrink: 0;
-}
-
-.auth-panel-row-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.auth-panel-username-edit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  justify-content: flex-end;
-}
-
-.auth-panel-username-edit input {
-  width: 200px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 13px;
-  text-align: right;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.auth-panel-username-edit input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--ring);
-  text-align: left;
-}
-
-.auth-panel-hint {
-  margin: -4px 0 0;
-  font-size: 11px;
 }
 
 /* Deliberately the one place in Settings that breaks the neutral palette —
@@ -2969,7 +2698,6 @@ textarea:disabled {
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop,
   .modal-card,
-  .login-card,
   .settings-panel-content {
     animation: none !important;
   }
@@ -2990,10 +2718,6 @@ textarea:disabled {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.login-card {
-  animation: card-rise-in 0.24s ease-out;
 }
 
 @keyframes panel-fade-in {
@@ -5034,9 +4758,9 @@ textarea:disabled {
    data-theme='dark' AND the system prefers-color-scheme fallback when the
    setting is System. These rules covered only the explicit attribute for a
    while, so Theme = System on a dark OS left this tab half light ("only some
-   parts actually change"). The login-canvas note above is the precedent:
-   a dark rule that covers one of the two paths is a bug waiting to be
-   re-reported. */
+   parts actually change"). The rule it cites: a dark rule that covers one of
+   the two paths is a bug waiting to be re-reported. (The `.login-canvas` note
+   that used to be the worked example went with the sign-in screens.) */
 :root[data-theme='dark'] .docs-view {
   background: var(--surface);
   border-color: var(--border-strong);
@@ -5585,7 +5309,6 @@ textarea:disabled {
     border-color: rgba(255, 255, 255, 0.14);
   }
 }
-
 
 /* --- Native window -------------------------------------------------------- */
 

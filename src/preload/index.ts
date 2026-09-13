@@ -6,18 +6,8 @@ import type {
   AnalyzeDetectClaimsResponse,
   AnalyzeGetResultRequest,
   AnalyzeGetResultResponse,
-  AuthDeleteAccountResponse,
   AuthGetPlanResponse,
   AuthGetUserResponse,
-  AuthSignInRequest,
-  AuthSignInWithGoogleResponse,
-  AuthSignOutResponse,
-  AuthSignResponse,
-  AuthSignUpRequest,
-  AuthUpdateNameRequest,
-  AuthUpdateNameResponse,
-  AuthUpdateUsernameRequest,
-  AuthUpdateUsernameResponse,
   CitationGenerateRequest,
   CitationGenerateResponse,
   CitationListRequest,
@@ -201,18 +191,12 @@ const api = {
     get: (): Promise<ProfileGetResponse> => ipcRenderer.invoke(IPC.PROFILE_GET, {}),
     set: (req: ProfileSetRequest): Promise<ProfileSetResponse> => ipcRenderer.invoke(IPC.PROFILE_SET, req)
   },
+  // There is no sign-in in this app. The session behind these two is
+  // anonymous and created without asking (main/services/auth/client.ts), so
+  // nothing here can start or end one — `getUser` reports only that one
+  // exists, and `getPlan` is what the model-tier rows read.
   auth: {
     getUser: (): Promise<AuthGetUserResponse> => ipcRenderer.invoke(IPC.AUTH_GET_USER, {}),
-    signUp: (req: AuthSignUpRequest): Promise<AuthSignResponse> => ipcRenderer.invoke(IPC.AUTH_SIGN_UP, req),
-    signIn: (req: AuthSignInRequest): Promise<AuthSignResponse> => ipcRenderer.invoke(IPC.AUTH_SIGN_IN, req),
-    signOut: (): Promise<AuthSignOutResponse> => ipcRenderer.invoke(IPC.AUTH_SIGN_OUT, {}),
-    signInWithGoogle: (): Promise<AuthSignInWithGoogleResponse> =>
-      ipcRenderer.invoke(IPC.AUTH_SIGN_IN_WITH_GOOGLE, {}),
-    updateName: (req: AuthUpdateNameRequest): Promise<AuthUpdateNameResponse> =>
-      ipcRenderer.invoke(IPC.AUTH_UPDATE_NAME, req),
-    updateUsername: (req: AuthUpdateUsernameRequest): Promise<AuthUpdateUsernameResponse> =>
-      ipcRenderer.invoke(IPC.AUTH_UPDATE_USERNAME, req),
-    deleteAccount: (): Promise<AuthDeleteAccountResponse> => ipcRenderer.invoke(IPC.AUTH_DELETE_ACCOUNT, {}),
     /** Which plan this account is on. Never throws, never answers above free. */
     getPlan: (): Promise<AuthGetPlanResponse> => ipcRenderer.invoke(IPC.AUTH_GET_PLAN, {})
   },
@@ -301,15 +285,14 @@ const api = {
     ipcRenderer.on(IPC_EVENTS.SCREENWATCH_HOVER_CHANGED, listener)
     return () => ipcRenderer.removeListener(IPC_EVENTS.SCREENWATCH_HOVER_CHANGED, listener)
   },
+  // Fires on the anonymous session being established at first launch and on
+  // every background token refresh after that. Nothing shows a user here any
+  // more; what still reads it is lib/plan.tsx, which re-asks for the plan
+  // whenever the session moves.
   onAuthStateChanged: (callback: (user: AuthUser | null) => void): (() => void) => {
     const listener = (_: unknown, payload: AuthUser | null): void => callback(payload)
     ipcRenderer.on(IPC_EVENTS.AUTH_STATE_CHANGED, listener)
     return () => ipcRenderer.removeListener(IPC_EVENTS.AUTH_STATE_CHANGED, listener)
-  },
-  onAuthOAuthError: (callback: (message: string) => void): (() => void) => {
-    const listener = (_: unknown, payload: string): void => callback(payload)
-    ipcRenderer.on(IPC_EVENTS.AUTH_OAUTH_ERROR, listener)
-    return () => ipcRenderer.removeListener(IPC_EVENTS.AUTH_OAUTH_ERROR, listener)
   }
 }
 

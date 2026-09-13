@@ -125,62 +125,57 @@ There is no lint script configured. The two automated correctness checks are `np
 
 Claim detection and critique require a deployed Tracely Relay. Copy `.env.example` to `.env` and set `RELAY_URL` / `RELAY_TOKEN`. These are read once by `electron.vite.config.ts` and compiled directly into the main-process bundle via the `define` block (`__RELAY_URL__` / `__RELAY_TOKEN__`) — there's no runtime/user-facing way to change them; changing the relay means editing `.env` and rebuilding. Evidence search, scoring, citations, and the library all work with no relay configured.
 
-### `npm run dev` takes the `tracely://` scheme, and Google login goes with it
+### Nobody signs in, and the app still has an account
 
-Google's consent screen redirects to `tracely://auth-callback?code=…`, and
-exactly one program on Windows owns that scheme. Whichever Tracely started most
-recently owns it — dev included.
+There is no sign-in screen, no sign-up, no Google button, no name prompt, no
+sign-out and no account panel. There is still a Supabase ACCOUNT, created
+without asking, because two things downstream need one and neither is a UI
+concern:
 
-**The symptom is silence, not an error.** Nothing calls back, so `LoginView`
-sits on *"Continue in the browser window that just opened"* forever with
-nothing to report. There is no failure to display: the code was handed to
-another program.
+- **The relay refuses a call it cannot attribute.** `resolveUser` in the
+  relay's `lib/auth.ts` fails closed, on all seven AI endpoints — no
+  `Authorization` header is a 401, not a cheaper answer.
+- **Both spend guards are keyed on a user id**: the burst limiter
+  (`lib/rateLimit.ts`, `relay_quota(p_user_id)`) and the 150-per-UTC-day free
+  ceiling (`lib/entitlements.ts`). With nothing to count against, the shared
+  installer token — extractable from any release in about a minute — would be
+  the only thing between a script and the OpenAI bill.
 
-- **Dev used to register a handler that started nothing.** With no exec path,
-  Electron writes `"…/node_modules/electron/dist/electron.exe" "%1"` — the raw
-  binary, no app — so after any `npm run dev` the INSTALLED app's Google login
-  broke and stayed broken. Measured on the owner's machine, 2026-09-11: that
-  exact command was the value of `HKCU\SOFTWARE\Classes\tracely\shell\open\command`,
-  and invoking the protocol started no process at all. Dev now passes
-  `process.execPath` plus the app path, which is what Windows needs.
-- **Relaunching the app repairs it**, and that was already true — the shipped
-  0.3.97 reclaimed the scheme correctly the moment it was launched, which is how
-  the guard was cleared as a suspect. `registerOAuthProtocol` re-asserts
-  unconditionally now so recovery does not depend on a stale
-  `isDefaultProtocolClient` ever returning true.
-- **Check the registry before reading any auth code.** One command answers it:
-  `(Get-ItemProperty 'HKCU:\SOFTWARE\Classes\tracely\shell\open\command').'(default)'`.
-  If that is not the build you are signing in from, nothing downstream matters.
-- **THE SCHEME IS PER CHANNEL** (`shared/oauthScheme.ts`): stable answers on
-  `tracely://`, preview on `tracely-preview://`. They shared one until
-  2026-09-12, so the last build launched won it and a sign-in from the other
-  one delivered its authorization code to a build that never started that flow
-  — no PKCE verifier, and `exchangeCodeForSession` failing with something
-  opaque.
-  - **The scheme and the redirect URL are ONE decision read by two systems.**
-    Supabase only redirects to an allowlisted URL; Windows only delivers a
-    registered scheme. Both come from that leaf, and `isPreview` is passed IN
-    from `appIdentity.isPreviewBuild()` rather than re-derived — a second
-    derivation is the trap `appIdentity`'s own docstring is about.
-  - **ADDING A CHANNEL MEANS ADDING ITS REDIRECT URL FIRST.** Supabase refuses
-    an unlisted redirect before the browser ever returns to the app, so the
-    allowlist entry has to land before the build that uses it does.
-    `tracely-preview://auth-callback` is on the **staging** project
-    (`sxifbtelrtbsgnnwnmdf`); production is untouched and stable still uses
-    `tracely://`.
-  - **`electron-builder.yml`'s `protocols:` block is INERT on Windows**, which
-    is why this was fixed in code and not there. app-builder-lib reads it in
-    exactly three places — the macOS Info.plist, the APPX manifest and the
-    Linux `.desktop` file — and the NSIS templates never mention it. Windows
-    registration is `setAsDefaultProtocolClient` at runtime, full stop. Preview
-    is Windows-only (`preview.yml` is `windows-latest` and strips the
-    darwin/linux natives), so that value never reaches a shipped preview.
-  - **A preview installed before this still has `tracely://` pointed at
-    itself**, left over from when it claimed it. Harmless and self-healing:
-    launching stable re-asserts the claim, and a sign-in can only be started by
-    a build the user just launched. Deliberately NOT cleaned up with
-    `removeAsDefaultProtocolClient` — a destructive registry write to fix a
-    state that repairs itself on the next launch.
+So `ensureAnonymousSession` (`services/auth/client.ts`) signs the install in
+anonymously at boot, and `main/index.ts` awaits it before registering the
+access-token provider. A Supabase anonymous user is an ordinary user row with
+an ordinary JWT: **the relay needed no change and was not changed.**
+
+- **THE SESSION FILE IS THE IDENTITY.** `sessionStore.ts` persists it under the
+  user-data dir and supabase-js refreshes it, so one install keeps one account
+  and its daily allowance means something. Getting the stored session BEFORE
+  minting one is the whole of that — skip it and every launch is a new account
+  with a fresh 150.
+- **It requires "Allow anonymous sign-ins" on the Supabase project.** With that
+  off, Supabase refuses, the app logs it and carries on: local features work
+  and relay calls 401, which is exactly the state a signed-out install used to
+  be in.
+- **`ensureAnonymousSession` cannot throw.** It runs inside the boot sequence.
+- **`authRequired` did not go away and no longer means "sign in".** It is a 401
+  reaching Screen Watch, and the one thing it must not now say is that the
+  reader can fix it by signing in — see the status line in `HomeView`.
+- **`src/shared/*` kept its auth surface**, the same way the `TRACER_*`
+  constants outlived Tracer's removal: the `AUTH_SIGN_*` / `AUTH_UPDATE_*` /
+  `AUTH_DELETE_ACCOUNT` channels, the `Auth*` request/response types and
+  `shared/oauthScheme.ts` (plus its test) are all still there with nothing
+  registered against them. Additive, per the rule below.
+- **The relay's `api/delete-account.ts` now has no caller.** Left deployed
+  rather than removed — an endpoint nothing calls costs nothing, and the client
+  half of that decision is not ours to make from here.
+
+The section this replaced described the `tracely://` scheme fight between dev,
+stable and preview builds over Google's OAuth callback. All of it — the scheme,
+`registerOAuthProtocol`, the `protocols:` block in `electron-builder.yml`, the
+per-channel redirect URLs — is deleted. `npm run dev` no longer takes anything
+from the installed app. **`tracely-preview://auth-callback` is still on the
+staging Supabase project's allowlist**; harmless, and left there because
+removing an allowlist entry is the kind of change that is only noticed when
+something needs it back.
 
 ### Windows packaging gotcha
 

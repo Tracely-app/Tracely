@@ -45,15 +45,13 @@ import * as fx from './fixtures'
 
 /** Which variant of the world the preview is rendering. */
 export type Scenario = {
-  /** Signed-in state — drives App.tsx's auth gate. */
-  auth: 'ready' | 'signedOut' | 'needsName' | 'notConfigured'
   /**
    * What the account has paid for — Settings > Billing, and the locked model
    * rows in Preferences.
    *
-   * Its own switch rather than something derived from `auth`, because the two
-   * are independent: reviewing the upgrade prompt needs a signed-in free
-   * account, which is the ordinary case and not an auth state at all.
+   * There is no `auth` switch beside it any more: the app has no sign-in and
+   * no gate, so the only auth state a preview can be in is the one every
+   * install is in — an anonymous session that already exists.
    */
   plan: Plan
   /** With no relay compiled in, every relay-backed action refuses up front. */
@@ -95,7 +93,6 @@ const FOUND_BREAKDOWN: ScoreBreakdown = {
 }
 
 export const defaultScenario: Scenario = {
-  auth: 'ready',
   // The plan most installs are on, and the only one with an upgrade prompt.
   plan: 'free',
   relayConfigured: true,
@@ -135,11 +132,9 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     return () => window.clearTimeout(id)
   }
 
-  const authUser = (): AuthUser | null => {
-    if (scenario.auth === 'signedOut') return null
-    if (scenario.auth === 'needsName') return { ...fx.user, firstName: null }
-    return fx.user
-  }
+  // The anonymous session every install has. No name, no email — the same
+  // shape toAuthUser builds in the real client.
+  const authUser = (): AuthUser | null => fx.user
 
   // Mutable so an evidence search visibly resolves a claim, exactly as the
   // real store would. Reset per document, like every other bit of preview
@@ -592,15 +587,7 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
       set: () => ok('profile.set', fx.profile)
     },
     auth: {
-      getUser: () =>
-        ok('auth.getUser', { user: authUser(), configured: scenario.auth !== 'notConfigured' }),
-      signUp: () => relay('auth.signUp', { user: fx.user }),
-      signIn: () => relay('auth.signIn', { user: fx.user }),
-      signOut: () => ok('auth.signOut', { ok: true as const }),
-      signInWithGoogle: () => relay('auth.signInWithGoogle', { ok: true as const }),
-      updateName: () => ok('auth.updateName', { user: fx.user }),
-      updateUsername: () => ok('auth.updateUsername', { user: fx.user }),
-      deleteAccount: () => ok('auth.deleteAccount', { ok: true as const }),
+      getUser: () => ok('auth.getUser', { user: authUser(), configured: true }),
       getPlan: () => ok('auth.getPlan', { plan: scenario.plan })
     },
     history: {
@@ -772,7 +759,6 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
         delete w.__previewEmitHover
       }
     },
-    onAuthStateChanged: (cb) => subscribe('onAuthStateChanged', authUser(), cb),
-    onAuthOAuthError: (cb) => subscribe('onAuthOAuthError', '', cb)
+    onAuthStateChanged: (cb) => subscribe('onAuthStateChanged', authUser(), cb)
   }
 }

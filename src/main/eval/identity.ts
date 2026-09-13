@@ -7,10 +7,11 @@
 // path, which would put the Electron binary shim in the eval bundle.
 //
 // So it borrows the session the desktop app already wrote. Nothing new to
-// configure and no second set of credentials to keep somewhere: sign in to
-// Tracely once, and the eval authenticates as you. The refresh token in that
-// file is exchanged for a fresh access token by supabase-js, exactly as the
-// app does, so a stale file still works.
+// configure and no credentials to keep anywhere: launch Tracely once and it
+// creates its own anonymous session (there is no sign-in), which the eval then
+// authenticates as. The refresh token in that file is exchanged for a fresh
+// access token by supabase-js, exactly as the app does, so a stale file still
+// works.
 
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -111,8 +112,8 @@ function appSessionClient(): { client: ReturnType<typeof createClient>; path: st
 
 /**
  * Returns a provider suitable for setAccessTokenProvider, or null when there
- * is no signed-in session to borrow — the caller decides how loudly to
- * complain, because a retrieval-only run does not need one.
+ * is no session to borrow — the caller decides how loudly to complain,
+ * because a retrieval-only run does not need one.
  */
 export function appSessionTokenProvider(): (() => Promise<string | null>) | null {
   const session = appSessionClient()
@@ -135,7 +136,7 @@ export function appSessionTokenProvider(): (() => Promise<string | null>) | null
       console.warn(
         `\n[eval] Found ${path} but it holds no session for this build's Supabase project.\n` +
           `       It was probably written by a build pointed somewhere else.\n` +
-          `       Sign in to the app once and re-run; paid relay calls will 401 until then.\n`
+          `       Launch the app once and re-run; paid relay calls will 401 until then.\n`
       )
     }
     return token
@@ -165,8 +166,9 @@ export function appSessionPlanProvider(): (() => Promise<Plan>) | null {
 
 export function noSessionMessage(): string {
   return [
-    'No signed-in Tracely session found. Live relay calls (claim detection,',
-    'critique) will come back 401 — launch Tracely, sign in once, then re-run.',
+    'No Tracely session found. Live relay calls (claim detection, critique)',
+    'will come back 401 — launch Tracely once so it creates its anonymous',
+    'session, then re-run.',
     'Replaying a recorded cassette is unaffected: it never reaches the network,',
     'so it never needs a token.'
   ].join('\n')

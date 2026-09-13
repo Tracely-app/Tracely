@@ -3,7 +3,6 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type {
   AccentColor,
   AppSettings,
-  AuthUser,
   CitationStyle,
   Density,
   FontSize,
@@ -15,11 +14,9 @@ import type {
   ScannedApp,
   ScreenWatchStatus
 } from '@shared/ipc-contract'
-import AuthPanel from '../components/AuthPanel'
 import Button from '../components/Button'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
-import DangerZone from '../components/DangerZone'
 import SettingsField from '../components/SettingsField'
 import SettingsUnavailable from '../components/SettingsUnavailable'
 import { Bell, CreditCard, Link2, ShieldCheck } from 'lucide-react'
@@ -28,7 +25,6 @@ import {
   SunIcon,
   SlidersIcon,
   ShieldIcon,
-  SignOutIcon,
   BackIcon
 } from '../components/icons'
 import { tracelyApi } from '../lib/api'
@@ -417,26 +413,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
     // makes them checkable; the user still has to check the box.
   }
 
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
-  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
-  const [signOutBusy, setSignOutBusy] = useState(false)
-
-  useEffect(() => {
-    tracelyApi.getAuthUser().then((res) => setAuthUser(res.user))
-    return tracelyApi.onAuthStateChanged(setAuthUser)
-  }, [])
-
-  async function sidebarSignOut(): Promise<void> {
-    if (!authUser) return
-    setSignOutBusy(true)
-    try {
-      await tracelyApi.signOut()
-    } finally {
-      setSignOutBusy(false)
-      setConfirmingSignOut(false)
-    }
-  }
-
 
   if (!settings) {
     return <div className="settings-view">{error ? <p className="error-text">{error}</p> : <p>Loading…</p>}</div>
@@ -465,16 +441,9 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               </Fragment>
             ))}
           </nav>
-          {authUser || buildInfo?.isPreview ? (
+          {buildInfo?.isPreview ? (
             <div className="settings-sidebar-footer">
-              {authUser ? (
-                <button className="settings-signout" onClick={() => setConfirmingSignOut(true)}>
-                  <SignOutIcon size={15} /> Sign out
-                </button>
-              ) : null}
-              {buildInfo?.isPreview ? (
-                <span className="settings-build-version">Preview v{buildInfo.version}</span>
-              ) : null}
+              <span className="settings-build-version">Preview v{buildInfo.version}</span>
             </div>
           ) : null}
         </aside>
@@ -484,18 +453,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
             busy={profileSaving}
             onConfirm={(suppress) => void confirmSaveProfile(suppress)}
             onCancel={() => setConfirmingSave(false)}
-          />
-        ) : null}
-
-        {confirmingSignOut ? (
-          <ConfirmDialog
-            title="Sign out?"
-            message="You'll need to sign back in to use Tracely again."
-            confirmLabel="Sign out"
-            danger
-            busy={signOutBusy}
-            onConfirm={sidebarSignOut}
-            onCancel={() => setConfirmingSignOut(false)}
           />
         ) : null}
 
@@ -521,7 +478,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
         <div className="settings-panel">
           {section === 'profile' && profile ? (
             <div key="profile" className="settings-panel-content">
-              {authUser ? <AuthPanel user={authUser} /> : null}
               <div className="settings-panel-header">
                 <h3>Profile</h3>
                 <p>Your name, shown on this machine. Nothing here leaves it.</p>
@@ -583,7 +539,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               <Button variant="dark" onClick={requestSaveProfile} disabled={profileSaving}>
                 {profileSaving ? 'Saving…' : 'Save changes'}
               </Button>
-              {authUser ? <DangerZone user={authUser} /> : null}
             </div>
           ) : null}
 
@@ -937,10 +892,17 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   </Button>
                 </div>
               ) : null}
+              {/* The last clause used to offer "or immediately if you sign out
+                  and back in", which is no longer a thing anyone can do. Note
+                  that with no sign-in there is also no way for a purchase made
+                  on the website to find this install — every account here is
+                  anonymous, so this panel can only ever read Free. Raised in
+                  the PR rather than answered here: what replaces the upgrade
+                  path is a product decision, not a cleanup. */}
               <p className="muted settings-app-note">
                 Plans are bought and cancelled on jointracely.com. No card is stored in this app and nothing on
                 this screen charges you. A change made there reaches this window the next time your session
-                refreshes, or immediately if you sign out and back in.
+                refreshes.
               </p>
             </div>
           ) : null}
