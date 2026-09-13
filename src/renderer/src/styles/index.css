@@ -595,7 +595,6 @@ input[type='range']::-webkit-slider-runnable-track {
 /* .home-closeicon and its hover rule were deleted with the element — the
    close button is .winctl-close now. */
 
-.
 
 /* Anchored to its right edge rather than its left. The text is "Hey, {first
    name}!", and starting it at a fixed left: 636px left only ~197px before the
@@ -603,35 +602,24 @@ input[type='range']::-webkit-slider-runnable-track {
    nowrap` silently cutting off the rest. Growing leftward from just inside the
    close button means a long name runs into empty card instead of off it. */
 
-.
 
 
-.
 
-.
 
-.
 
 /* Figma anchors these by their own right edge + vertical center
    (-translate-x-full -translate-y-1/2 on a `left`/`top` coordinate), not
    by their top-left corner — using top-left like every other element here
    put them far right of the icons instead of snug against them. */
 
-.
 
-.
 
-.
 
 /* `.home-flagcard*` rules removed with the hardcoded placeholder card. */
 
-.
 
-.
 
-.
 
-.
 
 .textarea,
 textarea {
@@ -4672,19 +4660,13 @@ textarea:disabled {
    "Find a source" onto two lines. The design gives the buttons no width at all;
    they hug their text at 14px/8px padding and never wrap. */
 
-.
 
-.
 
-.
 
-.
 
-.
 
 /* No width. The frame's buttons hug their text — see 361:335/361:337. */
 
-.
 
 /* The one line that says why a Figma-accurate settings page cannot be used. */
 .settings-unavailable-note {
