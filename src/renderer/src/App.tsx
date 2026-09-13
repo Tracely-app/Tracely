@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { AuthUser } from '@shared/types'
 import AnalyzeView from './views/AnalyzeView'
 import DocumentsView from './views/DocumentsView'
 import LibraryView from './views/LibraryView'
 import HomeView from './views/HomeView'
-import LoginView from './views/LoginView'
-import NamePromptView from './views/NamePromptView'
 import SettingsView from './views/SettingsView'
 import { applyTheme } from './lib/theme'
 import { applyAccentColor, applyDensity, applyFontSize, trackWindowZoom } from './lib/appearance'
@@ -15,19 +12,19 @@ import { PlanProvider } from './lib/plan'
 
 export type Tab = 'home' | 'documents' | 'analyze' | 'library' | 'settings'
 
-// 'checking': initial auth lookup hasn't resolved yet. 'signedOut'/
-// 'needsName' gate the whole app behind LoginView/NamePromptView. 'ready'
-// is the normal signed-in (or auth-not-configured) app. A build with no
-// Supabase project configured skips the gate entirely and goes straight to
-// 'ready' — same fallback AuthPanel used before this gate existed.
-type AuthGateState = 'checking' | 'signedOut' | 'needsName' | 'ready'
-
-function gateFor(user: AuthUser | null, configured: boolean): AuthGateState {
-  if (!configured) return 'ready'
-  if (!user) return 'signedOut'
-  if (!user.firstName) return 'needsName'
-  return 'ready'
-}
+// There is no gate here any more.
+//
+// This file used to open on one of three screens depending on an auth lookup:
+// a blank shell while it resolved, LoginView if nobody was signed in, then
+// NamePromptView if that account had no first name. Nobody signs in now — the
+// app holds an anonymous Supabase session it creates for itself at boot, purely
+// so the relay has an account to attribute spend to (see ensureAnonymousSession
+// in main/services/auth/client.ts). None of that is the user's business, so
+// none of it is on their screen, and the window opens straight into Home.
+//
+// The blank `.app-shell` that used to cover the first paint went with it: it
+// existed to avoid flashing the login card at someone who turned out to be
+// signed in, and there is no card left to flash.
 
 // One piece of window chrome, and it is invisible: `.app-dragbar`.
 //
@@ -45,8 +42,6 @@ export default function App(): JSX.Element {
   // AnalyzeView because the Documents page is what chooses it, and the two are
   // siblings. `null` means a new, untitled one.
   const [openDocumentId, setOpenDocumentId] = useState<string | null>(null)
-  const [gate, setGate] = useState<AuthGateState>('checking')
-  const [user, setUser] = useState<AuthUser | null>(null)
 
   // Before the settings round-trip, not after: the window opens at whatever
   // size it was last left at, and until the zoom matches that width the card
@@ -62,64 +57,6 @@ export default function App(): JSX.Element {
       applyFontSize(s.fontSize)
     })
   }, [])
-
-  useEffect(() => {
-    tracelyApi.getAuthUser().then((res) => {
-      setUser(res.user)
-      setGate(gateFor(res.user, res.configured))
-    })
-    // Auth-state-changed events can only ever be emitted by a real Supabase
-    // client instance (see main/services/auth/client.ts), so if one fires,
-    // auth is by definition configured — no need to track that flag here
-    // too (and no closure-staleness risk from doing so).
-    return tracelyApi.onAuthStateChanged((u) => {
-      setUser(u)
-      setGate(gateFor(u, true))
-    })
-  }, [])
-
-  if (gate === 'checking') {
-    return <div className="app-shell" />
-  }
-
-  // Both gates render inside `.app-main` like every other view. They used to be
-  // direct children of `.app-shell`, which meant the window gutter `.app-main`
-  // carries did not apply to them — so the login card sat flush against all
-  // four window edges while every other screen was inset, which is what "the
-  // login page margins are messed up" was.
-  if (gate === 'signedOut') {
-    return (
-      <div className="app-shell">
-        {/* The window has no title bar to drag by — see mainWindow.ts. */}
-        <div className="app-dragbar" aria-hidden="true" />
-        <main className="app-main">
-          <LoginView
-            onSignedIn={(u) => {
-              setUser(u)
-              setGate(gateFor(u, true))
-            }}
-          />
-        </main>
-      </div>
-    )
-  }
-
-  if (gate === 'needsName') {
-    return (
-      <div className="app-shell">
-        {/* The window has no title bar to drag by — see mainWindow.ts. */}
-        <div className="app-dragbar" aria-hidden="true" />
-        <main className="app-main">
-          <NamePromptView
-            onDone={(u) => {
-              setUser(u)
-              setGate(gateFor(u, true))
-            }}
-          />
-        </main>
-      </div>
-    )
-  }
 
   return (
     // Every letter grade in this window is banded against the school year in
@@ -153,7 +90,6 @@ export default function App(): JSX.Element {
               setOpenDocumentId(id)
               setTab('analyze')
             }}
-            firstName={user?.firstName ?? null}
           />
         ) : null}
         {tab === 'documents' ? (

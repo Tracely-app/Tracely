@@ -162,7 +162,6 @@ interface TracerStore {
 const KEYS = {
   extras: 'tracely.web.settingsExtras',
   profile: 'tracely.web.profileExtras',
-  signedOut: 'tracely.web.signedOut',
   tracer: 'tracely.web.tracer',
   outlines: 'tracely.web.outlines',
   gradedAt: 'tracely.web.gradedAt',
@@ -309,19 +308,13 @@ export function createHttpApi(): TracelyApi {
     return get<ServerPrefs>('/api/prefs')
   }
 
-  function localUser(p: ServerPrefs): AuthUser | null {
-    if (window.localStorage.getItem(KEYS.signedOut) === '1') return null
-    const extras = loadJson<SettingsExtras>(KEYS.extras, DEFAULT_EXTRAS)
-    return {
-      id: 'local-user',
-      email: null,
-      firstName: p.firstName?.trim() ? p.firstName : null,
-      username: extras.username || 'local'
-    }
-  }
-
-  async function currentUser(): Promise<AuthUser | null> {
-    return localUser(await prefs())
+  // The single local identity this build has. There is no sign-in and nothing
+  // to sign out of, so unlike the Electron build's anonymous Supabase session
+  // this one is not even an account — it exists because the contract's
+  // `getUser` has to answer something, and "a session exists" is the only
+  // thing anything still reads from it.
+  function currentUser(): AuthUser {
+    return { id: 'local-user', email: null, firstName: null, username: null }
   }
 
   function settingsFromServer(p: ServerPrefs): AppSettings {
@@ -931,46 +924,11 @@ export function createHttpApi(): TracelyApi {
     auth: {
       // Local single-user stub — there is no Supabase behind this build.
       // `configured: true` keeps the app on its normal signed-in path.
-      getUser: async () => ({ user: await currentUser(), configured: true }),
+      getUser: async () => ({ user: currentUser(), configured: true }),
       // No Supabase account behind this build, so there is no subscription to
       // read. `free` is the contract's answer for anything unreadable, and it
       // is the honest one here: the local stub has not paid for anything.
       getPlan: async () => ({ plan: 'free' as Plan }),
-      signUp: async (req) => {
-        window.localStorage.removeItem(KEYS.signedOut)
-        const p = await put<ServerPrefs>('/api/prefs', { firstName: req.firstName })
-        return { user: localUser(p) }
-      },
-      signIn: async () => {
-        window.localStorage.removeItem(KEYS.signedOut)
-        return { user: await currentUser() }
-      },
-      signOut: async () => {
-        window.localStorage.setItem(KEYS.signedOut, '1')
-        return OK
-      },
-      signInWithGoogle: async () => {
-        // No OAuth locally; behave like a completed local sign-in.
-        window.localStorage.removeItem(KEYS.signedOut)
-        return OK
-      },
-      updateName: async (req) => {
-        const p = await put<ServerPrefs>('/api/prefs', { firstName: req.firstName })
-        return { user: localUser(p) }
-      },
-      updateUsername: async (req) => {
-        const extras = loadJson<SettingsExtras>(KEYS.extras, DEFAULT_EXTRAS)
-        extras.username = req.username
-        saveJson(KEYS.extras, extras)
-        return { user: await currentUser() }
-      },
-      deleteAccount: async () => {
-        await post<{ ok: true }>('/api/clear-history', { alsoLibrary: true })
-        claimsById.clear()
-        analysesById.clear()
-        for (const key of Object.values(KEYS)) window.localStorage.removeItem(key)
-        return OK
-      }
     },
     history: {
       clear: async (req) => {
@@ -1116,11 +1074,8 @@ export function createHttpApi(): TracelyApi {
       return () => undefined
     },
     onAuthStateChanged: (callback: (user: AuthUser | null) => void) => {
-      const id = window.setTimeout(() => {
-        void currentUser().then(callback)
-      }, 0)
+      const id = window.setTimeout(() => callback(currentUser()), 0)
       return () => window.clearTimeout(id)
-    },
-    onAuthOAuthError: () => () => undefined
+    }
   }
 }

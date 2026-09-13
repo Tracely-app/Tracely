@@ -153,14 +153,9 @@ export default function PreviewApp(): JSX.Element {
         </Section>
 
         <Section title="Scenario">
-          <Field label="Auth gate">
-            <select value={scenario.auth} onChange={(e) => update('auth', e.target.value as Scenario['auth'])}>
-              <option value="ready">Signed in</option>
-              <option value="signedOut">Signed out</option>
-              <option value="needsName">Needs name</option>
-              <option value="notConfigured">Auth not configured</option>
-            </select>
-          </Field>
+          {/* The "Auth gate" control stood here, switching between signed in,
+              signed out, needs-name and not-configured. All four screens are
+              gone with the sign-in feature; the app has one auth state now. */}
           <Field label="Plan">
             <select value={scenario.plan} onChange={(e) => update('plan', e.target.value as Scenario['plan'])}>
               <option value="free">Free</option>
