@@ -1,7 +1,7 @@
-# Tracely, local-first — the Anthropic backend
+# Tracely, local-first — the OpenAI backend
 
 This branch adds a second way to run Tracely: **one local Node process, one
-Anthropic API key, no relay, no Supabase, no Electron required.** The renderer
+OpenAI API key, no relay, no Supabase, no Electron required.** The renderer
 you already have runs unmodified in a browser on top of it, and a Chrome
 extension brings checking + in-place fixes to Google Docs and any website.
 
@@ -9,7 +9,7 @@ Nothing in the existing app is modified — every file here is additive:
 
 | Path | What it is |
 |---|---|
-| `server/` | The backend: Express-free Node server (`node server/server.js`, port 4477), Anthropic calls with model tiering (Haiku by default — a full essay session costs 2–4¢), free scholarly retrieval (OpenAlex/Crossref/S2/PubMed), SQLite storage (`node:sqlite`, no native builds), macOS Screen Watch via the accessibility API, Google Docs write-back bridge. 98 backend tests. See `server/README.md`. |
+| `server/` | The backend: Express-free Node server (`node server/server.js`, port 4477), OpenAI calls with model tiering (gpt-5-nano by default — a full essay session costs well under a cent), free scholarly retrieval (OpenAlex/Crossref/S2/PubMed), SQLite storage (`node:sqlite`, no native builds), macOS Screen Watch via the accessibility API, Google Docs write-back bridge. 98 backend tests. See `server/README.md`. |
 | `src/renderer/src/bridge/` | A typed HTTP implementation of the whole `window.tracely` preload contract — the renderer talks to `server/` instead of Electron IPC. Typechecked against `ipc-contract.ts`, so drift fails `npm run typecheck`. |
 | `web.vite.config.mts` | Builds the real renderer for the browser with the bridge injected (same mechanism as the preview harness's mock injection). Output: `dist-web/`, served by the server at `/`. |
 | `demo.vite.config.mts` + `scripts/make-demo.mjs` | Single-file offline demo (`demo.html`) with the preview mock — shareable, runs with zero backend, sandbox-safe. |
@@ -19,7 +19,7 @@ Nothing in the existing app is modified — every file here is additive:
 
 ```bash
 # 1. backend
-cd server && npm install && cp .env.example .env   # paste your Anthropic key
+cd server && npm install && cp .env.example .env   # paste your OpenAI key
 node server.js                                      # http://localhost:4477
 
 # 2. renderer in the browser (from repo root)

@@ -31,6 +31,7 @@ import { hashKey } from "./db.js";
 import { rollingCounter } from "../shared/guards.js";
 import { problemsFor, markFor } from "../shared/marks.js";
 import { CheckError } from "./factcheck.js";
+import { MODEL_TIERS } from "./llm.js";
 
 const POLL_MS = 2500;             // ambient cadence — reads are free (local AX)
 const STABLE_POLLS = 2;           // the spec's stable-ms: same text on 2 consecutive polls
@@ -166,7 +167,7 @@ export async function writeFocused({ app, find, replacement } = {}) {
 }
 
 // ── watch state + loop ─────────────────────────────────────────────────
-let deps = { pickModel: () => "claude-haiku-4-5" };
+let deps = { pickModel: () => MODEL_TIERS.fast };
 export function init(d = {}) {
   deps = { ...deps, ...d };
 }

@@ -1,6 +1,7 @@
 /** Storage route handlers — thin SQL passthroughs over lib/db.js. */
 import { db, uuid, upsertSource, settingsGet, settingsSet } from "./db.js";
 import { CheckError } from "./factcheck.js";
+import { MODEL_TIERS } from "./llm.js";
 
 const DOC_SORTS = {
   graded: "ORDER BY grade_score IS NULL, updated_at DESC",
@@ -96,7 +97,7 @@ export const prefs = {
   get() {
     return {
       citationStyle: "apa", gradingLevel: 12, autoCritique: true, autoSources: false,
-      model: "claude-haiku-4-5", effort: "low", modelStrategy: "economy",
+      model: MODEL_TIERS.fast, effort: "low", modelStrategy: "economy",
       theme: "system", accent: "#f97316",
       fontSize: 14, density: "comfortable",
       ...settingsGet(),

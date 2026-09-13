@@ -1,12 +1,12 @@
 # Tracely ✈️
 
-Live fact-checking as you write. Every 10 seconds, Tracely checks the facts you've typed with the Anthropic API — false claims, shaky claims, and sentences that don't make sense get wavy underlines, suggested fixes, and web sources you can cite. The only key you need is an Anthropic API key.
+Live fact-checking as you write. Every 10 seconds, Tracely checks the facts you've typed with the OpenAI API — false claims, shaky claims, and sentences that don't make sense get wavy underlines, suggested fixes, and web sources you can cite. The only key you need is an OpenAI API key.
 
 ## Setup (once)
 
 1. Paste your key into `.env` in this folder:
    ```
-   ANTHROPIC_API_KEY=sk-ant-…
+   OPENAI_API_KEY=sk-…
    ```
    The running server picks it up automatically — no restart needed.
 
@@ -22,7 +22,7 @@ Live fact-checking as you write. Every 10 seconds, Tracely checks the facts you'
 - **Wavy underlines** while you type: red = false, amber = questionable, purple = doesn't make sense, thin green = verified.
 - Hover an underline for the explanation; click it to jump to its finding card.
 - **Apply fix** rewrites the sentence with the model's correction; **Fix all** applies every suggestion at once.
-- **Find sources** pulls up 3–5 real sources for a claim (via Anthropic's built-in web search — no extra API key). Pick one and Tracely inserts a `[n]` citation after the sentence and maintains a `Sources:` list at the end of the document. Verified claims can be cited too, via the *cite* button.
+- **Find sources** pulls up 3–5 real sources for a claim (via OpenAI's built-in web search — no extra API key). Pick one and Tracely inserts a `[n]` citation after the sentence and maintains a `Sources:` list at the end of the document. Verified claims can be cited too, via the *cite* button.
 - Model (Opus 5 / Sonnet 5 / Haiku 4.5) and depth (Fast / Balanced / Thorough) are switchable in the header.
 
 ## Google Docs widget
@@ -62,4 +62,5 @@ no clamping, no metering, everything works exactly as described above. See
 
 - Server runs on port `4477` (`PORT=…` to change).
 - `TRACELY_MOCK=1 node server.js` runs a no-API mock mode with canned verdicts for demoing the UI.
-- Default model is `claude-opus-5`; refusal fallbacks (`fallbacks: "default"`) are enabled for it by default and dropped automatically if the API doesn't accept them.
+- Default model is `gpt-5-nano`, the cheapest tier; `lib/llm.js` is the only file that names a model id, and a plan's ceiling is applied on top of it in `shared/plan.js`.
+- The server has **zero runtime dependencies** — the OpenAI Responses API is called over plain `fetch`, so `npm install` installs nothing.

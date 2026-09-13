@@ -12,6 +12,7 @@ import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
 import { planForRequest, sourceSearchQuota, recordSourceSearch, forgetCachedPlans } from "./lib/entitlement.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
 import { clampModel } from "./shared/plan.js";
+import { MODEL_TIERS } from "./lib/llm.js";
 import { GUARDS, rollingCounter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 
@@ -109,7 +110,7 @@ function loadEnvFile() {
 loadEnvFile();
 
 // ── request gatekeeping ────────────────────────────────────────────────
-// This server fronts the user's Anthropic API key, so hostile web pages must
+// This server fronts the user's OpenAI API key, so hostile web pages must
 // not be able to drive it: origins are allowlisted (docs.google.com for the
 // extension widget, plus our own pages), the Host header is pinned to kill
 // DNS-rebinding, and we listen on loopback only.
@@ -129,7 +130,7 @@ function originAllowed(origin) {
 // needs the legacy check endpoints. Every other /api route — storage CRUD and
 // the paid pipeline — is app-private: same-origin (or origin-less curl) only,
 // so a hostile Docs add-on or stray extension can't read essays, wipe history,
-// or burn the user's Anthropic credits.
+// or burn the user's OpenAI credits.
 // /api/billing/webhook is deliberately NOT here: Stripe calls it server-to-
 // server with no Origin, and listing it would also hand it to every page the
 // extension surface can reach.
@@ -341,8 +342,10 @@ const critiqueCounter = rollingCounter(60);
 //   smart: Haiku for the frequent mechanical passes, Sonnet for the two
 //     judgment calls (critique, grading).
 //   uniform: the user's chosen model everywhere (they pay for what they pick).
-const H = "claude-haiku-4-5";
-const S = "claude-sonnet-5";
+// Read from the tier table rather than written out, so a model rename is one
+// edit in lib/llm.js instead of a hunt through every file that names one.
+const H = MODEL_TIERS.fast;
+const S = MODEL_TIERS.balanced;
 const TIERS = {
   economy: { detect: H, structure: H, tracer: H, critique: H, grade: H, sources: H, check: H },
   smart:   { detect: H, structure: H, tracer: H, critique: S, grade: S, sources: H, check: S },
@@ -462,7 +465,7 @@ async function handleStripeWebhook(req, res) {
 
 function requireKey() {
   if (!hasApiKey() && !MOCK) {
-    throw new CheckError("no_key", "No Anthropic API key configured. Add ANTHROPIC_API_KEY to tracely/.env", { status: 503 });
+    throw new CheckError("no_key", "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env", { status: 503 });
   }
 }
 
@@ -555,7 +558,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/check") {
       loadEnvFile();
       if (!hasApiKey() && !MOCK) {
-        json(res, 503, { error: { kind: "no_key", message: "No Anthropic API key configured. Add ANTHROPIC_API_KEY to tracely/.env" } }, cors);
+        json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
         return;
       }
 
@@ -586,7 +589,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/sources") {
       loadEnvFile();
       if (!hasApiKey() && !MOCK) {
-        json(res, 503, { error: { kind: "no_key", message: "No Anthropic API key configured. Add ANTHROPIC_API_KEY to tracely/.env" } }, cors);
+        json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
         return;
       }
 
@@ -632,7 +635,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/flow") {
       loadEnvFile();
       if (!hasApiKey() && !MOCK) {
-        json(res, 503, { error: { kind: "no_key", message: "No Anthropic API key configured. Add ANTHROPIC_API_KEY to tracely/.env" } }, cors);
+        json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
         return;
       }
       const { text, model } = (await parseJsonBody(req)) ?? {};
@@ -936,7 +939,7 @@ process.on("unhandledRejection", (err) => console.error("[tracely] unhandled rej
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`Tracely running at http://localhost:${PORT}${MOCK ? "  (MOCK MODE — no API calls)" : ""}`);
   if (!hasApiKey() && !MOCK) {
-    console.log("No ANTHROPIC_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");
+    console.log("No OPENAI_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");
   }
   // Screen Watch survives restarts: resume when the user left it on.
   if (process.platform === "darwin" && store.prefs.get().watchEnabled) {
