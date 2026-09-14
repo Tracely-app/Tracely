@@ -13,7 +13,14 @@ import { fileURLToPath } from "node:url";
 import { randomUUID, createHash } from "node:crypto";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DATA_DIR = path.join(ROOT, "data");
+/* TRACELY_DATA_DIR relocates the database. Two callers need it: a deployed box
+ * that keeps state outside the checkout (/srv/tracely/data), and tests that
+ * must not write into the developer's real database — the spend ledger lives
+ * in this file, and a test that bumps a real counter would quietly consume the
+ * operator's daily budget. */
+const DATA_DIR = process.env.TRACELY_DATA_DIR
+  ? path.resolve(process.env.TRACELY_DATA_DIR)
+  : path.join(ROOT, "data");
 mkdirSync(DATA_DIR, { recursive: true });
 
 export const db = new DatabaseSync(path.join(DATA_DIR, "tracely.db"));
@@ -168,6 +175,24 @@ export function usageBump(accountId, day, kind) {
     "INSERT INTO entitlement_usage (account_id, day, kind, count, updated_at) VALUES (?, ?, ?, 1, ?) " +
     "ON CONFLICT(account_id, day, kind) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at"
   ).run(accountId, day, kind, Date.now());
+  return usageCount(accountId, day, kind);
+}
+
+/**
+ * Adds N and returns the NEW total. The spend ledger needs this because it
+ * accumulates a COST, not a call count — usageBump's +1 cannot express
+ * "this request cost 641 micro-cents".
+ *
+ * Negative and non-finite deltas are floored to 0 rather than rejected: a
+ * miscomputed price must never be able to REFUND the budget, which would turn
+ * an arithmetic bug into an uncapped spend.
+ */
+export function usageAdd(accountId, day, kind, n) {
+  const delta = Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  db.prepare(
+    "INSERT INTO entitlement_usage (account_id, day, kind, count, updated_at) VALUES (?, ?, ?, ?, ?) " +
+    "ON CONFLICT(account_id, day, kind) DO UPDATE SET count = count + ?, updated_at = excluded.updated_at"
+  ).run(accountId, day, kind, delta, Date.now(), delta);
   return usageCount(accountId, day, kind);
 }
 

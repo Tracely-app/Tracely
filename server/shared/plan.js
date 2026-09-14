@@ -129,6 +129,28 @@ export function clampModel(requested, plan) {
 /** What the pricing page promises free accounts: "5 source searches a day". */
 export const FREE_DAILY_SOURCE_SEARCHES = 5;
 
+/**
+ * Checks a free caller may run per day.
+ *
+ * Measured 2026-09-13 against the real API: a check on the fast model costs
+ * 0.014 cents for one sentence and PLATEAUS at 0.084 cents around twenty (the
+ * output is bounded by how much explanation the findings need, not by sentence
+ * count). The extension fires at most one check per 10s, so 400 checks is
+ * about an hour of continuous typing and costs at most ~34 cents — and far
+ * less in practice, because the server caches on a hash of the input, so
+ * re-checking unchanged text is free.
+ *
+ * Sized for a real student writing an essay, not for a demo. If this ever
+ * needs raising, the number to recompute is (limit x 0.084 cents x expected
+ * daily free users) against the global budget in shared/guards.js.
+ */
+export const FREE_DAILY_CHECKS = 400;
+
+/** null means "not metered" — a paid plan is bounded by the global budget. */
+export function dailyCheckLimit(plan) {
+  return normalizePlan(plan) === "free" ? FREE_DAILY_CHECKS : null;
+}
+
 /** null means "not metered" — a paid plan is bounded by the rolling cost guards, not by a quota. */
 export function dailySourceSearchLimit(plan) {
   return normalizePlan(plan) === "free" ? FREE_DAILY_SOURCE_SEARCHES : null;

@@ -15,7 +15,16 @@ import { fileURLToPath } from "node:url";
 // extension/ is packaged into the store zip, and a dev guard is not something
 // to ship to users or hand a store reviewer.
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const ext = path.join(dir, "..", "extension");
+// The extension sits beside this tree in the dev checkout and one level
+// further up in the app repo (where the server lives under server/). Neither
+// existing is a hard failure, not a silent skip — a guard that quietly stops
+// running is worse than no guard.
+const ext = [path.join(dir, "..", "extension"), path.join(dir, "..", "..", "extension")]
+  .find((d) => fs.existsSync(path.join(d, "background.js")));
+if (!ext) {
+  console.error(`FAIL: could not locate extension/ from ${dir}`);
+  process.exit(1);
+}
 const background = fs.readFileSync(path.join(ext, "background.js"), "utf8");
 const content = fs.readFileSync(path.join(ext, "content.js"), "utf8");
 

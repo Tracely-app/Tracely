@@ -1,0 +1,290 @@
+/**
+ * The spend cap.
+ *
+ * These tests exist because the failure being prevented is asymmetric: a cap
+ * that is too tight produces a complaint, and a cap that does not hold
+ * produces a bill nobody notices until the statement. So every property here
+ * is stated as "what must remain true", and the two that matter most are the
+ * ones that sound least like features:
+ *
+ *   1. A plain `node server.js` with an empty .env meters NOTHING. That is how
+ *      the local-first install runs, and it must behave exactly as it did
+ *      before any of this existed.
+ *   2. An ADDRESS never carries a daily quota. Tracely's market is schools,
+ *      and a few hundred students behind one campus address are
+ *      indistinguishable from one attacker behind it.
+ *
+ * The database is redirected with TRACELY_DATA_DIR before any import that
+ * touches it, because the spend ledger is a real table and a test that bumped
+ * the developer's real counter would consume their actual daily budget.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+const DIR = mkdtempSync(path.join(tmpdir(), "tracely-spend-"));
+process.env.TRACELY_DATA_DIR = DIR;
+process.on("exit", () => { try { rmSync(DIR, { recursive: true, force: true }); } catch {} });
+
+const { costMicroCents, MODEL_TIERS, MODEL_PRICES } = await import("../lib/llm.js");
+const { spendState, recordSpend, dailyBudgetMicroCents } = await import("../lib/spend.js");
+const { callerId, isDailyQuotaKey, clientAddress, checkQuota, recordCheck,
+        sourceSearchQuota, recordSourceSearch } = await import("../lib/entitlement.js");
+const { FREE_DAILY_CHECKS, FREE_DAILY_SOURCE_SEARCHES } = await import("../shared/plan.js");
+const { SPEND, dailyBudgetUsd, keyedRateLimiter } = await import("../shared/guards.js");
+
+const HOSTED = { plan: "free", userId: null, enforced: true };
+const LOCAL = { plan: "free", userId: null, enforced: false };
+const PAID = { plan: "pro", userId: "u-paid", enforced: true };
+// A distinct day per test, so the shared ledger cannot leak between them.
+let dayN = 0;
+const nextAt = () => Date.UTC(2030, 0, 1 + dayN++, 12);
+
+// ── cost arithmetic ──────────────────────────────────────────────────────
+
+test("costMicroCents reproduces the prices measured against the real API", () => {
+  // 10-sentence check on the fast model, measured 2026-09-13 at 0.0641 cents.
+  const c = costMicroCents("gpt-5-nano", { input: 974, output: 1481, cached: 0 });
+  assert.equal((c / 1e6).toFixed(4), "0.0641");
+});
+
+test("a dated model id prices the same as its family", () => {
+  // OpenAI answers with "gpt-5-nano-2025-08-07", not "gpt-5-nano". Pricing the
+  // reply by the id it RETURNS is the whole point, so the suffix must resolve.
+  const bare = costMicroCents("gpt-5-nano", { input: 1000, output: 1000 });
+  const dated = costMicroCents("gpt-5-nano-2025-08-07", { input: 1000, output: 1000 });
+  assert.equal(dated, bare);
+});
+
+test("an unknown model prices as the MOST expensive tier, never as free", () => {
+  const unknown = costMicroCents("gpt-99-unreleased", { input: 1000, output: 1000 });
+  const top = costMicroCents(MODEL_TIERS.thorough, { input: 1000, output: 1000 });
+  assert.equal(unknown, top);
+  assert.ok(unknown > 0, "a model rename must not silently uncap spending");
+});
+
+test("the web_search call fee dominates a source search, and is not in the tokens", () => {
+  const tokensOnly = costMicroCents("gpt-5-nano", { input: 1000, output: 800 });
+  const withSearch = costMicroCents("gpt-5-nano", { input: 1000, output: 800 }, { webSearchCalls: 1 });
+  assert.ok(withSearch - tokensOnly === 1e6, "one search should add exactly 1 cent");
+  assert.ok(withSearch > tokensOnly * 20, "pricing sources off tokens alone under-counts them badly");
+});
+
+test("cached input is charged at the cached rate, not the fresh rate", () => {
+  const allFresh = costMicroCents("gpt-5-nano", { input: 1000, output: 0, cached: 0 });
+  const allCached = costMicroCents("gpt-5-nano", { input: 1000, output: 0, cached: 1000 });
+  assert.ok(allCached < allFresh);
+  assert.equal(allCached, Math.round(1000 * MODEL_PRICES["gpt-5-nano"].cached / 1e6 * 100 * 1e6));
+});
+
+test("junk usage cannot produce a negative cost", () => {
+  for (const u of [{}, { input: -5, output: -5 }, { input: NaN }, null]) {
+    assert.ok(costMicroCents("gpt-5-nano", u) >= 0);
+  }
+});
+
+// ── the global budget ────────────────────────────────────────────────────
+
+test("local mode has no budget at all", () => {
+  const s = spendState({ enforced: false, at: nextAt() });
+  assert.equal(s.enforced, false);
+  assert.equal(s.allowed, true);
+  assert.equal(s.budget, null);
+});
+
+test("TRACELY_DAILY_BUDGET_USD=0 is the documented way to turn the ceiling off", () => {
+  const s = spendState({ enforced: true, at: nextAt(), env: { TRACELY_DAILY_BUDGET_USD: "0" } });
+  assert.equal(s.enforced, false);
+  assert.equal(s.allowed, true);
+});
+
+test("a junk budget falls back to the default rather than to unlimited", () => {
+  for (const raw of ["", "abc", "-5", undefined]) {
+    assert.equal(dailyBudgetUsd({ TRACELY_DAILY_BUDGET_USD: raw }), SPEND.defaultDailyBudgetUsd);
+  }
+});
+
+test("spend accumulates and eventually refuses", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "0.01" }; // 1 cent
+  assert.equal(spendState({ at, env }).allowed, true);
+  // One source search is 1 cent, so exactly one exhausts a 1-cent day.
+  recordSpend({ model: "gpt-5-nano", usage: { input: 10, output: 10 }, webSearchCalls: 1, at });
+  const after = spendState({ at, env });
+  assert.equal(after.allowed, false, "the budget must refuse once spent");
+  assert.equal(after.remaining, 0);
+});
+
+test("recording spend in local mode is a no-op — an unmetered run cannot fill a budget", () => {
+  const at = nextAt();
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 1e6, output: 1e6 }, enforced: false, at });
+  assert.equal(spendState({ at, env: { TRACELY_DAILY_BUDGET_USD: "0.01" } }).spent, 0);
+});
+
+test("sources are shed BEFORE checks when the budget runs low", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "1" }; // 100 cents
+  // Spend past the shed threshold but not the whole budget.
+  const budget = dailyBudgetMicroCents(env);
+  const target = Math.ceil(budget * (1 - SPEND.shedSourcesAtRemainingPct) + 1);
+  recordSpend({ model: "gpt-5-nano", usage: { input: 0, output: 0 }, webSearchCalls: target / 1e6, at });
+  const s = spendState({ at, env });
+  assert.equal(s.allowed, true, "checking must survive");
+  assert.equal(s.sourcesAllowed, false, "the 16x-cost route goes first");
+});
+
+test("the day key rolls over, so yesterday's spend does not bind today", () => {
+  const env = { TRACELY_DAILY_BUDGET_USD: "0.01" };
+  const yesterday = Date.UTC(2031, 5, 1, 12);
+  const today = Date.UTC(2031, 5, 2, 12);
+  recordSpend({ model: "gpt-5-nano", usage: {}, webSearchCalls: 1, at: yesterday });
+  assert.equal(spendState({ at: yesterday, env }).allowed, false);
+  assert.equal(spendState({ at: today, env }).allowed, true);
+});
+
+// ── who a quota counts against ───────────────────────────────────────────
+
+test("callerId prefers a signed-in id over anything the client can send", () => {
+  const req = { headers: { "x-tracely-install": "spoofed" }, socket: { remoteAddress: "1.2.3.4" } };
+  assert.equal(callerId(req, { userId: "u-1" }), "user:u-1");
+});
+
+test("callerId falls to the install header, then to the address", () => {
+  const withInstall = { headers: { "x-tracely-install": "abc" }, socket: { remoteAddress: "1.2.3.4" } };
+  assert.match(callerId(withInstall, {}), /^install:[0-9a-f]{32}$/);
+  const addrOnly = { headers: {}, socket: { remoteAddress: "1.2.3.4" } };
+  assert.match(callerId(addrOnly, {}), /^addr:[0-9a-f]{32}$/);
+  assert.equal(callerId({ headers: {}, socket: {} }, {}), null);
+});
+
+test("a raw client identifier never appears in the caller id", () => {
+  const req = { headers: { "x-tracely-install": "install-secret-abc" }, socket: { remoteAddress: "9.9.9.9" } };
+  const id = callerId(req, {});
+  assert.ok(!id.includes("install-secret-abc"));
+  assert.ok(!callerId({ headers: {}, socket: { remoteAddress: "9.9.9.9" } }, {}).includes("9.9.9.9"));
+});
+
+test("an over-long install header is ignored rather than hashed into a key", () => {
+  const req = { headers: { "x-tracely-install": "x".repeat(5000) }, socket: { remoteAddress: "1.2.3.4" } };
+  assert.match(callerId(req, {}), /^addr:/);
+});
+
+test("X-Forwarded-For is IGNORED unless the operator declares trusted hops", () => {
+  const req = { headers: { "x-forwarded-for": "203.0.113.9" }, socket: { remoteAddress: "10.0.0.1" } };
+  delete process.env.TRACELY_TRUSTED_PROXY_HOPS;
+  assert.equal(clientAddress(req), "10.0.0.1", "a client-set header must not mint rate-limit keys");
+  process.env.TRACELY_TRUSTED_PROXY_HOPS = "1";
+  assert.equal(clientAddress(req), "203.0.113.9");
+  delete process.env.TRACELY_TRUSTED_PROXY_HOPS;
+});
+
+test("a spoofed forwarding chain cannot reach past the trusted hops", () => {
+  process.env.TRACELY_TRUSTED_PROXY_HOPS = "1";
+  // Client sends "1.1.1.1"; our own proxy appends the real peer.
+  const req = { headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.9" }, socket: { remoteAddress: "10.0.0.1" } };
+  assert.equal(clientAddress(req), "1.1.1.1");
+  delete process.env.TRACELY_TRUSTED_PROXY_HOPS;
+});
+
+// ── daily quotas ─────────────────────────────────────────────────────────
+
+test("LOCAL MODE METERS NOTHING — the property the local-first install depends on", () => {
+  const at = nextAt();
+  const id = "install:local";
+  assert.equal(checkQuota(LOCAL, id, at).limit, null);
+  assert.equal(sourceSearchQuota(LOCAL, id, at).limit, null);
+  for (let i = 0; i < FREE_DAILY_CHECKS + 50; i++) recordCheck(LOCAL, id, at);
+  assert.equal(checkQuota(LOCAL, id, at).allowed, true);
+});
+
+test("an ANONYMOUS hosted caller with an install id IS metered — the hole this closes", () => {
+  const at = nextAt();
+  const id = "install:anon-1";
+  const q = checkQuota(HOSTED, id, at);
+  assert.equal(q.limit, FREE_DAILY_CHECKS, "anonymous used to come back limit:null");
+  assert.equal(q.allowed, true);
+});
+
+test("an ADDRESS-ONLY caller gets NO daily quota — a whole school shares one", () => {
+  const at = nextAt();
+  const id = "addr:deadbeefdeadbeefdeadbeefdeadbeef";
+  assert.equal(isDailyQuotaKey(id), false);
+  assert.equal(checkQuota(HOSTED, id, at).limit, null);
+  assert.equal(sourceSearchQuota(HOSTED, id, at).limit, null);
+});
+
+test("the check quota actually runs out, and counts before the call", () => {
+  const at = nextAt();
+  const id = "install:heavy";
+  for (let i = 0; i < FREE_DAILY_CHECKS; i++) recordCheck(HOSTED, id, at);
+  const q = checkQuota(HOSTED, id, at);
+  assert.equal(q.used, FREE_DAILY_CHECKS);
+  assert.equal(q.allowed, false);
+});
+
+test("a paid plan is not check-metered — it is bounded by the global budget", () => {
+  const at = nextAt();
+  assert.equal(checkQuota(PAID, "user:u-paid", at).limit, null);
+  assert.equal(sourceSearchQuota(PAID, "user:u-paid", at).limit, null);
+});
+
+test("anonymous source searches are now metered at the free limit", () => {
+  const at = nextAt();
+  const id = "install:anon-sources";
+  assert.equal(sourceSearchQuota(HOSTED, id, at).limit, FREE_DAILY_SOURCE_SEARCHES);
+  for (let i = 0; i < FREE_DAILY_SOURCE_SEARCHES; i++) recordSourceSearch(HOSTED, id, at);
+  assert.equal(sourceSearchQuota(HOSTED, id, at).allowed, false);
+});
+
+test("checks and source searches are counted separately", () => {
+  const at = nextAt();
+  const id = "install:mixed";
+  for (let i = 0; i < FREE_DAILY_SOURCE_SEARCHES; i++) recordSourceSearch(HOSTED, id, at);
+  assert.equal(sourceSearchQuota(HOSTED, id, at).allowed, false);
+  assert.equal(checkQuota(HOSTED, id, at).allowed, true, "using up searches must not block checking");
+});
+
+// ── rate limiting ────────────────────────────────────────────────────────
+
+test("the rate limiter admits up to the limit, then refuses", () => {
+  const rl = keyedRateLimiter(3, 60_000);
+  for (let i = 0; i < 3; i++) { assert.equal(rl.ok("k"), true); rl.stamp("k"); }
+  assert.equal(rl.ok("k"), false);
+  assert.equal(rl.ok("other"), true, "keys are independent");
+});
+
+test("the rate limiter's key map is bounded against a rotating attacker", () => {
+  const rl = keyedRateLimiter(5, 60_000, 10);
+  for (let i = 0; i < 500; i++) rl.stamp(`k${i}`);
+  assert.ok(rl.size() <= 10, `map grew to ${rl.size()}`);
+});
+
+// ── the header has to survive the browser ────────────────────────────────
+
+test("X-Tracely-Install is allowed through the CORS preflight", async () => {
+  // The extension sends this header; if Access-Control-Allow-Headers does not
+  // list it the browser blocks the preflight and it never arrives. The server
+  // would then key every extension user on the address rung, which carries no
+  // daily quota by design — so the quota layer would be silently dead. Same
+  // failure shape as /api/flow missing from background.js's API_PATHS.
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const pathMod = await import("node:path");
+  const here = pathMod.dirname(fileURLToPath(import.meta.url));
+  const server = readFileSync(pathMod.join(here, "..", "server.js"), "utf8");
+  const m = server.match(/"Access-Control-Allow-Headers":\s*"([^"]+)"/);
+  assert.ok(m, "Access-Control-Allow-Headers not found in server.js");
+  const allowed = m[1].split(",").map((h) => h.trim().toLowerCase());
+  assert.ok(allowed.includes("x-tracely-install"), `preflight allows only: ${m[1]}`);
+
+  // And the extension must actually send it, or the quota layer is dead from
+  // the other end.
+  const ext = [pathMod.join(here, "..", "extension"), pathMod.join(here, "..", "..", "extension")]
+    .map((d) => pathMod.join(d, "background.js"))
+    .find((f) => { try { readFileSync(f); return true; } catch { return false; } });
+  assert.ok(ext, "could not locate extension/background.js");
+  assert.match(readFileSync(ext, "utf8"), /X-Tracely-Install/,
+    "background.js must send the header the server meters on");
+});
