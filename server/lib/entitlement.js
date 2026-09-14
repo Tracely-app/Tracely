@@ -25,6 +25,7 @@ import {
   planFromMetadata,
   usageDay,
   dailySourceSearchLimit,
+  dailyCheckLimit,
   withinDailyLimit,
 } from "../shared/plan.js";
 
@@ -127,24 +128,124 @@ export function forgetCachedPlans() {
 // no account to meter and Sam running it with no sign-in must be unaffected.
 
 const SOURCE_SEARCH_KIND = "source_search";
+const CHECK_KIND = "check";
+
+/**
+ * The identity a quota counts against, as a namespaced string.
+ *
+ * Preference order, and the reason for each rung:
+ *
+ *  1. `user:<supabase id>` — the only identity we control. A signed-in caller
+ *     is metered exactly as before this function existed.
+ *  2. `install:<hash>` — an id the extension generates once and stores in
+ *     chrome.storage.local, sent as X-Tracely-Install. CLIENT-SUPPLIED, so a
+ *     determined attacker rotates it freely; it is here because it correctly
+ *     separates honest users who share an address, which is the common case.
+ *     Hashed so a log line never carries a raw client identifier.
+ *  3. `addr:<hash>` — last resort, and deliberately NOT used for a daily
+ *     quota anywhere. See the note in shared/guards.js: a few hundred real
+ *     students behind one school or CGNAT address are indistinguishable from
+ *     one attacker behind it, so an address-keyed DAILY cap either locks out
+ *     the school or does nothing. It is a rate-limit key only.
+ *
+ * Returns null when there is nothing to key on at all, which means "do not
+ * meter" — the same answer a local run gets.
+ */
+export function callerId(req, ent) {
+  if (ent?.userId) return `user:${ent.userId}`;
+  const install = headerOf(req, "x-tracely-install");
+  if (install) return `install:${shortHash(install)}`;
+  const addr = clientAddress(req);
+  return addr ? `addr:${shortHash(addr)}` : null;
+}
+
+/** Whether this caller id can carry a DAILY quota (see rung 3 above). */
+export function isDailyQuotaKey(id) {
+  return typeof id === "string" && !id.startsWith("addr:");
+}
+
+function headerOf(req, name) {
+  const v = req?.headers?.[name];
+  const s = Array.isArray(v) ? v[0] : v;
+  const trimmed = String(s ?? "").trim();
+  // Bounded: a header is attacker-controlled, and an unbounded one would be
+  // hashed into a map key.
+  return trimmed && trimmed.length <= 200 ? trimmed : "";
+}
+
+/**
+ * The client address, honouring X-Forwarded-For ONLY when the operator says a
+ * proxy is in front of us.
+ *
+ * TRACELY_TRUSTED_PROXY_HOPS is the number of proxies WE control, counted from
+ * the right of the header. Without it the header is ignored entirely, because
+ * X-Forwarded-For is set by the client on a direct connection — trusting it
+ * unconditionally would let anyone mint a fresh rate-limit key per request,
+ * which is worse than having no key at all.
+ */
+export function clientAddress(req) {
+  const hops = Number(process.env.TRACELY_TRUSTED_PROXY_HOPS);
+  if (Number.isInteger(hops) && hops > 0) {
+    const chain = headerOf(req, "x-forwarded-for").split(",").map((p) => p.trim()).filter(Boolean);
+    // The rightmost `hops` entries were written by our own proxies; the one
+    // just left of them is the furthest address we can still believe.
+    const idx = chain.length - hops - 1;
+    if (idx >= 0) return chain[idx];
+    if (chain.length) return chain[0];
+  }
+  return req?.socket?.remoteAddress || "";
+}
+
+function shortHash(v) {
+  return createHash("sha256").update(String(v)).digest("hex").slice(0, 32);
+}
 
 /**
  * Where an account stands against its daily source-search quota.
  * `limit: null` means unmetered — a paid plan, an anonymous caller, or a
  * server with no Supabase configured.
  */
-export function sourceSearchQuota(ent, at = Date.now()) {
-  if (!ent?.enforced || !ent.userId) return { limit: null, used: 0, allowed: true, day: usageDay(at) };
-  const limit = dailySourceSearchLimit(ent.plan);
+function dailyQuota(ent, id, kind, limitFor, at) {
   const day = usageDay(at);
+  // Unenforced (no Supabase configured) is the local run: meter nothing, the
+  // same answer this server gave before entitlement existed.
+  if (!ent?.enforced) return { limit: null, used: 0, allowed: true, day };
+  // No key, or an address-only key: nothing that can carry a daily quota
+  // without locking out a shared school address. The global budget in
+  // lib/spend.js is what bounds these callers.
+  if (!id || !isDailyQuotaKey(id)) return { limit: null, used: 0, allowed: true, day };
+  const limit = limitFor(ent.plan);
   if (limit === null) return { limit: null, used: 0, allowed: true, day };
-  const used = usageCount(ent.userId, day, SOURCE_SEARCH_KIND);
+  const used = usageCount(id, day, kind);
   return { limit, used, allowed: withinDailyLimit(used, limit), day };
 }
 
+/**
+ * Where a caller stands against its daily source-search quota.
+ *
+ * `id` comes from callerId(req, ent). It used to be ent.userId, which made
+ * every anonymous caller unmetered — and since the extension needs no
+ * sign-in, anonymous is the DEFAULT path, so on a hosted server that meant
+ * unlimited 1-cent web searches to anyone with curl.
+ */
+export function sourceSearchQuota(ent, id, at = Date.now()) {
+  return dailyQuota(ent, id, SOURCE_SEARCH_KIND, dailySourceSearchLimit, at);
+}
+
 /** Stamped BEFORE the search, like every other counter in this codebase. */
-export function recordSourceSearch(ent, at = Date.now()) {
-  if (!ent?.enforced || !ent.userId) return 0;
-  if (dailySourceSearchLimit(ent.plan) === null) return 0;
-  return usageBump(ent.userId, usageDay(at), SOURCE_SEARCH_KIND);
+export function recordSourceSearch(ent, id, at = Date.now()) {
+  const q = sourceSearchQuota(ent, id, at);
+  if (q.limit === null) return 0;
+  return usageBump(id, q.day, SOURCE_SEARCH_KIND);
+}
+
+/** The same, for checks — the hot path, one per 10s while someone types. */
+export function checkQuota(ent, id, at = Date.now()) {
+  return dailyQuota(ent, id, CHECK_KIND, dailyCheckLimit, at);
+}
+
+export function recordCheck(ent, id, at = Date.now()) {
+  const q = checkQuota(ent, id, at);
+  if (q.limit === null) return 0;
+  return usageBump(id, q.day, CHECK_KIND);
 }

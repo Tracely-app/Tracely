@@ -309,10 +309,49 @@ async function fetchEntitlement({ force = false } = {}) {
 // The access token rides along when there is one. The server is what reads it
 // and decides which model the call actually runs at — the `model` in the body
 // is a request, not a grant.
+/* A stable per-install id, sent as X-Tracely-Install on every relayed call.
+ *
+ * The server meters free usage per caller, and a signed-in caller is metered by
+ * its Supabase id. Most users never sign in — that is a deliberate product
+ * promise — so without this header they all collapse onto the client ADDRESS,
+ * which the server refuses to put a daily quota on: a few hundred students
+ * behind one school address are indistinguishable from one attacker behind it.
+ * This is what lets an honest user on a shared address get their own quota.
+ *
+ * It is NOT a credential and not a defence: it is client-generated, so anyone
+ * can rotate it. The server's global daily budget is what bounds a determined
+ * caller. This separates honest users from each other, which is the common
+ * case and the one worth getting right.
+ *
+ * Random per install, never derived from anything about the user or machine,
+ * and it identifies a browser profile rather than a person. */
+let installIdPromise = null;
+function installId() {
+  if (!installIdPromise) {
+    installIdPromise = (async () => {
+      try {
+        const got = await chrome.storage.local.get({ installId: "" });
+        if (got.installId) return got.installId;
+        const fresh = crypto.randomUUID();
+        await chrome.storage.local.set({ installId: fresh });
+        return fresh;
+      } catch {
+        // Storage unavailable: go without. The server falls back to the
+        // address rung, which still rate-limits — it just cannot give this
+        // caller a daily quota of its own.
+        return "";
+      }
+    })();
+  }
+  return installIdPromise;
+}
+
 async function relay(path, body, { token = "", retried = false } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
+  const install = await installId();
+  if (install) headers["X-Tracely-Install"] = install;
   const res = await fetch(`${SERVER}${path}`, body === undefined
     ? (token ? { headers } : undefined)
     : { method: "POST", headers, body: JSON.stringify(body) });

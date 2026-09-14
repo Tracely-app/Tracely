@@ -34,6 +34,49 @@ export const MODEL_TIERS = {
   balanced: "gpt-5.4",
   thorough: "gpt-6-astra",
 };
+
+/* The same prices as DATA, because the spend cap has to do arithmetic with
+ * them and a number in a comment cannot be summed. Dollars per 1M tokens.
+ *
+ * `search` is the part that surprises people: OpenAI bills the built-in
+ * web_search tool PER CALL ($10 per 1000) on top of tokens, so one source
+ * search costs about as much as 16 fact checks. Measured 2026-09-13.
+ */
+export const MODEL_PRICES = {
+  "gpt-5-nano":  { input: 0.05, cached: 0.005, output: 0.40 },
+  "gpt-5.4":     { input: 2.50, cached: 0.25,  output: 15.00 },
+  "gpt-6-astra": { input: 10.00, cached: 1.00, output: 50.00 },
+};
+export const WEB_SEARCH_CALL_DOLLARS = 0.01;
+
+/* Cost in MICRO-CENTS (1e-6 of a cent), as an integer.
+ *
+ * Integer micro-cents rather than float cents because the running total is a
+ * SQLite INTEGER column that gets incremented thousands of times a day, and
+ * accumulating float cents drifts. At this resolution the cheapest thing we
+ * can bill — one cached input token on gpt-5-nano — is still 5 micro-cents, so
+ * nothing rounds to zero.
+ *
+ * An unknown model is priced as the MOST expensive tier, not as zero. Getting
+ * this wrong in the other direction means a model rename silently uncaps
+ * spending, which is the failure this module exists to prevent.
+ */
+export function costMicroCents(model, usage, { webSearchCalls = 0 } = {}) {
+  const p = MODEL_PRICES[model]
+    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // gpt-5-nano-2025-08-07
+    ?? MODEL_PRICES[MODEL_TIERS.thorough];
+  // Math.max(0, NaN) is NaN, not 0 — so a non-finite token count used to
+  // produce a NaN cost, which usageAdd then floored to zero. A malformed usage
+  // block must cost SOMETHING or it is a free call.
+  const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
+  const cached = n(usage?.cached);
+  const fresh = n(n(usage?.input) - cached);
+  const out = n(usage?.output);
+  const dollars =
+    (fresh * p.input + cached * p.cached + out * p.output) / 1e6 +
+    webSearchCalls * WEB_SEARCH_CALL_DOLLARS;
+  return Math.max(0, Math.round(dollars * 100 * 1e6));
+}
 export const ALLOWED_MODELS = new Set(Object.values(MODEL_TIERS));
 // Cost mandate: the cheap model unless something explicitly asks otherwise.
 export const DEFAULT_MODEL = MODEL_TIERS.fast;

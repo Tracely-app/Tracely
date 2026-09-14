@@ -9,11 +9,13 @@ import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
-import { planForRequest, sourceSearchQuota, recordSourceSearch, forgetCachedPlans } from "./lib/entitlement.js";
+import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck,
+         callerId, entitlementConfigured, forgetCachedPlans } from "./lib/entitlement.js";
+import { spendState, recordSpend, spendSummary } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
 import { clampModel } from "./shared/plan.js";
 import { MODEL_TIERS } from "./lib/llm.js";
-import { GUARDS, rollingCounter } from "./shared/guards.js";
+import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -135,6 +137,26 @@ function originAllowed(origin) {
 // server with no Origin, and listing it would also hand it to every page the
 // extension surface can reach.
 const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement"]);
+
+/* Every route that can reach a model, and therefore spend money.
+ *
+ * Gated CENTRALLY rather than route by route, because the ten routes outside
+ * EXTENSION_API were entirely unmetered and nobody noticed: routeAllowedForOrigin
+ * only blocks cross-ORIGIN callers, and a curl request sends no Origin header
+ * at all, so "app-private" meant private from browsers and open to everyone
+ * else. A central set also means the fifteenth route is covered by existing
+ * code rather than by whoever adds it remembering to.
+ *
+ * `sources` is called out separately because OpenAI bills web_search per call
+ * on top of tokens — about 16x a check — so it has its own rate limit and is
+ * shed first when the daily budget runs low.
+ */
+const PAID_ROUTES = new Set([
+  "/api/check", "/api/flow", "/api/sources", "/api/detect-claims", "/api/evidence",
+  "/api/critique", "/api/grade", "/api/structure", "/api/tracer", "/api/compare-source",
+  "/api/watch/critique", "/api/watch/fix", "/api/cite-url",
+]);
+const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
   if (!origin || SELF_ORIGINS.has(origin)) return true;
   if (!pathname.startsWith("/api/")) return true; // static files are harmless
@@ -154,7 +176,13 @@ function corsHeaders(req) {
       // Authorization is not a CORS-safelisted request header: without it here
       // the preflight fails and the extension's signed-in calls never leave
       // the browser — silently, as a network error rather than a 401.
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      // X-Tracely-Install must be listed or the browser blocks the preflight
+      // and the header never arrives — which would silently collapse every
+      // extension user onto the address rung, where the server deliberately
+      // refuses to apply a daily quota. Exactly the failure shape as /api/flow
+      // missing from background.js's API_PATHS: works, does nothing, says
+      // nothing. test/spend.test.js pins this list against the header.
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Tracely-Install",
       "Access-Control-Max-Age": "600",
       Vary: "Origin",
     };
@@ -463,6 +491,61 @@ async function handleStripeWebhook(req, res) {
   json(res, 200, { received: true, outcome });
 }
 
+/* ── the spend gate ─────────────────────────────────────────────────────
+   One function in front of every route that can reach a model — all fourteen,
+   not just the four the extension uses. The other ten were entirely unmetered,
+   and a route nobody calls is still a route anybody can call.
+
+   Three layers, because no single one survives both failure modes:
+
+   1. GLOBAL DAILY BUDGET (lib/spend.js) — the only thing that bounds a
+      determined attacker, because it does not depend on identity at all. When
+      it runs low, sources are shed before checks: a source search costs ~16x
+      a check, so dropping it buys 16x the runway.
+   2. PER-CALLER DAILY QUOTA — bounds accidents and casual overuse, which is
+      most of the real risk. Keyed on a signed-in id or a client-supplied
+      install id; an address alone cannot carry a daily quota without locking
+      out a whole school, so it does not get one.
+   3. PER-CALLER RATE LIMIT — smooths bursts, in memory, keyed on the caller
+      (including the address rung, which is safe for a per-minute window even
+      when it is not safe for a day).
+
+   Stamped BEFORE the call on the counters that gate admission, and the actual
+   COST is recorded after, because cost is not knowable until the usage comes
+   back. The budget can therefore overshoot by the calls in flight when it
+   trips — bounded by layer 3 and, at fast-model prices, a fraction of a cent.
+
+   `enforced: false` (no Supabase configured) disables all three. A plain
+   `node server.js` with an empty .env behaves exactly as it did before any of
+   this existed, which is how the local-first install runs. */
+const checkRate = keyedRateLimiter(SPEND.callerChecksPerMinute);
+const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
+
+async function spendGate(req, { kind = "check" } = {}) {
+  const ent = await planForRequest(req);
+  const id = callerId(req, ent);
+  const budget = spendState({ enforced: ent.enforced });
+
+  if (!budget.allowed) {
+    // Deliberately not "try again later" — it resets at midnight, and a
+    // string that implies minutes when it means hours is a lie users notice.
+    throw new CheckError("budget", "Tracely has hit its daily usage limit. It resets at midnight.", { status: 503 });
+  }
+  if (kind === "sources" && !budget.sourcesAllowed) {
+    throw new CheckError("budget", "Source search is paused for today to keep fact-checking available. Checking still works.", { status: 503 });
+  }
+
+  if (ent.enforced && id) {
+    const rate = kind === "sources" ? sourceRate : checkRate;
+    if (!rate.ok(id)) {
+      throw new CheckError("rate_limit", "Slow down a moment — too many requests in the last minute.", { status: 429, retryAfter: 60 });
+    }
+    rate.stamp(id);
+  }
+
+  return { ent, callerId: id, budget };
+}
+
 function requireKey() {
   if (!hasApiKey() && !MOCK) {
     throw new CheckError("no_key", "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env", { status: 503 });
@@ -501,6 +584,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // One gate in front of everything that can spend. Routes below reuse
+    // `gate.ent` instead of resolving the plan again — planForRequest caches
+    // for 60s, so a second call would be cheap, but one resolution per request
+    // is one answer per request.
+    let gate = null;
+    if (PAID_ROUTES.has(url.pathname)) {
+      gate = await spendGate(req, { kind: SOURCE_ROUTES.has(url.pathname) ? "sources" : "check" });
+    }
+
     const staticHit = (req.method === "GET" && (resolveUiPage(url.pathname) ?? STATIC_FILES[url.pathname] ?? resolveStatic(url.pathname))) || null;
     if (staticHit) {
       const { file, type } = staticHit;
@@ -518,7 +610,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/status") {
       loadEnvFile(); // hot-pickup: user just added or corrected the key in .env
-      json(res, 200, { hasKey: hasApiKey() || MOCK, mock: MOCK, docsBridge: bridgeConfigured() }, cors);
+      // `budget` is here so the operator can see the day's spend BEFORE it
+      // trips, rather than learning about it from a user's 503. It reports
+      // percentages and dollars, never a caller's identity.
+      json(res, 200, {
+        hasKey: hasApiKey() || MOCK, mock: MOCK, docsBridge: bridgeConfigured(),
+        budget: spendSummary({ enforced: entitlementConfigured() }),
+      }, cors);
       return;
     }
 
@@ -577,11 +675,21 @@ const server = http.createServer(async (req, res) => {
 
       const started = Date.now();
       // Tiering owns the model — the widget's dropdown only applies in
-      // "uniform" strategy (cost mandate: economy = Haiku everywhere) — and
-      // the plan owns the ceiling above that.
-      const ent = await planForRequest(req);
+      // "uniform" strategy (cost mandate: economy = the cheap tier everywhere)
+      // — and the plan owns the ceiling above that.
+      const { ent, callerId: who } = gate;
+      const quota = checkQuota(ent, who);
+      if (!quota.allowed) {
+        throw new CheckError(
+          "plan_limit",
+          `Free accounts get ${quota.limit} checks a day, and today's are used. It resets at midnight — or upgrade for unlimited checking.`,
+          { status: 429 },
+        );
+      }
+      recordCheck(ent, who); // before the call, not after
       const modelUsed = allowedModel(ent, pickModel("check"));
       const result = await runFactCheck({ text, sentences, model: modelUsed, effort, mock: MOCK });
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -608,11 +716,12 @@ const server = http.createServer(async (req, res) => {
         throw new CheckError("rate_limit", "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       }
 
-      // The free tier's daily quota, on top of the cost guard above. Only
-      // identified free accounts are metered — an anonymous local caller is
-      // counted by nothing, exactly as before entitlement existed.
-      const ent = await planForRequest(req);
-      const quota = sourceSearchQuota(ent);
+      // The free tier's daily quota, on top of the cost guard above and the
+      // global budget in spendGate. Keyed on callerId rather than ent.userId,
+      // which is what used to leave every anonymous caller unmetered — and
+      // anonymous is the DEFAULT, since the extension needs no sign-in.
+      const { ent, callerId: who } = gate;
+      const quota = sourceSearchQuota(ent, who);
       if (!quota.allowed) {
         throw new CheckError(
           "plan_limit",
@@ -620,12 +729,16 @@ const server = http.createServer(async (req, res) => {
           { status: 429 },
         );
       }
-      recordSourceSearch(ent); // before the call, not after
+      recordSourceSearch(ent, who); // before the call, not after
 
       webSearchCounter.stamp(); // before the call, not after
       const started = Date.now();
       const modelUsed = allowedModel(ent, pickModel("sources"));
       const result = await findSources({ claim, correction, context, model: modelUsed, mock: MOCK });
+      // webSearchCalls: 1 — the tool fee is most of this route's cost and is
+      // invisible in the token usage, so pricing it off tokens alone would
+      // under-count the expensive route by ~16x.
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: 1, enforced: ent.enforced });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -644,9 +757,10 @@ const server = http.createServer(async (req, res) => {
       const started = Date.now();
       // The only route that ever honoured the client's model directly, which
       // makes it the one the clamp matters most on.
-      const ent = await planForRequest(req);
+      const { ent } = gate;
       const modelUsed = allowedModel(ent, model);
       const result = await runFlowCheck({ text, model: modelUsed, mock: MOCK });
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }

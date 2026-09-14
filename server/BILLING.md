@@ -24,6 +24,10 @@ server picks up changes without a restart).
 | `STRIPE_PRICE_STUDENT` | webhook | The Stripe price id sold as the Student plan. |
 | `STRIPE_PRICE_PRO` | webhook | The Stripe price id sold as the Pro plan. |
 
+| `TRACELY_DAILY_BUDGET_USD` | the spend cap | Dollars of OpenAI spend allowed per day. Defaults to 10. An explicit `0` turns the ceiling off; an EMPTY value does not (it falls back to the default). |
+| `TRACELY_TRUSTED_PROXY_HOPS` | the spend cap | How many proxies you control sit in front of this server. Unset = ignore `X-Forwarded-For` entirely, which is right for a direct connection. |
+| `TRACELY_DATA_DIR` | storage | Where `tracely.db` lives. Defaults to `./data`. |
+
 The three groups are independent. Supabase alone gives you plan enforcement
 with plans set by hand in the Supabase dashboard; add the Stripe variables when
 checkout should set them.
@@ -180,3 +184,63 @@ knows nothing about that customer. Recording it would 200 the only event that
 mattered and Stripe would never send it again: the customer pays and is never
 upgraded. The 500 buys Stripe's retry schedule (~3 days of backoff), by which
 time the checkout event has landed and the customer → user lookup resolves.
+
+## The spend cap
+
+Three layers, because no single one survives both failure modes — an attacker
+hunting free tokens, and a real student who must not be locked out.
+
+**1. A global daily budget (`lib/spend.js`).** The only layer that bounds a
+determined caller, because it does not depend on identity at all. Every model
+response carries its token usage; `costMicroCents` prices it from
+`MODEL_PRICES` in `lib/llm.js` and the total accumulates in `entitlement_usage`
+under a synthetic `__global__` account. SQLite-backed rather than in memory,
+because "restart the server to reset the budget" would be a bypass.
+
+When the day runs low, **sources are shed before checks.** OpenAI bills the
+`web_search` tool per call ($10/1000) on top of tokens, so one source search
+costs about as much as 16 fact checks; dropping it buys 16x the runway for the
+feature people actually notice missing. Below 20% remaining, `/api/sources`
+answers 503 and checking continues. At 0%, everything answers 503.
+
+**2. Per-caller daily quotas.** Free callers get `FREE_DAILY_CHECKS` (400) and
+`FREE_DAILY_SOURCE_SEARCHES` (5) a day. 400 checks is about an hour of
+continuous typing and costs at most ~34 cents; far less in practice, because
+the server caches on a hash of the input, so re-checking unchanged text is
+free. Paid plans are not quota-metered — they are bounded by the global budget.
+
+**3. Per-caller rate limits.** 20 checks and 4 source searches a minute, in
+memory. The client fires at most 6 checks a minute, so this never throttles
+honest use; it exists to stop a burst.
+
+### What identity a quota counts against
+
+`callerId(req, ent)` in `lib/entitlement.js`, in preference order:
+
+1. `user:<supabase id>` — the only identity we control.
+2. `install:<hash>` — an id the extension generates once and sends as
+   `X-Tracely-Install`. Client-supplied, so a determined attacker rotates it
+   freely; it is here because it correctly separates honest users who share an
+   address, which is the common case.
+3. `addr:<hash>` — a rate-limit key ONLY.
+
+**An address never carries a daily quota, and that is deliberate.** Tracely's
+market is schools. A few hundred real students behind one campus or CGNAT
+address are indistinguishable from one attacker behind it, so an
+address-keyed daily cap either locks out the school or does nothing. That
+option was rejected, not overlooked.
+
+### What an attacker can still do
+
+Rotate `X-Tracely-Install` and consume the whole day's global budget. There is
+no fix for that which does not also break the no-sign-in promise, which is why
+the budget exists and why it should be set to a number you can afford to lose
+in a day. Watch `budget` on `GET /api/status` — it reports dollars spent and
+percentage remaining, so you see it coming rather than hearing about it from a
+user's 503.
+
+### Local mode is untouched
+
+With no `SUPABASE_URL`, `enforced` is false and all three layers are off —
+nothing metered, nothing clamped, the top model reachable. That is how the
+local-first install runs, and `test/spend.test.js` has a test named for it.
