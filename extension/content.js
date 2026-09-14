@@ -881,15 +881,20 @@
       return bars;
     }
 
-    /* Bars live in OUR OWN fixed layer (v2.6 mounted overlays inside kix's
-       tile containers and real Docs rendered nothing — never inject into DOM
-       an app owns), but they are GLUED to the document by a per-frame loop:
-       SVG-mode bars re-read their annotation rect's live position every
-       frame; canvas-fallback bars re-read the tile rect. Scrolling is
-       pixel-locked with no locate round-trip, and kix can't wipe the layer. */
+    /* Bars are carried by the COMPOSITOR wherever that is possible, and glued
+       to the document by a per-frame loop only where it is not:
+         - SVG mode  → a <rect> beside Docs' own annotation rect (in-tree);
+         - canvas fallback → an absolutely-positioned div inside the kix PAGE
+           the text is painted on (page-anchored, see ensurePageLayer);
+         - anything unresolvable → a position:fixed div in marksLayer, glued
+           every frame. Laggy, but it is never absent.
+       The v2.6 lesson ("never inject into DOM an app owns") was about kix's
+       TILE divs, which kix wipes. Both exceptions above are measured, not
+       assumed — see the note on ensurePageLayer. */
     let marksLayer = null;
-    let docsBars = []; // [{hash, el, tile, rx, ry, w, size, fallLeft, fallTop, inSvg}]
+    let docsBars = []; // [{hash, el, tile, rx, ry, w, size, fallLeft, fallTop, inSvg, inPage}]
     const tileState = new Map(); // tileId → {canvas, sx, sy, shiftX, shiftY}
+    const pageLayers = new Map(); // kix page el → our overlay div inside it
     let glueRaf = 0;
     let docsScroller = null;
     let selfMutating = false;      // our own annotation-SVG writes, for the observer to skip
@@ -908,6 +913,60 @@
       document.documentElement.appendChild(marksLayer);
     }
 
+    /* ── the canvas fallback's compositor anchor ───────────────────────────
+       One overlay div per kix page, holding that page's bars. Measured on
+       real Docs (signed-out doc, so the annotation layer was absent and this
+       WAS the live path) rather than assumed:
+
+       - `div.kix-page-paginated` carries an inline
+         `position:absolute; top:…; left:…; z-index:N; width:816px; height:1056px`,
+         so it is the canvas tile's offsetParent — canvas.offsetLeft/offsetTop
+         are page-local CSS px with no transform anywhere in the chain, which
+         is exactly the space the hook's canvas-relative rects convert into.
+       - kix does NOT sanitize children out of it: zero removals across two
+         documents, every scroll, every repaint, and page recycling. (The nodes
+         kix wipes are the TILE divs; this is the page above them.)
+       - a div in there is rigidly compositor-locked to the text — a probe bar
+         held its offset to the page to the pixel across every scroll position,
+         with no script in the loop. That is the whole point of this path.
+       - the page is overflow:visible, so it does NOT clip: the overlay carries
+         overflow:hidden itself, which is what keeps a bar off the gutter
+         between pages (the fixed layer never managed that).
+       - the page sets a z-index (its page number), making it a stacking
+         context, and the canvas inside it carries that same z-index. So the
+         overlay needs to outrank the canvas — and a max-int z-index is safe
+         precisely BECAUSE the page is a stacking context: it cannot escape the
+         page to cover Docs' menus. */
+    function ensurePageLayer(page) {
+      let layer = pageLayers.get(page);
+      if (layer && layer.isConnected && layer.parentNode === page) return layer;
+      layer = document.createElement("div");
+      // Same marker the annotation observer uses to recognize our own writes —
+      // a differently-tagged node would read as an external mutation and spin
+      // a re-locate loop.
+      layer.setAttribute("data-tracely-bar", "");
+      layer.setAttribute("data-tracely-page-layer", "");
+      layer.setAttribute("aria-hidden", "true");
+      Object.assign(layer.style, {
+        position: "absolute", left: "0", top: "0", width: "100%", height: "100%",
+        overflow: "hidden", pointerEvents: "none", zIndex: "2147483647",
+      });
+      page.appendChild(layer);
+      pageLayers.set(page, layer);
+      return layer;
+    }
+
+    // The kix page a tile canvas paints onto, or null when this document isn't
+    // shaped the way the measurements above describe (pageless view, a future
+    // re-layout) — callers then fall through to the glued layer.
+    function pageOf(canvas) {
+      const page = canvas?.closest?.(".kix-page-paginated");
+      // offsetParent identity is the load-bearing part: it is what makes
+      // canvas.offsetLeft/offsetTop page-local, and it is false the moment
+      // kix stops positioning pages the way we measured.
+      return page && canvas.offsetParent === page ? page : null;
+    }
+
     function clearDocsMarks() {
       // Kill any pending glue frame FIRST: draw paths call glueFrame()
       // synchronously right after this, and an orphaned pending handle would
@@ -915,14 +974,45 @@
       if (glueRaf) { cancelAnimationFrame(glueRaf); glueRaf = 0; }
       selfMutating = true;
       if (marksLayer) marksLayer.textContent = "";
-      // In-tree bars live inside Docs' annotation SVGs — remove them there,
-      // plus a sweep for strays whose tile was recycled out from under us.
+      // In-tree bars live inside Docs' annotation SVGs and page-anchored bars
+      // inside kix's pages — remove them there, plus a sweep for strays whose
+      // tile was recycled out from under us.
       for (const b of docsBars) if (b.inSvg) b.el.remove();
+      pageObs.disconnect();
+      for (const layer of pageLayers.values()) layer.remove();
+      pageLayers.clear();
       for (const stray of document.querySelectorAll("[data-tracely-bar]")) stray.remove();
       docsBars = [];
       tileState.clear();
       queueMicrotask(() => { selfMutating = false; });
     }
+
+    /* Page recycling — the one way a compositor-carried bar can go wrong.
+       kix keeps a small POOL of page elements and reuses them for other pages
+       as you scroll: the very elements a probe was injected into at document
+       offsets 5px and 1071px turned up later at 33051px and 31985px, overlay
+       still attached. A bar left on a recycled page would underline whatever
+       text now occupies it.
+
+       kix positions both the page and its tile canvas through their inline
+       style attributes, so a `style`-filtered observer on exactly the nodes we
+       anchored to fires on exactly that event and little else — the same trick
+       the annotation observer plays on the SVG path, and for the same reason:
+       observer callbacks run BEFORE the next paint, so a stale bar is hidden
+       before a wrong frame can reach the screen. Re-matching is left to the
+       usual locate pass; this only has to stop the lie. */
+    const pageObs = new MutationObserver(() => {
+      let stale = false;
+      for (const b of docsBars) {
+        if (!b.inPage || b.el.style.display === "none") continue;
+        const moved = b.page.offsetTop !== b.pageTop || b.page.offsetLeft !== b.pageLeft ||
+          b.canvas.offsetTop !== b.canvasTop || b.canvas.offsetLeft !== b.canvasLeft;
+        if (!moved) continue;
+        b.el.style.display = "none";
+        stale = true;
+      }
+      if (stale) fastDocsMarks(); // this page now paints other text — re-match NOW
+    });
 
     function glueFrame() {
       glueRaf = 0;
@@ -943,7 +1033,9 @@
       }
       if (docsScroller) clip = docsScroller.getBoundingClientRect();
       for (const b of docsBars) {
-        if (b.inSvg) continue; // compositor-carried: no per-frame work, clipped natively
+        // Compositor-carried: no per-frame work, clipped natively (in-tree by
+        // the editor, page-anchored by its own overflow:hidden overlay).
+        if (b.inSvg || b.inPage) continue;
         needLoop = true;
         if (b.node) {
           // SVG mode: the annotation rect IS the live position — zero lag.
@@ -983,20 +1075,21 @@
         }
       }
       if (staleSvg) fastDocsMarks(); // Docs recycled annotation nodes — re-match NOW
-      // In-tree bars ride the compositor; only glued/canvas bars need frames.
-      // !glueRaf: fastDocsMarks above can synchronously redraw and schedule
-      // its own chain — never stack a second one on top.
+      // In-tree and page-anchored bars ride the compositor; only glued bars
+      // need frames. !glueRaf: fastDocsMarks above can synchronously redraw and
+      // schedule its own chain — never stack a second one on top.
       if (needLoop && !glueRaf) glueRaf = requestAnimationFrame(glueFrame);
     }
     function startGlue() {
-      if (!glueRaf && docsBars.some((b) => !b.inSvg)) glueRaf = requestAnimationFrame(glueFrame);
+      if (!glueRaf && docsBars.some((b) => !b.inSvg && !b.inPage)) glueRaf = requestAnimationFrame(glueFrame);
     }
 
     function drawDocsMarks(rects) {
       try {
         ensureLayer();
+        selfMutating = true;
         clearDocsMarks();
-        let received = 0;
+        let received = 0, anchored = 0, glued = 0;
         for (const [hash, list] of Object.entries(rects ?? {})) {
           const verdict = lastVerdictByHash.get(hash);
           const color = MARK_COLORS[verdict];
@@ -1005,33 +1098,74 @@
             if (!r || r.width < 3) continue;
             received++;
             if (!tileState.has(r.tile)) {
-              tileState.set(r.tile, {
+              const fresh = {
                 canvas: document.querySelector(`canvas[data-tracely-tile="${r.tile}"]`),
                 sx: 1, sy: 1, shiftX: 0, shiftY: 0, rect: null,
-              });
-              const t = tileState.get(r.tile);
-              if (t.canvas) {
-                t.sx = (t.canvas.getBoundingClientRect().width || 1) / (t.canvas.width || 1);
-                t.sy = (t.canvas.getBoundingClientRect().height || 1) / (t.canvas.height || 1);
+              };
+              if (fresh.canvas) {
+                fresh.sx = (fresh.canvas.getBoundingClientRect().width || 1) / (fresh.canvas.width || 1);
+                fresh.sy = (fresh.canvas.getBoundingClientRect().height || 1) / (fresh.canvas.height || 1);
               }
+              tileState.set(r.tile, fresh);
             }
+            const t = tileState.get(r.tile);
+            /* PAGE-ANCHORED bar — the fallback's answer to scroll lag. The
+               hook hands us canvas-relative CSS px; the tile canvas is
+               positioned inside its kix page, so page-local coordinates are
+               just canvas.offsetLeft/offsetTop plus that. Written once into a
+               div inside the page, the bar is then carried by the compositor
+               exactly like the in-tree SVG path, with no frame loop at all.
+               (Skipped while the hostility latch is engaged — if Docs is
+               deleting our nodes out of its own subtree, this is not the
+               moment to put more of them there.) */
+            const page = Date.now() >= inTreeDisabledUntil ? pageOf(t?.canvas) : null;
             const bar = document.createElement("div");
             Object.assign(bar.style, {
-              position: "fixed", left: "0", top: "0",
-              width: r.width + "px", height: "3px",
+              left: "0", top: "0", width: r.width + "px", height: "3px",
               background: color, borderRadius: "2px", pointerEvents: "none",
-              willChange: "transform",
             });
-            marksLayer.appendChild(bar);
-            docsBars.push({
-              hash, el: bar, tile: r.tile,
-              rx: r.x, ry: r.y, size: r.size || 18,
-              fallLeft: r.left ?? 0, fallTop: r.top ?? 0,
-            });
+            if (page) {
+              bar.setAttribute("data-tracely-bar", "");
+              bar.setAttribute("aria-hidden", "true");
+              const x = t.canvas.offsetLeft + r.x;
+              const y = t.canvas.offsetTop + r.y;
+              // No will-change: this transform is written once and never
+              // again, so promoting 40 bars to their own layers would only
+              // spend memory. The page they sit in is already composited.
+              bar.style.position = "absolute";
+              bar.style.transform = `translate(${x}px, ${y}px)`;
+              ensurePageLayer(page).appendChild(bar);
+              pageObs.observe(page, { attributes: true, attributeFilter: ["style"] });
+              pageObs.observe(t.canvas, { attributes: true, attributeFilter: ["style"] });
+              docsBars.push({
+                hash, el: bar, tile: r.tile,
+                rx: r.x, ry: r.y, size: r.size || 18,
+                fallLeft: r.left ?? 0, fallTop: r.top ?? 0,
+                // Baked source geometry: the recycling observer diffs these to
+                // tell "kix restyled this page" from "kix MOVED it".
+                inPage: true, page, canvas: t.canvas,
+                pageTop: page.offsetTop, pageLeft: page.offsetLeft,
+                canvasTop: t.canvas.offsetTop, canvasLeft: t.canvas.offsetLeft,
+              });
+              anchored++;
+            } else {
+              // No resolvable page (pageless view, or the latch is on): the
+              // v2.5-era fixed div, glued to the tile every frame.
+              bar.style.position = "fixed";
+              bar.style.willChange = "transform";
+              marksLayer.appendChild(bar);
+              docsBars.push({
+                hash, el: bar, tile: r.tile,
+                rx: r.x, ry: r.y, size: r.size || 18,
+                fallLeft: r.left ?? 0, fallTop: r.top ?? 0,
+              });
+              glued++;
+            }
           }
         }
+        queueMicrotask(() => { selfMutating = false; });
         // One log per draw — screenshot-diagnosable if bars ever go missing.
-        console.debug(`[tracely] docs marks (canvas fallback): ${docsBars.length} bar(s) from ${received} rect(s), tiles resolved: ${[...tileState.values()].filter((t) => t.canvas).length}/${tileState.size}`);
+        console.debug(`[tracely] v${EXT_VERSION} docs marks (canvas fallback): ${docsBars.length} bar(s) from ${received} rect(s) — ${anchored} page-anchored across ${pageLayers.size} page(s), ${glued} glued; tiles resolved: ${[...tileState.values()].filter((t) => t.canvas).length}/${tileState.size}`);
         glueFrame(); // position immediately, then keep gluing
         startGlue();
       } catch (err) {
@@ -1301,6 +1435,14 @@
     // Docs' small scrolls blit pixels INSIDE a canvas (the tile doesn't
     // move) — the hook posts the shift at blit time so bars slide with the
     // pixels between authoritative locate rounds (which reset shifts).
+    //
+    // STILL LOAD-BEARING, despite page-anchored bars. It is dead for those:
+    // in paginated view a tile canvas fills its page at offset 0,0, so a blit
+    // that moves pixels within the tile moves them within the page too, and
+    // page-local geometry simply stays correct — which is why those bars never
+    // read a shift. But the glued path is not gone (pageless documents, an
+    // unresolvable tile, the hostility latch), and there it is the only thing
+    // keeping bars with blit-scrolled text between locates.
     window.addEventListener("message", (ev) => {
       if (ev.source !== window || ev.data?.type !== "tracely-docs-shift") return;
       const t = tileState.get(ev.data.tile);
@@ -1985,14 +2127,27 @@
         }
         if (!external) return;
         /* Hostility check — batch-scoped and precise: a strike only when Docs
-           deleted OUR bar while the annotation node it belongs to is still
-           connected. Benign tile teardown (even one removeChild per record, à
-           la Closure) takes the text rects down too, so it never strikes;
-           targeted sanitization of foreign children does. Retry first —
-           re-injection is one locate — and latch to the glued layer on 4
-           strikes in 10s, with a doubling cooldown instead of forever. */
+           deleted OUR node while the host it was injected into is still
+           connected (the annotation rect for an in-tree bar, the kix page for
+           a page-anchored bar or its overlay). Benign tile teardown (even one
+           removeChild per record, à la Closure) takes the host down too, so it
+           never strikes; targeted sanitization of foreign children does. Retry
+           first — re-injection is one locate — and latch to the glued layer on
+           4 strikes in 10s, with a doubling cooldown instead of forever.
+
+           One latch covers both in-tree strategies deliberately: they differ
+           only in WHERE inside Docs' subtree the node goes, and a Docs that
+           sanitizes one is not a Docs to keep feeding the other. */
         if (removedOurs.length && Date.now() >= inTreeDisabledUntil) {
-          const targeted = removedOurs.some((el) => docsBars.find((b) => b.el === el)?.node?.isConnected);
+          const hostAlive = (el) => {
+            if (el.hasAttribute("data-tracely-page-layer")) {
+              for (const [page, layer] of pageLayers) if (layer === el) return page.isConnected;
+              return false;
+            }
+            const b = docsBars.find((bar) => bar.el === el);
+            return !!(b?.node?.isConnected || b?.page?.isConnected);
+          };
+          const targeted = removedOurs.some(hostAlive);
           if (targeted) {
             const now = Date.now();
             hostileStrikes = hostileStrikes.filter((t) => now - t < 10_000);
@@ -2001,7 +2156,7 @@
               inTreeDisabledUntil = now + inTreeCooldown;
               inTreeCooldown = Math.min(inTreeCooldown * 2, 900_000);
               hostileStrikes = [];
-              console.warn(`[tracely] Docs keeps deleting in-tree bars — glued fallback for ${Math.round((inTreeDisabledUntil - now) / 1000)}s`);
+              console.warn(`[tracely] Docs keeps deleting bars injected into its subtree — glued fallback for ${Math.round((inTreeDisabledUntil - now) / 1000)}s`);
             }
           }
         }
