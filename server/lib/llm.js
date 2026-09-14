@@ -161,12 +161,30 @@ function checkComplete(json, what) {
  * and it is what the paid "intelligence" tier actually buys. Non-reasoning
  * models 400 on it, so it is opt-in by model family — and because that family
  * list is a guess made without a key to probe, a 400 that blames the parameter
- * disables it for the process rather than failing the user's request. */
+ * disables it for the process rather than failing the user's request.
+ *
+ * DEFAULT_EFFORT is "low" and it is a DEFAULT, not a suggestion: omitting
+ * `reasoning` entirely does NOT mean "don't reason", it means OpenAI picks, and
+ * what OpenAI picks is expensive. Measured on gpt-5-nano against the real fact
+ * check prompt, 8 deliberately hard sentences, 2026-09-13:
+ *
+ *   effort      secs   output tokens   verdicts correct
+ *   (omitted)   33.3   6165            8/8
+ *   minimal      4.8    347            6/8
+ *   low         10.5   1546            8/8
+ *   medium      29.4   5187            8/8
+ *
+ * So the shipped default was paying 4x the tokens and 3x the latency for
+ * nothing over "low". "minimal" is NOT the answer despite being cheapest: it
+ * flagged needs_citation on a sentence reading "According to Smith (2019)…",
+ * which is precisely the false-positive class the rubric work exists to stop.
+ * Anything that raises this above "low" should re-run that comparison first. */
 const supportsEffort = (m) => /^(gpt-5|gpt-6|o\d)/.test(String(m));
+const DEFAULT_EFFORT = "low";
 let effortSupported = true;
 
 /** A call that must return JSON matching `schema`. */
-export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort }) {
+export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
   assertStrictSchema(schema, what);
   const chosen = chooseModel(model);
   const body = {
@@ -201,7 +219,7 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
 }
 
 /** A free-text call with conversation history. Returns the reply text. */
-export async function textCall({ model, system, messages, maxTokens, what, effort }) {
+export async function textCall({ model, system, messages, maxTokens, what, effort = DEFAULT_EFFORT }) {
   const chosen = chooseModel(model);
   const body = {
     model: chosen,

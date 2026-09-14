@@ -74,10 +74,13 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   // COST: never resend a whole long document as context — the sentences carry
   // their own text, and a short head (title/thesis) covers reference resolution.
   const context = text.length > 6000 ? text.slice(0, 2000) + "\n[… document trimmed for cost — judge sentences on their own text …]" : text;
-  return checkBatch({ text: context, sentences, model: chosenModel });
+  // `effort` used to be destructured here and then dropped, so the slider
+  // moved the model and nothing else. undefined falls to lib/llm.js's
+  // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
+  return checkBatch({ text: context, sentences, model: chosenModel, effort });
 }
 
-async function checkBatch({ text, sentences, model }) {
+async function checkBatch({ text, sentences, model, effort }) {
   let result;
   try {
     result = await structuredCall({
@@ -85,6 +88,7 @@ async function checkBatch({ text, sentences, model }) {
       system: systemPrompt(),
       user: userPrompt(text, sentences),
       schema: FINDINGS_SCHEMA,
+      effort,
       // Room for a revision per sentence, plus slack for long documents.
       maxTokens: 16_000,
       what: "fact check",
@@ -95,8 +99,8 @@ async function checkBatch({ text, sentences, model }) {
     // A single sentence that still truncates has nothing left to split.
     if (err?.kind === "truncated" && sentences.length > 1) {
       const mid = Math.ceil(sentences.length / 2);
-      const first = await checkBatch({ text, sentences: sentences.slice(0, mid), model });
-      const second = await checkBatch({ text, sentences: sentences.slice(mid), model });
+      const first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort });
+      const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort });
       return {
         findings: [...first.findings, ...second.findings],
         model: second.model,
@@ -289,7 +293,7 @@ For each issue:
 - "transition": one sentence the writer could insert immediately before that passage to bridge the gap, written in their voice and using their subject matter. It must stand alone as prose.`;
 }
 
-export async function runFlowCheck({ text, model, mock = false }) {
+export async function runFlowCheck({ text, model, effort, mock = false }) {
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockFlow(chosenModel);
 
@@ -305,6 +309,7 @@ export async function runFlowCheck({ text, model, mock = false }) {
     maxTokens: 8_000,
     what: "flow check",
     name: "flow",
+    effort,
   });
 
   // Only keep issues whose passage really is in the document — a paraphrased
