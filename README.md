@@ -48,6 +48,10 @@ npm run dist:win
 
 The installer (NSIS `.exe`) is written to `release/`. It lets the user pick an install directory and creates Desktop/Start Menu shortcuts.
 
+### Windows SmartScreen warning
+
+This installer isn't code-signed (no Windows code-signing certificate has been purchased — see `BUILDING.md`), so Windows will show a blue **"Windows protected your PC"** SmartScreen screen the first time someone runs it. That's expected for any small, unsigned app and isn't a sign anything is wrong. To proceed: click **More info**, then **Run anyway**. It only shows up on that first launch.
+
 ## Building for macOS
 
 ```bash
