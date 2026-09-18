@@ -781,13 +781,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           signedIn: Boolean(authToken),
           plan: normalizePlan(ent?.plan),
           email: ent?.email ?? null,
+          // Carried so the upgrade link can attach client_reference_id — the
+          // only thing that lets the Stripe webhook map a payment to THIS
+          // account rather than guessing from the payer's email.
+          userId: ent?.userId ?? null,
           byoKey: !up && Boolean(cfg.apiKey),
           unenforced: Boolean(up) && ent?.enforced === false,
         });
       } catch (err) {
         // Fail closed, but still answer: an unanswered probe would leave the
         // widget with no tier at all.
-        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, byoKey: false, unenforced: false, message: err?.message });
+        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, byoKey: false, unenforced: false, message: err?.message });
       }
     })();
     return true; // async sendResponse

@@ -632,7 +632,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/entitlement") {
       loadEnvFile();
       const ent = await planForRequest(req);
-      json(res, 200, { plan: ent.plan, email: ent.email, enforced: ent.enforced, checkedAt: Date.now() }, cors);
+      // `userId` rides along so the client can attach it to a Stripe checkout
+      // as client_reference_id. Without it the webhook can only map a payment
+      // to an account by EMAIL, which is wrong exactly when it matters most:
+      // a student paying with a parent's card. Not a disclosure — the caller
+      // presented that user's own token, and the id is inside it.
+      json(res, 200, { plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now() }, cors);
       return;
     }
 
