@@ -187,11 +187,25 @@ export function clientAddress(req) {
   const hops = Number(process.env.TRACELY_TRUSTED_PROXY_HOPS);
   if (Number.isInteger(hops) && hops > 0) {
     const chain = headerOf(req, "x-forwarded-for").split(",").map((p) => p.trim()).filter(Boolean);
-    // The rightmost `hops` entries were written by our own proxies; the one
-    // just left of them is the furthest address we can still believe.
-    const idx = chain.length - hops - 1;
-    if (idx >= 0) return chain[idx];
-    if (chain.length) return chain[0];
+    /* Each proxy APPENDS the peer it saw, so the header reads
+     *   [ anything the client chose to send..., what proxy 1 saw, ... ]
+     * and with `hops` proxies of our own the last trustworthy entry is
+     * chain[length - hops]. Everything to its LEFT is attacker-controlled.
+     *
+     * This was chain[length - hops - 1], one position too far left, which
+     * landed squarely ON the attacker-controlled part: a client sending
+     * `X-Forwarded-For: 1.1.1.1` got 1.1.1.1 back as its rate-limit key and
+     * could mint a fresh one per request — the exact thing the hop count
+     * exists to prevent.
+     *
+     * hops=1, [client]            -> chain[0] = client
+     * hops=1, [spoof, real]       -> chain[1] = real
+     * hops=2, [client, proxy1]    -> chain[0] = client
+     */
+    const idx = chain.length - hops;
+    if (idx >= 0 && idx < chain.length) return chain[idx];
+    // Fewer entries than declared hops: the header cannot be what we expect,
+    // so believe the socket rather than a guess.
   }
   return req?.socket?.remoteAddress || "";
 }

@@ -182,9 +182,22 @@ test("X-Forwarded-For is IGNORED unless the operator declares trusted hops", () 
 
 test("a spoofed forwarding chain cannot reach past the trusted hops", () => {
   process.env.TRACELY_TRUSTED_PROXY_HOPS = "1";
-  // Client sends "1.1.1.1"; our own proxy appends the real peer.
-  const req = { headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.9" }, socket: { remoteAddress: "10.0.0.1" } };
-  assert.equal(clientAddress(req), "1.1.1.1");
+  // The client sends "1.1.1.1"; our own proxy APPENDS the peer it actually
+  // saw. The appended one is the only trustworthy entry — believing the
+  // client's would let anyone mint a fresh rate-limit key per request, which
+  // is the whole reason the hop count exists.
+  const spoofed = { headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.9" }, socket: { remoteAddress: "10.0.0.1" } };
+  assert.equal(clientAddress(spoofed), "203.0.113.9");
+  // A single entry behind one proxy is the ordinary case: that IS the client.
+  const honest = { headers: { "x-forwarded-for": "198.51.100.7" }, socket: { remoteAddress: "10.0.0.1" } };
+  assert.equal(clientAddress(honest), "198.51.100.7");
+  // Two of our own proxies: the client's entry is two from the right.
+  process.env.TRACELY_TRUSTED_PROXY_HOPS = "2";
+  const twoHops = { headers: { "x-forwarded-for": "198.51.100.7, 203.0.113.9" }, socket: { remoteAddress: "10.0.0.1" } };
+  assert.equal(clientAddress(twoHops), "198.51.100.7");
+  // Declared more hops than the header can support: trust the socket, never a guess.
+  process.env.TRACELY_TRUSTED_PROXY_HOPS = "3";
+  assert.equal(clientAddress(twoHops), "10.0.0.1");
   delete process.env.TRACELY_TRUSTED_PROXY_HOPS;
 });
 
