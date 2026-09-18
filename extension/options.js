@@ -10,6 +10,21 @@ const SERVER = "http://localhost:4477";
 const ORDER_URL = "https://jointracely.com/order";
 const $ = (id) => document.getElementById(id);
 
+/* The upgrade link carries the signed-in account id as `uid`, which the order
+   page forwards to Stripe as client_reference_id.
+   
+   Without it the billing webhook can only map a payment to an account by
+   matching the PAYER'S email against a Tracely account — which is wrong in
+   exactly the case that matters: a student who pays with a parent's card gets
+   charged and stays on the free plan. The server's fallback chain
+   (client_reference_id -> learned customer mapping -> email) is only as good
+   as its first rung, and nothing was filling it. */
+function orderUrl(userId) {
+  if (!userId) return ORDER_URL; // signed out: Stripe falls back to email
+  return `${ORDER_URL}?uid=${encodeURIComponent(userId)}`;
+}
+
+
 /* ── Faster ↔ Smarter slider ↔ model mapping ─────────────────────────────── */
 
 /* Mirrors lib/llm.js MODEL_TIERS and extension/background.js. The notes are
@@ -54,7 +69,7 @@ function paintSlider(pos) {
 const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
 
-let account = { configured: false, signedIn: false, plan: "free", email: null, byoKey: false, unenforced: false };
+let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, byoKey: false, unenforced: false };
 
 function maxStop() {
   if (account.byoKey || account.unenforced) return MODELS.length - 1;
@@ -126,7 +141,7 @@ function acctStatus(text, warn) {
 async function refreshAccount(force) {
   try {
     const r = await chrome.runtime.sendMessage({ type: "tracely-entitlement", force: force === true });
-    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced) };
+    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced) };
   } catch { /* worker restarting — keep the last answer */ }
   renderAccount();
   applyPlanState();

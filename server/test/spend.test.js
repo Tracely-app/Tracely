@@ -288,3 +288,51 @@ test("X-Tracely-Install is allowed through the CORS preflight", async () => {
   assert.match(readFileSync(ext, "utf8"), /X-Tracely-Install/,
     "background.js must send the header the server meters on");
 });
+
+// ── billing identity ────────────────────────────────────────────────────
+
+test("/api/entitlement exposes userId, and the extension forwards it", async () => {
+  // The Stripe webhook resolves a payment to an account via
+  // client_reference_id first; the other two rungs (a learned customer
+  // mapping, then the payer's email) are weaker, and email matching is wrong
+  // exactly when a student pays with a parent's card. Nothing fills the first
+  // rung unless the account id reaches the checkout link, which means it has
+  // to travel server -> worker -> page. Each hop is pinned here because a
+  // break anywhere along it is silent: checkout still succeeds, the payment
+  // just lands on nobody.
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const pathMod = await import("node:path");
+  const here = pathMod.dirname(fileURLToPath(import.meta.url));
+  const root = pathMod.join(here, "..");
+
+  const server = readFileSync(pathMod.join(root, "server.js"), "utf8");
+  const route = server.slice(server.indexOf('url.pathname === "/api/entitlement"'));
+  assert.match(route.slice(0, 900), /userId:\s*ent\.userId/, "/api/entitlement must return userId");
+
+  const extDir = [pathMod.join(root, "extension"), pathMod.join(root, "..", "extension")]
+    .find((d) => { try { readFileSync(pathMod.join(d, "background.js")); return true; } catch { return false; } });
+  assert.ok(extDir, "could not locate extension/");
+
+  const bg = readFileSync(pathMod.join(extDir, "background.js"), "utf8");
+  assert.match(bg, /userId:\s*ent\?\.userId/, "the worker must forward userId to the UI");
+
+  for (const file of ["options.js", "content.js"]) {
+    const src = readFileSync(pathMod.join(extDir, file), "utf8");
+    assert.match(src, /function orderUrl\(/, `${file} must build the upgrade link through orderUrl()`);
+    assert.match(src, /uid=\$\{encodeURIComponent\(userId\)\}/, `${file} must attach uid`);
+  }
+});
+
+test("orderUrl degrades to a bare link when signed out rather than sending uid=null", () => {
+  // Reproduces the helper both extension files carry. `uid=null` as a literal
+  // string would reach Stripe as a client_reference_id of "null", which is
+  // worse than none: the webhook would key a real payment to a fake account.
+  const ORDER_URL = "https://jointracely.com/order";
+  const orderUrl = (userId) => (!userId ? ORDER_URL : `${ORDER_URL}?uid=${encodeURIComponent(userId)}`);
+  assert.equal(orderUrl(null), ORDER_URL);
+  assert.equal(orderUrl(undefined), ORDER_URL);
+  assert.equal(orderUrl(""), ORDER_URL);
+  assert.equal(orderUrl("abc-123"), `${ORDER_URL}?uid=abc-123`);
+  assert.equal(orderUrl("a b/c"), `${ORDER_URL}?uid=a%20b%2Fc`);
+});
