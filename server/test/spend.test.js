@@ -336,3 +336,30 @@ test("orderUrl degrades to a bare link when signed out rather than sending uid=n
   assert.equal(orderUrl("abc-123"), `${ORDER_URL}?uid=abc-123`);
   assert.equal(orderUrl("a b/c"), `${ORDER_URL}?uid=a%20b%2Fc`);
 });
+
+// ── the cancellation path ────────────────────────────────────────────────
+
+test("a paying subscriber is never sent to the pricing page to cancel", async () => {
+  // The public FAQ promises "cancel in one click". manageLink used to point at
+  // /order for EVERY state, so a subscriber trying to leave was shown the
+  // plans they were already on — and there was no cancellation path at all.
+  // Card networks expect a subscription business to offer one.
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const pathMod = await import("node:path");
+  const here = pathMod.dirname(fileURLToPath(import.meta.url));
+  const extDir = [pathMod.join(here, "..", "extension"), pathMod.join(here, "..", "..", "extension")]
+    .find((d) => { try { readFileSync(pathMod.join(d, "options.js")); return true; } catch { return false; } });
+  assert.ok(extDir, "could not locate extension/");
+  const src = readFileSync(pathMod.join(extDir, "options.js"), "utf8");
+
+  assert.match(src, /const PORTAL_URL\s*=/, "options.js must carry a Stripe customer-portal URL slot");
+  // Three distinct destinations, not one. The free branch goes to pricing; a
+  // paid branch must not.
+  assert.match(src, /PORTAL_URL\s*\)\s*\{[\s\S]{0,200}manage\.href\s*=\s*PORTAL_URL/, "a paid plan with a portal must link to the portal");
+  assert.match(src, /mailto:\$\{SUPPORT_EMAIL\}/, "with no portal configured it must offer a real way to cancel, not the pricing page");
+
+  // And the pricing-page link must be reachable ONLY from the free branch.
+  const paidHalf = src.slice(src.indexOf('} else if (PORTAL_URL) {'));
+  assert.ok(!/orderUrl\(/.test(paidHalf.slice(0, 400)), "the paid branches must not fall back to the order page");
+});

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tracely \u2014 live fact-check while you write",
-  "version": "2.17.0",
+  "version": "2.17.1",
   "description": "Live AI fact-checking as you write. Underlines false or shaky sentences in any text field and suggests fixes with sources.",
   "options_page": "options.html",
   "icons": {
