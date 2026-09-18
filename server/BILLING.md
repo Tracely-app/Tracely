@@ -26,7 +26,7 @@ server picks up changes without a restart).
 
 | `TRACELY_DAILY_BUDGET_USD` | the spend cap | Dollars of OpenAI spend allowed per day. Defaults to 10. An explicit `0` turns the ceiling off; an EMPTY value does not (it falls back to the default). |
 | `TRACELY_TRUSTED_PROXY_HOPS` | the spend cap | How many proxies you control sit in front of this server. Unset = ignore `X-Forwarded-For` entirely, which is right for a direct connection. |
-| `TRACELY_DATA_DIR` | storage | Where `tracely.db` lives. Defaults to `./data`. |
+| `TRACELY_DATA_DIR` | storage | Where `tracely.db` lives. Defaults to `./data`. **Must be a real env var, not a `.env` line** — `lib/db.js` opens the database at import time, before `.env` is read. |
 
 The three groups are independent. Supabase alone gives you plan enforcement
 with plans set by hand in the Supabase dashboard; add the Stripe variables when
