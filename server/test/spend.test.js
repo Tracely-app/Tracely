@@ -20,7 +20,9 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync as fsReadFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import * as nodePath from "node:path";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -390,3 +392,82 @@ test("a paying subscriber is never sent to the pricing page to cancel", async ()
   const paidHalf = src.slice(src.indexOf("} else if (PORTAL_URL) {"), src.indexOf("$(\"acctHint\")"));
   assert.ok(!/orderUrl\s*\(/.test(paidHalf), "neither paid branch may fall back to the order page");
 });
+
+// ── the Stripe setup script's load-bearing choices ───────────────────────
+
+test("stripe-setup creates two products, not two prices on one", async () => {
+  // The customer portal's Switch plan cannot list two prices that share a
+  // product AND a recurring interval. Switch plan is what stops a Student who
+  // opens the Pro link being billed for both, so one product would quietly
+  // remove the only protection against double-subscription.
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const pathMod = await import("node:path");
+  const here = pathMod.dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(pathMod.join(here, "..", "scripts", "stripe-setup.mjs"), "utf8");
+
+  const plans = [...src.matchAll(/product:\s*"([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(plans).size, 2, "expected two distinct product names");
+
+  // Prices must be advertised amounts. $10 is the struck-through "was" price
+  // on the pricing page and must never become a sellable price object.
+  const cents = [...src.matchAll(/cents:\s*(\d+)/g)].map((m) => Number(m[1]));
+  assert.deepEqual(cents.sort((a, b) => a - b), [499, 999]);
+  assert.ok(!cents.includes(1000), "$10 must not be a price — it is display only");
+});
+
+test("stripe-setup never sets tax_behavior on a price", () => {
+  // tax_behavior is IMMUTABLE once set to inclusive or exclusive. Leaving it
+  // unset lets the account default govern, which stays a settings change;
+  // baking it in means new price ids, re-edited links and re-edited .env.
+  const src = srcOf("scripts/stripe-setup.mjs");
+  const pFrom = src.indexOf('await post("prices"');
+  assert.ok(pFrom > 0, "the price creation call is missing");
+  const priceCall = src.slice(pFrom, src.indexOf("priceIds[p.env] = price.id", pFrom));
+  assert.ok(priceCall.length > 40, "the price slice is empty — the assertion below would pass vacuously");
+  assert.ok(!/tax_behavior/.test(priceCall), "a price must not carry tax_behavior");
+});
+
+test("stripe-setup subscribes all four webhook events", () => {
+  const src = srcOf("scripts/stripe-setup.mjs");
+  for (const e of ["checkout.session.completed", "customer.subscription.created",
+                   "customer.subscription.updated", "customer.subscription.deleted"]) {
+    assert.match(src, new RegExp(e.replace(/\./g, "\\.")), `missing event ${e}`);
+  }
+});
+
+test("stripe-setup leaves Manage downgrades off and defaults to a dry run", () => {
+  const src = srcOf("scripts/stripe-setup.mjs");
+  // Enabling manage_downgrades attaches a subscription schedule, and a
+  // customer with a scheduled update CANNOT cancel until it resolves — which
+  // silently revokes the cancel path the pricing page promises.
+  assert.ok(!/manage_downgrades/.test(src) || /manage_downgrades[^\n]*false/.test(src),
+    "manage downgrades must not be enabled");
+  assert.match(src, /const APPLY = process\.argv\.includes\("--apply"\)/,
+    "the script must change nothing without an explicit --apply");
+});
+
+test("stripe-setup puts no user id in Payment Link metadata", () => {
+  // A link's metadata is ONE static value copied onto every session, so a user
+  // id there maps every paying customer onto a single Supabase account.
+  const src = srcOf("scripts/stripe-setup.mjs");
+  // Both bounds must come from AFTER the post call. "linkUrls[p.key]" also
+  // appears earlier, in the reuse branch, so searching from 0 sliced BACKWARDS
+  // and produced an empty string — on which the no-user-id check passed
+  // vacuously while the metadata check failed. An empty slice satisfies every
+  // negative assertion you can write.
+  const from = src.indexOf('await post("payment_links"');
+  assert.ok(from > 0, "the payment-link creation call is missing");
+  const linkCall = src.slice(from, src.indexOf("linkUrls[p.key]", from))
+    // Strip comments first: the block carries a comment EXPLAINING why no user
+    // id is here, and matching that made the test fail on its own rationale.
+    .replace(/\/\/[^\n]*/g, "");
+  assert.match(linkCall, /metadata\[price_id\]/);
+  assert.ok(!/supabase|user_id|uid/i.test(linkCall), "no user identifier belongs in link metadata");
+});
+
+// ESM: no require() available, and these run before the awaited imports in the
+// tests above, so the modules are pulled in at the top of the file instead.
+function srcOf(rel) {
+  return fsReadFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", rel), "utf8");
+}
