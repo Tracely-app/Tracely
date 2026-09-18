@@ -185,6 +185,27 @@ mattered and Stripe would never send it again: the customer pays and is never
 upgraded. The 500 buys Stripe's retry schedule (~3 days of backoff), by which
 time the checkout event has landed and the customer → user lookup resolves.
 
+## Setting Stripe up
+
+`sh scripts/stripe-setup.sh` (dry run) then `--apply`. It creates the two
+products, their monthly prices, a Payment Link each, the webhook with all
+**four** events billing.js handles — `checkout.session.completed` plus
+`customer.subscription.created` / `.updated` / `.deleted` — and a portal
+configuration with cancellation at period end.
+
+(The prose in this file previously listed three events. `lib/billing.js:174`
+handles `customer.subscription.created` too, so four is correct and the script
+subscribes all four.)
+
+It is idempotent: every step reuses an existing object rather than creating a
+second one, so a half-finished run resumes. Use a RESTRICTED key with write
+scope on Products, Prices, Payment Links, Webhook endpoints and Billing portal
+configurations — not an `sk_live`. Nothing here needs charge, refund, payout or
+customer access, and **no Stripe key belongs in the server process at all**:
+the webhook verifier is pure HMAC and Payment Links need no publishable key.
+
+`sh scripts/check-stripe-setup.sh` audits the result read-only.
+
 ## The spend cap
 
 Three layers, because no single one survives both failure modes — an attacker
