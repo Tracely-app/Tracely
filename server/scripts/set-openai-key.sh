@@ -32,11 +32,18 @@ esac
 
 umask 077
 touch "$ENVFILE"
+# Rewriting through a temp file loses the original owner, and on a server the
+# .env belongs to the SERVICE account while this script is usually run by
+# root. A root-owned .env makes the service unable to read its own config and
+# fails as "no key configured" -- looking exactly like the script not working.
+# So capture the owner first and restore it after.
+OWNER=$(ls -ld "$ENVFILE" | awk '{print $3":"$4}')
 TMP="$ENVFILE.tmp.$$"
 grep -v '^OPENAI_API_KEY=' "$ENVFILE" > "$TMP" 2>/dev/null || : > "$TMP"
 printf 'OPENAI_API_KEY=%s\n' "$KEY" >> "$TMP"
 mv "$TMP" "$ENVFILE"
 chmod 600 "$ENVFILE"
+chown "$OWNER" "$ENVFILE" 2>/dev/null || true
 
 # Confirm without ever printing the key.
 echo "OPENAI_API_KEY set in $ENVFILE"
