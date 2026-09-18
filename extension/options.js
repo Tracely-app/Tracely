@@ -8,6 +8,21 @@
 
 const SERVER = "http://localhost:4477";
 const ORDER_URL = "https://jointracely.com/order";
+
+/* Stripe Customer Portal login link — Billing > Customer portal > "Share a
+   link to the customer portal" in the Stripe dashboard. No server code and no
+   API call needed: the customer enters their email and Stripe emails them in.
+
+   This MUST be filled before subscriptions go on sale. The public FAQ promises
+   "cancel in one click", and until this is set a paying subscriber has no way
+   to cancel at all — the Manage subscription link pointed at the PRICING page,
+   which shows someone trying to leave the plans they are already on. Card
+   networks also expect a subscription business to offer a cancellation path.
+
+   Empty is handled honestly below rather than silently: the link becomes an
+   email to support instead of pretending to be self-service. */
+const PORTAL_URL = "";
+const SUPPORT_EMAIL = "hello@jointracely.com";
 const $ = (id) => document.getElementById(id);
 
 /* The upgrade link carries the signed-in account id as `uid`, which the order
@@ -119,7 +134,21 @@ function renderAccount() {
     const label = PLAN_LABEL[account.plan] ?? PLAN_LABEL.free;
     $("acctPlan").textContent = label;
     $("acctPlan").className = account.plan === "free" ? "plan" : "plan paid";
-    $("manageLink").textContent = account.plan === "free" ? "Upgrade" : "Manage subscription";
+    // Three states, because two of them used to render as the same wrong link:
+    // upgrading (go to pricing), managing a real subscription (go to the
+    // portal), and managing one with no portal configured yet (say so, rather
+    // than sending a subscriber to the pricing page).
+    const manage = $("manageLink");
+    if (account.plan === "free") {
+      manage.textContent = "Upgrade";
+      manage.href = orderUrl(account.userId);
+    } else if (PORTAL_URL) {
+      manage.textContent = "Manage subscription";
+      manage.href = PORTAL_URL;
+    } else {
+      manage.textContent = "Email us to cancel";
+      manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;
+    }
     $("acctHint").textContent = account.plan === "free"
       ? "You're signed in on the free plan. Upgrading unlocks the smarter models everywhere Tracely runs."
       : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
