@@ -17,7 +17,27 @@ REMOTE_HOST="${TRACELY_HOST:-root@45.56.92.67}"
 REMOTE_ENV="${TRACELY_REMOTE_ENV:-/srv/tracely/app/.env}"
 REMOTE_SCRIPT="${TRACELY_REMOTE_SCRIPT:-/srv/tracely/app/scripts/set-openai-key.sh}"
 
-[ -f "$LOCAL_ENV" ] || { echo "No local env at $LOCAL_ENV"; exit 1; }
+# This runs on the DEVELOPER'S machine and pushes to the server. Running it ON
+# the server is the obvious mistake -- the prompt looks the same, ~ resolves to
+# /root, and the error is a confusing "No such file" about a path you never
+# typed. Detect it and say the one useful sentence instead.
+if [ -d /srv/tracely/app ] && [ ! -f "$LOCAL_ENV" ]; then
+  echo "You are running this ON the server."
+  echo
+  echo "This script belongs on your own machine: it reads the key from YOUR"
+  echo ".env and pushes it here. The server has no copy of the key -- that is"
+  echo "the whole point of it."
+  echo
+  echo "Log out (or open a new terminal on your Mac) and run:"
+  echo "    sh ~/tracely/scripts/deploy-openai-key.sh"
+  exit 1
+fi
+
+[ -f "$LOCAL_ENV" ] || {
+  echo "No local env at $LOCAL_ENV"
+  echo "If you are on the server, run this from your own machine instead."
+  exit 1
+}
 
 # Presence check only — the value is never assigned to a shell variable here,
 # because a variable can end up in a core dump or a `set -x` trace.
