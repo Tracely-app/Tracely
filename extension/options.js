@@ -144,7 +144,15 @@ function renderAccount() {
       manage.href = orderUrl(account.userId);
     } else if (PORTAL_URL) {
       manage.textContent = "Manage subscription";
-      manage.href = PORTAL_URL;
+      // Pre-fill the email when we know it. Stripe's no-code portal starts by
+      // asking for one and then mailing a login link, so skipping that field
+      // removes a step from a flow that is already four steps long — and it
+      // removes the commonest way it goes wrong, which is a customer typing a
+      // different address from the one they paid with and being told no
+      // subscription exists.
+      manage.href = account.email
+        ? `${PORTAL_URL}?prefilled_email=${encodeURIComponent(account.email)}`
+        : PORTAL_URL;
     } else {
       manage.textContent = "Email us to cancel";
       manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;

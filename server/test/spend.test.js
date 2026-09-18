@@ -368,11 +368,25 @@ test("a paying subscriber is never sent to the pricing page to cancel", async ()
 
   assert.match(src, /const PORTAL_URL\s*=/, "options.js must carry a Stripe customer-portal URL slot");
   // Three distinct destinations, not one. The free branch goes to pricing; a
-  // paid branch must not.
-  assert.match(src, /PORTAL_URL\s*\)\s*\{[\s\S]{0,200}manage\.href\s*=\s*PORTAL_URL/, "a paid plan with a portal must link to the portal");
+  // paid branch must not. Asserted on the PROPERTY (the paid branch's href is
+  // built from PORTAL_URL) rather than on the exact spelling — the first
+  // version of this matched `manage.href = PORTAL_URL` literally and broke the
+  // moment the URL gained a ?prefilled_email= query, which was an improvement
+  // to the thing it was guarding.
+  const portalStart = src.indexOf("} else if (PORTAL_URL) {");
+  assert.ok(portalStart > 0, "the portal branch is missing");
+  const portalBranch = src.slice(portalStart, src.indexOf("} else {", portalStart));
+  assert.match(portalBranch, /PORTAL_URL/, "a paid plan with a portal must link to the portal");
+  // The load-bearing half: the paid branch must not reach the pricing page by
+  // ANY route. A "does it mention PORTAL_URL" check alone is useless — a
+  // branch can set href to orderUrl() and still mention PORTAL_URL two lines
+  // later, which is precisely what slipped past the first version of this.
+  assert.ok(!/orderUrl\s*\(/.test(portalBranch), "the portal branch must not fall back to the order page");
   assert.match(src, /mailto:\$\{SUPPORT_EMAIL\}/, "with no portal configured it must offer a real way to cancel, not the pricing page");
 
   // And the pricing-page link must be reachable ONLY from the free branch.
-  const paidHalf = src.slice(src.indexOf('} else if (PORTAL_URL) {'));
-  assert.ok(!/orderUrl\(/.test(paidHalf.slice(0, 400)), "the paid branches must not fall back to the order page");
+  // Both paid branches, to the end of the if-chain — not a fixed character
+  // window, which silently stops covering the code as it grows.
+  const paidHalf = src.slice(src.indexOf("} else if (PORTAL_URL) {"), src.indexOf("$(\"acctHint\")"));
+  assert.ok(!/orderUrl\s*\(/.test(paidHalf), "neither paid branch may fall back to the order page");
 });
