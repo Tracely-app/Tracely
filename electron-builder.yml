@@ -238,6 +238,6 @@ mac:
   notarize: true
 publish:
   provider: github
-  owner: merrickphan
+  owner: Tracely-app
   repo: Tracely
   releaseType: release

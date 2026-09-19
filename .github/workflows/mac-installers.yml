@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'merrickphan/Tracely'
+    if: github.repository == 'Tracely-app/Tracely'
     runs-on: macos-latest # Apple Silicon; the x64 build is cross-compiled below
     permissions:
       contents: write # attach installers to the release

@@ -41,4 +41,4 @@ usage.
 ## Changes and contact
 
 Changes to this policy will be published at this URL. Questions:
-open an issue at https://github.com/merrickphan/Tracely/issues.
+open an issue at https://github.com/Tracely-app/Tracely/issues.
