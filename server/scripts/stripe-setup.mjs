@@ -81,6 +81,25 @@ async function api(method, path, params) {
 const get = (p, q) => api("GET", p, q);
 const post = (p, b) => api("POST", p, b);
 
+/* A create-if-missing script must never treat "I could not check" as "it does
+ * not exist". An earlier version answered a failed list call with { data: [] },
+ * and on a key with write-but-not-read scope that turned idempotency into
+ * DUPLICATION: it re-created products and prices that were already there, in a
+ * live account. Reads are now fatal, and they all happen before any write. */
+async function mustRead(path, params, scopeName) {
+  try {
+    return await get(path, params);
+  } catch (e) {
+    console.log(r(`\nCannot read ${scopeName.toLowerCase()}: ${e.message}`));
+    console.log(`\nThis key can write but not read ${scopeName}. That combination is`);
+    console.log("dangerous here: without reading, the script cannot tell what already");
+    console.log("exists and would create a SECOND copy of everything.");
+    console.log(`\nAdd READ scope for ${scopeName} to the restricted key and re-run.`);
+    console.log("Nothing was created by this run.\n");
+    process.exit(3);
+  }
+}
+
 const plan = [];   // what --apply would do
 const done = [];   // what already existed or was created
 const manual = []; // what the API cannot reach
@@ -130,8 +149,10 @@ console.log(g("\nAccount can accept charges") + (acct.payouts_enabled ? g(" and 
  * Leaving each price unset and letting the account default govern keeps this a
  * settings change forever; baking it in means new price ids, re-edited links
  * and re-edited .env if you change your mind. */
+let TAX_ON = false;
 try {
   const t = await get("tax/settings");
+  TAX_ON = Boolean(t?.defaults?.tax_behavior) || t?.status === "active";
   const behavior = t?.defaults?.tax_behavior;
   if (behavior && behavior !== "inferred_by_currency") {
     console.log(g(`Tax default already set: ${behavior}`));
@@ -139,7 +160,11 @@ try {
     note("manual", "Settings > Tax: set the default tax behavior and a SaaS/digital product tax code. Do it BEFORE --apply: a price's tax_behavior cannot be changed later.");
   }
 } catch {
-  note("manual", "Settings > Tax: confirm the account default tax behavior (key lacks Tax read scope, so this could not be checked).");
+  // Cannot tell whether Tax is on. Assume it IS: the cost of assuming wrongly
+  // is one extra flag on the command line; the cost of assuming the other way
+  // is products created that no Payment Link can use.
+  TAX_ON = true;
+  note("manual", "Settings > Tax: confirm the account default tax behavior (this key cannot read Tax settings).");
 }
 
 /* Stripe Tax, once enabled, refuses to build a Payment Link for a product with
@@ -153,6 +178,10 @@ try {
  * this did. Preference order matches what Tracely actually is: a subscription
  * to a hosted service used by individuals. */
 async function resolveTaxCode() {
+  // An explicit code wins: it is the escape hatch when the key cannot read
+  // /v1/tax_codes, and it keeps the choice the operator's rather than a guess.
+  const forced = (process.env.TRACELY_TAX_CODE ?? "").trim();
+  if (forced) return { id: forced, name: "supplied via TRACELY_TAX_CODE" };
   let codes;
   try {
     codes = (await get("tax_codes", { limit: 100 })).data ?? [];
@@ -172,14 +201,26 @@ async function resolveTaxCode() {
 // ── 2. products and prices ──────────────────────────────────────────────
 console.log("\nProducts and prices");
 const taxCode = await resolveTaxCode();
-if (taxCode) console.log(`  tax code: ${taxCode.id} — ${taxCode.name}`);
-else {
-  console.log(y("  no tax code resolved — Payment Links will fail if Stripe Tax is on"));
-  note("manual", "Set a product tax code on both products (Product catalog > product > Edit > Tax code). Stripe Tax refuses to build a Payment Link without one, and this key could not read /v1/tax_codes to pick it automatically.");
+if (taxCode) {
+  console.log(`  tax code: ${taxCode.id} — ${taxCode.name}`);
+} else if (TAX_ON) {
+  /* Stripe Tax is enabled, so Payment Links WILL reject a product without a
+   * tax code. Creating products first and discovering that two steps later is
+   * how this script previously left half-built objects behind — so it stops
+   * before writing anything instead. */
+  console.log(r("\n  No tax code could be resolved, and Stripe Tax is enabled on this account."));
+  console.log("  Payment Links reject a product with no tax code, so creating the");
+  console.log("  products now would fail two steps later and leave them behind.\n");
+  console.log("  Either add READ scope for Tax to the key, or pass the code directly:");
+  console.log("      TRACELY_TAX_CODE=txcd_10103001 sh scripts/stripe-setup.sh --apply");
+  console.log("  (txcd_10103001 is Stripe's 'Software as a service (SaaS) - personal use';");
+  console.log("   confirm the right one for you at stripe.com/docs/tax/tax-codes)\n");
+  console.log("  Nothing was created by this run.\n");
+  process.exit(4);
 }
 const priceIds = {};
-const existingProducts = await get("products", { limit: 100, active: "true" }).catch(() => ({ data: [] }));
-const existingPrices = await get("prices", { limit: 100, active: "true" }).catch(() => ({ data: [] }));
+const existingProducts = await mustRead("products", { limit: 100, active: "true" }, "Products");
+const existingPrices = await mustRead("prices", { limit: 100, active: "true" }, "Prices");
 
 for (const p of PLANS) {
   let product = (existingProducts.data ?? []).find((x) => x.name === p.product);
