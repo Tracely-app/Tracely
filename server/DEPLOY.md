@@ -50,6 +50,26 @@ remove them. The database is outside the target anyway.
 The server has **zero runtime dependencies**, so there is no `npm install`
 step. If one ever appears, this document is wrong.
 
+## Not every .env value is hot-reloaded
+
+`loadEnvFile()` runs at the top of each request, so anything read from
+`process.env` AT REQUEST TIME picks up an edit with no restart — the API key,
+the daily budget, the Stripe values.
+
+Anything captured in a module-level `const` does not. Those are read once at
+boot:
+
+| variable | needs a restart |
+|---|---|
+| `TRACELY_EXTENSION_ID` | yes — `PINNED_EXTENSION` in server.js |
+| `PORT` | yes |
+| `TRACELY_DATA_DIR` | yes, and it must be a real env var, not a .env line |
+| everything else | no |
+
+This bites quietly: set `TRACELY_EXTENSION_ID`, watch a foreign origin still
+get a 204, and conclude the pin does not work. It does; the process was still
+holding the boot-time value. `systemctl restart tracely` and re-check.
+
 ## The API key
 
 ```sh
@@ -112,9 +132,11 @@ answer HTTP-01 without going through the app.
 2. **TLS**, once DNS resolves here:
    `certbot --apache -d api.jointracely.com`
 3. **The OpenAI key**, per above.
-4. **Pin the extension id** once it is assigned by the Chrome Web Store:
-   `TRACELY_EXTENSION_ID=<id>` in `.env` narrows the CORS allowlist from "any
-   chrome-extension:// origin" to just ours.
+4. ~~Pin the extension id~~ — **done**. `TRACELY_EXTENSION_ID` is
+   `dffmoeebkkghhgcklkbmaibfhgiegmdm`, which the manifest `key` pins for
+   unpacked builds too, so one value covers the team's betas and the published
+   extension. Verified live: our origin 204, a foreign extension 403,
+   docs.google.com still 204.
 5. **Billing**, when Stripe live setup is done: `STRIPE_WEBHOOK_SECRET`,
    `STRIPE_PRICE_STUDENT`, `STRIPE_PRICE_PRO`, and
    `SUPABASE_SERVICE_ROLE_KEY` (the webhook needs it to write plans).
