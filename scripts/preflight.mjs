@@ -237,33 +237,33 @@ const cmp = (a, b) => {
 if (process.env.PREFLIGHT_SKIP_VERSION === '1') {
   console.log(`  --    version check deferred until after the bump`)
 } else try {
-  const { owner, repo } = pkg.build?.publish ?? {}
-  const yml = readFileSync(join(ROOT, 'electron-builder.yml'), 'utf8')
-  const o = owner ?? yml.match(/owner:\s*(\S+)/)?.[1]
-  const r = repo ?? yml.match(/repo:\s*(\S+)/)?.[1]
-  // /releases/latest deliberately excludes prereleases. That's exactly right
-  // for a production release — previews must never raise the bar main has to
-  // clear — but wrong for a preview, which has to outrank the previous preview
-  // or electron-updater will never offer it to reviewers. So preview mode
-  // reads the full list and takes the highest version of any kind.
-  let latest
-  if (PREVIEW) {
-    const res = await fetch(`https://api.github.com/repos/${o}/${r}/releases?per_page=100`, {
-      signal: AbortSignal.timeout(20_000)
-    })
-    const tags = (await res.json()).map((rel) => rel.tag_name?.replace(/^v/, '')).filter(Boolean)
-    latest = tags.sort(cmp).pop()
-  } else {
-    const res = await fetch(`https://api.github.com/repos/${o}/${r}/releases/latest`, {
-      signal: AbortSignal.timeout(20_000)
-    })
-    latest = (await res.json()).tag_name?.replace(/^v/, '')
-  }
-  if (!latest) pass(`version ${pkg.version} (no previous release found)`)
+  // Asked of dl.jointracely.com, not of GitHub.
+  //
+  // This used to read api.github.com/repos/<owner>/<repo>/releases. That stopped
+  // being either available or MEANINGFUL when the repo went private and the
+  // update feed moved: unauthenticated it is a 404, and even authenticated it
+  // would answer about the archive rather than about what users are actually
+  // being offered. The .yml on the download host IS the published version — it
+  // is the file electron-updater reads — so this now checks the same thing the
+  // updater does, which is what the check was always trying to approximate.
+  //
+  // Preview and stable each have their own feed, so the "previews must not raise
+  // the bar for main" rule that used to need /releases/latest vs /releases?per_page
+  // is now just which file we read.
+  const channel = PREVIEW ? 'preview' : 'latest'
+  const res = await fetch(`https://dl.jointracely.com/${channel}.yml`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(20_000)
+  })
+  // A 404 is the legitimate state of a channel nobody has published to yet.
+  const latest = res.status === 404 ? null : (await res.text()).match(/^version:\s*(\S+)/m)?.[1]
+  if (!res.ok && res.status !== 404) throw new Error(`dl returned ${res.status}`)
+
+  if (!latest) pass(`version ${pkg.version} (nothing published on the ${channel} channel yet)`)
   else if (cmp(pkg.version, latest) > 0) pass(`version ${pkg.version} > published ${latest}`)
   else fail(`version ${pkg.version} is not above published ${latest} — bump it, or the updater will never offer this build`)
 } catch {
-  fail('could not read the latest published release from GitHub')
+  fail('could not read the published version from dl.jointracely.com')
 }
 
 console.log(failed ? '\nPreflight FAILED — nothing was published.\n' : '\nPreflight passed.\n')

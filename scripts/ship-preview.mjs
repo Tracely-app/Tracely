@@ -51,7 +51,7 @@
  * the normal way.
  */
 import { execSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -214,6 +214,26 @@ console.log('\n5/5  Build + publish preview')
 // checked at 2/5 against an identical tree; only the version string has moved,
 // and that is monotonic by construction rather than by comparison.
 run('npm run preview:win', { env: { ...previewEnv, GH_TOKEN: token } })
+
+// preview:win builds with --publish never and hands off to
+// scripts/publish-dl.mjs, so reviewers on the preview channel already have this
+// build by the time the line above returns. The prerelease below is the record.
+//
+// It is not optional bookkeeping, though: the LOCAL path at 3/5 derives the
+// next preview number by reading `gh release list` back. Stop creating these
+// and a local `ship:preview` starts reusing numbers, which electron-updater
+// will not move to — it only ever goes forward — so reviewers would silently
+// stop receiving builds.
+const artifacts = readdirSync(join(ROOT, 'release-preview'))
+  .filter((f) => /\.(exe|blockmap)$/.test(f) || f === 'preview.yml')
+  .map((f) => `"${join(ROOT, 'release-preview', f)}"`)
+  .join(' ')
+run(
+  `gh release create v${version} --prerelease --target ${out('git rev-parse HEAD')} --title "v${version}" ` +
+    `--notes "Preview build. Delivered over the preview channel at https://dl.jointracely.com — this release is the record, not the download." ` +
+    artifacts,
+  { env: { ...previewEnv, GH_TOKEN: token } }
+)
 
 // No tag correction any more, in either mode.
 //

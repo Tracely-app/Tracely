@@ -236,8 +236,30 @@ mac:
   # Boolean on purpose. The object form (notarize: {teamId}) is deprecated in
   # electron-builder 25 and removed in 26; the Team ID comes from APPLE_TEAM_ID.
   notarize: true
+# Where the SHIPPED app looks for updates. This string is baked into
+# app-update.yml inside every installer and can never be changed for copies
+# already installed, so it is a hostname we can repoint at DNS level — at a CDN,
+# at another box — without touching the app.
+#
+# It was `provider: github` until the repo went private. electron-updater ships
+# with no credentials and read release assets over GitHub's PUBLIC API, so
+# private would have stopped auto-update for every installed copy — silently,
+# because electron-updater logs the 404 and carries on. There is no token we
+# could ship instead: anything that can read a private repo's releases can read
+# its source.
+#
+# `generic` is download-only by design, which is the whole point: no credential
+# exists on the client to leak. Uploading is therefore ours to do — electron-
+# builder runs with --publish never and scripts/publish-dl.mjs moves the bytes.
+# It still writes latest.yml / preview.yml into the output directory from this
+# block, which is what the updater actually reads; delete this block and the
+# build succeeds while nothing is ever offered to anyone.
+#
+# GitHub releases have NOT gone away. The tag, the release and a copy of the
+# artifacts still land there through `gh`, which is authenticated and does not
+# care that the repo is private — and publishing that release is what triggers
+# mac-installers.yml.
 publish:
-  provider: github
-  owner: Tracely-app
-  repo: Tracely
-  releaseType: release
+  provider: generic
+  url: https://dl.jointracely.com
+  channel: latest

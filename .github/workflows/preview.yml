@@ -187,6 +187,34 @@ jobs:
           echo "remaining onnxruntime platforms:"
           ls node_modules/onnxruntime-node/bin/napi-v6/ || true
 
+      # The upload key for dl.jointracely.com, where the preview channel's feed
+      # and installer actually live. Without it the build succeeds and
+      # publish-dl.mjs dies at the first rsync — deliberately loudly, because
+      # the alternative is a preview nobody can install.
+      #
+      # It is written to a file rather than passed through ssh-agent: the
+      # runner is Windows, where the agent is a service that is not running by
+      # default, and `ssh` there is Win32-OpenSSH which refuses a key file the
+      # ACL lets anyone read. icacls is what makes it acceptable to it.
+      - name: install the release upload key
+        shell: bash
+        env:
+          DL_SSH_KEY: ${{ secrets.DL_SSH_KEY }}
+        run: |
+          if [ -z "$DL_SSH_KEY" ]; then
+            echo "::error::DL_SSH_KEY is not set. Previews are delivered from dl.jointracely.com and cannot be published without it — see DEPLOY.md 'Release hosting'."
+            exit 1
+          fi
+          key="$RUNNER_TEMP/tracely-dl"
+          printf '%s\n' "$DL_SSH_KEY" > "$key"
+          # Whichever ssh wins the PATH race here refuses a world-readable key:
+          # Win32-OpenSSH checks the NTFS ACL directly, and Git-for-Windows' ssh
+          # checks MSYS permissions, which are derived from that same ACL. So
+          # the ACL is tightened for both, and chmod is kept for the MSYS view.
+          icacls "$(cygpath -w "$key")" /inheritance:r /grant:r "$USERNAME:(R)" > /dev/null
+          chmod 600 "$key"
+          echo "TRACELY_DL_KEY=$key" >> "$GITHUB_ENV"
+
       - name: build and publish preview
         shell: bash
         env:
