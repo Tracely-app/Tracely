@@ -107,8 +107,8 @@ function getConfig() {
 
    Changing the project means changing the matching entry in manifest.json's
    host_permissions too — the token refresh below is a direct fetch to it. */
-const SUPABASE_URL = "https://epafyygdvvkgpdkbevqi.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVwYWZ5eWdkdnZrZ3Bka2JldnFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4NTUwOTIsImV4cCI6MjEwMTQzMTA5Mn0.8H-PInYTl37J2YZ7N1uKoUr_oDwVG53QmgloCJ3vETA";
+const SUPABASE_URL = "https://sxifbtelrtbsgnnwnmdf.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4aWZidGVscnRic2dubndubWRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMzc1MTIsImV4cCI6MjEwMTgxMzUxMn0.B_xYQkW28rIDu2yByuIJwg8-m__-czUWLuT1_4yz6fA";
 
 const PLANS = ["free", "student", "pro"];
 const DEFAULT_PLAN = "free";
