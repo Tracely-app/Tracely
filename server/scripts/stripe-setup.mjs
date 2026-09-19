@@ -62,18 +62,35 @@ function safeMsg(e) {
 }
 
 async function api(method, path, params) {
-  const url = `https://api.stripe.com/v1/${path}`;
+  const qs = new URL(`https://api.stripe.com/v1/${path}`);
   const opts = { method, headers: { Authorization: `Bearer ${KEY}` } };
+
+  /* A GET carries its parameters in the QUERY STRING and must not have a body.
+   * An earlier version built the form body first and attached it regardless of
+   * method; fetch rejects that outright with "Request with GET/HEAD method
+   * cannot have body." Every existence check therefore threw before reaching
+   * Stripe, the caller read that as "nothing exists", and the script created
+   * duplicate products in a LIVE account.
+   *
+   * It survived the test suite because the stub replaced globalThis.fetch with
+   * a function that ignored the body — a stub more permissive than the real
+   * API, which is a stub that certifies bugs. The stub now enforces this. */
   if (params) {
-    opts.headers["Content-Type"] = "application/x-www-form-urlencoded";
-    const body = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (Array.isArray(v)) v.forEach((x, i) => body.append(`${k}[${i}]`, String(x)));
-      else if (v !== undefined && v !== null) body.append(k, String(v));
+    if (method === "GET") {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null) qs.searchParams.set(k, String(v));
+      }
+    } else {
+      opts.headers["Content-Type"] = "application/x-www-form-urlencoded";
+      const body = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (Array.isArray(v)) v.forEach((x, i) => body.append(`${k}[${i}]`, String(x)));
+        else if (v !== undefined && v !== null) body.append(k, String(v));
+      }
+      opts.body = body;
     }
-    opts.body = body;
   }
-  const res = await fetch(method === "GET" && params ? `${url}?${new URLSearchParams(params)}` : url, opts);
+  const res = await fetch(qs, opts);
   const json = await res.json().catch(() => ({}));
   if (json.error) throw Object.assign(new Error(safeMsg(json.error)), { code: json.error.code, status: res.status });
   return json;
@@ -334,10 +351,24 @@ if (hook) {
 
 // ── 5. customer portal ──────────────────────────────────────────────────
 console.log("\nCustomer portal (the cancel path)");
-const cfgs = await get("billing_portal/configurations", { limit: 10 }).catch(() => ({ data: [] }));
-const active = (cfgs.data ?? []).find((c) => c.active && c.is_default);
+/* The one genuinely optional step. The portal's shareable LOGIN LINK is
+ * Dashboard-only whatever happens, so that screen has to be visited either
+ * way — which means a key that cannot reach this resource should print an
+ * instruction rather than abort a run that has already done everything else. */
+let cfgs = null;
+let portalReadable = true;
+try {
+  cfgs = await get("billing_portal/configurations", { limit: 10 });
+} catch (e) {
+  portalReadable = false;
+  console.log(y(`  skipped — this key cannot reach portal configurations (${e.message})`));
+  note("manual", "Billing > Customer portal: turn ON 'Cancel subscriptions' with mode 'at end of billing period', turn ON 'Switch plan' listing both prices, leave 'Manage downgrades' OFF, then 'Ways to get started' > Activate link and put the https://billing.stripe.com/p/login/... URL into PORTAL_URL in extension/options.js.");
+}
+const active = (cfgs?.data ?? []).find((c) => c.active && c.is_default);
 const wantSwitch = Object.values(priceIds).filter(Boolean);
-if (active?.features?.subscription_cancel?.enabled) {
+if (!portalReadable) {
+  // nothing to do here; the manual note above carries it
+} else if (active?.features?.subscription_cancel?.enabled) {
   console.log(`  ${g("exists")}  cancellation enabled (${active.id})`);
 } else if (!APPLY) {
   note("plan", "configure the customer portal with cancellation at period end and plan switching");
