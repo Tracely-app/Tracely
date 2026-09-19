@@ -13,10 +13,9 @@
      site nothing is sent anywhere until the user clicks.
 
    All API traffic goes through the extension's background service worker,
-   which picks the engine: the local Tracely server when it's reachable
-   (all features), or direct api.openai.com calls when an API key is set
-   on the options page (standalone — checks + web-search sources; cite-url
-   and Docs write-back hide). Harness/plain test pages fetch directly.
+   which relays it to a Tracely server — the local one at localhost:4477 if a
+   developer is running it, otherwise api.jointracely.com. Harness and plain
+   test pages fetch the server directly.
 
    Field mode also draws Grammarly-style overlay underlines: flagged
    sentences get a wavy colored underline (no highlight wash) — false #d93636,
@@ -115,14 +114,15 @@
      received. Anyone editing this file can move the slider; they still get the
      model their account pays for.
 
-     Two exceptions open every stop, and neither is a loophole — in both the
-     server has already decided there is no plan to apply:
-     • `byoKey` — standalone mode. The call is served by the user's own
-       OpenAI API key, billed to them by OpenAI. Nothing of ours to meter.
-     • `unenforced` — the local server reported `enforced: false`: it has no
-       Supabase project configured, so it clamps NOTHING. Locking the slider
-       here would show an upgrade prompt for a server that will serve the top
-       model on request — a lie in the one mode a plain `node server.js` runs in. */
+     One exception opens every stop, and it is not a loophole — the server has
+     already decided there is no plan to apply: `unenforced`, meaning it
+     reported `enforced: false` because it has no Supabase project configured
+     and clamps NOTHING. Locking the slider there would show an upgrade prompt
+     for a server that will serve the top model on request — a lie in the one
+     mode a plain `node server.js` runs in.
+
+     There was a second, `byoKey`, for the bring-your-own-key standalone
+     engine. That engine is gone; see the note in background.js. */
   const ORDER_URL = "https://jointracely.com/order";
   /* The upgrade link carries the signed-in account id as `uid`, which the order
      page forwards to Stripe as client_reference_id.
@@ -196,12 +196,12 @@
   function initTier() {
     try {
       refreshTier();
-      // The background worker writes the entitlement cache and the API key
+      // The background worker writes the entitlement cache
       // lives in the same area, so watching storage is how a sign-in on the
       // options page reaches an already-open tab without a reload.
       chrome.storage?.onChanged?.addListener((changes, area) => {
         try {
-          if (area === "local" && (changes.entitlement || changes.apiKey)) refreshTier();
+          if (area === "local" && changes.entitlement) refreshTier();
         } catch { /* orphaned content script — refreshTier already stood down */ }
       });
       tierTimer = setInterval(refreshTier, 5 * 60_000); // matches the worker's entitlement TTL
@@ -370,9 +370,9 @@
 
   /* ── transport ─────────────────────────────────────────────────────────── */
 
-  // Inside the real extension, ALL modes relay through the background worker,
-  // which picks the engine (local server vs standalone api.openai.com).
-  // The harness and plain-script test pages fetch the server directly.
+  // Inside the real extension every call relays through the background
+  // worker, which picks which Tracely server answers it. The harness and
+  // plain-script test pages fetch the server directly.
   const useRelay = !harness && typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
 
   initTier(); // the plan gate asks the worker, so it can only start once useRelay is known
@@ -694,7 +694,6 @@
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
     let bridgeReady = false;  // Docs bridge configured server-side → in-doc edit buttons
-    let standaloneMode = false; // background worker is talking to api.openai.com directly
     let docBusy = false;
     const docFixed = new Set();
     let autoSourceTimes = []; // rolling-hour guard on automatic source lookups
@@ -750,15 +749,12 @@
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
         requestFlow(); // fire-and-forget; gated on structure change + rate floor
       } catch (err) {
-        if (err?.kind === "no_key") {
-          statusKind = "error";
-          statusMsg = "Add your OpenAI API key in Tracely's settings";
-        } else if (err?.kind === "no_engine") {
+        if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
         } else if (offlineError(err)) {
           statusKind = "offline";
-          statusMsg = "Can't reach Tracely — add your API key in settings to keep checking";
+          statusMsg = "Can't reach Tracely — checks will resume when the server is back";
         } else {
           statusKind = "error";
           statusMsg = err?.message ?? "check failed";
@@ -2354,7 +2350,6 @@
       try {
         const s = await api("/api/status");
         bridgeReady = Boolean(s.docsBridge);
-        standaloneMode = Boolean(s.standalone);
       } catch { bridgeReady = false; }
     }
 
@@ -2511,7 +2506,7 @@
               </div>
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
-            ${standaloneMode ? "" : `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>`}
+            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
           </div>`;
         }).join("");
 
@@ -2680,9 +2675,11 @@
       });
     }
 
-    // ── engine (server | standalone | offline) — learned from the background ──
-    let engine = { mode: "server", hasKey: true };
-    const isStandalone = () => engine.mode === "standalone";
+    // ── engine (server | offline) — learned from the background worker ──
+    // "standalone" was a third state, for the removed bring-your-own-key
+    // engine. Cite-url was hidden in it because that endpoint had no
+    // standalone equivalent; with one engine left there is nothing to hide.
+    let engine = { mode: "server" };
     async function refreshEngine() {
       if (!useRelay) return;
       try {
@@ -3045,15 +3042,12 @@
         const n = currentIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
       } catch (err) {
-        if (err?.kind === "no_key") {
-          statusKind = "error";
-          statusMsg = "Add your OpenAI API key in Tracely's settings";
-        } else if (err?.kind === "no_engine") {
+        if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
         } else if (offlineError(err)) {
           statusKind = "offline";
-          statusMsg = "Tracely offline — start the server or add an API key in options";
+          statusMsg = "Tracely offline — checks will resume when the server is back";
         } else {
           statusKind = "error";
           statusMsg = err?.message ?? "check failed";
@@ -3281,12 +3275,12 @@
               </div>
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
-            ${isStandalone() ? "" : `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>`}
+            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
           </div>`;
         }).join("");
 
         const emptyMsg = statusKind === "offline"
-          ? "Start the Tracely server — or add an API key in Tracely options — then try again."
+          ? "Tracely could not reach its server. Try again in a moment."
           : enabled
             ? "Nothing flagged. Checking every 10s while this field is focused."
             : "Nothing sent yet. “Check once” reviews this field — or turn on auto-check for this site.";
