@@ -82,27 +82,45 @@ second is the actual fix.
 
 ### 2a. Stop the offer
 
-Preserve the artifacts first — deleting a release cannot be undone, and the
-`.exe` is the only evidence of what actually shipped:
+**This is now a one-line change on the download host, and it is reversible.**
+electron-updater reads `https://dl.jointracely.com/latest.yml`; that file, and
+nothing else, decides what every installed copy is offered. Point it back at the
+last good version and the offer stops on the next poll.
 
 ```bash
-gh release download v<bad-version> --dir ./forensics
+ssh tracelydl@45.56.92.67
+cd /srv/tracely/releases
+ls -1t *.exe                      # every version still on the box (the last 10 are kept)
+cp latest.yml latest.yml.bad      # keep the bad feed; it is the evidence
 ```
 
-`gh` is **not currently installed** — `winget install GitHub.cli` first, or just
-download the `.exe`, `.blockmap`, and `latest.yml` by hand from the release page
-in a browser. Do not skip this step.
+Then edit `latest.yml` so `version:`, `path:`, `url:` and `sha512:` all name the
+**previous** installer — every field, together. A feed whose `version` is rolled
+back but whose `path` still names the bad `.exe` hands the bad build to everyone
+who has not taken it yet, under the old version number, which is worse than
+doing nothing.
 
-Then delete the **release** (not the tag) on GitHub. electron-updater's GitHub
-provider reads `latest.yml` from the newest non-prerelease release; removing it
-makes the previous version current again, and clients on the good version go
-back to "You're up to date."
+The clean way to get a correct one is not to hand-edit at all: the `.yml` from
+the good release is still in that version's `release/` directory on the machine
+that built it, so re-run its publish instead.
 
-Do not mark it as a prerelease instead. That release carries `latest.yml` and no
-`beta.yml`, so shelving it into the prerelease slot can confuse beta clients
-looking for a channel file that isn't there. Delete, don't reclassify.
+```bash
+# from the repo, on the commit that built the good version
+node scripts/publish-dl.mjs        # re-uploads and re-verifies that feed
+```
 
-Anyone already on the bad version stays on it. Nothing can pull them back.
+**This does not pull anyone back.** electron-updater will not downgrade, so
+whoever already installed the bad version stays on it until a *higher* version
+replaces it. What this buys is that the bleeding stops in seconds instead of
+over the hours it takes to build and ship N+1.
+
+**Do not delete the GitHub release.** It used to be the mechanism and it is now
+only the archive — deleting it changes nothing for users, and destroys the
+artifacts you want during a post-mortem. Keep them:
+
+```bash
+gh release download v<bad-version> --dir ./forensics   # works on a private repo; gh is authenticated
+```
 
 ### 2b. Ship forward
 

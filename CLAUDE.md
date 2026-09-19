@@ -345,8 +345,17 @@ after something broke:**
 `npm run release:win` runs `scripts/preflight.mjs` first and refuses to publish
 unless: you're on `main`, the tree is clean and in sync with origin, typecheck
 passes, **every server endpoint in `callServer`'s parameter type answers
-something other than 404**, and the version is strictly above the latest
-published GitHub release.
+something other than 404**, and the version is strictly above the one
+`https://dl.jointracely.com/latest.yml` is currently offering.
+
+That last check reads the DOWNLOAD HOST, not GitHub. Releases stopped being
+delivered from GitHub when the repo went private — electron-updater ships with
+no credentials and read release assets over the public API, so private would
+have stopped auto-update for every installed copy, silently. `latest.yml` on
+that host is now the published version, because it is the file the updater
+actually reads. GitHub still gets the tag, the release and a copy of the
+artifacts; nothing an installed app talks to is there any more. See
+`scripts/publish-dl.mjs`.
 
 That endpoint check is the important one. **The desktop app and the server
 (`server/`, deployed per `server/DEPLOY.md`) must ship together**, and nothing
@@ -356,8 +365,13 @@ app called then). Deploy the server first, then release the client. The version 
 opposite failure — `electron-updater` only offers a *strictly higher* version,
 so publishing without bumping produces a release nobody is ever shown.
 
-`GH_TOKEN` lives in `.env.release` and must be in the environment for
-`--publish` to work; electron-builder does not read that file on its own.
+**Two credentials, and they do different jobs now.** `GH_TOKEN` lives in
+`.env.release` and is what `gh` uses to cut the tag and the release — the
+record. The **upload key** at `~/.ssh/tracely-dl` is what actually reaches
+users: `scripts/publish-dl.mjs` scp's the installer and `latest.yml` to
+`dl.jointracely.com`. Missing the first means no release object; missing the
+second means nobody is offered the build. Neither fails quietly — see
+DEPLOY.md "Release hosting".
 
 **`main` requires a pull request, enforced on admins**, so nothing — including
 `npm run ship` — can push to it directly. The release bump therefore goes to

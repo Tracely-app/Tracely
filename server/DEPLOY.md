@@ -124,22 +124,78 @@ every request 403.
 `/.well-known/acme-challenge/` is excluded from the proxy so certbot can
 answer HTTP-01 without going through the app.
 
+## Release hosting — dl.jointracely.com
+
+The desktop app's installers and its auto-update feed are served from this same
+box, as static files, by a **second vhost**:
+`/etc/apache2/sites-available/zz-tracely-dl.conf`, DocumentRoot
+`/srv/tracely/releases`. It does not proxy to the Node server and has nothing to
+do with the API.
+
+**Why it exists.** The repo went private. electron-updater ships inside every
+installed copy with no credentials and read release assets over GitHub's PUBLIC
+API — so private would have stopped auto-update for everyone, silently, because
+electron-updater logs the 404 and carries on. There is no token we could ship
+instead: anything that can read a private repo's releases can read its source.
+
+**Why its own hostname and not `api.jointracely.com/dl/`.** That URL is compiled
+into `app-update.yml` inside every installer and can never be changed for copies
+already out there. A separate name can be repointed at DNS level — at a CDN, at
+another box — without touching the app.
+
+| | |
+|---|---|
+| files | `/srv/tracely/releases` (owned by `tracelydl`, which owns nothing else) |
+| upload | `scripts/publish-dl.mjs`, over scp, key at `~/.ssh/tracely-dl` |
+| CI | the same key as the `DL_SSH_KEY` repo secret |
+| feed | `latest.yml` (stable), `preview.yml` (preview channel) |
+| stable links | `/download/Tracely-Setup.exe`, `/download/Tracely-arm64.dmg`, `/download/Tracely-x64.dmg` — symlinks the publish script repoints, so the website never needs editing per release |
+| retention | last 10 stable and 3 preview builds per extension; anything a live feed or symlink names is kept regardless of age |
+
+**Getting the upload key.** It is not in the repo. `~/.ssh/tracely-dl` on Sam's
+machine and the `DL_SSH_KEY` secret in GitHub Actions are the same key; the
+public half is in `tracelydl`'s `authorized_keys` on the box. To issue another,
+generate a fresh pair and append the public half — do not copy the private one
+around.
+
+**Cache headers are deliberate and sit in two places.** Installers are
+`immutable, max-age=31536000` (their bytes never change for a given URL); the
+`.yml` files are `no-cache, must-revalidate` (they are the switch). The stable
+`/download/` symlinks have to be `max-age=300`, and that header is set in a
+`<LocationMatch>` rather than beside them in `<Directory>`, because Apache
+merges `<LocationMatch>` LAST — the `<FilesMatch "\.(exe|dmg|zip|blockmap)$">`
+rule would otherwise stamp them immutable and freeze every visitor's browser on
+whichever version they downloaded first.
+
+**Apache serves the upload user's home directory**, so `.ssh/authorized_keys`
+literally sits under DocumentRoot. It is denied by an explicit `<DirectoryMatch>`
+plus `<FilesMatch "^\.">`, and autoindex is off. Verify both after any vhost
+edit — `curl -I https://dl.jointracely.com/.ssh/authorized_keys` must be 403.
+
 ## Still outstanding
 
-1. **DNS.** `api.jointracely.com` resolves to `64.29.17.65`, not this box. Point
-   its A record at `45.56.92.67`. Until then the extension's hosted probe
-   reaches the wrong host and TLS cannot be issued.
-2. **TLS**, once DNS resolves here:
-   `certbot --apache -d api.jointracely.com`
-3. **The OpenAI key**, per above.
-4. ~~Pin the extension id~~ — **done**. `TRACELY_EXTENSION_ID` is
-   `dffmoeebkkghhgcklkbmaibfhgiegmdm`, which the manifest `key` pins for
-   unpacked builds too, so one value covers the team's betas and the published
-   extension. Verified live: our origin 204, a foreign extension 403,
-   docs.google.com still 204.
-5. **Billing**, when Stripe live setup is done: `STRIPE_WEBHOOK_SECRET`,
-   `STRIPE_PRICE_STUDENT`, `STRIPE_PRICE_PRO`, and
-   `SUPABASE_SERVICE_ROLE_KEY` (the webhook needs it to write plans).
+1. **DNS for `dl.jointracely.com`.** The zone is on Vercel's nameservers
+   (`ns1.vercel-dns.com`), where a wildcard currently answers `dl` with a Vercel
+   404. Add an `A` record `dl -> 45.56.92.67` in the Vercel dashboard, then:
+   ```bash
+   certbot --apache -d dl.jointracely.com
+   ```
+   Until that lands, `publish-dl.mjs` uploads correctly and then fails its own
+   HTTPS verification — deliberately, because a release nobody can download is
+   not a release.
+
+Everything else on this list is done and was verified live:
+
+- ~~**DNS** for `api.jointracely.com`~~ — resolves to `45.56.92.67`.
+- ~~**TLS**~~ — issued, and renewal was verified rather than assumed.
+- ~~**The OpenAI key**~~ — set; `/api/status` reports `hasKey: true`.
+- ~~**Pin the extension id**~~ — `TRACELY_EXTENSION_ID` is
+  `dffmoeebkkghhgcklkbmaibfhgiegmdm`, which the manifest `key` pins for unpacked
+  builds too, so one value covers the team's betas and the published extension.
+  Verified live: our origin 204, a foreign extension 403, docs.google.com 204.
+- ~~**Billing**~~ — `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STUDENT`,
+  `STRIPE_PRICE_PRO` and `SUPABASE_SERVICE_ROLE_KEY` are all set; the webhook
+  answers 400 to an unsigned request, which is it verifying signatures.
 
 ## Not done, and worth knowing
 
