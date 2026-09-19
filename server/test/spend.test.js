@@ -471,3 +471,34 @@ test("stripe-setup puts no user id in Payment Link metadata", () => {
 function srcOf(rel) {
   return fsReadFileSync(nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", rel), "utf8");
 }
+
+// ── the Supabase project the code points at ──────────────────────────────
+
+test("the extension's Supabase project is live, not a dead one", () => {
+  /* The old project (epafyygdvvkgpdkbevqi) was deleted while the extension,
+   * the manifest's host_permissions and the server's .env all still named it.
+   * Nothing errored: planForRequest fails CLOSED to 'free', so every account
+   * silently read as unpaid and no subscriber could ever have been entitled.
+   * That is the worst shape a config bug can take — it looks exactly like
+   * "nobody has bought yet".
+   *
+   * This cannot check liveness offline, but it CAN pin the three places that
+   * must agree, so a future move updates all of them or fails here. */
+  const bg = srcOf("../extension/background.js");
+  const url = bg.match(/const SUPABASE_URL = "https:\/\/([a-z0-9]+)\.supabase\.co"/);
+  assert.ok(url, "SUPABASE_URL not found in background.js");
+  const ref = url[1];
+
+  // The anon key is a JWT whose payload names the project it belongs to. A
+  // key from a different project is the exact mismatch that produced this bug.
+  const anon = bg.match(/const SUPABASE_ANON_KEY = "([^"]+)"/);
+  assert.ok(anon, "SUPABASE_ANON_KEY not found");
+  const payload = JSON.parse(Buffer.from(anon[1].split(".")[1], "base64url").toString());
+  assert.equal(payload.ref, ref, "the anon key belongs to a different project than SUPABASE_URL");
+  assert.equal(payload.role, "anon", "that is not an anon key — a service_role key must never ship in the extension");
+
+  // host_permissions must name the same project or the worker cannot reach it.
+  const manifest = JSON.parse(srcOf("../extension/manifest.json"));
+  assert.ok(manifest.host_permissions.includes(`https://${ref}.supabase.co/*`),
+    `host_permissions does not allow ${ref}.supabase.co`);
+});
