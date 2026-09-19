@@ -89,6 +89,22 @@ function note(kind, line) {
   (kind === "plan" ? plan : kind === "done" ? done : manual).push(line);
 }
 
+/* A failure partway through leaves real objects behind. The script is written
+ * to resume, but a bare stack trace does not tell you that — and "did it half
+ * create something?" is exactly the question you do not want to answer by
+ * clicking around a live account. */
+const explainPartial = (err) => {
+  console.error(`\n\x1b[31mFailed partway through.\x1b[0m ${err?.message ?? err}`);
+  console.error("\nAnything already created above is kept. This script is idempotent:");
+  console.error("re-run the same command and it reuses what exists rather than duplicating.\n");
+  process.exit(1);
+};
+// A throw out of top-level await surfaces as uncaughtException, not
+// unhandledRejection — registering only the latter printed a raw stack trace
+// and told the operator nothing about whether half an account had been built.
+process.on("uncaughtException", explainPartial);
+process.on("unhandledRejection", explainPartial);
+
 console.log(`\nTracely Stripe setup — ${MODE} mode${APPLY ? "" : "  (DRY RUN — nothing will change)"}`);
 console.log("=".repeat(62));
 
@@ -126,8 +142,41 @@ try {
   note("manual", "Settings > Tax: confirm the account default tax behavior (key lacks Tax read scope, so this could not be checked).");
 }
 
+/* Stripe Tax, once enabled, refuses to build a Payment Link for a product with
+ * no tax_code: "Invalid line_items[0]: the product tax code is missing". The
+ * products create fine without one, so the failure lands two steps later, on
+ * an account that already has objects in it.
+ *
+ * The id is LOOKED UP rather than hardcoded. Stripe's catalogue has several
+ * plausible SaaS codes and guessing the wrong one is a tax decision, not a
+ * formatting one — and a hardcoded id that gets retired fails the same way
+ * this did. Preference order matches what Tracely actually is: a subscription
+ * to a hosted service used by individuals. */
+async function resolveTaxCode() {
+  let codes;
+  try {
+    codes = (await get("tax_codes", { limit: 100 })).data ?? [];
+  } catch {
+    return null; // no Tax scope on the key; caller degrades gracefully
+  }
+  const pick = (re) => codes.find((c) => re.test(c.name) || re.test(c.description ?? ""));
+  const chosen =
+    pick(/software as a service.*personal/i) ||
+    pick(/software as a service/i) ||
+    pick(/\bSaaS\b/i) ||
+    pick(/electronically supplied services/i) ||
+    pick(/digital (goods|services)/i);
+  return chosen ?? null;
+}
+
 // ── 2. products and prices ──────────────────────────────────────────────
 console.log("\nProducts and prices");
+const taxCode = await resolveTaxCode();
+if (taxCode) console.log(`  tax code: ${taxCode.id} — ${taxCode.name}`);
+else {
+  console.log(y("  no tax code resolved — Payment Links will fail if Stripe Tax is on"));
+  note("manual", "Set a product tax code on both products (Product catalog > product > Edit > Tax code). Stripe Tax refuses to build a Payment Link without one, and this key could not read /v1/tax_codes to pick it automatically.");
+}
 const priceIds = {};
 const existingProducts = await get("products", { limit: 100, active: "true" }).catch(() => ({ data: [] }));
 const existingPrices = await get("prices", { limit: 100, active: "true" }).catch(() => ({ data: [] }));
@@ -138,6 +187,22 @@ for (const p of PLANS) {
     x.unit_amount === p.cents && x.currency === "usd" &&
     x.recurring?.interval === "month" && x.recurring?.interval_count === 1 &&
     (product ? x.product === product.id : false));
+
+  /* The tax-code backfill has to happen BEFORE the early return for an
+     existing price. A run that created the products and then failed at the
+     Payment Link step leaves exactly that state — product and price present,
+     tax code absent — and skipping the backfill makes the SECOND run fail
+     identically to the first. Which it did. */
+  if (product && taxCode && !product.tax_code) {
+    if (APPLY) {
+      await post(`products/${product.id}`, { tax_code: taxCode.id });
+      console.log(`  ${g("updated")}  ${p.product} — added tax code ${taxCode.id}`);
+      product.tax_code = taxCode.id;
+    } else {
+      note("plan", `add tax code ${taxCode.id} to the existing product "${p.product}" (Payment Links reject a product without one)`);
+      console.log(`  ${y("would update")}  ${p.product} — missing tax code`);
+    }
+  }
 
   if (price) {
     priceIds[p.env] = price.id;
@@ -150,8 +215,10 @@ for (const p of PLANS) {
     continue;
   }
   if (!product) {
-    product = await post("products", { name: p.product, description: p.blurb });
-    console.log(`  ${g("created")}  product ${p.product} — ${product.id}`);
+    const body = { name: p.product, description: p.blurb };
+    if (taxCode) body.tax_code = taxCode.id;
+    product = await post("products", body);
+    console.log(`  ${g("created")}  product ${p.product} — ${product.id}${taxCode ? ` (tax code ${taxCode.id})` : ""}`);
   }
   // tax_behavior deliberately omitted: the account default governs, and that
   // stays changeable. See the note above.
