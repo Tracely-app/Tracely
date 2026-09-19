@@ -21,7 +21,7 @@ const ORDER_URL = "https://jointracely.com/order";
 
    Empty is handled honestly below rather than silently: the link becomes an
    email to support instead of pretending to be self-service. */
-const PORTAL_URL = "";
+const PORTAL_URL = "https://billing.stripe.com/p/login/5kQ3cv2Sy5gw4XY49P4gg00";
 const SUPPORT_EMAIL = "hello@jointracely.com";
 const $ = (id) => document.getElementById(id);
 
