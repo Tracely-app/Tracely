@@ -50,7 +50,46 @@ try {
   process.exit(3);
 }
 
-const mine = products.filter((p) => TRACELY.test(p.name)).sort((a, b) => a.created - b.created);
+/* Which product is actually IN USE beats which is oldest.
+ *
+ * "Keep the oldest" was wrong in the one case that matters here: the setup
+ * script had already built Payment Links against the NEWER duplicates, so
+ * archiving the older-wins choice would have taken the live checkout links
+ * down with it. A product referenced by an active Payment Link is the one the
+ * product is; age is only a tiebreak when nothing points at either. */
+let links = [];
+try {
+  links = (await api("GET", "payment_links", { limit: 100 })).data ?? [];
+} catch (e) {
+  console.log(r(`\nCannot read payment links: ${e.message}`));
+  console.log("Without them this cannot tell which product is live. Add READ scope");
+  console.log("for Payment Links and re-run. Nothing was changed.\n");
+  process.exit(3);
+}
+const referenced = new Set();
+for (const l of links) {
+  if (!l.active) continue;
+  for (const li of l.line_items?.data ?? []) {
+    if (li.price?.product) referenced.add(li.price.product);
+  }
+}
+// Payment Links do not expand line_items on a list call, so resolve any link
+// whose items are absent rather than assuming it references nothing.
+for (const l of links) {
+  if (!l.active || (l.line_items?.data ?? []).length) continue;
+  try {
+    const full = await api("GET", `payment_links/${l.id}/line_items`, { limit: 10 });
+    for (const li of full.data ?? []) if (li.price?.product) referenced.add(li.price.product);
+  } catch { /* leave it out; the guard below still refuses to archive blindly */ }
+}
+
+const mine = products
+  .filter((p) => TRACELY.test(p.name))
+  .sort((a, b) => {
+    const ra = referenced.has(a.id) ? 0 : 1;
+    const rb = referenced.has(b.id) ? 0 : 1;
+    return ra - rb || a.created - b.created; // in-use first, then oldest
+  });
 const byName = new Map();
 for (const p of mine) (byName.get(p.name) ?? byName.set(p.name, []).get(p.name)).push(p);
 
@@ -70,12 +109,22 @@ for (const [name, list] of byName) {
         subs += (s.data ?? []).length;
       }
     } catch { subs = -1; } // unknown — treated as "do not touch"
+    const inUse = referenced.has(p.id);
     const keep = i === 0;
-    const blocked = subs !== 0;
+    // A product a live Payment Link points at is never archived, even if it is
+    // not the one being kept — archiving it would break a checkout URL that
+    // may already be published.
+    const blocked = subs !== 0 || (!keep && inUse);
     const mark = keep ? g("KEEP  ") : blocked ? r("BLOCKED") : y("ARCHIVE");
-    console.log(`  ${mark} ${p.id}  created ${when}  tax_code=${p.tax_code ?? "none"}  subs=${subs < 0 ? "?" : subs}`);
+    const why = inUse ? " [payment link]" : "";
+    console.log(`  ${mark} ${p.id}  created ${when}  tax_code=${p.tax_code ?? "none"}  subs=${subs < 0 ? "?" : subs}${why}`);
     if (!keep && !blocked) toArchive.push(p);
-    if (!keep && blocked) console.log(`          not touched — ${subs < 0 ? "could not check subscriptions" : `${subs} subscription(s) attached`}`);
+    if (!keep && blocked) {
+      const reason = subs > 0 ? `${subs} subscription(s) attached`
+        : subs < 0 ? "could not check subscriptions"
+        : "an active Payment Link points at it";
+      console.log(`          not touched — ${reason}`);
+    }
   }
 }
 
