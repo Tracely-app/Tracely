@@ -502,3 +502,30 @@ test("the extension's Supabase project is live, not a dead one", () => {
   assert.ok(manifest.host_permissions.includes(`https://${ref}.supabase.co/*`),
     `host_permissions does not allow ${ref}.supabase.co`);
 });
+
+// ── the pinned extension id ──────────────────────────────────────────────
+
+test("the manifest key derives the extension id Supabase and the server expect", async () => {
+  /* The `key` field fixes the extension id for unpacked builds, so every
+   * teammate's local copy shares ONE id with the published extension — which
+   * means one chromiumapp.org entry in Supabase's redirect allowlist covers
+   * all of them. Without it each unpacked copy gets an id derived from its
+   * folder path, and Google sign-in fails for everyone but whoever registered
+   * theirs.
+   *
+   * Chrome derives the id as sha256(DER public key), first 16 bytes, each hex
+   * nibble mapped 0-f onto a-p. Deriving it here means a swapped key is caught
+   * before it silently breaks sign-in for the whole team. */
+  const { createHash } = await import("node:crypto");
+  const manifest = JSON.parse(srcOf("../extension/manifest.json"));
+  assert.ok(manifest.key, "manifest.key is missing — unpacked ids would vary per folder");
+
+  const der = Buffer.from(manifest.key, "base64");
+  assert.equal(der[0], 0x30, "key is not a DER SEQUENCE");
+  assert.ok(der.length > 200, `key is only ${der.length} bytes — truncated?`);
+
+  const hex = createHash("sha256").update(der).digest("hex").slice(0, 32);
+  const id = [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join("");
+  assert.equal(id, "dffmoeebkkghhgcklkbmaibfhgiegmdm",
+    "the manifest key no longer derives the id registered with Supabase and the Web Store");
+});
