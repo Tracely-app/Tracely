@@ -52,7 +52,7 @@ jobs:
     # build would fail on the first preflight check rather than doing anything
     # useful.
     if: >-
-      github.repository == 'merrickphan/Tracely' &&
+      github.repository == 'Tracely-app/Tracely' &&
       !startsWith(github.event.head_commit.message, 'Preview v')
 
     # electron-builder --win produces an NSIS installer, which needs Windows.

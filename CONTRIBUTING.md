@@ -6,7 +6,7 @@ that stays untangled.
 ## Setup
 
 ```bash
-git clone https://github.com/merrickphan/Tracely.git
+git clone https://github.com/Tracely-app/Tracely.git
 cd Tracely
 npm install
 ```
