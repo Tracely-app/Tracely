@@ -1,12 +1,26 @@
-/* Tracely options page — the account (sign in, plan, upgrade), an API key +
-   model for standalone mode, the per-site auto-check list, and a live probe of
-   the local server.
+/* Tracely options page — the account (sign in, plan, upgrade), the model
+   stop, the per-site auto-check list, and a live probe of the server.
 
    The sign-in itself lives in the background worker (it holds the token and
    the Supabase constants); this page only sends it messages. */
 "use strict";
 
-const SERVER = "http://localhost:4477";
+/* BOTH servers, in the order background.js tries them.
+   This was `const SERVER = "http://localhost:4477"` — the options page probed
+   localhost and nothing else, while the background worker had been falling
+   back to the hosted server for weeks. So on any machine with no local server
+   the page reported "Local server: offline — add an API key above to use
+   Tracely standalone" over an extension that was checking claims perfectly
+   well against api.jointracely.com. Wrong, and wrong in the direction of
+   telling the reader to go and buy an OpenAI key. Merrick hit it on a clean
+   install and reported the whole extension as an outdated build.
+
+   Kept as its own list rather than asked of the worker, because this page has
+   to say something truthful before the worker has finished waking up. */
+const SERVERS = [
+  { base: "http://localhost:4477", local: true },
+  { base: "https://api.jointracely.com", local: false },
+];
 const ORDER_URL = "https://jointracely.com/order";
 
 /* Stripe Customer Portal login link — Billing > Customer portal > "Share a
@@ -72,27 +86,28 @@ function paintSlider(pos) {
    it. Clamping the slider here is presentation: the server re-clamps the model
    on every call against the token it was sent.
 
-   Two flags open every stop, because in both the server has already decided
-   there is no plan to apply:
-   • `byoKey` — standalone mode. The user's own OpenAI key pays OpenAI
-     directly, so there is nothing of ours to meter.
-   • `unenforced` — the local server reported `enforced: false`: no Supabase
-     project is configured, so it clamps nothing. Showing an upgrade prompt
-     against a server that will serve the top model on request would be a
-     lie. */
+   One flag opens every stop: `unenforced` — the server reported
+   `enforced: false`, meaning no Supabase project is configured and it clamps
+   nothing. Showing an upgrade prompt against a server that will serve the top
+   model on request would be a lie.
+
+   There was a second, `byoKey`, for the bring-your-own-OpenAI-key mode. That
+   mode is gone: it was a way to use every model without ever having a plan,
+   which is the one thing a metered product cannot offer, and it was a whole
+   second implementation of the checking pipeline to keep in step with the
+   first. */
 
 const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
 
-let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, byoKey: false, unenforced: false };
+let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false };
 
 function maxStop() {
-  if (account.byoKey || account.unenforced) return MODELS.length - 1;
+  if (account.unenforced) return MODELS.length - 1;
   return PLAN_MAX_STOP[account.plan] ?? 0; // unknown plan is free, always
 }
 
 function sliderHint() {
-  if (account.byoKey) return "Your own API key is paying OpenAI directly, so every stop is open.";
   if (account.unenforced) return "This local server has no accounts configured, so every stop is open.";
   if (maxStop() === MODELS.length - 1) return "How hard Tracely thinks. Faster is cheaper and near-instant; Smarter catches subtler problems.";
   if (account.plan === "student") return "Student reaches Balanced. Thorough comes with Pro.";
@@ -123,7 +138,7 @@ function renderAccount() {
   $("signedOut").hidden = signedIn;
 
   if (!account.configured) {
-    $("acctHint").textContent = "This build has no Tracely accounts configured, so everything runs on the free tier — or on your own API key below, which has no limits at all.";
+    $("acctHint").textContent = "This build has no Tracely accounts configured, so everything runs unmetered against whichever server answered.";
     $("signIn").disabled = true;
     return;
   }
@@ -161,7 +176,7 @@ function renderAccount() {
       ? "You're signed in on the free plan. Upgrading unlocks the smarter models everywhere Tracely runs."
       : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
   } else {
-    $("acctHint").textContent = "Sign in to use the plan you pay for. Not required: without an account Tracely runs on the free tier, and an API key below skips accounts entirely.";
+    $("acctHint").textContent = "Sign in to use the plan you pay for. Not required — without an account Tracely runs on the free tier.";
   }
 }
 
@@ -178,7 +193,7 @@ function acctStatus(text, warn) {
 async function refreshAccount(force) {
   try {
     const r = await chrome.runtime.sendMessage({ type: "tracely-entitlement", force: force === true });
-    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced) };
+    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced) };
   } catch { /* worker restarting — keep the last answer */ }
   renderAccount();
   applyPlanState();
@@ -209,31 +224,15 @@ $("signOut").addEventListener("click", async () => {
 /* ── load + save ─────────────────────────────────────────────────────────── */
 
 function load() {
-  chrome.storage.local.get({ apiKey: "", enabledSites: [] }, (cfg) => {
-    $("apiKey").value = cfg.apiKey;
-    renderSites(cfg.enabledSites);
-  });
+  chrome.storage.local.get({ enabledSites: [] }, (cfg) => renderSites(cfg.enabledSites));
   refreshAccount(); // sets the slider position too, once the ceiling is known
 }
 
-let savedTimer = null;
-function flashSaved(text) {
-  $("keySaved").textContent = text;
-  clearTimeout(savedTimer);
-  savedTimer = setTimeout(() => { $("keySaved").textContent = ""; }, 2500);
-}
-
-$("saveKey").addEventListener("click", () => {
-  const apiKey = $("apiKey").value.trim();
-  chrome.storage.local.set({ apiKey }, () => {
-    flashSaved(apiKey ? "Saved — standalone mode is ready when the server is off." : "Key removed — Tracely will use the local server only.");
-    probe(); // status line may change wording now that a key is (un)set
-    refreshAccount(); // a key can open the slider (standalone bills the user, not us)
-  });
-});
-$("apiKey").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("saveKey").click();
-});
+/* Any key a previous build stored is removed on load rather than left sitting
+   in chrome.storage. Nothing reads it now, so keeping it would only mean an
+   OpenAI credential living on in every existing install with no screen that
+   can show or clear it. */
+chrome.storage.local.remove("apiKey");
 
 $("modelSlider").addEventListener("input", () => {
   const ceiling = maxStop();
@@ -290,24 +289,33 @@ function noteServerState(up) {
 async function probe() {
   const wrap = $("serverStatus");
   const text = $("serverStatusText");
-  try {
-    const res = await fetch(`${SERVER}/api/status`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const s = await res.json().catch(() => ({}));
+
+  for (const { base, local } of SERVERS) {
+    let status;
+    try {
+      const res = await fetch(`${base}/api/status`, { signal: AbortSignal.timeout(1500) });
+      if (!res.ok) continue;
+      status = await res.json().catch(() => ({}));
+    } catch {
+      continue; // not reachable — try the next
+    }
     wrap.className = "status on";
-    text.textContent = s.docsBridge
-      ? "Local server: online — all features, Docs write-back ready"
-      : "Local server: online — all features (web-search sources, URL citing)";
+    // Docs write-back is a local-server capability, so only the local branch
+    // is allowed to promise it.
+    text.textContent = !local
+      ? "Tracely server: online — checks run on your plan"
+      : status.docsBridge
+        ? "Local server: online — all features, Docs write-back ready"
+        : "Local server: online — all features (web-search sources, URL citing)";
     noteServerState(true);
-  } catch {
-    chrome.storage.local.get({ apiKey: "" }, (cfg) => {
-      wrap.className = "status off";
-      text.textContent = cfg.apiKey
-        ? "Local server: offline — standalone mode active (your API key, checks + sources)"
-        : "Local server: offline — add an API key above to use Tracely standalone";
-      noteServerState(false);
-    });
+    return;
   }
+
+  // With the bring-your-own-key mode gone there is no longer a fallback to
+  // suggest, so this says what is wrong instead of what to buy.
+  wrap.className = "status off";
+  text.textContent = "Tracely server: unreachable — checks will not run until it is back. Check your connection.";
+  noteServerState(false);
 }
 
 // The honour-system Pro code this replaced. Dropping the key is the whole

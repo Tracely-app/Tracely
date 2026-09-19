@@ -153,3 +153,59 @@ test("the Docs hook is scoped to documents, not to all of /document/*", () => {
   assert.equal(hook.world, "MAIN");
   assert.equal(hook.run_at, "document_start");
 });
+
+/* ── what the options page SAYS ───────────────────────────────────────────
+ * Two bugs shipped together in 2.19.1 and were reported as one: "Merrick is
+ * seeing an outdated version with a terrible reasoning model". Neither was an
+ * outdated version. The build was current; two pieces of its UI were not.
+ */
+
+test("the model slider names tiers, never models", () => {
+  // The ticks read Haiku / Sonnet / Opus for a fortnight after the move to
+  // OpenAI. The MODELS array in options.js was migrated and the labels under
+  // the slider were not, so the only screen that tells a user what they are
+  // buying named three Anthropic models the extension could no longer call.
+  // Nothing in the code has to touch those labels, which is exactly why a
+  // provider swap does not reach them — so this test does instead.
+  const ticks = [...read("options.html").matchAll(/<span class="tick" data-i="\d+">([^<]+)<\/span>/g)].map((m) => m[1]);
+  assert.equal(ticks.length, Object.keys(MODEL_TIERS).length, "one tick per tier");
+  for (const tick of ticks) {
+    for (const model of Object.values(MODEL_TIERS)) {
+      assert.ok(!tick.toLowerCase().includes(model.toLowerCase()), `tick "${tick}" names a model id`);
+    }
+    for (const vendor of ["haiku", "sonnet", "opus", "gpt", "claude", "gemini"]) {
+      assert.ok(!tick.toLowerCase().includes(vendor), `tick "${tick}" names a vendor's model`);
+    }
+  }
+});
+
+test("the options page probes the hosted server, not just localhost", () => {
+  // It probed localhost and nothing else while the background worker had been
+  // falling back to api.jointracely.com for weeks — so on any machine without
+  // a local server the page reported the extension offline and told the reader
+  // to go and buy an OpenAI key, over an extension that was working.
+  const src = read("options.js");
+  assert.ok(src.includes("https://api.jointracely.com"), "options.js never probes the hosted server");
+  assert.ok(!/const SERVER = "http:\/\/localhost:4477";/.test(src), "options.js still pins a single localhost server");
+});
+
+test("the extension cannot call OpenAI directly", () => {
+  // The bring-your-own-key standalone engine is removed. It opened every model
+  // stop to anyone who pasted a key, which against a product whose plans ARE
+  // the model ceiling is the pricing page with an opt-out. The host permission
+  // goes with it: leaving it declared would keep asking users for access to a
+  // service the extension no longer talks to.
+  for (const f of ["background.js", "content.js", "options.js"]) {
+    const src = read(f)
+      .replace(/\/\*[\s\S]*?\*\//g, "") // comments may still explain why it went
+      .replace(/^\s*\/\/.*$/gm, "");
+    assert.ok(!src.includes("api.openai.com"), `${f} still reaches api.openai.com`);
+  }
+  const manifest = JSON.parse(read("manifest.json"));
+  assert.ok(
+    !manifest.host_permissions.some((h) => h.includes("openai.com")),
+    "manifest still requests access to OpenAI"
+  );
+  // An options page with no key field must not still tell people to set one.
+  assert.ok(!/add (an|your) API key/i.test(read("options.html")), "options.html still points at a key field it no longer has");
+});
