@@ -1,0 +1,1291 @@
+{
+  "name": "tracely-checkset-v1",
+  "built": "2026-09-21",
+  "source": "Tracely main @2f2ca33: server/lib/factcheck.js FINDINGS_SCHEMA + systemPrompt(); extension/content.js segmentText/hashText/api('/api/check')",
+  "request_shape": "POST /api/check body per essay: { text: essay.text, sentences: essay.sentences.map(s => ({ id: s.hash, text: s.text })), model, effort }. Direct: runFactCheck({ text, sentences, model, effort }) or structuredCall with systemPrompt()/userPrompt(). One essay = one batch (all <= 40 = MAX_SENTENCES_PER_CHECK; all texts < 6000 chars so the server never trims context).",
+  "verdicts": [
+    "accurate",
+    "needs_citation",
+    "false",
+    "questionable",
+    "incoherent",
+    "no_claim"
+  ],
+  "flag_of_verdict": {
+    "false": "false",
+    "needs_citation": "needs_citation",
+    "questionable": "questionable",
+    "incoherent": "incoherent",
+    "accurate": "none",
+    "no_claim": "none"
+  },
+  "scoring": {
+    "correct": "verdict in acceptable (1 point)",
+    "partial": "verdict in partial (0.5 point)",
+    "critical": "verdict in critical: a harmful error (endorsing a falsehood, calling a truth false, or asking a cited sentence for a citation). Report the count separately; it is the number that matters to a student.",
+    "wrong": "any other verdict, or a missing finding for the id (0 points; count missing separately)"
+  },
+  "counts": {
+    "total": 55,
+    "by_label": {
+      "common_knowledge": 8,
+      "false": 12,
+      "trap": 5,
+      "cited": 10,
+      "true_uncited": 12,
+      "opinion": 8
+    },
+    "false_by_difficulty": {
+      "subtle": 8,
+      "plain": 2,
+      "moderate": 2
+    }
+  },
+  "essays": [
+    {
+      "id": "e1",
+      "title": "Racing to the Moon",
+      "topic": "history",
+      "text": "Racing to the Moon\nThe Soviet Union launched Sputnik, the first artificial satellite, in 1957. A month later, the dog Laika became the first animal to orbit Earth aboard Sputnik 1. Strictly speaking, though, Sputnik was not the first human-made object to reach space, because a German V-2 rocket had already crossed that boundary in 1944.\nThe Soviets struck again in April 1961 when Yuri Gagarin became the first human in space, and weeks later John Glenn answered as the first American in space. In May 1961, President Kennedy told Congress that the nation should commit to landing a man on the Moon before the decade was out (Logsdon, 2010). At its peak in 1966, NASA's budget made up more than four percent of all federal spending. The Apollo program went on to cost roughly 25 billion dollars and employed about 400,000 people at its height.\nOn July 20, 1969, Buzz Aldrin became the first person to walk on the Moon, followed minutes later by Neil Armstrong. According to NASA, the six Apollo landing missions brought back 382 kilograms of lunar rock and soil. The Cold War itself ended when the Soviet Union collapsed in 1991. Looking back, I think the race to the Moon was driven more by national pride than by curiosity, and that is nothing to be ashamed of.",
+      "sentences": [
+        {
+          "id": "e1s01",
+          "hash": "s1url712",
+          "paragraph": 1,
+          "text": "The Soviet Union launched Sputnik, the first artificial satellite, in 1957.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Famous date (4 Oct 1957); the prompt lists famous dates as common knowledge."
+        },
+        {
+          "id": "e1s02",
+          "hash": "s1rr2sb6",
+          "paragraph": 1,
+          "text": "A month later, the dog Laika became the first animal to orbit Earth aboard Sputnik 1.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Everything is right except the spacecraft number, which is the kind of detail a weak model reads past.",
+          "difficulty": "subtle",
+          "correct_fact": "Laika flew on Sputnik 2 (launched 3 Nov 1957, a month after Sputnik 1). Sputnik 1 carried no animals."
+        },
+        {
+          "id": "e1s03",
+          "hash": "s1tkgsv3",
+          "paragraph": 1,
+          "text": "Strictly speaking, though, Sputnik was not the first human-made object to reach space, because a German V-2 rocket had already crossed that boundary in 1944.",
+          "label": "trap",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation",
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Sounds like it contradicts the previous sentence's 'first artificial satellite', but reaching space and orbiting are different things.",
+          "trap_kind": "surprising",
+          "why_true": "V-2 test flight MW 18014 on 20 June 1944 reached an apogee of about 176 km, well above the 100 km Karman line (and the US 80 km line): the first human-made object in space. Sputnik was the first to ORBIT, so the sentence does not contradict e1s01."
+        },
+        {
+          "id": "e1s04",
+          "hash": "s11d96xx",
+          "paragraph": 2,
+          "text": "The Soviets struck again in April 1961 when Yuri Gagarin became the first human in space, and weeks later John Glenn answered as the first American in space.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Compound sentence: the Gagarin half is right, the Glenn half is wrong. Glenn is the famous name, so it is a very common student conflation.",
+          "difficulty": "subtle",
+          "correct_fact": "Alan Shepard was the first American in space (Freedom 7, 5 May 1961, suborbital). John Glenn was the first American to ORBIT Earth, on 20 Feb 1962."
+        },
+        {
+          "id": "e1s05",
+          "hash": "s1hdm4y3",
+          "paragraph": 2,
+          "text": "In May 1961, President Kennedy told Congress that the nation should commit to landing a man on the Moon before the decade was out (Logsdon, 2010).",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (special message to Congress, 25 May 1961) and carries an (Author, year) parenthetical: John M. Logsdon, John F. Kennedy and the Race to the Moon (2010)."
+        },
+        {
+          "id": "e1s06",
+          "hash": "szbvfxm",
+          "paragraph": 2,
+          "text": "At its peak in 1966, NASA's budget made up more than four percent of all federal spending.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True: NASA's share of federal outlays was 4.31% in 1965 and peaked at 4.41% in 1966 (OMB historical tables, as tabulated in Wikipedia 'Budget of NASA'). A specific statistic with no source; the '(Logsdon, 2010)' in the previous sentence covers only that sentence, so 'accurate' is partial."
+        },
+        {
+          "id": "e1s07",
+          "hash": "s16hx28l",
+          "paragraph": 2,
+          "text": "The Apollo program went on to cost roughly 25 billion dollars and employed about 400,000 people at its height.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True: NASA's 1973 figure to Congress was about $25.4 billion; NASA cites roughly 400,000 people at the peak. Two uncited statistics."
+        },
+        {
+          "id": "e1s08",
+          "hash": "s943i53",
+          "paragraph": 3,
+          "text": "On July 20, 1969, Buzz Aldrin became the first person to walk on the Moon, followed minutes later by Neil Armstrong.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Plain control: every model should catch the swapped order.",
+          "difficulty": "plain",
+          "correct_fact": "Neil Armstrong stepped onto the Moon first; Buzz Aldrin followed about 19 minutes later."
+        },
+        {
+          "id": "e1s09",
+          "hash": "s11u99mn",
+          "paragraph": 3,
+          "text": "According to NASA, the six Apollo landing missions brought back 382 kilograms of lunar rock and soil.",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (NASA curation: 382 kg / 842 lb from six missions, 1969-1972) with prose attribution ('According to NASA')."
+        },
+        {
+          "id": "e1s10",
+          "hash": "s1kz7xfj",
+          "paragraph": 3,
+          "text": "The Cold War itself ended when the Soviet Union collapsed in 1991.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Famous date; common knowledge."
+        },
+        {
+          "id": "e1s11",
+          "hash": "s78pigk",
+          "paragraph": 3,
+          "text": "Looking back, I think the race to the Moon was driven more by national pride than by curiosity, and that is nothing to be ashamed of.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Hedged interpretation and a value judgement ('I think', 'nothing to be ashamed of'); no checkable claim."
+        }
+      ]
+    },
+    {
+      "id": "e2",
+      "title": "Lessons From a Warming Planet",
+      "topic": "science",
+      "text": "Lessons From a Warming Planet\nCarbon dioxide traps heat in the atmosphere, which is why scientists call it a greenhouse gas. Sunlight takes about eight seconds to travel from the Sun to Earth, where it warms the surface and is radiated back toward space as infrared heat. Burning coal, oil, and natural gas releases carbon dioxide that was locked underground for millions of years.\nBefore the Industrial Revolution, the concentration of carbon dioxide in the air was about 280 parts per million. When Charles Keeling began measuring carbon dioxide on Mauna Loa in 1958, the level was about 315 parts per million. In May 2013, the Mauna Loa Observatory recorded a daily average above 400 parts per million for the first time (NOAA, 2013). By the 2010s, the planet's average surface temperature was about one degree Celsius higher than in the late 1800s. In its 2021 assessment, the IPCC stated that it is unequivocal that human influence has warmed the atmosphere, ocean and land.\nMolecule for molecule, methane traps less heat than carbon dioxide, which is why climate scientists pay it little attention. The ocean absorbs roughly a quarter of the carbon dioxide humans emit each year, and seawater has become about 30 percent more acidic since the Industrial Revolution. Given everything we know, delaying serious climate policy any longer would be a failure of basic responsibility.",
+      "sentences": [
+        {
+          "id": "e2s01",
+          "hash": "s1xf0jm8",
+          "paragraph": 1,
+          "text": "Carbon dioxide traps heat in the atmosphere, which is why scientists call it a greenhouse gas.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Basic science; common knowledge."
+        },
+        {
+          "id": "e2s02",
+          "hash": "si8p54r",
+          "paragraph": 1,
+          "text": "Sunlight takes about eight seconds to travel from the Sun to Earth, where it warms the surface and is radiated back toward space as infrared heat.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Unit swap buried in an otherwise correct physical description.",
+          "difficulty": "subtle",
+          "correct_fact": "Sunlight takes about 8 minutes 20 seconds (roughly 500 s) to reach Earth."
+        },
+        {
+          "id": "e2s03",
+          "hash": "s1hf4249",
+          "paragraph": 1,
+          "text": "Burning coal, oil, and natural gas releases carbon dioxide that was locked underground for millions of years.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Basic science; common knowledge."
+        },
+        {
+          "id": "e2s04",
+          "hash": "s1sd2v7u",
+          "paragraph": 2,
+          "text": "Before the Industrial Revolution, the concentration of carbon dioxide in the air was about 280 parts per million.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (ice-core record, about 280 ppm). Specific figure, no source."
+        },
+        {
+          "id": "e2s05",
+          "hash": "s1bvk5fv",
+          "paragraph": 2,
+          "text": "When Charles Keeling began measuring carbon dioxide on Mauna Loa in 1958, the level was about 315 parts per million.",
+          "label": "trap",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation",
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Dated figure: wrong for today (well over 400 ppm), correct for the date it names.",
+          "trap_kind": "dated",
+          "why_true": "NOAA/Scripps Mauna Loa monthly means for 1958 (Mar-Dec) run 312.4-317.5 ppm, averaging about 315.2 ppm (March 1958: 315.71 ppm; 1959 annual mean 315.98 ppm). The single first reading often quoted is 313 ppm, which 'about 315' still approximates. The sentence is explicitly about 1958, so today's 420+ ppm does not make it false."
+        },
+        {
+          "id": "e2s06",
+          "hash": "srcm4cw",
+          "paragraph": 2,
+          "text": "In May 2013, the Mauna Loa Observatory recorded a daily average above 400 parts per million for the first time (NOAA, 2013).",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (9 May 2013) with an (Organisation, year) parenthetical."
+        },
+        {
+          "id": "e2s07",
+          "hash": "sq6iaga",
+          "paragraph": 2,
+          "text": "By the 2010s, the planet's average surface temperature was about one degree Celsius higher than in the late 1800s.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (IPCC AR6: 2011-2020 was about 1.1 C above 1850-1900; 'about one degree' is a reasonable approximation, and it is dated to the 2010s so later years do not make it stale). No source."
+        },
+        {
+          "id": "e2s08",
+          "hash": "shd20p4",
+          "paragraph": 2,
+          "text": "In its 2021 assessment, the IPCC stated that it is unequivocal that human influence has warmed the atmosphere, ocean and land.",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True: near-verbatim from IPCC AR6 WG1 Summary for Policymakers, A.1. Prose attribution ('the IPCC stated')."
+        },
+        {
+          "id": "e2s09",
+          "hash": "safvdnn",
+          "paragraph": 3,
+          "text": "Molecule for molecule, methane traps less heat than carbon dioxide, which is why climate scientists pay it little attention.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Reversed comparison with a plausible-sounding consequence.",
+          "difficulty": "moderate",
+          "correct_fact": "Methane traps far MORE heat than CO2: per molecule its radiative efficiency is roughly 25-30 times CO2's, and per kilogram its global warming potential is about 80 times CO2's over 20 years and about 28-30 times over 100 years (IPCC AR5/AR6). Cutting methane is a major focus of climate policy (e.g. the 2021 Global Methane Pledge)."
+        },
+        {
+          "id": "e2s10",
+          "hash": "s1q5z6nh",
+          "paragraph": 3,
+          "text": "The ocean absorbs roughly a quarter of the carbon dioxide humans emit each year, and seawater has become about 30 percent more acidic since the Industrial Revolution.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True: Global Carbon Project ocean sink about 26% of annual emissions; NOAA: surface-ocean acidity up about 30% (pH down about 0.1). Two uncited statistics."
+        },
+        {
+          "id": "e2s11",
+          "hash": "s113ewe7",
+          "paragraph": 3,
+          "text": "Given everything we know, delaying serious climate policy any longer would be a failure of basic responsibility.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Value judgement; no checkable claim."
+        }
+      ]
+    },
+    {
+      "id": "e3",
+      "title": "Public Health's Quiet Victories",
+      "topic": "health",
+      "text": "Public Health's Quiet Victories\nPublic health rarely makes headlines, because its greatest successes are the epidemics that never happen. In 1900, the three leading causes of death in the United States were pneumonia, tuberculosis, and diarrheal disease. According to the CDC, average life expectancy in the United States rose by about 30 years over the twentieth century.\nVaccines work by training the immune system to recognize a germ without causing the full disease. In 1796, Edward Jenner showed that material from cowpox sores could protect a young boy from smallpox (Riedel, 2005). In 1955, Jonas Salk's polio vaccine was approved, and millions of children received it as drops on a sugar cube. Thanks to mass vaccination, cases of wild polio worldwide have fallen by more than 99 percent since 1988. Before a measles vaccine became available in 1963, measles killed an estimated 400 to 500 people in the United States every year.\nThe next great leap came when Alexander Fleming discovered penicillin in 1938 (Tan and Tatsumura, 2015). Penicillin and the antibiotics that followed also work against viruses, which is why doctors routinely prescribe them for the flu. It is hard to think of any invention that has done more good for humanity than the humble vaccine.",
+      "sentences": [
+        {
+          "id": "e3s01",
+          "hash": "s1vj2trm",
+          "paragraph": 1,
+          "text": "Public health rarely makes headlines, because its greatest successes are the epidemics that never happen.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Rhetorical argument; no checkable claim."
+        },
+        {
+          "id": "e3s02",
+          "hash": "skrxxo9",
+          "paragraph": 1,
+          "text": "In 1900, the three leading causes of death in the United States were pneumonia, tuberculosis, and diarrheal disease.",
+          "label": "trap",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation",
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Dated figure: a model anchored on today's list (heart disease, cancer) may call it false.",
+          "trap_kind": "dated",
+          "why_true": "CDC MMWR 1999 (Achievements in Public Health, 1900-1999: Control of Infectious Diseases): in 1900 the three leading causes of death were pneumonia, tuberculosis, and diarrhea and enteritis."
+        },
+        {
+          "id": "e3s03",
+          "hash": "s50ok44",
+          "paragraph": 1,
+          "text": "According to the CDC, average life expectancy in the United States rose by about 30 years over the twentieth century.",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (about 47 in 1900 to about 77 in 2000; CDC MMWR 1999 says the lifespan lengthened by about 30 years) with prose attribution."
+        },
+        {
+          "id": "e3s04",
+          "hash": "s46nvm7",
+          "paragraph": 2,
+          "text": "Vaccines work by training the immune system to recognize a germ without causing the full disease.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Basic science; common knowledge."
+        },
+        {
+          "id": "e3s05",
+          "hash": "sh5aduq",
+          "paragraph": 2,
+          "text": "In 1796, Edward Jenner showed that material from cowpox sores could protect a young boy from smallpox (Riedel, 2005).",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (James Phipps, 1796) with an (Author, year) parenthetical: Riedel, Proc (Bayl Univ Med Cent) 2005."
+        },
+        {
+          "id": "e3s06",
+          "hash": "s1rlcbw5",
+          "paragraph": 2,
+          "text": "In 1955, Jonas Salk's polio vaccine was approved, and millions of children received it as drops on a sugar cube.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Conflates the two polio vaccines; the year and the name are right.",
+          "difficulty": "subtle",
+          "correct_fact": "Salk's inactivated vaccine (licensed 1955) was given by injection. The oral drops, often on a sugar cube, were Albert Sabin's live vaccine, licensed in the US in 1961-62."
+        },
+        {
+          "id": "e3s07",
+          "hash": "skzzfpw",
+          "paragraph": 2,
+          "text": "Thanks to mass vaccination, cases of wild polio worldwide have fallen by more than 99 percent since 1988.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (WHO: from an estimated 350,000 cases in 1988). Specific statistic, no source."
+        },
+        {
+          "id": "e3s08",
+          "hash": "sc5qyj2",
+          "paragraph": 2,
+          "text": "Before a measles vaccine became available in 1963, measles killed an estimated 400 to 500 people in the United States every year.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (CDC: in the decade before 1963, an estimated 400-500 deaths per year among reported cases). No source."
+        },
+        {
+          "id": "e3s09",
+          "hash": "sfznwaq",
+          "paragraph": 3,
+          "text": "The next great leap came when Alexander Fleming discovered penicillin in 1938 (Tan and Tatsumura, 2015).",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Wrong year behind a real citation (Tan SY, Tatsumura Y, 'Alexander Fleming (1881-1955): Discoverer of penicillin', Singapore Med J 2015;56(7):366-367, which itself gives 1928). Tests that a citation does not lull the checker: the prompt's 'accurate' requires the claims to be correct, so a cited wrong claim is 'false' ('needs_citation' is doubly wrong because the sentence is cited AND wrong).",
+          "difficulty": "subtle",
+          "correct_fact": "Fleming discovered penicillin in 1928."
+        },
+        {
+          "id": "e3s10",
+          "hash": "s18ux8wm",
+          "paragraph": 3,
+          "text": "Penicillin and the antibiotics that followed also work against viruses, which is why doctors routinely prescribe them for the flu.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Plain control: a textbook misconception.",
+          "difficulty": "plain",
+          "correct_fact": "Antibiotics act on bacteria, not viruses; they do not treat influenza, and CDC/WHO guidance advises against prescribing them for it. (Inappropriate prescribing for viral illness does happen, but the sentence's premise that antibiotics work against viruses is what makes it false.)"
+        },
+        {
+          "id": "e3s11",
+          "hash": "sql1uju",
+          "paragraph": 3,
+          "text": "It is hard to think of any invention that has done more good for humanity than the humble vaccine.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Hedged value judgement; no checkable claim."
+        }
+      ]
+    },
+    {
+      "id": "e4",
+      "title": "When Money Loses Its Value",
+      "topic": "economics",
+      "text": "When Money Loses Its Value\nInflation is a general rise in prices that reduces the purchasing power of money. In Weimar Germany, prices rose so quickly that by November 1923 a single US dollar was worth more than four trillion marks. Zimbabwe's hyperinflation was so extreme that in 2009 its central bank issued a banknote worth 100 trillion Zimbabwean dollars.\nIn 1930, President Franklin Roosevelt signed the Smoot-Hawley Tariff Act, which raised duties on thousands of imported goods. At the depth of the Great Depression in 1933, roughly a quarter of the American workforce was unemployed. Milton Friedman and Anna Schwartz argued that the Federal Reserve made the Depression far worse by allowing the money supply to shrink by roughly a third (Friedman and Schwartz, 1963).\nTo break the inflation of the 1970s, the Federal Reserve under Paul Volcker pushed its benchmark interest rate close to 20 percent in the early 1980s. When the Federal Reserve raises interest rates, the prices of existing bonds usually rise, since investors rush to lock in the higher yields. According to the Bureau of Labor Statistics, the unemployment rate reached 10 percent in October 2009.\nPrinting money to pay the government's bills might feel painless, but I believe it is one of the most irresponsible choices a government can make. Central banks should be independent from politicians for exactly this reason.",
+      "sentences": [
+        {
+          "id": "e4s01",
+          "hash": "s17uupz1",
+          "paragraph": 1,
+          "text": "Inflation is a general rise in prices that reduces the purchasing power of money.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Standard definition; common knowledge."
+        },
+        {
+          "id": "e4s02",
+          "hash": "s14su2uv",
+          "paragraph": 1,
+          "text": "In Weimar Germany, prices rose so quickly that by November 1923 a single US dollar was worth more than four trillion marks.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (about 4.2 trillion marks per dollar in Nov 1923). Specific statistic, no source."
+        },
+        {
+          "id": "e4s03",
+          "hash": "sfxq5lo",
+          "paragraph": 1,
+          "text": "Zimbabwe's hyperinflation was so extreme that in 2009 its central bank issued a banknote worth 100 trillion Zimbabwean dollars.",
+          "label": "trap",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation",
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Sounds like hyperbole; it is literally true.",
+          "trap_kind": "surprising",
+          "why_true": "The Reserve Bank of Zimbabwe announced Z$10, 20, 50 and 100 trillion notes on 16 January 2009 (CNN, 16 Jan 2009); the Z$100 trillion note was legal tender January-June 2009. 'Worth' is its face value."
+        },
+        {
+          "id": "e4s04",
+          "hash": "s3z2z8x",
+          "paragraph": 2,
+          "text": "In 1930, President Franklin Roosevelt signed the Smoot-Hawley Tariff Act, which raised duties on thousands of imported goods.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Wrong president; year and content are right.",
+          "difficulty": "subtle",
+          "correct_fact": "Herbert Hoover signed Smoot-Hawley on 17 June 1930; Roosevelt took office in March 1933."
+        },
+        {
+          "id": "e4s05",
+          "hash": "s1dkhiu2",
+          "paragraph": 2,
+          "text": "At the depth of the Great Depression in 1933, roughly a quarter of the American workforce was unemployed.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation",
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (about 24.9% in 1933). Well known enough that 'accurate' is also defensible."
+        },
+        {
+          "id": "e4s06",
+          "hash": "sai1q5l",
+          "paragraph": 2,
+          "text": "Milton Friedman and Anna Schwartz argued that the Federal Reserve made the Depression far worse by allowing the money supply to shrink by roughly a third (Friedman and Schwartz, 1963).",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (A Monetary History of the United States, 1963: the money stock fell by about a third, 1929-33), with attribution and an (Author, year) parenthetical."
+        },
+        {
+          "id": "e4s07",
+          "hash": "srpn5a8",
+          "paragraph": 3,
+          "text": "To break the inflation of the 1970s, the Federal Reserve under Paul Volcker pushed its benchmark interest rate close to 20 percent in the early 1980s.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (federal funds rate about 19-20% in 1980-81). Specific figure, no source."
+        },
+        {
+          "id": "e4s08",
+          "hash": "slnvdnq",
+          "paragraph": 3,
+          "text": "When the Federal Reserve raises interest rates, the prices of existing bonds usually rise, since investors rush to lock in the higher yields.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable",
+            "incoherent"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Reversed causal direction, with a plausible-sounding mechanism attached. 'incoherent' earns partial credit: the 'since' clause is a genuine non-sequitur (locking in higher yields means buying NEW bonds, which would push existing-bond prices down), and the prompt defines incoherent to include a conclusion that does not follow from its premise.",
+          "difficulty": "moderate",
+          "correct_fact": "Bond prices move inversely to interest rates: when rates rise, prices of existing (lower-coupon) bonds fall."
+        },
+        {
+          "id": "e4s09",
+          "hash": "s1c21yzt",
+          "paragraph": 3,
+          "text": "According to the Bureau of Labor Statistics, the unemployment rate reached 10 percent in October 2009.",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True (BLS: 10.0%, Oct 2009) with prose attribution."
+        },
+        {
+          "id": "e4s10",
+          "hash": "sc6hg82",
+          "paragraph": 4,
+          "text": "Printing money to pay the government's bills might feel painless, but I believe it is one of the most irresponsible choices a government can make.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Opinion ('I believe'); no checkable claim."
+        },
+        {
+          "id": "e4s11",
+          "hash": "s1fl1oir",
+          "paragraph": 4,
+          "text": "Central banks should be independent from politicians for exactly this reason.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Normative claim ('should'); no checkable claim."
+        }
+      ]
+    },
+    {
+      "id": "e5",
+      "title": "Why Old Novels Still Matter",
+      "topic": "literature",
+      "text": "Why Old Novels Still Matter\nMary Shelley's Frankenstein tells the story of a young scientist who brings a creature to life and then abandons it. Shelley was only eighteen when she began writing the novel during a cold, rainy summer near Lake Geneva in 1816. In her introduction to the 1831 edition, Shelley explained that the idea came to her in a waking dream after Lord Byron challenged his guests to write ghost stories. The first edition, published anonymously in 1818, ran to only about 500 copies.\nVictor assembles his creature in secret while studying at the University of Geneva. The real monster of the novel, I would argue, is Victor himself rather than the creature he abandons.\nGeorge Orwell's Nineteen Eighty-Four imagines a society ruled by the Party and its all-seeing figurehead, Big Brother. The novel's most quoted line, 'All animals are equal, but some animals are more equal than others,' captures the Party's hypocrisy perfectly. In his 1946 essay 'Why I Write,' Orwell said that every line of serious work he had written since 1936 was written against totalitarianism and for democratic socialism. In January 2017, Nineteen Eighty-Four climbed to the top of Amazon's bestseller list after a White House adviser used the phrase 'alternative facts' on television.\nBoth novels endure because they force readers to ask what we owe to the things and systems we create.",
+      "sentences": [
+        {
+          "id": "e5s01",
+          "hash": "s1y0dblr",
+          "paragraph": 1,
+          "text": "Mary Shelley's Frankenstein tells the story of a young scientist who brings a creature to life and then abandons it.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Plot of a famous novel; common knowledge."
+        },
+        {
+          "id": "e5s02",
+          "hash": "s19h0nkb",
+          "paragraph": 1,
+          "text": "Shelley was only eighteen when she began writing the novel during a cold, rainy summer near Lake Geneva in 1816.",
+          "label": "trap",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation",
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Sounds implausibly young; a model that remembers she was 20 at publication (1818) may call it false.",
+          "trap_kind": "surprising",
+          "why_true": "Mary Shelley was born 30 Aug 1797. Byron's ghost-story challenge at the Villa Diodati on Lake Geneva came in mid-June 1816 (her 'waking dream' is dated to 16 June 1816), during the 'Year Without a Summer': she was 18 and began the story within days. She was still Mary Godwin until her December 1816 marriage; naming her by her later surname is standard and does not make the sentence false."
+        },
+        {
+          "id": "e5s03",
+          "hash": "s1e1uy5u",
+          "paragraph": 1,
+          "text": "In her introduction to the 1831 edition, Shelley explained that the idea came to her in a waking dream after Lord Byron challenged his guests to write ghost stories.",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True: Byron proposed 'We will each write a ghost story', and in the 1831 introduction Shelley describes the vision that followed as the 'grim terrors' of her 'waking dream' (her own phrase). Attributed to its primary source ('Shelley explained'), which matches the prompt's 'X reported...' prose-attribution form."
+        },
+        {
+          "id": "e5s04",
+          "hash": "sjceuds",
+          "paragraph": 1,
+          "text": "The first edition, published anonymously in 1818, ran to only about 500 copies.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (Lackington et al., 1 Jan 1818, three volumes, 500 copies, no author named). Specific non-common-knowledge fact, no source."
+        },
+        {
+          "id": "e5s05",
+          "hash": "s1c86rug",
+          "paragraph": 2,
+          "text": "Victor assembles his creature in secret while studying at the University of Geneva.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Victor is FROM Geneva, so the wrong university sounds natural.",
+          "difficulty": "subtle",
+          "correct_fact": "Victor studies at, and builds the creature in, the University of Ingolstadt in Bavaria."
+        },
+        {
+          "id": "e5s06",
+          "hash": "s6xusqd",
+          "paragraph": 2,
+          "text": "The real monster of the novel, I would argue, is Victor himself rather than the creature he abandons.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Interpretive argument ('I would argue'); no checkable claim."
+        },
+        {
+          "id": "e5s07",
+          "hash": "s13kgtty",
+          "paragraph": 3,
+          "text": "George Orwell's Nineteen Eighty-Four imagines a society ruled by the Party and its all-seeing figurehead, Big Brother.",
+          "label": "common_knowledge",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "no_claim"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Premise of a famous novel; common knowledge."
+        },
+        {
+          "id": "e5s08",
+          "hash": "s4hbyow",
+          "paragraph": 3,
+          "text": "The novel's most quoted line, 'All animals are equal, but some animals are more equal than others,' captures the Party's hypocrisy perfectly.",
+          "label": "false",
+          "expected": {
+            "verdict": "false",
+            "flag": "false"
+          },
+          "acceptable": [
+            "false"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "accurate",
+            "needs_citation",
+            "no_claim"
+          ],
+          "rationale": "Right author, wrong book: the conflation is easy to miss because both are Orwell's.",
+          "difficulty": "subtle",
+          "correct_fact": "That line is from Orwell's Animal Farm (1945), not Nineteen Eighty-Four."
+        },
+        {
+          "id": "e5s09",
+          "hash": "s12b377m",
+          "paragraph": 3,
+          "text": "In his 1946 essay 'Why I Write,' Orwell said that every line of serious work he had written since 1936 was written against totalitarianism and for democratic socialism.",
+          "label": "cited",
+          "expected": {
+            "verdict": "accurate",
+            "flag": "none"
+          },
+          "acceptable": [
+            "accurate"
+          ],
+          "partial": [
+            "questionable"
+          ],
+          "critical": [
+            "needs_citation",
+            "false"
+          ],
+          "rationale": "True, with prose attribution to the source. Orwell's actual words: 'Every line of serious work that I have written since 1936 has been written, directly or indirectly, against totalitarianism and for democratic socialism, as I understand it.' The paraphrase drops 'directly or indirectly', so 'questionable' (misleading paraphrase) earns partial credit; 'needs_citation' and 'false' stay critical."
+        },
+        {
+          "id": "e5s10",
+          "hash": "s1yp4pfs",
+          "paragraph": 3,
+          "text": "In January 2017, Nineteen Eighty-Four climbed to the top of Amazon's bestseller list after a White House adviser used the phrase 'alternative facts' on television.",
+          "label": "true_uncited",
+          "expected": {
+            "verdict": "needs_citation",
+            "flag": "needs_citation"
+          },
+          "acceptable": [
+            "needs_citation"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "True (Kellyanne Conway on Meet the Press, 22 Jan 2017; the novel hit #1 on Amazon days later). Dated event, no source."
+        },
+        {
+          "id": "e5s11",
+          "hash": "s1pupoay",
+          "paragraph": 4,
+          "text": "Both novels endure because they force readers to ask what we owe to the things and systems we create.",
+          "label": "opinion",
+          "expected": {
+            "verdict": "no_claim",
+            "flag": "none"
+          },
+          "acceptable": [
+            "no_claim"
+          ],
+          "partial": [
+            "accurate"
+          ],
+          "critical": [
+            "false"
+          ],
+          "rationale": "Interpretive claim about literary value; no checkable claim."
+        }
+      ]
+    }
+  ],
+  "audit": {
+    "date": "2026-09-21",
+    "changelog": "LABEL-AUDIT.md",
+    "summary": "55 audited, 2 scoring changes (e4s08 +partial incoherent, e5s09 +partial questionable), 9 ground-truth/rationale corrections, 0 deleted; label counts unchanged."
+  }
+}
