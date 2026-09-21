@@ -54,8 +54,9 @@ step. If one ever appears, this document is wrong.
 
 `loadEnvFile()` runs at the top of each request, so anything read from
 `process.env` AT REQUEST TIME picks up an edit with no restart — the API key,
-the daily budgets, the Stripe values, `TRACELY_BETA_TOKENS` and
-`TRACELY_BETA_DAILY_BUDGET_USD`.
+the daily budgets (`TRACELY_DAILY_BUDGET_USD`, `TRACELY_PAID_DAILY_BUDGET_USD`,
+`TRACELY_BETA_DAILY_BUDGET_USD`, `TRACELY_APP_DAILY_BUDGET_USD`), the Stripe
+values and `TRACELY_BETA_TOKENS`.
 
 Anything captured in a module-level `const` does not. Those are read once at
 boot:
@@ -96,6 +97,30 @@ them to "simplify" the config.
 `TRACELY_DAILY_BUDGET_USD=10` is the hard daily ceiling. An explicit `0` turns
 it off; an empty value does **not** (it falls back to the built-in default).
 
+**The extension's routes spend three pools, not one.** Hosted `/api/check`,
+`/api/flow` and `/api/sources` run the model the widget's slider asks for,
+clamped to the plan — up to `gpt-6-astra`, 125-200x the fast model per token.
+One Pro user on "Smarter" could empty a shared $10 day in minutes and 503
+every free user, so:
+
+| pool | who | ceiling | when it is spent |
+|---|---|---|---|
+| extension | free callers, and anyone falling back | `TRACELY_DAILY_BUDGET_USD` (10) | 503 for everyone on it, as always |
+| paid | Student/Pro accounts | `TRACELY_PAID_DAILY_BUDGET_USD` (10) | they run the FAST model on the extension pool; plan and quotas unchanged |
+| beta | test-build callers (below) | `TRACELY_BETA_DAILY_BUDGET_USD` (10) | they run their own plan on the extension pool |
+
+All three follow the same parsing (empty or junk = default, explicit `0` =
+no ceiling). The paid and beta pools admit a call only while their spend
+PLUS the worst case of every call still in flight leaves room: the worst
+case is the route's output ceiling plus its largest input at the plan's top
+model (~$1.04 for a thorough check, `WORST_CALL` in server.js), shrunk to the
+model actually chosen once the body is read. So a burst — including one with
+a rotating install id per request — overshoots by at most one call, and the
+number of thorough calls those pools run AT ONCE is about the remaining
+budget ÷ $1.04. Raise the ceiling for a bigger team, not the reservation.
+A call that fails after OpenAI billed it (truncated, refused, unparseable)
+is recorded into its pool too.
+
 `TRACELY_TRUSTED_PROXY_HOPS=1` because Apache is the one proxy in front. Wrong
 here and rate limiting keys on the wrong address.
 
@@ -108,7 +133,9 @@ web renderer bridge and the vanilla web app, both built for a LOCAL server
 (the hosted box refuses their browser Origin anyway), so nothing hosted loses
 anything. Hosted `/api/check` and `/api/sources` now run the model the client
 asks for, clamped to the caller's plan — the prefs row drives the model only
-on a local server.
+on a local server. `/api/sources` sends the client's reasoning effort when it
+sends one (the 2.19.3 widgets do) and otherwise none, i.e. the vendor's
+default, exactly as every source search from the store build always has.
 
 Watch it with:
 
@@ -139,12 +166,20 @@ What a matching token does, and does not:
 - `/api/entitlement` reports `plan: "pro"` and adds `beta: true`; a signed-in
   tester is still metered and billed as themselves.
 - Spend goes to the **beta pool** (`__global_beta__` in `entitlement_usage`),
-  never the extension pool. When the beta pool is spent (for source searches:
-  when it reaches its own 20% shed line) the tester silently falls back to
-  their own plan — usually free — on the extension pool. Beta never causes a
-  503, and never draws on the extension pool while the beta pool can pay.
+  never the extension pool. When the beta pool has no room — checks and
+  source searches alike, counting calls in flight (see Spend safety) — the
+  tester silently falls back to their own plan, usually free, on the
+  extension pool. Beta never causes a 503, and never draws on the extension
+  pool while the beta pool can pay.
+- Beta source searches count against their own window
+  (`SPEND.betaWebSearchesPerHour`, 30/hour for all testers together), not the
+  15/hour one every store user shares — testers are Pro, with no daily source
+  quota, and could otherwise take the whole hour.
 - `/api/status` gains `betaBudget` (same shape as `budget`) while any token
-  is configured.
+  is configured, and `paidBudget` always. Both report spend on disk, not
+  reservations in flight.
+- The widgets default to the options-page slider (Fast until a tester moves
+  it); the beta grant raises the ceiling, not the default stop.
 
 Build the zip from a checkout (never commit `extension/beta.json`; the repo is
 public and `.gitignore` covers it):
@@ -171,7 +206,8 @@ a model route, extension or desktop — writes one line to `/var/log/tracely.log
 
 `kind` is `truncated`, `refusal`, `unparseable`, `empty`, `timeout`,
 `network`, or the error kind. The line carries no user text, no message, and
-no caller id — watch the rate, not the content:
+no caller id — watch the rate, not the content. (What such a call was billed
+is recorded into its spend pool; the log line does not carry the cost.)
 
 ```sh
 grep -c 'model call failed' /var/log/tracely.log

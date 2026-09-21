@@ -25,6 +25,7 @@ server picks up changes without a restart).
 | `STRIPE_PRICE_PRO` | webhook | The Stripe price id sold as the Pro plan. |
 
 | `TRACELY_DAILY_BUDGET_USD` | the spend cap | Dollars of OpenAI spend allowed per day. Defaults to 10. An explicit `0` turns the ceiling off; an EMPTY value does not (it falls back to the default). |
+| `TRACELY_PAID_DAILY_BUDGET_USD` | the spend cap | The Student/Pro pool on the extension's routes. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, paid callers run the fast model on the normal pool — never a 503 because of it. |
 | `TRACELY_BETA_TOKENS` | the test extension | Comma-separated tokens. A caller sending one as `X-Tracely-Beta` is served as Pro on the extension's routes (never the desktop's), spending from its own pool. Empty or unset = beta off. See DEPLOY.md. |
 | `TRACELY_BETA_DAILY_BUDGET_USD` | the test extension | The beta pool's daily ceiling. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, testers fall back to their own plan on the normal pool. |
 | `TRACELY_TRUSTED_PROXY_HOPS` | the spend cap | How many proxies you control sit in front of this server. Unset = ignore `X-Forwarded-For` entirely, which is right for a direct connection. |

@@ -73,7 +73,15 @@ this section before touching anything that makes a model call.
   and asserts the extension's routes do not move.
 - **A caller's model is never read from the global prefs row on a hosted
   server.** `PUT /api/prefs` is unauthenticated and that row is shared by every
-  caller; it drives the model only on a local, single-user server.
+  caller; it drives the model only on a local, single-user server (and a
+  hosted server refuses the PUT outright).
+- **The extension's model routes spend three pools** (`spendGate`): free
+  callers the shared `extension` pool, Student/Pro the `paid` pool, test-build
+  callers (`X-Tracely-Beta`) the `beta` pool. The paid and beta pools serve
+  the thorough model, so they reserve each admitted call's worst case
+  (`WORST_CALL`, `lib/spend.js` `reserveSpend`) and fall back — to the fast
+  model, or to the caller's own plan — instead of ever 503ing. A pool that
+  can reach expensive models must never share a day with free users.
 
 ### Accounts and billing
 
