@@ -194,23 +194,36 @@ const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_
   "SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY", "TRACELY_MOCK", "TRACELY_EXTENSION_ID", "TRACELY_TRUSTED_PROXY_HOPS", "TRACELY_LLM_PROVIDER"];
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SCRUB.includes(k)));
 
+/* A port that is already taken — Discord's local RPC server sits on 6463,
+ * inside this range — makes the child exit at once. That used to cost the
+ * full 10 s wait, fail every test in the file, and leave the servers that DID
+ * boot running, so the run never exited. An early exit now moves on to the
+ * next port, and a boot that still fails kills whatever it started. */
 let port = 6000 + Math.floor(Math.random() * 800);
+const booted = [];
 async function boot(env, { preload } = {}) {
-  const p = port++;
-  const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), SERVER], {
-    env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: mkdtempSync(path.join(TMP, "data-")), ...env },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stderr = "";
-  child.stderr.on("data", (d) => { stderr += d; });
-  child.stdout.resume();
-  const base = `http://127.0.0.1:${p}`;
-  for (let i = 0; i < 200; i++) {
-    try { if ((await fetch(`${base}/api/status`)).ok) return { base, child, stderr: () => stderr }; } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 50));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const p = port++;
+    const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), SERVER], {
+      env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: mkdtempSync(path.join(TMP, "data-")), ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    booted.push(child);
+    let stderr = "";
+    let exited = false;
+    child.on("exit", () => { exited = true; });
+    child.stderr.on("data", (d) => { stderr += d; });
+    child.stdout.resume();
+    const base = `http://127.0.0.1:${p}`;
+    for (let i = 0; i < 200 && !exited; i++) {
+      try { if ((await fetch(`${base}/api/status`)).ok && !exited) return { base, child, stderr: () => stderr }; } catch { /* not up yet */ }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    child.kill();
+    if (!exited) throw new Error(`server on ${p} did not start: ${stderr}`);
+    // It exited before answering — most likely the port was taken. Next one.
   }
-  child.kill();
-  throw new Error(`server on ${p} did not start: ${stderr}`);
+  throw new Error("could not find a free port for a test server");
 }
 
 let A, B, C, D, E, G;
@@ -229,7 +242,10 @@ test.before(async () => {
       ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1",
       TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "20000,6000",
     }, { preload: STUB }),
-  ]);
+  ]).catch((err) => {
+    for (const child of booted) child.kill(); // or the run never exits
+    throw err;
+  });
 });
 test.after(() => {
   for (const s of [A, B, C, D, E, G]) s?.child.kill();
