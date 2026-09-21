@@ -118,6 +118,62 @@ test("a split check's usage sums every call's cache reads AND writes, the trunca
   assert.deepEqual(r.usage, { input: 300, output: 30, cached: 60, cacheWrite: 210 });
 });
 
+/* A split check whose calls answer as scripted: "trunc" (billed, truncated),
+ * "ok" (billed, answered), "timeout" (nothing came back, nothing billed). */
+function scriptedFetch(script, usage = { input_tokens: 1000, output_tokens: 16000 }) {
+  let n = 0;
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body);
+    const step = script[n++] ?? "ok";
+    if (step === "timeout") throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+    const truncated = step === "trunc";
+    return {
+      ok: true,
+      json: async () => ({
+        status: truncated ? "incomplete" : "completed",
+        incomplete_details: truncated ? { reason: "max_output_tokens" } : undefined,
+        model: body.model,
+        output_text: truncated ? "" : JSON.stringify({ findings: [] }),
+        output: [],
+        usage,
+      }),
+    };
+  };
+  return () => n;
+}
+const TWO = [{ id: "s1", text: "First." }, { id: "s2", text: "Second." }];
+
+test("a split whose second half truncates still reports every call it was billed for", async () => {
+  // Outer truncates, half 1 answers, half 2 (one sentence, cannot split)
+  // truncates and throws. The route records only the error's usage, which
+  // used to be half 2's alone — the outer call's 16k output tokens vanished.
+  const calls = scriptedFetch(["trunc", "ok", "trunc"]);
+  const err = await runFactCheck({ text: "a b", sentences: TWO, model: "gpt-6-astra" }).catch((e) => e);
+  assert.equal(calls(), 3);
+  assert.equal(err.kind, "truncated", "the wire error is unchanged");
+  assert.deepEqual(err.llm.usage, { input: 3000, output: 48000, cached: 0, cacheWrite: 0 });
+  assert.equal(err.llm.model, "gpt-6-astra");
+  assert.equal(Object.keys(err).includes("llm"), false, "the tag stays off the wire");
+});
+
+test("a split whose half fails with nothing billed still carries what the calls before it cost", async () => {
+  const calls = scriptedFetch(["trunc", "ok", "timeout"]);
+  const err = await runFactCheck({ text: "a b", sentences: TWO, model: "gpt-6-astra", effort: "low" }).catch((e) => e);
+  assert.equal(calls(), 3);
+  assert.equal(err.kind, "timeout");
+  assert.deepEqual(err.llm.usage, { input: 2000, output: 32000, cached: 0, cacheWrite: 0 }, "the truncated call + half 1");
+  assert.deepEqual({ model: err.llm.model, effort: err.llm.effort }, { model: "gpt-6-astra", effort: "low" });
+});
+
+test("a nested split that fails carries every level's billed calls", async () => {
+  // 4 sentences: outer truncates; half [s1,s2] truncates, [s1] ok, [s2] truncates.
+  const calls = scriptedFetch(["trunc", "trunc", "ok", "trunc"]);
+  const four = [...TWO, { id: "s3", text: "Third." }, { id: "s4", text: "Fourth." }];
+  const err = await runFactCheck({ text: "a b", sentences: four, model: "gpt-6-astra" }).catch((e) => e);
+  assert.equal(calls(), 4, "the second top-level half never ran");
+  assert.deepEqual(err.llm.usage, { input: 4000, output: 64000, cached: 0, cacheWrite: 0 });
+});
+
 test("the flow check sends an effort too", async () => {
   const sent = stubFetch();
   await runFlowCheck({ text: "One paragraph.\n\nAnother paragraph entirely." });

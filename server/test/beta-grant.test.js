@@ -630,6 +630,20 @@ test("a truncated call's billed cost reaches the pool that admitted it", async (
   assert.equal(after.budget.spentUsd, before.budget.spentUsd, "and only there");
 });
 
+test("a split check that fails in a half still records the truncated call and the half that answered", async () => {
+  // Both sentences: truncates. [s1]: answers. [s2]: truncates, cannot split,
+  // throws. The route used to record only that last call's usage.
+  const before = await status(D);
+  const body = { text: "A short essay.", sentences: [{ id: "s1", text: "Plain one." }, { id: "s2", text: "TRIGGER-TRUNCATE two." }], model: "gpt-6-astra" };
+  const { r, calls } = await sent(() => call(D, "POST", "/api/check", { body, headers: BETA, install: "d-split-fail" }));
+  assert.equal(r.status, 502);
+  assert.equal(r.body.error.kind, "truncated");
+  assert.equal(calls.length, 3);
+  const after = await status(D);
+  // 2 x (1,000 in + 16,000 out) on gpt-6-astra = $1.62, plus the tiny half.
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 1.62);
+});
+
 // ── E: the pools' edges ──────────────────────────────────────────────────
 
 test("a beta source search stays on the beta pool below its 20% line, until the pool is actually spent", async () => {

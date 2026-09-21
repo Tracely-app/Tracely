@@ -99,16 +99,24 @@ async function checkBatch({ text, sentences, model, effort }) {
     // A single sentence that still truncates has nothing left to split.
     if (err?.kind === "truncated" && sentences.length > 1) {
       const mid = Math.ceil(sentences.length / 2);
-      const first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort });
-      const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort });
-      // The truncated attempt was billed too — every output token it was
-      // allowed — so its usage (lib/llm.js tags it on the error) is part of
-      // what this check cost and of what the route records.
-      return {
-        findings: [...first.findings, ...second.findings],
-        model: second.model,
-        usage: addUsage(addUsage(first.usage, second.usage), err.llm?.usage),
-      };
+      let first = null;
+      try {
+        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort });
+        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort });
+        // The truncated attempt was billed too — every output token it was
+        // allowed — so its usage (lib/llm.js tags it on the error) is part of
+        // what this check cost and of what the route records.
+        return {
+          findings: [...first.findings, ...second.findings],
+          model: second.model,
+          usage: addUsage(addUsage(first.usage, second.usage), err.llm?.usage),
+        };
+      } catch (inner) {
+        // A half failed: the truncated attempt and any half that completed
+        // were billed all the same, and the route records only what the error
+        // it catches carries — so they ride on that error.
+        throw withBilledUsage(inner, addUsage(err.llm?.usage, first?.usage), err.llm);
+      }
     }
     throw err;
   }
@@ -217,6 +225,18 @@ function hostOf(url) {
   } catch {
     return "";
   }
+}
+
+/* Adds `billed` to what a failure says it cost (err.llm.usage — the tag
+ * lib/llm.js puts on every failure, non-enumerable, never serialised), so the
+ * route's error path records it. A failure with no usage of its own (a
+ * timeout, a network error) still carries `billed`, under the model and
+ * effort of `sentTag`. */
+function withBilledUsage(err, billed, sentTag) {
+  if (!err || typeof err !== "object") return err;
+  const tag = err.llm ?? { model: sentTag?.model ?? null, effort: sentTag?.effort ?? null };
+  Object.defineProperty(err, "llm", { value: { ...tag, usage: addUsage(tag.usage, billed) }, enumerable: false, configurable: true });
+  return err;
 }
 
 // Every usage field is summed, cacheWrite included: dropping it would price a
