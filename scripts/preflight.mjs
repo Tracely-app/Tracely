@@ -17,7 +17,7 @@ import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadEnv } from './env.mjs'
+import { apiUrl, loadEnv } from './env.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const RELEASE_BRANCH = 'main'
@@ -50,9 +50,9 @@ console.log(PREVIEW ? '\nPreview preflight\n' : '\nRelease preflight\n')
 //
 // This has to happen here rather than being assumed, because preflight used to
 // read `.env` unconditionally. Once ship-preview builds against staging, that
-// meant the most valuable check in this file — "is the relay actually up?",
+// meant the most valuable check in this file — "is the backend actually up?",
 // written after v0.3.73 shipped a 404 — would have verified the production
-// relay while the build pointed somewhere else entirely. A green preflight for
+// backend while the build pointed somewhere else entirely. A green preflight for
 // an environment the build isn't using is worse than no preflight.
 loadEnv({ root: ROOT })
 console.log()
@@ -131,13 +131,17 @@ try {
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 
 // 5. The check that would have caught the Tracer 404. The endpoint list is
-//    read from callRelay's own parameter type — a union of string literals —
+//    read from callServer's own parameter type — a union of string literals —
 //    rather than hardcoded here or scraped from call sites. That union is
 //    what the compiler already enforces every call against, so it cannot
 //    drift from reality: adding an endpoint means widening it, and this check
 //    picks the new one up with nobody remembering to update this file.
+//
+//    The function was callRelay until the desktop moved onto the Tracely
+//    server; renaming it without this regex is exactly the "scraper regex is
+//    probably stale" failure below, which is why that failure exists.
 const clientSrc = readFileSync(join(ROOT, 'src/main/services/ai/client.ts'), 'utf8')
-const union = clientSrc.match(/callRelay<[^>]*>\(\s*endpoint:\s*([^,)]+)/)?.[1] ?? ''
+const union = clientSrc.match(/callServer<[^>]*>\(\s*endpoint:\s*([^,)]+)/)?.[1] ?? ''
 const endpoints = new Set([...union.matchAll(/'([a-z0-9][a-z0-9-]*)'/g)].map((m) => m[1]))
 
 // loadEnv() at the top already read the correct file for this environment and
@@ -145,40 +149,43 @@ const endpoints = new Set([...union.matchAll(/'([a-z0-9][a-z0-9-]*)'/g)].map((m)
 // parsed out of `.env` a second time by hand. The old second parse was how
 // preflight could end up checking a different file than the build used.
 const envValue = (name) => (process.env[name] ?? '').trim()
-const relayUrl = envValue('RELAY_URL')
+// The same resolution the build uses (TRACELY_API_URL, else the default), so
+// the routes probed below are the routes this build will call. There is no
+// "missing URL" failure any more: unlike RELAY_URL, it always has a value.
+const serverUrl = apiUrl()
 
-// The relay refuses any call it cannot attribute to a signed-in account, and
-// the app proves who it is with a Supabase access token. Those two values are
-// inlined at build time (electron.vite.config.ts) and default to '' when
-// absent — so a .env missing them produces a build that compiles, launches,
-// signs nobody in, and 401s every AI call. Silent and total, which is exactly
-// the kind of failure that reaches users.
+// The server attributes a call to an account with a Supabase access token, and
+// the app gets one from the project these two values name. They are inlined at
+// build time (electron.vite.config.ts) and default to '' when absent — so a
+// .env missing them produces a build that compiles, launches, signs nobody in,
+// and runs every AI call as an anonymous install on the free quota. Silent and
+// total, which is exactly the kind of failure that reaches users.
 for (const name of ['SUPABASE_URL', 'SUPABASE_ANON_KEY']) {
   envValue(name)
     ? pass(`${name} present`)
-    : fail(`no ${name} in .env — the build could not sign anyone in, so every AI call would 401`)
+    : fail(`no ${name} in .env — the build could not sign anyone in, so no paid plan would ever apply`)
 }
 
-if (!relayUrl) {
-  fail('no RELAY_URL in .env — the build would ship with AI features dead')
-} else if (endpoints.size === 0) {
-  fail('found no callRelay() endpoints to verify — the scraper regex is probably stale')
+if (endpoints.size === 0) {
+  fail('found no callServer() endpoints to verify — the scraper regex is probably stale')
 } else {
   for (const ep of [...endpoints].sort()) {
-    // No token deliberately: 401 proves the route exists and is enforcing auth,
-    // which is all we need. 404 is the failure we are hunting.
+    // An empty body and no token, deliberately: a 400 or 401 proves the route
+    // exists and is refusing a request it cannot use, which is all we need,
+    // and neither can reach a model. 404 is the failure we are hunting — it is
+    // what the server answers for a route it does not have.
     try {
-      const res = await fetch(`${relayUrl}/api/${ep}`, {
+      const res = await fetch(`${serverUrl}/api/${ep}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
         signal: AbortSignal.timeout(20_000)
       })
       res.status === 404
-        ? fail(`relay /api/${ep} -> 404 — not deployed; ship the relay first`)
-        : pass(`relay /api/${ep} -> ${res.status}`)
+        ? fail(`server /api/${ep} -> 404 — not deployed; deploy the server first`)
+        : pass(`server /api/${ep} -> ${res.status}`)
     } catch {
-      fail(`relay /api/${ep} unreachable`)
+      fail(`server ${serverUrl}/api/${ep} unreachable`)
     }
   }
 }
