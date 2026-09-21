@@ -364,29 +364,36 @@ test("content.js wrappers still latch on a genuinely invalidated context", async
 
 function loadStops({ useRelay = true, stored = null, optionsModel = "" } = {}) {
   let reads = 0;
+  const ls = { value: stored }; // the site's localStorage entry for the settings key
+  const writes = [];
   const ctx = vm.createContext({
     useRelay,
-    lsGet: () => stored,
+    lsGet: () => ls.value,
+    lsSet: (_key, value) => { ls.value = value; writes.push(JSON.parse(value)); return true; },
     jsonParse: (raw, fallback) => { try { return JSON.parse(raw); } catch { return fallback; } },
     storageGet: (defaults, cb) => { reads++; setTimeout(() => cb({ ...defaults, model: optionsModel }), 0); },
     encodeURIComponent,
   });
   const api = vm.runInContext(
     contentSlice("const SPEED_STOPS", "let tierTimer")
-      + ";({ applyDefaultStop, effModel, effEffort, setTier(plan, resolved) { tier = { ...tier, plan }; tierResolved = resolved; } })",
+      + `;({ followDefaultStop, syncStopToTier, persistSettings, pinSiteStop, effModel, effEffort,
+            setTier(plan, resolved, provisional = false) { tier = { ...tier, plan, provisional }; tierResolved = resolved; } })`,
     ctx,
   );
-  return { api, reads: () => reads };
+  return { api, reads: () => reads, ls, writes };
 }
 
+const KEY = "tracely.widget.settings";
+const stopOf = (settings) => ({ model: settings.model, effort: settings.effort });
+
 async function defaultFor(opts, plan, resolved) {
-  const { api, reads } = loadStops(opts);
-  api.setTier(plan, resolved);
+  const loaded = loadStops(opts);
+  loaded.api.setTier(plan, resolved);
   const settings = { model: "gpt-5-nano", effort: "low", citationStyle: "apa" };
   let applied = 0;
-  api.applyDefaultStop(settings, "tracely.widget.settings", () => { applied++; });
+  loaded.api.followDefaultStop(settings, KEY, () => { applied++; });
   await tick();
-  return { settings: { model: settings.model, effort: settings.effort }, applied, reads: reads(), api };
+  return { ...loaded, settings: stopOf(settings), live: settings, applied, reads: loaded.reads() };
 }
 
 test("the options-page stop is the default where a site has no setting of its own", async () => {
@@ -403,8 +410,8 @@ test("the default is capped by plan: clamped once the tier is known, capped at s
   // Not clamped yet (the tier listener does that when it arrives)...
   assert.equal(early.settings.model, "gpt-6-astra");
   // ...but nothing above the plan can be requested meanwhile.
-  assert.equal(early.api.effModel(early.settings), "gpt-5-nano");
-  assert.equal(early.api.effEffort(early.settings), "low");
+  assert.equal(early.api.effModel(early.live), "gpt-5-nano");
+  assert.equal(early.api.effEffort(early.live), "low");
 
   const student = await defaultFor({ optionsModel: "gpt-6-astra" }, "student", true);
   assert.deepEqual(student.settings, { model: "gpt-5.4", effort: "low" });
@@ -422,12 +429,60 @@ test("a per-site choice wins, and junk or harness pages change nothing", async (
   }
 });
 
-test("both widgets persist a plan clamp only over a stored per-site choice", () => {
+test("saving any other setting never pins a site to the default stop", async () => {
+  // Toggling auto-sources or the citation style used to write the whole
+  // settings object, default stop included, and the site stopped following
+  // the options page for good.
+  const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
+  r.live.autoSources = true;
+  r.api.persistSettings(r.live, KEY);
+  assert.deepEqual(r.writes.at(-1), { citationStyle: "apa", autoSources: true }, "the stop was saved with it");
+  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "medium" }, "and it is still in effect");
+
+  // Moving the widget's own slider is what gives the site a stop.
+  r.live.model = "gpt-5.4"; r.live.effort = "low";
+  r.api.pinSiteStop(r.live);
+  r.api.persistSettings(r.live, KEY);
+  assert.deepEqual(r.writes.at(-1), { model: "gpt-5.4", effort: "low", citationStyle: "apa", autoSources: true });
+});
+
+test("a transient free answer clamps the default in memory and the real plan restores it", async () => {
+  const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
+  r.api.setTier("free", true, true); // provisional: the server did not answer
+  r.api.syncStopToTier(r.live, KEY);
+  assert.deepEqual(stopOf(r.live), { model: "gpt-5-nano", effort: "low" });
+  r.api.setTier("pro", true, false);
+  r.api.syncStopToTier(r.live, KEY);
+  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "medium" }, "stuck on Fast until reload");
+  assert.equal(r.writes.length, 0, "the default is never written");
+});
+
+test("a site's own stop: a provisional clamp is not saved and is undone; a real one is saved", async () => {
+  const own = JSON.stringify({ model: "gpt-6-astra", effort: "medium", citationStyle: "mla" });
+  const r = await defaultFor({ stored: own }, "pro", true);
+  Object.assign(r.live, JSON.parse(own)); // what the widget loaded from the site
+
+  r.api.setTier("free", true, true);
+  r.api.syncStopToTier(r.live, KEY);
+  assert.equal(r.live.model, "gpt-5-nano", "clamped in memory");
+  assert.equal(r.ls.value, own, "an outage rewrote the saved stop");
+
+  r.api.setTier("pro", true, false);
+  r.api.syncStopToTier(r.live, KEY);
+  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "medium" }, "the saved choice comes back with the plan");
+
+  r.api.setTier("free", true, false); // a real downgrade
+  r.api.syncStopToTier(r.live, KEY);
+  assert.deepEqual(JSON.parse(r.ls.value), { model: "gpt-5-nano", effort: "low", citationStyle: "mla" });
+});
+
+test("every settings write in both widgets goes through persistSettings", () => {
   const src = read("content.js");
-  const clamps = [...src.matchAll(/if \(clampSettingsToPlan\(settings\)(.*)$/gm)].map((m) => m[1]);
-  assert.equal(clamps.length, 2, "expected the docs and field tier listeners");
-  for (const c of clamps) assert.match(c, /lsGet\(SETTINGS_KEY\) !== null/);
-  assert.equal([...src.matchAll(/applyDefaultStop\(settings, SETTINGS_KEY/g)].length, 2, "both widgets use the default stop");
+  assert.deepEqual([...src.matchAll(/lsSet\(SETTINGS_KEY/g)], [], "a raw settings write bypasses the default-stop rule");
+  assert.equal([...src.matchAll(/persistSettings\(settings, SETTINGS_KEY\)/g)].length, 3, "two saveSettings + the citation pill");
+  assert.equal([...src.matchAll(/syncStopToTier\(settings, SETTINGS_KEY\)/g)].length, 2, "the docs and field tier listeners");
+  assert.equal([...src.matchAll(/followDefaultStop\(settings, SETTINGS_KEY/g)].length, 2, "both widgets use the default stop");
+  assert.match(src, /pinSiteStop\(settings\);[^\n]*\n\s*saveSettings\(\);/, "the slider's snap pins the site's stop");
 });
 
 test("every model route the widgets call carries the stop's model AND effort", () => {

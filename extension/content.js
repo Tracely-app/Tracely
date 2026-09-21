@@ -172,27 +172,74 @@
      `model`, and nothing used to read it — the widgets only knew their own
      setting in the page's localStorage, so moving it did nothing anywhere.
      It is now the DEFAULT stop: what a site with no widget setting of its own
-     starts on. A per-site choice still wins, and the plan still caps it —
-     clampSettingsToPlan here once the tier is known, the tier listeners when
-     it arrives later, and effModel/effEffort on every request regardless.
+     starts on. A per-site choice still wins, and the plan still caps it.
 
-     Applied in memory only, never written back to localStorage, so a later
-     change on the options page keeps reaching every site that has not picked
-     its own stop. The tier listeners persist a clamp only when there IS a
-     stored per-site setting to correct, for the same reason. */
-  function applyDefaultStop(settings, settingsKey, onApplied) {
+     A widget on such a site FOLLOWS the default: its settings object is in
+     `followsDefault`, and while it is
+       - persistSettings saves everything EXCEPT model/effort, so toggling
+         auto-sources or the citation style cannot pin the site to whatever
+         stop the default was at that moment (possibly a transient clamp) and
+         cut it off from later options-page changes;
+       - every tier change re-derives the stop from the default and clamps it
+         (syncStopToTier), so a provisional free answer followed by the real
+         Pro one puts the stop back instead of leaving it on Fast.
+     Moving the widget's own slider (pinSiteStop) is the only thing that gives
+     a site a stop of its own. */
+  const followsDefault = new WeakSet();
+  let defaultStopModel = ""; // the options-page value, once read
+  function storedSettings(key) { return jsonParse(lsGet(key) ?? "null", null); }
+  function hasOwnStop(key) { return typeof storedSettings(key)?.model === "string"; }
+  function defaultStop() {
+    const i = SPEED_STOPS.findIndex((s) => s.model === defaultStopModel);
+    return SPEED_STOPS[i === -1 ? 0 : i];
+  }
+  // Every write of a widget's settings goes through here.
+  function persistSettings(settings, key) {
+    if (!followsDefault.has(settings)) return lsSet(key, JSON.stringify(settings));
+    const { model, effort, ...rest } = settings;
+    return lsSet(key, JSON.stringify(rest));
+  }
+  // The user moved this widget's slider: from now on the site has its own stop.
+  function pinSiteStop(settings) { followsDefault.delete(settings); }
+
+  function followDefaultStop(settings, key, onApplied) {
     if (!useRelay) return; // harness and plain pages: no extension storage
-    const hasOwn = () => typeof jsonParse(lsGet(settingsKey) ?? "null", null)?.model === "string";
-    if (hasOwn()) return;
+    if (hasOwnStop(key)) return;
+    followsDefault.add(settings);
     storageGet({ model: "" }, (cfg) => {
-      if (hasOwn()) return; // the user picked a stop while this was in flight
-      const i = SPEED_STOPS.findIndex((s) => s.model === cfg?.model);
-      if (i === -1 || settings.model === SPEED_STOPS[i].model) return;
-      settings.model = SPEED_STOPS[i].model;
-      settings.effort = SPEED_STOPS[i].effort;
+      if (!followsDefault.has(settings)) return; // the user picked a stop while this was in flight
+      defaultStopModel = typeof cfg?.model === "string" ? cfg.model : "";
+      const before = settings.model;
+      const stop = defaultStop();
+      settings.model = stop.model;
+      settings.effort = stop.effort;
       if (tierResolved) clampSettingsToPlan(settings);
-      onApplied();
+      if (settings.model !== before) onApplied();
     });
+  }
+
+  /* A widget's tier listener: bring the in-memory stop in line with the new
+     tier. Following the default, it is re-derived and clamped, never saved.
+     With a stop of its own, the STORED choice is re-read and clamped — so a
+     momentary downgrade is undone when the plan comes back — and the clamp is
+     written back only when it moved the stored choice on a REAL answer (a
+     provisional free, e.g. the server unreachable, must not outlive itself).
+     The request path clamps again regardless (effModel/effEffort), and so
+     does the server. */
+  function syncStopToTier(settings, key) {
+    if (followsDefault.has(settings)) {
+      const stop = defaultStop();
+      settings.model = stop.model;
+      settings.effort = stop.effort;
+      clampSettingsToPlan(settings);
+      return;
+    }
+    const stored = storedSettings(key);
+    if (typeof stored?.model === "string") {
+      settings.model = stored.model;
+      if (typeof stored.effort === "string") settings.effort = stored.effort;
+    }
+    if (clampSettingsToPlan(settings) && lsGet(key) !== null && !tier.provisional) persistSettings(settings, key);
   }
   let tierTimer = 0;
   function refreshTier() {
@@ -273,6 +320,7 @@
       const stop = SPEED_STOPS[pos];
       settings.model = stop.model;
       settings.effort = stop.effort;
+      pinSiteStop(settings); // a choice made here belongs to this site
       saveSettings();
       el.style.setProperty("--sb-fill", sbFill(pos));
       shadow.querySelector('[data-sb-lab="0"]')?.classList.toggle("on", pos === 0);
@@ -1960,7 +2008,7 @@
         });
         p.addEventListener("click", () => {
           settings.citationStyle = key;
-          lsSet(SETTINGS_KEY, JSON.stringify(settings));
+          persistSettings(settings, SETTINGS_KEY);
           renderPopSources(hash); // repaint rows in the new style
         });
         pills.appendChild(p);
@@ -2462,14 +2510,14 @@
     // ── widget UI ──
     const { shadow, root } = makeWidget();
     tierListeners.push(() => {
-      // On downgrade, clamp the STORED choice too — a stale top-tier setting must
-      // not sit in localStorage looking active (API calls already clamp, and
-      // the server clamps again regardless of what we send). Only a STORED
-      // choice is rewritten: the options-page default lives in memory.
-      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null && !tier.provisional) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      // On downgrade, clamp the STORED choice too — a stale top-tier setting
+      // must not sit in localStorage looking active (API calls already clamp,
+      // and the server clamps again regardless of what we send). The default
+      // stop is re-derived instead, and never saved (syncStopToTier).
+      syncStopToTier(settings, SETTINGS_KEY);
       render();
     });
-    applyDefaultStop(settings, SETTINGS_KEY, () => render());
+    followDefaultStop(settings, SETTINGS_KEY, () => render());
 
     function render() {
       const issues = currentIssues();
@@ -2651,7 +2699,7 @@
     }
 
     function saveSettings() {
-      lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      persistSettings(settings, SETTINGS_KEY);
     }
 
     // ── loop ──
@@ -2753,11 +2801,11 @@
       return widget;
     }
     tierListeners.push(() => {
-      // Same downgrade clamp as docs mode; only repaint if the panel exists.
-      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null && !tier.provisional) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      // Same as docs mode; only repaint if the panel exists.
+      syncStopToTier(settings, SETTINGS_KEY);
       if (widget) render();
     });
-    applyDefaultStop(settings, SETTINGS_KEY, () => { if (widget) render(); });
+    followDefaultStop(settings, SETTINGS_KEY, () => { if (widget) render(); });
 
     /* ── editable tracking ── */
 
@@ -3405,7 +3453,7 @@
     }
 
     function saveSettings() {
-      lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      persistSettings(settings, SETTINGS_KEY);
     }
 
     /* ── focus tracking + loop ── */
