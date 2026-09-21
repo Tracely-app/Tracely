@@ -27,19 +27,31 @@ import { openai } from "./providers/openai.js";
  * because that file decides which tier a plan may reach and it must be able to
  * name the same three things. test/models.test.js pins the two together.
  *
- * These were read off OpenAI's pricing page rather than probed, because this
- * machine has no OpenAI key to probe with. If one is wrong the API answers 400
- * `model_not_found`, and mapApiError turns that into a message naming this
- * constant, so the fix is one line here rather than a hunt.
+ * Chosen by a measured, blind-judged eval of 13 configs on the production
+ * code paths (eval/models/FINDINGS.md, 2026-09-21), which replaced
+ * gpt-5-nano (fast) and gpt-5.4 (balanced):
+ *   - fast: gpt-5.6-luna was the most accurate fact check measured at any
+ *     price (100% at effort medium, vs 74% for gpt-5-nano at low, which never
+ *     flagged an uncited statistic), and at low effort it beat the retired
+ *     relay's gpt-4.1 on the desktop critique.
+ *   - balanced: gpt-5.6-terra beat gpt-5.4 on every measured axis at lower
+ *     cost. It is NOT measurably more accurate than fast on these tasks; it is
+ *     here because each tier needs its own id (shared/plan.js TIER_FOR_MODEL).
+ *   - thorough: gpt-6-astra gave the most thorough explanations and the most
+ *     consistent verdicts, at ~30x fast's cost per check.
+ * If an id is wrong the API answers 400 `model_not_found`, and mapApiError
+ * turns that into a message naming this constant, so the fix is one line here
+ * rather than a hunt. Retired ids that shipped clients still send are
+ * translated to their tier by shared/plan.js currentModelId, never here.
  *
- * Prices per 1M tokens at the time of writing, input / cached / output:
- *   fast      gpt-5-nano    $0.05 / $0.005 / $0.40
- *   balanced  gpt-5.4       $2.50 / $0.25  / $15.00
- *   thorough  gpt-6-astra   $10.00 / $1.00 / $50.00
+ * Prices per 1M tokens, input / cached / output / cache write:
+ *   fast      gpt-5.6-luna    $0.20 / $0.02 / $1.20  / $0.25
+ *   balanced  gpt-5.6-terra   $2.00 / $0.20 / $12.00 / $2.50
+ *   thorough  gpt-6-astra     $10.00 / $1.00 / $50.00 / $12.50
  */
 export const MODEL_TIERS = {
-  fast: "gpt-5-nano",
-  balanced: "gpt-5.4",
+  fast: "gpt-5.6-luna",
+  balanced: "gpt-5.6-terra",
   thorough: "gpt-6-astra",
 };
 
@@ -55,8 +67,8 @@ export { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS };
  * Integer micro-cents rather than float cents because the running total is a
  * SQLite INTEGER column that gets incremented thousands of times a day, and
  * accumulating float cents drifts. At this resolution the cheapest thing we
- * can bill — one cached input token on gpt-5-nano — is still 5 micro-cents, so
- * nothing rounds to zero.
+ * can bill — one cached input token on the fast tier ($0.02 per 1M) — is still
+ * 2 micro-cents, so nothing rounds to zero.
  *
  * An unknown model is priced as the MOST expensive tier, not as zero. Getting
  * this wrong in the other direction means a model rename silently uncaps

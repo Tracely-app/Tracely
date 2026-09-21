@@ -59,7 +59,7 @@ function orderUrl(userId) {
 /* Mirrors lib/llm.js MODEL_TIERS and extension/background.js. The notes are
    written around what the stop DOES rather than which model is behind it, so
    the next model rename is one line here and no copy edits. */
-const MODELS = ["gpt-5-nano", "gpt-5.4", "gpt-6-astra"];
+const MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra"];
 const MODEL_NOTES = [
   "Fast — near-instant and very cheap. A full essay costs well under a cent.",
   "Balanced — a little slower, noticeably better on subtle claims.",

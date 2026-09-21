@@ -99,9 +99,9 @@
   // The Faster↔Smarter slider — one control replacing the model + effort
   // dropdowns on both widget surfaces. Three stops; effort rides along.
   const SPEED_STOPS = [
-    { model: "gpt-5-nano", effort: "low" },
-    { model: "gpt-5.4", effort: "low" },
-    { model: "gpt-6-astra", effort: "medium" },
+    { model: "gpt-5.6-luna", effort: "medium" },
+    { model: "gpt-5.6-terra", effort: "low" },
+    { model: "gpt-6-astra", effort: "low" },
   ];
   function speedPos(model) {
     const i = SPEED_STOPS.findIndex((s) => s.model === model);
@@ -772,7 +772,7 @@
       }
       lsSet(REG_KEY, JSON.stringify(reg));
     }
-    let settings = { model: SPEED_STOPS[0].model, effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = { model: SPEED_STOPS[0].model, effort: SPEED_STOPS[0].effort, citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -2790,7 +2790,7 @@
     const cache = new Map();
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
-    let settings = { model: SPEED_STOPS[0].model, effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = { model: SPEED_STOPS[0].model, effort: SPEED_STOPS[0].effort, citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;

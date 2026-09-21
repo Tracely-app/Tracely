@@ -107,24 +107,24 @@ test("withBetaGrant: Pro for a match, a NEW object, and the entitlement it was g
 test("the failure line names route, kind, model and effort — never the message or anything unlisted", () => {
   const leak = "My essay says the Treaty of Paris was 1783 — student@example.test";
   const tagged = new CheckError("bad_request", leak, { status: 502 });
-  Object.defineProperty(tagged, "llm", { value: { model: "gpt-5.4", effort: "medium" }, enumerable: false });
+  Object.defineProperty(tagged, "llm", { value: { model: "gpt-5.6-terra", effort: "medium" }, enumerable: false });
   const line = modelFailureLine("/api/check", tagged, { model: "gpt-6-astra", effort: "high" });
-  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-5.4 effort=medium",
+  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-5.6-terra effort=medium",
     "the facade's tag wins over the route's trace: it is what was actually sent");
   assert.ok(!line.includes("Treaty") && !line.includes("student@"), "the message never reaches the log");
 
   const reasoned = Object.assign(new CheckError("server", leak, { status: 502 }), { reason: "unparseable" });
-  assert.match(modelFailureLine("/api/flow", reasoned, { model: "gpt-5-nano", effort: "low" }), /kind=unparseable status=502 model=gpt-5-nano effort=low$/);
+  assert.match(modelFailureLine("/api/flow", reasoned, { model: "gpt-5.6-luna", effort: "low" }), /kind=unparseable status=502 model=gpt-5.6-luna effort=low$/);
   // Anything that is not a value this server chose is refused a place in the line.
   const junk = Object.assign(new CheckError("server", "x", { status: 502 }), { reason: leak });
   assert.match(modelFailureLine("/api/check", junk, { model: leak, effort: leak }), /kind=unknown status=502 model=unlisted effort=unlisted$/);
   const noEffort = new CheckError("refusal", leak, { status: 502 });
-  Object.defineProperty(noEffort, "llm", { value: { model: "gpt-5-nano", effort: null } });
-  assert.match(modelFailureLine("/api/grade", noEffort), /model=gpt-5-nano effort=none$/);
+  Object.defineProperty(noEffort, "llm", { value: { model: "gpt-5.6-luna", effort: null } });
+  assert.match(modelFailureLine("/api/grade", noEffort), /model=gpt-5.6-luna effort=none$/);
 });
 
 test("only model failures are logged — never a caller's own 4xx, the budget, or a missing key", () => {
-  const tag = (e) => Object.defineProperty(e, "llm", { value: { model: "gpt-5-nano", effort: "low" } });
+  const tag = (e) => Object.defineProperty(e, "llm", { value: { model: "gpt-5.6-luna", effort: "low" } });
   assert.equal(isModelFailure(new CheckError("bad_request", "text required")), false);
   assert.equal(isModelFailure(new CheckError("plan_limit", "used up", { status: 429 })), false);
   assert.equal(isModelFailure(new CheckError("rate_limit", "slow down", { status: 429 })), false);
@@ -266,20 +266,20 @@ test("beta off (no TRACELY_BETA_TOKENS): the header grants nothing, and /api/sta
   assert.ok(!("beta" in e.body), "beta is omitted, not false, when the grant did not apply");
   const r = await check(A, { model: "gpt-6-astra" }, { headers: BETA, install: "a-beta-off" });
   assert.equal(r.status, 200);
-  assert.equal(r.body.modelUsed, "gpt-5-nano");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
   assert.equal(r.body.plan, "free");
   assert.ok(!("betaBudget" in (await status(A))), "no beta, no betaBudget");
 });
 
 test("hosted /api/check runs the model the client asked for, clamped to the plan", async () => {
   const cases = [
-    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.4"],          // a Pro user who picked balanced gets balanced
+    [{ token: "tok-pro" }, "gpt-5.6-terra", "gpt-5.6-terra"],          // a Pro user who picked balanced gets balanced
     [{ token: "tok-pro" }, "gpt-6-astra", "gpt-6-astra"],
-    [{ token: "tok-pro" }, undefined, "gpt-5-nano"],        // nothing asked: the fast tier, not a guess upward
-    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5-nano"], // unknown: DOWN to fast
-    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.4"],   // clamped to the student ceiling
-    [{ token: "tok-free" }, "gpt-5.4", "gpt-5-nano"],
-    [{}, "gpt-6-astra", "gpt-5-nano"],                      // anonymous is free
+    [{ token: "tok-pro" }, undefined, "gpt-5.6-luna"],        // nothing asked: the fast tier, not a guess upward
+    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5.6-luna"], // unknown: DOWN to fast
+    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.6-terra"],   // clamped to the student ceiling
+    [{ token: "tok-free" }, "gpt-5.6-terra", "gpt-5.6-luna"],
+    [{}, "gpt-6-astra", "gpt-5.6-luna"],                      // anonymous is free
   ];
   for (const [who, asked, expected] of cases) {
     const r = await check(A, asked === undefined ? {} : { model: asked }, { ...who, install: `a-check-${who.token ?? "anon"}` });
@@ -290,10 +290,10 @@ test("hosted /api/check runs the model the client asked for, clamped to the plan
 
 test("hosted /api/sources follows the same rule", async () => {
   const cases = [
-    ["tok-pro", "gpt-5.4", "gpt-5.4"],
-    ["tok-student", "gpt-6-astra", "gpt-5.4"],
-    ["tok-free", "gpt-6-astra", "gpt-5-nano"],
-    ["tok-pro", "nonsense", "gpt-5-nano"],
+    ["tok-pro", "gpt-5.6-terra", "gpt-5.6-terra"],
+    ["tok-student", "gpt-6-astra", "gpt-5.6-terra"],
+    ["tok-free", "gpt-6-astra", "gpt-5.6-luna"],
+    ["tok-pro", "nonsense", "gpt-5.6-luna"],
   ];
   for (const [token, asked, expected] of cases) {
     const r = await sources(A, { model: asked }, { token, install: `a-src-${token}-${asked}` });
@@ -311,7 +311,7 @@ test("hosted PUT /api/prefs is refused, GET still answers, and the row cannot st
   assert.equal(get.status, 200);
   assert.notEqual(get.body.model, "gpt-6-astra", "the refused write did not land");
   const r = await check(A, {}, { token: "tok-pro", install: "a-after-prefs" });
-  assert.equal(r.body.modelUsed, "gpt-5-nano");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
 });
 
 // ── B: hosted, beta on, a 1-cent beta pool ───────────────────────────────
@@ -357,14 +357,14 @@ test("a beta caller runs /api/check at Pro, signed in or out; the same caller wi
   const signedIn = await check(B, { model: "gpt-6-astra" }, { token: "tok-free", headers: BETA, install: "beta-tester-2" });
   assert.equal(signedIn.body.modelUsed, "gpt-6-astra");
   const plain = await check(B, { model: "gpt-6-astra" }, { install: "beta-tester-1" });
-  assert.equal(plain.body.modelUsed, "gpt-5-nano");
+  assert.equal(plain.body.modelUsed, "gpt-5.6-luna");
   assert.equal(plain.body.plan, "free");
 });
 
 test("the desktop's app routes ignore the beta header entirely", async () => {
   const r = await call(B, "POST", "/api/structure", { body: { text: DRAFT, model: "gpt-6-astra" }, headers: BETA, install: "beta-desktop" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.match(r.body.model, /^gpt-5-nano/, `a beta header reached an app route and ran ${r.body.model}`);
+  assert.match(r.body.model, /^gpt-5.6-luna/, `a beta header reached an app route and ran ${r.body.model}`);
 });
 
 test("beta spend lands in the beta pool; the extension pool is untouched", async () => {
@@ -387,12 +387,12 @@ test("beta spend lands in the beta pool; the extension pool is untouched", async
 test("an exhausted beta pool drops the tester to their own plan on the extension pool — never a 503", async () => {
   const c = await check(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
   assert.equal(c.status, 200, JSON.stringify(c.body));
-  assert.equal(c.body.modelUsed, "gpt-5-nano", "back on the free model");
+  assert.equal(c.body.modelUsed, "gpt-5.6-luna", "back on the free model");
   assert.equal(c.body.plan, "free");
 
   const s = await sources(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
   assert.equal(s.status, 200, JSON.stringify(s.body));
-  assert.equal(s.body.modelUsed, "gpt-5-nano");
+  assert.equal(s.body.modelUsed, "gpt-5.6-luna");
   assert.equal(s.body.plan, "free");
 
   const after = await status(B);
@@ -408,13 +408,13 @@ test("an exhausted beta pool drops the tester to their own plan on the extension
 // ── C: local, unenforced ─────────────────────────────────────────────────
 
 test("a local server keeps server-side tiering (pickModel) and a writable prefs row", async () => {
-  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.4" } });
+  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.6-terra" } });
   assert.equal(put.status, 200, JSON.stringify(put.body));
-  assert.equal((await check(C, { model: "gpt-5-nano" })).body.modelUsed, "gpt-5.4", "uniform: the prefs row decides");
-  assert.equal((await sources(C, { model: "gpt-5-nano" })).body.modelUsed, "gpt-5.4");
+  assert.equal((await check(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra", "uniform: the prefs row decides");
+  assert.equal((await sources(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra");
 
   assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "economy" } })).status, 200);
-  assert.equal((await check(C, { model: "gpt-6-astra" })).body.modelUsed, "gpt-5-nano", "economy: the fast tier, whatever was asked");
+  assert.equal((await check(C, { model: "gpt-6-astra" })).body.modelUsed, "gpt-5.6-luna", "economy: the fast tier, whatever was asked");
 
   const e = await entitlement(C, { headers: BETA });
   assert.equal(e.body.enforced, false, "nothing is clamped locally, beta or not");
@@ -435,8 +435,8 @@ test("/api/flow passes the client's effort through, normalised, at the clamped m
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "high" }]);
 
   ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "medium" }, install: "d-flow-free" })));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5-nano", effort: "medium" }], "clamped model, the client's effort");
-  assert.equal(r.body.modelUsed, "gpt-5-nano");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }], "clamped model, the client's effort");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
 
   ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, effort: "turbo" }, install: "d-flow-junk" })));
   assert.equal(calls[0].effort, "low", "junk becomes the default, never OpenAI's own");
@@ -446,22 +446,22 @@ test("/api/sources sends the client's effort when it sends one, and otherwise no
   // The store build sends no effort here, and every one of its source
   // searches has always run at the vendor's default. That must not move
   // without a measurement; a client that picks a level gets that level.
-  let { r, calls } = await sent(() => sources(D, { model: "gpt-5.4" }, { install: "d-src-free" }));
+  let { r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra" }, { install: "d-src-free" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5-nano", effort: null, webSearch: true }]);
+  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5.6-luna", effort: null, webSearch: true }]);
 
-  ({ r, calls } = await sent(() => sources(D, { model: "gpt-5.4", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
+  ({ r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.4", effort: "high" }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "high" }]);
 
   ({ calls } = await sent(() => sources(D, { effort: "turbo" }, { install: "d-src-junk" })));
   assert.equal(calls[0].effort, "low", "a junk level is normalised, never passed through");
 });
 
 test("/api/check sends the requested model and effort to the provider, not just in modelUsed", async () => {
-  const { r, calls } = await sent(() => check(D, { model: "gpt-5.4", effort: "medium" }, { token: "tok-pro", install: "d-check-pro" }));
+  const { r, calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "medium" }, { token: "tok-pro", install: "d-check-pro" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.4", effort: "medium" }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "medium" }]);
 });
 
 async function logLine(srv, needle) {
@@ -481,7 +481,7 @@ test("a failed model call logs route, kind, model and effort — and none of the
   assert.equal(r.status, 502);
   assert.equal(r.body.error.kind, "truncated", "the wire error is unchanged");
   const truncated = await logLine(D, "route=/api/check");
-  assert.equal(truncated, "[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5-nano effort=low");
+  assert.equal(truncated, "[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5.6-luna effort=low");
 
   const garbage = await call(D, "POST", "/api/flow", { body: { text: `TRIGGER-GARBAGE ${secret}`, model: "gpt-6-astra", effort: "high" }, headers: BETA, install });
   assert.equal(garbage.status, 502);
@@ -490,7 +490,7 @@ test("a failed model call logs route, kind, model and effort — and none of the
   // A desktop route passes the same handler.
   const refused = await call(D, "POST", "/api/structure", { body: { text: `${DRAFT} TRIGGER-REFUSE ${secret}` }, install });
   assert.equal(refused.status, 502, JSON.stringify(refused.body));
-  assert.match(await logLine(D, "route=/api/structure") ?? "", /^\[tracely\] model call failed route=\/api\/structure kind=refusal status=502 model=gpt-5-nano effort=\w+$/);
+  assert.match(await logLine(D, "route=/api/structure") ?? "", /^\[tracely\] model call failed route=\/api\/structure kind=refusal status=502 model=gpt-5.6-luna effort=\w+$/);
 
   // A caller's own mistake is not a model failure.
   const before = D.stderr();
@@ -553,11 +553,11 @@ test("a spent paid pool drops a paying caller to the fast model on the extension
   const before = await status(E);
   const c = await check(E, { model: "gpt-6-astra" }, { token: "tok-pro", install: "e-pro" });
   assert.equal(c.status, 200, JSON.stringify(c.body));
-  assert.equal(c.body.modelUsed, "gpt-5-nano");
+  assert.equal(c.body.modelUsed, "gpt-5.6-luna");
   assert.equal(c.body.plan, "pro", "still Pro: unmetered quotas, just the fast model");
-  const s = await sources(E, { model: "gpt-5.4" }, { token: "tok-student", install: "e-student" });
+  const s = await sources(E, { model: "gpt-5.6-terra" }, { token: "tok-student", install: "e-student" });
   assert.equal(s.status, 200, JSON.stringify(s.body));
-  assert.equal(s.body.modelUsed, "gpt-5-nano");
+  assert.equal(s.body.modelUsed, "gpt-5.6-luna");
   assert.equal(s.body.plan, "student");
   const after = await status(E);
   assert.equal(Number((after.budget.spentUsd - before.budget.spentUsd).toFixed(4)), 0.01, "that search was paid by the extension pool");

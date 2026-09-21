@@ -77,14 +77,14 @@ export function planFromMetadata(appMetadata) {
 export const MODEL_TIERS = ["fast", "balanced", "thorough"];
 
 export const MODEL_FOR_TIER = {
-  fast: "gpt-5-nano",
-  balanced: "gpt-5.4",
+  fast: "gpt-5.6-luna",
+  balanced: "gpt-5.6-terra",
   thorough: "gpt-6-astra",
 };
 
 export const TIER_FOR_MODEL = {
-  "gpt-5-nano": "fast",
-  "gpt-5.4": "balanced",
+  "gpt-5.6-luna": "fast",
+  "gpt-5.6-terra": "balanced",
   "gpt-6-astra": "thorough",
 };
 

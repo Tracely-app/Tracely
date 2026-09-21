@@ -47,17 +47,31 @@ const nextAt = () => Date.UTC(2030, 0, 1 + dayN++, 12);
 // ── cost arithmetic ──────────────────────────────────────────────────────
 
 test("costMicroCents reproduces the prices measured against the real API", () => {
-  // 10-sentence check on the fast model, measured 2026-09-13 at 0.0641 cents.
-  const c = costMicroCents("gpt-5-nano", { input: 974, output: 1481, cached: 0 });
-  assert.equal((c / 1e6).toFixed(4), "0.0641");
+  // An 11-sentence check on the fast model, cold (the prefix a cache write),
+  // from the model eval (eval/models/FINDINGS.md, 2026-09-21): 1,371 input
+  // tokens of which 1,368 were cache writes, 621 output — 0.1088 cents.
+  const c = costMicroCents("gpt-5.6-luna", { input: 1371, output: 621, cached: 0, cacheWrite: 1368 });
+  assert.equal((c / 1e6).toFixed(4), "0.1088");
 });
 
 test("a dated model id prices the same as its family", () => {
-  // OpenAI answers with "gpt-5-nano-2025-08-07", not "gpt-5-nano". Pricing the
-  // reply by the id it RETURNS is the whole point, so the suffix must resolve.
-  const bare = costMicroCents("gpt-5-nano", { input: 1000, output: 1000 });
-  const dated = costMicroCents("gpt-5-nano-2025-08-07", { input: 1000, output: 1000 });
+  // OpenAI answered gpt-5-nano calls as "gpt-5-nano-2025-08-07". The current
+  // tiers echo bare ids, but pricing the reply by the id it RETURNS is the
+  // whole point, so a dated suffix must still resolve.
+  const bare = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 1000 });
+  const dated = costMicroCents(`${MODEL_TIERS.fast}-2026-09-01`, { input: 1000, output: 1000 });
   assert.equal(dated, bare);
+});
+
+test("a retired tier id is priced as an unknown model — the top tier — never at its old rate", () => {
+  // Legacy ids are translated to their tier's current model before any call
+  // (shared/plan.js currentModelId), so nothing prices one. If one ever got
+  // here, the only safe answer is the most expensive tier.
+  for (const retired of ["gpt-5-nano", "gpt-5.4"]) {
+    assert.equal(MODEL_PRICES[retired], undefined, `${retired} is still in the price table`);
+    const u = { input: 1000, output: 1000 };
+    assert.equal(costMicroCents(retired, u), costMicroCents(MODEL_TIERS.thorough, u));
+  }
 });
 
 test("an unknown model prices as the MOST expensive tier, never as free", () => {
@@ -68,17 +82,18 @@ test("an unknown model prices as the MOST expensive tier, never as free", () => 
 });
 
 test("the web_search call fee dominates a source search, and is not in the tokens", () => {
-  const tokensOnly = costMicroCents("gpt-5-nano", { input: 1000, output: 800 });
-  const withSearch = costMicroCents("gpt-5-nano", { input: 1000, output: 800 }, { webSearchCalls: 1 });
+  const tokensOnly = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 800 });
+  const withSearch = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 800 }, { webSearchCalls: 1 });
   assert.ok(withSearch - tokensOnly === 1e6, "one search should add exactly 1 cent");
-  assert.ok(withSearch > tokensOnly * 20, "pricing sources off tokens alone under-counts them badly");
+  // ~10x on the fast tier (a 1,000-in / 800-out search is ~0.12 cents of tokens).
+  assert.ok(withSearch > tokensOnly * 5, "pricing sources off tokens alone under-counts them badly");
 });
 
 test("cached input is charged at the cached rate, not the fresh rate", () => {
-  const allFresh = costMicroCents("gpt-5-nano", { input: 1000, output: 0, cached: 0 });
-  const allCached = costMicroCents("gpt-5-nano", { input: 1000, output: 0, cached: 1000 });
+  const allFresh = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 0, cached: 0 });
+  const allCached = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 0, cached: 1000 });
   assert.ok(allCached < allFresh);
-  assert.equal(allCached, Math.round(1000 * MODEL_PRICES["gpt-5-nano"].cached / 1e6 * 100 * 1e6));
+  assert.equal(allCached, Math.round(1000 * MODEL_PRICES[MODEL_TIERS.fast].cached / 1e6 * 100 * 1e6));
 });
 
 test("cache writes are charged at the cacheWrite rate, once, and never again as fresh input", () => {
@@ -127,7 +142,7 @@ test("an unknown model's cache writes price at the MOST expensive tier's write r
 
 test("junk usage cannot produce a negative cost", () => {
   for (const u of [{}, { input: -5, output: -5 }, { input: NaN }, null]) {
-    assert.ok(costMicroCents("gpt-5-nano", u) >= 0);
+    assert.ok(costMicroCents(MODEL_TIERS.fast, u) >= 0);
   }
 });
 
@@ -157,7 +172,7 @@ test("spend accumulates and eventually refuses", () => {
   const env = { TRACELY_DAILY_BUDGET_USD: "0.01" }; // 1 cent
   assert.equal(spendState({ at, env }).allowed, true);
   // One source search is 1 cent, so exactly one exhausts a 1-cent day.
-  recordSpend({ model: "gpt-5-nano", usage: { input: 10, output: 10 }, webSearchCalls: 1, at });
+  recordSpend({ model: MODEL_TIERS.fast, usage: { input: 10, output: 10 }, webSearchCalls: 1, at });
   const after = spendState({ at, env });
   assert.equal(after.allowed, false, "the budget must refuse once spent");
   assert.equal(after.remaining, 0);
@@ -175,7 +190,7 @@ test("sources are shed BEFORE checks when the budget runs low", () => {
   // Spend past the shed threshold but not the whole budget.
   const budget = dailyBudgetMicroCents(env);
   const target = Math.ceil(budget * (1 - SPEND.shedSourcesAtRemainingPct) + 1);
-  recordSpend({ model: "gpt-5-nano", usage: { input: 0, output: 0 }, webSearchCalls: target / 1e6, at });
+  recordSpend({ model: MODEL_TIERS.fast, usage: { input: 0, output: 0 }, webSearchCalls: target / 1e6, at });
   const s = spendState({ at, env });
   assert.equal(s.allowed, true, "checking must survive");
   assert.equal(s.sourcesAllowed, false, "the 16x-cost route goes first");
@@ -185,7 +200,7 @@ test("the day key rolls over, so yesterday's spend does not bind today", () => {
   const env = { TRACELY_DAILY_BUDGET_USD: "0.01" };
   const yesterday = Date.UTC(2031, 5, 1, 12);
   const today = Date.UTC(2031, 5, 2, 12);
-  recordSpend({ model: "gpt-5-nano", usage: {}, webSearchCalls: 1, at: yesterday });
+  recordSpend({ model: MODEL_TIERS.fast, usage: {}, webSearchCalls: 1, at: yesterday });
   assert.equal(spendState({ at: yesterday, env }).allowed, false);
   assert.equal(spendState({ at: today, env }).allowed, true);
 });

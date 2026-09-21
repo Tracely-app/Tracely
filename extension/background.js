@@ -50,8 +50,8 @@ const PROBE_TIMEOUT_MS = 1500;
    the server tree, and the extension ships without a build step, so this is
    the one unavoidable duplicate of those ids — test/models.test.js fails if
    it stops matching. */
-const FAST_MODEL = "gpt-5-nano";
-const ALLOWED_MODELS = new Set([FAST_MODEL, "gpt-5.4", "gpt-6-astra"]);
+const FAST_MODEL = "gpt-5.6-luna";
+const ALLOWED_MODELS = new Set([FAST_MODEL, "gpt-5.6-terra", "gpt-6-astra"]);
 const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
 const DEFAULT_MODEL = FAST_MODEL; // cost mandate: cheap unless explicitly chosen
 const VERDICTS = ["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"];

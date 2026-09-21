@@ -96,7 +96,7 @@ export function isModelTier(value: unknown): value is ModelTier {
  * A MIRROR of `MODEL_FOR_TIER` in `server/shared/plan.js`, and it has to be
  * one. The server's `clampModel` only knows model ids: handed a tier NAME it
  * does not recognise the value and resolves it down to the cheapest model, so
- * `clampModel('thorough', 'pro')` is `gpt-5-nano`. When the desktop sent its
+ * `clampModel('thorough', 'pro')` is the fast model. When the desktop sent its
  * tier as an `x-tracely-model-tier` header to the relay that did not matter —
  * the relay ignored the header and chose from its own environment. The server
  * does read what it is sent, so the translation happens here, before the
@@ -110,8 +110,8 @@ export function isModelTier(value: unknown): value is ModelTier {
  * Pinned by plan.test.ts against the server's copy.
  */
 export const MODEL_FOR_TIER = {
-  fast: 'gpt-5-nano',
-  balanced: 'gpt-5.4',
+  fast: 'gpt-5.6-luna',
+  balanced: 'gpt-5.6-terra',
   thorough: 'gpt-6-astra'
 } as const satisfies Record<ModelTier, string>
 

@@ -21,17 +21,20 @@
  *
  * `WEB_SEARCH_CALL_DOLLARS` is the part that surprises people: OpenAI bills
  * the built-in web_search tool PER CALL ($10 per 1000) on top of tokens, so
- * one source search costs about as much as 16 fact checks. Measured 2026-09-13.
+ * the fee alone for one source search costs about as much as 10-25
+ * typing-pause fact checks on the fast tier (0.039-0.104 cents each,
+ * eval/models/FINDINGS.md), or ~3 full 40-sentence checks.
  */
 export const MODEL_PRICES = {
-  "gpt-5-nano":  { input: 0.05, cached: 0.005, output: 0.40 },
-  "gpt-5.4":     { input: 2.50, cached: 0.25,  output: 15.00 },
-  "gpt-6-astra": { input: 10.00, cached: 1.00, output: 50.00, cacheWrite: 12.50 },
+  "gpt-5.6-luna":  { input: 0.20, cached: 0.02, output: 1.20, cacheWrite: 0.25 },
+  "gpt-5.6-terra": { input: 2.00, cached: 0.20, output: 12.00, cacheWrite: 2.50 },
+  "gpt-6-astra":   { input: 10.00, cached: 1.00, output: 50.00, cacheWrite: 12.50 },
 };
 export const WEB_SEARCH_CALL_DOLLARS = 0.01;
 
-/* Dated snapshots ("gpt-5-nano-2025-08-07") are what the API echoes back as
- * `model`, so a lookup by the echoed id has to fall back to its family. */
+/* A dated snapshot ("gpt-5-nano-2025-08-07" was one) is what the API may echo
+ * back as `model`, so a lookup by the echoed id has to fall back to its
+ * family. (The current tiers echo their bare ids.) */
 export function priceFor(model) {
   const id = String(model ?? "");
   return MODEL_PRICES[id] ?? MODEL_PRICES[id.replace(/-\d{4}-\d{2}-\d{2}$/, "")] ?? null;

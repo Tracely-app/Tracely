@@ -94,13 +94,13 @@ test("a hosted app route cannot be steered to the top model through the global p
   assert.equal(put.status, 403);
   const r = await post("/api/structure", { text: DRAFT + "prefs" }, "prefs-user");
   assert.equal(r.status, 200);
-  assert.match(r.body.model, /^gpt-5-nano/, `an anonymous free caller ran ${r.body.model}`);
+  assert.match(r.body.model, /^gpt-5.6-luna/, `an anonymous free caller ran ${r.body.model}`);
 });
 
 test("a free caller asking for the top model is clamped to the free one", async () => {
   const r = await post("/api/structure", { text: DRAFT + "ask", model: "gpt-6-astra" }, "greedy-user");
   assert.equal(r.status, 200);
-  assert.match(r.body.model, /^gpt-5-nano/);
+  assert.match(r.body.model, /^gpt-5.6-luna/);
 });
 
 test("the extension's routes still answer exactly as before", async () => {

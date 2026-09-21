@@ -408,7 +408,7 @@ const stopOf = (settings) => ({ model: settings.model, effort: settings.effort }
 async function defaultFor(opts, plan, resolved) {
   const loaded = loadStops(opts);
   loaded.api.setTier(plan, resolved);
-  const settings = { model: "gpt-5-nano", effort: "low", citationStyle: "apa" };
+  const settings = { model: "gpt-5.6-luna", effort: "medium", citationStyle: "apa" };
   let applied = 0;
   loaded.api.followDefaultStop(settings, KEY, () => { applied++; });
   await tick();
@@ -417,33 +417,33 @@ async function defaultFor(opts, plan, resolved) {
 
 test("the options-page stop is the default where a site has no setting of its own", async () => {
   const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
-  assert.deepEqual(r.settings, { model: "gpt-6-astra", effort: "medium" });
+  assert.deepEqual(r.settings, { model: "gpt-6-astra", effort: "low" });
   assert.equal(r.applied, 1);
 });
 
 test("the default is capped by plan: clamped once the tier is known, capped at send time before", async () => {
   const known = await defaultFor({ optionsModel: "gpt-6-astra" }, "free", true);
-  assert.deepEqual(known.settings, { model: "gpt-5-nano", effort: "low" });
+  assert.deepEqual(known.settings, { model: "gpt-5.6-luna", effort: "medium" });
 
   const early = await defaultFor({ optionsModel: "gpt-6-astra" }, "free", false);
   // Not clamped yet (the tier listener does that when it arrives)...
   assert.equal(early.settings.model, "gpt-6-astra");
   // ...but nothing above the plan can be requested meanwhile.
-  assert.equal(early.api.effModel(early.live), "gpt-5-nano");
-  assert.equal(early.api.effEffort(early.live), "low");
+  assert.equal(early.api.effModel(early.live), "gpt-5.6-luna");
+  assert.equal(early.api.effEffort(early.live), "medium");
 
   const student = await defaultFor({ optionsModel: "gpt-6-astra" }, "student", true);
-  assert.deepEqual(student.settings, { model: "gpt-5.4", effort: "low" });
+  assert.deepEqual(student.settings, { model: "gpt-5.6-terra", effort: "low" });
 });
 
 test("a per-site choice wins, and junk or harness pages change nothing", async () => {
-  const own = await defaultFor({ optionsModel: "gpt-6-astra", stored: JSON.stringify({ model: "gpt-5-nano", effort: "low" }) }, "pro", true);
-  assert.deepEqual(own.settings, { model: "gpt-5-nano", effort: "low" });
+  const own = await defaultFor({ optionsModel: "gpt-6-astra", stored: JSON.stringify({ model: "gpt-5.6-luna", effort: "medium" }) }, "pro", true);
+  assert.deepEqual(own.settings, { model: "gpt-5.6-luna", effort: "medium" });
   assert.equal(own.reads, 0, "must not even ask when the site has its own stop");
 
   for (const opts of [{ optionsModel: "junk" }, { optionsModel: "" }, { optionsModel: "gpt-6-astra", useRelay: false }]) {
     const r = await defaultFor(opts, "pro", true);
-    assert.deepEqual(r.settings, { model: "gpt-5-nano", effort: "low" }, JSON.stringify(opts));
+    assert.deepEqual(r.settings, { model: "gpt-5.6-luna", effort: "medium" }, JSON.stringify(opts));
     assert.equal(r.applied, 0);
   }
 });
@@ -456,43 +456,43 @@ test("saving any other setting never pins a site to the default stop", async () 
   r.live.autoSources = true;
   r.api.persistSettings(r.live, KEY);
   assert.deepEqual(r.writes.at(-1), { citationStyle: "apa", autoSources: true }, "the stop was saved with it");
-  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "medium" }, "and it is still in effect");
+  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "low" }, "and it is still in effect");
 
   // Moving the widget's own slider is what gives the site a stop.
-  r.live.model = "gpt-5.4"; r.live.effort = "low";
+  r.live.model = "gpt-5.6-terra"; r.live.effort = "low";
   r.api.pinSiteStop(r.live);
   r.api.persistSettings(r.live, KEY);
-  assert.deepEqual(r.writes.at(-1), { model: "gpt-5.4", effort: "low", citationStyle: "apa", autoSources: true });
+  assert.deepEqual(r.writes.at(-1), { model: "gpt-5.6-terra", effort: "low", citationStyle: "apa", autoSources: true });
 });
 
 test("a transient free answer clamps the default in memory and the real plan restores it", async () => {
   const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
   r.api.setTier("free", true, true); // provisional: the server did not answer
   r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(stopOf(r.live), { model: "gpt-5-nano", effort: "low" });
+  assert.deepEqual(stopOf(r.live), { model: "gpt-5.6-luna", effort: "medium" });
   r.api.setTier("pro", true, false);
   r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "medium" }, "stuck on Fast until reload");
+  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "low" }, "stuck on Fast until reload");
   assert.equal(r.writes.length, 0, "the default is never written");
 });
 
 test("a site's own stop: a provisional clamp is not saved and is undone; a real one is saved", async () => {
-  const own = JSON.stringify({ model: "gpt-6-astra", effort: "medium", citationStyle: "mla" });
+  const own = JSON.stringify({ model: "gpt-6-astra", effort: "low", citationStyle: "mla" });
   const r = await defaultFor({ stored: own }, "pro", true);
   Object.assign(r.live, JSON.parse(own)); // what the widget loaded from the site
 
   r.api.setTier("free", true, true);
   r.api.syncStopToTier(r.live, KEY);
-  assert.equal(r.live.model, "gpt-5-nano", "clamped in memory");
+  assert.equal(r.live.model, "gpt-5.6-luna", "clamped in memory");
   assert.equal(r.ls.value, own, "an outage rewrote the saved stop");
 
   r.api.setTier("pro", true, false);
   r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "medium" }, "the saved choice comes back with the plan");
+  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "low" }, "the saved choice comes back with the plan");
 
   r.api.setTier("free", true, false); // a real downgrade
   r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(JSON.parse(r.ls.value), { model: "gpt-5-nano", effort: "low", citationStyle: "mla" });
+  assert.deepEqual(JSON.parse(r.ls.value), { model: "gpt-5.6-luna", effort: "medium", citationStyle: "mla" });
 });
 
 test("every settings write in both widgets goes through persistSettings", () => {
@@ -600,7 +600,7 @@ test("options: a provisional free answer never overwrites the saved stop; a real
   assert.deepEqual(guess.sets.filter((o) => "model" in o), [], "an outage rewrote the tester's stop to Fast");
   const real = await renderOptions({ ...BASE, signedIn: false, plan: "free" }, { stored: { model: "gpt-6-astra" } });
   const writes = plain(real.sets.filter((o) => "model" in o));
-  assert.ok(writes.length > 0 && writes.every((o) => o.model === "gpt-5-nano"), `a real downgrade still clamps: ${JSON.stringify(writes)}`);
+  assert.ok(writes.length > 0 && writes.every((o) => o.model === "gpt-5.6-luna"), `a real downgrade still clamps: ${JSON.stringify(writes)}`);
 });
 
 test("options.html lets `hidden` beat the link and badge display rules", () => {
