@@ -172,7 +172,7 @@ Rules:
   // `effort` undefined sends no reasoning effort — the vendor's default, which
   // is what every source search ran at before the widget's stop reached this
   // route (see webSearchCall). A caller-chosen level is sent.
-  const { text: fullText, citations, model: usedModel, usage } = await webSearchCall({
+  const { text: fullText, citations, model: usedModel, usage, webSearchCalls, sent } = await webSearchCall({
     model: chosenModel,
     system: sys,
     user: userMsg,
@@ -218,10 +218,16 @@ Rules:
   }
 
   if (merged.length === 0) {
-    throw new CheckError("server", "No usable sources came back — try again.", { status: 502 });
+    // Answered, so billed — tokens and every search — like any failure the
+    // facade tags (lib/llm.js tagFailure); the route records what it carries.
+    const err = new CheckError("server", "No usable sources came back — try again.", { status: 502 });
+    Object.defineProperty(err, "llm", { value: { ...sent, usage, webSearchCalls }, enumerable: false, configurable: true });
+    throw err;
   }
 
-  return { sources: merged, model: usedModel, usage };
+  // `webSearchCalls`: what the search tool billed, per call — the route
+  // records it and keeps it out of the response.
+  return { sources: merged, model: usedModel, usage, webSearchCalls };
 }
 
 function hostOf(url) {

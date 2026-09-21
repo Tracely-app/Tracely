@@ -190,5 +190,16 @@ export const openai = {
     };
   },
 
+  /* How many web_search_call items the answer carries. OpenAI bills the
+   * web_search tool per call ($10/1000) on top of tokens, and a reasoning
+   * model can make several in one response: a live /api/find-sources answer
+   * on gpt-5.6-luna (2026-09-21) carried two, action "search" then
+   * "open_page". Every item is counted, whatever its action — whether
+   * open_page and find_in_page are billed as calls is not confirmed, and a
+   * spend cap errs toward over-counting. */
+  webSearchCallsOf(json) {
+    return (json?.output ?? []).filter((item) => item?.type === "web_search_call").length;
+  },
+
   modelOf: (json) => json.model,
 };

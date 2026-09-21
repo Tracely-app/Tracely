@@ -240,11 +240,20 @@ export const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT
 function tagFailure(err, sent, p = null, json = null) {
   if (err instanceof CheckError && !err.llm) {
     const tag = { model: sent.model, effort: sent.effort ?? null };
-    if (p && json) tag.usage = p.usageOf(json);
+    if (p && json) {
+      tag.usage = p.usageOf(json);
+      // A failed answer that searched was billed per search too.
+      const searches = webSearchCallsOf(p, json);
+      if (searches > 0) tag.webSearchCalls = searches;
+    }
     Object.defineProperty(err, "llm", { value: tag, enumerable: false, configurable: true });
   }
   return err;
 }
+
+/* The web_search tool calls an answer made — billed per call, and invisible in
+ * the token usage. 0 for a provider that cannot say. */
+const webSearchCallsOf = (p, json) => (typeof p.webSearchCallsOf === "function" ? p.webSearchCallsOf(json) : 0);
 
 /* The two "server" failures that are really answer-quality failures get a
  * finer `reason` for the log. Same kind, same status, same wire message as
@@ -356,7 +365,12 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
       json = await post(p, build(undefined), { timeoutMs: 180_000 });
     }
     p.checkComplete(json, what);
-    return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
+    return {
+      text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json),
+      // What the search tool will bill (per call), and what was sent — the
+      // caller may still fail on this answer and must tag that failure.
+      webSearchCalls: webSearchCallsOf(p, json), sent: { ...sent },
+    };
   } catch (err) {
     throw tagFailure(err, sent, p, json);
   }
@@ -398,7 +412,7 @@ export async function webSearchStructuredCall({ model, system, user, schema, max
     } catch {
       throw unparseable(what);
     }
-    return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
+    return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json), webSearchCalls: webSearchCallsOf(p, json) };
   } catch (err) {
     throw tagFailure(err, sent, p, json);
   }

@@ -189,6 +189,8 @@ globalThis.fetch = async (url, init = {}) => {
   else if (input.includes("TRIGGER-SPLIT") && batch > 1) reply = truncated;
   else if (input.includes("TRIGGER-REFUSE")) reply = { output: [{ content: [{ type: "refusal", refusal: "no" }] }] };
   else if (input.includes("TRIGGER-GARBAGE")) reply = { output_text: "this is not json {" };
+  else if (body.tools && input.includes("TRIGGER-3SEARCH")) reply = { output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }), output: ["search", "open_page", "search"].map((type) => ({ type: "web_search_call", action: { type } })) };
+  else if (body.tools && input.includes("TRIGGER-NOSOURCES")) reply = { output_text: "nothing I could use", output: ["search", "search"].map((type) => ({ type: "web_search_call", action: { type } })) };
   else if (body.tools) reply = { output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }) };
   else reply = { output_text: JSON.stringify(emptyFor(body.text?.format?.schema)) };
   return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: IN, output_tokens: OUT }, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -652,6 +654,30 @@ test("a split check that fails in a half still records the truncated call and th
   const after = await status(D);
   // 2 x (1,000 in + 16,000 out) on gpt-6-astra = $1.62, plus the tiny half.
   assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 1.62);
+});
+
+test("a source search records every web_search_call its answer made, and keeps the count off the wire", async () => {
+  // OpenAI bills the tool per call; a reasoning model can make several.
+  let before = await status(D);
+  const r = await sources(D, { claim: "TRIGGER-3SEARCH water boils at 100 C.", model: "gpt-6-astra" }, { headers: BETA, install: "d-3search" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(!("webSearchCalls" in r.body), "the extension's response shape is unchanged");
+  let after = await status(D);
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 0.03, "three calls, a cent each");
+
+  // An answer that reports no search is still charged the one the route exists for.
+  before = after;
+  await sources(D, { model: "gpt-6-astra" }, { headers: BETA, install: "d-1search" });
+  after = await status(D);
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 0.01);
+
+  // A search that found nothing usable was billed — tokens and searches — and is recorded.
+  before = after;
+  const none = await sources(D, { claim: "TRIGGER-NOSOURCES something obscure.", model: "gpt-6-astra" }, { headers: BETA, install: "d-nosources" });
+  assert.equal(none.status, 502);
+  assert.equal(none.body.error.message, "No usable sources came back — try again.", "the wire error is unchanged");
+  after = await status(D);
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 0.02);
 });
 
 // A split: the whole batch truncates, each half answers.

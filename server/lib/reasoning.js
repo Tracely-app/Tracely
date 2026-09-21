@@ -391,7 +391,7 @@ export async function findSources({ claim, context, model, effort }) {
     schema: SOURCE_SEARCH_SCHEMA.schema, name: SOURCE_SEARCH_SCHEMA.name,
     what: "source search",
   });
-  return { ...out.parsed, model: out.model, usage: out.usage };
+  return { ...out.parsed, model: out.model, usage: out.usage, webSearchCalls: out.webSearchCalls };
 }
 
 /* ── mocks: deterministic, same shapes, no key ─────────────────────────── */

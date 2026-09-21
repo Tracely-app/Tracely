@@ -123,7 +123,12 @@ the last admission (one call, or a split's two), and the number of thorough
 calls those pools run AT ONCE is about the remaining budget ÷ $1.10. Raise
 the ceiling for a bigger team, not the reservation. A call that fails after
 OpenAI billed it (truncated, refused, unparseable) is recorded into its pool
-too, including every call of a split that failed part-way.
+too, including every call of a split that failed part-way. A source search
+records the web_search fee once per `web_search_call` its answer carried
+(never fewer than one): a reasoning model can search, and open pages, more
+than once per answer. Nothing we send bounds that, so the sources
+reservation (40k input tokens, 3 searches) is an allowance sized above the
+most seen live, not a bound.
 
 `TRACELY_TRUSTED_PROXY_HOPS=1` because Apache is the one proxy in front. Wrong
 here and rate limiting keys on the wrong address.

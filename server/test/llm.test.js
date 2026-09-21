@@ -107,6 +107,32 @@ test("webSearchCall passes a caller's effort through, normalises junk, and never
   }
 });
 
+test("a web search reports every web_search_call it made — the tool bills per call", async () => {
+  // A live gpt-5.6-luna answer on /api/find-sources (2026-09-21) carried two:
+  // action "search", then "open_page". The route used to record one.
+  const searched = (...actions) => actions.map((type) => ({ type: "web_search_call", status: "completed", action: { type } }));
+  let llm = await fresh();
+  stub(ok({ output_text: "t", output: [...searched("search", "open_page"), { type: "reasoning" }, { type: "message", content: [] }] }));
+  let r = await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", effort: "low" });
+  assert.equal(r.webSearchCalls, 2, "every item counts, whatever its action");
+  assert.deepEqual(r.sent, { model: "gpt-5.6-luna", effort: "low" });
+
+  llm = await fresh();
+  stub(ok({ output_text: "t" }));
+  assert.equal((await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s" })).webSearchCalls, 0);
+
+  llm = await fresh();
+  stub(ok({ output_text: '{"a":"x"}', output: searched("search", "search", "find_in_page") }));
+  r = await llm.webSearchStructuredCall({ model: "gpt-5.6-luna", system: "S", user: "q", schema: SCHEMA, maxTokens: 5, what: "s" });
+  assert.equal(r.webSearchCalls, 3);
+
+  // A failed answer that searched carries the count with its usage.
+  llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: searched("search", "search"), usage: { input_tokens: 10, output_tokens: 6000 } }));
+  const err = await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
+  assert.deepEqual(err.llm, { model: "gpt-5.6-terra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 }, webSearchCalls: 2 });
+});
+
 test("a web search that rejects effort does not switch effort off for that model's structured calls", async () => {
   // Keyed apart on purpose: a web_search-specific refusal must not put the
   // same model's /api/check onto the expensive no-effort path.

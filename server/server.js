@@ -624,14 +624,19 @@ function stampCallerRate(ent, id, kind) {
  *           + the prompt: ~22k tokens
  *   flow    a document clamped to 12,000 chars + the prompt: ~4k tokens
  *   sources claim + correction + context (<= 10,000 chars) plus the pages
- *           web_search reads back, which nothing here bounds: 20k allowed
+ *           web_search reads back, which NOTHING we send bounds — so this is
+ *           an allowance, not a bound: 40k tokens and 3 search calls, ~1.7x
+ *           the most seen live (2026-09-21 smoke run: /api/sources 13.3k
+ *           and one search; the desktop's forced /api/find-sources 23.7k
+ *           and two web_search_call items). A search past it is still
+ *           recorded at its real cost, calls counted (searchFee).
  * Every input token is priced as a cache WRITE, the dearest way input is
  * billed: a first-seen prompt on the tier models costs 1.25x input
  * (shared/prices.js cacheWrite), and a cold call is the worst case.
  * Held against the beta and paid pools while the call is in flight, so a
  * burst cannot be admitted against money the calls ahead of it are about to
- * spend. On gpt-6-astra that is ~$1.10 / $0.45 / $0.56; on gpt-5.6-luna
- * ~2.5 / 1.1 / 2.2 cents.
+ * spend. On gpt-6-astra that is ~$1.10 / $0.45 / $0.83; on gpt-5.6-luna
+ * ~2.5 / 1.1 / 4.7 cents.
  *
  * It is the worst case of ONE call. A check that truncates splits
  * (factcheck.js checkBatch) into two more calls, recursively, each up to this
@@ -643,13 +648,22 @@ function stampCallerRate(ent, id, kind) {
 const WORST_CALL = {
   "/api/check": { input: 24_000, output: 16_000, webSearchCalls: 0 },
   "/api/flow": { input: 4_000, output: 8_000, webSearchCalls: 0 },
-  "/api/sources": { input: 20_000, output: 6_000, webSearchCalls: 1 },
+  "/api/sources": { input: 40_000, output: 6_000, webSearchCalls: 3 },
 };
 function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
   if (!w) return 0;
   return costMicroCents(model, { input: w.input, cacheWrite: w.input, output: w.output }, { webSearchCalls: w.webSearchCalls });
 }
+/* The web_search fee to record for a source search: every web_search_call
+ * the answer carried (lib/providers/openai.js webSearchCallsOf), and never
+ * fewer than the one search the route exists to make — the count the fee was
+ * always recorded at, and what a mock or an answer that reports none is
+ * charged. Over-counting is the safe direction for a spend cap. */
+function searchFee(calls) {
+  return Math.max(1, Number.isInteger(calls) ? calls : 0);
+}
+
 /* A split's two halves, admitted like a call: true when the gate holds no
  * reservation (the extension pool and a local server, which reserve nothing
  * for a first call either), otherwise only if the pool has room for both. */
@@ -810,6 +824,8 @@ const SOURCE_QUOTA = {
   ),
 };
 
+/* `webSearchCalls` is a count, or a function of the result for a route whose
+ * answer says how many searches it made (find-sources, searchFee). */
 async function appCall(gate, { task, requested, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, run }) {
   const model = appModelFor(task, gate.ent, requested);
   const key = cache ? cache.key(model) : null;
@@ -821,7 +837,8 @@ async function appCall(gate, { task, requested, cache = null, webSearchCalls = 0
   if (!quota.allowed) throw meter.refused(quota);
   meter.record(gate.ent, gate.callerId);
   const result = await run(model);
-  recordSpend({ model: result?.model ?? model, usage: result?.usage, webSearchCalls, enforced: gate.ent.enforced, pool: "app" });
+  const searches = typeof webSearchCalls === "function" ? webSearchCalls(result) : webSearchCalls;
+  recordSpend({ model: result?.model ?? model, usage: result?.usage, webSearchCalls: searches, enforced: gate.ent.enforced, pool: "app" });
   if (cache && !MOCK) cacheSet(cache.kind, key, result, { version: cache.version ?? 1 });
   return result;
 }
@@ -1063,11 +1080,12 @@ const server = http.createServer(async (req, res) => {
       const modelUsed = extensionModel(gate, "/api/sources", appModelFor("sources", ent, model));
       const level = effort == null ? undefined : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
-      const result = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
-      // webSearchCalls: 1 — the tool fee is most of this route's cost and is
-      // invisible in the token usage, so pricing it off tokens alone would
-      // under-count the expensive route ~5x on the fast tier.
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: 1, enforced: ent.enforced, pool: gate.pool });
+      const { webSearchCalls, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
+      // The tool fee is most of this route's cost and is invisible in the
+      // token usage, so pricing it off tokens alone would under-count the
+      // expensive route ~5x on the fast tier — and a reasoning model can
+      // search more than once per answer, so the calls are counted.
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -1349,8 +1367,8 @@ const server = http.createServer(async (req, res) => {
         requested: body.model,
         quota: SOURCE_QUOTA,
         // The web_search tool fee is most of this route's cost and is invisible
-        // in the token usage.
-        webSearchCalls: 1,
+        // in the token usage; a forced search often makes more than one call.
+        webSearchCalls: (r) => searchFee(r?.webSearchCalls),
         cache: {
           kind: "find-sources", maxAgeMs: 7 * 24 * 3600_000,
           key: (model) => hashKey(["src", model, body.claim, body.context ?? ""].join("|")),
@@ -1505,7 +1523,7 @@ const server = http.createServer(async (req, res) => {
     if (MODEL_ROUTES.has(route) && isModelFailure(err)) console.error(modelFailureLine(route, err, trace));
     if (gate?.pool && EXTENSION_MODEL_ROUTES.has(route) && err?.llm?.usage) {
       try {
-        recordSpend({ model: err.llm.model, usage: err.llm.usage, webSearchCalls: SOURCE_ROUTES.has(route) ? 1 : 0, enforced: gate.ent.enforced, pool: gate.pool });
+        recordSpend({ model: err.llm.model, usage: err.llm.usage, webSearchCalls: SOURCE_ROUTES.has(route) ? searchFee(err.llm.webSearchCalls) : 0, enforced: gate.ent.enforced, pool: gate.pool });
       } catch (e) {
         console.error("[tracely] could not record a failed call's spend:", e?.message);
       }
