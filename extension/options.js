@@ -141,15 +141,17 @@ function renderAccount() {
 
   /* The team's test build (beta.json + Load unpacked): the server serves it as
      Pro whether or not anyone signs in, and says so with `beta`. A tester is
-     shown the plan they are on and is never offered one to buy — so the badge
-     appears signed out too, and every pay link is hidden. Without `beta` none
-     of this changes anything. */
+     shown the plan they are on and is never offered one to BUY — so the badge
+     appears signed out too, and "See plans" is hidden. A signed-in tester
+     keeps "Manage subscription": the server reports Pro for every beta
+     caller, so this page cannot tell a free tester from one who really pays,
+     and a paying one must still be able to reach the portal and cancel.
+     Without `beta` none of this changes anything. */
   const beta = account.beta === true;
   $("betaPlanOut").hidden = !(beta && !signedIn);
   $("betaPlanLabel").textContent = PLAN_LABEL[account.plan] ?? PLAN_LABEL.pro;
   $("seePlans").hidden = beta;
   $("acctBeta").hidden = !beta;
-  $("manageLink").hidden = beta;
 
   if (!account.configured) {
     $("acctHint").textContent = "This build has no Tracely accounts configured, so everything runs unmetered against whichever server answered.";
@@ -187,7 +189,7 @@ function renderAccount() {
       manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;
     }
     $("acctHint").textContent = beta
-      ? "This is a Tracely test build, so you're on Pro while the beta lasts — there is nothing to buy."
+      ? "This is a Tracely test build, so you're on Pro while the beta lasts. If you also pay for a plan, Manage subscription still reaches it."
       : account.plan === "free"
         ? "You're signed in on the free plan. Upgrading unlocks the smarter models everywhere Tracely runs."
         : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";

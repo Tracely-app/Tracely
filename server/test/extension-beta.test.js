@@ -14,7 +14,8 @@
  *   - content.js's storage wrappers call chrome.storage, not themselves, and
  *     still latch on a genuinely dead context.
  *   - The options-page slider is the widgets' default stop, capped by plan.
- *   - The options page shows a beta tester their plan and no way to pay.
+ *   - The options page shows a beta tester their plan and nothing to buy,
+ *     but keeps the way to manage a real subscription.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -546,12 +547,17 @@ test("options: a signed-out beta tester sees Pro (beta) and no way to pay", asyn
   assert.match($("acctHint").textContent, /test build/);
 });
 
-test("options: a signed-in beta tester sees Pro with a beta tag, and no Upgrade or Manage link", async () => {
+test("options: a signed-in beta tester sees Pro with a beta tag, no Upgrade — and can still manage a real subscription", async () => {
+  // The server says Pro for every beta caller, so the page cannot tell a free
+  // tester from one who pays; a payer must keep the way to the portal.
   const $ = await renderOptions({ ...BASE, signedIn: true, email: "t@example.com", plan: "pro", beta: true });
   assert.equal($("acctPlan").textContent, "Pro");
   assert.equal($("acctBeta").hidden, false);
-  assert.equal($("manageLink").hidden, true);
+  assert.equal($("manageLink").hidden, false);
+  assert.notEqual($("manageLink").textContent, "Upgrade", "never offered a plan to buy");
+  assert.ok(["Manage subscription", "Email us to cancel"].includes($("manageLink").textContent));
   assert.equal($("betaPlanOut").hidden, true);
+  assert.match($("acctHint").textContent, /Manage subscription/);
 });
 
 test("options: nothing changes for a user who is not on the test build", async () => {
