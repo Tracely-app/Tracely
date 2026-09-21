@@ -115,12 +115,15 @@ PLUS the worst case of every call still in flight leaves room: the worst
 case is the route's output ceiling plus its largest input at the plan's top
 model (~$1.10 for a thorough check, every input token priced as a cache
 write, `WORST_CALL` in server.js), shrunk to the
-model actually chosen once the body is read. So a burst — including one with
-a rotating install id per request — overshoots by at most one call, and the
-number of thorough calls those pools run AT ONCE is about the remaining
-budget ÷ $1.10. Raise the ceiling for a bigger team, not the reservation.
-A call that fails after OpenAI billed it (truncated, refused, unparseable)
-is recorded into its pool too.
+model actually chosen once the body is read. A check that truncates splits
+into two more calls, recursively; each split is admitted the same way (two
+more worst cases held, or no split and a `truncated` error). So a burst —
+including one with a rotating install id per request — overshoots by at most
+the last admission (one call, or a split's two), and the number of thorough
+calls those pools run AT ONCE is about the remaining budget ÷ $1.10. Raise
+the ceiling for a bigger team, not the reservation. A call that fails after
+OpenAI billed it (truncated, refused, unparseable) is recorded into its pool
+too, including every call of a split that failed part-way.
 
 `TRACELY_TRUSTED_PROXY_HOPS=1` because Apache is the one proxy in front. Wrong
 here and rate limiting keys on the wrong address.

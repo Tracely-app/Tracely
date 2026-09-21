@@ -88,7 +88,8 @@ this section before touching anything that makes a model call.
   callers the shared `extension` pool, Student/Pro the `paid` pool, test-build
   callers (`X-Tracely-Beta`) the `beta` pool. The paid and beta pools serve
   the thorough model, so they reserve each admitted call's worst case
-  (`WORST_CALL`, `lib/spend.js` `reserveSpend`) and fall back — to the fast
+  (`WORST_CALL`, `lib/spend.js` `reserveSpend`; a check's truncation split
+  is admitted the same way, `reservation.extend`) and fall back — to the fast
   model, or to the caller's own plan — instead of ever 503ing. A pool that
   can reach expensive models must never share a day with free users.
 

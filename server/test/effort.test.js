@@ -174,6 +174,34 @@ test("a nested split that fails carries every level's billed calls", async () =>
   assert.deepEqual(err.llm.usage, { input: 4000, output: 64000, cached: 0, cacheWrite: 0 });
 });
 
+test("a split is asked for before it is made: refused, the check fails as truncated with the call it made", async () => {
+  // The route's admitSplit holds the halves' worst case against a spend pool;
+  // one reservation covers ONE call, and a split makes two more.
+  let calls = scriptedFetch(["trunc"]);
+  let asked = 0;
+  const err = await runFactCheck({ text: "a b", sentences: TWO, model: "gpt-6-astra", admitSplit: () => { asked++; return false; } }).catch((e) => e);
+  assert.equal(asked, 1);
+  assert.equal(calls(), 1, "no halves without admission");
+  assert.equal(err.kind, "truncated");
+  assert.deepEqual(err.llm.usage, { input: 1000, output: 16000, cached: 0, cacheWrite: 0 }, "the truncated call is still recorded");
+
+  // Admitted at every level: a nested split asks once per split.
+  calls = scriptedFetch(["trunc", "trunc", "ok", "ok", "ok"]);
+  asked = 0;
+  const four = [...TWO, { id: "s3", text: "Third." }, { id: "s4", text: "Fourth." }];
+  const r = await runFactCheck({ text: "a b", sentences: four, model: "gpt-6-astra", admitSplit: () => { asked++; return true; } });
+  assert.equal(asked, 2);
+  assert.equal(calls(), 5);
+  assert.equal(r.usage.output, 80000);
+
+  // A hook that throws refuses rather than losing the truncated call's usage.
+  calls = scriptedFetch(["trunc"]);
+  const thrown = await runFactCheck({ text: "a b", sentences: TWO, admitSplit: () => { throw new Error("db"); } }).catch((e) => e);
+  assert.equal(calls(), 1);
+  assert.equal(thrown.kind, "truncated");
+  assert.equal(thrown.llm.usage.output, 16000);
+});
+
 test("the flow check sends an effort too", async () => {
   const sent = stubFetch();
   await runFlowCheck({ text: "One paragraph.\n\nAnother paragraph entirely." });

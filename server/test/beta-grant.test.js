@@ -14,6 +14,8 @@
  *      pool — where the pools' edges are
  *   G  hosted (enforced), the stubbed path again, but every call is slow and
  *      costs real money at thorough-model prices — a concurrent burst
+ *   H  hosted (enforced), the stubbed path with a $1 beta pool — too small
+ *      for a thorough check's split to be admitted
  *
  * "Enforced" needs a Supabase project, so a mock one runs here and answers
  * /auth/v1/user for three canned tokens (free, student, pro). No real network
@@ -153,8 +155,10 @@ const supabase = http.createServer((req, res) => {
 
 /* D's OpenAI: a preload that swaps globalThis.fetch for api.openai.com only.
  * It records model + effort per call and answers from the request's own
- * schema; a TRIGGER word in the input picks a failure. Written to a temp dir
- * at runtime, because anything under test/ would be run as a test file. */
+ * schema; a TRIGGER word in the input picks a failure (TRIGGER-SPLIT truncates
+ * only a batch of more than one sentence, so a split's halves answer).
+ * Written to a temp dir at runtime, because anything under test/ would be run
+ * as a test file. */
 const OPENAI_LOG = path.join(TMP, "openai.jsonl");
 const STUB = path.join(TMP, "openai-stub.mjs");
 writeFileSync(OPENAI_LOG, "");
@@ -178,8 +182,11 @@ globalThis.fetch = async (url, init = {}) => {
   const body = JSON.parse(init.body);
   appendFileSync(process.env.TRACELY_TEST_OPENAI_LOG, JSON.stringify({ model: body.model, effort: body.reasoning?.effort ?? null, webSearch: Array.isArray(body.tools) }) + "\\n");
   const input = JSON.stringify(body.input);
+  const batch = (String(body.input).match(/^\\[[^\\]]+\\] /gm) || []).length;
+  const truncated = { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 1000, output_tokens: 16000 } };
   let reply;
-  if (input.includes("TRIGGER-TRUNCATE")) reply = { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 1000, output_tokens: 16000 } };
+  if (input.includes("TRIGGER-TRUNCATE")) reply = truncated;
+  else if (input.includes("TRIGGER-SPLIT") && batch > 1) reply = truncated;
   else if (input.includes("TRIGGER-REFUSE")) reply = { output: [{ content: [{ type: "refusal", refusal: "no" }] }] };
   else if (input.includes("TRIGGER-GARBAGE")) reply = { output_text: "this is not json {" };
   else if (body.tools) reply = { output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }) };
@@ -237,13 +244,15 @@ async function boot(env, { preload } = {}) {
   throw new Error("could not find a free port for a test server");
 }
 
-let A, B, C, D, E, G;
+let A, B, C, D, E, G, H;
 const G_LOG = path.join(TMP, "openai-g.jsonl");
 writeFileSync(G_LOG, "");
+const H_LOG = path.join(TMP, "openai-h.jsonl");
+writeFileSync(H_LOG, "");
 test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
-  [A, B, C, D, E, G] = await Promise.all([
+  [A, B, C, D, E, G, H] = await Promise.all([
     boot({ ...hosted, TRACELY_MOCK: "1" }),
     boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: " old-token , right-token ", TRACELY_BETA_DAILY_BUDGET_USD: "0.01" }),
     boot({ TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token" }),
@@ -253,13 +262,14 @@ test.before(async () => {
       ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1",
       TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "20000,6000",
     }, { preload: STUB }),
+    boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
   ]).catch((err) => {
     for (const child of booted) child.kill(); // or the run never exits
     throw err;
   });
 });
 test.after(() => {
-  for (const s of [A, B, C, D, E, G]) s?.child.kill();
+  for (const s of [A, B, C, D, E, G, H]) s?.child.kill();
   supabase.close();
 });
 
@@ -642,6 +652,41 @@ test("a split check that fails in a half still records the truncated call and th
   const after = await status(D);
   // 2 x (1,000 in + 16,000 out) on gpt-6-astra = $1.62, plus the tiny half.
   assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 1.62);
+});
+
+// A split: the whole batch truncates, each half answers.
+const SPLIT = { text: "TRIGGER-SPLIT essay.", sentences: [{ id: "s1", text: "One." }, { id: "s2", text: "Two." }] };
+
+test("a truncated thorough check splits when the pool has room for the halves", async () => {
+  const before = await status(D);
+  const { r, calls } = await sent(() => call(D, "POST", "/api/check", { body: { ...SPLIT, model: "gpt-6-astra" }, headers: BETA, install: "d-split-ok" }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(calls.length, 3, "the truncated call and two halves");
+  const after = await status(D);
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 0.81, "the truncated call is paid for too");
+});
+
+// ── H: a beta pool too small for a split ─────────────────────────────────
+
+test("a split is admitted against the pool like a call: no room, no halves, the check fails as truncated", async () => {
+  // A $1 pool admits one thorough check (its worst case, ~$1.10, is held).
+  // The halves would be two more worst cases; the reservation covered one
+  // call, and a split used to run on money nobody had held.
+  const hLog = () => readFileSync(H_LOG, "utf8").split("\n").filter(Boolean);
+  let n = hLog().length;
+  const r = await call(H, "POST", "/api/check", { body: { ...SPLIT, model: "gpt-6-astra" }, headers: BETA, install: "h-split-beta" });
+  assert.equal(r.status, 502);
+  assert.equal(r.body.error.kind, "truncated", "the wire error a truncated single sentence gives");
+  assert.equal(hLog().length - n, 1, "no halves were sent");
+  const st = await status(H);
+  assert.equal(st.betaBudget.spentUsd, 0.81, "the truncated call is recorded");
+
+  // The extension pool reserves nothing, so a fast check still splits there.
+  n = hLog().length;
+  const free = await call(H, "POST", "/api/check", { body: SPLIT, install: "h-split-free" });
+  assert.equal(free.status, 200, JSON.stringify(free.body));
+  assert.equal(free.body.modelUsed, "gpt-5.6-luna");
+  assert.equal(hLog().length - n, 3);
 });
 
 // ── E: the pools' edges ──────────────────────────────────────────────────

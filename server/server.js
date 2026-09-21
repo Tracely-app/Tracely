@@ -631,9 +631,15 @@ function stampCallerRate(ent, id, kind) {
  * Held against the beta and paid pools while the call is in flight, so a
  * burst cannot be admitted against money the calls ahead of it are about to
  * spend. On gpt-6-astra that is ~$1.10 / $0.45 / $0.56; on gpt-5.6-luna
- * ~2.5 / 1.1 / 2.2 cents. A check that truncates and splits (checkBatch) can
- * make more than one call; each is recorded, including the one that
- * truncated. */
+ * ~2.5 / 1.1 / 2.2 cents.
+ *
+ * It is the worst case of ONE call. A check that truncates splits
+ * (factcheck.js checkBatch) into two more calls, recursively, each up to this
+ * same worst case — three or more calls where one was reserved. So before
+ * each split the route holds two more worst cases against the pool
+ * (admitSplitCalls), under the test admission used; with no room, it does
+ * not split and the check fails as truncated. Every call made is recorded,
+ * including the ones that truncated. */
 const WORST_CALL = {
   "/api/check": { input: 24_000, output: 16_000, webSearchCalls: 0 },
   "/api/flow": { input: 4_000, output: 8_000, webSearchCalls: 0 },
@@ -643,6 +649,12 @@ function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
   if (!w) return 0;
   return costMicroCents(model, { input: w.input, cacheWrite: w.input, output: w.output }, { webSearchCalls: w.webSearchCalls });
+}
+/* A split's two halves, admitted like a call: true when the gate holds no
+ * reservation (the extension pool and a local server, which reserve nothing
+ * for a first call either), otherwise only if the pool has room for both. */
+function admitSplitCalls(gate, route, model) {
+  return gate.reservation ? gate.reservation.extend(2 * worstCallMicroCents(route, model)) : true;
 }
 
 /* `extension` is true only for EXTENSION_API routes, and only those choose
@@ -991,7 +1003,10 @@ const server = http.createServer(async (req, res) => {
       const modelUsed = extensionModel(gate, "/api/check", appModelFor("check", ent, model));
       const level = checkEffort(modelUsed, normalizeEffort(effort));
       Object.assign(trace, { model: modelUsed, effort: level });
-      const result = await runFactCheck({ text, sentences, model: modelUsed, effort: level, mock: MOCK });
+      const result = await runFactCheck({
+        text, sentences, model: modelUsed, effort: level, mock: MOCK,
+        admitSplit: () => admitSplitCalls(gate, "/api/check", modelUsed),
+      });
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;

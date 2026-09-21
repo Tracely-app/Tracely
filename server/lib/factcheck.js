@@ -68,7 +68,12 @@ function userPrompt(text, sentences) {
   return `DOCUMENT:\n"""\n${text}\n"""\n\nSENTENCES TO EVALUATE:\n${list}\n\nReturn one finding per id.`;
 }
 
-export async function runFactCheck({ text, sentences, model, effort, mock = false }) {
+/* `admitSplit`, when given, is asked before a truncated batch is split into
+ * two more calls, and the split happens only if it answers true — the route
+ * uses it to hold those calls' worst case against a spend pool (server.js
+ * /api/check). Refused, the truncation stands: the check fails as it would
+ * for a single sentence, and what the truncated call cost is still recorded. */
+export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null }) {
   const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
   // COST: never resend a whole long document as context — the sentences carry
@@ -77,10 +82,10 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   // `effort` used to be destructured here and then dropped, so the slider
   // moved the model and nothing else. undefined falls to lib/llm.js's
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
-  return checkBatch({ text: context, sentences, model: chosenModel, effort });
+  return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit });
 }
 
-async function checkBatch({ text, sentences, model, effort }) {
+async function checkBatch({ text, sentences, model, effort, admitSplit }) {
   let result;
   try {
     result = await structuredCall({
@@ -97,12 +102,12 @@ async function checkBatch({ text, sentences, model, effort }) {
   } catch (err) {
     // Output budget exhausted — split the batch so each retry makes progress.
     // A single sentence that still truncates has nothing left to split.
-    if (err?.kind === "truncated" && sentences.length > 1) {
+    if (err?.kind === "truncated" && sentences.length > 1 && splitAdmitted(admitSplit)) {
       const mid = Math.ceil(sentences.length / 2);
       let first = null;
       try {
-        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort });
-        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort });
+        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit });
+        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit });
         // The truncated attempt was billed too — every output token it was
         // allowed — so its usage (lib/llm.js tags it on the error) is part of
         // what this check cost and of what the route records.
@@ -225,6 +230,12 @@ function hostOf(url) {
   } catch {
     return "";
   }
+}
+
+// A hook that throws refuses: the truncation (and its billed usage) stands.
+function splitAdmitted(admitSplit) {
+  if (!admitSplit) return true;
+  try { return admitSplit() === true; } catch { return false; }
 }
 
 /* Adds `billed` to what a failure says it cost (err.llm.usage — the tag

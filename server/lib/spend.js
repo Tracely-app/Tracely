@@ -120,9 +120,13 @@ export function spendState({ enforced = true, at = Date.now(), env = process.env
  *
  * So an admission to a reserving pool holds a WORST-CASE cost for the call it
  * admits, and a pool admits only while its spend plus everything still held
- * leaves room. The overshoot is then at most the one call admitted last,
- * however many arrive at once. In memory on purpose: a reservation lives for
- * one request, and a restart ends every request it could be holding. */
+ * leaves room. A request that makes MORE calls — a fact check that truncates
+ * and splits into two halves — admits them the same way before making them
+ * (`extend`), and stops splitting when there is no room. The overshoot is
+ * then at most the last admission — one call's worst case, or a split's two
+ * — however many requests arrive at once. In memory on purpose: a
+ * reservation lives for one request, and a restart ends every request it
+ * could be holding. */
 const held = new Map(); // pool -> micro-cents reserved by calls in flight
 
 /** Micro-cents currently reserved by in-flight calls on `pool`. */
@@ -131,10 +135,12 @@ export function reservedMicroCents(pool = "extension") {
 }
 
 /**
- * Reserve `microCents` against `pool` for one call. The handle only ever
- * SHRINKS (`resize`, once the route knows the model it will actually run —
- * never above what admission allowed) and `release` is idempotent, so the
- * request handler can release in a `finally` whatever happened.
+ * Reserve `microCents` against `pool` for one call. `resize` only ever
+ * SHRINKS it (once the route knows the model it will actually run — never
+ * above what admission allowed); `extend` grows it for further calls the same
+ * request is about to make, and only under the test admission used (poolRoom),
+ * returning whether it was taken. `release` is idempotent, so the request
+ * handler can release in a `finally` whatever happened.
  */
 export function reserveSpend(pool, microCents) {
   poolOf(pool);
@@ -148,6 +154,13 @@ export function reserveSpend(pool, microCents) {
       const n = Math.max(0, Math.min(amount, Math.round(Number(next) || 0)));
       held.set(pool, Math.max(0, reservedMicroCents(pool) - amount + n));
       amount = n;
+    },
+    extend(more, { at = Date.now(), env = process.env } = {}) {
+      if (!open || !poolRoom({ pool, at, env }).room) return false;
+      const n = Math.max(0, Math.round(Number(more) || 0));
+      held.set(pool, reservedMicroCents(pool) + n);
+      amount += n;
+      return true;
     },
     release() {
       if (!open) return;

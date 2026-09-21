@@ -452,6 +452,31 @@ test("a reservation only ever shrinks, and an unmetered pool always has room", (
   assert.throws(() => reserveSpend("nope", 1), /unknown spend pool/);
 });
 
+test("extend grows a hold for a request's further calls, only while the pool has room", () => {
+  // A check that truncates splits into two more calls; they are admitted
+  // exactly as the first call was, or not made.
+  const at = nextAt();
+  const env = { TRACELY_BETA_DAILY_BUDGET_USD: "1" };
+  const r = reserveSpend("beta", 0.3e8); // $0.30
+  assert.equal(r.extend(0.6e8, { at, env }), true, "$0.70 unreserved: room");
+  assert.equal(r.amount, 0.9e8);
+  assert.equal(reservedMicroCents("beta"), 0.9e8);
+  assert.equal(r.extend(0.6e8, { at, env }), true, "$0.10 left is still room: the last admission may go over");
+  assert.equal(reservedMicroCents("beta"), 1.5e8);
+  assert.equal(r.extend(1, { at, env }), false, "no room: nothing held");
+  assert.equal(r.amount, 1.5e8);
+  r.resize(1e8); // resize still only shrinks
+  assert.equal(r.amount, 1e8);
+  r.release();
+  assert.equal(reservedMicroCents("beta"), 0, "release gives back everything, extensions included");
+  assert.equal(r.extend(1, { at, env }), false, "a released hold cannot grow");
+  assert.equal(reservedMicroCents("beta"), 0);
+
+  const unmetered = reserveSpend("paid", 1e12);
+  assert.equal(unmetered.extend(5, { at, env: { TRACELY_PAID_DAILY_BUDGET_USD: "0" } }), true, "no ceiling: always room");
+  unmetered.release();
+});
+
 // ── rate limiting ────────────────────────────────────────────────────────
 
 test("the rate limiter admits up to the limit, then refuses", () => {
