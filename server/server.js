@@ -458,17 +458,28 @@ function servedModel(requested) {
   return ALLOWED_MODELS.has(id) ? id : MODEL_TIERS.fast;
 }
 
-/* /api/check on the fast tier runs at effort "medium" or above, whatever the
- * client sent. Measured (eval/models/FINDINGS.md): gpt-5.6-luna checks at
- * 100% at medium vs 90% at low (0 vs 5 harmful verdicts), and builds up to
- * 2.19.2 send "low" from their Fast stop. /api/check only — the desktop
- * critique measured no better at medium and no other route was measured, so
- * everything else keeps the client's effort or the default. A higher level
- * the client asked for ("high") is kept. */
-const EFFORT_ORDER = ["minimal", "low", "medium", "high"];
+/* /api/check runs each tier at the ONE effort the eval measured it at,
+ * whatever the client sent (eval/models/FINDINGS.md):
+ *   fast      gpt-5.6-luna   medium — 100% vs 90% at low (0 vs 5 harmful
+ *                                     verdicts); builds <= 2.19.2 send "low"
+ *                                     from their Fast stop
+ *   balanced  gpt-5.6-terra  low
+ *   thorough  gpt-6-astra    low    — builds <= 2.19.2 send "medium" from
+ *                                     their Thorough stop, a config nobody
+ *                                     measured; before 2026-09-21 hosted
+ *                                     /api/check ignored the client's model,
+ *                                     so that pair never reached astra
+ * Nothing else was measured on this route, and "high" on astra is also the
+ * dearest check there is, so no client level passes through. /api/check only:
+ * the desktop critique measured no better at medium and no other route was
+ * measured, so everything else keeps the client's effort or the default. */
+const CHECK_EFFORT = {
+  [MODEL_TIERS.fast]: "medium",
+  [MODEL_TIERS.balanced]: "low",
+  [MODEL_TIERS.thorough]: "low",
+};
 function checkEffort(model, level) {
-  if (model !== MODEL_TIERS.fast) return level;
-  return EFFORT_ORDER.indexOf(level) < EFFORT_ORDER.indexOf("medium") ? "medium" : level;
+  return Object.hasOwn(CHECK_EFFORT, model) ? CHECK_EFFORT[model] : level;
 }
 
 /**

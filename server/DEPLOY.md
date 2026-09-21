@@ -208,9 +208,12 @@ Before a deploy that changes a tier, know three things:
   translates them to their tier's current model (`shared/plan.js`
   `currentModelId`), so a deploy needs no extension release. Nothing runs,
   prices or logs a retired id.
-- **`/api/check` runs the fast tier at effort medium or above**, whatever the
-  client sends (`checkEffort` in server.js) — the measured best config. Every
-  other route keeps the client's effort or the default (`low`).
+- **`/api/check` runs each tier at the one effort the eval measured it at** —
+  fast `medium`, balanced `low`, thorough `low` — whatever the client sends
+  (`checkEffort` in server.js). Extension <= 2.19.2 sends `low` from Fast
+  and `medium` from Thorough; astra at medium was never measured, and before
+  2026-09-21 it never ran (hosted `/api/check` ignored the client's model).
+  Every other route keeps the client's effort or the default (`low`).
 - **Every tier id must be in `shared/prices.js` before it serves traffic**,
   with its `cacheWrite` rate. An unpriced id is billed as the thorough model
   (40-50x luna per token), which would trip the spend cap early; a missing

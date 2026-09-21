@@ -196,9 +196,10 @@ export function mapApiError(status, json) {
  *   cost, 1-sentence      0.038-0.067 cents     0.039-0.068 cents
  *
  * So the default stays "low" — the critique and every unmeasured route — and
- * /api/check alone raises the fast tier to "medium" (server.js checkEffort).
- * terra and astra were measured only at "low". "high" and "minimal" were not
- * measured on any current tier. Re-run the eval before moving either. */
+ * /api/check alone runs the fast tier at "medium" (server.js checkEffort,
+ * which pins every tier to its measured effort on that route). terra and
+ * astra were measured only at "low". "high" and "minimal" were not measured
+ * on any current tier. Re-run the eval before moving either. */
 const DEFAULT_EFFORT = "low";
 
 /* Effort is WHITELISTED here, at the one place every call passes through.

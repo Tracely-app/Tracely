@@ -44,8 +44,8 @@ what POST /api/check does, with its validation limits re-applied (text <=
 30,000 characters, 1-40 sentences, each <= 2,000). One essay is one call with
 all its sentences, keyed by the extension's `hashText()` — the first check of
 a freshly opened document. Note the harness calls `runFactCheck` directly, so
-the route's fast-tier effort floor does not apply: `gpt-5.6-luna@low` really
-runs at low.
+the route's per-tier effort pin (`checkEffort`) does not apply:
+`gpt-5.6-luna@low` really runs at low.
 
 **critique** calls `critique({ claimText, strengthScore, evidenceSummary,
 referenceCheck?, model, effort })`, the desktop branch of POST /api/critique.

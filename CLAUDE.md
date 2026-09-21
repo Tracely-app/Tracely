@@ -47,8 +47,10 @@ this section before touching anything that makes a model call.
   2026-09-21 (`gpt-5-nano`, `gpt-5.4`) are still SENT by extension <= 2.19.2
   and older desktops: `shared/plan.js` `LEGACY_MODEL_TIER` / `currentModelId`
   translate them to their tier's current model — keep that map until no such
-  build is in use. `/api/check` runs the fast tier at effort medium or above
-  (`checkEffort` in server.js), the one route the eval measured it on.
+  build is in use. `/api/check` runs each tier at its measured effort (fast
+  `medium`, balanced and thorough `low`) whatever the client sends
+  (`checkEffort` in server.js) — the one route the eval measured, and the
+  store build's Thorough stop sends an unmeasured `medium`.
 - **Hand-copied logic is mirror-tested.** `server/shared/*` holds leaf ports of
   desktop modules (the splitters, `gradedDraft`, `normalizeCritique`,
   `narrowing`, the owner's `RUBRIC_TEXT`); `server/test/mirror.test.js` runs

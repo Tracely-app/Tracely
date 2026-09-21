@@ -168,8 +168,8 @@ export const FREE_DAILY_SOURCE_SEARCHES = 5;
  *
  * Sized on 2026-09-13 against gpt-5-nano, whose check plateaued at 0.084
  * cents, so 400 checks cost at most ~34 cents. Re-measured on the current
- * fast tier (gpt-5.6-luna at effort medium, which /api/check floors the fast
- * tier to) in the model eval, eval/models/FINDINGS.md, 2026-09-21 — each
+ * fast tier (gpt-5.6-luna at effort medium, which /api/check runs the fast
+ * tier at) in the model eval, eval/models/FINDINGS.md, 2026-09-21 — each
  * range runs from measured (cache-warm) to cold:
  *   - a typing-pause check (1-3 sentences): 0.039-0.104 cents
  *   - a first check or paste (40 sentences): 0.34-0.39 cents
