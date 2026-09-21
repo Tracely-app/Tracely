@@ -12,8 +12,10 @@ export declare const ENV_FILE: string
 export interface EnvInfo {
   name: 'production' | 'staging'
   file: string
-  /** Host of RELAY_URL, e.g. tracely-relay.vercel.app. Empty when unset. */
-  relayHost: string
+  /** Host of the Tracely server this build talks to, e.g. api.jointracely.com. */
+  apiHost: string
+  /** True when TRACELY_API_URL set it; false when it is DEFAULT_API_URL. */
+  apiFromEnv: boolean
   /** Supabase project ref — the first label of the project host. */
   supabaseRef: string
 }
@@ -22,10 +24,15 @@ export declare function loadEnv(options?: { root?: string; quiet?: boolean }): E
 
 export declare function describeEnv(info: EnvInfo): string
 
-/** The four compile-time constants, already JSON.stringify'd for esbuild. */
-export declare function relayDefines(): {
-  __RELAY_URL__: string
-  __RELAY_TOKEN__: string
+/** Where a build points when TRACELY_API_URL is unset or blank. */
+export declare const DEFAULT_API_URL: string
+
+/** TRACELY_API_URL (trailing slashes dropped), or DEFAULT_API_URL. */
+export declare function apiUrl(): string
+
+/** The three compile-time constants, already JSON.stringify'd for esbuild. */
+export declare function appDefines(): {
+  __API_URL__: string
   __SUPABASE_URL__: string
   __SUPABASE_ANON_KEY__: string
 }

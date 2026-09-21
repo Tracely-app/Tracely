@@ -1,7 +1,9 @@
 import { createHash } from 'crypto'
 import type { EvidenceItem } from '@shared/types'
+import type { ServerModel } from '@shared/plan'
 import { getCached, setCached } from '../storage/cacheRepo'
-import { callRelay } from './client'
+import { callServer } from './client'
+import { modelForCall } from './modelTier'
 
 export interface CorrectionResult {
   contradicted: boolean
@@ -9,7 +11,7 @@ export interface CorrectionResult {
   reason: string
 }
 
-// The client's own ceiling on what it will send, independent of the relay's.
+// The client's own ceiling on what it will send, independent of the server's.
 // Four is more than enough to establish a contradiction, and every extra
 // passage is tokens on the reasoning model.
 const MAX_CONTRADICTING_PASSAGES = 4
@@ -25,8 +27,16 @@ function passageFor(item: EvidenceItem): string {
   return `${title}${abstract ? `. ${abstract}` : ''}`.slice(0, MAX_PASSAGE_CHARS)
 }
 
-function cacheKey(claimText: string, passages: string[]): string {
-  return createHash('sha256').update(`ai:correction::v1::${claimText}::${passages.join('||')}`).digest('hex')
+function cacheKey(claimText: string, passages: string[], model: ServerModel): string {
+  // v2: correction moved from the relay to the Tracely server, and the model
+  // is now in the key. The relay picked one model for every account; the
+  // server runs the one the plan resolves to, so a rejection the fast model
+  // cached on Free must not keep answering "no" for a week after the account
+  // upgrades to a model that might confirm it. The bump retires every v1
+  // entry, all written by the relay.
+  return createHash('sha256')
+    .update(`ai:correction::v2::${model}::${claimText}::${passages.join('||')}`)
+    .digest('hex')
 }
 
 /**
@@ -34,7 +44,7 @@ function cacheKey(claimText: string, passages: string[]): string {
  * when there is nothing to say.
  *
  * Returns null — meaning "say nothing" — in every ambiguous case: no flagged
- * evidence, the relay unreachable, the model declining to confirm. That
+ * evidence, the server unreachable, the model declining to confirm. That
  * asymmetry is the whole design. A student who is told nothing is where they
  * started; a student told their true sentence is false has been actively
  * misled by a tool they trusted to check facts.
@@ -50,16 +60,21 @@ export async function generateCorrection(
   if (contradicting.length === 0) return null
 
   const passages = contradicting.slice(0, MAX_CONTRADICTING_PASSAGES).map(passageFor)
-  const key = cacheKey(claimText, passages)
+  const model = await modelForCall()
+  const key = cacheKey(claimText, passages, model)
 
   const cached = getCached<CorrectionResult>(key)
   if (cached) return cached.contradicted ? cached : null
 
   try {
-    const result = await callRelay<CorrectionResult>('correction', {
-      claimText,
-      contradictingPassages: passages
-    })
+    const result = await callServer<CorrectionResult>(
+      'correction',
+      {
+        claimText,
+        contradictingPassages: passages
+      },
+      { model }
+    )
 
     // Cached either way. A rejected flag is exactly as expensive to compute as
     // a confirmed one, and re-asking on every redraw would spend the reasoning
@@ -71,7 +86,7 @@ export async function generateCorrection(
     // Never surfaces as an error to the user: a correction that could not be
     // confirmed is indistinguishable, from where they sit, from one that was
     // never warranted.
-    console.warn('[correction] relay call failed', error)
+    console.warn('[correction] server call failed', error)
     return null
   }
 }

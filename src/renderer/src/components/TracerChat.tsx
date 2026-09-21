@@ -40,7 +40,7 @@ export default function TracerChat({
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<TracerMessage[]>([])
   const [draftTitle, setDraftTitle] = useState<string | null>(null)
-  const [relayConfigured, setRelayConfigured] = useState(true)
+  const [serverConfigured, setServerConfigured] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [input, setInput] = useState('')
@@ -60,7 +60,7 @@ export default function TracerChat({
         if (cancelled) return
         setConversationId(res.conversation.id)
         setMessages(res.messages)
-        setRelayConfigured(res.relayConfigured)
+        setServerConfigured(res.serverConfigured)
         // The context string starts `The student's most recent draft, titled
         // "…"` — the title is pulled back out of it rather than carried in a
         // field of its own, because `TracerContext` is a shared type and
@@ -218,10 +218,10 @@ export default function TracerChat({
           </p>
         ) : null}
         {error ? <p className="tracer-error">{error}</p> : null}
-        {!relayConfigured ? (
+        {!serverConfigured ? (
           <p className="tracer-error">
-            This build has no relay configured, so Tracer cannot answer. Everything else in
-            Tracely works without one.
+            This build has no Tracely server configured, so Tracer cannot answer. Everything else
+            in Tracely works without one.
           </p>
         ) : null}
       </div>
@@ -238,13 +238,13 @@ export default function TracerChat({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask Tracer anything…"
-          disabled={!relayConfigured || conversationId === null}
+          disabled={!serverConfigured || conversationId === null}
         />
         <button
           type="submit"
           className="tracer-send"
           aria-label="Send"
-          disabled={!input.trim() || sending || !relayConfigured}
+          disabled={!input.trim() || sending || !serverConfigured}
         >
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path

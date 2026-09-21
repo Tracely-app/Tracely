@@ -19,14 +19,18 @@ reviewers the production installer — it did, on 2026-08-14. See the header of
 
 ## What makes this safe to try things in
 
-A preview build talks to **staging**, not production:
+A preview build uses the **staging** Supabase project, but the same AI
+backend as production — there is only one Tracely server:
 
 | | Preview build | Stable build |
 |---|---|---|
-| Relay | `tracely-relay-staging.vercel.app` | `folio-relay.vercel.app` |
+| AI backend | `api.jointracely.com` (or `TRACELY_API_URL` in `.env.staging`) | `api.jointracely.com` |
 | Supabase | staging project | production project |
 | Accounts | separate — sign up again | real users |
-| OpenAI | separate key, $5 hard cap | real key |
+| AI spend | the server's app pool (`TRACELY_APP_DAILY_BUDGET_USD`) | the same pool |
+
+The Vercel relay the desktop used to call is retired: it stays deployed only
+for installs too old to update, and nothing new ships to it.
 
 That separation is the entire point. A migration, a quota change or a broken
 endpoint costs a throwaway database and pocket change instead of reaching users.
@@ -59,8 +63,9 @@ merge supersedes an in-flight build rather than queueing behind it.
    `.env`, because a "preview" pointed at production is worse than no preview.
 4. **`GH_TOKEN`** is in the environment, or in `.env.release`. The environment
    wins, so a one-off run can use a different token without editing the file.
-5. If the relay changed, push to the `staging` branch first and let it deploy.
-   The client and the relay ship together in staging exactly as in production.
+5. If `server/` changed, deploy it to api.jointracely.com first
+   (`server/DEPLOY.md`) — preflight probes every endpoint the build calls and
+   refuses a 404.
 
 ```bash
 cd C:\Users\merri\Tracely-agent1 && npm run ship:preview
@@ -85,9 +90,9 @@ which build you are looking at:
 
 ## Watch for
 
-**`env=staging file=.env.staging relay=tracely-relay-staging...`** in the build
-log. If that line says `production`, stop — you are about to publish a preview
-wired to real users and real money.
+**`env=staging file=.env.staging api=...`** in the build log. If that line
+says `production`, stop — you are about to publish a preview wired to real
+users' Supabase project.
 
 ## After
 

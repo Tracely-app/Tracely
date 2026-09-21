@@ -9,8 +9,9 @@
  * in `RUBRIC_TEXT` below, so the clause cannot be invented either.
  *
  * That pair is the whole point. A comment saying "keep flags on-rubric" is the
- * kind of thing this codebase has already watched go stale (see the header of
- * `structureClassifier.ts`); a total record plus a substring assertion cannot.
+ * kind of thing this codebase has already watched go stale (the header of the
+ * since-deleted `structureClassifier.ts` misdescribed its own deployment twice,
+ * in opposite directions); a total record plus a substring assertion cannot.
  *
  * Three flag kinds were deleted when this landed, because no clause covered
  * them: `no-counterargument` ("Do not require counterarguments for every

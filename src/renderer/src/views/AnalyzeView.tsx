@@ -1424,7 +1424,7 @@ function DocumentEditor({
    *
    * Still never automatic, and it is now the only thing here that is not.
    * Claim DETECTION runs on a debounce (see the live-detect effect above), and
-   * that is what the underlines are made of. This adds `grade-draft` — the
+   * that is what the underlines are made of. This adds `grade` — the
    * essay score — which is both the expensive call and a whole report nobody
    * asked to see. "AI Insights" means "grade my essay"; it should keep meaning
    * exactly that.
@@ -1579,7 +1579,7 @@ function DocumentEditor({
    * button?"*
    *
    * **Detection only — never `runStructure`.** That function makes two relay
-   * calls: `detect-claims`, which is what marks are made of, and `grade-draft`,
+   * calls: `detect-claims`, which is what marks are made of, and `grade`,
    * which is the essay score. Automating the second would spend the expensive
    * call on every pause AND pop a reading of the draft nobody asked for. "AI
    * Insights" still means "grade my essay"; this only means "find the claims".

@@ -11,7 +11,7 @@
  *
  * ── Detection is not grading, and only one of them belongs on the button ───
  * `runStructure` makes TWO relay calls: `detect-claims`, which is what the
- * underlines are made of, and `grade-draft`, which is the essay score. Only the
+ * underlines are made of, and `grade`, which is the essay score. Only the
  * first has anything to do with marks. So detection becomes automatic and
  * grading stays exactly where it is — behind "AI Insights", which is a button
  * that means "grade my essay" and should keep meaning that.

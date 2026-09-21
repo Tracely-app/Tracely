@@ -1,8 +1,10 @@
 import { createHash } from 'crypto'
 import type { ClaimType } from '@shared/types'
 import { getCached, setCached } from '../storage/cacheRepo'
-import { callRelay } from './client'
+import type { ServerModel } from '@shared/plan'
+import { callServer } from './client'
 import { MAX_CLAIMS_PER_ANALYSIS, MIN_CLAIM_CONFIDENCE, truncateForClaimDetection } from './costGuard'
+import { modelForCall } from './modelTier'
 import { splitSentences, type SentenceSpan } from './sentenceSplit'
 
 export interface DetectedClaim {
@@ -12,7 +14,7 @@ export interface DetectedClaim {
   searchQuery: string
 }
 
-interface RelayClaim {
+interface ServerClaim {
   sentenceIndices: number[]
   claimType: ClaimType
   confidence: number
@@ -23,21 +25,29 @@ interface RelayClaim {
 // real, unnormalized text. Collapsing incidental whitespace differences
 // (extra blank lines from a copy-paste, trailing spaces from an edit) means
 // two pastes that are the same words hit the free cache instead of paying
-// for a duplicate relay call that would return the same claims anyway.
+// for a duplicate server call that would return the same claims anyway.
 function normalizeForCacheKey(text: string): string {
   return text.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim()
 }
 
-function cacheKey(text: string): string {
+function cacheKey(text: string, model: ServerModel): string {
   // v4: claims that reconstruct to the same sentence are now collapsed
   // (see dedupeByText) — bump so cached v3 results, which could contain the
   // same sentence twice, aren't served.
-  return createHash('sha256').update(`ai:detectClaims::v4::${normalizeForCacheKey(text)}`).digest('hex')
+  // v5: detection moved from the relay to the Tracely server, and the model
+  // that answered is now IN the key. The relay chose its model from its own
+  // environment whatever the account had paid for, so a key without the model
+  // was complete; the server runs the model the plan resolves to. Keyed
+  // without it, a draft detected on Free would keep serving the fast model's
+  // claims after an upgrade to Pro — the upgrade would change nothing on any
+  // draft already looked at. The bump also retires every v4 entry, all of
+  // which the relay wrote.
+  return createHash('sha256').update(`ai:detectClaims::v5::${model}::${normalizeForCacheKey(text)}`).digest('hex')
 }
 
-function reconstructClaim(candidate: RelayClaim, sentences: SentenceSpan[], text: string): DetectedClaim | null {
-  // The relay is an external boundary — validate its shape rather than trust
-  // it, e.g. a mid-deploy race could briefly serve the previous response
+function reconstructClaim(candidate: ServerClaim, sentences: SentenceSpan[], text: string): DetectedClaim | null {
+  // The server is an external boundary — validate its shape rather than
+  // trust it, e.g. a mid-deploy race could briefly serve the previous response
   // format.
   if (!Array.isArray(candidate.sentenceIndices)) return null
   const indices = candidate.sentenceIndices.filter(
@@ -77,7 +87,8 @@ function dedupeByText(claims: DetectedClaim[]): DetectedClaim[] {
 
 export async function detectClaims(rawText: string): Promise<DetectedClaim[]> {
   const text = truncateForClaimDetection(rawText.trim())
-  const key = cacheKey(text)
+  const model = await modelForCall()
+  const key = cacheKey(text, model)
 
   const cached = getCached<DetectedClaim[]>(key)
   if (cached) return cached
@@ -94,7 +105,7 @@ export async function detectClaims(rawText: string): Promise<DetectedClaim[]> {
   // construction — the reconstructed text is always a real slice of `text`.
   const numberedText = sentences.map((s, i) => `[${i + 1}] ${s.text}`).join(' ')
 
-  const { claims } = await callRelay<{ claims: RelayClaim[] }>('detect-claims', { text: numberedText })
+  const { claims } = await callServer<{ claims: ServerClaim[] }>('detect-claims', { text: numberedText }, { model })
 
   const detected = dedupeByText(
     (Array.isArray(claims) ? claims : [])
@@ -102,7 +113,7 @@ export async function detectClaims(rawText: string): Promise<DetectedClaim[]> {
       .filter((c): c is DetectedClaim => c !== null && c.confidence >= MIN_CLAIM_CONFIDENCE)
       // Highest-confidence claims first, so the cap below keeps the claims
       // the model itself was surest about instead of whatever happened to
-      // come first in the relay's response order — and so that dedupe keeps
+      // come first in the server's response order — and so that dedupe keeps
       // the better-scored copy of a repeated sentence.
       .sort((a, b) => b.confidence - a.confidence)
   ).slice(0, MAX_CLAIMS_PER_ANALYSIS)

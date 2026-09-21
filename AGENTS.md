@@ -81,7 +81,7 @@ installer without ever being committed.
 ## Never do these
 
 **Never read, edit, or commit any `.env*` file** except `.env.example`. They hold
-the OpenAI-adjacent relay token, Supabase keys, and a GitHub release token.
+Supabase keys, a GitHub release token, and on older checkouts the relay token.
 **This repository is public.** A secret committed here is a secret published to
 the internet, and rewriting history does not unpublish it.
 
@@ -130,29 +130,41 @@ once sat uncommitted in stale worktrees.
 
 ## Which environment your build talks to
 
-`RELAY_URL`, `RELAY_TOKEN`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` are compiled
-into the bundle at build time by `electron.vite.config.ts`. There is **no runtime
+`TRACELY_API_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` are compiled into the
+bundle at build time by `electron.vite.config.ts`. There is **no runtime
 override** — no setting, no config file. The only way to see which backend a
 build uses is the banner every build prints:
 
 ```
-env=staging  file=.env.staging  relay=tracely-relay-staging.vercel.app  supabase=sxifbtelrtbsgnnwnmdf
+env=staging  file=.env.staging  api=api.jointracely.com (default)  supabase=sxifbtelrtbsgnnwnmdf
 ```
 
-If you are not the maintainer, your `.env` holds **staging** values, so
-everything you build points at the staging backend. That is deliberate: staging
-has its own database, its own OpenAI key and a low spend cap, so nothing you do
-can reach a real user or a real bill. If that banner ever says `production` on
-your machine, stop and ask.
+If you are not the maintainer, your `.env` holds **staging** Supabase values.
+`TRACELY_API_URL` is different: unset, it defaults to the hosted production
+server, `https://api.jointracely.com` — there is one server, not one per
+environment the way there was one relay per environment. A session from a
+Supabase project the server is not configured for does not verify there, so
+your calls are metered as a signed-out free install (its own install id, the
+free daily quota, and the server's app spend ceiling) rather than as any real
+account. To keep a build off the hosted server entirely, point
+`TRACELY_API_URL` at one you run (`cd server && npm start`, then
+`http://localhost:4477`; `TRACELY_MOCK=1` makes it spend nothing). If the
+banner ever says `production` on your machine, stop and ask.
 
-## The relay is a separate repository
+## Where the backend lives
 
-Backend work — endpoints, auth, quota, Supabase schema — lives in
-`Tracely-relay`, not here. It deploys by pushing a branch: `staging` deploys the
-staging relay, `main` deploys production. There is no deploy command.
+The desktop's AI calls go to the Tracely server — `server/` in this
+repository, deployed as described in `server/DEPLOY.md`. `callServer` in
+`src/main/services/ai/client.ts` is the only thing in the app that calls it,
+and `scripts/preflight.mjs` refuses a release while any endpoint in that
+function's union answers 404.
 
-Always run `npx tsc --noEmit` before pushing the relay. Vercel does not reliably
-fail a deploy on type errors, so a type-broken relay can reach production.
+`Tracely-relay` is a separate repository, and installed builds from before the
+move onto the server still call it until they update. It deploys by pushing a
+branch: `staging` deploys the staging relay, `main` deploys production. There
+is no deploy command. Always run `npx tsc --noEmit` before pushing the relay.
+Vercel does not reliably fail a deploy on type errors, so a type-broken relay
+can reach production.
 
 ## The two rules that exist because something broke
 
@@ -162,7 +174,8 @@ the entire ML stack excluded; the app degraded to word-overlap ranking exactly a
 designed — silently, with no error — while every measurement described a code
 path no user was running.
 
-**Do not change the order of checks in a relay endpoint.** It is
+**Do not change the order of checks in a relay endpoint** (the relay still
+serves older installed builds). It is
 `isAuthorized → resolveUser → checkRateLimit → parse → reserveUsage → OpenAI`.
 Each step is cheaper than the one after it, and identity is resolved before
 anything can spend. `resolveUser` fails **closed** and `checkRateLimit` fails

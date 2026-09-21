@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs src/main/eval/timing.ts, the same way scripts/evaluate.mjs runs the
-// harness: one esbuild pass with the @shared alias and the relay defines, then
+// harness: one esbuild pass with the @shared alias and the build defines, then
 // node executes the bundle.
 //
 // Costs nothing. It makes no relay calls at all — no detection, no critique —
@@ -11,7 +11,7 @@ import { mkdirSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import * as esbuild from 'esbuild'
-import { loadEnv, relayDefines } from './env.mjs'
+import { appDefines, loadEnv } from './env.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 loadEnv({ root: repoRoot })
@@ -32,7 +32,7 @@ await esbuild.build({
   banner: {
     js: "import{createRequire as __cr}from'module';import{fileURLToPath as __f}from'url';import{dirname as __d}from'path';const require=__cr(import.meta.url);const __filename=__f(import.meta.url);const __dirname=__d(__filename);"
   },
-  define: relayDefines()
+  define: appDefines()
 })
 
 await esbuild.build({

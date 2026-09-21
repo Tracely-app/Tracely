@@ -2,13 +2,13 @@
 
 Tracely is a private, local AI writing and research assistant. Instead of fixing grammar, it checks the *credibility* of what you write: it detects factual claims, finds academic evidence for them (OpenAlex, Crossref, Semantic Scholar, PubMed), scores how well-supported each claim is, critiques weak arguments, generates citations (APA/MLA/Chicago), and keeps a local library of sources you've used.
 
-It's a desktop app (Electron + React + TypeScript), not a website. Everything — your text, your source library, your settings — stays on your machine in a local SQLite database. The only network calls are to the **Tracely relay** (a small backend you deploy and control — see below) for claim detection/critique, and to the academic search APIs, and only when you explicitly click Analyze, Find Evidence, or Critique.
+It's a desktop app (Electron + React + TypeScript), not a website. Everything — your text, your source library, your settings — stays on your machine in a local SQLite database. The only network calls are to the **Tracely server** (see below) for claim detection/critique, and to the academic search APIs, and only when you explicitly click Analyze, Find Evidence, or Critique.
 
 ## Requirements
 
 - Windows 10/11 (primary, tested target). macOS packaging config is included but untested — see [Building for macOS](#building-for-macos).
 - [Node.js](https://nodejs.org) 22+ (developed against Node 24).
-- A deployed [Tracely Relay](../Tracely-relay/README.md) for the AI features (claim detection, argument critique). Everything else — evidence search, citations, the library — works without one.
+- The Tracely server for the AI features (claim detection, argument critique) — the hosted one at `https://api.jointracely.com` by default. Everything else — evidence search, citations, the library — works without it.
 
 No Python or C++ build tools are required: Tracely's local database uses `sql.js` (SQLite compiled to WebAssembly), so there's no native module to compile.
 
@@ -18,17 +18,16 @@ No Python or C++ build tools are required: Tracely's local database uses `sql.js
 npm install
 ```
 
-## Connecting Tracely to the relay
+## Connecting Tracely to the server
 
-Tracely never talks to OpenAI directly and has no API-key field anywhere in its UI. Instead it calls a backend you deploy once — the [Tracely Relay](../Tracely-relay/README.md) — which holds the real OpenAI key server-side. This means end users who download the built app cannot see or change which AI provider/key/model is in use; only whoever builds the app controls that.
+Tracely never talks to OpenAI directly and has no API-key field anywhere in its UI. Its AI calls go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`), which holds the real OpenAI key and decides which model each account's plan may use. End users who download the built app cannot see or change which AI provider/key/model is in use; only whoever builds the app controls that.
 
-1. Deploy the relay first — follow [`../Tracely-relay/README.md`](../Tracely-relay/README.md). You'll end up with a URL (e.g. `https://tracely-relay-yourname.vercel.app`) and a shared token.
-2. In this folder, copy `.env.example` to `.env` and fill in:
+1. Nothing to set for the hosted server: a build with no `TRACELY_API_URL` talks to `https://api.jointracely.com`.
+2. To point a build somewhere else (a server you run locally, say), copy `.env.example` to `.env` and set:
    ```
-   RELAY_URL=https://tracely-relay-yourname.vercel.app
-   RELAY_TOKEN=<the same APP_SHARED_TOKEN you set on the relay>
+   TRACELY_API_URL=http://localhost:4477
    ```
-3. These two values are read once, at build time, by `electron.vite.config.ts` and compiled directly into the app — `npm run dev` and `npm run dist:win` both pick them up automatically from `.env`. There is no `.env` shipped inside the built app and no Settings field for these; changing which relay Tracely talks to means editing `.env` and rebuilding.
+3. The value is read once, at build time, by `electron.vite.config.ts` and compiled directly into the app — `npm run dev` and `npm run dist:win` both pick it up automatically from `.env`. There is no `.env` shipped inside the built app and no Settings field for it; changing which server Tracely talks to means editing `.env` and rebuilding. Every build prints the answer: `api=<host>`, with `(default)` when nothing set it.
 
 `SEMANTIC_SCHOLAR_API_KEY` in `.env.example` is optional and works differently — it's a free-tier rate-limit key, not a cost/security concern, and it's still editable per-user from in-app Settings. OpenAlex, Crossref, and PubMed all work without any key at MVP-scale usage.
 
@@ -66,7 +65,7 @@ Everything is local, under Electron's per-OS user-data directory for the app (`T
 
 - Windows: `%APPDATA%\Tracely\`
   - `tracely.db` — SQLite database: analyses, claims, evidence, citations, your saved library, and a request cache (so repeated identical AI/search calls don't re-hit the network).
-  - `config.json` — your optional Semantic Scholar API key. The AI relay URL/token are compiled into the app, not stored here.
+  - `config.json` — your optional Semantic Scholar API key, and a random install id sent to the server so a signed-out install gets its own daily quota. The server URL is compiled into the app, not stored here.
 
 **Settings → Privacy** has two destructive actions:
 - **Clear Analysis History** — deletes past analyses, claims, and the cached request results. Your saved library is kept.
@@ -83,8 +82,8 @@ src/
     tray.ts           System tray icon (keeps the hotkey alive when the main window is closed).
     ipc/              One ipcMain.handle registrar per feature area; validates payloads with zod.
     services/
-      ai/             Relay client — claim detection and critique both call the Tracely Relay (see
-                       ../Tracely-relay) over HTTPS instead of OpenAI directly, behind an explicit
+      ai/             Server client — claim detection and critique both call the Tracely server
+                       (callServer in client.ts) over HTTPS instead of OpenAI directly, behind an explicit
                        user action and a SQLite-backed cache. No OpenAI key ever exists in this app.
       search/         OpenAlex / Crossref / Semantic Scholar / PubMed clients, a parallel aggregator with
                        DOI-based dedup, and a deterministic (non-AI) evidence-strength scoring function.
@@ -113,10 +112,10 @@ src/
 ### Cost control
 
 - AI is only called on an explicit user action (Analyze, Find Evidence's critique step, or Critique) — never on keystrokes.
-- Claim detection uses a cheap model (`gpt-4.1-mini` by default); critique uses a stronger model (`gpt-4.1` by default) only when explicitly requested, and reuses evidence already fetched rather than searching again. Both models are chosen server-side by the relay (`CHEAP_MODEL`/`REASONING_MODEL` env vars) — end users have no control over this.
-- Every AI and evidence-search call is cached locally in SQLite keyed by a hash of its normalized input, so repeating the same analysis or evidence lookup costs nothing on subsequent runs (no relay/OpenAI call at all).
+- Every AI call runs on the model the account's plan allows: Free gets `gpt-5-nano`, Student up to `gpt-5.4`, Pro up to `gpt-6-astra` (`MODEL_FOR_TIER` in `src/shared/plan.ts`). The app asks for the tier the user picked, and the server clamps that to the plan it reads from the account — a request can lower the model but never raise it. Critique runs only when explicitly requested, and reuses evidence already fetched rather than searching again.
+- Every AI and evidence-search call is cached locally in SQLite keyed by a hash of its normalized input, so repeating the same analysis or evidence lookup costs nothing on subsequent runs (no server/OpenAI call at all). AI cache keys include the model, so an upgrade is not answered from the free tier's cache.
 - Evidence-strength scoring is a deterministic formula (source count, venue quality, recency, relevance) — it does not make an additional AI call.
-- The relay itself re-enforces input-size limits server-side (see `../Tracely-relay/lib/limits.ts`) rather than trusting the app to behave, since the app is running on machines you don't control. Set a hard monthly budget limit on your OpenAI account (Billing → Limits) as the real backstop against runaway usage.
+- The server itself enforces its own limits — input size, a per-caller rate limit, a daily quota for free accounts and a daily spend ceiling (see `server/shared/guards.js`) — rather than trusting the app to behave, since the app is running on machines you don't control. Set a hard monthly budget limit on your OpenAI account (Billing → Limits) as the real backstop against runaway usage.
 
 ### Troubleshooting `npm run dist:win`
 

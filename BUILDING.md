@@ -4,8 +4,8 @@
 `release/`. Both run `fetch-models` → `electron-vite build` →
 `electron-builder`, and `afterPack` gates every build on
 `verify-packaged-ml.mjs` (ML closure unpacked, weights + the target platform's
-native binary present, exactly one relay host, and — on a native build — a real
-offline embedding).
+native binary present, this build's server host and no relay host, and — on a
+native build — a real offline embedding).
 
 ## Native build (the normal case)
 
@@ -66,10 +66,8 @@ in practice it was never built and Intel users had no download. And the dmg was
 otherwise hand-carried into each release, so it was routinely missing while the
 website's Mac button pointed at it.
 
-The job needs the production compile-time values as repository secrets:
+The job needs the production Supabase values as repository secrets:
 
-    RELEASE_RELAY_URL
-    RELEASE_RELAY_TOKEN
     RELEASE_SUPABASE_URL
     RELEASE_SUPABASE_ANON_KEY
 
@@ -77,6 +75,12 @@ There is no fallback to the staging secrets. A build labelled "release" that
 quietly pointed at staging is the failure `scripts/env.mjs` already refuses, so
 the workflow stops with an explicit error instead. Both dmgs are unsigned until
 the signing secrets exist — see the next section.
+
+`RELEASE_API_URL` is optional. Without it the build uses the default server,
+`https://api.jointracely.com`, which is production — so unlike the Supabase
+pair, a missing value produces the right build. (`RELEASE_RELAY_URL` and
+`RELEASE_RELAY_TOKEN` are no longer read; the app talks to the Tracely server,
+not the relay.)
 
 ## Code signing
 

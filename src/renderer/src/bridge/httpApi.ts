@@ -806,7 +806,7 @@ export function createHttpApi(): TracelyApi {
           conversation: store.conversation as TracerConversation,
           messages: store.messages,
           context: { processName: null, documentText, claims: [] },
-          relayConfigured: Boolean(status.hasKey),
+          serverConfigured: Boolean(status.hasKey),
           focusedClaimId: null,
           focusedPrompt: null
         }

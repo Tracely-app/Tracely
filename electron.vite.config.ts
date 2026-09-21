@@ -1,7 +1,7 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import { loadEnv, relayDefines } from './scripts/env.mjs'
+import { appDefines, loadEnv } from './scripts/env.mjs'
 
 // Which .env is read — and therefore which backend this build talks to — is
 // decided by TRACELY_ENV in scripts/env.mjs, not here. ship.mjs pins it to
@@ -16,15 +16,15 @@ loadEnv()
 
 // Baked into the compiled main-process bundle at build time. There is no
 // runtime/user-editable path to these values — only whoever runs
-// `npm run dist:win` with a given .env controls which relay the app talks to.
-const { __RELAY_URL__, __RELAY_TOKEN__, __SUPABASE_URL__, __SUPABASE_ANON_KEY__ } = relayDefines()
+// `npm run dist:win` with a given .env controls which server the app talks to
+// (TRACELY_API_URL, defaulting to https://api.jointracely.com; see env.mjs).
+const { __API_URL__, __SUPABASE_URL__, __SUPABASE_ANON_KEY__ } = appDefines()
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     define: {
-      __RELAY_URL__,
-      __RELAY_TOKEN__,
+      __API_URL__,
       __SUPABASE_URL__,
       __SUPABASE_ANON_KEY__
     },

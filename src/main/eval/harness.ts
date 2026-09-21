@@ -10,7 +10,7 @@
 // should be run through this first.
 //
 // Invoked via `npm run evaluate` -> scripts/evaluate.mjs, which bundles this
-// with esbuild (for the @shared alias and the __RELAY_*__ constants) and
+// with esbuild (for the @shared alias and the __API_URL__ / Supabase constants) and
 // runs it on plain node.
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'

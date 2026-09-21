@@ -1,5 +1,5 @@
 import type { TracerMessage } from '@shared/types'
-import { callRelay } from './client'
+import { callServer } from './client'
 import {
   MAX_TRACER_DOCUMENT_CHARS,
   MAX_TRACER_HISTORY_MESSAGES,
@@ -23,8 +23,9 @@ import { getLatestDocument } from '../storage/documentsRepo'
  *     functions of that input. A chat turn depends on the whole conversation so
  *     far, and the same follow-up in two conversations should get two answers —
  *     a cache would be actively wrong here, not merely useless.
- *  2. **The prompt lives on the relay** (`lib/prompts.ts` there), same as the
- *     other two. This side only ever sends raw content.
+ *  2. **The prompt lives on the server** (`server/lib/prompts/tracer.js`,
+ *     ported verbatim from the relay), same as the others. This side only
+ *     ever sends raw content.
  */
 
 export interface TracerReply {
@@ -91,13 +92,15 @@ export async function askTracer(
   context: string
 ): Promise<TracerReply> {
   const trimmedHistory = history.slice(-MAX_TRACER_HISTORY_MESSAGES).map((m) => ({
-    // The relay maps 'tracer' onto OpenAI's 'assistant' role, so the app's own
+    // The server maps 'tracer' onto OpenAI's 'assistant' role, so the app's own
     // vocabulary never leaks into the API call.
     role: m.role,
     content: m.content.slice(0, MAX_TRACER_MESSAGE_CHARS)
   }))
 
-  return await callRelay<TracerReply>('tracer', {
+  // No model passed: nothing here is cached, so there is no key for the
+  // request to agree with, and callServer resolves the plan's model itself.
+  return await callServer<TracerReply>('tracer', {
     message: message.slice(0, MAX_TRACER_MESSAGE_CHARS),
     history: trimmedHistory,
     context

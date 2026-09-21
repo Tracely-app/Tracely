@@ -2,9 +2,110 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
+## What this repo is — three clients, one backend
 
-Tracely is a private, local-first Electron desktop app (React + TypeScript) that checks the *credibility* of user-written text: it detects factual claims, finds academic evidence (OpenAlex, Crossref, Semantic Scholar, PubMed), scores how well-supported each claim is, critiques weak arguments, and generates citations (APA/MLA/Chicago). All user data lives in a local SQLite (`sql.js`, WASM — no native module compilation needed) database under Electron's per-OS user-data dir. Network calls are to academic search APIs, to the **Tracely Relay** (a separate sibling project, `../Tracely-relay`, that holds the real OpenAI key server-side — this app has no API-key field and never talks to OpenAI directly), and to a public favicon service (`main/services/search/favicon.ts`) for real per-source icons in the Screen Watch overlay — the one place this app's "only academic APIs + relay" network surface is knowingly broadened, opted into by the user after being told it reveals source domains to that service.
+This file used to describe only the desktop app, and never mentioned the
+server, the extension, the web app or billing — so the most active part of the
+codebase was invisible to the file both developers read first, and the two
+halves grew two complete, independent implementations of the same product. Read
+this section before touching anything that makes a model call.
+
+| Part | Where | Ships as | Talks to |
+|---|---|---|---|
+| **Desktop app** | `src/` | Electron installer (`npm run ship`) | the server (`callServer`), plus free academic APIs directly |
+| **Chrome extension** | `extension/` | Chrome Web Store (manual upload) | the server, `EXTENSION_API` routes only |
+| **Web app** | `server/public/app/` | served by `server.js` | the same server — works against a LOCAL server only; the hosted box refuses its POSTs by origin |
+| **Server** | `server/` | rsync to the Linode at `api.jointracely.com` (`server/DEPLOY.md`) | OpenAI (`lib/llm.js` → `lib/providers/openai.js`), Supabase (accounts, plans), Stripe (`server/BILLING.md`) |
+
+### One backend, one reasoning implementation
+
+- **Every AI call from every client goes to `server/`.** The desktop called a
+  separate Vercel relay (`questionablepuddle/Tracely-relay`) until the backend
+  unification; its prompts, schemas and guardrails moved into the server and
+  the relay is retired. It stays deployed only for installs too old to update —
+  electron-updater cannot downgrade — and nothing new ships to it.
+- **The prompts live in `server/lib/prompts/`**, one file per route, and
+  `server/test/prompts.test.js` pins each one's SHA-256. Editing a prompt is
+  allowed and should be a decision: every one carries numbers measured on real
+  drafts, so re-measure, then update the hash.
+- **The guardrails run on the server**, so every client gets them:
+  `normalizeCritique` (a revision may only narrow; `fabricated` is withdrawn
+  when no reference lookup ran) and `verifyGrade` (a finding whose quote is not
+  in the draft is dropped), in `server/shared/`. The desktop still runs its own
+  copies on the answer; both are idempotent.
+- **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
+  route, on the relay's request/response contract — which is why the desktop's
+  request builders and parsers did not change when it moved.
+- **Models are the server's tier map, gated by plan**: free → `gpt-5-nano`,
+  student → `gpt-5.4`, pro → `gpt-6-astra`. The ids are copied by hand into
+  `server/shared/plan.js`, `src/shared/plan.ts` (`MODEL_FOR_TIER`) and three
+  extension files; `server/test/models.test.js` fails if any copy drifts. The
+  desktop resolves the user's chosen tier against their plan and sends that
+  model; the server clamps it (`appModelFor`).
+- **Hand-copied logic is mirror-tested.** `server/shared/*` holds leaf ports of
+  desktop modules (the splitters, `gradedDraft`, `normalizeCritique`,
+  `narrowing`, the owner's `RUBRIC_TEXT`); `server/test/mirror.test.js` runs
+  each side by side with its `src/` original. Change one side and the test
+  names the other.
+- **The provider is a seam.** `lib/llm.js` is a facade; everything
+  OpenAI-specific is in `lib/providers/openai.js`, selected by
+  `TRACELY_LLM_PROVIDER` (only `openai` is registered). Every error message on
+  that path reaches the shipped extension verbatim — reword nothing there
+  without an extension release in mind.
+
+### Two products on one server: keep them apart
+
+- **The extension's routes are FROZEN while a Web Store build is in review**:
+  `/api/status /api/check /api/flow /api/sources /api/cite-url /api/docs/apply
+  /api/entitlement`. Their response fields, error `kind`/`message` text, the
+  401-then-anonymous behaviour, `corsHeaders()` (it must keep `Authorization`
+  and `X-Tracely-Install`), port 4477, `api.jointracely.com`, the Supabase
+  project, the three model ids, the plan names `free|student|pro` and the
+  Stripe `PORTAL_URL` are all baked into the shipped extension. Changing any of
+  them needs an extension release, not a server deploy.
+- **The desktop's routes have their own guard rails and must never share the
+  extension's**: `APP_AI_ROUTES` go through `appGate`/`appCall` — their own
+  spend pool (`TRACELY_APP_DAILY_BUDGET_USD`), their own per-caller limiter,
+  their own daily quota kind (`ai`: free 150/day, paid unmetered), their own
+  web-search window. Shared, one busy desktop user on the thorough model could
+  empty the extension's day and 503 every `/api/check`.
+  `server/test/boundary.test.js` drives desktop traffic at a real mock server
+  and asserts the extension's routes do not move.
+- **A caller's model is never read from the global prefs row on a hosted
+  server.** `PUT /api/prefs` is unauthenticated and that row is shared by every
+  caller; it drives the model only on a local, single-user server.
+
+### Accounts and billing
+
+- One Supabase project, `sxifbtelrtbsgnnwnmdf`, for every surface. Stripe
+  checkout → webhook → `app_metadata.plan` on the user (`server/BILLING.md`).
+  `user_metadata` is user-writable and is never read for a plan.
+- **Anonymous sign-ins are OFF** on that project. The desktop works signed out
+  anyway: every call carries `X-Tracely-Install` (a stable per-install UUID in
+  `config.json`), and the server meters it as a free install.
+
+### Checks
+
+`npm run typecheck && npm test` for the desktop; `cd server && npm test` for the
+server (zero npm dependencies). Both run in CI's required `check` job.
+`TRACELY_MOCK=1 node server/server.js` runs the whole product keyless with
+deterministic answers in the real shapes — use it for every shape check.
+
+### The desktop app
+
+Tracely's desktop app is a private, local-first Electron app (React +
+TypeScript) that checks the *credibility* of user-written text: it detects
+factual claims, finds academic evidence (OpenAlex, Crossref, Semantic Scholar,
+PubMed), scores how well-supported each claim is, critiques weak arguments, and
+generates citations (APA/MLA/Chicago). All user data lives in a local SQLite
+(`sql.js`, WASM — no native module compilation needed) database under
+Electron's per-OS user-data dir. Network calls are to academic search APIs, to
+the **Tracely server** for every model call (this app has no API-key field and
+never talks to OpenAI directly), and to a public favicon service
+(`main/services/search/favicon.ts`) for real per-source icons in the Screen
+Watch overlay — the one place this app's "only academic APIs + our server"
+network surface is knowingly broadened, opted into by the user after being told
+it reveals source domains to that service.
 
 ## The design file
 
@@ -119,11 +220,11 @@ npm run dist:win     # build + electron-builder --win -> installer in release/
 npm run dist:mac     # build + electron-builder --mac (untested, config-only)
 ```
 
-There is no lint script configured. The two automated correctness checks are `npm run typecheck` and `npm test` (Node's built-in runner over `src/**/*.test.ts` — 282 tests, 57 suites, under a second). Run both after making changes; neither costs anything. This line previously claimed there was no test suite, which sent agents pushing on typecheck alone.
+There is no lint script configured. The two automated correctness checks are `npm run typecheck` and `npm test` (Node's built-in runner over `src/**/*.test.ts` — about 1,200 tests, a few seconds). Run both after making changes; neither costs anything. This line previously claimed there was no test suite, which sent agents pushing on typecheck alone.
 
-### Relay setup for AI features
+### Server setup for AI features
 
-Claim detection and critique require a deployed Tracely Relay. Copy `.env.example` to `.env` and set `RELAY_URL` / `RELAY_TOKEN`. These are read once by `electron.vite.config.ts` and compiled directly into the main-process bundle via the `define` block (`__RELAY_URL__` / `__RELAY_TOKEN__`) — there's no runtime/user-facing way to change them; changing the relay means editing `.env` and rebuilding. Evidence search, scoring, citations, and the library all work with no relay configured.
+Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. The relay (`Tracely-relay`) still serves installed builds from before this change. Evidence search, scoring, citations, and the library all work with no server.
 
 ### Nobody signs in, and the app still has an account
 
@@ -243,15 +344,15 @@ after something broke:**
 
 `npm run release:win` runs `scripts/preflight.mjs` first and refuses to publish
 unless: you're on `main`, the tree is clean and in sync with origin, typecheck
-passes, **every relay endpoint in `callRelay`'s parameter type answers
+passes, **every server endpoint in `callServer`'s parameter type answers
 something other than 404**, and the version is strictly above the latest
 published GitHub release.
 
-That relay check is the important one. **The desktop app and the relay
-(`C:\Users\merri\Tracely-relay`, deployed to Vercel) must ship together**, and
-nothing else enforces it: v0.3.73 was committed, typechecked and building
-cleanly with the then-new `/api/tracer` returning 404 in production. Deploy the
-relay first, then release the client. The version check matters for the
+That endpoint check is the important one. **The desktop app and the server
+(`server/`, deployed per `server/DEPLOY.md`) must ship together**, and nothing
+else enforces it: v0.3.73 was committed, typechecked and building cleanly with
+the then-new `/api/tracer` returning 404 in production (on the relay, which the
+app called then). Deploy the server first, then release the client. The version check matters for the
 opposite failure — `electron-updater` only offers a *strictly higher* version,
 so publishing without bumping produces a release nobody is ever shown.
 
@@ -384,7 +485,7 @@ Every handler validates its input with zod before touching a service — there i
 
 ### `main/services/` — four independent domains
 
-- **`ai/`** — `client.ts` (`callRelay`) is the only thing that ever makes a network call to the relay; `claimDetection.ts` and `critique.ts` build the request bodies. `costGuard.ts` centralizes hard limits (max input chars, max claims per analysis, max evidence items sent to critique) — check here before loosening any AI-related limit. AI is invoked either from an explicit user action (Analyze / Find Evidence / Critique) or automatically by Screen Watch after a debounced pause in typing — never on every keystroke. (This used to say "the renderer's Live tab (`LiveView.tsx`)"; there is no such tab.) Every call result is cached in SQLite (`cacheRepo.ts`) keyed by a hash of normalized input, which also caps live-editing cost since re-detecting unchanged text is free.
+- **`ai/`** — `client.ts` (`callServer`) is the only thing that ever makes a network call to the Tracely server; its retry/timeout/error-envelope rules are the tested leaf `serverCallPolicy.ts`; `claimDetection.ts` and `critique.ts` build the request bodies. `costGuard.ts` centralizes hard limits (max input chars, max claims per analysis, max evidence items sent to critique) — check here before loosening any AI-related limit. AI is invoked either from an explicit user action (Analyze / Find Evidence / Critique) or automatically by Screen Watch after a debounced pause in typing — never on every keystroke. (This used to say "the renderer's Live tab (`LiveView.tsx`)"; there is no such tab.) Every call result is cached in SQLite (`cacheRepo.ts`) keyed by a hash of normalized input, which also caps live-editing cost since re-detecting unchanged text is free.
 - **`search/`** — one client module per provider, each returning a `NormalizedSourceResult`. The three core scholarly searches always run; routing can add PubMed for biomedical claims, Wikipedia for general facts, or World Development Indicators from the World Bank for statistical claims. `worldBank.ts` embeds the indicator catalogue once per session and returns at most one dataset only above its measured semantic-match floor. `aggregator.ts` fans providers out in parallel via `safeSearch` (a provider failure returns `[]` rather than failing the whole search), dedupes by DOI (falling back to normalized title+year), and caps merged results. `scoring.ts` computes evidence strength as a **deterministic formula** (source count, venue quality, recency, relevance rank) — not an AI call. `rateLimiter.ts` throttles per-provider request rate.
 - **`citations/`** — pure formatters (`formatters/{apa,mla,chicago}.ts`) from source metadata, no AI/network involved. `authorUtils.ts` truncates author lists to "et al." after 3 authors (a known MVP simplification, not the full style-guide rule).
 - **`storage/`** — `db.ts` wraps `sql.js`: the whole database is an in-memory WASM DB that gets fully re-serialized and written to disk (`persist()`) after every `run()`. `schema.ts` holds the SQL DDL. One repo module per table (`analysesRepo`, `claimsRepo`, `claimEvidenceRepo`, `sourcesRepo`, `citationsRepo`, `libraryRepo`, `cacheRepo`, `settingsRepo`) — go through these rather than querying `db.ts` directly from elsewhere. `config.ts` handles the small `config.json` (currently just the optional Semantic Scholar key).
@@ -431,7 +532,7 @@ Opt-in (Settings → Screen Watch, off by default, also toggleable from the tray
 
 > **READ THIS FIRST — the editor's report is ONE relay call now.**
 >
-> `ipc/structureHandlers.ts` calls `ai/gradeDraft.ts` (`/api/grade-draft`) and
+> `ipc/structureHandlers.ts` calls `ai/gradeDraft.ts` (`/api/grade` on the Tracely server) and
 > builds the outline from what comes back (`structure/gradedOutline.ts`). There
 > is **no local fallback**: when the call fails the handler throws and the panel
 > shows the error. Owner, 2026-08-19: *"lets reset the whole reasoning system
@@ -805,7 +906,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 
 - **Evidence is deliberately NOT in the /100.** `strengthScore` already contains a `sourceCount` factor, so folding retrieval in would double-count it — and worse, would make the score track how *searchable* the topic is, capping a close reading of a novel near 50 because the academic APIs have nothing to say about it. `structure/evidenceCoverage.ts` reports it beside the score as a ratio instead. It reads `scoreBreakdown.sourceCount` rather than re-thresholding `claim_evidence.relevance_score`, because which metric produced those values (lexical 0.2 vs dense 0.35 floor) is *not* persisted with the rows.
 - **`unknown` is a real answer.** `structure/roles.ts` labels only what a marker or a detected claim justifies and returns `unknown` for everything else; `complete: false` then makes the panel say **"provisional"**, and `structure/weaknesses.ts` **withholds whole-draft findings entirely** while any paragraph is unlabelled — "this draft has no counterargument" is an assertion about paragraphs nothing read. A guessed label produces a confident number computed from nothing, which is worse than admitting the paragraph wasn't read.
-- **Exactly one relay call, and it IS live.** `ai/structureClassifier.ts` is called unconditionally from `ipc/structureHandlers.ts` for every editor analysis; `'classify-structure'` is in `callRelay`'s union, and `api/classify-structure.ts` is deployed on the relay's `main` and `staging` (probed 2026-08-19: 401, not 404, on both). `scripts/preflight.mjs` reads that union and would have blocked every release otherwise.
+- **The structure classifier is gone.** `ai/structureClassifier.ts` and the `classify-structure` endpoint were deleted when the desktop moved onto the Tracely server: nothing had called `classifyStructure` since `ipc/structureHandlers.ts` switched to the graded read (`ai/gradeDraft.ts`, now `/api/grade`), whose paragraph roles replaced it — yet preflight was still probing the route before every release. This bullet said it was live, and before that said it was undeployed; it was right about neither for long.
   - **This paragraph used to say the opposite, and the stale comment block at the top of `structureClassifier.ts` said it too — three enabling steps that had all already been taken.** It cost a wrong answer to the owner about where the grading weakness lives. **Probe the endpoint before repeating either claim**; a source comment is not evidence about a deployment.
   - **Screen Watch deliberately does NOT classify** (`screenWatch/watchOutline.ts`), so the overlay's grade is heuristic-only and the editor's is not. Two surfaces, two label qualities, one rubric — worth remembering before comparing scores between them.
   - **The client and the relay prompt version each other.** `statesClaim` arrived in the client and in `STRUCTURE_SYSTEM_PROMPT` at the same time; a production relay behind staging returns a vector the client then falls back on (`governsAClaim` degrades to `role === 'claim'`). Check `git log origin/main..origin/staging` in `../Tracely-relay` before concluding anything from a production score.
@@ -889,7 +990,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   like Grammarly, instead of waiting until we click the 'grade essay' button?"*
   - **Detection is not grading, and only ONE of them was ever the button's
     job.** `runStructure` makes two relay calls: `detect-claims`, which is what
-    marks are made of, and `grade-draft`, the essay score. Only the first has
+    marks are made of, and `grade`, the essay score. Only the first has
     anything to do with underlines. So detection is automatic and **`AI
     Insights` still means "grade my essay"** — automating the second would
     spend the expensive call on every pause and pop a report nobody asked for.
@@ -1009,10 +1110,11 @@ existed to give a separate window a sidebar.
   = 12). Every prior turn is re-sent on every message, so an uncapped
   conversation costs quadratically. The OLDEST turns are trimmed, which keeps
   the exchange the user is in the middle of intact.
-- **`callRelay`'s endpoint union names `'tracer'` again.**
+- **`callServer`'s endpoint union names `'tracer'`.**
   `scripts/preflight.mjs` scrapes that union and requires each endpoint to
-  answer non-404 in production; `api/tracer.ts` is on the relay's `main` and
-  `staging`, so this does not block a release. It was never taken down.
+  answer non-404 on the server, so the server's `/api/tracer` has to be
+  deployed before a release. (It was `callRelay` and the relay's
+  `api/tracer.ts` until the move onto the server.)
 - **The `tracer_conversations` / `tracer_messages` tables and both Privacy
   clears' DELETEs against them** survived the removal, so restoring wrote no
   migration. `tracerRepo.ts` came back from `git show f7eb21a^` unchanged.

@@ -22,7 +22,7 @@ import { _electron as electron } from 'playwright-core'
  *
  * WHAT IT DOES NOT COVER: claim detection is a relay call, and `test:e2e`
  * builds with the relay blanked on purpose (see electron.vite.e2e.config.mts —
- * a test that can reach `callRelay` can spend money). So this is the
+ * a test that can reach `callServer` can spend money). So this is the
  * zero-claims reading: role labelling falls back entirely to the sentence-shape
  * heuristics, which is the harder case and the one worth pinning. With claims
  * the labels can only become MORE confident, never less.

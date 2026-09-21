@@ -1,7 +1,9 @@
 import { createHash } from 'crypto'
 import type { Claim, CritiqueVerdict, EvidenceItem } from '@shared/types'
+import type { ServerModel } from '@shared/plan'
 import { getCached, setCached } from '../storage/cacheRepo'
-import { callRelay } from './client'
+import { callServer } from './client'
+import { modelForCall } from './modelTier'
 import { normalizeCritique } from './normalizeCritique'
 import { checkReferences, citedWorkEvidence, describeReferenceChecks } from '../search/referenceCheck'
 import { buildEvidenceSummary, searchedSlots, type CritiqueSource } from '@shared/citedEvidence'
@@ -96,7 +98,8 @@ function cacheKey(
   claim: Claim,
   evidence: EvidenceItem[],
   referenceCheck: string | null,
-  citedWork: CritiqueSource | null
+  citedWork: CritiqueSource | null,
+  model: ServerModel
 ): string {
   // Keyed on the evidence actually sent, not the first N of the raw list —
   // otherwise two different evidence sets that happen to share their first
@@ -155,10 +158,20 @@ function cacheKey(
   // REQUEST BODY or the relay PROMPT changes, not only when the response shape
   // does. A cached critique is an answer to a question that is no longer being
   // asked.
+  // v11: critique moved from the relay to the Tracely server, and the request
+  // body gained `model`. By v10's own rule that is a bump, and the model goes
+  // IN the key rather than merely bumping the version, because it changes with
+  // the account rather than with the code: the relay chose its reasoning model
+  // from its own environment for everyone, while the server runs whatever the
+  // plan resolves to. Without it, a claim critiqued on Free keeps its fast-
+  // model verdict after an upgrade to Pro — on the reasoning-heavy call where
+  // the paid model's difference is the whole point of paying. Every v10 entry
+  // was written by the relay — the same prompt text, ported verbatim, but a
+  // different model behind a different API — so none of them is reused either.
   const normalizedText = claim.text.trim().replace(/\s+/g, ' ').toLowerCase()
   return createHash('sha256')
     .update(
-      `ai:critique::v10::${normalizedText}::${claim.strengthScore ?? 'null'}::${evidenceIds}::${referenceCheck ?? 'none'}::${cited}`
+      `ai:critique::v11::${model}::${normalizedText}::${claim.strengthScore ?? 'null'}::${evidenceIds}::${referenceCheck ?? 'none'}::${cited}`
     )
     .digest('hex')
 }
@@ -195,7 +208,8 @@ export async function generateCritique(
   // Null costs nothing: no corroborated reference means no extra request.
   const citedWork = await citedWorkEvidence(references)
 
-  const key = cacheKey(claim, evidence, referenceCheck, citedWork)
+  const model = await modelForCall()
+  const key = cacheKey(claim, evidence, referenceCheck, citedWork, model)
 
   const cached = getCached<CritiqueResult>(key)
   if (cached) return { ...cached, citedWorkRead: citedWork !== null }
@@ -210,20 +224,24 @@ export async function generateCritique(
     { maxItems: MAX_CRITIQUE_EVIDENCE_ITEMS, maxAbstractChars: MAX_CRITIQUE_ABSTRACT_CHARS }
   )
 
-  const raw = await callRelay<CritiqueResult>('critique', {
-    claimText: claim.text,
-    strengthScore: claim.strengthScore,
-    evidenceSummary,
-    // Omitted rather than sent empty when there was nothing to look up. The
-    // relay's Pass 2(c) keys on this line being PRESENT and negative; a line
-    // saying "no references checked" would read to the model as a result, and
-    // the references this cannot check (a single author, an institution, a
-    // quoted title) are exactly the ones where absence means nothing.
-    ...(referenceCheck ? { referenceCheck } : {})
-  })
+  const raw = await callServer<CritiqueResult>(
+    'critique',
+    {
+      claimText: claim.text,
+      strengthScore: claim.strengthScore,
+      evidenceSummary,
+      // Omitted rather than sent empty when there was nothing to look up. The
+      // prompt's Pass 2(c) keys on this line being PRESENT and negative; a line
+      // saying "no references checked" would read to the model as a result, and
+      // the references this cannot check (a single author, an institution, a
+      // quoted title) are exactly the ones where absence means nothing.
+      ...(referenceCheck ? { referenceCheck } : {})
+    },
+    { model }
+  )
 
   // `referenceCheck` is null exactly when nothing was searched — the same
-  // condition that makes the relay's Pass 2(c) unavailable. Passing it here is
+  // condition that makes the prompt's Pass 2(c) unavailable. Passing it here is
   // what turns that from an instruction the model may ignore into a rule it
   // cannot. See CritiqueFacts.referenceLookupRan.
   const result = normalizeCritique(raw, claim.text, {

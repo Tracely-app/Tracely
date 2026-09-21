@@ -1,6 +1,6 @@
 // Does the eval harness still bundle on plain node — and without Electron?
 //
-// The relay now needs a per-user access token, and the obvious way to get one
+// The server wants a per-user access token, and the obvious way to get one
 // is to import services/auth/client. That module reaches Electron for the
 // userData path, and scripts/evaluate.mjs runs the harness OUTSIDE Electron:
 // bundling it would resolve `electron` to the shim whose export is a path
@@ -25,8 +25,7 @@ const result = await esbuild.build({
   alias: { '@shared': join(ROOT, 'src', 'shared') },
   external: ['sql.js', 'dotenv'],
   define: {
-    __RELAY_URL__: '""',
-    __RELAY_TOKEN__: '""',
+    __API_URL__: '""',
     __SUPABASE_URL__: '""',
     __SUPABASE_ANON_KEY__: '""'
   }

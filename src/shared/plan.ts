@@ -77,8 +77,9 @@ function readPlanField(metadata: unknown): unknown {
  * How much model a check, critique or grade is allowed to use.
  *
  * Named for what the reader gets rather than for a model, because the models
- * behind them are the relay's to choose and have been renamed twice already —
- * see `CHEAP_MODEL`/`REASONING_MODEL` in the relay's environment.
+ * behind a tier get renamed (twice under the relay alone) while "fast" keeps
+ * meaning fast. The UI, the settings row and the plan ceiling all speak tiers;
+ * only the request body names a model — see MODEL_FOR_TIER.
  */
 export type ModelTier = 'fast' | 'balanced' | 'thorough'
 
@@ -88,6 +89,34 @@ export const MODEL_TIERS = ['fast', 'balanced', 'thorough'] as const
 export function isModelTier(value: unknown): value is ModelTier {
   return typeof value === 'string' && (MODEL_TIERS as readonly string[]).includes(value)
 }
+
+/**
+ * The model id each tier asks the Tracely server for.
+ *
+ * A MIRROR of `MODEL_FOR_TIER` in `server/shared/plan.js`, and it has to be
+ * one. The server's `clampModel` only knows model ids: handed a tier NAME it
+ * does not recognise the value and resolves it down to the cheapest model, so
+ * `clampModel('thorough', 'pro')` is `gpt-5-nano`. When the desktop sent its
+ * tier as an `x-tracely-model-tier` header to the relay that did not matter —
+ * the relay ignored the header and chose from its own environment. The server
+ * does read what it is sent, so the translation happens here, before the
+ * request, and every paying user would otherwise silently get the cheap model.
+ *
+ * The id is a REQUEST, not a grant. The server re-derives the plan from the
+ * access token and clamps to it, so a tampered id buys nothing — which is also
+ * why a Pro user who picked `fast` in Settings gets `fast`: the preference is
+ * resolved here, and the server only ever lowers it.
+ *
+ * Pinned by plan.test.ts against the server's copy.
+ */
+export const MODEL_FOR_TIER = {
+  fast: 'gpt-5-nano',
+  balanced: 'gpt-5.4',
+  thorough: 'gpt-6-astra'
+} as const satisfies Record<ModelTier, string>
+
+/** A model id this app may put in a request body. */
+export type ServerModel = (typeof MODEL_FOR_TIER)[ModelTier]
 
 /** The best tier each plan may reach. Free never leaves `fast`. */
 export const PLAN_MODEL_CEILING: Record<Plan, ModelTier> = {

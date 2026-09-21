@@ -10,7 +10,7 @@
  *
  * The steps are ordered so the irreversible one is last and gated. preflight
  * runs inside release:win and refuses to publish unless main is clean, in
- * sync, typechecked, every relay endpoint is live, and the version is above
+ * sync, typechecked, every server endpoint is live, and the version is above
  * the published one — so a bad state stops here rather than reaching users.
  */
 import { execSync } from 'node:child_process'

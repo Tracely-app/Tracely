@@ -1,11 +1,13 @@
 import { createHash } from 'crypto'
-import { callRelay } from './client'
+import type { ServerModel } from '@shared/plan'
+import { callServer } from './client'
+import { modelForCall } from './modelTier'
 import { getCached, setCached } from '../storage/cacheRepo'
 import { MAX_GRADE_INPUT_CHARS, MAX_GRADE_PARAGRAPHS } from './costGuard'
 import { buildGradePrompt, verifyGrade, type VerifiedGrade } from '@shared/gradedDraft'
 
 /**
- * One graded read of the whole draft, from the relay.
+ * One graded read of the whole draft, from the Tracely server.
  *
  * This replaces a stack of local rules — ten prose detectors, a cohesion pass,
  * an embedding-based tangent check and most of a weakness generator. Owner,
@@ -29,12 +31,20 @@ import { buildGradePrompt, verifyGrade, type VerifiedGrade } from '@shared/grade
 
 const CACHE_TYPE = 'ai:gradeDraft'
 
-function cacheKey(prompt: string): string {
-  // Keyed on the assembled prompt, like every other relay call here. The
+function cacheKey(prompt: string, model: ServerModel): string {
+  // Keyed on the assembled prompt, like every other server call here. The
   // v-prefix is the invalidation lever — bump it when the prompt, the rubric or
   // the response schema changes, or a stale grade computed under different
   // instructions will be served forever.
-  return createHash('sha256').update(`ai:gradeDraft::v1::${prompt}`).digest('hex')
+  //
+  // v2: grading moved from the relay's `grade-draft` to the server's `grade`,
+  // and the model is now in the key. This entry never expires, so without the
+  // model a draft graded on Free would show the fast model's grade for as long
+  // as the draft is unchanged — an upgrade to Pro would not regrade a single
+  // essay the student had already opened, and the "Re-grade" button would
+  // keep returning the same free-tier answer. The bump also retires every v1
+  // grade, all written by the relay.
+  return createHash('sha256').update(`ai:gradeDraft::v2::${model}::${prompt}`).digest('hex')
 }
 
 export async function gradeDraft(
@@ -54,7 +64,8 @@ export async function gradeDraft(
   })
   if (!prompt) return null
 
-  const key = cacheKey(prompt)
+  const model = await modelForCall()
+  const key = cacheKey(prompt, model)
   // The cached value is the VERIFIED grade, not the raw response: verification
   // is a pure function of (response, draft), and a prompt that hashes the same
   // came from the same paragraphs. Re-grading an unchanged draft is free, which
@@ -63,7 +74,7 @@ export async function gradeDraft(
   if (cached) return cached
 
   try {
-    const raw = await callRelay<unknown>('grade-draft', { text: prompt })
+    const raw = await callServer<unknown>('grade', { text: prompt }, { model })
     // Told how many paragraphs the DOCUMENT has, not how many were sent, so
     // paragraphs dropped by the caps come back 'unknown' — the honest label for
     // "never read" — and the vector stays aligned with the document.

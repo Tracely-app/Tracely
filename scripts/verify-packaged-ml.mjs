@@ -16,12 +16,13 @@ import { existsSync, readFileSync } from 'fs'
 import { dirname, join, relative } from 'path'
 import { fileURLToPath } from 'url'
 import { Worker } from 'worker_threads'
-import { loadEnv } from './env.mjs'
+import { apiUrl, loadEnv } from './env.mjs'
 
 // afterPack spawns this as a bare node process, so nothing has read .env yet.
-// Loading it here is what lets the relay-host check below know which relay this
-// build is supposed to be talking to — and env.mjs picks .env.staging on its own
-// when TRACELY_ENV says so, so a preview build is checked against staging.
+// Loading it here is what lets the backend-host check below know which server
+// this build is supposed to be talking to — and env.mjs picks .env.staging on
+// its own when TRACELY_ENV says so, so a preview build is checked against
+// whatever staging names.
 loadEnv({ quiet: true })
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -233,43 +234,81 @@ for (const [fragment, wanted, why] of EXPECTATIONS) {
 if (bad > 0) fail(`${bad} packaging expectation(s) not met`)
 console.log(`PASS  app.asar contents — ${EXPECTATIONS.length} packaging expectations met`)
 
-// One relay per installer, and it must be this build's relay.
+// One backend per installer, and it must be this build's.
 //
-// The environment split is enforced at build time by inlining RELAY_URL into
-// the bundle, so a build that also carries some *other* relay's host has broken
-// the guarantee. That happened: out/ is not cleaned between environment
+// The environment split is enforced at build time by inlining the backend URL
+// into the bundle, so a build that also carries some *other* backend's host has
+// broken the guarantee. That happened: out/ is not cleaned between environment
 // switches, so a staging preview shipped out/eval bundles still pointing at
 // folio-relay with the production shared token.
 //
 // It went unnoticed because the check we were running grepped out/main/index.js
 // alone. This one reads the whole archive, which is the only version of the
 // question that means anything — the leak was never in the file being checked.
-const expectedRelay = (() => {
+//
+// The backend is the Tracely server now, not a relay, and the relay half of
+// this check inverts rather than disappears. It used to allow exactly one relay
+// host — this build's — and fail on any other. Repointed at the server, that
+// allowance would protect nothing (no relay host is expected at all), so ANY
+// *relay*.vercel.app host is now a failure: nothing in a current build names
+// one, and the likeliest way for one to appear is the very staleness described
+// above — an out/ left over from a relay-era build.
+const expectedUrl = apiUrl()
+// TRACELY_API_URL=none: a build with no server at all. The check that matters
+// then is the opposite one — that NO backend host made it into the archive.
+if (expectedUrl === '') {
+  const packed = readFileSync(ASAR).toString('latin1')
+  const foreign = [...new Set(packed.match(/https?:\/\/[a-z0-9.-]*(?:relay[a-z0-9.-]*\.vercel\.app|api\.jointracely\.com)/gi) ?? [])]
+  if (foreign.length) fail(`TRACELY_API_URL=none, but app.asar still names ${foreign.join(', ')}`)
+  console.log('PASS  no backend in app.asar (TRACELY_API_URL=none — AI is off in this build)')
+  process.exit(0)
+}
+const expectedHost = (() => {
   try {
-    return new URL(process.env.RELAY_URL ?? '').host.toLowerCase()
+    return new URL(expectedUrl).host.toLowerCase()
   } catch {
     return ''
   }
 })()
-if (!expectedRelay) fail('RELAY_URL is unset or unparseable — cannot tell which relay this build should use')
+if (!expectedHost) fail(`TRACELY_API_URL (${expectedUrl}) is unparseable — cannot tell which server this build should use`)
 
 const archive = readFileSync(ASAR).toString('latin1')
+const hostsMatching = (pattern) => [...new Set((archive.match(pattern) ?? []).map((h) => h.toLowerCase()))]
+
 // Deliberately narrow: any *.vercel.app host with "relay" in the name. Broad
-// enough to catch both projects, narrow enough that an unrelated dependency
-// mentioning vercel.app cannot turn a release red for nothing.
-const relayHosts = [...new Set((archive.match(/[a-z0-9-]*relay[a-z0-9.-]*\.vercel\.app/gi) ?? []).map((h) => h.toLowerCase()))]
-const foreign = relayHosts.filter((host) => host !== expectedRelay)
-if (foreign.length > 0) {
+// enough to catch both relay projects, narrow enough that an unrelated
+// dependency mentioning vercel.app cannot turn a release red for nothing.
+const relayHosts = hostsMatching(/[a-z0-9-]*relay[a-z0-9.-]*\.vercel\.app/gi)
+if (relayHosts.length > 0) {
   fail(
-    `app.asar carries ${foreign.length} foreign relay host(s): ${foreign.join(', ')}\n` +
-      `      This build targets ${expectedRelay}. Something stale is being packaged —\n` +
+    `app.asar carries ${relayHosts.length} relay host(s): ${relayHosts.join(', ')}\n` +
+      `      This build targets ${expectedHost}, and the relay is retired. Something stale is being\n` +
+      `      packaged — try deleting out/ and rebuilding, then check the files globs.`
+  )
+}
+
+// The same question for the server itself: an API host under jointracely.com
+// that is not this build's (a staging server's bundle left in out/ under a
+// production build, or the default host under a build aimed elsewhere). The
+// bare jointracely.com is not matched — the upgrade link names it on purpose.
+const foreignServers = hostsMatching(/[a-z0-9-]*api[a-z0-9-]*\.(?:[a-z0-9-]+\.)*jointracely\.com/gi).filter(
+  (host) => host !== expectedHost
+)
+if (foreignServers.length > 0) {
+  fail(
+    `app.asar carries ${foreignServers.length} foreign server host(s): ${foreignServers.join(', ')}\n` +
+      `      This build targets ${expectedHost}. Something stale is being packaged —\n` +
       `      try deleting out/ and rebuilding, then check the files globs.`
   )
 }
-if (!archive.includes(expectedRelay)) {
-  fail(`app.asar does not contain ${expectedRelay} at all — the define block did not take`)
+
+// The full URL, not just the host: the define inlines the whole string, so its
+// absence means the define did not take — and a bare host could turn up in a
+// comment or a dependency without proving anything.
+if (!archive.includes(expectedUrl)) {
+  fail(`app.asar does not contain ${expectedUrl} at all — the define block did not take`)
 }
-console.log(`PASS  one relay in app.asar — ${expectedRelay}`)
+console.log(`PASS  one backend in app.asar — ${expectedHost}, and no relay host`)
 
 // allowRemote:false is the whole point. It mirrors what index.ts sets when it
 // finds a bundled models dir, and it means a missing weight file fails here
