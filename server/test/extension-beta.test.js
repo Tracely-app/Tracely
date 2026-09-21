@@ -1,0 +1,441 @@
+/**
+ * The extension half of the test build's Pro grant, and the two extension
+ * bugs fixed alongside it. The extension has no test runner of its own and no
+ * build step, so these load its real source into a vm context with a stubbed
+ * chrome.* and drive the functions that decide what reaches the server.
+ *
+ * What is pinned:
+ *   - X-Tracely-Beta is sent only when beta.json is packaged AND Chrome says
+ *     the copy was loaded unpacked. The manifest `key` gives the unpacked build
+ *     the Web Store build's id, so installType is the only thing that tells
+ *     them apart.
+ *   - Signed out, the worker still reports free UNLESS the server said
+ *     `beta: true`; signed in, it keeps userId (it used to drop it).
+ *   - content.js's storage wrappers call chrome.storage, not themselves, and
+ *     still latch on a genuinely dead context.
+ *   - The options-page slider is the widgets' default stop, capped by plan.
+ *   - The options page shows a beta tester their plan and no way to pay.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+// Same lookup as models.test.js: beside this tree in the app repo, one level
+// further up otherwise. Not finding it is a failure, never a skip.
+const EXT = [path.join(HERE, "..", "extension"), path.join(HERE, "..", "..", "extension")]
+  .find((dir) => existsSync(path.join(dir, "background.js")));
+const read = (f) => {
+  assert.ok(EXT, "could not locate extension/ from " + HERE);
+  return readFileSync(path.join(EXT, f), "utf8");
+};
+
+const EXT_ID = "dffmoeebkkghhgcklkbmaibfhgiegmdm";
+const LOCAL = "http://localhost:4477";
+const plain = (v) => JSON.parse(JSON.stringify(v)); // strip the vm realm's prototypes
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+/* ── background.js in a stubbed worker ─────────────────────────────────── */
+
+function loadWorker({
+  installType = "development",
+  betaFile = { token: "tok-123" }, // null = file absent
+  getSelfThrows = false,
+  noManagement = false,
+  entitlement = { plan: "free", email: null, userId: null, enforced: true },
+  store = {},
+} = {}) {
+  const calls = [];
+  const data = { ...store };
+  const messageListeners = [];
+  const chrome = {
+    runtime: {
+      id: EXT_ID,
+      getURL: (p) => `chrome-extension://${EXT_ID}/${p}`,
+      onMessage: { addListener: (fn) => messageListeners.push(fn) },
+      onInstalled: { addListener: () => {} },
+    },
+    storage: {
+      local: {
+        async get(defaults) {
+          if (typeof defaults === "string") return { [defaults]: data[defaults] };
+          const out = {};
+          for (const [k, v] of Object.entries(defaults)) out[k] = k in data ? data[k] : v;
+          return out;
+        },
+        async set(obj) { Object.assign(data, obj); },
+        async remove(k) { delete data[k]; },
+      },
+    },
+    identity: {},
+  };
+  if (!noManagement) {
+    chrome.management = {
+      async getSelf() {
+        if (getSelfThrows) throw new Error("management unavailable");
+        return { id: EXT_ID, installType };
+      },
+    };
+  }
+  async function fetch(url, init) {
+    calls.push({ url: String(url), init });
+    if (String(url).startsWith("chrome-extension://")) {
+      if (!betaFile) throw new TypeError("Failed to fetch"); // ERR_FILE_NOT_FOUND
+      return { ok: true, status: 200, json: async () => betaFile };
+    }
+    const { pathname } = new URL(url);
+    const body = pathname === "/api/entitlement" ? entitlement : {};
+    return { ok: true, status: 200, json: async () => body };
+  }
+  const ctx = vm.createContext({
+    chrome, fetch, console, URL, URLSearchParams, AbortSignal, crypto: globalThis.crypto,
+    setInterval: () => 0, setTimeout, clearTimeout,
+  });
+  vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
+  const run = (expr) => vm.runInContext(expr, ctx);
+  function ask(msg) {
+    return new Promise((resolve) => {
+      for (const fn of messageListeners) fn(msg, {}, resolve);
+    });
+  }
+  return { run, calls, data, ask };
+}
+
+const entitlementCalls = (w) => w.calls.filter((c) => c.url === `${LOCAL}/api/entitlement`);
+const betaHeader = (init) => init?.headers?.["X-Tracely-Beta"];
+
+test("betaToken: beta.json + Load unpacked sends the token", async () => {
+  const w = loadWorker({ installType: "development", betaFile: { token: "tok-123" } });
+  assert.equal(await w.run("betaToken()"), "tok-123");
+});
+
+test("betaToken: a Web Store install never sends it, even with the file", async () => {
+  const w = loadWorker({ installType: "normal", betaFile: { token: "tok-123" } });
+  assert.equal(await w.run("betaToken()"), "");
+  // It never even looked for the file.
+  assert.ok(!w.calls.some((c) => c.url.startsWith("chrome-extension://")));
+});
+
+test("betaToken: an unpacked build without beta.json sends nothing", async () => {
+  const w = loadWorker({ installType: "development", betaFile: null });
+  assert.equal(await w.run("betaToken()"), "");
+});
+
+test("betaToken: a throwing or missing management API means no beta, never a throw", async () => {
+  assert.equal(await loadWorker({ getSelfThrows: true }).run("betaToken()"), "");
+  assert.equal(await loadWorker({ noManagement: true }).run("betaToken()"), "");
+});
+
+test("betaToken: a token that is not a legal header value is dropped, not sent", async () => {
+  // fetch() throws on an illegal header value, and the relay reads a throw as
+  // "the server died" — a bad token must cost the beta, not every check.
+  for (const token of ["", "  ", "two words", "line\nbreak", "caf\u00e9", 42, null]) {
+    assert.equal(await loadWorker({ betaFile: { token } }).run("betaToken()"), "", JSON.stringify(token));
+  }
+  assert.equal(await loadWorker({ betaFile: { token: "  padded  " } }).run("betaToken()"), "padded");
+});
+
+test("betaToken is resolved once per worker", async () => {
+  const w = loadWorker();
+  await w.run("betaToken()");
+  await w.run("betaToken()");
+  await w.run("relay('/api/check', { sentences: [] })");
+  assert.equal(w.calls.filter((c) => c.url.startsWith("chrome-extension://")).length, 1);
+});
+
+test("signed out + beta: the server's plan is honoured, the header was sent", async () => {
+  const w = loadWorker({ entitlement: { plan: "pro", email: null, userId: null, enforced: true, beta: true } });
+  const ent = plain(await w.run("fetchEntitlement({ force: true })"));
+  assert.equal(ent.plan, "pro");
+  assert.equal(ent.beta, true);
+  assert.equal(betaHeader(entitlementCalls(w)[0].init), "tok-123");
+  const r = await w.ask({ type: "tracely-entitlement" });
+  assert.equal(r.plan, "pro");
+  assert.equal(r.beta, true);
+  assert.equal(r.signedIn, false);
+});
+
+test("signed out without beta: still free, whatever plan the body claims", async () => {
+  for (const body of [
+    { plan: "pro", enforced: true },
+    { plan: "pro", enforced: true, beta: false },
+    { plan: "pro", enforced: true, beta: "true" }, // only a real boolean counts
+  ]) {
+    const w = loadWorker({ entitlement: body });
+    const ent = plain(await w.run("fetchEntitlement({ force: true })"));
+    assert.equal(ent.plan, "free", JSON.stringify(body));
+    assert.equal(ent.beta, false);
+  }
+});
+
+test("a store build sends no beta header to /api/entitlement", async () => {
+  const w = loadWorker({ installType: "normal" });
+  await w.run("fetchEntitlement({ force: true })");
+  const [call] = entitlementCalls(w);
+  assert.ok(call, "signed out still asks the server");
+  assert.equal(betaHeader(call.init), undefined);
+});
+
+test("signed in: userId survives the cache, and beta rides along", async () => {
+  const w = loadWorker({
+    store: { authToken: "jwt-abc" },
+    entitlement: { plan: "pro", email: "t@example.com", userId: "user-42", enforced: true, beta: true },
+  });
+  const r = await w.ask({ type: "tracely-entitlement", force: true });
+  assert.equal(r.userId, "user-42", "tracely-entitlement dropped userId");
+  assert.equal(r.plan, "pro");
+  assert.equal(r.beta, true);
+  assert.equal(w.data.entitlement.userId, "user-42", "storeEntitlement never persisted userId");
+  const [call] = entitlementCalls(w);
+  assert.equal(call.init.headers.Authorization, "Bearer jwt-abc");
+  assert.equal(betaHeader(call.init), "tok-123");
+});
+
+test("relay carries X-Tracely-Beta on POSTs and GETs; a store build's requests are unchanged", async () => {
+  const beta = loadWorker();
+  await beta.run("relay('/api/check', { sentences: [] }, { token: '' })");
+  await beta.run("relay('/api/status', undefined, { token: '' })");
+  const [post, get] = beta.calls.filter((c) => c.url === `${LOCAL}/api/check` || (c.url === `${LOCAL}/api/status` && c.init?.headers));
+  assert.equal(betaHeader(post.init), "tok-123");
+  assert.equal(post.init.method, "POST");
+  assert.equal(betaHeader(get.init), "tok-123");
+
+  const store = loadWorker({ installType: "normal" });
+  await store.run("relay('/api/check', { sentences: [] }, { token: '' })");
+  await store.run("relay('/api/status', undefined, { token: '' })");
+  const check = store.calls.find((c) => c.url === `${LOCAL}/api/check`);
+  assert.equal(betaHeader(check.init), undefined);
+  assert.ok(check.init.headers["X-Tracely-Install"], "the install id still rides along");
+  // An anonymous GET still goes out with no init at all, exactly as before.
+  const gets = store.calls.filter((c) => c.url === `${LOCAL}/api/status`);
+  assert.equal(gets.at(-1).init, undefined);
+});
+
+test("the header name is spelled exactly as the contract says", () => {
+  const src = read("background.js");
+  const names = [...src.matchAll(/["'](X-Tracely-[A-Za-z]+)["']/g)].map((m) => m[1]);
+  assert.ok(names.includes("X-Tracely-Beta"));
+  assert.deepEqual([...new Set(names)].sort(), ["X-Tracely-Beta", "X-Tracely-Install"]);
+});
+
+/* ── content.js: the storage wrappers ──────────────────────────────────── */
+
+function contentSlice(from, to) {
+  const src = read("content.js");
+  const a = src.indexOf(from);
+  const b = src.indexOf(to, a);
+  assert.ok(a > 0 && b > a, `content.js: could not find ${from} .. ${to}`);
+  return src.slice(a, b);
+}
+
+function loadWrappers(chrome) {
+  const code = contentSlice("let extDead = false;", "/* Flow flags")
+    + ";({ storageGet, storageSet, storageOnChanged, sendMsg, dead: () => extDead })";
+  return vm.runInContext(code, vm.createContext({ chrome }));
+}
+
+test("content.js storage wrappers reach chrome.storage and run their callbacks", async () => {
+  const seen = [];
+  const chrome = {
+    runtime: { id: EXT_ID, sendMessage: async () => ({ ok: true }) },
+    storage: {
+      local: {
+        get: (defaults, cb) => { seen.push(["get", defaults]); setTimeout(() => cb({ enabledSites: ["https://a.test"] }), 0); },
+        set: (obj) => { seen.push(["set", obj]); return Promise.resolve(); },
+      },
+      onChanged: { addListener: (fn) => seen.push(["listen", typeof fn]) },
+    },
+  };
+  const w = loadWrappers(chrome);
+  let got = null;
+  w.storageGet({ enabledSites: [] }, (st) => { got = st; });
+  w.storageSet({ enabledSites: [] });
+  w.storageOnChanged(() => {});
+  await tick();
+  assert.deepEqual(plain(got), { enabledSites: ["https://a.test"] }, "the storageGet callback never ran");
+  assert.deepEqual(seen.map((s) => s[0]), ["get", "set", "listen"]);
+  assert.equal(w.dead(), false, "a live page must not be latched dead");
+  assert.deepEqual(plain(await w.sendMsg({ type: "x" })), { ok: true }, "messaging still works after storage calls");
+});
+
+test("content.js wrappers still latch on a genuinely invalidated context", async () => {
+  // chrome.runtime.id going undefined is the liveness signal...
+  const chrome = { runtime: { id: EXT_ID }, storage: { local: { get: () => assert.fail("called a dead context") } } };
+  const w = loadWrappers(chrome);
+  chrome.runtime.id = undefined;
+  assert.equal(w.storageGet({}, () => assert.fail("callback on a dead context")), undefined);
+  assert.equal(w.dead(), true);
+  chrome.runtime.id = EXT_ID; // an orphaned script never recovers
+  assert.equal(await w.sendMsg({}), null);
+
+  // ...and a synchronous "Extension context invalidated" throw is the other.
+  const throwing = {
+    runtime: { id: EXT_ID },
+    storage: { local: { set: () => { throw new Error("Extension context invalidated."); } } },
+  };
+  const t = loadWrappers(throwing);
+  assert.equal(t.storageSet({ a: 1 }), undefined);
+  assert.equal(t.dead(), true);
+});
+
+/* ── content.js: the options-page slider as the default stop ───────────── */
+
+function loadStops({ useRelay = true, stored = null, optionsModel = "" } = {}) {
+  let reads = 0;
+  const ctx = vm.createContext({
+    useRelay,
+    lsGet: () => stored,
+    jsonParse: (raw, fallback) => { try { return JSON.parse(raw); } catch { return fallback; } },
+    storageGet: (defaults, cb) => { reads++; setTimeout(() => cb({ ...defaults, model: optionsModel }), 0); },
+    encodeURIComponent,
+  });
+  const api = vm.runInContext(
+    contentSlice("const SPEED_STOPS", "let tierTimer")
+      + ";({ applyDefaultStop, effModel, effEffort, setTier(plan, resolved) { tier = { ...tier, plan }; tierResolved = resolved; } })",
+    ctx,
+  );
+  return { api, reads: () => reads };
+}
+
+async function defaultFor(opts, plan, resolved) {
+  const { api, reads } = loadStops(opts);
+  api.setTier(plan, resolved);
+  const settings = { model: "gpt-5-nano", effort: "low", citationStyle: "apa" };
+  let applied = 0;
+  api.applyDefaultStop(settings, "tracely.widget.settings", () => { applied++; });
+  await tick();
+  return { settings: { model: settings.model, effort: settings.effort }, applied, reads: reads(), api };
+}
+
+test("the options-page stop is the default where a site has no setting of its own", async () => {
+  const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
+  assert.deepEqual(r.settings, { model: "gpt-6-astra", effort: "medium" });
+  assert.equal(r.applied, 1);
+});
+
+test("the default is capped by plan: clamped once the tier is known, capped at send time before", async () => {
+  const known = await defaultFor({ optionsModel: "gpt-6-astra" }, "free", true);
+  assert.deepEqual(known.settings, { model: "gpt-5-nano", effort: "low" });
+
+  const early = await defaultFor({ optionsModel: "gpt-6-astra" }, "free", false);
+  // Not clamped yet (the tier listener does that when it arrives)...
+  assert.equal(early.settings.model, "gpt-6-astra");
+  // ...but nothing above the plan can be requested meanwhile.
+  assert.equal(early.api.effModel(early.settings), "gpt-5-nano");
+  assert.equal(early.api.effEffort(early.settings), "low");
+
+  const student = await defaultFor({ optionsModel: "gpt-6-astra" }, "student", true);
+  assert.deepEqual(student.settings, { model: "gpt-5.4", effort: "low" });
+});
+
+test("a per-site choice wins, and junk or harness pages change nothing", async () => {
+  const own = await defaultFor({ optionsModel: "gpt-6-astra", stored: JSON.stringify({ model: "gpt-5-nano", effort: "low" }) }, "pro", true);
+  assert.deepEqual(own.settings, { model: "gpt-5-nano", effort: "low" });
+  assert.equal(own.reads, 0, "must not even ask when the site has its own stop");
+
+  for (const opts of [{ optionsModel: "junk" }, { optionsModel: "" }, { optionsModel: "gpt-6-astra", useRelay: false }]) {
+    const r = await defaultFor(opts, "pro", true);
+    assert.deepEqual(r.settings, { model: "gpt-5-nano", effort: "low" }, JSON.stringify(opts));
+    assert.equal(r.applied, 0);
+  }
+});
+
+test("both widgets persist a plan clamp only over a stored per-site choice", () => {
+  const src = read("content.js");
+  const clamps = [...src.matchAll(/if \(clampSettingsToPlan\(settings\)(.*)$/gm)].map((m) => m[1]);
+  assert.equal(clamps.length, 2, "expected the docs and field tier listeners");
+  for (const c of clamps) assert.match(c, /lsGet\(SETTINGS_KEY\) !== null/);
+  assert.equal([...src.matchAll(/applyDefaultStop\(settings, SETTINGS_KEY/g)].length, 2, "both widgets use the default stop");
+});
+
+/* ── options page ─────────────────────────────────────────────────────── */
+
+async function renderOptions(answer) {
+  const els = new Map();
+  const el = (id) => {
+    if (!els.has(id)) {
+      els.set(id, {
+        id, hidden: false, disabled: false, textContent: "", className: "", href: "", value: "0", dataset: {},
+        style: { setProperty() {} },
+        classList: { toggle() {} },
+        addEventListener() {},
+      });
+    }
+    return els.get(id);
+  };
+  // What options.html starts with: both account blocks and the beta badges hidden.
+  for (const id of ["signedIn", "signedOut", "betaPlanOut", "acctBeta", "modelLocked"]) el(id).hidden = true;
+  const chrome = {
+    runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? answer : { ok: true }) },
+    storage: {
+      local: { get: (d, cb) => cb?.({ ...d }), set() {}, remove() {} },
+      onChanged: { addListener() {} },
+    },
+  };
+  const ctx = vm.createContext({
+    chrome, console, setInterval: () => 0, setTimeout: () => 0, clearTimeout() {}, AbortSignal, encodeURIComponent,
+    fetch: async () => { throw new TypeError("offline"); },
+    document: { getElementById: el, querySelectorAll: () => [] },
+  });
+  vm.runInContext(read("options.js"), ctx, { filename: "options.js" });
+  await tick(); await tick();
+  return el;
+}
+
+const BASE = { ok: true, configured: true, email: null, userId: null, unenforced: false };
+
+test("options: a signed-out beta tester sees Pro (beta) and no way to pay", async () => {
+  const $ = await renderOptions({ ...BASE, signedIn: false, plan: "pro", beta: true });
+  assert.equal($("signedOut").hidden, false);
+  assert.equal($("betaPlanOut").hidden, false);
+  assert.equal($("betaPlanLabel").textContent, "Pro");
+  assert.equal($("seePlans").hidden, true, "See plans is a pay link");
+  assert.equal($("modelLocked").hidden, true, "every stop is open, so no upgrade note");
+  assert.match($("acctHint").textContent, /test build/);
+});
+
+test("options: a signed-in beta tester sees Pro with a beta tag, and no Upgrade or Manage link", async () => {
+  const $ = await renderOptions({ ...BASE, signedIn: true, email: "t@example.com", plan: "pro", beta: true });
+  assert.equal($("acctPlan").textContent, "Pro");
+  assert.equal($("acctBeta").hidden, false);
+  assert.equal($("manageLink").hidden, true);
+  assert.equal($("betaPlanOut").hidden, true);
+});
+
+test("options: nothing changes for a user who is not on the test build", async () => {
+  const out = await renderOptions({ ...BASE, signedIn: false, plan: "free" });
+  assert.equal(out("betaPlanOut").hidden, true);
+  assert.equal(out("seePlans").hidden, false);
+  assert.equal(out("modelLocked").hidden, false);
+
+  const free = await renderOptions({ ...BASE, signedIn: true, email: "f@example.com", userId: "u-1", plan: "free" });
+  assert.equal(free("manageLink").hidden, false);
+  assert.equal(free("manageLink").textContent, "Upgrade");
+  assert.equal(free("manageLink").href, "https://jointracely.com/order?uid=u-1");
+  assert.equal(free("acctBeta").hidden, true);
+
+  const pro = await renderOptions({ ...BASE, signedIn: true, email: "p@example.com", plan: "pro" });
+  assert.equal(pro("manageLink").hidden, false);
+  assert.equal(pro("manageLink").textContent, "Manage subscription");
+});
+
+test("options.html lets `hidden` beat the link and badge display rules", () => {
+  // .linkbtn and .acct set display, which beats the UA's [hidden] rule — the
+  // Upgrade link would stay visible with hidden = true.
+  const html = read("options.html");
+  assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
+  for (const id of ["betaPlanOut", "betaPlanLabel", "acctBeta", "seePlans", "manageLink"]) {
+    assert.match(html, new RegExp(`id="${id}"`), `options.html is missing #${id}`);
+  }
+});
+
+test("the beta check needs no new permission", () => {
+  // chrome.management.getSelf works without "management". Adding a permission
+  // is a privilege increase: Chrome disables the extension for every existing
+  // user until they re-accept it.
+  const manifest = JSON.parse(read("manifest.json"));
+  assert.deepEqual(manifest.permissions, ["storage", "identity"]);
+});
