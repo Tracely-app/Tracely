@@ -36,16 +36,20 @@ import { SPEND, dailyBudgetUsd } from "../shared/guards.js";
 const KIND = "spend_ucents";
 const MICRO_CENTS_PER_USD = 100 * 1e6;
 
-/* Two pools, each its own ceiling and its own running total.
+/* Three pools, each its own ceiling and its own running total.
  *
  * `extension` is the pool this module has always had — same synthetic account,
  * same variable — and it is the default everywhere, so every existing caller
  * is unchanged. `app` is the desktop's (see SPEND in shared/guards.js for why
  * the two must not share a day): a desktop Pro user on the thorough model can
- * spend its budget and never touch the extension's. */
+ * spend its budget and never touch the extension's. `beta` is the beta
+ * testers' Pro grant on the extension routes (server.js spendGate): spent
+ * first, and when it is gone the tester falls back to their own plan on the
+ * extension pool rather than being refused. */
 export const SPEND_POOLS = {
   extension: { account: "__global__", variable: "TRACELY_DAILY_BUDGET_USD", fallback: SPEND.defaultDailyBudgetUsd },
   app: { account: "__global_app__", variable: "TRACELY_APP_DAILY_BUDGET_USD", fallback: SPEND.defaultAppDailyBudgetUsd },
+  beta: { account: "__global_beta__", variable: "TRACELY_BETA_DAILY_BUDGET_USD", fallback: SPEND.defaultBetaDailyBudgetUsd },
 };
 function poolOf(name) {
   const p = SPEND_POOLS[name];

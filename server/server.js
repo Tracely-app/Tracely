@@ -11,7 +11,7 @@ import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
-         callerId, entitlementConfigured, forgetCachedPlans } from "./lib/entitlement.js";
+         callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
 import { clampModel, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
@@ -204,7 +204,10 @@ function corsHeaders(req) {
       // refuses to apply a daily quota. Exactly the failure shape as /api/flow
       // missing from background.js's API_PATHS: works, does nothing, says
       // nothing. test/spend.test.js pins this list against the header.
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Tracely-Install",
+      // X-Tracely-Beta is the beta build's Pro grant (lib/entitlement.js
+      // withBetaGrant). Appended, never reordered: the first three are baked
+      // into the extension under Web Store review.
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Tracely-Install, X-Tracely-Beta",
       "Access-Control-Max-Age": "600",
       Vary: "Origin",
     };
@@ -547,9 +550,38 @@ const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
 // The app routes' own limiter — see APP_AI_ROUTES for why it is not checkRate.
 const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
 
-async function spendGate(req, { kind = "check" } = {}) {
+function stampCallerRate(ent, id, kind) {
+  if (!ent.enforced || !id) return;
+  const rate = kind === "sources" ? sourceRate : checkRate;
+  if (!rate.ok(id)) {
+    throw new CheckError("rate_limit", "Slow down a moment — too many requests in the last minute.", { status: 429, retryAfter: 60 });
+  }
+  rate.stamp(id);
+}
+
+/* `beta` is true only for EXTENSION_API routes. A caller whose X-Tracely-Beta
+ * token matches (withBetaGrant) runs as Pro on the BETA pool while that pool
+ * has room for this kind of call — and when it has not, drops silently to its
+ * own plan on the extension pool, exactly as if it had sent no header. So a
+ * beta caller is never refused BECAUSE of beta, and never draws on the
+ * extension pool while the beta pool can still pay. Sources count as "no
+ * room" once the beta pool reaches its own shed threshold, mirroring the
+ * extension pool's rule for which route goes first.
+ *
+ * The returned `pool` is where the route must record its spend. */
+async function spendGate(req, { kind = "check", beta = false } = {}) {
   const ent = await planForRequest(req);
   const id = callerId(req, ent);
+
+  const granted = beta ? withBetaGrant(ent, req) : ent;
+  if (granted.beta) {
+    const betaBudget = spendState({ enforced: ent.enforced, pool: "beta" });
+    if (kind === "sources" ? betaBudget.sourcesAllowed : betaBudget.allowed) {
+      stampCallerRate(granted, id, kind);
+      return { ent: granted, callerId: id, budget: betaBudget, pool: "beta" };
+    }
+  }
+
   const budget = spendState({ enforced: ent.enforced });
 
   if (!budget.allowed) {
@@ -561,15 +593,9 @@ async function spendGate(req, { kind = "check" } = {}) {
     throw new CheckError("budget", "Source search is paused for today to keep fact-checking available. Checking still works.", { status: 503 });
   }
 
-  if (ent.enforced && id) {
-    const rate = kind === "sources" ? sourceRate : checkRate;
-    if (!rate.ok(id)) {
-      throw new CheckError("rate_limit", "Slow down a moment — too many requests in the last minute.", { status: 429, retryAfter: 60 });
-    }
-    rate.stamp(id);
-  }
+  stampCallerRate(ent, id, kind);
 
-  return { ent, callerId: id, budget };
+  return { ent, callerId: id, budget, pool: "extension" };
 }
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
@@ -702,11 +728,18 @@ const server = http.createServer(async (req, res) => {
     // `gate.ent` instead of resolving the plan again — planForRequest caches
     // for 60s, so a second call would be cheap, but one resolution per request
     // is one answer per request.
+    //
+    // The beta grant is offered on EXTENSION_API routes only: never on the app
+    // routes (appGate never sees it) and never on the app-private paid routes
+    // that happen to share spendGate.
     let gate = null;
     if (APP_AI_ROUTES.has(url.pathname)) {
       gate = await appGate(req);
     } else if (PAID_ROUTES.has(url.pathname)) {
-      gate = await spendGate(req, { kind: SOURCE_ROUTES.has(url.pathname) ? "sources" : "check" });
+      gate = await spendGate(req, {
+        kind: SOURCE_ROUTES.has(url.pathname) ? "sources" : "check",
+        beta: EXTENSION_API.has(url.pathname),
+      });
     }
 
     const staticHit = (req.method === "GET" && (resolveUiPage(url.pathname) ?? STATIC_FILES[url.pathname] ?? resolveStatic(url.pathname))) || null;
@@ -729,9 +762,13 @@ const server = http.createServer(async (req, res) => {
       // `budget` is here so the operator can see the day's spend BEFORE it
       // trips, rather than learning about it from a user's 503. It reports
       // percentages and dollars, never a caller's identity.
+      // `betaBudget` (optional) appears only while beta tokens are configured,
+      // so a server with beta off answers exactly the shape it always has.
+      const betaOn = betaTokens().length > 0;
       json(res, 200, {
         hasKey: hasApiKey() || MOCK, mock: MOCK, docsBridge: bridgeConfigured(),
         budget: spendSummary({ enforced: entitlementConfigured() }),
+        ...(betaOn ? { betaBudget: spendSummary({ enforced: entitlementConfigured(), pool: "beta" }) } : {}),
       }, cors);
       return;
     }
@@ -747,13 +784,13 @@ const server = http.createServer(async (req, res) => {
     // of these env vars and nothing changes".
     if (req.method === "GET" && url.pathname === "/api/entitlement") {
       loadEnvFile();
-      const ent = await planForRequest(req);
+      const ent = withBetaGrant(await planForRequest(req), req); // beta: Pro, see spendGate
       // `userId` rides along so the client can attach it to a Stripe checkout
       // as client_reference_id. Without it the webhook can only map a payment
       // to an account by EMAIL, which is wrong exactly when it matters most:
       // a student paying with a parent's card. Not a disclosure — the caller
       // presented that user's own token, and the id is inside it.
-      json(res, 200, { plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now() }, cors);
+      json(res, 200, { plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}) }, cors);
       return;
     }
 
@@ -810,7 +847,7 @@ const server = http.createServer(async (req, res) => {
       recordCheck(ent, who); // before the call, not after
       const modelUsed = allowedModel(ent, pickModel("check"));
       const result = await runFactCheck({ text, sentences, model: modelUsed, effort, mock: MOCK });
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced });
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -859,7 +896,7 @@ const server = http.createServer(async (req, res) => {
       // webSearchCalls: 1 — the tool fee is most of this route's cost and is
       // invisible in the token usage, so pricing it off tokens alone would
       // under-count the expensive route by ~16x.
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: 1, enforced: ent.enforced });
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: 1, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -881,7 +918,7 @@ const server = http.createServer(async (req, res) => {
       const { ent } = gate;
       const modelUsed = allowedModel(ent, model);
       const result = await runFlowCheck({ text, model: modelUsed, mock: MOCK });
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced });
+      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }

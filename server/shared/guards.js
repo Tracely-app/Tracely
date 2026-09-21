@@ -92,6 +92,20 @@ export const SPEND = {
   defaultAppDailyBudgetUsd: 10,
   appCallerCallsPerMinute: 30,
   appCallerSearchesPerHour: 25,
+
+  /* ── the BETA pool: testers on the unpacked beta build, granted Pro ──
+   *
+   * A caller presenting a valid X-Tracely-Beta token (TRACELY_BETA_TOKENS) is
+   * served as Pro on the extension's routes, and that spend lands HERE, never
+   * in the extension pool. When this pool runs out the caller silently drops
+   * back to its own plan on the extension pool — so beta usage can neither
+   * 503 anyone nor eat the day paying and free extension users run on.
+   *
+   * Override with TRACELY_BETA_DAILY_BUDGET_USD, same rules as the others:
+   * empty is "absent", junk is the default, and an explicit 0 turns the
+   * CEILING off (unlimited beta spend) — it does not turn beta off. Emptying
+   * TRACELY_BETA_TOKENS is what turns beta off. */
+  defaultBetaDailyBudgetUsd: 10,
 };
 
 /**

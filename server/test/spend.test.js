@@ -31,7 +31,7 @@ process.env.TRACELY_DATA_DIR = DIR;
 process.on("exit", () => { try { rmSync(DIR, { recursive: true, force: true }); } catch {} });
 
 const { costMicroCents, MODEL_TIERS, MODEL_PRICES } = await import("../lib/llm.js");
-const { spendState, recordSpend, dailyBudgetMicroCents } = await import("../lib/spend.js");
+const { spendState, recordSpend, dailyBudgetMicroCents, spentTodayMicroCents } = await import("../lib/spend.js");
 const { callerId, isDailyQuotaKey, clientAddress, checkQuota, recordCheck,
         sourceSearchQuota, recordSourceSearch, aiQuota, recordAi } = await import("../lib/entitlement.js");
 const { FREE_DAILY_CHECKS, FREE_DAILY_SOURCE_SEARCHES, FREE_DAILY_AI_CALLS } = await import("../shared/plan.js");
@@ -305,6 +305,38 @@ test("TRACELY_APP_DAILY_BUDGET_USD follows the extension budget's rules", () => 
   assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8);
 });
 
+// ── the beta pool: testers' Pro grant, kept off the extension's day ──────
+
+test("the beta pool is its own day: beta spend never touches the extension or app pools", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "1", TRACELY_APP_DAILY_BUDGET_USD: "1", TRACELY_BETA_DAILY_BUDGET_USD: "1" };
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 0, output: 30_000 }, at, pool: "beta" });
+  assert.equal(spendState({ at, env, pool: "beta" }).allowed, false, "the beta pool is spent");
+  assert.equal(spendState({ at, env }).spent, 0, "the extension pool never saw it");
+  assert.equal(spendState({ at, env, pool: "app" }).spent, 0, "nor did the app pool");
+  assert.equal(spentTodayMicroCents(at, "extension"), 0);
+});
+
+test("TRACELY_BETA_DAILY_BUDGET_USD follows the other budgets' rules", () => {
+  const def = SPEND.defaultBetaDailyBudgetUsd * 1e8;
+  assert.equal(SPEND.defaultBetaDailyBudgetUsd, 10);
+  assert.equal(dailyBudgetMicroCents({}, "beta"), def, "absent is the default");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "" }, "beta"), def, "empty is absent, not 0");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "  " }, "beta"), def, "blank is absent");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "NaN" }, "beta"), def, "NaN is junk, and junk is the default");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "-1" }, "beta"), def, "negative is junk");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "0" }, "beta"), 0, "explicit 0 turns the ceiling off");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "2.5" }, "beta"), 2.5e8);
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8, "and never moves the extension's");
+});
+
+test("the beta pool is unmetered on a local run, like every pool", () => {
+  const at = nextAt();
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 1e6, output: 1e6 }, enforced: false, at, pool: "beta" });
+  assert.equal(spentTodayMicroCents(at, "beta"), 0);
+  assert.equal(spendState({ enforced: false, at, pool: "beta" }).allowed, true);
+});
+
 // ── rate limiting ────────────────────────────────────────────────────────
 
 test("the rate limiter admits up to the limit, then refuses", () => {
@@ -321,6 +353,17 @@ test("the rate limiter's key map is bounded against a rotating attacker", () => 
 });
 
 // ── the header has to survive the browser ────────────────────────────────
+
+test("X-Tracely-Beta is APPENDED to the preflight's allowed headers, the frozen three intact", () => {
+  // The beta build sends it on every relayed call and on /api/entitlement;
+  // unlisted, the preflight fails and every tester is silently free. The
+  // first three are baked into the extension under Web Store review, so they
+  // must survive exactly, in order.
+  const server = srcOf("server.js");
+  const m = server.match(/"Access-Control-Allow-Headers":\s*"([^"]+)"/);
+  assert.ok(m, "Access-Control-Allow-Headers not found in server.js");
+  assert.deepEqual(m[1].split(",").map((h) => h.trim()), ["Content-Type", "Authorization", "X-Tracely-Install", "X-Tracely-Beta"]);
+});
 
 test("X-Tracely-Install is allowed through the CORS preflight", async () => {
   // The extension sends this header; if Access-Control-Allow-Headers does not
