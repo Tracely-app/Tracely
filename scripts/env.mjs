@@ -1,16 +1,16 @@
 // Which backend is this build talking to?
 //
-// Every build-time constant the app has — relay URL, relay token, Supabase URL
-// and anon key — is inlined by electron.vite.config.ts and has no runtime
-// representation anywhere. There is no settings field, no about box, nothing to
+// Every build-time constant the app has — the Tracely server's URL, the
+// Supabase URL and anon key — is inlined by electron.vite.config.ts and has no
+// runtime representation anywhere. There is no settings field, no about box, nothing to
 // read back. So the answer to "is this build pointed at staging or production?"
 // is decided entirely here, once, and everything else imports it.
 //
-// That concentration is deliberate. The same four constants used to be
-// re-declared in four places (the vite config, evaluate.mjs, timing.mjs,
+// That concentration is deliberate. The same constants used to be re-declared
+// in four places (the vite config, evaluate.mjs, timing.mjs,
 // check-eval-bundle.mjs); getting one of them wrong produces a build that talks
-// to the staging relay with production credentials, or the reverse, and looks
-// completely normal while doing it.
+// to the staging backend with production credentials, or the reverse, and
+// looks completely normal while doing it.
 
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -37,12 +37,48 @@ const hostOf = (url) => {
 const refOf = (url) => hostOf(url).split('.')[0] ?? ''
 
 /**
+ * The Tracely server a build talks to when nothing says otherwise.
+ *
+ * A default rather than a required value, which is the opposite of what
+ * RELAY_URL was, and the reason is what each one was protecting against. The
+ * relay existed per environment — tracely-relay and tracely-relay-staging —
+ * and nothing about a build said which one it wanted, so a missing value had
+ * to stop the build. There is one hosted server, and every extension build
+ * already talks to it. What a missing value used to produce was an installer
+ * with every AI feature dead; what it produces now is an installer pointed at
+ * the one place it could have meant.
+ *
+ * The cost lands on staging. There is no staging server, so a preview build
+ * whose .env.staging sets no TRACELY_API_URL talks to production — with
+ * staging-project Supabase tokens the production server cannot verify, so it
+ * is metered as a signed-out install (free quota, its own install id). That is
+ * a preview that works and spends a little of the production app budget, not
+ * one that reaches a real user's data. When a staging server exists, set
+ * TRACELY_API_URL in .env.staging and the banner stops saying "(default)".
+ */
+export const DEFAULT_API_URL = 'https://api.jointracely.com'
+
+/**
+ * TRACELY_API_URL, or the default. Call loadEnv() first.
+ *
+ * Blank counts as unset. A CI step that writes `TRACELY_API_URL=${{ secrets.X }}`
+ * for a secret nobody created produces exactly that line, and "the empty
+ * string is a real value" is how a build ships with its AI switched off and
+ * every check still green. Trailing slashes are dropped because the client
+ * appends `/api/<endpoint>` and a double slash is a 404 on some proxies.
+ */
+export function apiUrl() {
+  const configured = (process.env.TRACELY_API_URL ?? '').trim().replace(/\/+$/, '')
+  return configured || DEFAULT_API_URL
+}
+
+/**
  * Loads exactly one env file and returns what it selected.
  *
  * One file, never two. dotenv skips keys already present in process.env, so
  * "load .env then overlay .env.staging" silently keeps the first file's values
  * and gives you a production build wearing a staging label. `override: true`
- * for the same reason at the shell level: a TRACELY_ENV or RELAY_URL left over
+ * for the same reason at the shell level: a TRACELY_ENV or TRACELY_API_URL left over
  * from an earlier session must not outrank the file being loaded.
  */
 export function loadEnv({ root = REPO_ROOT, quiet = false } = {}) {
@@ -50,7 +86,7 @@ export function loadEnv({ root = REPO_ROOT, quiet = false } = {}) {
 
   // Hard failure, not a fallback. Falling back to .env when .env.staging is
   // missing is the single most expensive mistake available here: it would build
-  // something labelled "preview", point it at the production relay and the
+  // something labelled "preview", point it at the production backend and the
   // production Supabase project, and publish it to reviewers.
   if (!existsSync(file)) {
     console.error(`\n${ENV_FILE} not found at ${file}`)
@@ -66,7 +102,11 @@ export function loadEnv({ root = REPO_ROOT, quiet = false } = {}) {
   const info = {
     name: ENV_NAME,
     file: ENV_FILE,
-    relayHost: hostOf(process.env.RELAY_URL ?? ''),
+    apiHost: hostOf(apiUrl()),
+    // Printed beside the host because the default and a deliberate override
+    // look identical in a log line otherwise, and "which one did I get?" is
+    // the question the banner exists to answer.
+    apiFromEnv: Boolean((process.env.TRACELY_API_URL ?? '').trim()),
     supabaseRef: refOf(process.env.SUPABASE_URL ?? '')
   }
 
@@ -84,19 +124,22 @@ export function loadEnv({ root = REPO_ROOT, quiet = false } = {}) {
  * build log turns that from undetectable into obvious.
  */
 export function describeEnv(info) {
-  const relay = info.relayHost || '(no RELAY_URL)'
+  const api = `${info.apiHost}${info.apiFromEnv ? '' : ' (default)'}`
   const supabase = info.supabaseRef || '(no SUPABASE_URL)'
-  return `  env=${info.name}  file=${info.file}  relay=${relay}  supabase=${supabase}`
+  return `  env=${info.name}  file=${info.file}  api=${api}  supabase=${supabase}`
 }
 
 /**
- * The four compile-time constants, for anything running esbuild by hand.
+ * The three compile-time constants, for anything running esbuild by hand.
  * Call loadEnv() first.
+ *
+ * Was relayDefines(), with RELAY_URL and RELAY_TOKEN in place of __API_URL__.
+ * The token has no successor: it shipped in every installer and identified no
+ * one, and the server does not read it.
  */
-export function relayDefines() {
+export function appDefines() {
   return {
-    __RELAY_URL__: JSON.stringify(process.env.RELAY_URL ?? ''),
-    __RELAY_TOKEN__: JSON.stringify(process.env.RELAY_TOKEN ?? ''),
+    __API_URL__: JSON.stringify(apiUrl()),
     __SUPABASE_URL__: JSON.stringify(process.env.SUPABASE_URL ?? ''),
     __SUPABASE_ANON_KEY__: JSON.stringify(process.env.SUPABASE_ANON_KEY ?? '')
   }
@@ -108,8 +151,8 @@ export function relayDefines() {
  * Not cosmetic — it plugs a hole this whole environment split would otherwise
  * open. evaluate.mjs only demands EVAL_ALLOW_SPEND when a run *can* spend, and
  * decides that by counting recordings: once cassettes exist, the flag stops
- * being required. But cassette keys include the relay host, so switching
- * environment invalidates every relay recording at once — every call goes live
+ * being required. But cassette keys include the API host, so switching
+ * environment invalidates every server recording at once — every call goes live
  * and paid, while the guard stays disarmed because the old environment's
  * recordings are still sitting there being counted.
  *

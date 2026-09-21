@@ -456,8 +456,9 @@ export function looksLikeClosing(text: string): boolean {
  * What they have in common is CONTRAST or COMMITMENT — the two things a
  * reportable fact does not have. That is also the limit: this cannot tell a
  * contestable claim from a confidently-worded description, and it never will.
- * It is a floor, and the ceiling is `ai/structureClassifier.ts`, which is built
- * and waiting on a relay endpoint.
+ * It is a floor. The model's own reading of each paragraph arrives with the
+ * graded read (`ai/gradeDraft.ts`), which is what replaced the structure
+ * classifier this comment used to point at — deleted once nothing called it.
  *
  * Checked against a set of real theses and real non-theses (roles.test.ts) so
  * widening it stays honest: every addition has to leave the negatives negative.

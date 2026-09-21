@@ -184,11 +184,11 @@ export default function PreviewApp(): JSX.Element {
           <label className="preview-check">
             <input
               type="checkbox"
-              checked={scenario.relayConfigured}
-              onChange={(e) => update('relayConfigured', e.target.checked)}
+              checked={scenario.serverConfigured}
+              onChange={(e) => update('serverConfigured', e.target.checked)}
             />
             <span>
-              <strong>Relay configured</strong>
+              <strong>Server configured</strong>
               <em>off ⇒ Critique Argument refuses up front</em>
             </span>
           </label>

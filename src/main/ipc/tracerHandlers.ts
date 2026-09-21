@@ -6,7 +6,7 @@ import type {
   TracerNewConversationResponse,
   TracerSendResponse
 } from '@shared/ipc-contract'
-import { isRelayConfigured } from '../services/ai/client'
+import { isServerConfigured } from '../services/ai/client'
 import { MAX_TRACER_MESSAGE_CHARS } from '../services/ai/costGuard'
 import { askTracer, currentContext } from '../services/ai/tracer'
 import { getLatestDocument } from '../services/storage/documentsRepo'
@@ -70,7 +70,7 @@ export function registerTracerHandlers(): void {
       conversation,
       messages: listMessages(conversation.id),
       context: contextPayload(),
-      relayConfigured: isRelayConfigured(),
+      serverConfigured: isServerConfigured(),
       focusedClaimId: null,
       focusedPrompt: null
     }

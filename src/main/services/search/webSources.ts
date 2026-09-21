@@ -1,5 +1,7 @@
 import { createHash } from 'crypto'
-import { callRelay } from '../ai/client'
+import type { ServerModel } from '@shared/plan'
+import { callServer } from '../ai/client'
+import { modelForCall } from '../ai/modelTier'
 import { getCached, setCached } from '../storage/cacheRepo'
 import {
   isPlausibleSourceUrl,
@@ -25,7 +27,7 @@ import type { Author, VenueType } from '@shared/types'
  *
  * ── Why this is not "asking a model for a citation" ────────────────────────
  * Asked from memory a model invents sources, which is why nothing else in this
- * app does it. The relay call behind this uses `web_search_preview`: the URLs
+ * app does it. The server call behind this runs a web search tool: the URLs
  * come from pages the model opened, not from its weights.
  *
  * The remaining failure — a stale or garbled URL — is caught HERE, by fetching
@@ -196,7 +198,16 @@ async function checkUrl(url: string): Promise<Liveness> {
   }
 }
 
-function cacheKey(claim: string, context: string): string {
+function cacheKey(claim: string, context: string, model: ServerModel): string {
+  // v3: find-sources moved from the relay to the Tracely server, and the model
+  // is now in the key. Not strictly one of the "AI answers" the model-in-key
+  // rule was written for — the URLs come from pages the model opened, not from
+  // its judgement — but which pages it opens, how it ranks them and what it
+  // says each one `supports` are all the model's, and the paid tiers run a
+  // stronger one. A week-long entry written by the free model would otherwise
+  // outlive the upgrade by a week. The bump retires every v2 entry, all
+  // written by the relay.
+  //
   // v2: the prompt and the response schema were both rewritten (2026-08-21) —
   // claim decomposition, honest Direct/Partial/Context strength, an `echoes`
   // field, and a judgement on the claim itself. A v1 hit serves the old
@@ -205,13 +216,13 @@ function cacheKey(claim: string, context: string): string {
   // v1. Bump on any change to what the relay returns or to how it is filtered,
   // for the reason spelled out in cachedEvidence.ts — a stale hit serves the
   // pre-change list for a day, on exactly the drafts being used to judge it.
-  return createHash('sha256').update(`search:web::v2::${claim}::${context}`).digest('hex')
+  return createHash('sha256').update(`search:web::v3::${model}::${claim}::${context}`).digest('hex')
 }
 
 /**
  * Search the web for sources supporting one claim.
  *
- * Returns an empty list rather than throwing when the relay is unavailable:
+ * Returns an empty list rather than throwing when the server is unavailable:
  * this supplements the academic providers, and a claim with no web sources is
  * the same state as a claim with no academic ones.
  */
@@ -223,16 +234,21 @@ export async function findWebSources(
   const empty: WebSourceResult = { sources: [], note: '', dropped: [] }
   if (!claimText.trim()) return empty
 
-  const key = cacheKey(claimText, context)
+  const model = await modelForCall()
+  const key = cacheKey(claimText, context, model)
   const cached = getCached<WebSourceResult>(key)
   if (cached) return cached
 
   let response: FindSourcesResponse
   try {
-    response = await callRelay<FindSourcesResponse>('find-sources', {
-      claim: claimText,
-      context
-    })
+    response = await callServer<FindSourcesResponse>(
+      'find-sources',
+      {
+        claim: claimText,
+        context
+      },
+      { model }
+    )
   } catch (error) {
     console.warn('[websearch] failed', error)
     return empty

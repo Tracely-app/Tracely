@@ -54,8 +54,8 @@ export type Scenario = {
    * install is in — an anonymous session that already exists.
    */
   plan: Plan
-  /** With no relay compiled in, every relay-backed action refuses up front. */
-  relayConfigured: boolean
+  /** With no server compiled in, every AI action refuses up front. */
+  serverConfigured: boolean
   /** Make every relay-backed call reject, to review error states. */
   failRelay: boolean
   /** Add a delay to async calls so loading states are actually visible. */
@@ -95,7 +95,7 @@ const FOUND_BREAKDOWN: ScoreBreakdown = {
 export const defaultScenario: Scenario = {
   // The plan most installs are on, and the only one with an upgrade prompt.
   plan: 'free',
-  relayConfigured: true,
+  serverConfigured: true,
   failRelay: false,
   latencyMs: 0,
   structure: 'heuristic',
@@ -523,7 +523,7 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
           conversation: previewConversation,
           messages: previewTracerMessages,
           context: { processName: null, documentText: fx.documentText, claims: [] },
-          relayConfigured: scenario.relayConfigured,
+          serverConfigured: scenario.serverConfigured,
           focusedClaimId: null,
           focusedPrompt: null
         }),

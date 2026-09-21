@@ -3,8 +3,8 @@
 //
 // The harness can't be executed directly for three reasons, all of which
 // this script handles: it's TypeScript, it imports through the `@shared`
-// alias, and services/ai/client.ts reads __RELAY_URL__/__RELAY_TOKEN__ which
-// only exist because electron.vite.config.ts inlines them at build time. So
+// alias, and services/ai/client.ts reads __API_URL__ which only exists
+// because electron.vite.config.ts inlines it at build time. So
 // esbuild does one bundle pass with the same alias and the same defines, and
 // node runs the result.
 //
@@ -33,7 +33,7 @@ import { dirname, isAbsolute, join, resolve } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import * as esbuild from 'esbuild'
 import { announce, installHttpRecorder, report } from './eval-http.mjs'
-import { ENV_NAME, cassetteDir as cassettesFor, loadEnv, relayDefines } from './env.mjs'
+import { ENV_NAME, apiUrl, appDefines, cassetteDir as cassettesFor, loadEnv } from './env.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 loadEnv({ root: repoRoot })
@@ -75,8 +75,8 @@ const outDir = join(repoRoot, 'eval', 'reports')
 //
 // This scratch profile holds the SQLite `ai:critique` cache, and that cache is
 // keyed on the claim text, score, evidence ids and reference lookup: the
-// REQUEST. Not on the relay host, because a shipped build has RELAY_URL
-// compiled in and can never talk to a second relay. The eval can. So a run
+// REQUEST. Not on the backend host, because a shipped build has its backend
+// URL compiled in and can never talk to a second one. The eval can. So a run
 // against staging populated the cache, and the next run — against production,
 // deliberately, to test a newly deployed prompt — answered every claim out of
 // staging's cache, made zero relay calls, and reported the OLD build's verdicts
@@ -93,16 +93,16 @@ if (!existsSync(essayDir)) {
 
 // Namespaced by environment, and that is load-bearing rather than tidy.
 //
-// Cassette keys hash the request URL, which includes the relay host. Switching
-// environment therefore invalidates every relay recording at once — but the
+// Cassette keys hash the request URL, which includes the server host. Switching
+// environment therefore invalidates every server recording at once — but the
 // spend guard below decides whether to demand EVAL_ALLOW_SPEND by *counting*
 // recordings. A flat directory would still hold the old environment's files, so
 // the guard would read "recordings exist, this run is free" and wave through a
-// run where every single relay call goes live and paid.
+// run where every single server call goes live and paid.
 const cassetteDir = cassettesFor(join(repoRoot, 'out', 'eval'))
 const cassetteMode = process.env.EVAL_NO_CASSETTE ? 'off' : process.env.EVAL_REFRESH ? 'refresh' : 'cassette'
 
-// A first run bills the OpenAI account behind the relay — one detect-claims
+// A first run bills the OpenAI account behind the server — one detect-claims
 // call per essay plus one critique per claim — and spends OpenAlex credits at
 // 10 per claim. Seven runs in one morning is ~910 of the 1,000 free daily
 // credits and a visible line on the bill, which is exactly how this guard came
@@ -123,7 +123,7 @@ const recordedCount = existsSync(cassetteDir)
   : 0
 const canSpend = cassetteMode !== 'cassette' || recordedCount === 0
 if (canSpend && !process.env.EVAL_ALLOW_SPEND) {
-  console.error('Refusing to run: with no recordings yet, this makes paid relay calls')
+  console.error('Refusing to run: with no recordings yet, this makes paid server calls')
   console.error('and spends OpenAlex credits.')
   console.error('')
   console.error('  Retrieval and scoring only (still pays for detection):')
@@ -137,11 +137,10 @@ if (canSpend && !process.env.EVAL_ALLOW_SPEND) {
   process.exit(1)
 }
 
-if (!process.env.RELAY_URL) {
-  console.error('RELAY_URL is not set in .env — claim detection cannot run.')
-  console.error('(If you disabled it deliberately, restore it from .env.backup-before-killswitch.)')
-  process.exit(1)
-}
+// There used to be a hard stop here when RELAY_URL was unset. The server URL
+// has a default now (scripts/env.mjs), so there is always somewhere to call —
+// which makes the banner loadEnv printed above, `api=<host>`, the thing to read
+// before letting a paid run go ahead.
 
 mkdirSync(dirname(bundlePath), { recursive: true })
 
@@ -166,7 +165,7 @@ await esbuild.build({
   banner: {
     js: "import{createRequire as __cr}from'module';import{fileURLToPath as __f}from'url';import{dirname as __d}from'path';const require=__cr(import.meta.url);const __filename=__f(import.meta.url);const __dirname=__d(__filename);"
   },
-  define: relayDefines()
+  define: appDefines()
 })
 
 // The ML worker, bundled separately because worker_threads spawns a file from
@@ -232,7 +231,7 @@ announce({ cassetteDir, mode: cassetteMode, skipCritique: Boolean(process.env.EV
 const { stats } = installHttpRecorder({
   cassetteDir,
   mode: cassetteMode,
-  relayUrl: process.env.RELAY_URL
+  apiUrl: apiUrl()
 })
 
 try {

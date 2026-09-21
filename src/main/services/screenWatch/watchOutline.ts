@@ -77,9 +77,9 @@ export function computeWatchOutline({
   /**
    * NO `classified` HERE, AND THAT IS THE POINT.
    *
-   * `structureHandlers` passes model-assigned roles from
-   * /api/classify-structure; this caller deliberately does not, so Screen
-   * Watch labels paragraphs with the local heuristics and pays nothing.
+   * `structureHandlers` passes model-assigned roles from the graded read
+   * (/api/grade); this caller deliberately does not, so Screen Watch labels
+   * paragraphs with the local heuristics and pays nothing.
    *
    * Screen Watch is passive and always-on: it runs on a 1200ms poll over
    * whatever window has focus, so a paid call on this path is a bill the user

@@ -956,9 +956,9 @@ export interface TracerGetConversationResponse {
   conversation: TracerConversation
   messages: TracerMessage[]
   context: TracerContext
-  // False when this build has no relay configured — the renderer disables
-  // the composer and explains why instead of failing on send.
-  relayConfigured: boolean
+  // False when this build has no Tracely server configured — the renderer
+  // disables the composer and explains why instead of failing on send.
+  serverConfigured: boolean
   // Set when the window was opened via "Ask Tracer about this claim" — the
   // renderer prefills a starter question about it.
   focusedClaimId: string | null
