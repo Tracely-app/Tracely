@@ -51,8 +51,10 @@ if [ "$BETA" = 1 ]; then
   # The server splits TRACELY_BETA_TOKENS on commas, trims each entry and
   # reads at most 200 characters of a header, so a token that breaks any of
   # those could never match: refuse it here rather than ship a zip that is
-  # silently free.
-  if ! printf '%s' "$TOKEN" | grep -Eq '^[A-Za-z0-9._~+/=-]{1,200}$'; then
+  # silently free. Matched against the WHOLE string with bash's =~ — grep
+  # matches line by line, so "abc<newline>d,e f" passed when one line did.
+  TOKEN_RE='^[A-Za-z0-9._~+/=-]{1,200}$'
+  if ! [[ "$TOKEN" =~ $TOKEN_RE ]]; then
     echo "pack-extension --beta: TRACELY_BETA_TOKEN must be 1-200 characters of A-Z a-z 0-9 . _ ~ + / = -" >&2
     echo "  (no commas or spaces: the server's TRACELY_BETA_TOKENS is a comma-separated list)." >&2
     exit 1
