@@ -499,6 +499,19 @@ test("a failed model call logs route, kind, model and effort — and none of the
   }
 });
 
+test("a truncated call's billed cost reaches the pool that admitted it", async () => {
+  // The truncation spends every output token allowed. It used to vanish with
+  // the error, so the pool — for beta, the only bound — never saw it.
+  const before = await status(D);
+  const text = "TRIGGER-TRUNCATE the pool must see this";
+  const r = await call(D, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], model: "gpt-6-astra" }, headers: BETA, install: "d-trunc-beta" });
+  assert.equal(r.status, 502);
+  const after = await status(D);
+  // 1,000 in + 16,000 out on gpt-6-astra = $0.81
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.81);
+  assert.equal(after.budget.spentUsd, before.budget.spentUsd, "and only there");
+});
+
 // ── E: the pools' edges ──────────────────────────────────────────────────
 
 test("a beta source search stays on the beta pool below its 20% line, until the pool is actually spent", async () => {

@@ -101,10 +101,13 @@ async function checkBatch({ text, sentences, model, effort }) {
       const mid = Math.ceil(sentences.length / 2);
       const first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort });
       const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort });
+      // The truncated attempt was billed too — every output token it was
+      // allowed — so its usage (lib/llm.js tags it on the error) is part of
+      // what this check cost and of what the route records.
       return {
         findings: [...first.findings, ...second.findings],
         model: second.model,
-        usage: addUsage(first.usage, second.usage),
+        usage: addUsage(addUsage(first.usage, second.usage), err.llm?.usage),
       };
     }
     throw err;
@@ -216,7 +219,12 @@ function hostOf(url) {
 }
 
 function addUsage(a, b) {
-  return { input: a.input + b.input, output: a.output + b.output, cached: a.cached + b.cached };
+  const n = (v) => (Number.isFinite(v) ? v : 0);
+  return {
+    input: n(a?.input) + n(b?.input),
+    output: n(a?.output) + n(b?.output),
+    cached: n(a?.cached) + n(b?.cached),
+  };
 }
 
 // ---------------------------------------------------------------------------

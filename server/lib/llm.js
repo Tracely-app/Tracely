@@ -204,10 +204,19 @@ export const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT
  * at, so server.js can log what failed without logging what was sent — the
  * user's text never appears in the tag. Non-enumerable, and never serialised:
  * the wire body is built from kind/message/retryAfter alone. `effort: null`
- * means the request carried no reasoning effort. */
-function tagFailure(err, sent) {
+ * means the request carried no reasoning effort.
+ *
+ * When the vendor ANSWERED before the failure — truncated at
+ * max_output_tokens, a refusal, empty or unparseable output — that answer was
+ * billed, and a truncation is the dearest call there is (every output token
+ * allowed). `usage` carries what it cost so the caller can still record it;
+ * it used to vanish with the error, so the spend cap never saw it. Absent
+ * when nothing was billed (a network error, a rejected request). */
+function tagFailure(err, sent, p = null, json = null) {
   if (err instanceof CheckError && !err.llm) {
-    Object.defineProperty(err, "llm", { value: { model: sent.model, effort: sent.effort ?? null }, enumerable: false, configurable: true });
+    const tag = { model: sent.model, effort: sent.effort ?? null };
+    if (p && json) tag.usage = p.usageOf(json);
+    Object.defineProperty(err, "llm", { value: tag, enumerable: false, configurable: true });
   }
   return err;
 }
@@ -240,10 +249,10 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
   const level = normalizeEffort(effort);
   const withEffort = effortFor(p, chosen);
   const sent = { model: chosen, effort: withEffort ? level : null };
+  let json = null;
   try {
     const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
 
-    let json;
     try {
       json = await post(p, body);
     } catch (err) {
@@ -263,7 +272,7 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
     }
     return { parsed, model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    throw tagFailure(err, sent);
+    throw tagFailure(err, sent, p, json);
   }
 }
 
@@ -273,15 +282,16 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
   const chosen = chooseModel(model);
   const level = effortFor(p, chosen) ? normalizeEffort(effort) : undefined;
   const sent = { model: chosen, effort: level ?? null };
+  let json = null;
   try {
     // No effort fallback here, and none was ever added: a textCall that 400s on
     // effort fails. structuredCall is where the retry has been measured.
     const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: level });
-    const json = await post(p, body);
+    json = await post(p, body);
     p.checkComplete(json, what);
     return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    throw tagFailure(err, sent);
+    throw tagFailure(err, sent, p, json);
   }
 }
 
@@ -307,10 +317,10 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
   const level = normalized === "minimal" ? "low" : normalized;
   const withEffort = effortFor(p, chosen) && !effortDisabled.has(webEffortKey(p, chosen));
   const sent = { model: chosen, effort: withEffort ? level : null };
+  let json = null;
   try {
     // Searching then writing is slower than writing, hence the longer timeout.
     const build = (e) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e });
-    let json;
     try {
       json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
     } catch (err) {
@@ -322,7 +332,7 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
     p.checkComplete(json, what);
     return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    throw tagFailure(err, sent);
+    throw tagFailure(err, sent, p, json);
   }
 }
 
@@ -342,9 +352,9 @@ export async function webSearchStructuredCall({ model, system, user, schema, max
   const level = normalizeEffort(effort);
   const withEffort = effortFor(p, chosen);
   const sent = { model: chosen, effort: withEffort ? level : null };
+  let json = null;
   try {
     const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
-    let json;
     try {
       json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
     } catch (err) {
@@ -364,6 +374,6 @@ export async function webSearchStructuredCall({ model, system, user, schema, max
     }
     return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    throw tagFailure(err, sent);
+    throw tagFailure(err, sent, p, json);
   }
 }

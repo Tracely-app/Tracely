@@ -181,6 +181,13 @@ const APP_AI_ROUTES = new Set([
  * `route` can never be a path carrying an id. */
 const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources", "/api/watch/critique", ...APP_AI_ROUTES]);
 
+/* The extension's model routes, which record their spend into `gate.pool`.
+ * A call on one of them that fails AFTER the vendor answered (truncated,
+ * refused, unparseable) was still billed; the central handler records that
+ * cost from the error's tag into the same pool, so the ceiling sees it. The
+ * app routes keep their own accounting (appCall), untouched. */
+const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources"]);
+
 // The desktop's source searches: their own rolling window, per caller. The
 // extension's /api/sources has a process-wide 15/hour counter; sharing it
 // would let desktop traffic 429 every extension user's source search.
@@ -1436,6 +1443,13 @@ const server = http.createServer(async (req, res) => {
     // Before the headersSent bail-out, so a failure is logged even when the
     // response can no longer carry it. One line, no user text (failureLog.js).
     if (MODEL_ROUTES.has(route) && isModelFailure(err)) console.error(modelFailureLine(route, err, trace));
+    if (gate?.pool && EXTENSION_MODEL_ROUTES.has(route) && err?.llm?.usage) {
+      try {
+        recordSpend({ model: err.llm.model, usage: err.llm.usage, webSearchCalls: SOURCE_ROUTES.has(route) ? 1 : 0, enforced: gate.ent.enforced, pool: gate.pool });
+      } catch (e) {
+        console.error("[tracely] could not record a failed call's spend:", e?.message);
+      }
+    }
     if (res.headersSent) { res.destroy(); return; }
     if (err instanceof CheckError) {
       json(res, err.status, { error: { kind: err.kind, message: err.message, retryAfter: err.retryAfter } }, cors);
