@@ -54,6 +54,7 @@ function loadWorker({
 } = {}) {
   const calls = [];
   const net = { down, entitlementStatus, entitlement };
+  const opened = []; // chrome.tabs.create calls
   const data = { ...store };
   const messageListeners = [];
   const chrome = {
@@ -76,6 +77,7 @@ function loadWorker({
       },
     },
     identity: {},
+    tabs: { async create(o) { opened.push(o); return { id: 1 }; } },
   };
   if (!noManagement) {
     chrome.management = {
@@ -114,7 +116,7 @@ function loadWorker({
       for (const fn of messageListeners) fn(msg, sender, resolve);
     });
   }
-  return { run, calls, data, ask, net };
+  return { run, calls, data, ask, net, opened };
 }
 
 const entitlementCalls = (w) => w.calls.filter((c) => c.url === `${LOCAL}/api/entitlement`);
@@ -267,11 +269,27 @@ test("the account id reaches the options page, never a content script on a host 
   assert.equal(spoof.userId, null, "a prefix match only");
 });
 
+test("the widgets' PRO link opens the order page with the id, from the worker", async () => {
+  const w = loadWorker({
+    store: { authToken: "jwt-abc" },
+    entitlement: { plan: "free", email: "t@example.com", userId: "user-42", enforced: true },
+  });
+  const host = { id: EXT_ID, url: "https://example.test/", tab: { id: 3 } };
+  const r = await w.ask({ type: "tracely-open-order" }, host);
+  assert.equal(r.ok, true);
+  assert.deepEqual(plain(w.opened), [{ url: "https://jointracely.com/order?uid=user-42" }]);
+  assert.ok(!("userId" in r), "the id opens a tab; it is never sent back to the page");
+
+  const out = loadWorker();
+  await out.ask({ type: "tracely-open-order" }, host);
+  assert.deepEqual(plain(out.opened), [{ url: "https://jointracely.com/order" }], "signed out: the bare page, never uid=null");
+});
+
 test("content.js never builds a uid into a link on the host page", () => {
   const src = read("content.js");
   assert.ok(!/uid=/.test(src), "content.js builds a ?uid= link");
   assert.ok(!/userId/.test(src), "content.js handles the account id at all");
-  assert.match(src, /class="sb-pro" href="\$\{ORDER_URL\}"/);
+  assert.match(src, /class="sb-pro" href="\$\{ORDER_URL\}"/, "the bare page is the no-worker fallback");
 });
 
 test("relay carries X-Tracely-Beta on POSTs and GETs; a store build's requests are unchanged", async () => {

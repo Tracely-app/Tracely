@@ -455,9 +455,14 @@ test("/api/entitlement exposes userId, and the extension forwards it", async () 
   // mapping, then the payer's email) are weaker, and email matching is wrong
   // exactly when a student pays with a parent's card. Nothing fills the first
   // rung unless the account id reaches the checkout link, which means it has
-  // to travel server -> worker -> page. Each hop is pinned here because a
+  // to travel server -> worker -> link. Each hop is pinned here because a
   // break anywhere along it is silent: checkout still succeeds, the payment
   // just lands on nobody.
+  //
+  // The last hop differs by page. The options page (an extension page) builds
+  // the link itself. The widgets live in an OPEN shadow root on host pages,
+  // so the id must never reach them — any site could read it — and their PRO
+  // link asks the worker to open the order page with the id instead.
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
   const pathMod = await import("node:path");
@@ -473,17 +478,23 @@ test("/api/entitlement exposes userId, and the extension forwards it", async () 
   assert.ok(extDir, "could not locate extension/");
 
   const bg = readFileSync(pathMod.join(extDir, "background.js"), "utf8");
-  assert.match(bg, /userId:\s*ent\?\.userId/, "the worker must forward userId to the UI");
+  assert.match(bg, /userId:\s*fromExtensionPage\(sender\)\s*\?\s*ent\?\.userId/,
+    "the worker must forward userId to its own pages, and only to them");
 
-  for (const file of ["options.js", "content.js"]) {
+  for (const file of ["options.js", "background.js"]) {
     const src = readFileSync(pathMod.join(extDir, file), "utf8");
     assert.match(src, /function orderUrl\(/, `${file} must build the upgrade link through orderUrl()`);
     assert.match(src, /uid=\$\{encodeURIComponent\(userId\)\}/, `${file} must attach uid`);
   }
+  assert.match(bg, /tabs\.create\(\{ url: orderUrl\(ent\?\.userId\) \}\)/, "the widgets' PRO link opens WITH the id");
+
+  const content = readFileSync(pathMod.join(extDir, "content.js"), "utf8");
+  assert.doesNotMatch(content, /uid=/, "content.js must never put the account id in a host page");
+  assert.match(content, /type: "tracely-open-order"/, "the widgets' PRO link must go through the worker");
 });
 
 test("orderUrl degrades to a bare link when signed out rather than sending uid=null", () => {
-  // Reproduces the helper both extension files carry. `uid=null` as a literal
+  // Reproduces the helper options.js and background.js carry. `uid=null` as a literal
   // string would reach Stripe as a client_reference_id of "null", which is
   // worse than none: the webhook would key a real payment to a fake account.
   const ORDER_URL = "https://jointracely.com/order";

@@ -134,8 +134,10 @@
      The widget draws into an OPEN shadow root on the host page, so a uid in
      that link would hand every site's scripts a stable, cross-site account id
      (it doubles as the Stripe client_reference_id). The worker does not send
-     this script the id at all; the options page, an extension page, is where
-     an upgrade carries it. Without it the webhook maps the payment by email. */
+     this script the id at all. A click asks the worker instead
+     (tracely-open-order), which opens the order page WITH the id in a new tab,
+     so the checkout still maps to the account; the plain href is the fallback
+     when the worker cannot answer. */
   const ORDER_URL = "https://jointracely.com/order";
 
   const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
@@ -307,6 +309,14 @@
   // The drag stops dead at the plan's ceiling so the thumb never sits over a
   // stop the account would not actually be served.
   function wireSpeedbar(shadow, settings, saveSettings) {
+    // Wired before the early return below: the PRO link shows exactly when
+    // the slider is locked, which on the free tier means disabled.
+    shadow.querySelector(".sb-pro")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      Promise.resolve(sendMsg({ type: "tracely-open-order" })).catch(() => null).then((r) => {
+        if (!r?.ok) window.open(ORDER_URL, "_blank", "noopener,noreferrer");
+      });
+    });
     const el = shadow.getElementById("speedSel");
     if (!el || el.disabled) return; // free tier has a single stop: nothing to drag
     const ceiling = maxStop();

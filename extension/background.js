@@ -494,6 +494,18 @@ async function relay(path, body, { token = "", retried = false } = {}) {
 
 /* ── messaging ───────────────────────────────────────────────────────────── */
 
+/* The order page, with the signed-in account id as `uid`, which the page
+   forwards to Stripe as client_reference_id — the first and only reliable
+   rung of the webhook's account mapping (email matching is wrong exactly when
+   a student pays with a parent's card). Mirrors options.js orderUrl. Built
+   HERE for the widgets' PRO link (tracely-open-order) so the id never enters
+   a host page's DOM. */
+const ORDER_URL = "https://jointracely.com/order";
+function orderUrl(userId) {
+  if (!userId) return ORDER_URL; // signed out: Stripe falls back to email
+  return `${ORDER_URL}?uid=${encodeURIComponent(userId)}`;
+}
+
 /* Whether a message came from one of this extension's OWN pages (the options
    page) rather than a content script. A content script runs inside somebody
    else's page and draws into an OPEN shadow root on it, so anything it is
@@ -557,6 +569,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Fail closed, but still answer: an unanswered probe would leave the
         // widget with no tier at all.
         sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, provisional: true, message: err?.message });
+      }
+    })();
+    return true; // async sendResponse
+  }
+
+  /* The widgets' PRO link. The widget lives in an open shadow root on the
+     host page, so it never holds the account id; it asks here, and the order
+     page opens in a new tab with the id attached. Answers ok:false on any
+     failure so the widget can fall back to the plain link. chrome.tabs.create
+     needs no permission. */
+  if (msg?.type === "tracely-open-order") {
+    (async () => {
+      try {
+        const ent = await fetchEntitlement();
+        await chrome.tabs.create({ url: orderUrl(ent?.userId) });
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, message: err?.message });
       }
     })();
     return true; // async sendResponse
