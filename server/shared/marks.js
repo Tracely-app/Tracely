@@ -18,10 +18,23 @@
  *   outsideIndex: boolean,                     // claim's domain not covered by the indexes searched
  *   strength: { score: 0..100, metric: "lexical"|"dense" } | null,
  *   critique: {                                // resolved LLM critique, null until it lands
- *     verdict: "contradicted"|"citationFix"|"fabricated"|"weak"|"unsupported"|"sound",
- *     overstated: boolean,
+ *     verdict: "contradicted"|"fabricated"|"overstated"|"well-supported"|
+ *              "partially-supported"|"weak"|"unsupported",
+ *     citationFix: string | null,              // corrected reference when the one given is malformed
  *   } | null,
  * }
+ *
+ * THE VERDICT VOCABULARY IS THE RELAY'S, and has been since the desktop's
+ * five-pass critique moved into this server (lib/prompts/critique.js). It used
+ * to be this server's own six — contradicted / citationFix / fabricated / weak
+ * / unsupported / sound — plus an `overstated` boolean. The mapping, so old
+ * reasoning below still reads:
+ *   sound                 -> well-supported
+ *   overstated: true      -> verdict "overstated"
+ *   verdict "citationFix" -> the citationFix FIELD (the corrected reference)
+ *   (new)                    partially-supported
+ * "sound" and a boolean `overstated` are still accepted, so a critique cached
+ * or held in memory from before the change still draws correctly.
  */
 
 export const COLORS = {
@@ -99,14 +112,34 @@ export function problemsFor(state) {
   // (Ported from the production problemKind.ts `isRetrievalMiss`.)
   const retrievalMiss = state.searched && sources.aboveFloor === 0;
 
-  if (critique?.verdict === "fabricated") out.push("fabricated-citation");
+  const verdict = critique?.verdict ?? null;
+  // "The claim holds" in either vocabulary. The critique read the evidence and
+  // it carries the sentence, so retrieval-side findings that it overrules
+  // (an unverified statistic, a missing citation) stay quiet.
+  const supported = verdict === "well-supported" || verdict === "sound";
+  // The critique read the evidence and it does NOT carry the claim as phrased.
+  // (The desktop's WEAK_VERDICTS.) `overstated` is deliberately not here: it is
+  // a finding about the sentence's quantifier, not its source.
+  const doubted = verdict === "weak" || verdict === "unsupported";
+
+  if (verdict === "fabricated") out.push("fabricated-citation");
   // A shape defect needs no verdict and no citation gate: a placeholder author
   // is wrong the moment it is typed, and waiting for a paid critique to say so
-  // in prose is a worse version of the same finding.
-  if (defects.length > 0) out.push("citation-defect");
-  if (critique?.verdict === "contradicted") out.push("contradicted-claim");
-  if (critique?.verdict === "unsupported" && !retrievalMiss) out.push("unsupported-by-evidence");
-  if (critique?.overstated || critique?.verdict === "weak" && (state.confidence ?? 0) >= 0.85) out.push("overstated-claim");
+  // in prose is a worse version of the same finding. A critique that returned
+  // a corrected reference has found the same thing, a paid call later.
+  if (defects.length > 0 || critique?.citationFix || verdict === "citationFix") out.push("citation-defect");
+  if (verdict === "contradicted") out.push("contradicted-claim");
+  // The writer named a source, the critique read it, and it does not carry the
+  // claim. This subsumes the plain evidence bands for a cited sentence: "thin
+  // support" is the wrong advice to someone who has already named a source.
+  if (cited && doubted) out.push("cited-unverified");
+  if (verdict === "unsupported" && !retrievalMiss && !cited) out.push("unsupported-by-evidence");
+  // The relay reports overstatement as its own verdict, with a narrowed
+  // revision. This used to be inferred from `weak` at confidence >= 0.85 —
+  // a proxy for a server whose prompt had no overstated verdict — and keeping
+  // that proxy now would turn "the evidence does not carry this" into "narrow
+  // this word", which the critique has explicitly not said.
+  if (verdict === "overstated" || critique?.overstated === true) out.push("overstated-claim");
 
   // The three empty-retrieval kinds are mutually exclusive, worst-fit first:
   // emitting two of them prints "No supporting sources" underneath "these
@@ -119,7 +152,7 @@ export function problemsFor(state) {
   const outsideIndexFires = state.searched && state.outsideIndex && sources.aboveFloor === 0;
   const unverifiedStatFires =
     state.claimType === "statistic" &&
-    critique?.verdict !== "sound" &&
+    !supported &&
     retrievalMaySpeak &&
     state.searched &&
     sources.citableAboveFloor === 0 &&
@@ -131,14 +164,16 @@ export function problemsFor(state) {
     !state.outsideIndex && !cited && !unverifiedStatFires
   ) out.push("no-sources");
 
-  if (critique?.verdict === "weak") out.push("weak-evidence");
+  if (verdict === "weak" && !cited) out.push("weak-evidence");
   else if (
-    retrievalMaySpeak && state.searched && !cited &&
+    retrievalMaySpeak && state.searched && !cited && !supported && verdict !== "partially-supported" &&
     sources.aboveFloor > 0 && (state.strength?.score ?? 100) < WEAK_STRENGTH_BELOW
   ) out.push("weak-evidence");
-  if (critique?.verdict === "citationFix") out.push("cited-unverified");
+  // "Partially supported" is a verdict now, not only a retrieval band. The
+  // critique read the evidence and it carries part of the claim.
+  if (verdict === "partially-supported") out.push("partial-evidence");
   if (
-    retrievalMaySpeak && state.searched && !cited && critique?.verdict !== "weak" &&
+    retrievalMaySpeak && state.searched && !cited && verdict !== "weak" && !supported &&
     sources.aboveFloor > 0 &&
     (state.strength?.score ?? 100) >= WEAK_STRENGTH_BELOW &&
     (state.strength?.score ?? 100) < PARTIAL_STRENGTH_BELOW
@@ -149,7 +184,7 @@ export function problemsFor(state) {
   // it points the writer at the wrong repair.
   if (
     needsCitation && !cited && state.searched && sources.citableAboveFloor > 0 &&
-    critique?.verdict !== "sound" &&
+    !supported &&
     (state.strength?.score ?? 0) >= PARTIAL_STRENGTH_BELOW
   ) {
     out.push("missing-citation");

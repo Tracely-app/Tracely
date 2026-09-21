@@ -145,3 +145,60 @@ test("problem order follows the ranked list", () => {
   const idx = kinds.map((k) => ranked.indexOf(k));
   assert.deepEqual(idx, [...idx].sort((a, b) => a - b), "kinds not in rank order");
 });
+
+// ── the relay's verdict vocabulary ───────────────────────────────────────
+// The critique moved from this server's own six verdicts (+ an overstated
+// boolean) to the desktop relay's seven. Each case below is a verdict the old
+// table could not express, or one whose meaning changed.
+
+const withVerdict = (verdict, extra = {}) => ({ ...base, critique: { verdict, citationFix: null }, ...extra });
+
+test("overstated is its own verdict now, and draws the amber narrow-this mark", () => {
+  assert.ok(problemsFor(withVerdict("overstated")).includes("overstated-claim"));
+});
+
+test("a weak verdict is NOT promoted to overstated any more, however confident the detection", () => {
+  // The old table inferred overstatement from weak + confidence >= 0.85,
+  // because the old prompt had no overstated verdict. The relay's does, so the
+  // proxy would contradict what the critique actually said.
+  const kinds = problemsFor(withVerdict("weak", { confidence: 0.95 }));
+  assert.ok(!kinds.includes("overstated-claim"), JSON.stringify(kinds));
+});
+
+test("well-supported behaves exactly as sound did", () => {
+  const stat = { ...base, claimType: "statistic", sources: { ...base.sources, citableAboveFloor: 0 } };
+  assert.ok(!problemsFor({ ...stat, critique: { verdict: "well-supported", citationFix: null } }).includes("unverified-statistic"));
+  assert.deepEqual(
+    problemsFor({ ...stat, critique: { verdict: "well-supported", citationFix: null } }),
+    problemsFor({ ...stat, critique: { verdict: "sound", overstated: false } }),
+  );
+});
+
+test("partially-supported is a verdict that draws the partial mark, not the weak one", () => {
+  const kinds = problemsFor(withVerdict("partially-supported"));
+  assert.ok(kinds.includes("partial-evidence"), JSON.stringify(kinds));
+  assert.ok(!kinds.includes("weak-evidence"), JSON.stringify(kinds));
+});
+
+test("a corrected reference from the critique is a citation defect", () => {
+  // The relay returns citationFix as a FIELD. It used to be a verdict that
+  // drew "citation may not support this", which is not what a malformed but
+  // real reference means.
+  const kinds = problemsFor({ ...base, hasOwnCitation: true, critique: { verdict: "well-supported", citationFix: "Smith, J. (2019)." } });
+  assert.ok(kinds.includes("citation-defect"), JSON.stringify(kinds));
+});
+
+test("a cited sentence the critique doubts is 'citation may not support this', not 'thin evidence'", () => {
+  for (const verdict of ["weak", "unsupported"]) {
+    const kinds = problemsFor({ ...base, hasOwnCitation: true, critique: { verdict, citationFix: null } });
+    assert.ok(kinds.includes("cited-unverified"), `${verdict}: ${JSON.stringify(kinds)}`);
+    assert.ok(!kinds.includes("weak-evidence") && !kinds.includes("unsupported-by-evidence"), `${verdict}: ${JSON.stringify(kinds)}`);
+  }
+});
+
+test("well-supported and partially-supported never say the writer's citation is doubtful", () => {
+  for (const verdict of ["well-supported", "partially-supported", "overstated"]) {
+    const kinds = problemsFor({ ...base, hasOwnCitation: true, critique: { verdict, citationFix: null } });
+    assert.ok(!kinds.includes("cited-unverified"), `${verdict}: ${JSON.stringify(kinds)}`);
+  }
+});

@@ -50,11 +50,16 @@ export const api = {
   status: () => call("/api/status"),
 
   // pipeline
-  detectClaims: (text, opts = {}) => call("/api/detect-claims", { text, ...opts }),
+  //
+  // detect / grade / structure send the RAW draft as `draft`. The server's
+  // AI routes speak the desktop's contract — numbered sentences or paragraphs
+  // in `text` — and `draft` is the explicit way to say "this is not numbered,
+  // split it for me". The field name is the switch; nothing sniffs content.
+  detectClaims: (draft, opts = {}) => call("/api/detect-claims", { draft, ...opts }),
   evidence: (req) => call("/api/evidence", req),                 // {claimId?, claim, query, claimType}
-  critique: (req) => call("/api/critique", req),                 // {claim, sentence, citedRef?, sources?, model?}
-  grade: (req) => call("/api/grade", req),                       // {text, level, rubric?, model?} → {components, custom?, model}
-  structure: (text) => call("/api/structure", { text }),
+  critique: (req) => call("/api/critique", req),                 // {claim, sentence, citedRef?, sources?, model?} → {critique, verdict, suggestedRevision, citationFix}
+  grade: (req) => call("/api/grade", req),                       // {draft, level, rubric?, model?} → relay grade, or {components[], custom:true}
+  structure: (draft) => call("/api/structure", { draft }),
   tracer: (req) => call("/api/tracer", req),                     // {conversationId?, documentId?, message}
   citeUrl: (url) => call("/api/cite-url", { url }),
   compareSource: (req) => call("/api/compare-source", req),      // {citedRef} → free Crossref/OpenLibrary resolution

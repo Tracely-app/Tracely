@@ -477,6 +477,39 @@ function makeCitationHelpers(citations) {
 
 /* ── section: render ────────────────────────────────────────────────────── */
 
+
+/* The desktop grader's six components, in the shape report.js and
+   shared/rubric.js already read. `reason` is the grader's word for `note`;
+   counterargument is dropped from the denominator when the grader says the
+   essay's genre does not call for one (rubric: "Do not require
+   counterarguments for every essay"). */
+function fromRubricGrade(res) {
+  const out = {};
+  for (const [key, c] of Object.entries(res?.components ?? {})) {
+    if (!c) continue;
+    out[key] = { score: c.score, quote: c.quote || undefined, note: c.reason || "" };
+  }
+  if (res?.counterargumentApplicable === false && out.counterargument) out.counterargument.absent = true;
+  return out;
+}
+
+/* What the structure rail prints under a paragraph. The classifier answers in
+   fields — does it state a claim, is there a warrant, which reasoning fault —
+   and the rail shows the ones that are problems. */
+const REASONING_FAULT_LABEL = {
+  circular: "Circular reasoning",
+  "sequence-as-cause": "Treats sequence as cause",
+  "single-case": "Generalises from one case",
+  leap: "Logical leap",
+};
+function structureFaults(p) {
+  const out = [];
+  if (REASONING_FAULT_LABEL[p?.reasoningFailure]) out.push(REASONING_FAULT_LABEL[p.reasoningFailure]);
+  const argues = ["claim", "evidence", "reasoning", "counterargument"].includes(p?.role);
+  if (argues && p?.hasWarrant === false && !out.length) out.push("No warrant");
+  return out;
+}
+
 export async function render(mount, ctx) {
   ensureStyles();
   applyAppearance(ctx.settings);
@@ -1052,8 +1085,11 @@ export async function render(mount, ctx) {
         sources: (c.sources ?? []).slice(0, 4),
         model: settings.model,
       });
+      // The relay's shape since the desktop's critique moved into the server:
+      // { critique, verdict, suggestedRevision, citationFix }. The verdict and
+      // the corrected reference are what shared/marks.js decides the mark from.
       c.critique = r;
-      c.state.critique = { verdict: r.verdict, overstated: Boolean(r.overstated) };
+      c.state.critique = { verdict: r.verdict, citationFix: r.citationFix ?? null };
     } catch { /* critique is best-effort; the retrieval mark stands */ }
   }
 
@@ -1186,7 +1222,7 @@ export async function render(mount, ctx) {
       again.addEventListener("click", () => startSourceFlow(claim, true));
       actions.appendChild(again);
     }
-    if (claim.critique?.revision) {
+    if (claim.critique?.suggestedRevision) {
       const fix = el("button", "btn", "Fix sentence");
       fix.addEventListener("click", () => fixSentence(claim));
       actions.appendChild(fix);
@@ -1208,7 +1244,13 @@ export async function render(mount, ctx) {
   }
 
   function diagnosisFor(claim, mark) {
-    if (claim.critique?.explanation) return claim.critique.explanation;
+    if (claim.critique?.critique) {
+      // A malformed-but-real reference comes back corrected; show the fix
+      // under the reasoning so the writer can copy it.
+      return claim.critique.citationFix
+        ? `${claim.critique.critique}\n\nCorrected reference: ${claim.critique.citationFix}`
+        : claim.critique.critique;
+    }
     const s = claim.state;
     switch (mark.kind) {
       case "citation-defect": return `The citation looks incomplete: ${(s.citationDefects ?? []).join("; ") || "a required part is missing"}.`;
@@ -1498,7 +1540,7 @@ export async function render(mount, ctx) {
 
   /* — fix sentence (critique revision, one undo step) — */
   function fixSentence(claim) {
-    const revision = claim.critique?.revision;
+    const revision = claim.critique?.suggestedRevision;
     if (!revision) return;
     const index = buildTextIndex(edDoc);
     const sent = anchorSpan(index.text, claim.sentence, claim.start);
@@ -1593,9 +1635,13 @@ export async function render(mount, ctx) {
       const level = settings.gradingLevel ?? 12;
       // A pasted rubric (Settings → Custom rubric) replaces the built-in one.
       const customRubric = String(settings.customRubric ?? "").trim();
-      const res = await api.grade({ text, level, model: settings.model, rubric: customRubric || undefined });
+      const res = await api.grade({ draft: text, level, model: settings.model, rubric: customRubric || undefined });
       const custom = res.custom === true && Array.isArray(res.components);
-      const components = res.components ?? (custom ? [] : {});
+      // The built-in grade is the desktop's rubric grader now: six components
+      // as {score, quote, reason}, with counterargument's applicability as its
+      // own flag. The report and rubric.js read {score, quote, note, absent},
+      // so it is mapped here rather than taught a second shape in two files.
+      const components = custom ? (res.components ?? []) : fromRubricGrade(res);
 
       // Verify EVERY component quote exists verbatim in the draft.
       const haystack = normWs(text);
@@ -1667,9 +1713,11 @@ export async function render(mount, ctx) {
       for (const p of paras) {
         const box = el("div", "an-para");
         const line = el("div");
-        line.append(el("span", "idx", `¶${(p.index ?? 0) + 1} `), el("span", "role", p.role ?? "paragraph"));
+        // 1-based now: the classifier numbers paragraphs the way the desktop
+        // prompt does, [1] first.
+        line.append(el("span", "idx", `¶${p.index ?? "?"} `), el("span", "role", p.role ?? "paragraph"));
         box.appendChild(line);
-        for (const f of p.faults ?? []) box.appendChild(el("span", "an-fault", f));
+        for (const f of structureFaults(p)) box.appendChild(el("span", "an-fault", f));
         railInner.appendChild(box);
       }
     } catch (e) {
