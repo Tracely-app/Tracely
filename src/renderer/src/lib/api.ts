@@ -94,6 +94,9 @@ export const tracelyApi = {
   getAuthUser: () => call(window.tracely.auth.getUser()),
   /** The account's plan — see lib/plan.tsx, which is what reads it. */
   getPlan: () => call(window.tracely.auth.getPlan()),
+  signInWithGoogle: () => call(window.tracely.auth.signInWithGoogle()),
+  signOut: () => call(window.tracely.auth.signOut()),
+  refreshAuth: () => call(window.tracely.auth.refresh()),
   onAuthStateChanged: (cb: Parameters<typeof window.tracely.onAuthStateChanged>[0]) =>
     window.tracely.onAuthStateChanged(cb)
 }

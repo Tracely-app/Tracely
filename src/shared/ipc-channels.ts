@@ -87,6 +87,9 @@ export const IPC = {
   AUTH_UPDATE_USERNAME: 'auth:updateUsername',
   AUTH_DELETE_ACCOUNT: 'auth:deleteAccount',
   AUTH_GET_PLAN: 'auth:getPlan',
+  // Re-read the account from Supabase now, so a plan bought on the website
+  // applies without waiting for the next token refresh.
+  AUTH_REFRESH: 'auth:refresh',
   SOURCES_FAVICONS: 'sources:favicons'
 } as const
 

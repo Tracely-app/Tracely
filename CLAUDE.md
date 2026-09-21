@@ -250,57 +250,39 @@ There is no lint script configured. The two automated correctness checks are `np
 
 Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. The relay (`Tracely-relay`) still serves installed builds from before this change. Evidence search, scoring, citations, and the library all work with no server.
 
-### Nobody signs in, and the app still has an account
+### Signing in is optional, and it is Google
 
-There is no sign-in screen, no sign-up, no Google button, no name prompt, no
-sign-out and no account panel. There is still a Supabase ACCOUNT, created
-without asking, because two things downstream need one and neither is a UI
-concern:
+Signed out, the desktop is a **free install**: every call to the server carries
+`X-Tracely-Install` (a stable UUID in `config.json`) and the server meters it
+at the free tier. Signed in (Settings → Billing → **Sign in with Google**),
+every call carries that account's access token and runs on its plan — the same
+Supabase account, and so the same plan, as the Chrome extension.
 
-- **The relay refuses a call it cannot attribute.** `resolveUser` in the
-  relay's `lib/auth.ts` fails closed, on all seven AI endpoints — no
-  `Authorization` header is a 401, not a cheaper answer.
-- **Both spend guards are keyed on a user id**: the burst limiter
-  (`lib/rateLimit.ts`, `relay_quota(p_user_id)`) and the 150-per-UTC-day free
-  ceiling (`lib/entitlements.ts`). With nothing to count against, the shared
-  installer token — extractable from any release in about a minute — would be
-  the only thing between a script and the OpenAI bill.
-
-So `ensureAnonymousSession` (`services/auth/client.ts`) signs the install in
-anonymously at boot, and `main/index.ts` awaits it before registering the
-access-token provider. A Supabase anonymous user is an ordinary user row with
-an ordinary JWT: **the relay needed no change and was not changed.**
-
-- **THE SESSION FILE IS THE IDENTITY.** `sessionStore.ts` persists it under the
-  user-data dir and supabase-js refreshes it, so one install keeps one account
-  and its daily allowance means something. Getting the stored session BEFORE
-  minting one is the whole of that — skip it and every launch is a new account
-  with a fresh 150.
-- **It requires "Allow anonymous sign-ins" on the Supabase project.** With that
-  off, Supabase refuses, the app logs it and carries on: local features work
-  and relay calls 401, which is exactly the state a signed-out install used to
-  be in.
-- **`ensureAnonymousSession` cannot throw.** It runs inside the boot sequence.
-- **`authRequired` did not go away and no longer means "sign in".** It is a 401
-  reaching Screen Watch, and the one thing it must not now say is that the
-  reader can fix it by signing in — see the status line in `HomeView`.
-- **`src/shared/*` kept its auth surface**, the same way the `TRACER_*`
-  constants outlived Tracer's removal: the `AUTH_SIGN_*` / `AUTH_UPDATE_*` /
-  `AUTH_DELETE_ACCOUNT` channels, the `Auth*` request/response types and
-  `shared/oauthScheme.ts` (plus its test) are all still there with nothing
-  registered against them. Additive, per the rule below.
-- **The relay's `api/delete-account.ts` now has no caller.** Left deployed
-  rather than removed — an endpoint nothing calls costs nothing, and the client
-  half of that decision is not ours to make from here.
-
-The section this replaced described the `tracely://` scheme fight between dev,
-stable and preview builds over Google's OAuth callback. All of it — the scheme,
-`registerOAuthProtocol`, the `protocols:` block in `electron-builder.yml`, the
-per-channel redirect URLs — is deleted. `npm run dev` no longer takes anything
-from the installed app. **`tracely-preview://auth-callback` is still on the
-staging Supabase project's allowlist**; harmless, and left there because
-removing an allowlist entry is the kind of change that is only noticed when
-something needs it back.
+- **Google, not a password.** The extension signs people in with Google only,
+  and the extension is where plans are sold, so every paying account is a
+  Google identity with no password. A password form here would mint a second,
+  planless account per customer — the opposite of one account on both surfaces.
+- **A loopback redirect, not `tracely://`.** `services/auth/googleSignIn.ts`
+  opens the user's browser and listens on `http://127.0.0.1:53117/auth/callback`
+  (RFC 8252); Supabase's PKCE code comes back there and is exchanged in main.
+  The custom protocol the first version used — and the dev/stable/preview
+  scheme fight it caused — stays deleted. **That exact URL must be on the
+  Supabase project's Redirect URLs allow list**; unlisted, Supabase silently
+  sends the browser to the Site URL and sign-in times out (the timeout message
+  says so). `loopback.test.ts` pins the address.
+- **Sign-out is `scope: 'local'`.** supabase-js signs out GLOBALLY by default,
+  which would also sign the person out of the extension everywhere.
+- **"Refresh plan"** re-reads the account at once (`AUTH_REFRESH`); otherwise a
+  plan bought on the website reaches the session at the next token refresh.
+- The upgrade link carries `?uid=<account id>` (`upgradeUrlFor` in
+  `shared/plan.ts`), which jointracely.com/order forwards to Stripe as
+  client_reference_id — the same contract as the extension's `orderUrl()`.
+- **Anonymous sign-ins are OFF** on the Supabase project, so
+  `ensureAnonymousSession` fails quietly at boot. That is fine: the install id
+  is what a signed-out call is metered by. The function stays because a
+  project that allows anonymous users gets a session it can keep.
+- Still gone, and staying gone: email/password, name and username prompts,
+  delete-account. Their channel constants live on in `shared/` (additive rule).
 
 ### Windows packaging gotcha
 

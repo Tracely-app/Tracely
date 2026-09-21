@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type {
   AccentColor,
   AppSettings,
+  AuthUser,
   CitationStyle,
   Density,
   FontSize,
@@ -39,8 +40,8 @@ import {
   PLAN_INCLUDES,
   PLAN_LABEL,
   PLAN_PRICE,
-  UPGRADE_URL,
   modelTierUnlocked,
+  upgradeUrlFor,
   resolveModelTier,
   type ModelTier
 } from '@shared/plan'
@@ -160,6 +161,50 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
   const setGradingLevel = useSetGradeLevel()
   const plan = usePlan()
   const [error, setError] = useState<string | null>(null)
+
+  // Who is signed in, for Billing. `undefined` until the first read, so the
+  // panel never flashes "Not signed in" at someone who is. A Google account
+  // always has an email; the anonymous session this app can hold has none, so
+  // the email is the test for "signed in".
+  const [account, setAccount] = useState<AuthUser | null | undefined>(undefined)
+  const [signingIn, setSigningIn] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const signedIn = Boolean(account?.email)
+  useEffect(() => {
+    const read = (): void => {
+      tracelyApi
+        .getAuthUser()
+        .then((res) => setAccount(res.user))
+        .catch(() => setAccount(null))
+    }
+    read()
+    return tracelyApi.onAuthStateChanged(() => read())
+  }, [])
+
+  async function signIn(): Promise<void> {
+    setAuthError(null)
+    setSigningIn(true)
+    try {
+      await tracelyApi.signInWithGoogle()
+      const res = await tracelyApi.getAuthUser()
+      setAccount(res.user)
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
+  async function signOut(): Promise<void> {
+    setAuthError(null)
+    try {
+      await tracelyApi.signOut()
+      const res = await tracelyApi.getAuthUser()
+      setAccount(res.user)
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   useEffect(() => {
     tracelyApi
@@ -860,8 +905,40 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
             <div key="billing" className="settings-panel-content">
               <div className="settings-panel-header">
                 <h3>Billing</h3>
-                <p>Your plan, and what it unlocks.</p>
+                <p>Your account, your plan, and what it unlocks.</p>
               </div>
+              {/* Signing in is optional. Signed out, this is a free install;
+                  signed in, every check runs on that account's plan — the
+                  same account, and the same plan, as the Chrome extension.
+                  Google only: the extension signs people in with Google, so
+                  that is where every paid plan lives (services/auth/loopback.ts). */}
+              {account === undefined ? null : (
+                <div className="settings-plan-upgrade">
+                  <div>
+                    <div className="settings-toggle-row-title">
+                      {signedIn ? `Signed in as ${account?.email}` : 'Not signed in'}
+                    </div>
+                    <div className="settings-toggle-row-subtitle">
+                      {signedIn
+                        ? 'Checks on this computer run on this account’s plan — the same account as the Tracely Chrome extension.'
+                        : 'Sign in with the Google account you use in the Tracely Chrome extension; that is where your plan lives. Signed out, Tracely runs on the free plan.'}
+                    </div>
+                  </div>
+                  {signedIn ? (
+                    <Button variant="secondary" onClick={() => void signOut()}>
+                      Sign out
+                    </Button>
+                  ) : (
+                    <Button variant="primary" onClick={() => void signIn()} disabled={signingIn}>
+                      {signingIn ? 'Waiting for Google…' : 'Sign in with Google'}
+                    </Button>
+                  )}
+                </div>
+              )}
+              {signingIn ? (
+                <p className="muted">Finish signing in in the browser window that just opened, then come back here.</p>
+              ) : null}
+              {authError ? <p className="error-text">{authError}</p> : null}
               <div className="settings-plan-card">
                 <div className="settings-plan-head">
                   <div>
@@ -887,22 +964,34 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   </div>
                   {/* The user's own browser, never a window of ours — the same
                       route every other outbound link in this app takes. */}
-                  <Button variant="primary" onClick={() => void tracelyApi.openExternal(UPGRADE_URL)}>
+                  {/* Signed in, the link carries this account's id, which is
+                      how the purchase finds this account (client_reference_id
+                      at Stripe) rather than being matched by email. */}
+                  <Button
+                    variant="primary"
+                    onClick={() => void tracelyApi.openExternal(upgradeUrlFor(signedIn ? account?.id : null))}
+                  >
                     See plans
                   </Button>
                 </div>
               ) : null}
-              {/* The last clause used to offer "or immediately if you sign out
-                  and back in", which is no longer a thing anyone can do. Note
-                  that with no sign-in there is also no way for a purchase made
-                  on the website to find this install — every account here is
-                  anonymous, so this panel can only ever read Free. Raised in
-                  the PR rather than answered here: what replaces the upgrade
-                  path is a product decision, not a cleanup. */}
+              {signedIn && plan === 'free' ? (
+                <div className="settings-plan-upgrade">
+                  <div>
+                    <div className="settings-toggle-row-title">Already paid?</div>
+                    <div className="settings-toggle-row-subtitle">
+                      A plan bought on jointracely.com is on your account straight away; this reads it now instead of
+                      within the hour.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => void tracelyApi.refreshAuth().catch(() => undefined)}>
+                    Refresh plan
+                  </Button>
+                </div>
+              ) : null}
               <p className="muted settings-app-note">
                 Plans are bought and cancelled on jointracely.com. No card is stored in this app and nothing on
-                this screen charges you. A change made there reaches this window the next time your session
-                refreshes.
+                this screen charges you.
               </p>
             </div>
           ) : null}

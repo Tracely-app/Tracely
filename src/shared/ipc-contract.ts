@@ -1035,6 +1035,11 @@ export interface AuthDeleteAccountResponse {
   ok: true
 }
 
+export type AuthRefreshRequest = Record<string, never>
+export interface AuthRefreshResponse {
+  ok: true
+}
+
 export type AuthGetPlanRequest = Record<string, never>
 export interface AuthGetPlanResponse {
   /**
