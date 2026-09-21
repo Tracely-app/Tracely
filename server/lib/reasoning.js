@@ -32,7 +32,7 @@
  * TRACELY_MOCK=1 returns deterministic answers in the same shapes, so the
  * whole product runs keyless for shape checks and tests.
  */
-import { structuredCall, textCall, webSearchStructuredCall } from "./llm.js";
+import { structuredCall, textCall, webSearchStructuredCall, DEFAULT_MODEL } from "./llm.js";
 import { CheckError } from "./errors.js";
 import { CLAIM_DETECTION_SYSTEM_PROMPT, CLAIM_DETECTION_SCHEMA } from "./prompts/detect.js";
 import { CRITIQUE_SYSTEM_PROMPT, CRITIQUE_SCHEMA } from "./prompts/critique.js";
@@ -391,7 +391,7 @@ export async function findSources({ claim, context, model, effort }) {
     schema: SOURCE_SEARCH_SCHEMA.schema, name: SOURCE_SEARCH_SCHEMA.name,
     what: "source search",
   });
-  return { ...out.parsed, model: out.model, usage: out.usage };
+  return { ...out.parsed, model: out.model, usage: out.usage, webSearchCalls: out.webSearchCalls };
 }
 
 /* ── mocks: deterministic, same shapes, no key ─────────────────────────── */
@@ -399,7 +399,7 @@ export async function findSources({ claim, context, model, effort }) {
 function zeroUsage() {
   return { input: 0, output: 0, cached: 0 };
 }
-const mockModel = (model) => `${model ?? "gpt-5-nano"} (mock)`;
+const mockModel = (model) => `${model ?? DEFAULT_MODEL} (mock)`;
 
 function mockDetect(input, model) {
   // Every sentence carrying a digit, capitalised name or causal word is a claim.

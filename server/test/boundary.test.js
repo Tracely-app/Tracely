@@ -15,6 +15,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import net from "node:net";
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,26 +23,47 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 4800 + Math.floor(Math.random() * 900);
-const BASE = `http://127.0.0.1:${PORT}`;
+/* A port the OS just handed out, so it is free and ephemeral. A fixed random
+ * range was not safe: Node's fetch refuses the Fetch standard's "bad ports"
+ * (5060, 5061, 6000, 6566, 6665-6669, 6697 — "bad port", forever), and local
+ * services hold others (AirPlay on 5000, Postgres on 5432, Discord on 6463).
+ * Any of those made a test server look like it never started. */
+const freePort = () => new Promise((resolve, reject) => {
+  const probe = net.createServer();
+  probe.unref();
+  probe.on("error", reject);
+  probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
+});
+
+let PORT;
+let BASE;
 let child;
 
 async function boot() {
-  child = spawn(process.execPath, [path.join(HERE, "..", "server.js")], {
-    env: {
-      ...process.env,
-      TRACELY_MOCK: "1",
-      PORT: String(PORT),
-      TRACELY_DATA_DIR: mkdtempSync(path.join(tmpdir(), "tracely-boundary-")),
-      SUPABASE_URL: "https://boundary-test.invalid",
-      SUPABASE_ANON_KEY: "anon",
-      TRACELY_LLM_PROVIDER: "",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  for (let i = 0; i < 100; i++) {
-    try { if ((await fetch(`${BASE}/api/status`)).ok) return; } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 50));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    PORT = await freePort();
+    BASE = `http://127.0.0.1:${PORT}`;
+    let exited = false;
+    child = spawn(process.execPath, [path.join(HERE, "..", "server.js")], {
+      env: {
+        ...process.env,
+        TRACELY_MOCK: "1",
+        PORT: String(PORT),
+        TRACELY_DATA_DIR: mkdtempSync(path.join(tmpdir(), "tracely-boundary-")),
+        SUPABASE_URL: "https://boundary-test.invalid",
+        SUPABASE_ANON_KEY: "anon",
+        TRACELY_LLM_PROVIDER: "",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.on("exit", () => { exited = true; });
+    for (let i = 0; i < 100 && !exited; i++) {
+      try { if ((await fetch(`${BASE}/api/status`)).ok && !exited) return; } catch { /* not up yet */ }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    child.kill();
+    if (!exited) break; // it never came up: not a port problem
+    // It exited before answering: the port was taken after the probe. Again.
   }
   throw new Error("server did not start");
 }
@@ -88,18 +110,19 @@ test("the app routes have a limiter of their own", async () => {
 
 test("a hosted app route cannot be steered to the top model through the global prefs row", async () => {
   // PUT /api/prefs has no authentication. Before appModelFor, this made every
-  // app route run the thorough model for everyone.
+  // app route run the thorough model for everyone. It is now refused outright
+  // on a hosted server; the model check below stands either way.
   const put = await fetch(`${BASE}/api/prefs`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modelStrategy: "uniform", model: "gpt-6-astra" }) });
-  assert.equal(put.status, 200);
+  assert.equal(put.status, 403);
   const r = await post("/api/structure", { text: DRAFT + "prefs" }, "prefs-user");
   assert.equal(r.status, 200);
-  assert.match(r.body.model, /^gpt-5-nano/, `an anonymous free caller ran ${r.body.model}`);
+  assert.match(r.body.model, /^gpt-5.6-luna/, `an anonymous free caller ran ${r.body.model}`);
 });
 
 test("a free caller asking for the top model is clamped to the free one", async () => {
   const r = await post("/api/structure", { text: DRAFT + "ask", model: "gpt-6-astra" }, "greedy-user");
   assert.equal(r.status, 200);
-  assert.match(r.body.model, /^gpt-5-nano/);
+  assert.match(r.body.model, /^gpt-5.6-luna/);
 });
 
 test("the extension's routes still answer exactly as before", async () => {

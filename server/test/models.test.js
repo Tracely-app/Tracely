@@ -12,7 +12,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { MODEL_TIERS, ALLOWED_MODELS, DEFAULT_MODEL } from "../lib/llm.js";
-import { MODEL_FOR_TIER, TIER_FOR_MODEL, MODEL_TIERS as TIER_NAMES, PLAN_MODEL_CEILING, PLANS } from "../shared/plan.js";
+import { MODEL_FOR_TIER, TIER_FOR_MODEL, MODEL_TIERS as TIER_NAMES, PLAN_MODEL_CEILING, PLANS, LEGACY_MODEL_TIER, currentModelId } from "../shared/plan.js";
 
 test("shared/plan.js mirrors lib/llm.js exactly", () => {
   assert.deepEqual(MODEL_FOR_TIER, MODEL_TIERS);
@@ -91,6 +91,35 @@ test("options.js MODELS is the tier ladder, cheapest first", () => {
   assert.ok(block, "MODELS not found in options.js");
   const ids = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(ids, ORDERED);
+});
+
+test("content.js SPEED_STOPS carry the efforts the model eval measured", () => {
+  // eval/models/FINDINGS.md: the fast model checks at 100% at medium and 90%
+  // at low; balanced and thorough were only measured at low (the old
+  // thorough stop sent medium, which was never measured).
+  const block = read("content.js").match(/const SPEED_STOPS = \[([\s\S]*?)\];/);
+  const efforts = [...block[1].matchAll(/effort: "([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(efforts, ["medium", "low", "low"]);
+});
+
+/* Retired ids earlier extension builds saved (a site's stop, the options
+ * default) are read back as a stop by content.js and options.js, and sent
+ * ones are translated by the server's LEGACY_MODEL_TIER. A third copy, so it
+ * is pinned like the others: each retired id must name the same stop as the
+ * tier the server maps it to. */
+test("the extension's retired-id maps agree with the server's LEGACY_MODEL_TIER", () => {
+  const parse = (src, name) => {
+    const m = src.match(new RegExp(`const ${name} = \\{([^}]*)\\}`));
+    assert.ok(m, `${name} not found`);
+    return Object.fromEntries([...m[1].matchAll(/"([^"]+)":\s*(\d+)/g)].map((x) => [x[1], Number(x[2])]));
+  };
+  const expected = Object.fromEntries(Object.entries(LEGACY_MODEL_TIER).map(([id, tier]) => [id, TIER_NAMES.indexOf(tier)]));
+  assert.deepEqual(parse(read("content.js"), "RETIRED_STOP"), expected, "content.js RETIRED_STOP");
+  assert.deepEqual(parse(read("options.js"), "RETIRED_MODELS"), expected, "options.js RETIRED_MODELS");
+  for (const id of Object.keys(LEGACY_MODEL_TIER)) {
+    assert.ok(!ALLOWED_MODELS.has(id), `${id} is retired but still a tier`);
+    assert.ok(ALLOWED_MODELS.has(currentModelId(id)), `${id} must translate to a model the server serves`);
+  }
 });
 
 test("the slider ladder and the plan ceilings are the same length", () => {
@@ -229,6 +258,17 @@ test("there is exactly one price table, and it prices every tier", () => {
   // The API echoes dated snapshots back as `model`; the meter must still price them.
   assert.ok(priceFor(`${MODEL_TIERS.fast}-2025-08-07`), "a dated snapshot id must resolve to its family's price");
   assert.equal(priceFor("claude-opus-5"), null, "an unknown model is unpriced, never priced as something else");
+});
+
+test("every tier is priced with its cache-write rate", () => {
+  // All three bill a first-seen prompt prefix at 1.25x input
+  // (usage.input_tokens_details.cache_write_tokens). A tier without a
+  // cacheWrite price is billed at its input rate — an under-count on every
+  // cold call — so adding one without it must be a decision, not an omission.
+  for (const id of Object.values(MODEL_TIERS)) {
+    const p = SHARED_PRICES[id];
+    assert.ok(Number.isFinite(p.cacheWrite) && p.cacheWrite >= p.input, `${id} has no cacheWrite price`);
+  }
 });
 
 test("the web app's model picker is the server's tier map, not a copy", () => {

@@ -70,3 +70,8 @@ demo.html
 # Tracely live preview (dev-only, generated/gitignored)
 extension-dev/
 .env.live
+
+# The test extension's token. server/scripts/pack-extension.sh --beta writes
+# beta.json into its STAGED copy only; one sitting in extension/ is a mistake
+# waiting for `git add -A`, and this repo is public.
+extension/beta.json

@@ -22,11 +22,15 @@ function recordUsage(data) {
   const input = Number(u.input) || 0;
   const output = Number(u.output) || 0;
   if (input === 0 && output === 0) return;
+  // Cache reads and cache writes are both subsets of input, priced as the
+  // server's costMicroCents prices them: a write at the model's cacheWrite
+  // rate (its input rate when it has none), never again as fresh input.
   const cached = Math.min(Number(u.cached) || 0, input);
+  const written = Math.min(Number(u.cacheWrite) || 0, input - cached);
   totalIn += input;
   totalOut += output;
   const p = priceFor(data.model);
-  if (p) cost += ((input - cached) * p.input + cached * p.cached + output * p.output) / 1e6;
+  if (p) cost += ((input - cached - written) * p.input + cached * p.cached + written * (p.cacheWrite ?? p.input) + output * p.output) / 1e6;
   window.dispatchEvent(new CustomEvent("tracely:usage", {
     detail: { input: totalIn, output: totalOut, cost },
   }));

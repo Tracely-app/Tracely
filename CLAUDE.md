@@ -36,12 +36,27 @@ this section before touching anything that makes a model call.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
   request builders and parsers did not change when it moved.
-- **Models are the server's tier map, gated by plan**: free → `gpt-5-nano`,
-  student → `gpt-5.4`, pro → `gpt-6-astra`. The ids are copied by hand into
+- **Models are the server's tier map, gated by plan**: free → `gpt-5.6-luna`,
+  student → `gpt-5.6-terra`, pro → `gpt-6-astra`, chosen by a measured,
+  blind-judged eval (`eval/models/FINDINGS.md`; re-run it before changing a
+  tier or an effort). The ids are copied by hand into
   `server/shared/plan.js`, `src/shared/plan.ts` (`MODEL_FOR_TIER`) and three
   extension files; `server/test/models.test.js` fails if any copy drifts. The
   desktop resolves the user's chosen tier against their plan and sends that
-  model; the server clamps it (`appModelFor`).
+  model; the server clamps it (`appModelFor`). The ids the tiers used before
+  2026-09-21 (`gpt-5-nano`, `gpt-5.4`) are still SENT by extension <= 2.19.2
+  and older desktops: `shared/plan.js` `LEGACY_MODEL_TIER` / `currentModelId`
+  translate them to their tier's current model — keep that map until no such
+  build is in use. The reverse skew is NOT handled: a 2.19.3+ extension on a
+  pre-2026-09-21 server runs `gpt-5-nano` at the Fast stop's `medium` (the
+  eval's slowest config, 40-60 s a check) and ignores the beta header, so
+  deploy the server before any zip from the same change ships, beta
+  included, and never roll it back to an older `app.bak-*` while 2.19.3+
+  is installed (`server/DEPLOY.md`, "The model tiers"). `/api/check` runs
+  each tier at its measured effort (fast `medium`, balanced and thorough
+  `low`) whatever the client sends (`checkEffort` in server.js) — the one
+  route the eval measured, and the store build's Thorough stop sends an
+  unmeasured `medium`.
 - **Hand-copied logic is mirror-tested.** `server/shared/*` holds leaf ports of
   desktop modules (the splitters, `gradedDraft`, `normalizeCritique`,
   `narrowing`, the owner's `RUBRIC_TEXT`); `server/test/mirror.test.js` runs
@@ -73,7 +88,16 @@ this section before touching anything that makes a model call.
   and asserts the extension's routes do not move.
 - **A caller's model is never read from the global prefs row on a hosted
   server.** `PUT /api/prefs` is unauthenticated and that row is shared by every
-  caller; it drives the model only on a local, single-user server.
+  caller; it drives the model only on a local, single-user server (and a
+  hosted server refuses the PUT outright).
+- **The extension's model routes spend three pools** (`spendGate`): free
+  callers the shared `extension` pool, Student/Pro the `paid` pool, test-build
+  callers (`X-Tracely-Beta`) the `beta` pool. The paid and beta pools serve
+  the thorough model, so they reserve each admitted call's worst case
+  (`WORST_CALL`, `lib/spend.js` `reserveSpend`; a check's truncation split
+  is admitted the same way, `reservation.extend`) and fall back — to the fast
+  model, or to the caller's own plan — instead of ever 503ing. A pool that
+  can reach expensive models must never share a day with free users.
 
 ### Accounts and billing
 

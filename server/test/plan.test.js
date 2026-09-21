@@ -17,6 +17,9 @@ import {
   clampModel,
   ceilingModelFor,
   MODEL_FOR_TIER,
+  TIER_FOR_MODEL,
+  LEGACY_MODEL_TIER,
+  currentModelId,
   dailySourceSearchLimit,
   withinDailyLimit,
   usageDay,
@@ -105,6 +108,46 @@ test("clampModel: every plan's ceiling model is one the clamp round-trips", () =
   for (const plan of PLANS) {
     const ceiling = ceilingModelFor(plan);
     assert.equal(clampModel(ceiling, plan), ceiling, plan);
+  }
+});
+
+// ── retired ids that shipped builds still send ──────────────────────────
+// Extension <= 2.19.2 (the Web Store build under review among them) sends
+// "gpt-5-nano" from its Fast stop and "gpt-5.4" from Balanced.
+
+test("currentModelId: a retired id becomes its tier's CURRENT model", () => {
+  assert.equal(currentModelId("gpt-5-nano"), MODEL_FOR_TIER.fast);
+  assert.equal(currentModelId("gpt-5.4"), MODEL_FOR_TIER.balanced);
+});
+
+test("currentModelId: every other value passes through untouched — it grants nothing", () => {
+  for (const v of [...Object.values(MODEL_FOR_TIER), "gpt-5.4-mini", "gpt-5-nano-2025-08-07", "GPT-5.4", " gpt-5.4",
+    "gpt-99", "", "toString", "constructor", "__proto__", undefined, null, 7, {}]) {
+    assert.equal(currentModelId(v), v, JSON.stringify(v));
+  }
+});
+
+test("LEGACY_MODEL_TIER: only retired ids, each naming a real tier", () => {
+  for (const [id, tier] of Object.entries(LEGACY_MODEL_TIER)) {
+    assert.ok(!(id in TIER_FOR_MODEL), `${id} is a current id, not a retired one`);
+    assert.ok(MODEL_FOR_TIER[tier], `${id} names ${tier}, which is not a tier`);
+  }
+  assert.deepEqual(Object.keys(LEGACY_MODEL_TIER).sort(), ["gpt-5-nano", "gpt-5.4"]);
+});
+
+test("clampModel: a retired id is clamped as the tier it asked for", () => {
+  assert.equal(clampModel("gpt-5.4", "pro"), SONNET, "an old Balanced stop keeps balanced");
+  assert.equal(clampModel("gpt-5.4", "student"), SONNET);
+  assert.equal(clampModel("gpt-5.4", "free"), HAIKU, "and never climbs above the plan");
+  assert.equal(clampModel("gpt-5-nano", "pro"), HAIKU, "an old Fast stop stays fast");
+  assert.equal(clampModel("gpt-5-nano", "free"), HAIKU);
+});
+
+test("clampModel: an inherited property name is not a model", () => {
+  // TIER_FOR_MODEL["toString"] is Object.prototype.toString — truthy — and
+  // used to be read as a tier, handing the string back as the model.
+  for (const v of ["toString", "constructor", "hasOwnProperty", "__proto__", "valueOf"]) {
+    assert.equal(clampModel(v, "pro"), HAIKU, v);
   }
 });
 

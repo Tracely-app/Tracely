@@ -54,7 +54,9 @@ step. If one ever appears, this document is wrong.
 
 `loadEnvFile()` runs at the top of each request, so anything read from
 `process.env` AT REQUEST TIME picks up an edit with no restart — the API key,
-the daily budget, the Stripe values.
+the daily budgets (`TRACELY_DAILY_BUDGET_USD`, `TRACELY_PAID_DAILY_BUDGET_USD`,
+`TRACELY_BETA_DAILY_BUDGET_USD`, `TRACELY_APP_DAILY_BUDGET_USD`), the Stripe
+values and `TRACELY_BETA_TOKENS`.
 
 Anything captured in a module-level `const` does not. Those are read once at
 boot:
@@ -95,13 +97,176 @@ them to "simplify" the config.
 `TRACELY_DAILY_BUDGET_USD=10` is the hard daily ceiling. An explicit `0` turns
 it off; an empty value does **not** (it falls back to the built-in default).
 
+**The extension's routes spend three pools, not one.** Hosted `/api/check`,
+`/api/flow` and `/api/sources` run the model the widget's slider asks for,
+clamped to the plan — up to `gpt-6-astra`, 40-50x the fast model per token.
+One Pro user on "Smarter" could empty a shared $10 day in minutes and 503
+every free user, so:
+
+| pool | who | ceiling | when it is spent |
+|---|---|---|---|
+| extension | free callers, and anyone falling back | `TRACELY_DAILY_BUDGET_USD` (10) | 503 for everyone on it, as always |
+| paid | Student/Pro accounts | `TRACELY_PAID_DAILY_BUDGET_USD` (10) | they run the FAST model on the extension pool; plan and quotas unchanged |
+| beta | test-build callers (below) | `TRACELY_BETA_DAILY_BUDGET_USD` (10) | they run their own plan on the extension pool |
+
+All three follow the same parsing (empty or junk = default, explicit `0` =
+no ceiling). The paid and beta pools admit a call only while their spend
+PLUS the worst case of every call still in flight leaves room: the worst
+case is the route's output ceiling plus its largest input at the plan's top
+model (~$1.10 for a thorough check, every input token priced as a cache
+write, `WORST_CALL` in server.js), shrunk to the
+model actually chosen once the body is read. A check that truncates splits
+into two more calls, recursively; each split is admitted the same way (two
+more worst cases held, or no split and a `truncated` error). So a burst —
+including one with a rotating install id per request — overshoots by at most
+the last admission (one call, or a split's two), and the number of thorough
+calls those pools run AT ONCE is about the remaining budget ÷ $1.10. Raise
+the ceiling for a bigger team, not the reservation. A call that fails after
+OpenAI billed it (truncated, refused, unparseable) is recorded into its pool
+too, including every call of a split that failed part-way. A source search
+records the web_search fee once per `web_search_call` its answer carried
+(never fewer than one): a reasoning model can search, and open pages, more
+than once per answer. Nothing we send bounds that, so the sources
+reservation (40k input tokens, 3 searches) is an allowance sized above the
+most seen live, not a bound.
+
 `TRACELY_TRUSTED_PROXY_HOPS=1` because Apache is the one proxy in front. Wrong
 here and rate limiting keys on the wrong address.
+
+**`PUT /api/prefs` is refused (403 `forbidden`) whenever Supabase is
+configured.** The prefs row is one row shared by every caller and the route
+has no authentication; on this box it used to let anyone with curl rewrite
+it, and until 2026-09-21 that row chose the model every extension user's
+`/api/check` ran at. `GET /api/prefs` still answers. Its only writers are the
+web renderer bridge and the vanilla web app, both built for a LOCAL server
+(the hosted box refuses their browser Origin anyway), so nothing hosted loses
+anything. Hosted `/api/check` and `/api/sources` now run the model the client
+asks for, clamped to the caller's plan — the prefs row drives the model only
+on a local server. `/api/sources` sends the client's reasoning effort when it
+sends one and otherwise none, i.e. the vendor's default, exactly as every
+source search from the store build always has. No shipped widget sends one:
+2.19.3 sends its stop's effort on `/api/check` only (the route it was
+measured on), and `/api/flow` and `/api/sources` get the model alone.
 
 Watch it with:
 
 ```sh
 curl -s -H 'Host: localhost:4477' localhost:4477/api/status
+```
+
+## The test extension (beta build)
+
+Everyone on the test extension is served as **Pro** on the extension's routes,
+on a budget of its own. The test build is the Web Store build loaded unpacked
+(the manifest `key` gives both the same id), so the server cannot tell them
+apart by origin; instead the beta zip carries a token, and the extension sends
+it as `X-Tracely-Beta` only when `beta.json` is packaged AND Chrome reports the
+copy was loaded unpacked.
+
+In `/srv/tracely/app/.env` (read per request — no restart):
+
+| variable | meaning |
+|---|---|
+| `TRACELY_BETA_TOKENS` | comma-separated tokens; a caller presenting one gets max(plan, `pro`). **Empty or absent = beta off.** Rotate by adding the new token, shipping a new zip, then removing the old one. |
+| `TRACELY_BETA_DAILY_BUDGET_USD` | the beta pool's daily ceiling, default `10`. Same parsing as the other budgets: empty or junk is the default, and an explicit `0` removes the CEILING (unlimited beta spend) — it does not turn beta off. |
+
+What a matching token does, and does not:
+
+- Applies on the extension's routes only (`spendGate` and `/api/entitlement`).
+  The desktop's app routes never look at the header.
+- `/api/entitlement` reports `plan: "pro"` and adds `beta: true`; a signed-in
+  tester is still metered and billed as themselves.
+- Spend goes to the **beta pool** (`__global_beta__` in `entitlement_usage`),
+  never the extension pool. When the beta pool has no room — checks and
+  source searches alike, counting calls in flight (see Spend safety) — the
+  tester silently falls back to their own plan, usually free, on the
+  extension pool. Beta never causes a 503, and never draws on the extension
+  pool while the beta pool can pay.
+- Beta source searches count against their own window
+  (`SPEND.betaWebSearchesPerHour`, 30/hour for all testers together), not the
+  15/hour one every store user shares — testers are Pro, with no daily source
+  quota, and could otherwise take the whole hour.
+- `/api/status` gains `betaBudget` (same shape as `budget`) while any token
+  is configured, and `paidBudget` always. Both report spend on disk, not
+  reservations in flight.
+- The widgets default to the options-page slider (Fast until a tester moves
+  it); the beta grant raises the ceiling, not the default stop.
+
+Build the zip from a checkout (never commit `extension/beta.json`; the repo is
+public and `.gitignore` covers it) — and only once the server from the same
+change is deployed (see "The model tiers" below):
+
+```sh
+TRACELY_BETA_TOKEN='<one of TRACELY_BETA_TOKENS>' server/scripts/pack-extension.sh --beta ~/Desktop
+# -> ~/Desktop/Tracely-<version>-beta.zip, with beta.json in the staged copy only
+```
+
+A plain `pack-extension.sh [OUT_DIR]` excludes `beta.json` even if one is
+lying in `extension/`. The token must be 1-200 characters of
+`A-Z a-z 0-9 . _ ~ + / = -` (no commas: the server's list is comma-separated);
+the script refuses anything else rather than build a zip that is silently free.
+Generate one with `openssl rand -base64 24 | tr -d '\n'`.
+
+## The model tiers (remapped 2026-09-21)
+
+fast `gpt-5.6-luna`, balanced `gpt-5.6-terra`, thorough `gpt-6-astra`
+(`lib/llm.js` MODEL_TIERS), chosen by the eval in `eval/models/FINDINGS.md`.
+Before a deploy that changes a tier, know four things:
+
+- **Deploy this server BEFORE any extension zip from the same change reaches
+  a user**, beta or store, and never roll the server back to a snapshot from
+  before 2026-09-21 (`app.bak-*`) while 2.19.3 or later is installed. The
+  skew is harmless one way and not the other. An old client on this server
+  is translated (below). A 2.19.3 client on an OLD server is not: its Fast
+  stop sends `effort: "medium"`, and the old hosted `/api/check` ran
+  `gpt-5-nano` at whatever effort the client sent — nano at medium, which
+  the eval measured at p50 41.5 s / p90 62.4 s and 3.2x the cost of nano at
+  low, for 76% accuracy, on the shared extension pool. An old server also
+  ignores `X-Tracely-Beta`, so testers are served as free. Before
+  `pack-extension.sh --beta` hands anyone a zip, confirm the new build is
+  live: `curl -s -H 'Host: localhost:4477' localhost:4477/api/status` shows
+  `paidBudget` (absent before this build), and `/api/entitlement` with
+  `X-Tracely-Beta: <token>` answers `beta: true`.
+
+- **Old clients keep sending the old ids.** Extension <= 2.19.2 (the Web
+  Store build under review included) sends `gpt-5-nano` from Fast and
+  `gpt-5.4` from Balanced; older desktops send the same. The server
+  translates them to their tier's current model (`shared/plan.js`
+  `currentModelId`), so a deploy needs no extension release. Nothing runs,
+  prices or logs a retired id.
+- **`/api/check` runs each tier at the one effort the eval measured it at** —
+  fast `medium`, balanced `low`, thorough `low` — whatever the client sends
+  (`checkEffort` in server.js). Extension <= 2.19.2 sends `low` from Fast
+  and `medium` from Thorough; astra at medium was never measured, and before
+  2026-09-21 it never ran (hosted `/api/check` ignored the client's model).
+  Every other route keeps the client's effort or the default (`low`) — and
+  the widgets send an effort on `/api/check` only, so in practice `/api/flow`
+  runs at `low` and `/api/sources` at the vendor's default (medium, as
+  gpt-5.6-luna echoed it in the 2026-09-21 smoke run).
+- **Every tier id must be in `shared/prices.js` before it serves traffic**,
+  with its `cacheWrite` rate. An unpriced id is billed as the thorough model
+  (40-50x luna per token), which would trip the spend cap early; a missing
+  `cacheWrite` would under-count every cold call on these models, which bill
+  a first-seen prefix at 1.25x input
+  (`usage.input_tokens_details.cache_write_tokens`).
+
+## Model failures in the log
+
+A truncated, refused or unparseable answer — or any other failed model call on
+a model route, extension or desktop — writes one line to `/var/log/tracely.log`:
+
+```
+[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5.6-luna effort=medium
+```
+
+`kind` is `truncated`, `refusal`, `unparseable`, `empty`, `timeout`,
+`network`, or the error kind. The line carries no user text, no message, and
+no caller id — watch the rate, not the content. (What such a call was billed
+is recorded into its spend pool; the log line does not carry the cost.)
+
+```sh
+grep -c 'model call failed' /var/log/tracely.log
+grep 'model call failed' /var/log/tracely.log | awk '{print $5, $6, $8}' | sort | uniq -c
 ```
 
 ## Resource ceilings

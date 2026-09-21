@@ -64,7 +64,14 @@
      until the tab reloads, and stop calling out at all once it has.
 
      These wrappers take the SAME arguments as the calls they replace, so the
-     call sites keep their shape. */
+     call sites keep their shape.
+
+     They must call the REAL chrome.* API inside extCall. The storage three
+     once called themselves (`storageGet` -> `storageGet` -> ...): the first
+     call overflowed the stack, extCall caught the RangeError as if the context
+     had died, and latched extDead on a perfectly live page. In field mode
+     that meant the per-site list never synced, sendMsg answered null forever,
+     and the plan never refreshed after its first answer. */
   let extDead = false;
   function extAlive() {
     if (extDead) return false;
@@ -78,9 +85,9 @@
     if (!extAlive()) return fallback;
     try { return fn(); } catch { extDead = true; return fallback; }
   }
-  const storageGet = (defaults, cb) => extCall(() => storageGet(defaults, cb));
-  const storageSet = (obj) => extCall(() => storageSet(obj));
-  const storageOnChanged = (cb) => extCall(() => storageOnChanged(cb));
+  const storageGet = (defaults, cb) => extCall(() => chrome.storage.local.get(defaults, cb));
+  const storageSet = (obj) => extCall(() => chrome.storage.local.set(obj)?.catch?.(() => { /* context died mid-write */ }));
+  const storageOnChanged = (cb) => extCall(() => chrome.storage.onChanged.addListener(cb));
   const sendMsg = (msg) => extCall(() => chrome.runtime.sendMessage(msg), Promise.resolve(null));
 
   /* Flow flags — passage-level coaching, drawn as a margin bracket rather
@@ -91,14 +98,22 @@
 
   // The Faster↔Smarter slider — one control replacing the model + effort
   // dropdowns on both widget surfaces. Three stops; effort rides along.
+  // Chosen by a measured eval (eval/models/FINDINGS.md): the fast model
+  // checks at 100% at medium effort and 90% at low; the other two were only
+  // measured at low.
   const SPEED_STOPS = [
-    { model: "gpt-5-nano", effort: "low" },
-    { model: "gpt-5.4", effort: "low" },
-    { model: "gpt-6-astra", effort: "medium" },
+    { model: "gpt-5.6-luna", effort: "medium" },
+    { model: "gpt-5.6-terra", effort: "low" },
+    { model: "gpt-6-astra", effort: "low" },
   ];
+  // Model ids earlier builds saved — a site's own stop in localStorage, the
+  // options-page default in chrome.storage — before the 2026-09-21 remap.
+  // Each still means the stop it named, not "unknown, so Fast".
+  const RETIRED_STOP = { "gpt-5-nano": 0, "gpt-5.4": 1 };
   function speedPos(model) {
     const i = SPEED_STOPS.findIndex((s) => s.model === model);
-    return i === -1 ? 0 : i;
+    if (i !== -1) return i;
+    return typeof model === "string" && Object.hasOwn(RETIRED_STOP, model) ? RETIRED_STOP[model] : 0;
   }
 
   /* ── plan gate ───────────────────────────────────────────────────────────
@@ -123,23 +138,20 @@
 
      There was a second, `byoKey`, for the bring-your-own-key standalone
      engine. That engine is gone; see the note in background.js. */
+  /* The widget's PRO link is the bare order page, never one carrying a uid.
+     The widget draws into an OPEN shadow root on the host page, so a uid in
+     that link would hand every site's scripts a stable, cross-site account id
+     (it doubles as the Stripe client_reference_id). The worker does not send
+     this script the id at all. A click asks the worker instead
+     (tracely-open-order), which opens the order page WITH the id in a new tab,
+     so the checkout still maps to the account; the plain href is the fallback
+     when the worker cannot answer. */
   const ORDER_URL = "https://jointracely.com/order";
-  /* The upgrade link carries the signed-in account id as `uid`, which the order
-     page forwards to Stripe as client_reference_id.
-   
-     Without it the billing webhook can only map a payment to an account by
-     matching the PAYER'S email against a Tracely account — which is wrong in
-     exactly the case that matters: a student who pays with a parent's card gets
-     charged and stays on the free plan. The server's fallback chain
-     (client_reference_id -> learned customer mapping -> email) is only as good
-     as its first rung, and nothing was filling it. */
-  function orderUrl(userId) {
-    if (!userId) return ORDER_URL; // signed out: Stripe falls back to email
-    return `${ORDER_URL}?uid=${encodeURIComponent(userId)}`;
-  }
 
   const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
-  let tier = { plan: "free", byoKey: false, unenforced: false, userId: null };
+  // `provisional`: the worker had no real answer (server unreachable or
+  // erroring on the test build) — shown, never persisted as a clamp.
+  let tier = { plan: "free", byoKey: false, unenforced: false, provisional: false };
   const tierListeners = []; // widget re-renders to run when the tier resolves
 
   // The highest slider stop this account may use. Unknown plan → free, always.
@@ -148,10 +160,13 @@
     return PLAN_MAX_STOP[tier.plan] ?? 0;
   }
   function effModel(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].model; }
-  function effEffort(settings) {
-    const pos = speedPos(settings.model);
-    return pos <= maxStop() ? settings.effort : SPEED_STOPS[maxStop()].effort;
-  }
+  // The effort is always the effective STOP's, never a saved one: the only
+  // control that sets effort is the slider, which sets the stop's, so a saved
+  // effort can only differ when an earlier build's stops saved it (Fast at
+  // "low", Thorough at "medium") — and sending that would undo the stop.
+  // It is sent on /api/check ONLY, the route the eval measured each stop's
+  // effort on; /api/flow and /api/sources send the model alone.
+  function effEffort(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].effort; }
   // Pull a stored preference down to what the plan reaches. Returns whether it
   // moved, so the caller knows to persist.
   function clampSettingsToPlan(settings) {
@@ -165,6 +180,77 @@
     for (const fn of tierListeners) { try { fn(); } catch { /* widget torn down */ } }
   }
   let tierResolved = false;
+
+  /* The options page's Faster↔Smarter slider writes chrome.storage.local
+     `model`, and nothing used to read it — the widgets only knew their own
+     setting in the page's localStorage, so moving it did nothing anywhere.
+     It is now the DEFAULT stop: what a site with no widget setting of its own
+     starts on. A per-site choice still wins, and the plan still caps it.
+
+     A widget on such a site FOLLOWS the default: its settings object is in
+     `followsDefault`, and while it is
+       - persistSettings saves everything EXCEPT model/effort, so toggling
+         auto-sources or the citation style cannot pin the site to whatever
+         stop the default was at that moment (possibly a transient clamp) and
+         cut it off from later options-page changes;
+       - every tier change re-derives the stop from the default and clamps it
+         (syncStopToTier), so a provisional free answer followed by the real
+         Pro one puts the stop back instead of leaving it on Fast.
+     Moving the widget's own slider (pinSiteStop) is the only thing that gives
+     a site a stop of its own. */
+  const followsDefault = new WeakSet();
+  let defaultStopModel = ""; // the options-page value, once read
+  function storedSettings(key) { return jsonParse(lsGet(key) ?? "null", null); }
+  function hasOwnStop(key) { return typeof storedSettings(key)?.model === "string"; }
+  function defaultStop() { return SPEED_STOPS[speedPos(defaultStopModel)]; }
+  // Every write of a widget's settings goes through here.
+  function persistSettings(settings, key) {
+    if (!followsDefault.has(settings)) return lsSet(key, JSON.stringify(settings));
+    const { model, effort, ...rest } = settings;
+    return lsSet(key, JSON.stringify(rest));
+  }
+  // The user moved this widget's slider: from now on the site has its own stop.
+  function pinSiteStop(settings) { followsDefault.delete(settings); }
+
+  function followDefaultStop(settings, key, onApplied) {
+    if (!useRelay) return; // harness and plain pages: no extension storage
+    if (hasOwnStop(key)) return;
+    followsDefault.add(settings);
+    storageGet({ model: "" }, (cfg) => {
+      if (!followsDefault.has(settings)) return; // the user picked a stop while this was in flight
+      defaultStopModel = typeof cfg?.model === "string" ? cfg.model : "";
+      const before = settings.model;
+      const stop = defaultStop();
+      settings.model = stop.model;
+      settings.effort = stop.effort;
+      if (tierResolved) clampSettingsToPlan(settings);
+      if (settings.model !== before) onApplied();
+    });
+  }
+
+  /* A widget's tier listener: bring the in-memory stop in line with the new
+     tier. Following the default, it is re-derived and clamped, never saved.
+     With a stop of its own, the STORED choice is re-read and clamped — so a
+     momentary downgrade is undone when the plan comes back — and the clamp is
+     written back only when it moved the stored choice on a REAL answer (a
+     provisional free, e.g. the server unreachable, must not outlive itself).
+     The request path clamps again regardless (effModel/effEffort), and so
+     does the server. */
+  function syncStopToTier(settings, key) {
+    if (followsDefault.has(settings)) {
+      const stop = defaultStop();
+      settings.model = stop.model;
+      settings.effort = stop.effort;
+      clampSettingsToPlan(settings);
+      return;
+    }
+    const stored = storedSettings(key);
+    if (typeof stored?.model === "string") {
+      settings.model = stored.model;
+      if (typeof stored.effort === "string") settings.effort = stored.effort;
+    }
+    if (clampSettingsToPlan(settings) && lsGet(key) !== null && !tier.provisional) persistSettings(settings, key);
+  }
   let tierTimer = 0;
   function refreshTier() {
     if (!useRelay) return; // harness page: no background worker — stays free
@@ -184,9 +270,9 @@
     }
     pending.then((r) => {
       if (!r?.ok) return;
-      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), userId: r.userId ?? null };
+      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), provisional: r.provisional === true };
       if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey
-          && next.unenforced === tier.unenforced && next.userId === tier.userId) return;
+          && next.unenforced === tier.unenforced && next.provisional === tier.provisional) return;
       tier = next;
       tierResolved = true;
       tierChanged(); // first resolve fires too: free-tier listeners clamp stale paid settings
@@ -215,14 +301,14 @@
     const ceiling = maxStop();
     const locked = ceiling < SPEED_STOPS.length - 1; // some stops are above this plan
     const p = Math.min(pos, ceiling);
-    const title = locked ? ' title="Smarter models come with a paid Tracely plan"' : "";
+    const title = locked ? ' title="Balanced and Thorough come with a paid Tracely plan"' : "";
     return `<div class="speedbar${locked ? " locked" : ""}"${title}>
       <span class="sb-lab${p === 0 ? " on" : ""}" data-sb-lab="0">Faster</span>
       <div class="sb-track">
         <input type="range" class="speed" id="speedSel" min="0" max="${SPEED_STOPS.length - 1}" step="0.01" value="${p}" style="--sb-fill:${sbFill(p)}"${ceiling === 0 ? " disabled" : ""}>
         <span class="sb-dots">${SPEED_STOPS.map((_, i) => `<i${i > ceiling ? ' class="off"' : ""}></i>`).join("")}</span>
       </div>
-      <span class="sb-lab${p === SPEED_STOPS.length - 1 ? " on" : ""}" data-sb-lab="max">Smarter${locked ? `<a class="sb-pro" href="${orderUrl(tier.userId)}" target="_blank" rel="noopener noreferrer">PRO</a>` : ""}</span>
+      <span class="sb-lab${p === SPEED_STOPS.length - 1 ? " on" : ""}" data-sb-lab="max">Smarter${locked ? `<a class="sb-pro" href="${ORDER_URL}" target="_blank" rel="noopener noreferrer">PRO</a>` : ""}</span>
     </div>`;
   }
   // Wire the slider without re-rendering: a full render mid-drag drops the
@@ -231,6 +317,14 @@
   // The drag stops dead at the plan's ceiling so the thumb never sits over a
   // stop the account would not actually be served.
   function wireSpeedbar(shadow, settings, saveSettings) {
+    // Wired before the early return below: the PRO link shows exactly when
+    // the slider is locked, which on the free tier means disabled.
+    shadow.querySelector(".sb-pro")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      Promise.resolve(sendMsg({ type: "tracely-open-order" })).catch(() => null).then((r) => {
+        if (!r?.ok) window.open(ORDER_URL, "_blank", "noopener,noreferrer");
+      });
+    });
     const el = shadow.getElementById("speedSel");
     if (!el || el.disabled) return; // free tier has a single stop: nothing to drag
     const ceiling = maxStop();
@@ -244,6 +338,7 @@
       const stop = SPEED_STOPS[pos];
       settings.model = stop.model;
       settings.effort = stop.effort;
+      pinSiteStop(settings); // a choice made here belongs to this site
       saveSettings();
       el.style.setProperty("--sb-fill", sbFill(pos));
       shadow.querySelector('[data-sb-lab="0"]')?.classList.toggle("on", pos === 0);
@@ -552,6 +647,28 @@
   function lsDel(key) { try { localStorage.removeItem(key); } catch { /* sandboxed */ } }
   function jsonParse(raw, fallback) { try { return JSON.parse(raw); } catch { return fallback; } }
 
+  /* The Docs widget's persisted verdicts (vcache) and flow issues (fcache)
+     are keyed by doc and sentence hash only, and a sentence already in the
+     cache is never re-checked. Everything saved before 2026-09-21 came from
+     gpt-5-nano, which never flagged an uncited statistic and called some false
+     claims accurate — so those keys are retired (the "2" generation replaces
+     them) and deleted once, and the first open after this update re-checks
+     every sentence on the current models. Source lists (scache) are search
+     results, not verdicts, and dismissals are the user's own: both are kept.
+     Bump CACHE_GEN when a model change should invalidate verdicts again. */
+  const CACHE_GEN = "2";
+  const VERDICT_CACHE = /^tracely\.widget\.(?:vcache|fcache)(\d*)\./; // group 1: the generation, "" before 2
+  function sweepRetiredCaches() {
+    if (lsGet("tracely.widget.cacheGen") === CACHE_GEN) return;
+    try {
+      for (const k of Object.keys(localStorage)) {
+        const m = VERDICT_CACHE.exec(k);
+        if (m && m[1] !== CACHE_GEN) lsDel(k);
+      }
+    } catch { return; } // sandboxed: nothing was readable, so try again next load
+    lsSet("tracely.widget.cacheGen", CACHE_GEN);
+  }
+
   if (harness || IS_DOCS) docsMode();
   else fieldMode();
 
@@ -564,9 +681,10 @@
 
     const SETTINGS_KEY = "tracely.widget.settings";
     const DISMISS_KEY = `tracely.widget.dismissed.${DOC_ID}`;
-    const VCACHE_KEY = `tracely.widget.vcache.${DOC_ID}`;
+    const VCACHE_KEY = `tracely.widget.vcache${CACHE_GEN}.${DOC_ID}`;
     const SCACHE_KEY = `tracely.widget.scache.${DOC_ID}`;
-    const FCACHE_KEY = `tracely.widget.fcache.${DOC_ID}`;
+    const FCACHE_KEY = `tracely.widget.fcache${CACHE_GEN}.${DOC_ID}`;
+    sweepRetiredCaches(); // before anything reads a cache
 
     // ── state ──
     // Verdicts and source lists persist per doc: reopening the tab re-checks
@@ -626,6 +744,9 @@
       flowInflight = true;
       flowAt = Date.now();
       try {
+        // The stop's MODEL only. Its effort is the /api/check effort the eval
+        // measured (Fast at medium); a flow check was never measured at
+        // medium, so it runs at the server's default (low) — as it always has.
         const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: effModel(settings) });
         flowIssues = Array.isArray(data.issues) ? data.issues : [];
         flowSig = sig;
@@ -661,7 +782,7 @@
         // Tracely caches, then retry once at reduced size. Never throw.
         try {
           for (const k of Object.keys(localStorage)) {
-            if (/^tracely\.widget\.(vcache|scache)\./.test(k) && k !== VCACHE_KEY && k !== SCACHE_KEY) lsDel(k);
+            if (/^tracely\.widget\.(vcache\d*|scache)\./.test(k) && k !== VCACHE_KEY && k !== SCACHE_KEY) lsDel(k);
           }
         } catch { /* sandboxed */ }
         lsSet(VCACHE_KEY, JSON.stringify(keep.slice(-100)));
@@ -677,13 +798,14 @@
       reg.sort((a, b) => a[1] - b[1]);
       while (reg.length > 20) {
         const [old] = reg.shift();
-        lsDel(`tracely.widget.vcache.${old}`);
+        lsDel(`tracely.widget.vcache${CACHE_GEN}.${old}`);
         lsDel(`tracely.widget.scache.${old}`);
+        lsDel(`tracely.widget.fcache${CACHE_GEN}.${old}`); // flow issues were never collected here
         lsDel(`tracely.widget.dismissed.${old}`);
       }
       lsSet(REG_KEY, JSON.stringify(reg));
     }
-    let settings = { model: SPEED_STOPS[0].model, effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = { model: SPEED_STOPS[0].model, effort: SPEED_STOPS[0].effort, citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -1929,7 +2051,7 @@
         });
         p.addEventListener("click", () => {
           settings.citationStyle = key;
-          lsSet(SETTINGS_KEY, JSON.stringify(settings));
+          persistSettings(settings, SETTINGS_KEY);
           renderPopSources(hash); // repaint rows in the new style
         });
         pills.appendChild(p);
@@ -2276,6 +2398,8 @@
           claim: seg.text,
           correction: f?.revision || undefined,
           context: docText.slice(0, 6000),
+          // The stop's model and no effort — the vendor's default, as every
+          // source search has run (the stop's effort is /api/check's).
           model: effModel(settings),
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
@@ -2430,12 +2554,14 @@
     // ── widget UI ──
     const { shadow, root } = makeWidget();
     tierListeners.push(() => {
-      // On downgrade, clamp the STORED choice too — a stale top-tier setting must
-      // not sit in localStorage looking active (API calls already clamp, and
-      // the server clamps again regardless of what we send).
-      if (clampSettingsToPlan(settings)) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      // On downgrade, clamp the STORED choice too — a stale top-tier setting
+      // must not sit in localStorage looking active (API calls already clamp,
+      // and the server clamps again regardless of what we send). The default
+      // stop is re-derived instead, and never saved (syncStopToTier).
+      syncStopToTier(settings, SETTINGS_KEY);
       render();
     });
+    followDefaultStop(settings, SETTINGS_KEY, () => render());
 
     function render() {
       const issues = currentIssues();
@@ -2617,7 +2743,7 @@
     }
 
     function saveSettings() {
-      lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      persistSettings(settings, SETTINGS_KEY);
     }
 
     // ── loop ──
@@ -2698,7 +2824,7 @@
     const cache = new Map();
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
-    let settings = { model: SPEED_STOPS[0].model, effort: "low", citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = { model: SPEED_STOPS[0].model, effort: SPEED_STOPS[0].effort, citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -2719,10 +2845,11 @@
       return widget;
     }
     tierListeners.push(() => {
-      // Same downgrade clamp as docs mode; only repaint if the panel exists.
-      if (clampSettingsToPlan(settings)) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      // Same as docs mode; only repaint if the panel exists.
+      syncStopToTier(settings, SETTINGS_KEY);
       if (widget) render();
     });
+    followDefaultStop(settings, SETTINGS_KEY, () => { if (widget) render(); });
 
     /* ── editable tracking ── */
 
@@ -3072,6 +3199,8 @@
           claim: seg.text,
           correction: f?.revision || undefined,
           context: fieldText.slice(0, 6000),
+          // The stop's model and no effort — the vendor's default, as every
+          // source search has run (the stop's effort is /api/check's).
           model: effModel(settings),
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
@@ -3369,7 +3498,7 @@
     }
 
     function saveSettings() {
-      lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      persistSettings(settings, SETTINGS_KEY);
     }
 
     /* ── focus tracking + loop ── */

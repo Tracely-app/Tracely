@@ -40,34 +40,151 @@ test.beforeEach(() => {
 
 test("structuredCall sends the Responses API strict json_schema body", async () => {
   const llm = await fresh();
-  const calls = stub(ok({ model: "gpt-5.4", output_text: '{"a":"x"}', usage: { input_tokens: 5, output_tokens: 7, input_tokens_details: { cached_tokens: 2 } } }));
-  const r = await llm.structuredCall({ model: "gpt-5.4", system: "S", user: "U", schema: SCHEMA, maxTokens: 99, what: "w", name: "nm" });
+  const calls = stub(ok({ model: "gpt-5.6-terra", output_text: '{"a":"x"}', usage: { input_tokens: 5, output_tokens: 7, input_tokens_details: { cached_tokens: 2 } } }));
+  const r = await llm.structuredCall({ model: "gpt-5.6-terra", system: "S", user: "U", schema: SCHEMA, maxTokens: 99, what: "w", name: "nm" });
   assert.equal(calls[0].url, "https://api.openai.com/v1/responses");
   assert.equal(calls[0].headers.Authorization, "Bearer sk-test");
   assert.deepEqual(calls[0].body, {
-    model: "gpt-5.4", instructions: "S", input: "U", max_output_tokens: 99,
+    model: "gpt-5.6-terra", instructions: "S", input: "U", max_output_tokens: 99,
     text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
     reasoning: { effort: "low" },
   });
-  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-5.4", usage: { input: 5, output: 7, cached: 2 } });
+  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-5.6-terra", usage: { input: 5, output: 7, cached: 2, cacheWrite: 0 } });
+});
+
+test("usage reads cache writes from input_tokens_details.cache_write_tokens, apart from cache reads", async () => {
+  // The exact shape a real gpt-5.6-luna answer carried on 2026-09-21: a
+  // first-seen prefix is a WRITE (billed at 1.25x input), the same prefix a
+  // moment later a READ. Both are subsets of input_tokens.
+  let llm = await fresh();
+  stub(ok({ model: "m", output_text: '{"a":"x"}', usage: { input_tokens: 4979, output_tokens: 5, input_tokens_details: { cache_write_tokens: 4976, cached_tokens: 0 } } }));
+  let r = await llm.structuredCall({ model: "m", schema: SCHEMA, what: "w" });
+  assert.deepEqual(r.usage, { input: 4979, output: 5, cached: 0, cacheWrite: 4976 });
+
+  llm = await fresh();
+  stub(ok({ model: "m", output_text: '{"a":"x"}', usage: { input_tokens: 4979, output_tokens: 5, input_tokens_details: { cache_write_tokens: 0, cached_tokens: 4976 } } }));
+  r = await llm.structuredCall({ model: "m", schema: SCHEMA, what: "w" });
+  assert.deepEqual(r.usage, { input: 4979, output: 5, cached: 4976, cacheWrite: 0 });
+
+  // A failure that was billed carries its cache writes too, so the spend cap
+  // prices a truncated cold call at the write rate.
+  llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 1500, output_tokens: 16000, input_tokens_details: { cache_write_tokens: 1400 } } }));
+  const truncated = await llm.structuredCall({ model: "m", schema: SCHEMA, what: "w" }).catch((e) => e);
+  assert.deepEqual(truncated.llm.usage, { input: 1500, output: 16000, cached: 0, cacheWrite: 1400 });
 });
 
 test("textCall passes history through and trims the reply", async () => {
   const llm = await fresh();
   const calls = stub(ok({ model: "m", output_text: "  hi  " }));
-  const r = await llm.textCall({ model: "gpt-5-nano", system: "S", messages: [{ role: "user", content: "q" }], maxTokens: 10, what: "t", effort: "high" });
-  assert.deepEqual(calls[0].body, { model: "gpt-5-nano", instructions: "S", input: [{ role: "user", content: "q" }], max_output_tokens: 10, reasoning: { effort: "high" } });
+  const r = await llm.textCall({ model: "gpt-5.6-luna", system: "S", messages: [{ role: "user", content: "q" }], maxTokens: 10, what: "t", effort: "high" });
+  assert.deepEqual(calls[0].body, { model: "gpt-5.6-luna", instructions: "S", input: [{ role: "user", content: "q" }], max_output_tokens: 10, reasoning: { effort: "high" } });
   assert.equal(r.text, "hi");
 });
 
-test("webSearchCall sends the web_search tool, no effort, and returns url citations", async () => {
+test("webSearchCall sends the web_search tool, no effort unless asked, and returns url citations", async () => {
+  // With no effort it still sends none — the vendor's default, which is what
+  // every source search the shipped extension makes has always run at.
+  // Lowering that default wants a measurement on this prompt, not a drive-by.
   const llm = await fresh();
   const calls = stub(ok({ output: [{ content: [{ type: "output_text", text: "t", annotations: [
     { type: "url_citation", url: "https://a.org", title: "A" }, { type: "url_citation", url: "https://b.org" }, { type: "file_citation", url: "x" },
   ] }] }] }));
   const r = await llm.webSearchCall({ model: "nope", system: "S", user: "q", maxTokens: 5, what: "s" });
-  assert.deepEqual(calls[0].body, { model: "gpt-5-nano", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }] });
+  assert.deepEqual(calls[0].body, { model: "gpt-5.6-luna", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }] });
   assert.deepEqual(r.citations, [{ url: "https://a.org", title: "A" }, { url: "https://b.org", title: "" }]);
+});
+
+test("webSearchCall passes a caller's effort through, normalises junk, and never sends minimal", async () => {
+  // web_search does not run at "minimal"; sending it would draw a 400 that the
+  // fallback reads as "no effort for this model". null/undefined is "not
+  // asked", which sends nothing, as above.
+  for (const [given, sent] of [["high", "high"], ["medium", "medium"], ["low", "low"], ["turbo", "low"], ["minimal", "low"], [null, undefined], [undefined, undefined]]) {
+    const llm = await fresh();
+    const calls = stub(ok({ output_text: "t" }));
+    await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 5, what: "s", effort: given });
+    assert.deepEqual(calls[0].body.reasoning, sent === undefined ? undefined : { effort: sent }, `effort ${JSON.stringify(given)}`);
+  }
+});
+
+test("a web search reports every web_search_call it made — the tool bills per call", async () => {
+  // A live gpt-5.6-luna answer on /api/find-sources (2026-09-21) carried two:
+  // action "search", then "open_page". The route used to record one.
+  const searched = (...actions) => actions.map((type) => ({ type: "web_search_call", status: "completed", action: { type } }));
+  let llm = await fresh();
+  stub(ok({ output_text: "t", output: [...searched("search", "open_page"), { type: "reasoning" }, { type: "message", content: [] }] }));
+  let r = await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", effort: "low" });
+  assert.equal(r.webSearchCalls, 2, "every item counts, whatever its action");
+  assert.deepEqual(r.sent, { model: "gpt-5.6-luna", effort: "low" });
+
+  llm = await fresh();
+  stub(ok({ output_text: "t" }));
+  assert.equal((await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s" })).webSearchCalls, 0);
+
+  llm = await fresh();
+  stub(ok({ output_text: '{"a":"x"}', output: searched("search", "search", "find_in_page") }));
+  r = await llm.webSearchStructuredCall({ model: "gpt-5.6-luna", system: "S", user: "q", schema: SCHEMA, maxTokens: 5, what: "s" });
+  assert.equal(r.webSearchCalls, 3);
+
+  // A failed answer that searched carries the count with its usage.
+  llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: searched("search", "search"), usage: { input_tokens: 10, output_tokens: 6000 } }));
+  const err = await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
+  assert.deepEqual(err.llm, { model: "gpt-5.6-terra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 }, webSearchCalls: 2 });
+});
+
+test("a web search that rejects effort does not switch effort off for that model's structured calls", async () => {
+  // Keyed apart on purpose: a web_search-specific refusal must not put the
+  // same model's /api/check onto the expensive no-effort path.
+  const llm = await fresh();
+  const calls = stub(
+    bad(400, { error: { message: "reasoning.effort is not supported with the web_search tool" } }),
+    ok({ output_text: "t" }),
+    ok({ output_text: "t" }),
+    ok({ output_text: '{"a":"x"}' }),
+  );
+  await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", effort: "low" }); // rejects, retries without
+  await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", effort: "low" }); // stays off for web search
+  await llm.structuredCall({ model: "gpt-5.6-luna", schema: SCHEMA, what: "w" });                     // structured: still on
+  assert.equal(calls[1].body.reasoning, undefined);
+  assert.equal(calls[2].body.reasoning, undefined);
+  assert.deepEqual(calls[3].body.reasoning, { effort: "low" });
+});
+
+test("a failure leaving the facade carries the model and effort it was sent at, and nothing is serialised", async () => {
+  // `usage` rides along whenever the vendor ANSWERED (and so billed) before
+  // the failure: a truncation spends every output token it was allowed.
+  let llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 900, output_tokens: 16000 } }));
+  const truncated = await llm.structuredCall({ model: "gpt-5.6-terra", schema: SCHEMA, what: "w", effort: "high" }).catch((e) => e);
+  assert.equal(truncated.kind, "truncated");
+  assert.deepEqual(truncated.llm, { model: "gpt-5.6-terra", effort: "high", usage: { input: 900, output: 16000, cached: 0, cacheWrite: 0 } });
+  assert.ok(!Object.keys(truncated).includes("llm"), "the tag must not be enumerable");
+
+  llm = await fresh();
+  stub(ok({ output_text: "not json {", usage: { input_tokens: 3, output_tokens: 4 } }));
+  const garbage = await llm.structuredCall({ model: "gpt-5.6-luna", schema: SCHEMA, what: "fact check" }).catch((e) => e);
+  assert.equal(garbage.kind, "server");
+  assert.equal(garbage.reason, "unparseable");
+  assert.equal(garbage.message, "Model returned unparseable fact check output.", "the wire message is unchanged");
+  assert.deepEqual(garbage.llm.usage, { input: 3, output: 4, cached: 0, cacheWrite: 0 });
+
+  llm = await fresh();
+  stub(bad(400, { error: { message: "Unsupported parameter: 'reasoning.effort'" } }), ok({ output: [{ content: [{ type: "refusal", refusal: "no" }] }] }));
+  const refused = await llm.structuredCall({ model: "gpt-5.6-luna", schema: SCHEMA, what: "w" }).catch((e) => e);
+  assert.equal(refused.kind, "refusal");
+  assert.deepEqual(refused.llm, { model: "gpt-5.6-luna", effort: null, usage: { input: 0, output: 0, cached: 0, cacheWrite: 0 } }, "the retry went without effort, and the tag says so");
+
+  llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 10, output_tokens: 6000 } }));
+  const webTrunc = await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
+  assert.deepEqual(webTrunc.llm, { model: "gpt-5.6-terra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 } });
+
+  llm = await fresh();
+  stub(new TypeError("fetch failed"));
+  const net = await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", effort: "medium" }).catch((e) => e);
+  assert.equal(net.kind, "network");
+  assert.deepEqual(net.llm, { model: "gpt-5.6-luna", effort: "medium" }, "nothing answered, so nothing was billed and no usage is claimed");
 });
 
 test("a raw output[] array is walked, and a refusal part is its own error", async () => {
@@ -141,13 +258,15 @@ test("an unknown TRACELY_LLM_PROVIDER fails loudly instead of falling back", asy
 });
 
 test("the facade keeps its thirteen exports, plus only additive ones", async () => {
-  // webSearchStructuredCall is the one addition: the desktop's forced,
-  // schema-checked source search. The original thirteen are unchanged.
+  // webSearchStructuredCall is one addition: the desktop's forced,
+  // schema-checked source search. normalizeEffort is the other: server.js
+  // normalises a client's effort once at the route. The original thirteen
+  // are unchanged.
   const llm = await fresh();
   assert.deepEqual(Object.keys(llm).sort(), [
     "ALLOWED_MODELS", "DEFAULT_MODEL", "MODEL_PRICES", "MODEL_TIERS", "WEB_SEARCH_CALL_DOLLARS",
     "assertStrictSchema", "chooseModel", "costMicroCents", "hasApiKey", "mapApiError",
-    "structuredCall", "textCall", "webSearchCall", "webSearchStructuredCall",
+    "normalizeEffort", "structuredCall", "textCall", "webSearchCall", "webSearchStructuredCall",
   ]);
   assert.ok(llm.ALLOWED_MODELS instanceof Set);
 });
@@ -182,9 +301,9 @@ test("a model that rejects effort does not switch it off for other models", asyn
     ok({ output_text: '{"a":"2"}' }),
     ok({ output_text: '{"a":"3"}' }),
   );
-  await llm.structuredCall({ model: "gpt-5.4", schema: SCHEMA, what: "w" });      // rejects, retries without
-  await llm.structuredCall({ model: "gpt-5-nano", schema: SCHEMA, what: "w" });   // different model: effort still sent
-  await llm.structuredCall({ model: "gpt-5.4", schema: SCHEMA, what: "w" });      // the model that rejected: stays off
+  await llm.structuredCall({ model: "gpt-5.6-terra", schema: SCHEMA, what: "w" });      // rejects, retries without
+  await llm.structuredCall({ model: "gpt-5.6-luna", schema: SCHEMA, what: "w" });   // different model: effort still sent
+  await llm.structuredCall({ model: "gpt-5.6-terra", schema: SCHEMA, what: "w" });      // the model that rejected: stays off
   assert.equal(calls[1].body.reasoning, undefined);
   assert.deepEqual(calls[2].body.reasoning, { effort: "low" });
   assert.equal(calls[3].body.reasoning, undefined);

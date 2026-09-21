@@ -31,7 +31,7 @@ process.env.TRACELY_DATA_DIR = DIR;
 process.on("exit", () => { try { rmSync(DIR, { recursive: true, force: true }); } catch {} });
 
 const { costMicroCents, MODEL_TIERS, MODEL_PRICES } = await import("../lib/llm.js");
-const { spendState, recordSpend, dailyBudgetMicroCents } = await import("../lib/spend.js");
+const { spendState, recordSpend, dailyBudgetMicroCents, spentTodayMicroCents, reserveSpend, reservedMicroCents, poolRoom } = await import("../lib/spend.js");
 const { callerId, isDailyQuotaKey, clientAddress, checkQuota, recordCheck,
         sourceSearchQuota, recordSourceSearch, aiQuota, recordAi } = await import("../lib/entitlement.js");
 const { FREE_DAILY_CHECKS, FREE_DAILY_SOURCE_SEARCHES, FREE_DAILY_AI_CALLS } = await import("../shared/plan.js");
@@ -47,17 +47,31 @@ const nextAt = () => Date.UTC(2030, 0, 1 + dayN++, 12);
 // ── cost arithmetic ──────────────────────────────────────────────────────
 
 test("costMicroCents reproduces the prices measured against the real API", () => {
-  // 10-sentence check on the fast model, measured 2026-09-13 at 0.0641 cents.
-  const c = costMicroCents("gpt-5-nano", { input: 974, output: 1481, cached: 0 });
-  assert.equal((c / 1e6).toFixed(4), "0.0641");
+  // An 11-sentence check on the fast model, cold (the prefix a cache write),
+  // from the model eval (eval/models/FINDINGS.md, 2026-09-21): 1,371 input
+  // tokens of which 1,368 were cache writes, 621 output — 0.1088 cents.
+  const c = costMicroCents("gpt-5.6-luna", { input: 1371, output: 621, cached: 0, cacheWrite: 1368 });
+  assert.equal((c / 1e6).toFixed(4), "0.1088");
 });
 
 test("a dated model id prices the same as its family", () => {
-  // OpenAI answers with "gpt-5-nano-2025-08-07", not "gpt-5-nano". Pricing the
-  // reply by the id it RETURNS is the whole point, so the suffix must resolve.
-  const bare = costMicroCents("gpt-5-nano", { input: 1000, output: 1000 });
-  const dated = costMicroCents("gpt-5-nano-2025-08-07", { input: 1000, output: 1000 });
+  // OpenAI answered gpt-5-nano calls as "gpt-5-nano-2025-08-07". The current
+  // tiers echo bare ids, but pricing the reply by the id it RETURNS is the
+  // whole point, so a dated suffix must still resolve.
+  const bare = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 1000 });
+  const dated = costMicroCents(`${MODEL_TIERS.fast}-2026-09-01`, { input: 1000, output: 1000 });
   assert.equal(dated, bare);
+});
+
+test("a retired tier id is priced as an unknown model — the top tier — never at its old rate", () => {
+  // Legacy ids are translated to their tier's current model before any call
+  // (shared/plan.js currentModelId), so nothing prices one. If one ever got
+  // here, the only safe answer is the most expensive tier.
+  for (const retired of ["gpt-5-nano", "gpt-5.4"]) {
+    assert.equal(MODEL_PRICES[retired], undefined, `${retired} is still in the price table`);
+    const u = { input: 1000, output: 1000 };
+    assert.equal(costMicroCents(retired, u), costMicroCents(MODEL_TIERS.thorough, u));
+  }
 });
 
 test("an unknown model prices as the MOST expensive tier, never as free", () => {
@@ -68,22 +82,67 @@ test("an unknown model prices as the MOST expensive tier, never as free", () => 
 });
 
 test("the web_search call fee dominates a source search, and is not in the tokens", () => {
-  const tokensOnly = costMicroCents("gpt-5-nano", { input: 1000, output: 800 });
-  const withSearch = costMicroCents("gpt-5-nano", { input: 1000, output: 800 }, { webSearchCalls: 1 });
+  const tokensOnly = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 800 });
+  const withSearch = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 800 }, { webSearchCalls: 1 });
   assert.ok(withSearch - tokensOnly === 1e6, "one search should add exactly 1 cent");
-  assert.ok(withSearch > tokensOnly * 20, "pricing sources off tokens alone under-counts them badly");
+  // ~10x on the fast tier (a 1,000-in / 800-out search is ~0.12 cents of tokens).
+  assert.ok(withSearch > tokensOnly * 5, "pricing sources off tokens alone under-counts them badly");
 });
 
 test("cached input is charged at the cached rate, not the fresh rate", () => {
-  const allFresh = costMicroCents("gpt-5-nano", { input: 1000, output: 0, cached: 0 });
-  const allCached = costMicroCents("gpt-5-nano", { input: 1000, output: 0, cached: 1000 });
+  const allFresh = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 0, cached: 0 });
+  const allCached = costMicroCents(MODEL_TIERS.fast, { input: 1000, output: 0, cached: 1000 });
   assert.ok(allCached < allFresh);
-  assert.equal(allCached, Math.round(1000 * MODEL_PRICES["gpt-5-nano"].cached / 1e6 * 100 * 1e6));
+  assert.equal(allCached, Math.round(1000 * MODEL_PRICES[MODEL_TIERS.fast].cached / 1e6 * 100 * 1e6));
+});
+
+test("cache writes are charged at the cacheWrite rate, once, and never again as fresh input", () => {
+  // The thorough model bills a first-seen prefix at 1.25x input. 4,976 of
+  // 4,979 input tokens came back as cache writes on a real cold call.
+  const m = MODEL_TIERS.thorough;
+  const p = MODEL_PRICES[m];
+  assert.ok(p.cacheWrite > p.input, "the thorough tier bills cache writes above its input rate");
+  const micro = (dollarsPerM, tokens) => tokens * dollarsPerM / 1e6 * 100 * 1e6;
+
+  const cold = costMicroCents(m, { input: 4979, output: 5, cached: 0, cacheWrite: 4976 });
+  assert.equal(cold, Math.round(micro(p.input, 3) + micro(p.cacheWrite, 4976) + micro(p.output, 5)));
+
+  const asFresh = costMicroCents(m, { input: 4979, output: 5, cached: 0 });
+  assert.ok(cold > asFresh, "reading a write as plain input under-counts the call");
+  assert.ok(cold < asFresh * 1.26, "and a write is not ALSO billed as fresh input");
+
+  // Reads, writes and fresh input in one call: each at its own rate.
+  const mixed = costMicroCents(m, { input: 1000, output: 100, cached: 600, cacheWrite: 300 });
+  assert.equal(mixed, Math.round(micro(p.input, 100) + micro(p.cached, 600) + micro(p.cacheWrite, 300) + micro(p.output, 100)));
+
+  // Junk in the new field costs nothing extra and never goes negative.
+  for (const cacheWrite of [NaN, -50, undefined, null, "12"]) {
+    assert.equal(costMicroCents(m, { input: 1000, output: 0, cacheWrite }), costMicroCents(m, { input: 1000, output: 0 }));
+  }
+});
+
+test("a model with no cacheWrite price bills a write at its input rate", () => {
+  // Every current tier has a cacheWrite price, so the fallback is exercised on
+  // a throwaway row rather than skipped — a guard that quietly stops running
+  // is worse than none.
+  const m = "test-model-without-cache-write";
+  MODEL_PRICES[m] = { input: 1.0, cached: 0.1, output: 2.0 };
+  try {
+    assert.equal(costMicroCents(m, { input: 1000, output: 0, cacheWrite: 1000 }), costMicroCents(m, { input: 1000, output: 0 }));
+    assert.equal(costMicroCents(m, { input: 1000, output: 0, cacheWrite: 1000 }), 100_000);
+  } finally {
+    delete MODEL_PRICES[m];
+  }
+});
+
+test("an unknown model's cache writes price at the MOST expensive tier's write rate", () => {
+  const u = { input: 2000, output: 500, cached: 200, cacheWrite: 1500 };
+  assert.equal(costMicroCents("gpt-99-unreleased", u), costMicroCents(MODEL_TIERS.thorough, u));
 });
 
 test("junk usage cannot produce a negative cost", () => {
   for (const u of [{}, { input: -5, output: -5 }, { input: NaN }, null]) {
-    assert.ok(costMicroCents("gpt-5-nano", u) >= 0);
+    assert.ok(costMicroCents(MODEL_TIERS.fast, u) >= 0);
   }
 });
 
@@ -113,7 +172,7 @@ test("spend accumulates and eventually refuses", () => {
   const env = { TRACELY_DAILY_BUDGET_USD: "0.01" }; // 1 cent
   assert.equal(spendState({ at, env }).allowed, true);
   // One source search is 1 cent, so exactly one exhausts a 1-cent day.
-  recordSpend({ model: "gpt-5-nano", usage: { input: 10, output: 10 }, webSearchCalls: 1, at });
+  recordSpend({ model: MODEL_TIERS.fast, usage: { input: 10, output: 10 }, webSearchCalls: 1, at });
   const after = spendState({ at, env });
   assert.equal(after.allowed, false, "the budget must refuse once spent");
   assert.equal(after.remaining, 0);
@@ -131,7 +190,7 @@ test("sources are shed BEFORE checks when the budget runs low", () => {
   // Spend past the shed threshold but not the whole budget.
   const budget = dailyBudgetMicroCents(env);
   const target = Math.ceil(budget * (1 - SPEND.shedSourcesAtRemainingPct) + 1);
-  recordSpend({ model: "gpt-5-nano", usage: { input: 0, output: 0 }, webSearchCalls: target / 1e6, at });
+  recordSpend({ model: MODEL_TIERS.fast, usage: { input: 0, output: 0 }, webSearchCalls: target / 1e6, at });
   const s = spendState({ at, env });
   assert.equal(s.allowed, true, "checking must survive");
   assert.equal(s.sourcesAllowed, false, "the 16x-cost route goes first");
@@ -141,7 +200,7 @@ test("the day key rolls over, so yesterday's spend does not bind today", () => {
   const env = { TRACELY_DAILY_BUDGET_USD: "0.01" };
   const yesterday = Date.UTC(2031, 5, 1, 12);
   const today = Date.UTC(2031, 5, 2, 12);
-  recordSpend({ model: "gpt-5-nano", usage: {}, webSearchCalls: 1, at: yesterday });
+  recordSpend({ model: MODEL_TIERS.fast, usage: {}, webSearchCalls: 1, at: yesterday });
   assert.equal(spendState({ at: yesterday, env }).allowed, false);
   assert.equal(spendState({ at: today, env }).allowed, true);
 });
@@ -305,6 +364,119 @@ test("TRACELY_APP_DAILY_BUDGET_USD follows the extension budget's rules", () => 
   assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8);
 });
 
+// ── the beta pool: testers' Pro grant, kept off the extension's day ──────
+
+test("the beta pool is its own day: beta spend never touches the extension or app pools", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "1", TRACELY_APP_DAILY_BUDGET_USD: "1", TRACELY_BETA_DAILY_BUDGET_USD: "1" };
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 0, output: 30_000 }, at, pool: "beta" });
+  assert.equal(spendState({ at, env, pool: "beta" }).allowed, false, "the beta pool is spent");
+  assert.equal(spendState({ at, env }).spent, 0, "the extension pool never saw it");
+  assert.equal(spendState({ at, env, pool: "app" }).spent, 0, "nor did the app pool");
+  assert.equal(spentTodayMicroCents(at, "extension"), 0);
+});
+
+test("TRACELY_BETA_DAILY_BUDGET_USD follows the other budgets' rules", () => {
+  const def = SPEND.defaultBetaDailyBudgetUsd * 1e8;
+  assert.equal(SPEND.defaultBetaDailyBudgetUsd, 10);
+  assert.equal(dailyBudgetMicroCents({}, "beta"), def, "absent is the default");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "" }, "beta"), def, "empty is absent, not 0");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "  " }, "beta"), def, "blank is absent");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "NaN" }, "beta"), def, "NaN is junk, and junk is the default");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "-1" }, "beta"), def, "negative is junk");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "0" }, "beta"), 0, "explicit 0 turns the ceiling off");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "2.5" }, "beta"), 2.5e8);
+  assert.equal(dailyBudgetMicroCents({ TRACELY_BETA_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8, "and never moves the extension's");
+});
+
+test("the beta pool is unmetered on a local run, like every pool", () => {
+  const at = nextAt();
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 1e6, output: 1e6 }, enforced: false, at, pool: "beta" });
+  assert.equal(spentTodayMicroCents(at, "beta"), 0);
+  assert.equal(spendState({ enforced: false, at, pool: "beta" }).allowed, true);
+});
+
+// ── the paid pool: Student/Pro on the extension routes ───────────────────
+
+test("the paid pool is its own day, and TRACELY_PAID_DAILY_BUDGET_USD follows the other budgets' rules", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "1", TRACELY_PAID_DAILY_BUDGET_USD: "1" };
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 0, output: 30_000 }, at, pool: "paid" });
+  assert.equal(spendState({ at, env, pool: "paid" }).allowed, false, "the paid pool is spent");
+  assert.equal(spendState({ at, env }).spent, 0, "the extension pool never saw it");
+
+  const def = SPEND.defaultPaidDailyBudgetUsd * 1e8;
+  assert.equal(SPEND.defaultPaidDailyBudgetUsd, 10);
+  assert.equal(dailyBudgetMicroCents({}, "paid"), def);
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "" }, "paid"), def, "empty is absent, not 0");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "NaN" }, "paid"), def);
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "0" }, "paid"), 0, "explicit 0 turns the ceiling off");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8, "and never moves the extension's");
+});
+
+// ── in-flight reservations ───────────────────────────────────────────────
+
+test("poolRoom counts calls in flight: a reserving pool stops admitting before the calls land", () => {
+  const at = nextAt();
+  const env = { TRACELY_BETA_DAILY_BUDGET_USD: "1" };
+  assert.equal(reservedMicroCents("beta"), 0);
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, true);
+  const a = reserveSpend("beta", 0.6e8); // $0.60 in flight
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, true, "$0.40 unreserved is still room");
+  const b = reserveSpend("beta", 0.6e8); // admitted on that room: at most one call over
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, false, "held reservations cover the pool");
+  assert.equal(poolRoom({ at, env, pool: "beta" }).budget.remaining, 1e8, "spendState still reports spend on disk only");
+  a.release();
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, true, "a finished call gives its hold back");
+  b.release();
+  b.release(); // idempotent: the handler's finally may release what a route already did
+  assert.equal(reservedMicroCents("beta"), 0);
+  assert.equal(reservedMicroCents("extension"), 0, "pools hold separately");
+});
+
+test("a reservation only ever shrinks, and an unmetered pool always has room", () => {
+  const r = reserveSpend("paid", 1000);
+  r.resize(400);
+  assert.equal(r.amount, 400);
+  assert.equal(reservedMicroCents("paid"), 400);
+  r.resize(5000); // never above what admission allowed
+  assert.equal(r.amount, 400);
+  r.release();
+  r.resize(900); // a released hold stays released
+  assert.equal(reservedMicroCents("paid"), 0);
+
+  const big = reserveSpend("beta", 1e12);
+  assert.equal(poolRoom({ enforced: false, pool: "beta" }).room, true, "local: nothing is metered");
+  assert.equal(poolRoom({ env: { TRACELY_BETA_DAILY_BUDGET_USD: "0" }, pool: "beta" }).room, true, "an explicit 0 removes the ceiling");
+  big.release();
+  assert.throws(() => reserveSpend("nope", 1), /unknown spend pool/);
+});
+
+test("extend grows a hold for a request's further calls, only while the pool has room", () => {
+  // A check that truncates splits into two more calls; they are admitted
+  // exactly as the first call was, or not made.
+  const at = nextAt();
+  const env = { TRACELY_BETA_DAILY_BUDGET_USD: "1" };
+  const r = reserveSpend("beta", 0.3e8); // $0.30
+  assert.equal(r.extend(0.6e8, { at, env }), true, "$0.70 unreserved: room");
+  assert.equal(r.amount, 0.9e8);
+  assert.equal(reservedMicroCents("beta"), 0.9e8);
+  assert.equal(r.extend(0.6e8, { at, env }), true, "$0.10 left is still room: the last admission may go over");
+  assert.equal(reservedMicroCents("beta"), 1.5e8);
+  assert.equal(r.extend(1, { at, env }), false, "no room: nothing held");
+  assert.equal(r.amount, 1.5e8);
+  r.resize(1e8); // resize still only shrinks
+  assert.equal(r.amount, 1e8);
+  r.release();
+  assert.equal(reservedMicroCents("beta"), 0, "release gives back everything, extensions included");
+  assert.equal(r.extend(1, { at, env }), false, "a released hold cannot grow");
+  assert.equal(reservedMicroCents("beta"), 0);
+
+  const unmetered = reserveSpend("paid", 1e12);
+  assert.equal(unmetered.extend(5, { at, env: { TRACELY_PAID_DAILY_BUDGET_USD: "0" } }), true, "no ceiling: always room");
+  unmetered.release();
+});
+
 // ── rate limiting ────────────────────────────────────────────────────────
 
 test("the rate limiter admits up to the limit, then refuses", () => {
@@ -321,6 +493,17 @@ test("the rate limiter's key map is bounded against a rotating attacker", () => 
 });
 
 // ── the header has to survive the browser ────────────────────────────────
+
+test("X-Tracely-Beta is APPENDED to the preflight's allowed headers, the frozen three intact", () => {
+  // The beta build sends it on every relayed call and on /api/entitlement;
+  // unlisted, the preflight fails and every tester is silently free. The
+  // first three are baked into the extension under Web Store review, so they
+  // must survive exactly, in order.
+  const server = srcOf("server.js");
+  const m = server.match(/"Access-Control-Allow-Headers":\s*"([^"]+)"/);
+  assert.ok(m, "Access-Control-Allow-Headers not found in server.js");
+  assert.deepEqual(m[1].split(",").map((h) => h.trim()), ["Content-Type", "Authorization", "X-Tracely-Install", "X-Tracely-Beta"]);
+});
 
 test("X-Tracely-Install is allowed through the CORS preflight", async () => {
   // The extension sends this header; if Access-Control-Allow-Headers does not
@@ -356,9 +539,14 @@ test("/api/entitlement exposes userId, and the extension forwards it", async () 
   // mapping, then the payer's email) are weaker, and email matching is wrong
   // exactly when a student pays with a parent's card. Nothing fills the first
   // rung unless the account id reaches the checkout link, which means it has
-  // to travel server -> worker -> page. Each hop is pinned here because a
+  // to travel server -> worker -> link. Each hop is pinned here because a
   // break anywhere along it is silent: checkout still succeeds, the payment
   // just lands on nobody.
+  //
+  // The last hop differs by page. The options page (an extension page) builds
+  // the link itself. The widgets live in an OPEN shadow root on host pages,
+  // so the id must never reach them — any site could read it — and their PRO
+  // link asks the worker to open the order page with the id instead.
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
   const pathMod = await import("node:path");
@@ -374,17 +562,23 @@ test("/api/entitlement exposes userId, and the extension forwards it", async () 
   assert.ok(extDir, "could not locate extension/");
 
   const bg = readFileSync(pathMod.join(extDir, "background.js"), "utf8");
-  assert.match(bg, /userId:\s*ent\?\.userId/, "the worker must forward userId to the UI");
+  assert.match(bg, /userId:\s*fromExtensionPage\(sender\)\s*\?\s*ent\?\.userId/,
+    "the worker must forward userId to its own pages, and only to them");
 
-  for (const file of ["options.js", "content.js"]) {
+  for (const file of ["options.js", "background.js"]) {
     const src = readFileSync(pathMod.join(extDir, file), "utf8");
     assert.match(src, /function orderUrl\(/, `${file} must build the upgrade link through orderUrl()`);
     assert.match(src, /uid=\$\{encodeURIComponent\(userId\)\}/, `${file} must attach uid`);
   }
+  assert.match(bg, /tabs\.create\(\{ url: orderUrl\(ent\?\.userId\) \}\)/, "the widgets' PRO link opens WITH the id");
+
+  const content = readFileSync(pathMod.join(extDir, "content.js"), "utf8");
+  assert.doesNotMatch(content, /uid=/, "content.js must never put the account id in a host page");
+  assert.match(content, /type: "tracely-open-order"/, "the widgets' PRO link must go through the worker");
 });
 
 test("orderUrl degrades to a bare link when signed out rather than sending uid=null", () => {
-  // Reproduces the helper both extension files carry. `uid=null` as a literal
+  // Reproduces the helper options.js and background.js carry. `uid=null` as a literal
   // string would reach Stripe as a client_reference_id of "null", which is
   // worse than none: the webhook would key a real payment to a fake account.
   const ORDER_URL = "https://jointracely.com/order";

@@ -62,5 +62,5 @@ no clamping, no metering, everything works exactly as described above. See
 
 - Server runs on port `4477` (`PORT=…` to change).
 - `TRACELY_MOCK=1 node server.js` runs a no-API mock mode with canned verdicts for demoing the UI.
-- Default model is `gpt-5-nano`, the cheapest tier; `lib/llm.js` is the only file that names a model id, and a plan's ceiling is applied on top of it in `shared/plan.js`.
+- Default model is `gpt-5.6-luna`, the fast tier (chosen by `eval/models/FINDINGS.md`); `lib/llm.js` owns the model ids, a plan's ceiling is applied on top of them in `shared/plan.js`, and retired ids old clients still send are translated there (`currentModelId`).
 - The server has **zero runtime dependencies** — the OpenAI Responses API is called over plain `fetch`, so `npm install` installs nothing.

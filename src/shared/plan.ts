@@ -96,7 +96,7 @@ export function isModelTier(value: unknown): value is ModelTier {
  * A MIRROR of `MODEL_FOR_TIER` in `server/shared/plan.js`, and it has to be
  * one. The server's `clampModel` only knows model ids: handed a tier NAME it
  * does not recognise the value and resolves it down to the cheapest model, so
- * `clampModel('thorough', 'pro')` is `gpt-5-nano`. When the desktop sent its
+ * `clampModel('thorough', 'pro')` is the fast model. When the desktop sent its
  * tier as an `x-tracely-model-tier` header to the relay that did not matter —
  * the relay ignored the header and chose from its own environment. The server
  * does read what it is sent, so the translation happens here, before the
@@ -110,8 +110,8 @@ export function isModelTier(value: unknown): value is ModelTier {
  * Pinned by plan.test.ts against the server's copy.
  */
 export const MODEL_FOR_TIER = {
-  fast: 'gpt-5-nano',
-  balanced: 'gpt-5.4',
+  fast: 'gpt-5.6-luna',
+  balanced: 'gpt-5.6-terra',
   thorough: 'gpt-6-astra'
 } as const satisfies Record<ModelTier, string>
 
@@ -170,22 +170,28 @@ export const PLAN_PRICE: Record<Plan, string> = {
   pro: '$9.99/mo'
 }
 
-/** What each plan gets, in the order the pricing page lists it. */
+/** What each plan gets, in the order the pricing page lists it.
+ *
+ * Every model claim here is one the model eval measured
+ * (eval/models/FINDINGS.md), and matches the extension's options page
+ * (extension/options.js MODEL_NOTES) — one account covers both. The balanced
+ * tier was NOT more accurate than fast on the check or the critique, so
+ * Student is sold on its allowance, not on a "smarter" model. */
 export const PLAN_INCLUDES: Record<Plan, readonly string[]> = {
   free: ['The fast model', '5 source searches a day'],
-  student: ['Unlimited checks and sources', 'A smarter model'],
+  student: ['Unlimited checks and sources', 'The Balanced model'],
   pro: ['Everything in Student', 'The most thorough model']
 }
 
 export const MODEL_TIER_LABEL: Record<ModelTier, string> = {
   fast: 'Fast',
-  balanced: 'Smarter',
+  balanced: 'Balanced',
   thorough: 'Most thorough'
 }
 
 export const MODEL_TIER_DESCRIPTION: Record<ModelTier, string> = {
   fast: 'Quickest answers, on every plan.',
-  balanced: 'A stronger model for checks, critique and grading.',
+  balanced: 'A larger model, though in our tests no more accurate than Fast.',
   thorough: 'The most careful read Tracely can give a draft.'
 }
 

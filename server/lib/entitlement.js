@@ -18,10 +18,11 @@
  * metered, so a local run with an empty .env behaves exactly as this server
  * did before any of this existed. That is what `enforced` carries.
  */
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { usageCount, usageBump } from "./db.js";
 import {
   DEFAULT_PLAN,
+  planRank,
   planFromMetadata,
   usageDay,
   dailySourceSearchLimit,
@@ -121,6 +122,58 @@ export async function planForRequest(req) {
 /** Testing/reload seam — a plan changed by a webhook should not wait 60s. */
 export function forgetCachedPlans() {
   cache.clear();
+}
+
+// ── the beta grant ─────────────────────────────────────────────────────
+/* Testers on the unpacked beta build (Tracely-<version>-beta.zip, which
+ * carries beta.json) send X-Tracely-Beta: <token>. A token listed in
+ * TRACELY_BETA_TOKENS lifts the caller to Pro on the EXTENSION's routes only
+ * — server.js applies this in spendGate and /api/entitlement and nowhere
+ * else, so the desktop's app routes never see it.
+ *
+ * Applied per request, OUTSIDE planForRequest's 60s cache, for two reasons:
+ * the cache is keyed on the bearer token (a signed-out tester has none), and
+ * a grant cached against a user would outlive the header that earned it.
+ * withBetaGrant returns a NEW object — mutating the cached entitlement would
+ * hand Pro to that user's next request with no header at all.
+ *
+ * TRACELY_BETA_TOKENS is read from the env passed in, which server.js
+ * refreshes from .env on every request (loadEnvFile), so adding or revoking a
+ * token needs no restart. Empty or absent means beta is off. */
+export const BETA_HEADER = "x-tracely-beta";
+
+/** The configured tokens: comma-separated, trimmed, blanks dropped. */
+export function betaTokens(env = process.env) {
+  return String(env?.TRACELY_BETA_TOKENS ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+}
+
+/* Constant-time over equal-length buffers: both sides are SHA-256'd first, so
+ * timingSafeEqual never throws on a length mismatch and the comparison leaks
+ * neither the token nor its length. Every configured token is compared — no
+ * early exit — so the timing does not say which one matched either. */
+export function betaTokenMatches(presented, env = process.env) {
+  const tokens = betaTokens(env);
+  if (tokens.length === 0 || typeof presented !== "string" || !presented) return false;
+  const digest = (s) => createHash("sha256").update(s).digest();
+  const mine = digest(presented);
+  let matched = false;
+  for (const t of tokens) {
+    if (timingSafeEqual(mine, digest(t))) matched = true;
+  }
+  return matched;
+}
+
+/**
+ * The entitlement a request gets once its beta header is considered:
+ * unchanged without a valid token, else `{ ...ent, plan: max(plan, "pro"),
+ * beta: true }`. `enforced`, `userId` and `email` are untouched, so a
+ * signed-in tester is still metered and billed as themselves.
+ */
+export function withBetaGrant(ent, req, env = process.env) {
+  const presented = headerOf(req, BETA_HEADER);
+  if (!presented || !betaTokenMatches(presented, env)) return ent;
+  const plan = planRank(ent?.plan) >= planRank("pro") ? ent.plan : "pro";
+  return { ...ent, plan, beta: true };
 }
 
 // ── free-tier metering ─────────────────────────────────────────────────

@@ -1,0 +1,952 @@
+{
+ "Orben and Przybylski (2019) analyzed data from over 350,000 adolescents": {
+  "essay": "05-social-media.txt",
+  "request": {
+   "claimText": "Orben and Przybylski (2019) analyzed data from over 350,000 adolescents and concluded that social media use is a primary driver of declining teen well-being.",
+   "strengthScore": 79,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Screens, Teens, and Psychological Well-Being: Evidence From Three Time-Use-Diary Studies (2019) — The notion that digital-screen engagement decreases adolescent well-being has become a recurring feature in public, political, and scientific conversation. The current level of psychological evidence, however, is far removed from the certainty voiced by many commentators. There is little clear-cut evidence that screen time decreases adolescent well-being, and most psychological results are based on single-country, exploratory studies that rely on inaccurate but popular self-report measures of digital-screen engagement. In this study, which encompassed three nationally representative large-scale data sets from Ireland, the United States, and the United Kingdom ( N = 17,247 after data exclusions) and included time-use-diary measures of digital-screen engagement, we used both exploratory and confirmatory study designs to introduce methodological and analytical improvements to a growing…\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. The association between adolescent well-being and digital technology use",
+   "referenceCheck": "Orben and Przybylski (2019) — a targeted search of Crossref (the scholarly index) found a work by Orben and Przybylski 2019: \"Screens, Teens, and Psychological Well-Being: Evidence From Three Time-Use-Diary Studies\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Orben Przybylski 2019 350,000 adolescents social media well-being causal",
+  "claimType": "causal",
+  "sentence": "Orben and Przybylski (2019) analyzed data from over 350,000 adolescents and concluded that social media use is a primary driver of declining teen well-being.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.825,
+   "recency": 0.731,
+   "relevance": 0.656,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "The association between adolescent well-being and digital technology use",
+    "rel": 0.641,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 5
+ },
+ "Since smartphones became widespread around 2012": {
+  "essay": "05-social-media.txt",
+  "request": {
+   "claimText": "Since smartphones became widespread around 2012, rates of anxiety and depression among teenagers have climbed steeply, and no other explanation fits the timing as well.",
+   "strengthScore": 48,
+   "evidenceSummary": "1. Why don’t teenagers seek help for anxiety and depression?\n2. Like this meta-analysis: Screen media and mental health. — The question of whether screen time, particularly time spent with social media and smartphones, influences mental health outcomes remains a topic of considerable debate among policy makers, the public, and scholars. Some scholars have argued passionately that screen media may be contributing to an increase in poor psychosocial functioning and risk of suicide, particularly among teens. Other scholars contend that the evidence is not yet sufficient to support such a dramatic conclusion. The current meta-analysis included 37 effect sizes from 33 separate studies. To consider the most recent research, all studies analyzed were published between 2015 and 2019. Across studies, evidence suggests that screen media plays little role in mental health concerns. In particular, there was no evidence that screen media contribute to suicidal ideation or other mental health outcomes. This result was…\n3. Person-Specific Analyses of Smartphone Use and Mental Health: Intensive Longitudinal Study — BACKGROUND: Contrary to popular concerns about the harmful effects of media use on mental health, research on this relationship is ambiguous, stalling advances in theory, interventions, and policy. Scientific explorations of the relationship between media and mental health have mostly been found null or have small associations, with the results often blamed on the use of cross-sectional study designs or imprecise measures of media use and mental health. OBJECTIVE: This exploratory empirical demonstration aims to answer whether mental health effects are associated with media use experiences by (1) redirecting research investments to granular and intensive longitudinal recordings of digital experiences to build models of media use and mental health for single individuals over the course of 1 year, (2) using new metrics of fragmented media use to propose explanations of mental health…"
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "teen anxiety depression trends smartphones 2012 causal attribution",
+  "claimType": "causal",
+  "sentence": " Since smartphones became widespread around 2012, rates of anxiety and depression among teenagers have climbed steeply, and no other explanation fits the timing as well.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.333,
+   "quality": 0.65,
+   "recency": 0.75,
+   "relevance": 0.508,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Why don’t teenagers seek help for anxiety and depression?",
+    "rel": 0.494,
+    "hasAbstract": false
+   },
+   {
+    "title": "Like this meta-analysis: Screen media and mental health.",
+    "rel": 0.526,
+    "hasAbstract": true
+   },
+   {
+    "title": "Person-Specific Analyses of Smartphone Use and Mental Health: Intensive Longitudinal Study",
+    "rel": 0.51,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 3
+ },
+ "Some researchers argue the effect is small": {
+  "essay": "05-social-media.txt",
+  "request": {
+   "claimText": "Some researchers argue the effect is small.",
+   "strengthScore": 0,
+   "evidenceSummary": "No supporting evidence was found."
+  },
+  "detection": "detected@attempt3",
+  "searchQuery": "literature debate small effect social media teen well-being researchers argue effect size small",
+  "claimType": "factual",
+  "sentence": "Some researchers argue the effect is small.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0,
+   "quality": 0,
+   "recency": 0,
+   "relevance": 0,
+   "support": 0
+  },
+  "sentToCritique": [],
+  "retrieved": 0
+ },
+ "But small average effects can hide large effects in vulnerable subgroups": {
+  "essay": "05-social-media.txt",
+  "request": {
+   "claimText": "But small average effects can hide large effects in vulnerable subgroups, and anyone who has watched a fourteen-year-old scroll for four hours straight knows what they are looking at.",
+   "strengthScore": 0,
+   "evidenceSummary": "No supporting evidence was found."
+  },
+  "detection": "fallback-solo-detect",
+  "searchQuery": "heterogeneous treatment effects subgroup analysis average effect can hide large effects literature",
+  "claimType": "causal",
+  "sentence": " But small average effects can hide large effects in vulnerable subgroups, and anyone who has watched a fourteen-year-old scroll for four hours straight knows what they are looking at.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0,
+   "quality": 0,
+   "recency": 0,
+   "relevance": 0,
+   "support": 0
+  },
+  "sentToCritique": [],
+  "retrieved": 0
+ },
+ "Ramirez and Doyle (2024) found that students who received AI-generated feedback": {
+  "essay": "08-ai-grading.txt",
+  "request": {
+   "claimText": "Ramirez and Doyle (2024) found that students who received AI-generated feedback improved their essay scores by 23 percent over a single semester, a larger effect than any human intervention has produced.",
+   "strengthScore": 72,
+   "evidenceSummary": "1. Automated Essay Scoring in Middle School Writing: Understanding Key Predictors of Students’ Growth and Comparing Artificial Intelligence- and Teacher-Generated Scores and Feedback — Providing feedback to students in a sustainable way represents a perennial challenge for secondary teachers of writing. Employing artificial intelligence (AI) tools to give students personalized and immediate feedback holds great promise. Project Topeka offered middle school teachers pre-curated teaching materials, foundational texts and videos, essay prompts, and a platform for students to submit and revise essay drafts with AI-generated scores and feedback. We analyze AI-generated writing scores of 3,233 7th- and 8th-grade students in school year 2021-22 and find that students’ growth over time generally was not explained by teachers’ (n=35) experience or self-reported instructional approaches. We also find that students’ growth increased significantly as their baseline score decreased (i.e., a student with the lowest possible baseline grew more than a student with a medium baseline).…\n2. Testing Standards for AI-based Scores in Automated Essay Scoring — Recent developments in computer science and in particular in the field of artificial intelligence and machine learning allow the wide application of large language models for the evaluation of written text and other non-numerical data. When applied in the context of psychological and educational assessments, such models can be used for assigning scores to essays and other types of responses. In such as setting, traditional frameworks of test theory, such as classical test theory and item response theory, are no longer applicable, which leads to practical challenges in the evaluation of testing standards for scores obtained from AI models. To address these challenges, we discuss the evaluation of validity, fairness and reliability for scores obtained from models of artificial intelligence in the context of automated essay scoring. We further illustrate the proposed methods with an…\n3. Testing Standards for AI-based Scores in Automated Essay Scoring — Recent developments in computer science and in particular in the field of artificial intelligence and machine learning allow the wide application of large language models for the evaluation of written text and other non-numerical data. When applied in the context of psychological and educational assessments, such models can be used for assigning scores to essays and other types of responses. In contrast to classical tests, essays do not consist of test items, which leads to specific challenges in the evaluation of testing standards for scores obtained from AI models that differ from those observed for classical ability tests and personality questionnaires. To address these challenges, we discuss the evaluation of validity, fairness, and reliability for scores obtained from models of artificial intelligence in the context of automated essay scoring. This discussion includes a review of…\n4. A Comparative Study of Human and AI-Assisted Feedback on Saudi EFL Students’ Engagement and Motivation in Essay Writing — This mixed-methods study examined how AI-assisted and human feedback influenced Saudi EFL students’ engagement and motivation in essay writing. Data were collected through surveys and semi-structured interviews. Quantitative findings showed similar overall engagement levels between students receiving AI feedback (M = 3.84) and those receiving human feedback (M = 3.83). However, qualitative analysis revealed notable differences across engagement dimensions. AI feedback enhanced accessibility, provided immediate clarification, created opportunities for iterative revision, and offered emotional comfort during writing. In contrast, human feedback was valued for its personalization, contextual understanding, and social interaction. The findings also showed that students often adopted hybrid engagement practices by combining AI and human feedback to support their writing development. The…",
+   "referenceCheck": "Ramirez and Doyle (2024) — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Ramirez and Doyle 2024 returned 41 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Ramirez Doyle 2024 AI feedback 23 percent essay scores study",
+  "claimType": "causal",
+  "sentence": "Ramirez and Doyle (2024) found that students who received AI-generated feedback improved their essay scores by 23 percent over a single semester, a larger effect than any human intervention has produced.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.6,
+   "recency": 0.929,
+   "relevance": 0.596,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Automated Essay Scoring in Middle School Writing: Understanding Key Predictors of Students’ Growth and Comparing Artificial Intelligence- and Teacher-Generated Scores and Feedback",
+    "rel": 0.73,
+    "hasAbstract": true
+   },
+   {
+    "title": "Testing Standards for AI-based Scores in Automated Essay Scoring",
+    "rel": 0.602,
+    "hasAbstract": true
+   },
+   {
+    "title": "Testing Standards for AI-based Scores in Automated Essay Scoring",
+    "rel": 0.598,
+    "hasAbstract": true
+   },
+   {
+    "title": "A Comparative Study of Human and AI-Assisted Feedback on Saudi EFL Students’ Engagement and Motivation in Essay Writing",
+    "rel": 0.594,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Their sample was large and the effect held across grade levels": {
+  "essay": "08-ai-grading.txt",
+  "request": {
+   "claimText": "Their sample was large and the effect held across grade levels, so the usual complaints about small studies do not apply here.",
+   "strengthScore": 50,
+   "evidenceSummary": "1. Why Are Sample Sizes So Small in Many Qualitative Studies? Isn’t This a Problem?"
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Ramirez Doyle 2024 large sample across grade levels",
+  "claimType": "factual",
+  "sentence": " Their sample was large and the effect held across grade levels, so the usual complaints about small studies do not apply here.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.167,
+   "quality": 0.6,
+   "recency": 0.5,
+   "relevance": 0.659,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Why Are Sample Sizes So Small in Many Qualitative Studies? Isn’t This a Problem?",
+    "rel": 0.546,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 1
+ },
+ "GPT-5 class models now score above the median human rater": {
+  "essay": "08-ai-grading.txt",
+  "request": {
+   "claimText": "GPT-5 class models now score above the median human rater on the AP English Language essay rubric, according to the vendor's own published evaluation.",
+   "strengthScore": 64,
+   "evidenceSummary": "1. An Exploratory Evaluation of GPT-4’s Consistency as an English Essay Rater: A Many-Facet Rasch Model Analysis of AI versus Human Rating Patterns\n2. Evaluating Rater Effects of Large Language Models in Automated Essay Scoring: GPT, Claude, Gemini, and DeepSeek — Abstract\n                  Large language models (LLMs) have been widely explored for automated scoring in educational assessment to facilitate learning and instruction. However, empirical evidence regarding which LLMs produce the most reliable scores and induce the least rater effects remains limited. This study compared 10 LLMs (ChatGPT 3.5, ChatGPT 4, ChatGPT 4o, OpenAI o1, Claude 3.5 Sonnet, Gemini 1.5, Gemini 1.5 Pro, Gemini 2.0, DeepSeek V3, and DeepSeek R1) with human expert raters in scoring two types of writing tasks. Their performance was evaluated in terms of score accuracy, intra‐rater consistency, and rater effects estimated using the Many‐Facet Rasch model. Although the results generally supported the use of ChatGPT 4o, Gemini 1.5 Pro, and Claude 3.5 Sonnet with high scoring accuracy, better intra‐rater consistency, and less rater effects, the study is not intended to…\n3. Investigating the Accuracy of Large Language Models 'Chatgpt-4' in Grading Students’ Writing According to a Specific Rubric"
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "GPT-5 class models score above median human rater AP English Language rubric vendor published evaluation",
+  "claimType": "statistic",
+  "sentence": " GPT-5 class models now score above the median human rater on the AP English Language essay rubric, according to the vendor's own published evaluation.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.5,
+   "quality": 0.767,
+   "recency": 0.967,
+   "relevance": 0.682,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "An Exploratory Evaluation of GPT-4’s Consistency as an English Essay Rater: A Many-Facet Rasch Model Analysis of AI versus Human Rating Patterns",
+    "rel": 0.674,
+    "hasAbstract": false
+   },
+   {
+    "title": "Evaluating Rater Effects of Large Language Models in Automated Essay Scoring: GPT, Claude, Gemini, and DeepSeek",
+    "rel": 0.601,
+    "hasAbstract": true
+   },
+   {
+    "title": "Investigating the Accuracy of Large Language Models 'Chatgpt-4' in Grading Students’ Writing According to a Specific Rubric",
+    "rel": 0.62,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 3
+ },
+ "Every English teacher I know is quietly worried": {
+  "essay": "08-ai-grading.txt",
+  "request": {
+   "claimText": "Every English teacher I know is quietly worried that AI will grade essays better than they do, and the research says they are right to worry.",
+   "strengthScore": 57,
+   "evidenceSummary": "1. ”The phrase ’scared shitless’ can seem a bit childish.” 6th graders receive AI-generated feedback on creative essays — This classroom-based case study investigates how an AI-driven feedback tool evaluates and responds to Norwegian elementary students’ creative essays. The AI Text Workshop (ATW), powered by Gemini 3 Flash, is designed to provide feedback on spelling and grammar, structure, style, and emotional content. Despite their advanced language processing abilities, AI systems often misread the contextual and developmental nuances of children’s writing, resulting in feedback that may mimic teacher patterns but fail to meet students’ needs. Guided by these concerns, the study poses two research questions: (1) What are the characteristics of the feedback provided by the ATW? and (2) Does this feedback support improvements in students’ essays? An analytical framework, STAMPED (Supportive, Textual, Age-appropriate, Motivational, Precise, Exemplary, Dialogical), was developed and applied to ATW’s…\n2. Can AI grade your essays? A comparative analysis of large language models and teacher ratings in multidimensional essay scoring — The manual assessment and grading of student writing is a time-consuming yet critical task for teachers. Recent developments in generative AI offer potential solutions to facilitate essay-scoring tasks for teachers. In our study, we evaluate the performance (e.g. alignment and reliability) of both open-source and closed-source LLMs in assessing German student essays, comparing their evaluations to those of 37 teachers across 10 pre-defined criteria (i.e., plot logic, expression). A corpus of 20 real-world essays from Year 7 and 8 students was analyzed using five LLMs: GPT-3.5, GPT-4, o1-preview, LLaMA 3-70B, and Mixtral 8x7B, aiming to provide in-depth insights into LLMs’ scoring capabilities. Closed-source GPT models outperform open-source models in both internal consistency and alignment with human ratings, particularly excelling in language-related criteria. The o1 model outperforms…\n3. Worried AI means you won’t get a job when you graduate? Here’s what the research says\n4. A large-scale comparison of human-written versus ChatGPT-generated essays — ChatGPT and similar generative AI models have attracted hundreds of millions of users and have become part of the public discourse. Many believe that such models will disrupt society and lead to significant changes in the education system and information generation. So far, this belief is based on either colloquial evidence or benchmarks from the owners of the models-both lack scientific rigor. We systematically assess the quality of AI-generated content through a large-scale study comparing human-written versus ChatGPT-generated argumentative student essays. We use essays that were rated by a large number of human experts (teachers). We augment the analysis by considering a set of linguistic characteristics of the generated essays. Our results demonstrate that ChatGPT generates essays that are rated higher regarding quality than human-written essays. The writing style of the AI models…"
+  },
+  "detection": "fallback-solo-detect",
+  "searchQuery": "AI grading essays outperform human graders study",
+  "claimType": "factual",
+  "sentence": "Every English teacher I know is quietly worried that AI will grade essays better than they do, and the research says they are right to worry.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.667,
+   "quality": 0.475,
+   "recency": 0.95,
+   "relevance": 0.55,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "”The phrase ’scared shitless’ can seem a bit childish.” 6th graders receive AI-generated feedback on creative essays",
+    "rel": 0.546,
+    "hasAbstract": true
+   },
+   {
+    "title": "Can AI grade your essays? A comparative analysis of large language models and teacher ratings in multidimensional essay scoring",
+    "rel": 0.6,
+    "hasAbstract": true
+   },
+   {
+    "title": "Worried AI means you won’t get a job when you graduate? Here’s what the research says",
+    "rel": 0.457,
+    "hasAbstract": false
+   },
+   {
+    "title": "A large-scale comparison of human-written versus ChatGPT-generated essays",
+    "rel": 0.554,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 4
+ },
+ "Vandermeer and Ashworth (2024) found that large language model tutoring": {
+  "essay": "10-classroom-technology.txt",
+  "request": {
+   "claimText": "Vandermeer and Ashworth (2024) found that large language model tutoring closed the attainment gap in secondary school algebra by 31 percent within a single term, a larger effect than any human tutoring programme has reported.",
+   "strengthScore": 71,
+   "evidenceSummary": "1. Closing England's Maths Attainment Gap through One-to-One Tutoring – Global Solutions — In the aftermath of COVID-related school closures in the UK, students lost two months of learning, but the loss among the 1.7 million disadvantaged students has been much larger at seven months. This disadvantaged gap is almost entirely driven by maths attainment. One-to-one tutoring is proven to be effective at helping students catch up, but private tutoring is most likely to be taken up by children from affluent households, further widening the disadvantaged gap in learning. This report discusses the feasibility of an innovative tutoring delivery model that uses the global graduate market to deliver tutoring at a scale that can solve this problem and a price that schools can afford. While the report discusses the overall opportunity that the emerging market economies of South- and South-East Asia provide, it also presents the Third Space Learning model in Sri Lanka as a case study to…\n2. Comparison of three large language models as middle school math tutoring assistants — Middle school math forms the basis for advanced mathematical courses leading up to the university level. Large language models (LLMs) have the potential to power next-generation educational technologies, acting as digital tutors to students. The main objective of this study was to determine whether LLMs like ChatGPT, Bard, and Llama 2 can serve as reliable middle school math tutoring assistants on three tutoring tasks: hint generation, comprehensive solution, and exercise creation. Our first hypothesis was that ChatGPT would perform better in completing all three tutoring tasks than Bard and Llama 2 due to its largest model size (175 billion parameters). Our second hypothesis was that Bard would perform better than Llama 2 in generating comprehensive correct solutions due to its relatively higher model size (137 billion parameters) than Llama 2 (70 billion parameters). We curated…\n3. Investigating the impact of the Maths-Whizz intelligent tutoring programme on maths attainment for Year 2 - 5 pupils\n4. EFFECT OF PRIVATE TUTORING ON SELF-CONFIDENCE AMONG SECONDARY SCHOOL STUDENTS",
+   "referenceCheck": "Vandermeer and Ashworth (2024) — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Vandermeer and Ashworth 2024 returned 40 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Vandermeer Ashworth 2024 large language model tutoring 31 percent attainment gap algebra",
+  "claimType": "statistic",
+  "sentence": " Vandermeer and Ashworth (2024) found that large language model tutoring closed the attainment gap in secondary school algebra by 31 percent within a single term, a larger effect than any human tutoring programme has reported.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.533,
+   "recency": 0.633,
+   "relevance": 0.605,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Closing England's Maths Attainment Gap through One-to-One Tutoring – Global Solutions",
+    "rel": 0.632,
+    "hasAbstract": true
+   },
+   {
+    "title": "Comparison of three large language models as middle school math tutoring assistants",
+    "rel": 0.597,
+    "hasAbstract": true
+   },
+   {
+    "title": "Investigating the impact of the Maths-Whizz intelligent tutoring programme on maths attainment for Year 2 - 5 pupils",
+    "rel": 0.627,
+    "hasAbstract": false
+   },
+   {
+    "title": "EFFECT OF PRIVATE TUTORING ON SELF-CONFIDENCE AMONG SECONDARY SCHOOL STUDENTS",
+    "rel": 0.497,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 5
+ },
+ "Mueller and Oppenheimer (2014) found that students who took lecture notes": {
+  "essay": "10-classroom-technology.txt",
+  "request": {
+   "claimText": "Mueller and Oppenheimer (2014) found that students who took lecture notes by hand outperformed those who typed them on laptops, particularly on conceptual questions asked a week later.",
+   "strengthScore": 74,
+   "evidenceSummary": "1. [CITED BY THE WRITER] The Pen Is Mightier Than the Keyboard (2014) — Taking notes on laptops rather than in longhand is increasingly common. Many researchers have suggested that laptop note taking is less effective than longhand note taking for learning. Prior studies have primarily focused on students’ capacity for multitasking and distraction when using laptops. The present research suggests that even when laptops are used solely to take notes, they may still be impairing learning because their use results in shallower processing. In three studies, we found that students who took notes on laptops performed worse on conceptual questions than students who took notes longhand. We show that whereas taking more notes can be beneficial, laptop note takers’ tendency to transcribe lectures verbatim rather than processing information and reframing it in their own words is detrimental to learning.\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. The Pen Is Mightier Than the Keyboard — Taking notes on laptops rather than in longhand is increasingly common. Many researchers have suggested that laptop note taking is less effective than longhand note taking for learning. Prior studies have primarily focused on students’ capacity for multitasking and distraction when using laptops. The present research suggests that even when laptops are used solely to take notes, they may still be impairing learning because their use results in shallower processing. In three studies, we found that students who took notes on laptops performed worse on conceptual questions than students who took notes longhand. We show that whereas taking more notes can be beneficial, laptop note takers’ tendency to transcribe lectures verbatim rather than processing information and reframing it in their own words is detrimental to learning.",
+   "referenceCheck": "Mueller and Oppenheimer (2014) — a targeted search of Crossref (the scholarly index) found a work by Mueller and Oppenheimer 2014: \"The Pen Is Mightier Than the Keyboard\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Mueller Oppenheimer 2014 handwriting vs typing note-taking study causal design",
+  "claimType": "causal",
+  "sentence": " Mueller and Oppenheimer (2014) found that students who took lecture notes by hand outperformed those who typed them on laptops, particularly on conceptual questions asked a week later.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.743,
+   "recency": 0.607,
+   "relevance": 0.586,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "The Pen Is Mightier Than the Keyboard",
+    "rel": 0.723,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Halloway and Sundqvist (2021) showed that handwriting instruction": {
+  "essay": "10-classroom-technology.txt",
+  "request": {
+   "claimText": "Halloway and Sundqvist (2021) showed that handwriting instruction in early primary school predicted later reading fluency, accounting for 19 percent of the variance in second-grade outcomes.",
+   "strengthScore": 75,
+   "evidenceSummary": "1. Writing instruction improves students’ writing skills differentially depending on focal instruction and children: A meta-analysis for primary grade students — We investigated the effect of writing interventions on written composition for students in primary grades (K-G3) with a focus on whether effects vary as a function of different dimensions of composition outcomes (i.e., quality, productivity, fluency, and other), instructional focus (e.g., transcription, self-regulation strategies such as Self-Regulated Strategy Development [SRSD]), and student characteristics (i.e., initially weak writing skills). A total of 24 studies (number of effect sizes, k = 166; N = 5589 participants) met inclusion criteria. The overall mean effect size was moderate and positive (ES = 0.31) with some variation across the dimensions of composition: 0.32 in writing quality, 0.31 in writing productivity, 0.15 in writing fluency, and 0.34 in writing: other. SRSD had large and consistent effect sizes across the outcomes (0.59–1.04) whereas transcription instruction…\n2. Effective Instruction for Primary Grade Students Who Struggle with Reading Fluency — Abstract\n                  In the United States, a significant number of primary grade students struggle to achieve fluency in reading. Research indicates that achieving proficiency in the foundational reading competencies is a common difficulty manifested in a majority of these students. We will explore approaches for helping younger students develop proficiency in word recognition, reading fluency, and ultimately comprehension. A number of the research-based strategies can be used with the whole class which creates a context for inclusive literacy education.\n3. Science of reading — The science of reading (SoR) is the discipline that studies the objective investigation and accumulation of reliable evidence about how humans learn to read and how reading should be taught. It draws on many fields, including cognitive science, developmental psychology, education, educational psychology, special education, and more.\nFoundational skills such as phonics, decoding, and phonemic awareness are considered to be important parts of the science of reading, but they are not the only ingredients. SoR also includes areas such as oral reading fluency, vocabulary, morphology, reading comprehension, and more.\nIn addition, some educators feel that SoR should include digital literacy; background knowledge; content-rich instruction; infrastructure such as curriculum; adaptive teaching; bi-literacy development; and, social justice.\nSome researchers suggest there is a need for more studies…\n4. Summary of the Second-Grade Phase of the Cooperative Research Program in Primary Reading Instruction — SUMMARIZES the report of the Coordinating Center following the second-grade phase of the Cooperative Research Program in primary reading instruction. Data used in the study were collected from fifteen projects which conducted follow-up studies. The Coordinating Center was interested in three basic questions during the second-grade phase of the study: 1] To what extent are various readiness characteristics of beginning first-grade pupils related to pupil achievement in reading, spelling, and language skills at the end of the second grade? 2] How do linguistic, initial teaching alphabet, language experience, and phonic/linguistic programs compare in effectiveness with conventional basal programs at the end of the second grade? 3] What is the relative influence on second-grade achievement of the project (in most cases a school system) in which a pupil learns to read and the method and/or…",
+   "referenceCheck": "Halloway and Sundqvist (2021) — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Halloway and Sundqvist 2021 returned 40 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "handwriting instruction early primary reading fluency 19 percent variance second-grade outcomes",
+  "claimType": "statistic",
+  "sentence": " Halloway and Sundqvist (2021) showed that handwriting instruction in early primary school predicted later reading fluency, accounting for 19 percent of the variance in second-grade outcomes.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.731,
+   "recency": 0.338,
+   "relevance": 0.602,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Writing instruction improves students’ writing skills differentially depending on focal instruction and children: A meta-analysis for primary grade students",
+    "rel": 0.622,
+    "hasAbstract": true
+   },
+   {
+    "title": "Effective Instruction for Primary Grade Students Who Struggle with Reading Fluency",
+    "rel": 0.511,
+    "hasAbstract": true
+   },
+   {
+    "title": "Science of reading",
+    "rel": 0.485,
+    "hasAbstract": true
+   },
+   {
+    "title": "Summary of the Second-Grade Phase of the Cooperative Research Program in Primary Reading Instruction",
+    "rel": 0.623,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Twenge and Campbell (2018) reported that adolescent screen time": {
+  "essay": "10-classroom-technology.txt",
+  "request": {
+   "claimText": "Twenge and Campbell (2018) reported that adolescent screen time is associated with lower psychological well-being, and the association strengthens past two hours a day.",
+   "strengthScore": 80,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Associations between screen time and lower psychological well-being among children and adolescents: Evidence from a population-based study (2018) — Previous research on associations between screen time and psychological well-being among children and adolescents has been conflicting, leading some researchers to question the limits on screen time suggested by physician organizations. We examined a large (n = 40,337) national random sample of 2- to 17-year-old children and adolescents in the U.S. in 2016 that included comprehensive measures of screen time (including cell phones, computers, electronic devices, electronic games, and TV) and an array of psychological well-being measures. After 1 h/day of use, more hours of daily screen time were associated with lower psychological well-being, including less curiosity, lower self-control, more distractibility, more difficulty making friends, less emotional stability, being more difficult to care for, and inability to finish tasks. Among 14- to 17-year-olds, high users of screens (7+ h/day…\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Associations between screen time and lower psychological well-being among children and adolescents: Evidence from a population-based study — Previous research on associations between screen time and psychological well-being among children and adolescents has been conflicting, leading some researchers to question the limits on screen time suggested by physician organizations. We examined a large (n = 40,337) national random sample of 2- to 17-year-old children and adolescents in the U.S. in 2016 that included comprehensive measures of screen time (including cell phones, computers, electronic devices, electronic games, and TV) and an array of psychological well-being measures. After 1 h/day of use, more hours of daily screen time were associated with lower psychological well-being, including less curiosity, lower self-control, more distractibility, more difficulty making friends, less emotional stability, being more difficult to care for, and inability to finish tasks. Among 14- to 17-year-olds, high users of screens (7+ h/day…",
+   "referenceCheck": "Twenge and Campbell (2018) — a targeted search of Crossref (the scholarly index) found a work by Twenge and Campbell 2018: \"Associations between screen time and lower psychological well-being among children and adolescents: Evidence from a population-based study\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Twenge Campbell 2018 adolescent screen time psychological well-being association two hours a day",
+  "claimType": "statistic",
+  "sentence": " Twenge and Campbell (2018) reported that adolescent screen time is associated with lower psychological well-being, and the association strengthens past two hours a day.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.825,
+   "recency": 0.75,
+   "relevance": 0.662,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Associations between screen time and lower psychological well-being among children and adolescents: Evidence from a population-based study",
+    "rel": 0.808,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Okonkwo and Salvatore (2022) found that increasing urban tree canopy": {
+  "essay": "11-what-cities-can-change.txt",
+  "request": {
+   "claimText": "Okonkwo and Salvatore (2022) found that increasing urban tree canopy coverage lowered summer emergency room admissions by 18 percent across eleven metropolitan areas.",
+   "strengthScore": 61,
+   "evidenceSummary": "1. Urban Tree Canopy and Anxiety Before and During the COVID-19 Pandemic: Evidence from Emergency Medical Service Calls — Abstract\n                Urban tree canopy has been linked to psychological benefits through stress reduction, support for physical activity, and opportunities for social interaction. However, its relationship with acute psychological disorders such as anxiety remains underexplored, particularly during the pandemic, and tree canopy is often unevenly distributed across neighborhoods, disadvantaging low-income communities. The study examined 2,219 census blocks within 160 block groups in Marin County, California, from March 2019 to March 2021. Anxiety- and psychiatric-related emergency medical service calls served as the outcome measure. Tree canopy coverage was derived from 2018 NAIP aerial imagery, with residential population included as an exposure variable. Models adjusted for sociodemographic, economic, and built environment factors and were estimated using zero-inflated negative…\n2. Increasing tree canopy lowers urban air temperature by up to 1.5 °C in heat-prone areas — Urban heat islands (UHIs) exacerbate thermal stress, disproportionately affecting communities with limited tree cover. While satellite-derived land surface temperature ( $$T{\\rm{s}}$$ ) is widely used to assess urban heat, it often overestimates conditions compared to air temperature ( $$T{\\rm{a}}$$ )—the metric more relevant to human thermal comfort. Despite this discrepancy, relatively few studies have leveraged $$T{\\rm{a}}$$ to quantify the cooling effect of tree canopy in heat-prone areas. Using a citywide network of high-accuracy air temperature sensors and high-resolution satellite data during a heatwave, we first show that surface UHI (SUHI) overestimates urban heat by a factor of two, with SUHI averaging 8.9 °C ± 1.2 vs 4.6 °C ± 1.1 for canopy UHI. We find that tree canopy cover is the dominant cooling factor, explaining 67% of the spatial variation in $$T{\\rm{a}}$$ . Notably, a…\n3. Health Impact Assessment: The Impacts of Increasing Tree Canopy Coverage in Marion County, Indiana — Background: Urban tree canopies help to address issues of climate change related to all dimensions of health. Certain areas of the city of Indianapolis are more prone to the negative effects that lack of tree coverage can cause. This assessment explored the short term and potential long-term impacts of the efforts to increase the tree canopy coverage in vulnerable areas of Indianapolis. This effort was a collaboration of faculty members from the Indiana University Richard M. Fairbanks School of Public Health, Indianapolis Department of Public Works, Keep Indianapolis Beautiful, and the Indianapolis Office of Sustainability.\r\nMethods: Our team used the standard seven-step Health Impact Assessment (HIA) process to make the recommendations provided. Using direct observation of the neighborhood, secondary data collection, literature review, and a key stakeholder interview, we examined key…\n4. Invited Commentary on “Effects of Urban Air Pollution on Emergency Room Admissions for Chronic Obstructive Pulmonary Disease” — Morton Corn; Invited Commentary on “Effects of Urban Air Pollution on Emergency Room Admissions for Chronic Obstructive Pulmonary Disease”, American Journal of",
+   "referenceCheck": "Okonkwo and Salvatore (2022) — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Okonkwo and Salvatore 2022 returned 40 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Okonkwo Salvatore 2022 urban tree canopy emergency room admissions 18%",
+  "claimType": "statistic",
+  "sentence": " Okonkwo and Salvatore (2022) found that increasing urban tree canopy coverage lowered summer emergency room admissions by 18 percent across eleven metropolitan areas.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.667,
+   "quality": 0.825,
+   "recency": 0.688,
+   "relevance": 0.499,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Urban Tree Canopy and Anxiety Before and During the COVID-19 Pandemic: Evidence from Emergency Medical Service Calls",
+    "rel": 0.513,
+    "hasAbstract": true
+   },
+   {
+    "title": "Increasing tree canopy lowers urban air temperature by up to 1.5 °C in heat-prone areas",
+    "rel": 0.436,
+    "hasAbstract": true
+   },
+   {
+    "title": "Health Impact Assessment: The Impacts of Increasing Tree Canopy Coverage in Marion County, Indiana",
+    "rel": 0.532,
+    "hasAbstract": true
+   },
+   {
+    "title": "Invited Commentary on “Effects of Urban Air Pollution on Emergency Room Admissions for Chronic Obstructive Pulmonary Disease”",
+    "rel": 0.46,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 4
+ },
+ "Levitt and Dubner (2005) argued that legalised abortion": {
+  "essay": "11-what-cities-can-change.txt",
+  "request": {
+   "claimText": "Levitt and Dubner (2005) argued that legalised abortion in the 1970s explains most of the drop in violent crime that American cities recorded in the 1990s, a claim that displaced policing and economic explanations in the public conversation for years afterwards.",
+   "strengthScore": 70,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Freakonomics (2005)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Measurement Error, Legalized Abortion, and the Decline in Crime: A Response to Foote and Goetz (2005) — Donohue and Levitt (2001) argue that the legalization of abortion in the United States in the 1970s played an important role in explaining the observed decline in crime approximately two decades later.Foote and Goetz (2005) challenge the results presented in one of the tables in that original paper.In this reply, we regretfully acknowledge the omission of state-year interactions in the published version of that table, but show that their inclusion does not alter the qualitative results (or their statistical significance), although it does reduce the magnitude of the estimates.When one uses a more carefully constructed measure of abortion (e.g. one that takes into account cross-state mobility, or doing a better job of matching dates of birth to abortion exposure), however, the evidence in support of the abortion-crime hypothesis is as strong or stronger than suggested in our original…\n3. The Impact of Legalized Abortion on Crime — 7KH ,PSD.W RI /HJDOL]HG $ERUWLRQ RQ &ULPH -RKQ -'RQRKXH ,,, DQG 6WHYHQ ' /HYLWW 1%(5 :RUNLQJ 3DSHU 1R 1RYHPEHU $%675$&7 :H RIIHU HYLGHQ.H WKDW OHJDOL]HG DERUWLRQ\n4. The Impact of Legalized Abortion on Crime — We offer evidence that legalized abortion has contributed significantly to recent crime reductions. Crime began to fall roughly 18 years after abortion legalization. The 5 states that allowed abortion in 1970 experienced declines earlier than the rest of the nation, which legalized in 1973 with Roe v. Wade. States with high abortion rates in the 1970s and 1980s experienced greater crime reductions in the 1990s. In high abortion states, only arrests of those born after abortion legalization fall relative to low abortion states. Legalized abortion appears to account for as much as 50 percent of the recent drop in crime.",
+   "referenceCheck": "Levitt and Dubner (2005) — a targeted search of Open Library (the book index) found a work by Levitt and Dubner 2005: \"Freakonomics\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Levitt Dubner 2005 abortion crime causation",
+  "claimType": "causal",
+  "sentence": " Levitt and Dubner (2005) argued that legalised abortion in the 1970s explains most of the drop in violent crime that American cities recorded in the 1990s, a claim that displaced policing and economic explanations in the public conversation for years afterwards.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.417,
+   "recency": 0.167,
+   "relevance": 0.638,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Measurement Error, Legalized Abortion, and the Decline in Crime: A Response to Foote and Goetz (2005)",
+    "rel": 0.673,
+    "hasAbstract": true
+   },
+   {
+    "title": "The Impact of Legalized Abortion on Crime",
+    "rel": 0.614,
+    "hasAbstract": true
+   },
+   {
+    "title": "The Impact of Legalized Abortion on Crime",
+    "rel": 0.699,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Lindqvist and Oyelaran (2023) found that congestion pricing": {
+  "essay": "11-what-cities-can-change.txt",
+  "request": {
+   "claimText": "Lindqvist and Oyelaran (2023) found that congestion pricing reduced particulate exposure in low income neighbourhoods by 24 percent, reversing the usual pattern in which environmental gains accrue to wealthier districts first.",
+   "strengthScore": 72,
+   "evidenceSummary": "1. Adjusted net savings, including particulate emission damage (current US$) — Adjusted net savings are equal to net national savings plus education expenditure and minus energy depletion, mineral depletion, net forest depletion, and carbon dioxide and particulate emissions damage. This indicator is expressed in current prices, meaning no adjustment has been made to account for price changes over time.  This indicator is expressed in United States dollars. Source: Staff estimates, World Bank (WB);\nThe Changing Wealth of Nations: Measuring Sustainable Development in the New Millennium, World Bank (WB)\n2. Congestion Charge Case Studies — The London congestion charge was first instituted in 2003 and was intended to reduce traffic flow and pollution in the city center of London. The London congestion charge comes with its own controversy, and it has its own pros and its own cons. Another pioneering work which Vickery presented was the application of game theory from mathematics to the operation of auctions. Unlike the congestion charge, the ultra-low emission zone will be in effect 24 hours a day, seven days a week, except for Christmas Day. The data shows that operation costs and investments decline over the time period since the introduction of the congestion tax. Overall, Milan by implementing Area C congestion charge has been able to reduce traffic congestion significantly, reduce smog and other pollutants, which aligns with climate change goals, reduce vehicle accidents, increase pedestrian, and bicycle usage in the…\n3. Congestion Pricing: A Comprehensive Look at International Congestion Pricing Models and Applying Them to the United States — Urban traffic congestion imposes large costs through wasted time, excess fuel consumption, air pollution, and lost productivity. Although congestion pricing has been recognized as the economically efficient remedy since Pigou and Vickrey, implementation has been rare. This thesis examines the conditions under which congestion pricing succeeds by analyzing three pioneering cases: London, Singapore, and New York City. Across all three, charges reduced traffic volumes and improved speeds within the priced zones. Benefits extended beyond cordon boundaries, with measurable improvements on untolled suburban roads. The distributional effects depended on how revenues were recycled rather than on the charge itself. Political viability, not technical design, proved the binding constraint on implementation. The findings indicate that congestion pricing achieves its objectives under specific…\n4. Congestion Pricing Models — Route choice is often closely associated with mode choice since drivers that use the free lanes in a congestion pricing location may decide to change their mode to Express bus or carpool ride to take advantage of the HOT lanes. The consumer, when faced with the choice of deciding on which route or alternative to take, must first assess value of each selection to him or her and then after weighing the relative gains will choose the alternative that is worth the most to them. Thus, consciously, or subconsciously, the consumer places a value on choosing the toll lane versus non-toll lane, and when that value is high enough, they will decide to select that alternative and reject the other alternatives. The cell transmission model as developed by Daganzo is an analytic technique that models the highway as being divided into equal length sections called “cells.” This allows for the modeling…",
+   "referenceCheck": "Lindqvist and Oyelaran (2023) — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Lindqvist and Oyelaran 2023 returned 40 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Lindqvist Oyelaran 2023 congestion pricing particulate exposure 24%",
+  "claimType": "statistic",
+  "sentence": " Lindqvist and Oyelaran (2023) found that congestion pricing reduced particulate exposure in low income neighbourhoods by 24 percent, reversing the usual pattern in which environmental gains accrue to wealthier districts first.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.575,
+   "recency": 0.642,
+   "relevance": 0.61,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Adjusted net savings, including particulate emission damage (current US$)",
+    "rel": 0.574,
+    "hasAbstract": true
+   },
+   {
+    "title": "Congestion Charge Case Studies",
+    "rel": 0.605,
+    "hasAbstract": true
+   },
+   {
+    "title": "Congestion Pricing: A Comprehensive Look at International Congestion Pricing Models and Applying Them to the United States",
+    "rel": 0.615,
+    "hasAbstract": true
+   },
+   {
+    "title": "Congestion Pricing Models",
+    "rel": 0.486,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Chetty and Hendren (2018) showed that the neighbourhood a child": {
+  "essay": "11-what-cities-can-change.txt",
+  "request": {
+   "claimText": "Chetty and Hendren (2018) showed that the neighbourhood a child is raised in affects their adult earnings and their likelihood of moving up the income distribution, with effects that accumulate for each additional year of exposure.",
+   "strengthScore": 75,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Race and Economic Opportunity in the United States: An Intergenerational Perspective (2018) — We study the sources of racial disparities in income using anonymized longitudinal data covering nearly the entire U.S. population from 1989-2015.We document three results.First, black Americans and American Indians have much lower rates of upward mobility and higher rates of downward mobility than whites, leading to persistent disparities across generations.Conditional on parent income, the black-white income gap is driven by differences in wages and employment rates between black and white men; there are no such differences between black and white women.Hispanic Americans have rates of intergenerational mobility more similar to whites than blacks, leading the Hispanic-white income gap to shrink across generations.Second, differences in parental marital status, education, and wealth explain little of the black-white income gap conditional on parent income.Third, the black-white gap…\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. The Effects of Exposure to Better Neighborhoods on Children: New Evidence from the Moving to Opportunity Experiment — The opinions expressed in this paper are those of the authors alone and do not necessarily reflect the views of",
+   "referenceCheck": "Chetty and Hendren (2018) — a targeted search of Crossref (the scholarly index) found a work by Chetty and Hendren 2018: \"Race and Economic Opportunity in the United States: An Intergenerational Perspective\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Chetty Hendren 2018 neighborhood effects earnings mobility study",
+  "claimType": "causal",
+  "sentence": " Chetty and Hendren (2018) showed that the neighbourhood a child is raised in affects their adult earnings and their likelihood of moving up the income distribution, with effects that accumulate for each additional year of exposure.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.688,
+   "recency": 0.569,
+   "relevance": 0.627,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "The Effects of Exposure to Better Neighborhoods on Children: New Evidence from the Moving to Opportunity Experiment",
+    "rel": 0.638,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Hopcroft and Ullman (1979) established the standard treatment of automata theory": {
+  "essay": "12-unindexed-sources.txt",
+  "request": {
+   "claimText": "Hopcroft and Ullman (1979) established the standard treatment of automata theory and formal languages, and their construction for converting a nondeterministic finite automaton into a deterministic one is still the version taught in most undergraduate courses today.",
+   "strengthScore": 77,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Introduction to automata theory, languages, and computation (1979)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. FORMAL LANGUAGES AND THEIR RELATION TO AUTOMATA: WHAT HOPCROFT &amp; ULLMAN DIDN'T TELL US\n3. On the proof of a theorem by chomsky—hopcroft—ullman — In the present note we give a proof of the theorem expressing the fact that the push-down automata accept exactly the context-free languages. The formulation of the proof (which follows the outline of the classical proof by Hopcroft and Ullman) aims at displaying some of the peculiarities of the situation. An example of the use of the constructive proof is given.\n4. Review of \"Introduction to automata theory, languages and computation\" by John E. Hopcroft and Jeffrey D. Ullman. Addison-Wesley 1979. — No abstract available.",
+   "referenceCheck": "Hopcroft and Ullman (1979) — a targeted search of Open Library (the book index) found a work by Hopcroft and Ullman 1979: \"Introduction to automata theory, languages, and computation\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Hopcroft Ullman 1979 NFA to DFA construction standard textbook authoritative source",
+  "claimType": "factual",
+  "sentence": "Hopcroft and Ullman (1979) established the standard treatment of automata theory and formal languages, and their construction for converting a nondeterministic finite automaton into a deterministic one is still the version taught in most undergraduate courses today.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.829,
+   "recency": 0.014,
+   "relevance": 0.6,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "FORMAL LANGUAGES AND THEIR RELATION TO AUTOMATA: WHAT HOPCROFT &amp; ULLMAN DIDN'T TELL US",
+    "rel": 0.73,
+    "hasAbstract": false
+   },
+   {
+    "title": "On the proof of a theorem by chomsky—hopcroft—ullman",
+    "rel": 0.532,
+    "hasAbstract": true
+   },
+   {
+    "title": "Review of \"Introduction to automata theory, languages and computation\" by John E. Hopcroft and Jeffrey D. Ullman. Addison-Wesley 1979.",
+    "rel": 0.675,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Sedgewick and Wayne (2011) present red-black trees": {
+  "essay": "12-unindexed-sources.txt",
+  "request": {
+   "claimText": "Sedgewick and Wayne (2011) present red-black trees as a direct encoding of 2-3 trees, which makes the balancing rules follow from the representation rather than having to be memorised as cases.",
+   "strengthScore": 74,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Algorithms (2010)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Red Green Black Trees: Extension to Red Black Trees — This paper propose an extended form of Red Black trees.It presents a new explicit balancing algorithm called Red Green Black trees.This structure tolerates some degree of imbalance that allows a decrease of the number of rebalancing relaxing the update operations.Through the use of three color nodes, the structure tolerates series of two nodes between Black nodes and defines a less balanced tree.It is interesting because the imbalance doesn't affect the update time and save the same level of performances of Red Black trees of O(log(n)).In fact, Red Green Black trees can provide better performances in environment where the restructuring is most frequent with Red Black trees.\n3. Separating Separation Logic – Modular Verification of Red-Black Trees\n4. Amortized Complexity Analysis for Red-Black Trees and Splay Trees — The basic conception behind the given problem definition is to discuss the working, operations and complexity analyses of some advanced data structures.The Data structures that we have discussed further are Red-Black trees and Splay trees.Red-Black trees are self-balancing trees having the properties of conventional tree data structures along with an added property of color of the node which can be either red or black.This inclusion of the property of color as a single bit property ensured maintenance of balance in the tree during operations such as insertion or deletion of nodes in Red-Black trees.Splay trees, on the other hand, reduce the complexity of operations such as insertion and deletion in trees by splayingor making the node as the root node thereby reducing the time complexity of insertion and deletions of a node.Furthermore, amortized analysis, which emerged from aggregate…",
+   "referenceCheck": "Sedgewick and Wayne (2011) — a targeted search of Open Library (the book index) found a work by Sedgewick and Wayne 2011: \"Algorithms\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Sedgewick Wayne 2011 red-black trees 2-3 tree encoding balancing rules",
+  "claimType": "factual",
+  "sentence": " Sedgewick and Wayne (2011) present red-black trees as a direct encoding of 2-3 trees, which makes the balancing rules follow from the representation rather than having to be memorised as cases.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.686,
+   "recency": 0.614,
+   "relevance": 0.598,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Red Green Black Trees: Extension to Red Black Trees",
+    "rel": 0.679,
+    "hasAbstract": true
+   },
+   {
+    "title": "Separating Separation Logic – Modular Verification of Red-Black Trees",
+    "rel": 0.609,
+    "hasAbstract": false
+   },
+   {
+    "title": "Amortized Complexity Analysis for Red-Black Trees and Splay Trees",
+    "rel": 0.493,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Strunk and White (2000) instruct writers to omit needless words": {
+  "essay": "12-unindexed-sources.txt",
+  "request": {
+   "claimText": "Strunk and White (2000) instruct writers to omit needless words and to prefer the active voice, advice that has shaped American composition teaching for three generations despite persistent criticism from linguists.",
+   "strengthScore": 62,
+   "evidenceSummary": "1. [CITED BY THE WRITER] The Elements of Style (1920)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Review of Conserving Words: How American Nature Writers Shaped the Environmental Movement by Daniel J. Philippon:Conserving Words: How American Nature Writers Shaped the Environmental Movement\n3. The Words of E. B. White\n4. Strunk and White and Whiteness — This essay explores the implications of\n                    The Elements of Style\n                    as a universally received narrative about literacy. I recontextualize the book as a product of 20th-century histories of literacy as normative middle class desires, and as a response to Cold War era ideologies of a white national language.",
+   "referenceCheck": "Strunk and White (2000) — a targeted search of Open Library (the book index) found a work by Strunk and White 2000: \"The Elements of Style\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Strunk White 2000 omit needless words active voice American composition teaching influence",
+  "claimType": "factual",
+  "sentence": " Strunk and White (2000) instruct writers to omit needless words and to prefer the active voice, advice that has shaped American composition teaching for three generations despite persistent criticism from linguists.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 0.667,
+   "quality": 0.8,
+   "recency": 0.513,
+   "relevance": 0.511,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Review of Conserving Words: How American Nature Writers Shaped the Environmental Movement by Daniel J. Philippon:Conserving Words: How American Nature Writers Shaped the Environmental Movement",
+    "rel": 0.435,
+    "hasAbstract": false
+   },
+   {
+    "title": "The Words of E. B. White",
+    "rel": 0.508,
+    "hasAbstract": false
+   },
+   {
+    "title": "Strunk and White and Whiteness",
+    "rel": 0.61,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 4
+ },
+ "Levitt and Dubner (2005) found that legalised abortion accounted for 43 percent": {
+  "essay": "12-unindexed-sources.txt",
+  "request": {
+   "claimText": "Levitt and Dubner (2005) found that legalised abortion accounted for 43 percent of the decline in violent crime recorded in American cities during the 1990s, an effect larger than any policing reform measured over the same period.",
+   "strengthScore": 75,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Freakonomics (2005)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. The Impact of Legalized Abortion on Crime over the Last Two Decades — AbstractDonohue and Levitt (2001) presented evidence that the legalization of abortion in the early 1970s played an important role in the crime drop of the 1990s. That paper concluded with a strong out-of-sample prediction regarding the next two decades: “When a steady state is reached roughly twenty years from now, the impact of abortion will be roughly twice as great as the impact felt so far. Our results suggest that all else equal, legalized abortion will account for persistent declines of 1% a year in crime over the next two decades.” Estimating parallel specifications to the original paper, but using the seventeen years of data generated after that paper was written, we find strong support for the prediction and the broad hypothesis, while illuminating some previously unrecognized patterns of crime and arrests. We estimate that overall crime fell 17.5% from 1998 to 2014 due to…\n3. Measurement Error, Legalized Abortion, and the Decline in Crime: A Response to Foote and Goetz (2005) — Donohue and Levitt (2001) argue that the legalization of abortion in the United States in the 1970s played an important role in explaining the observed decline in crime approximately two decades later.Foote and Goetz (2005) challenge the results presented in one of the tables in that original paper.In this reply, we regretfully acknowledge the omission of state-year interactions in the published version of that table, but show that their inclusion does not alter the qualitative results (or their statistical significance), although it does reduce the magnitude of the estimates.When one uses a more carefully constructed measure of abortion (e.g. one that takes into account cross-state mobility, or doing a better job of matching dates of birth to abortion exposure), however, the evidence in support of the abortion-crime hypothesis is as strong or stronger than suggested in our original…\n4. Crime, Teenage Abortion, and Unwantedness — This article disaggregates Donohue and Levitt's (DL's) national panel-data models to the state level and shows that high concentrations of teenage abortions in a handful of states drive all of DL's results in their 2001, 2004, and 2008 articles on crime and abortion. These findings agree with previous research showing teenage motherhood is a major maternal crime factor, whereas unwanted pregnancy is an insignificant factor. Teenage abortions accounted for more than 30% of U.S. abortions in the 1970s, but only 16% to 18% since 2001, which suggests DL's panel-data models of crime/arrests and abortion were outdated when published. The results point to a broad range of future research involving teenage behavior. A specific means is proposed to reconcile DL with previous articles finding no relationship between crime and abortion.",
+   "referenceCheck": "Levitt and Dubner (2005) — a targeted search of Open Library (the book index) found a work by Levitt and Dubner 2005: \"Freakonomics\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Levitt Dubner 2005 abortion decline in violent crime 43 percent study",
+  "claimType": "statistic",
+  "sentence": " Levitt and Dubner (2005) found that legalised abortion accounted for 43 percent of the decline in violent crime recorded in American cities during the 1990s, an effect larger than any policing reform measured over the same period.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.5,
+   "recency": 0.206,
+   "relevance": 0.703,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "The Impact of Legalized Abortion on Crime over the Last Two Decades",
+    "rel": 0.766,
+    "hasAbstract": true
+   },
+   {
+    "title": "Measurement Error, Legalized Abortion, and the Decline in Crime: A Response to Foote and Goetz (2005)",
+    "rel": 0.705,
+    "hasAbstract": true
+   },
+   {
+    "title": "Crime, Teenage Abortion, and Unwantedness",
+    "rel": 0.681,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Hochreiter and Schmidhuber [1] showed that": {
+  "essay": "13-sequence-models.txt",
+  "request": {
+   "claimText": "Hochreiter and Schmidhuber [1] showed that a gated memory cell keeps the error signal from vanishing across long sequences, which made it possible to train recurrent networks on dependencies hundreds of steps apart.",
+   "strengthScore": 75,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Long Short-Term Memory (1997) — Learning to store information over extended time intervals by recurrent backpropagation takes a very long time, mostly because of insufficient, decaying error backflow. We briefly review Hochreiter's (1991) analysis of this problem, then address it by introducing a novel, efficient, gradient based method called long short-term memory (LSTM). Truncating the gradient where this does not do harm, LSTM can learn to bridge minimal time lags in excess of 1000 discrete-time steps by enforcing constant error flow through constant error carousels within special units. Multiplicative gate units learn to open and close access to the constant error flow. LSTM is local in space and time; its computational complexity per time step and weight is O. 1. Our experiments with artificial data involve local, distributed, real-valued, and noisy pattern representations. In comparisons with real-time recurrent…\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Long Short-Term Memory — Learning to store information over extended time intervals by recurrent backpropagation takes a very long time, mostly because of insufficient, decaying error backflow. We briefly review Hochreiter's (1991) analysis of this problem, then address it by introducing a novel, efficient, gradient based method called long short-term memory (LSTM). Truncating the gradient where this does not do harm, LSTM can learn to bridge minimal time lags in excess of 1000 discrete-time steps by enforcing constant error flow through constant error carousels within special units. Multiplicative gate units learn to open and close access to the constant error flow. LSTM is local in space and time; its computational complexity per time step and weight is O. 1. Our experiments with artificial data involve local, distributed, real-valued, and noisy pattern representations. In comparisons with real-time recurrent…",
+   "referenceCheck": "[1], which the document's reference list gives as \"S. Hochreiter and J. Schmidhuber, \"Long short-term memory,\" Neural Computation, vol. 9, no. 8, pp. 1735-1780, 1997.\" — a targeted search of Crossref (the scholarly index) found a work by Hochreiter and Schmidhuber 1997 \"Long short-term memory\": \"Long Short-Term Memory\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Hochreiter Schmidhuber Long short-term memory vanishing gradient 1997",
+  "claimType": "factual",
+  "sentence": " Hochreiter and Schmidhuber [1] showed that a gated memory cell keeps the error signal from vanishing across long sequences, which made it possible to train recurrent networks on dependencies hundreds of steps apart.",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.55,
+   "recency": 0.387,
+   "relevance": 0.676,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Long Short-Term Memory",
+    "rel": 0.677,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Vaswani and Shazeer [3] found that": {
+  "essay": "13-sequence-models.txt",
+  "request": {
+   "claimText": "Vaswani and Shazeer [3] found that an architecture built entirely from attention, with no recurrence and no convolution, reached higher translation quality than the recurrent models it replaced while training in a fraction of the time.",
+   "strengthScore": 57,
+   "evidenceSummary": "1. Attention Is All You Need — The dominant sequence transduction models are based on complex recurrent or convolutional neural networks in an encoder-decoder configuration. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a…\n2. Chapter Twelve Found and Reshaped in Translation: Architectural Models from the Centre to the Periphery\n3. BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension — Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed, Omer Levy, Veselin Stoyanov, Luke Zettlemoyer. Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics. 2020.\n4. Understanding Back-Translation at Scale — An effective method to improve neural machine translation with monolingual data is to augment the parallel training corpus with back-translations of target language sentences.This work broadens the understanding of back-translation and investigates a number of methods to generate synthetic source sentences.We find that in all but resource poor settings back-translations obtained via sampling or noised beam outputs are most effective.Our analysis shows that sampling or noisy synthetic data gives a much stronger training signal than data generated by beam or greedy search.We also compare how synthetic data compares to genuine bitext and study various domain effects.Finally, we scale to hundreds of millions of monolingual sentences and achieve a new state of the art of 35 BLEU on the WMT'14 English-German test set."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Attention is all you need Vaswani Shazeer translation quality training time comparison",
+  "claimType": "factual",
+  "sentence": " Vaswani and Shazeer [3] found that an architecture built entirely from attention, with no recurrence and no convolution, reached higher translation quality than the recurrent models it replaced while training in a fraction of the time.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.667,
+   "quality": 0.375,
+   "recency": 0.788,
+   "relevance": 0.6,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Attention Is All You Need",
+    "rel": 0.627,
+    "hasAbstract": true
+   },
+   {
+    "title": "Chapter Twelve Found and Reshaped in Translation: Architectural Models from the Centre to the Periphery",
+    "rel": 0.465,
+    "hasAbstract": false
+   },
+   {
+    "title": "BART: Denoising Sequence-to-Sequence Pre-training for Natural Language Generation, Translation, and Comprehension",
+    "rel": 0.461,
+    "hasAbstract": true
+   },
+   {
+    "title": "Understanding Back-Translation at Scale",
+    "rel": 0.537,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 4
+ },
+ "Castellanos and Prewitt [2] found that": {
+  "essay": "13-sequence-models.txt",
+  "request": {
+   "claimText": "Castellanos and Prewitt [2] found that microplastic concentrations in drinking water were associated with a 27 percent increase in circulating inflammatory markers across a cohort of 4,200 adults.",
+   "strengthScore": 72,
+   "evidenceSummary": "1. Microplastics in Our Waters: Insights from a Configurative Systematic Review of Water Bodies and Drinking Water Sources — Microplastics (MPs), defined as plastic particles smaller than 5 mm, are an emerging global environmental and health concern due to their pervasive presence in aquatic ecosystems. This systematic review synthesizes data on the distribution, shapes, materials, and sizes of MPs in various water sources, including lakes, rivers, seas, tap water, and bottled water, between 2014 and 2024. Results reveal that river water constitutes the largest share of studies on MP pollution (30%), followed by lake water (24%), sea water (19%), bottled water (17%), and tap water (11%), reflecting their critical roles in MP transport and accumulation. Seasonal analysis indicates that MP concentrations peak in the wet season (38%), followed by the dry (32%) and transitional (30%) seasons. Spatially, China leads MP research globally (19%), followed by the USA (7.8%) and India (5.9%). MPs are predominantly…\n2. 90% Of Drinking Bottled Water Could Contain Microplastics\n3. Pathways of Microplastics from Urban Water Systems to Drinking Water and Human Exposure — The pervasive contamination of the environment by microplastics (MPs) has raised significant concerns regarding their transport through urban water systems and eventual implications for human health. This paper synthesizes current knowledge on the pathways by which microplastics originating from urban sources-such as domestic laundry, personal care products, industrial effluents, and tire wear-enter wastewater and stormwater networks. We critically evaluate the efficiency of conventional and advanced wastewater treatment plants (WWTPs) in removing MPs, highlighting that despite high removal rates (often &amp;gt;90%), the sheer volume of effluent discharge results in substantial daily releases of primarily small, fibrous particles into receiving waters. Treated sludge (biosolids) applied as agricultural fertilizer is identified as another major terrestrial pathway for subsequent runoff…\n4. Microplastics in Air, Drinking Water and Food: Impacts on Human Health",
+   "referenceCheck": "[2], which the document's reference list gives as \"J. Castellanos and D. Prewitt, \"Microplastic concentrations in drinking water and inflammatory markers,\" Environmental Health Reports, vol.…\" — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Castellanos and Prewitt 2023 \"Microplastic concentrations in drinking water and inflammatory markers\" returned 40 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Castellanos Prewitt microplastics drinking water inflammatory markers 27% 4200",
+  "claimType": "statistic",
+  "sentence": " Castellanos and Prewitt [2] found that microplastic concentrations in drinking water were associated with a 27 percent increase in circulating inflammatory markers across a cohort of 4,200 adults.",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.7,
+   "recency": 0.85,
+   "relevance": 0.565,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Microplastics in Our Waters: Insights from a Configurative Systematic Review of Water Bodies and Drinking Water Sources",
+    "rel": 0.503,
+    "hasAbstract": true
+   },
+   {
+    "title": "90% Of Drinking Bottled Water Could Contain Microplastics",
+    "rel": 0.605,
+    "hasAbstract": false
+   },
+   {
+    "title": "Pathways of Microplastics from Urban Water Systems to Drinking Water and Human Exposure",
+    "rel": 0.538,
+    "hasAbstract": true
+   },
+   {
+    "title": "Microplastics in Air, Drinking Water and Food: Impacts on Human Health",
+    "rel": 0.632,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 5
+ },
+ "Shoup argues that minimum parking requirements": {
+  "essay": "14-parking-and-language.txt",
+  "request": {
+   "claimText": "Shoup argues that minimum parking requirements in American zoning codes push the cost of parking into the price of housing, where drivers and non-drivers pay for it alike (Shoup 45).",
+   "strengthScore": 76,
+   "evidenceSummary": "1. [CITED BY THE WRITER] The High Cost of Free Parking (2005)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Minimum Versus Maximum Parking Requirements — The removal of minimum parking requirements from a local zoning code can provide a touchstone in a city's development trajectory. When the City of Buffalo, New York removed parking mandates from its zoning code in 2017, almost half of new developments included fewer off-street parking spaces than were previously permissible, and mixed-use developments notably included fewer parking spaces than would have been required by earlier parking requirements. The removal of parking requirements was fortuitous, however it was not a component of a fully-realized reform of Buffalo's parking system. This chapter employs parking reform in Buffalo and its effect on the parking supply and development trends to explore two alternative pathways in parking reform: remove minimum parking requirements or establish maximum parking requirements.\n3. Let Prices Do the Planning — Parking is all about space, time, and money, and it is perhaps the most spatial of all economic activities. Market prices for parking therefore draw carpools and short-term parkers to the more convenient central spaces, while solo drivers and long-term parkers migrate to the cheaper peripheral spaces. The model of parking location resembles the classic monocentric model of housing location. Demand-responsive prices for curb parking resemble spot prices for land. Charging fair-market prices for curb parking is a better solution than either of the alternative policies cities tried in the early twentieth century—free curb parking or no curb parking. Market prices tend to allocate parking spaces quite efficiently. The most convenient parking spaces are occupied by carpoolers, short-term parkers, those who have difficulty walking, and those who place a high value on saving time. The essence…\n4. The Challenge of Eliminating Parking Requirements Where Curb Parking Is Free — The benefits of Shoup's approach to parking reforms are not just substantial, they are transformative. Despite the challenges, Shoup's relentless advocacy and debunking of unfounded objections have strengthened his case for these reforms and inspired a new wave of urban planning and parking policy. Shoup's genius lies not just in identifying misguided parking policies as the root of many planning problems, but also in providing a practical and easy-to-understand three-part solution. Simplicity and practicality make the policies accessible for elected officials, practitioners, and the public and instill confidence in the feasibility of his reforms. While eliminating minimum parking requirements is a straightforward deregulation process, implementing paid parking and enforcing the rules necessitate a structured program with costs for staffing and daily operations. For consultants aiming…",
+   "referenceCheck": "(Shoup 45), which the document's reference list gives as \"Shoup, Donald. The High Cost of Free Parking. Planners Press, 2005.\" — a targeted search of Open Library (the book index) found a work by Shoup 2005 \"The High Cost of Free Parking\": \"The High Cost of Free Parking\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Shoup 2005 High Cost of Free Parking impact of parking requirements on housing prices causal",
+  "claimType": "causal",
+  "sentence": " Shoup argues that minimum parking requirements in American zoning codes push the cost of parking into the price of housing, where drivers and non-drivers pay for it alike (Shoup 45).",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 1,
+   "quality": 0.7,
+   "recency": 0.625,
+   "relevance": 0.633,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Minimum Versus Maximum Parking Requirements",
+    "rel": 0.612,
+    "hasAbstract": true
+   },
+   {
+    "title": "Let Prices Do the Planning",
+    "rel": 0.601,
+    "hasAbstract": true
+   },
+   {
+    "title": "The Challenge of Eliminating Parking Requirements Where Curb Parking Is Free",
+    "rel": 0.627,
+    "hasAbstract": true
+   }
+  ],
+  "retrieved": 5
+ },
+ "Manning and Schütze report that word frequencies": {
+  "essay": "14-parking-and-language.txt",
+  "request": {
+   "claimText": "Manning and Schütze report that word frequencies in natural language follow a Zipfian distribution, so a few hundred function words account for most of the tokens in a corpus while the majority of the vocabulary appears only once or twice (Manning and Schütze 210).",
+   "strengthScore": 65,
+   "evidenceSummary": "1. [CITED BY THE WRITER] Foundations of Statistical Natural Language Processing (1999)\nOther sources found by a topical search — the writer did not cite these. Use them ONLY if the source above cannot answer:\n2. Investigation on Chinese Function Words and Construction of Generalized Function Word Knowledge Base in Natural Language Processing — The study of function words in Chinese has a long history and has achieved fruitful results. However, most of the existing research on function words is human-centered, and it is difficult to avoid subjective and vague description of the character characteristics of function words. Therefore, it is difficult to apply it directly to the research of Natural Language Processing (NLP). From the perspective of computational linguistics, and combined with the existing literature and the People’s Daily of part of speech tagging and its corpus, this paper aimed to provide some scientific basis for the use of function words in Chinese. This paper mainly explains the theory and method of conjunctions and phrases in Chinese function words. This paper integrated, proofread and identified Chinese function words through various kinds of dictionary corpus, and the knowledge base was constructed. By…\n3. Toward more careful corpus statistics: uncertainty estimates for frequencies, dispersions, association measures, and more — This article demonstrates that, counter to current practice, (i) corpus-linguistic studies should provide uncertainty/interval estimates for all corpus-linguistic statistics, even for basic/fundamental ones such as frequencies, dispersions, or association measures, and (ii) these statistics should be based on text-/file-based bootstrapping and confidence/data ellipses covering two or more dimensions of information. Four small case studies – three more programmatic and one more applied – are offered to exemplify the logic and method. The first case study shows how parametric confidence intervals or confidence intervals from word-based bootstrapping can be inappropriate; the second case study exemplifies the computation of frequency-cum-dispersion intervals; the third does the same for collocational/collostructional data (the ditransitive); and the last case study exemplifies the use of…\n4. Formant frequencies of vowels in English function words",
+   "referenceCheck": "(Manning and Schütze 210), which the document's reference list gives as \"Manning, Christopher D., and Hinrich Schütze. Foundations of Statistical Natural Language Processing. MIT Press, 1999.\" — a targeted search of Open Library (the book index) found a work by Manning and Schütze 1999 \"Foundations of Statistical Natural Language Processing\": \"Foundations of Statistical Natural Language Processing\"."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Zipfian distribution word frequencies function words corpus Manning Schuetze 1999 Foundations of Statistical Natural Language Processing statistics",
+  "claimType": "statistic",
+  "sentence": " Manning and Schütze report that word frequencies in natural language follow a Zipfian distribution, so a few hundred function words account for most of the tokens in a corpus while the majority of the vocabulary appears only once or twice (Manning and Schütze 210).",
+  "citedWorkRead": true,
+  "breakdown": {
+   "sourceCount": 0.667,
+   "quality": 0.9,
+   "recency": 0.525,
+   "relevance": 0.534,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Investigation on Chinese Function Words and Construction of Generalized Function Word Knowledge Base in Natural Language Processing",
+    "rel": 0.534,
+    "hasAbstract": true
+   },
+   {
+    "title": "Toward more careful corpus statistics: uncertainty estimates for frequencies, dispersions, association measures, and more",
+    "rel": 0.505,
+    "hasAbstract": true
+   },
+   {
+    "title": "Formant frequencies of vowels in English function words",
+    "rel": 0.519,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 4
+ },
+ "Thackeray and Nwosu found that banning smartphones": {
+  "essay": "14-parking-and-language.txt",
+  "request": {
+   "claimText": "Thackeray and Nwosu found that banning smartphones in secondary schools raised standardized test scores by 18 percent, with the largest gains concentrated among students who had previously been in the bottom quartile (Thackeray and Nwosu 88).",
+   "strengthScore": 49,
+   "evidenceSummary": "1. Smartphone Bans, Student Outcomes and Mental Health — How smartphone usage affects well-being and learning among children and adolescents is a concern for schools, parents, and policymakers. Combining detailed administrative data with survey data on middle schools’ smartphone policies, together with an event-study design, I show that banning smartphones significantly decreases the health care take-up for psychological symptoms and diseases among girls. Post-ban bullying among both genders decreases. Additionally, girls’ GPA improves, and their likelihood of attending an academic high school track increases. These effects are larger for girls from low socio-economic backgrounds. Hence, banning smartphones from school could be a low-cost policy tool to improve student outcomes.\n2. Attendance Rates and Standardized Test Results for Individual Schools",
+   "referenceCheck": "(Thackeray and Nwosu 88), which the document's reference list gives as \"Thackeray, Grace, and Chidi Nwosu. Smartphone Bans and Standardized Test Scores. Education Futures Press, 2024.\" — targeted searches of BOTH Crossref (the scholarly index) and Open Library (the book index) for a work by Thackeray and Nwosu 2024 \"Smartphone Bans and Standardized Test Scores\" returned 40 results in total, and none of them lists all of these authors. Neither index covers government and NGO reports, working papers, or much non-English publishing, so this is not by itself proof the source does not exist — but a book or textbook would have been found."
+  },
+  "detection": "detected@attempt1",
+  "searchQuery": "Thackeray Nwosu smartphone bans standardized test scores 18 percent 2024",
+  "claimType": "statistic",
+  "sentence": " Thackeray and Nwosu found that banning smartphones in secondary schools raised standardized test scores by 18 percent, with the largest gains concentrated among students who had previously been in the bottom quartile (Thackeray and Nwosu 88).",
+  "citedWorkRead": false,
+  "breakdown": {
+   "sourceCount": 0.333,
+   "quality": 0.45,
+   "recency": 0.65,
+   "relevance": 0.609,
+   "support": 0
+  },
+  "sentToCritique": [
+   {
+    "title": "Smartphone Bans, Student Outcomes and Mental Health",
+    "rel": 0.569,
+    "hasAbstract": true
+   },
+   {
+    "title": "Attendance Rates and Standardized Test Results for Individual Schools",
+    "rel": 0.444,
+    "hasAbstract": false
+   }
+  ],
+  "retrieved": 2
+ }
+}

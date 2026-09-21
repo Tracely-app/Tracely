@@ -60,14 +60,16 @@ export const openai = {
     return body;
   },
 
-  webSearchBody({ model, system, user, maxTokens }) {
-    return {
+  webSearchBody({ model, system, user, maxTokens, effort }) {
+    const body = {
       model,
       instructions: system,
       input: user,
       max_output_tokens: maxTokens,
       tools: [{ type: "web_search" }],
     };
+    if (effort) body.reasoning = { effort };
+    return body;
   },
 
   /* A web search that MUST happen and must answer in a strict schema — the
@@ -163,16 +165,40 @@ export const openai = {
     return out;
   },
 
-  /* OpenAI semantics: `cached` is a SUBSET of `input`, and reasoning tokens are
-   * already inside `output`. costMicroCents relies on both. A provider whose
-   * usage reports cache reads separately must normalise to this shape. */
+  /* OpenAI semantics: `cached` (cache READS) and `cacheWrite` (cache WRITES)
+   * are both SUBSETS of `input`, disjoint from each other, and reasoning
+   * tokens are already inside `output`. costMicroCents relies on all three. A
+   * provider whose usage reports cache traffic separately must normalise to
+   * this shape.
+   *
+   * `cacheWrite` is `usage.input_tokens_details.cache_write_tokens`, read off
+   * real Responses API answers from gpt-5.6-luna, gpt-5.6-terra and
+   * gpt-6-astra on 2026-09-21: a first-seen ~5k-token prefix came back as
+   * `{ input_tokens: 4979, input_tokens_details: { cache_write_tokens: 4976,
+   * cached_tokens: 0 } }`, and the identical call a moment later as
+   * `{ cache_write_tokens: 0, cached_tokens: 4976 }`. Those models bill a
+   * write at 1.25x the input rate (shared/prices.js `cacheWrite`), so reading
+   * it as plain input under-counted every cold call. Models that never report
+   * the field read 0. */
   usageOf(json) {
     const u = json?.usage ?? {};
     return {
       input: u.input_tokens ?? 0,
       output: u.output_tokens ?? 0,
       cached: u.input_tokens_details?.cached_tokens ?? 0,
+      cacheWrite: u.input_tokens_details?.cache_write_tokens ?? 0,
     };
+  },
+
+  /* How many web_search_call items the answer carries. OpenAI bills the
+   * web_search tool per call ($10/1000) on top of tokens, and a reasoning
+   * model can make several in one response: a live /api/find-sources answer
+   * on gpt-5.6-luna (2026-09-21) carried two, action "search" then
+   * "open_page". Every item is counted, whatever its action — whether
+   * open_page and find_in_page are billed as calls is not confirmed, and a
+   * spend cap errs toward over-counting. */
+  webSearchCallsOf(json) {
+    return (json?.output ?? []).filter((item) => item?.type === "web_search_call").length;
   },
 
   modelOf: (json) => json.model,

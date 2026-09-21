@@ -137,7 +137,7 @@ describe('MODEL_FOR_TIER', () => {
   })
 
   it('names the model a tier costs, cheapest first', () => {
-    deepStrictEqual(MODEL_FOR_TIER, { fast: 'gpt-5-nano', balanced: 'gpt-5.4', thorough: 'gpt-6-astra' })
+    deepStrictEqual(MODEL_FOR_TIER, { fast: 'gpt-5.6-luna', balanced: 'gpt-5.6-terra', thorough: 'gpt-6-astra' })
   })
 
   it("matches the server's copy exactly", async () => {

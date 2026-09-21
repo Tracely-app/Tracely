@@ -58,12 +58,26 @@ function orderUrl(userId) {
 
 /* Mirrors lib/llm.js MODEL_TIERS and extension/background.js. The notes are
    written around what the stop DOES rather than which model is behind it, so
-   the next model rename is one line here and no copy edits. */
-const MODELS = ["gpt-5-nano", "gpt-5.4", "gpt-6-astra"];
+   the next model rename is one line here and no copy edits.
+
+   The notes say only what was measured (eval/models/FINDINGS.md, a blind-
+   judged eval on the real check and critique paths). Fast was the most
+   accurate fact check measured; Balanced was NOT more accurate than Fast;
+   Thorough wrote the most thorough explanations and never changed a verdict
+   between runs. Balanced used to promise it was "noticeably better on subtle
+   claims", which the data never showed. */
+const MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra"];
+// Ids an earlier build saved as the default stop, and the stop each meant.
+const RETIRED_MODELS = { "gpt-5-nano": 0, "gpt-5.4": 1 };
+function stopOf(model) {
+  const i = MODELS.indexOf(model);
+  if (i !== -1) return i;
+  return typeof model === "string" && Object.hasOwn(RETIRED_MODELS, model) ? RETIRED_MODELS[model] : 0;
+}
 const MODEL_NOTES = [
-  "Fast — near-instant and very cheap. A full essay costs well under a cent.",
-  "Balanced — a little slower, noticeably better on subtle claims.",
-  "Thorough — the sharpest judgment, for high-stakes writing.",
+  "Fast — quick and cheap, and in our tests as accurate a fact-checker as any stop.",
+  "Balanced — a larger model. In our tests it was not more accurate than Fast.",
+  "Thorough — the most thorough explanations and the steadiest verdicts in our tests. A little slower.",
 ];
 
 function paintSlider(pos) {
@@ -100,7 +114,7 @@ function paintSlider(pos) {
 const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
 
-let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false };
+let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false, beta: false, provisional: true };
 
 function maxStop() {
   if (account.unenforced) return MODELS.length - 1;
@@ -109,7 +123,7 @@ function maxStop() {
 
 function sliderHint() {
   if (account.unenforced) return "This local server has no accounts configured, so every stop is open.";
-  if (maxStop() === MODELS.length - 1) return "How hard Tracely thinks. Faster is cheaper and near-instant; Smarter catches subtler problems.";
+  if (maxStop() === MODELS.length - 1) return "Which model checks your writing. Faster is quick and was as accurate as any stop in our tests; Smarter explains its verdicts more thoroughly.";
   if (account.plan === "student") return "Student reaches Balanced. Thorough comes with Pro.";
   return "Free runs on Faster — quick and accurate for everyday checking.";
 }
@@ -123,12 +137,16 @@ function applyPlanState() {
   document.querySelectorAll(".tick").forEach((t) => t.classList.toggle("locked", Number(t.dataset.i) > ceiling));
 
   chrome.storage.local.get({ model: MODELS[0] }, (cfg) => {
-    const pos = Math.min(Math.max(0, MODELS.indexOf(cfg.model)), ceiling);
+    // An id an earlier build saved still means its stop (stopOf), and is
+    // rewritten to the current id below on the first real answer.
+    const pos = Math.min(stopOf(cfg.model), ceiling);
     slider.value = String(pos);
     paintSlider(pos);
     // A stale paid choice must not sit in storage looking active after a
-    // downgrade — the widgets read this same value.
-    if (MODELS[pos] !== cfg.model) chrome.storage.local.set({ model: MODELS[pos] });
+    // downgrade — the widgets read this same value. Only on a REAL answer: a
+    // provisional free (server unreachable, worker restarting) must not
+    // overwrite the stop a tester or subscriber actually chose.
+    if (MODELS[pos] !== cfg.model && !account.provisional) chrome.storage.local.set({ model: MODELS[pos] });
   });
 }
 
@@ -136,6 +154,20 @@ function renderAccount() {
   const signedIn = account.signedIn;
   $("signedIn").hidden = !signedIn;
   $("signedOut").hidden = signedIn;
+
+  /* The team's test build (beta.json + Load unpacked): the server serves it as
+     Pro whether or not anyone signs in, and says so with `beta`. A tester is
+     shown the plan they are on and is never offered one to BUY — so the badge
+     appears signed out too, and "See plans" is hidden. A signed-in tester
+     keeps "Manage subscription": the server reports Pro for every beta
+     caller, so this page cannot tell a free tester from one who really pays,
+     and a paying one must still be able to reach the portal and cancel.
+     Without `beta` none of this changes anything. */
+  const beta = account.beta === true;
+  $("betaPlanOut").hidden = !(beta && !signedIn);
+  $("betaPlanLabel").textContent = PLAN_LABEL[account.plan] ?? PLAN_LABEL.pro;
+  $("seePlans").hidden = beta;
+  $("acctBeta").hidden = !beta;
 
   if (!account.configured) {
     $("acctHint").textContent = "This build has no Tracely accounts configured, so everything runs unmetered against whichever server answered.";
@@ -172,9 +204,13 @@ function renderAccount() {
       manage.textContent = "Email us to cancel";
       manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;
     }
-    $("acctHint").textContent = account.plan === "free"
-      ? "You're signed in on the free plan. Upgrading unlocks the smarter models everywhere Tracely runs."
-      : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
+    $("acctHint").textContent = beta
+      ? "This is a Tracely test build, so you're on Pro while the beta lasts. If you also pay for a plan, Manage subscription still reaches it."
+      : account.plan === "free"
+        ? "You're signed in on the free plan. Upgrading unlocks the Balanced and Thorough models everywhere Tracely runs."
+        : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
+  } else if (beta) {
+    $("acctHint").textContent = "This is a Tracely test build, so every check runs on Pro while the beta lasts — no account and nothing to buy. Signing in is optional.";
   } else {
     $("acctHint").textContent = "Sign in to use the plan you pay for. Not required — without an account Tracely runs on the free tier.";
   }
@@ -193,7 +229,7 @@ function acctStatus(text, warn) {
 async function refreshAccount(force) {
   try {
     const r = await chrome.runtime.sendMessage({ type: "tracely-entitlement", force: force === true });
-    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced) };
+    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
   } catch { /* worker restarting — keep the last answer */ }
   renderAccount();
   applyPlanState();

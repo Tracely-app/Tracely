@@ -25,6 +25,9 @@ server picks up changes without a restart).
 | `STRIPE_PRICE_PRO` | webhook | The Stripe price id sold as the Pro plan. |
 
 | `TRACELY_DAILY_BUDGET_USD` | the spend cap | Dollars of OpenAI spend allowed per day. Defaults to 10. An explicit `0` turns the ceiling off; an EMPTY value does not (it falls back to the default). |
+| `TRACELY_PAID_DAILY_BUDGET_USD` | the spend cap | The Student/Pro pool on the extension's routes. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, paid callers run the fast model on the normal pool — never a 503 because of it. |
+| `TRACELY_BETA_TOKENS` | the test extension | Comma-separated tokens. A caller sending one as `X-Tracely-Beta` is served as Pro on the extension's routes (never the desktop's), spending from its own pool. Empty or unset = beta off. See DEPLOY.md. |
+| `TRACELY_BETA_DAILY_BUDGET_USD` | the test extension | The beta pool's daily ceiling. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, testers fall back to their own plan on the normal pool. |
 | `TRACELY_TRUSTED_PROXY_HOPS` | the spend cap | How many proxies you control sit in front of this server. Unset = ignore `X-Forwarded-For` entirely, which is right for a direct connection. |
 | `TRACELY_DATA_DIR` | storage | Where `tracely.db` lives. Defaults to `./data`. **Must be a real env var, not a `.env` line** — `lib/db.js` opens the database at import time, before `.env` is read. |
 
@@ -36,8 +39,8 @@ checkout should set them.
 
 | Plan | Model ceiling | Source searches |
 | --- | --- | --- |
-| `free` | `gpt-5-nano` (Fast) | 5 per calendar day, per account |
-| `student` | `gpt-5.4` (Balanced) | unlimited |
+| `free` | `gpt-5.6-luna` (Fast) | 5 per calendar day, per account |
+| `student` | `gpt-5.6-terra` (Balanced) | unlimited |
 | `pro` | `gpt-6-astra` (Thorough) | unlimited |
 
 The ids come from `lib/llm.js`'s `MODEL_TIERS` and are mirrored in
@@ -219,8 +222,9 @@ under a synthetic `__global__` account. SQLite-backed rather than in memory,
 because "restart the server to reset the budget" would be a bypass.
 
 When the day runs low, **sources are shed before checks.** OpenAI bills the
-`web_search` tool per call ($10/1000) on top of tokens, so one source search
-costs about as much as 16 fact checks; dropping it buys 16x the runway for the
+`web_search` tool per call ($10/1000) on top of tokens, so the fee alone for
+one source search costs about as much as 10-25 typing-pause checks on the fast
+tier (`eval/models/FINDINGS.md`); dropping it buys that much runway for the
 feature people actually notice missing. Below 20% remaining, `/api/sources`
 answers 503 and checking continues. At 0%, everything answers 503.
 

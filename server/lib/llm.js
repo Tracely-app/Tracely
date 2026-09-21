@@ -27,19 +27,31 @@ import { openai } from "./providers/openai.js";
  * because that file decides which tier a plan may reach and it must be able to
  * name the same three things. test/models.test.js pins the two together.
  *
- * These were read off OpenAI's pricing page rather than probed, because this
- * machine has no OpenAI key to probe with. If one is wrong the API answers 400
- * `model_not_found`, and mapApiError turns that into a message naming this
- * constant, so the fix is one line here rather than a hunt.
+ * Chosen by a measured, blind-judged eval of 13 configs on the production
+ * code paths (eval/models/FINDINGS.md, 2026-09-21), which replaced
+ * gpt-5-nano (fast) and gpt-5.4 (balanced):
+ *   - fast: gpt-5.6-luna was the most accurate fact check measured at any
+ *     price (100% at effort medium, vs 74% for gpt-5-nano at low, which never
+ *     flagged an uncited statistic), and at low effort it beat the retired
+ *     relay's gpt-4.1 on the desktop critique.
+ *   - balanced: gpt-5.6-terra beat gpt-5.4 on every measured axis at lower
+ *     cost. It is NOT measurably more accurate than fast on these tasks; it is
+ *     here because each tier needs its own id (shared/plan.js TIER_FOR_MODEL).
+ *   - thorough: gpt-6-astra gave the most thorough explanations and the most
+ *     consistent verdicts, at ~30x fast's cost per check.
+ * If an id is wrong the API answers 400 `model_not_found`, and mapApiError
+ * turns that into a message naming this constant, so the fix is one line here
+ * rather than a hunt. Retired ids that shipped clients still send are
+ * translated to their tier by shared/plan.js currentModelId, never here.
  *
- * Prices per 1M tokens at the time of writing, input / cached / output:
- *   fast      gpt-5-nano    $0.05 / $0.005 / $0.40
- *   balanced  gpt-5.4       $2.50 / $0.25  / $15.00
- *   thorough  gpt-6-astra   $10.00 / $1.00 / $50.00
+ * Prices per 1M tokens, input / cached / output / cache write:
+ *   fast      gpt-5.6-luna    $0.20 / $0.02 / $1.20  / $0.25
+ *   balanced  gpt-5.6-terra   $2.00 / $0.20 / $12.00 / $2.50
+ *   thorough  gpt-6-astra     $10.00 / $1.00 / $50.00 / $12.50
  */
 export const MODEL_TIERS = {
-  fast: "gpt-5-nano",
-  balanced: "gpt-5.4",
+  fast: "gpt-5.6-luna",
+  balanced: "gpt-5.6-terra",
   thorough: "gpt-6-astra",
 };
 
@@ -55,26 +67,33 @@ export { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS };
  * Integer micro-cents rather than float cents because the running total is a
  * SQLite INTEGER column that gets incremented thousands of times a day, and
  * accumulating float cents drifts. At this resolution the cheapest thing we
- * can bill — one cached input token on gpt-5-nano — is still 5 micro-cents, so
- * nothing rounds to zero.
+ * can bill — one cached input token on the fast tier ($0.02 per 1M) — is still
+ * 2 micro-cents, so nothing rounds to zero.
  *
  * An unknown model is priced as the MOST expensive tier, not as zero. Getting
  * this wrong in the other direction means a model rename silently uncaps
  * spending, which is the failure this module exists to prevent.
+ *
+ * Input tokens come in three kinds (lib/providers/openai.js usageOf): cache
+ * READS (`cached`), cache WRITES (`cacheWrite`) and the fresh remainder. Both
+ * cache counts are subsets of `input`, so the fresh remainder is input minus
+ * both — a write is billed once, at the write rate, never again as fresh
+ * input. A model with no `cacheWrite` price bills a write at its input rate.
  */
 export function costMicroCents(model, usage, { webSearchCalls = 0 } = {}) {
   const p = MODEL_PRICES[model]
-    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // gpt-5-nano-2025-08-07
+    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // a dated snapshot id
     ?? MODEL_PRICES[MODEL_TIERS.thorough];
   // Math.max(0, NaN) is NaN, not 0 — so a non-finite token count used to
   // produce a NaN cost, which usageAdd then floored to zero. A malformed usage
   // block must cost SOMETHING or it is a free call.
   const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
   const cached = n(usage?.cached);
-  const fresh = n(n(usage?.input) - cached);
+  const written = n(usage?.cacheWrite);
+  const fresh = n(n(usage?.input) - cached - written);
   const out = n(usage?.output);
   const dollars =
-    (fresh * p.input + cached * p.cached + out * p.output) / 1e6 +
+    (fresh * p.input + cached * p.cached + written * (p.cacheWrite ?? p.input) + out * p.output) / 1e6 +
     webSearchCalls * WEB_SEARCH_CALL_DOLLARS;
   return Math.max(0, Math.round(dollars * 100 * 1e6));
 }
@@ -161,20 +180,26 @@ export function mapApiError(status, json) {
  *
  * DEFAULT_EFFORT is "low" and it is a DEFAULT, not a suggestion: omitting
  * `reasoning` entirely does NOT mean "don't reason", it means OpenAI picks, and
- * what OpenAI picks is expensive. Measured on gpt-5-nano against the real fact
- * check prompt, 8 deliberately hard sentences, 2026-09-13:
+ * what OpenAI picks is expensive — on gpt-5-nano (2026-09-13) it cost 4x the
+ * output tokens and 3x the latency of "low" for the same verdicts, and
+ * "minimal" flagged needs_citation on "According to Smith (2019)…", the
+ * false-positive class the rubric work exists to stop.
  *
- *   effort      secs   output tokens   verdicts correct
- *   (omitted)   33.3   6165            8/8
- *   minimal      4.8    347            6/8
- *   low         10.5   1546            8/8
- *   medium      29.4   5187            8/8
+ * On the current tiers the measurement is the model eval,
+ * eval/models/FINDINGS.md (2026-09-21, the real check and critique paths,
+ * 2 reps each, blind-judged). For the fast tier, gpt-5.6-luna:
  *
- * So the shipped default was paying 4x the tokens and 3x the latency for
- * nothing over "low". "minimal" is NOT the answer despite being cheapest: it
- * flagged needs_citation on a sentence reading "According to Smith (2019)…",
- * which is precisely the false-positive class the rubric work exists to stop.
- * Anything that raises this above "low" should re-run that comparison first. */
+ *   task                  low                   medium
+ *   fact check (55 x 2)   90%, 5 harmful        100%, 0 harmful   (p = 0.001)
+ *   40-sentence check     93%                   99%
+ *   desktop critique      48/52, judge 7.13     48/52, judge 6.58
+ *   cost, 1-sentence      0.038-0.067 cents     0.039-0.068 cents
+ *
+ * So the default stays "low" — the critique and every unmeasured route — and
+ * /api/check alone runs the fast tier at "medium" (server.js checkEffort,
+ * which pins every tier to its measured effort on that route). terra and
+ * astra were measured only at "low". "high" and "minimal" were not measured
+ * on any current tier. Re-run the eval before moving either. */
 const DEFAULT_EFFORT = "low";
 
 /* Effort is WHITELISTED here, at the one place every call passes through.
@@ -187,16 +212,54 @@ const DEFAULT_EFFORT = "low";
  *     is exactly what the fallback below reads as "this vendor does not do
  *     effort" — so ONE malformed request would switch effort off for every
  *     user of the process until restart, putting every later call on the
- *     "(omitted)" row of the table above: ~4x the tokens, ~3x the latency.
+ *     no-effort path described above: ~4x the tokens, ~3x the latency.
  *   - null, "" and 0 sent no `reasoning` at all, which is that same expensive
- *     row, chosen by anyone who POSTs `"effort": null`.
+ *     path, chosen by anyone who POSTs `"effort": null`.
  * Now anything that is not a real effort level becomes DEFAULT_EFFORT. The
  * shipped extension only ever sends low / medium / high, all unchanged, and
  * lib/ai.js already applied this rule to its own callers. The ONLY thing that
  * can now disable effort is the vendor rejecting a valid level — what the
  * fallback was for. */
 const VALID_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
-const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
+/* Exported (additively) so server.js can normalise a client's effort ONCE at
+ * the route and log the level it will actually send. */
+export const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
+
+/* Every failure leaving this facade carries the model and effort it was SENT
+ * at, so server.js can log what failed without logging what was sent — the
+ * user's text never appears in the tag. Non-enumerable, and never serialised:
+ * the wire body is built from kind/message/retryAfter alone. `effort: null`
+ * means the request carried no reasoning effort.
+ *
+ * When the vendor ANSWERED before the failure — truncated at
+ * max_output_tokens, a refusal, empty or unparseable output — that answer was
+ * billed, and a truncation is the dearest call there is (every output token
+ * allowed). `usage` carries what it cost so the caller can still record it;
+ * it used to vanish with the error, so the spend cap never saw it. Absent
+ * when nothing was billed (a network error, a rejected request). */
+function tagFailure(err, sent, p = null, json = null) {
+  if (err instanceof CheckError && !err.llm) {
+    const tag = { model: sent.model, effort: sent.effort ?? null };
+    if (p && json) {
+      tag.usage = p.usageOf(json);
+      // A failed answer that searched was billed per search too.
+      const searches = webSearchCallsOf(p, json);
+      if (searches > 0) tag.webSearchCalls = searches;
+    }
+    Object.defineProperty(err, "llm", { value: tag, enumerable: false, configurable: true });
+  }
+  return err;
+}
+
+/* The web_search tool calls an answer made — billed per call, and invisible in
+ * the token usage. 0 for a provider that cannot say. */
+const webSearchCallsOf = (p, json) => (typeof p.webSearchCallsOf === "function" ? p.webSearchCallsOf(json) : 0);
+
+/* The two "server" failures that are really answer-quality failures get a
+ * finer `reason` for the log. Same kind, same status, same wire message as
+ * before — only the log line can tell them apart. */
+const unparseable = (what) => Object.assign(new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 }), { reason: "unparseable" });
+const noContent = (what) => Object.assign(new CheckError("server", `Model returned no content for ${what}.`, { status: 502 }), { reason: "empty" });
 
 /* Keyed per provider AND MODEL, because "does this accept reasoning effort" is
  * a fact about one model, not about the process.
@@ -205,7 +268,7 @@ const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
  * switched effort off for every later call on every route. That coupled the
  * routes to each other — a desktop-only route on one model rejecting effort
  * would have put the extension's /api/check, on a different model, onto the
- * expensive "(omitted)" row until restart. Now a rejection disables effort for
+ * expensive no-effort path until restart. Now a rejection disables effort for
  * the model that rejected it and nothing else. For a single model that is
  * exactly the old behaviour: set by the first rejection, never reset. */
 const effortDisabled = new Set();
@@ -219,57 +282,105 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
   const chosen = chooseModel(model);
   const level = normalizeEffort(effort);
   const withEffort = effortFor(p, chosen);
-  const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
+  const sent = { model: chosen, effort: withEffort ? level : null };
+  let json = null;
+  try {
+    const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
 
-  let json;
-  try {
-    json = await post(p, body);
+    try {
+      json = await post(p, body);
+    } catch (err) {
+      if (!withEffort || !p.isEffortError(err)) throw err;
+      effortDisabled.add(effortKey(p, chosen));
+      sent.effort = null;
+      json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
+    }
+    p.checkComplete(json, what);
+    const text = p.extractText(json);
+    if (!text) throw noContent(what);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw unparseable(what);
+    }
+    return { parsed, model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    if (!withEffort || !p.isEffortError(err)) throw err;
-    effortDisabled.add(effortKey(p, chosen));
-    json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
+    throw tagFailure(err, sent, p, json);
   }
-  p.checkComplete(json, what);
-  const text = p.extractText(json);
-  if (!text) throw new CheckError("server", `Model returned no content for ${what}.`, { status: 502 });
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
-  }
-  return { parsed, model: p.modelOf(json), usage: p.usageOf(json) };
 }
 
 /** A free-text call with conversation history. Returns the reply text. */
 export async function textCall({ model, system, messages, maxTokens, what, effort = DEFAULT_EFFORT }) {
   const p = provider();
   const chosen = chooseModel(model);
-  // No effort fallback here, and none was ever added: a textCall that 400s on
-  // effort fails. structuredCall is where the retry has been measured.
-  const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: effortFor(p, chosen) ? normalizeEffort(effort) : undefined });
-  const json = await post(p, body);
-  p.checkComplete(json, what);
-  return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };
+  const level = effortFor(p, chosen) ? normalizeEffort(effort) : undefined;
+  const sent = { model: chosen, effort: level ?? null };
+  let json = null;
+  try {
+    // No effort fallback here, and none was ever added: a textCall that 400s on
+    // effort fails. structuredCall is where the retry has been measured.
+    const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: level });
+    json = await post(p, body);
+    p.checkComplete(json, what);
+    return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };
+  } catch (err) {
+    throw tagFailure(err, sent, p, json);
+  }
 }
 
+/* Whether a model takes reasoning effort ALONGSIDE the web_search tool is its
+ * own fact, keyed apart from effortKey: OpenAI refuses web_search at
+ * "minimal" effort, and that refusal must not switch effort off for the same
+ * model's structured calls — which would put every /api/check on that model
+ * onto the expensive no-effort path described above. */
+const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
+
 /** A call that may search the web before answering. Returns raw text. */
-export async function webSearchCall({ model, system, user, maxTokens, what }) {
+export async function webSearchCall({ model, system, user, maxTokens, what, effort }) {
   const p = provider();
-  // Searching then writing is slower than writing, hence the longer timeout.
-  // It sends no reasoning effort — it never has, so every source search runs
-  // at the vendor's default. That is a known cost (see the effort table
-  // above) and changing it wants a fresh measurement, not a drive-by edit.
-  const json = await post(p, p.webSearchBody({ model: chooseModel(model), system, user, maxTokens }), { timeoutMs: 180_000 });
-  p.checkComplete(json, what);
-  return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
+  const chosen = chooseModel(model);
+  // With NO effort it sends none, exactly as it always has: the source search
+  // runs at the vendor's default. That is a known cost (the no-effort path
+  // above) and it is what every source search from the store build runs at;
+  // the model eval did not cover this route (eval/models/FINDINGS.md), so
+  // lowering it wants a fresh measurement on this prompt, not a drive-by
+  // default. An effort the CALLER chose (/api/sources passes one through,
+  // though no shipped widget sends it) is sent, normalised; "minimal" is
+  // raised to "low" because web_search does not run at minimal.
+  const normalized = effort == null ? null : normalizeEffort(effort);
+  const level = normalized === "minimal" ? "low" : normalized;
+  const withEffort = level != null && effortFor(p, chosen) && !effortDisabled.has(webEffortKey(p, chosen));
+  const sent = { model: chosen, effort: withEffort ? level : null };
+  let json = null;
+  try {
+    // Searching then writing is slower than writing, hence the longer timeout.
+    const build = (e) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e });
+    try {
+      json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+    } catch (err) {
+      if (!withEffort || !p.isEffortError(err)) throw err;
+      effortDisabled.add(webEffortKey(p, chosen));
+      sent.effort = null;
+      json = await post(p, build(undefined), { timeoutMs: 180_000 });
+    }
+    p.checkComplete(json, what);
+    return {
+      text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json),
+      // What the search tool will bill (per call), and what was sent — the
+      // caller may still fail on this answer and must tag that failure.
+      webSearchCalls: webSearchCallsOf(p, json), sent: { ...sent },
+    };
+  } catch (err) {
+    throw tagFailure(err, sent, p, json);
+  }
 }
 
 /**
  * A web search that must happen, answering JSON that matches `schema`.
  *
  * ADDITIVE. webSearchCall above is what the extension's /api/sources uses and
- * it is untouched: it offers the tool, returns free text, and harvests url
+ * it stays separate: it offers the tool, returns free text, and harvests url
  * citations as a backstop. This is the desktop's source finder, which forces
  * the search and parses a strict schema, exactly as the relay did.
  */
@@ -280,23 +391,29 @@ export async function webSearchStructuredCall({ model, system, user, schema, max
   const chosen = chooseModel(model);
   const level = normalizeEffort(effort);
   const withEffort = effortFor(p, chosen);
-  const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
-  let json;
+  const sent = { model: chosen, effort: withEffort ? level : null };
+  let json = null;
   try {
-    json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+    const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
+    try {
+      json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+    } catch (err) {
+      if (!withEffort || !p.isEffortError(err)) throw err;
+      effortDisabled.add(effortKey(p, chosen));
+      sent.effort = null;
+      json = await post(p, build(undefined), { timeoutMs: 180_000 });
+    }
+    p.checkComplete(json, what);
+    const text = p.extractText(json);
+    if (!text) throw noContent(what);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw unparseable(what);
+    }
+    return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json), webSearchCalls: webSearchCallsOf(p, json) };
   } catch (err) {
-    if (!withEffort || !p.isEffortError(err)) throw err;
-    effortDisabled.add(effortKey(p, chosen));
-    json = await post(p, build(undefined), { timeoutMs: 180_000 });
+    throw tagFailure(err, sent, p, json);
   }
-  p.checkComplete(json, what);
-  const text = p.extractText(json);
-  if (!text) throw new CheckError("server", `Model returned no content for ${what}.`, { status: 502 });
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
-  }
-  return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
 }

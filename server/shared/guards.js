@@ -49,20 +49,29 @@ export const GUARDS = {
  * determined attacker. Set DAILY_BUDGET_USD to what you can afford to lose in
  * a day, because that is exactly what it is.
  *
- * Costs measured against the real API on 2026-09-13: a fast-model check is
- * 0.014-0.084 cents; a source search is >= 1 cent because OpenAI bills
- * web_search per call ($10/1000) on top of tokens — about 16 checks. That
- * ratio is why sources are shed first when the budget runs low.
+ * Costs on the current fast tier (gpt-5.6-luna, effort medium on /api/check),
+ * from the model eval, eval/models/FINDINGS.md, 2026-09-21, measured to cold:
+ * a typing-pause check is 0.039-0.104 cents (1 sentence warm to 3 cold;
+ * 0.0565-0.086 on an even mix of the two) and a 40-sentence first check
+ * 0.34-0.39 cents; a source search is >= 1 cent because OpenAI bills
+ * web_search per call ($10/1000) on top of tokens — about 10-25 typing-pause
+ * checks. That ratio is why sources are shed first when the budget runs low.
+ * (The 2026-09-21 smoke run measured luna source searches at 1.2-1.35 cents,
+ * one search each.)
  */
 export const SPEND = {
   // Override with TRACELY_DAILY_BUDGET_USD. The default is deliberately small:
   // a pre-revenue launch should find out it was wrong from a 503, not a card
-  // statement. $10/day is ~12,000 fast checks or ~1,000 source searches.
+  // statement. $10/day is ~12,000-18,000 typing-pause checks on the fast
+  // tier at an even 1-/3-sentence mix (~9,600-25,600 across the full range),
+  // or ~29-44 free users at their 400-check cap on that mix (~24 if every
+  // check is a cold 3-sentence one; shared/plan.js), or at most ~1,000
+  // source searches (the per-call fee alone).
   defaultDailyBudgetUsd: 10,
 
   // Below this fraction of budget remaining, shed the expensive route first.
-  // Sources cost ~16x a check, so dropping them buys 16x the runway for the
-  // feature people actually notice missing.
+  // A source search costs ~10-25x a typing-pause check, so dropping them buys
+  // that much runway for the feature people actually notice missing.
   shedSourcesAtRemainingPct: 0.2,
 
   // Per-caller velocity. The client fires at most 6 checks a minute (one per
@@ -92,6 +101,39 @@ export const SPEND = {
   defaultAppDailyBudgetUsd: 10,
   appCallerCallsPerMinute: 30,
   appCallerSearchesPerHour: 25,
+
+  /* ── the BETA pool: testers on the unpacked beta build, granted Pro ──
+   *
+   * A caller presenting a valid X-Tracely-Beta token (TRACELY_BETA_TOKENS) is
+   * served as Pro on the extension's routes, and that spend lands HERE, never
+   * in the extension pool. When this pool runs out the caller silently drops
+   * back to its own plan on the extension pool — so beta usage can neither
+   * 503 anyone nor eat the day paying and free extension users run on.
+   *
+   * Override with TRACELY_BETA_DAILY_BUDGET_USD, same rules as the others:
+   * empty is "absent", junk is the default, and an explicit 0 turns the
+   * CEILING off (unlimited beta spend) — it does not turn beta off. Emptying
+   * TRACELY_BETA_TOKENS is what turns beta off. */
+  defaultBetaDailyBudgetUsd: 10,
+  /* Beta source searches get their own process-wide hourly window. A tester is
+   * Pro, so no daily source quota applies; on the extension's shared 15/hour
+   * counter one tester with auto-sources on could take the whole hour and 429
+   * every store user's source search. Theirs is paid by the beta pool, so it
+   * is bounded by the pool — this only keeps the two sets of users apart. */
+  betaWebSearchesPerHour: 30,
+
+  /* ── the PAID pool: Student and Pro accounts on the extension's routes ──
+   *
+   * Hosted /api/check, /api/flow and /api/sources run the model the client's
+   * slider asks for, clamped to the plan — up to the thorough model, ~40-50x
+   * the fast one per token. On the shared extension pool a single Pro user on
+   * "Smarter" could spend the $10 day in minutes and 503 every free user, the
+   * exact failure the app pool exists to prevent. So paid-plan calls on the
+   * extension routes spend HERE; when this pool is spent they drop to the fast
+   * model on the extension pool (their plan, and so their quotas, unchanged).
+   *
+   * Override with TRACELY_PAID_DAILY_BUDGET_USD, same rules as the others. */
+  defaultPaidDailyBudgetUsd: 10,
 };
 
 /**

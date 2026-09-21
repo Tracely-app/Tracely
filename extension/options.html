@@ -24,6 +24,9 @@
     --shadow-sm: 0 6px 18px rgba(180,120,60,0.09);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* `hidden` must win over the display rules below (.linkbtn, .acct), or
+     hiding "See plans" or the beta badge silently does nothing. */
+  [hidden] { display: none !important; }
   body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background:
@@ -102,6 +105,7 @@
     padding: 3px 9px; border-radius: 9px; background: var(--cream); border: 1px solid var(--line); color: var(--gray);
   }
   .plan.paid { background: linear-gradient(150deg, var(--orange), var(--orange-2)); border-color: transparent; color: #fff; }
+  .beta-tag { font-size: 11px; font-weight: 700; color: var(--gray); }
 
   /* Faster ↔ Smarter slider */
   .slider-labels { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 12px; }
@@ -159,15 +163,20 @@
       <h2>Tracely account</h2>
       <p class="hint" id="acctHint">Checking your account…</p>
       <div id="signedOut" hidden>
+        <div class="acct" id="betaPlanOut" hidden style="margin-bottom:14px">
+          <span class="plan paid" id="betaPlanLabel">Pro</span>
+          <span class="beta-tag">beta</span>
+        </div>
         <div class="row">
           <button id="signIn">Sign in</button>
-          <a class="linkbtn" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
+          <a class="linkbtn" id="seePlans" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
         </div>
       </div>
       <div id="signedIn" hidden>
         <div class="acct">
           <span class="acct-email" id="acctEmail"></span>
           <span class="plan" id="acctPlan"></span>
+          <span class="beta-tag" id="acctBeta" hidden>beta</span>
         </div>
         <div class="row" style="margin-top:14px">
           <a class="linkbtn" id="manageLink" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">Upgrade</a>
@@ -179,7 +188,7 @@
 
     <section>
       <h2>Speed vs. depth</h2>
-      <p class="hint" id="sliderHint">How hard Tracely thinks. Faster is cheaper and near-instant; Smarter catches subtler problems.</p>
+      <p class="hint" id="sliderHint">Which model checks your writing. Faster is quick and was as accurate as any stop in our tests; Smarter explains its verdicts more thoroughly.</p>
       <div class="slider-labels"><span class="l" id="labFaster">Faster</span><span class="l" id="labSmarter">Smarter</span></div>
       <div class="track-wrap">
         <input type="range" id="modelSlider" min="0" max="2" step="1" value="0">
@@ -200,7 +209,7 @@
         <span class="tick" data-i="2">Thorough</span>
       </div>
       <p class="model-note" id="modelNote"></p>
-      <p class="model-note" id="modelLocked" hidden>Smarter models come with a paid plan. <a class="upgrade-link" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
+      <p class="model-note" id="modelLocked" hidden>Balanced and Thorough come with a paid plan. <a class="upgrade-link" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
     </section>
 
     <section>
