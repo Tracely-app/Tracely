@@ -559,6 +559,58 @@ test("every model route carries the stop's model; only /api/check carries its ef
   }
 });
 
+/* ── content.js: verdicts saved before the remap are not served after it ── */
+
+function loadSweep(store, { throws = false } = {}) {
+  const deleted = [];
+  const localStorage = new Proxy(store, {
+    ownKeys: (t) => { if (throws) throw new Error("SecurityError"); return Reflect.ownKeys(t); },
+  });
+  const ctx = vm.createContext({
+    localStorage,
+    lsGet: (k) => (Object.hasOwn(store, k) ? store[k] : null),
+    lsSet: (k, v) => { store[k] = v; return true; },
+    lsDel: (k) => { deleted.push(k); delete store[k]; },
+  });
+  const api = vm.runInContext(contentSlice("const CACHE_GEN", "if (harness || IS_DOCS) docsMode();") + ";({ sweepRetiredCaches, CACHE_GEN })", ctx);
+  return { ...api, deleted, store };
+}
+
+test("the Docs widget drops every verdict and flow cache saved before the remap, once, and keeps the rest", () => {
+  // Those verdicts are gpt-5-nano's, and a cached sentence is never
+  // re-checked — so without this, an unchanged sentence kept nano's verdict.
+  const store = {
+    "tracely.widget.vcache.docA": "[]", "tracely.widget.fcache.docA": "{}",
+    "tracely.widget.vcache.docB": "[]",
+    "tracely.widget.scache.docA": "[]", "tracely.widget.dismissed.docA": "[]",
+    "tracely.widget.settings": "{}", "tracely.widget.docs": "[]", "unrelated.vcache.x": "1",
+    "tracely.widget.vcache2.docA": "[]",
+  };
+  const s = loadSweep(store);
+  assert.equal(s.CACHE_GEN, "2");
+  s.sweepRetiredCaches();
+  assert.deepEqual(s.deleted.sort(), ["tracely.widget.fcache.docA", "tracely.widget.vcache.docA", "tracely.widget.vcache.docB"]);
+  assert.equal(store["tracely.widget.cacheGen"], "2");
+  assert.ok("tracely.widget.vcache2.docA" in store, "the current generation is kept");
+  assert.ok("tracely.widget.scache.docA" in store && "tracely.widget.dismissed.docA" in store, "sources and dismissals are kept");
+
+  store["tracely.widget.vcache.docC"] = "[]"; // cannot happen after the update; proves the sweep runs once
+  s.sweepRetiredCaches();
+  assert.equal(s.deleted.length, 3, "the marker makes it a one-time pass");
+
+  const blocked = loadSweep({ "tracely.widget.vcache.docA": "[]" }, { throws: true });
+  blocked.sweepRetiredCaches();
+  assert.equal(blocked.store["tracely.widget.cacheGen"], undefined, "unreadable storage: no marker, so the next load tries again");
+});
+
+test("the Docs widget reads and writes only the current cache generation", () => {
+  const src = read("content.js");
+  assert.match(src, /const VCACHE_KEY = `tracely\.widget\.vcache\$\{CACHE_GEN\}\.\$\{DOC_ID\}`;/);
+  assert.match(src, /const FCACHE_KEY = `tracely\.widget\.fcache\$\{CACHE_GEN\}\.\$\{DOC_ID\}`;/);
+  assert.ok(src.indexOf("sweepRetiredCaches(); // before anything reads a cache") < src.indexOf("lsGet(VCACHE_KEY)"), "swept before the first read");
+  assert.deepEqual([...src.matchAll(/tracely\.widget\.(vcache|fcache)\.\$\{/g)].map((m) => m[0]), [], "a key without the generation");
+});
+
 /* ── options page ─────────────────────────────────────────────────────── */
 
 async function renderOptions(answer, { stored = {} } = {}) {

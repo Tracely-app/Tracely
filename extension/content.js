@@ -647,6 +647,28 @@
   function lsDel(key) { try { localStorage.removeItem(key); } catch { /* sandboxed */ } }
   function jsonParse(raw, fallback) { try { return JSON.parse(raw); } catch { return fallback; } }
 
+  /* The Docs widget's persisted verdicts (vcache) and flow issues (fcache)
+     are keyed by doc and sentence hash only, and a sentence already in the
+     cache is never re-checked. Everything saved before 2026-09-21 came from
+     gpt-5-nano, which never flagged an uncited statistic and called some false
+     claims accurate — so those keys are retired (the "2" generation replaces
+     them) and deleted once, and the first open after this update re-checks
+     every sentence on the current models. Source lists (scache) are search
+     results, not verdicts, and dismissals are the user's own: both are kept.
+     Bump CACHE_GEN when a model change should invalidate verdicts again. */
+  const CACHE_GEN = "2";
+  const VERDICT_CACHE = /^tracely\.widget\.(?:vcache|fcache)(\d*)\./; // group 1: the generation, "" before 2
+  function sweepRetiredCaches() {
+    if (lsGet("tracely.widget.cacheGen") === CACHE_GEN) return;
+    try {
+      for (const k of Object.keys(localStorage)) {
+        const m = VERDICT_CACHE.exec(k);
+        if (m && m[1] !== CACHE_GEN) lsDel(k);
+      }
+    } catch { return; } // sandboxed: nothing was readable, so try again next load
+    lsSet("tracely.widget.cacheGen", CACHE_GEN);
+  }
+
   if (harness || IS_DOCS) docsMode();
   else fieldMode();
 
@@ -659,9 +681,10 @@
 
     const SETTINGS_KEY = "tracely.widget.settings";
     const DISMISS_KEY = `tracely.widget.dismissed.${DOC_ID}`;
-    const VCACHE_KEY = `tracely.widget.vcache.${DOC_ID}`;
+    const VCACHE_KEY = `tracely.widget.vcache${CACHE_GEN}.${DOC_ID}`;
     const SCACHE_KEY = `tracely.widget.scache.${DOC_ID}`;
-    const FCACHE_KEY = `tracely.widget.fcache.${DOC_ID}`;
+    const FCACHE_KEY = `tracely.widget.fcache${CACHE_GEN}.${DOC_ID}`;
+    sweepRetiredCaches(); // before anything reads a cache
 
     // ── state ──
     // Verdicts and source lists persist per doc: reopening the tab re-checks
@@ -759,7 +782,7 @@
         // Tracely caches, then retry once at reduced size. Never throw.
         try {
           for (const k of Object.keys(localStorage)) {
-            if (/^tracely\.widget\.(vcache|scache)\./.test(k) && k !== VCACHE_KEY && k !== SCACHE_KEY) lsDel(k);
+            if (/^tracely\.widget\.(vcache\d*|scache)\./.test(k) && k !== VCACHE_KEY && k !== SCACHE_KEY) lsDel(k);
           }
         } catch { /* sandboxed */ }
         lsSet(VCACHE_KEY, JSON.stringify(keep.slice(-100)));
@@ -775,8 +798,9 @@
       reg.sort((a, b) => a[1] - b[1]);
       while (reg.length > 20) {
         const [old] = reg.shift();
-        lsDel(`tracely.widget.vcache.${old}`);
+        lsDel(`tracely.widget.vcache${CACHE_GEN}.${old}`);
         lsDel(`tracely.widget.scache.${old}`);
+        lsDel(`tracely.widget.fcache${CACHE_GEN}.${old}`); // flow issues were never collected here
         lsDel(`tracely.widget.dismissed.${old}`);
       }
       lsSet(REG_KEY, JSON.stringify(reg));
