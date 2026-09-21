@@ -154,6 +154,24 @@ const envValue = (name) => (process.env[name] ?? '').trim()
 // "missing URL" failure any more: unlike RELAY_URL, it always has a value.
 const serverUrl = apiUrl()
 
+// A released build talks to this URL for its whole life: it is compiled in, and
+// electron-updater will not downgrade. README tells developers to point .env at
+// a local server while working, and .env is the same file `npm run ship`
+// builds from — so a leftover `TRACELY_API_URL=http://localhost:4477` would pass
+// every other check here (the probe below succeeds whenever a local server is
+// running) and ship a release that can reach nothing on a single user's
+// machine. Plain http is refused for the same reason: the access token rides on
+// every request.
+try {
+  const u = new URL(serverUrl)
+  const local = ['localhost', '127.0.0.1', '[::1]', '0.0.0.0'].includes(u.hostname) || u.hostname.endsWith('.local')
+  if (u.protocol !== 'https:') fail(`server URL ${serverUrl} is not https — a release must never ship plain http`)
+  else if (local) fail(`server URL ${serverUrl} is a local address — remove TRACELY_API_URL from .env before releasing`)
+  else pass(`server URL ${serverUrl}`)
+} catch {
+  fail(`server URL ${JSON.stringify(serverUrl)} is not a URL`)
+}
+
 // The server attributes a call to an account with a Supabase access token, and
 // the app gets one from the project these two values name. They are inlined at
 // build time (electron.vite.config.ts) and default to '' when absent — so a

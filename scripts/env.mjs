@@ -69,8 +69,19 @@ export const DEFAULT_API_URL = 'https://api.jointracely.com'
  */
 export function apiUrl() {
   const configured = (process.env.TRACELY_API_URL ?? '').trim().replace(/\/+$/, '')
+  if (AI_OFF.has(configured.toLowerCase())) return ''
   return configured || DEFAULT_API_URL
 }
+
+/* The kill switch: `TRACELY_API_URL=none` builds an app with NO server, so it
+ * cannot make a single paid call — every AI feature reports "not configured"
+ * and the free local features keep working.
+ *
+ * Blank used to be that switch, back when the relay URL had no default: an
+ * empty RELAY_URL meant no AI. Now blank means "the default", so the switch
+ * needs a word of its own, or turning spending off would silently turn it on
+ * against production. A release refuses this value (preflight: not a URL). */
+const AI_OFF = new Set(['none', 'off'])
 
 /**
  * Loads exactly one env file and returns what it selected.
@@ -158,7 +169,15 @@ export function appDefines() {
  *
  * Per-environment directories mean the count is of recordings that can actually
  * replay, so the first staging run correctly reads zero and asks for the flag.
+ *
+ * And per BACKEND HOST, for the same reason one level down. The move from the
+ * relay to api.jointracely.com changed the host (and the request body) of every
+ * AI call, so every relay-era recording stopped replaying — while still sitting
+ * in cassettes/<env>/ being counted. The first `npm run evaluate` after that
+ * change would have made paid calls for every essay with the guard disarmed.
+ * Keying on the host makes that kind of switch read as "nothing recorded".
+ * Call loadEnv() first: the host comes from TRACELY_API_URL.
  */
 export function cassetteDir(outDir) {
-  return join(outDir, 'cassettes', ENV_NAME)
+  return join(outDir, 'cassettes', ENV_NAME, new URL(apiUrl()).host)
 }

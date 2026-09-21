@@ -254,6 +254,15 @@ console.log(`PASS  app.asar contents — ${EXPECTATIONS.length} packaging expect
 // one, and the likeliest way for one to appear is the very staleness described
 // above — an out/ left over from a relay-era build.
 const expectedUrl = apiUrl()
+// TRACELY_API_URL=none: a build with no server at all. The check that matters
+// then is the opposite one — that NO backend host made it into the archive.
+if (expectedUrl === '') {
+  const packed = readFileSync(ASAR).toString('latin1')
+  const foreign = [...new Set(packed.match(/https?:\/\/[a-z0-9.-]*(?:relay[a-z0-9.-]*\.vercel\.app|api\.jointracely\.com)/gi) ?? [])]
+  if (foreign.length) fail(`TRACELY_API_URL=none, but app.asar still names ${foreign.join(', ')}`)
+  console.log('PASS  no backend in app.asar (TRACELY_API_URL=none — AI is off in this build)')
+  process.exit(0)
+}
 const expectedHost = (() => {
   try {
     return new URL(expectedUrl).host.toLowerCase()

@@ -431,7 +431,7 @@ Opt-in (Settings → Screen Watch, off by default, also toggleable from the tray
 
 > **READ THIS FIRST — the editor's report is ONE relay call now.**
 >
-> `ipc/structureHandlers.ts` calls `ai/gradeDraft.ts` (`/api/grade-draft`) and
+> `ipc/structureHandlers.ts` calls `ai/gradeDraft.ts` (`/api/grade` on the Tracely server) and
 > builds the outline from what comes back (`structure/gradedOutline.ts`). There
 > is **no local fallback**: when the call fails the handler throws and the panel
 > shows the error. Owner, 2026-08-19: *"lets reset the whole reasoning system
@@ -889,7 +889,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   like Grammarly, instead of waiting until we click the 'grade essay' button?"*
   - **Detection is not grading, and only ONE of them was ever the button's
     job.** `runStructure` makes two relay calls: `detect-claims`, which is what
-    marks are made of, and `grade-draft`, the essay score. Only the first has
+    marks are made of, and `grade`, the essay score. Only the first has
     anything to do with underlines. So detection is automatic and **`AI
     Insights` still means "grade my essay"** — automating the second would
     spend the expensive call on every pause and pop a report nobody asked for.

@@ -14,17 +14,16 @@
  * than averaged away.
  *
  * ── Running it ─────────────────────────────────────────────────────────────
- * The relay needs a real signed-in account (see lib/auth.ts: the shared token
- * only says "this is a Tracely build", and every call that spends money is
- * attributed to a Supabase user). So it needs an access token from a session
- * you are already signed into:
+ * It calls the Tracely server's /api/structure — the relay's classifier, which
+ * moved there with the rest of the relay's reasoning. The server needs no
+ * account: signed out, a call is metered as a free install. An access token
+ * (TRACELY_ACCESS_TOKEN, optional) makes it run at your plan's model instead:
  *
- *   1. Open Tracely Preview, signed in to the staging project.
- *   2. DevTools → Application → Local Storage → the `sb-…-auth-token` entry.
- *      Copy the `access_token` field.
- *   3. $env:TRACELY_ACCESS_TOKEN = '<token>'; node eval/scripts/measure-governing-claims.mjs
+ *   node eval/scripts/measure-governing-claims.mjs
+ *   TRACELY_API_URL=http://localhost:4477 node eval/scripts/measure-governing-claims.mjs   # a local server
  *
- * Tokens expire hourly; a 401 usually means it is stale, not wrong.
+ * It used to POST to the relay's /api/classify-structure with a shared token,
+ * and needed a signed-in session token copied out of DevTools.
  *
  * Cost: 15 calls on the cheap model, against the $5-capped staging key.
  * Well under a cent, and the classifier caches by prompt on the client side
@@ -52,11 +51,8 @@ function loadEnvFile(path) {
 // the same reason everywhere else in this repo: its numbers are only
 // comparable across runs if the backend behind them does not move.
 const env = loadEnvFile(join(ROOT, '.env.staging'))
-const accessToken = process.env.TRACELY_ACCESS_TOKEN
-if (!accessToken) {
-  console.error('TRACELY_ACCESS_TOKEN is not set — see the header of this file.')
-  process.exit(1)
-}
+const accessToken = process.env.TRACELY_ACCESS_TOKEN ?? ''
+const API_URL = (process.env.TRACELY_API_URL || env.TRACELY_API_URL || 'https://api.jointracely.com').replace(/\/+$/, '')
 
 const { splitParagraphs } = await import(pathToFileURL(join(ROOT, 'src/shared/paragraphSplit.ts')))
 const { buildStructurePrompt, reconcileRoles } = await import(
@@ -95,12 +91,12 @@ for (const file of files) {
   )
   const prompt = buildStructurePrompt(paragraphs, LIMITS)
 
-  const response = await fetch(`${env.RELAY_URL}/api/classify-structure`, {
+  const response = await fetch(`${API_URL}/api/structure`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-tracely-token': env.RELAY_TOKEN,
-      Authorization: `Bearer ${accessToken}`
+      'X-Tracely-Install': 'eval-measure-governing-claims',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
     },
     body: JSON.stringify({ text: prompt })
   })

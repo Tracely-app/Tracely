@@ -117,7 +117,8 @@ Ranked by what it unblocks:
 2. **`draft.roles`** — trains a paragraph-role classifier as a linear probe on
    the MiniLM embeddings already shipping. ~300–500 paragraphs. This is the one
    that *removes* an API call rather than holding cost flat: it replaces the
-   `classify-structure` relay endpoint.
+   structure classifier (the server's `/api/structure`, formerly the relay's
+   `classify-structure`).
 3. **`verdict` + `citedSource.says`** — miscitation detection. Hardest, most
    valuable, needs the most examples, and needs source text rather than just a
    DOI.
