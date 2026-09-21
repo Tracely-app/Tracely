@@ -495,6 +495,45 @@ test("a site's own stop: a provisional clamp is not saved and is undone; a real 
   assert.deepEqual(JSON.parse(r.ls.value), { model: "gpt-5.6-luna", effort: "medium", citationStyle: "mla" });
 });
 
+/* Earlier builds saved "gpt-5-nano" (Fast) and "gpt-5.4" (Balanced) as a
+ * site's own stop and as the options-page default, with each stop's effort
+ * beside it (Fast at low, Thorough at medium). After the remap those saves
+ * must keep meaning their stop, and the effort sent is the CURRENT stop's. */
+test("a stop saved by an earlier build still means that stop, at the current stop's effort", async () => {
+  const saved = [
+    [{ model: "gpt-5-nano", effort: "low" }, { model: "gpt-5.6-luna", effort: "medium" }],
+    [{ model: "gpt-5.4", effort: "low" }, { model: "gpt-5.6-terra", effort: "low" }],
+    [{ model: "gpt-6-astra", effort: "medium" }, { model: "gpt-6-astra", effort: "low" }],
+  ];
+  for (const [stored, sent] of saved) {
+    const r = await defaultFor({ stored: JSON.stringify(stored) }, "pro", true);
+    Object.assign(r.live, stored); // what the widget loaded from the site
+    r.api.syncStopToTier(r.live, KEY);
+    assert.deepEqual({ model: r.api.effModel(r.live), effort: r.api.effEffort(r.live) }, sent, `saved ${JSON.stringify(stored)}`);
+    assert.equal(r.ls.value, JSON.stringify(stored), "a stop the plan allows is not rewritten");
+  }
+
+  // Above the plan, a saved retired id clamps like any other stop.
+  const free = await defaultFor({ stored: JSON.stringify({ model: "gpt-5.4", effort: "low" }) }, "pro", true);
+  Object.assign(free.live, { model: "gpt-5.4", effort: "low" });
+  free.api.setTier("free", true, false);
+  free.api.syncStopToTier(free.live, KEY);
+  assert.deepEqual(stopOf(free.live), { model: "gpt-5.6-luna", effort: "medium" });
+  assert.equal(free.api.effModel(free.live), "gpt-5.6-luna");
+});
+
+test("an options-page default saved as a retired id is followed as its stop", async () => {
+  const pro = await defaultFor({ optionsModel: "gpt-5.4" }, "pro", true);
+  assert.deepEqual(pro.settings, { model: "gpt-5.6-terra", effort: "low" });
+  const fast = await defaultFor({ optionsModel: "gpt-5-nano" }, "pro", true);
+  assert.deepEqual(fast.settings, { model: "gpt-5.6-luna", effort: "medium" });
+  // Lookalikes and inherited names are not stops.
+  for (const optionsModel of ["gpt-5.4-mini", "toString", "constructor"]) {
+    const r = await defaultFor({ optionsModel }, "pro", true);
+    assert.deepEqual(r.settings, { model: "gpt-5.6-luna", effort: "medium" }, optionsModel);
+  }
+});
+
 test("every settings write in both widgets goes through persistSettings", () => {
   const src = read("content.js");
   assert.deepEqual([...src.matchAll(/lsSet\(SETTINGS_KEY/g)], [], "a raw settings write bypasses the default-stop rule");
@@ -601,6 +640,34 @@ test("options: a provisional free answer never overwrites the saved stop; a real
   const real = await renderOptions({ ...BASE, signedIn: false, plan: "free" }, { stored: { model: "gpt-6-astra" } });
   const writes = plain(real.sets.filter((o) => "model" in o));
   assert.ok(writes.length > 0 && writes.every((o) => o.model === "gpt-5.6-luna"), `a real downgrade still clamps: ${JSON.stringify(writes)}`);
+});
+
+test("options: a default saved as a retired id keeps its stop, and is rewritten to the current id", async () => {
+  const pro = await renderOptions({ ...BASE, signedIn: true, email: "p@example.com", plan: "pro" }, { stored: { model: "gpt-5.4" } });
+  assert.equal(pro("modelSlider").value, "1", "Balanced stays Balanced");
+  // (The page renders the plan more than once and this stub storage never
+  // applies a write, so the same migration may be written again.)
+  const migrated = plain(pro.sets.filter((o) => "model" in o));
+  assert.ok(migrated.length > 0 && migrated.every((o) => o.model === "gpt-5.6-terra"), JSON.stringify(migrated));
+
+  const guess = await renderOptions({ ...BASE, signedIn: false, plan: "free", provisional: true }, { stored: { model: "gpt-5.4" } });
+  assert.deepEqual(guess.sets.filter((o) => "model" in o), [], "a provisional answer rewrites nothing, retired id or not");
+
+  const fast = await renderOptions({ ...BASE, signedIn: false, plan: "free" }, { stored: { model: "gpt-5-nano" } });
+  assert.equal(fast("modelSlider").value, "0");
+  const toFast = plain(fast.sets.filter((o) => "model" in o));
+  assert.ok(toFast.length > 0 && toFast.every((o) => o.model === "gpt-5.6-luna"), JSON.stringify(toFast));
+});
+
+test("options: the stop notes claim only what the model eval measured", () => {
+  // eval/models/FINDINGS.md: Balanced was not more accurate than Fast, so no
+  // note may sell it as sharper, better on subtle claims, or more accurate.
+  const src = read("options.js");
+  const notes = src.match(/const MODEL_NOTES = \[([\s\S]*?)\];/)[1];
+  for (const claim of [/subtle/i, /sharpest/i, /noticeably better/i, /more accurate than Fast(?!\.)/, /catches subtler/i]) {
+    assert.ok(!claim.test(notes), `MODEL_NOTES claims ${claim}`);
+  }
+  assert.ok(!/catches subtler|smarter models/i.test(read("options.html") + src), "the hint copy still sells Smarter as catching more");
 });
 
 test("options.html lets `hidden` beat the link and badge display rules", () => {

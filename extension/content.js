@@ -98,14 +98,22 @@
 
   // The Faster↔Smarter slider — one control replacing the model + effort
   // dropdowns on both widget surfaces. Three stops; effort rides along.
+  // Chosen by a measured eval (eval/models/FINDINGS.md): the fast model
+  // checks at 100% at medium effort and 90% at low; the other two were only
+  // measured at low.
   const SPEED_STOPS = [
     { model: "gpt-5.6-luna", effort: "medium" },
     { model: "gpt-5.6-terra", effort: "low" },
     { model: "gpt-6-astra", effort: "low" },
   ];
+  // Model ids earlier builds saved — a site's own stop in localStorage, the
+  // options-page default in chrome.storage — before the 2026-09-21 remap.
+  // Each still means the stop it named, not "unknown, so Fast".
+  const RETIRED_STOP = { "gpt-5-nano": 0, "gpt-5.4": 1 };
   function speedPos(model) {
     const i = SPEED_STOPS.findIndex((s) => s.model === model);
-    return i === -1 ? 0 : i;
+    if (i !== -1) return i;
+    return typeof model === "string" && Object.hasOwn(RETIRED_STOP, model) ? RETIRED_STOP[model] : 0;
   }
 
   /* ── plan gate ───────────────────────────────────────────────────────────
@@ -152,10 +160,11 @@
     return PLAN_MAX_STOP[tier.plan] ?? 0;
   }
   function effModel(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].model; }
-  function effEffort(settings) {
-    const pos = speedPos(settings.model);
-    return pos <= maxStop() ? settings.effort : SPEED_STOPS[maxStop()].effort;
-  }
+  // The effort is always the effective STOP's, never a saved one: the only
+  // control that sets effort is the slider, which sets the stop's, so a saved
+  // effort can only differ when an earlier build's stops saved it (Fast at
+  // "low", Thorough at "medium") — and sending that would undo the stop.
+  function effEffort(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].effort; }
   // Pull a stored preference down to what the plan reaches. Returns whether it
   // moved, so the caller knows to persist.
   function clampSettingsToPlan(settings) {
@@ -191,10 +200,7 @@
   let defaultStopModel = ""; // the options-page value, once read
   function storedSettings(key) { return jsonParse(lsGet(key) ?? "null", null); }
   function hasOwnStop(key) { return typeof storedSettings(key)?.model === "string"; }
-  function defaultStop() {
-    const i = SPEED_STOPS.findIndex((s) => s.model === defaultStopModel);
-    return SPEED_STOPS[i === -1 ? 0 : i];
-  }
+  function defaultStop() { return SPEED_STOPS[speedPos(defaultStopModel)]; }
   // Every write of a widget's settings goes through here.
   function persistSettings(settings, key) {
     if (!followsDefault.has(settings)) return lsSet(key, JSON.stringify(settings));
