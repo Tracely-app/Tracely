@@ -75,6 +75,23 @@ export const SPEND = {
   // without limit. Oldest keys are dropped; a dropped key just gets a fresh
   // allowance, which the daily quota and the global budget still bound.
   rateLimiterMaxKeys: 20_000,
+
+  /* ── the APP pool: the desktop's routes, kept apart from the extension ──
+   *
+   * The desktop app's AI routes (detect, critique, grade, structure, tracer,
+   * correction, find-sources) get their OWN budget, rate limiter and web-search
+   * counter. Sharing the extension's would couple the two products: one
+   * desktop analysis is roughly 9 model calls plus up to 6 auto-critiques,
+   * which alone clears the extension's 20/min caller limit, and desktop Pro
+   * traffic on the thorough model would empty the extension's $10 day and
+   * 503 every /api/check. Separate pools mean a busy desktop can exhaust
+   * only the desktop.
+   *
+   * Override the budget with TRACELY_APP_DAILY_BUDGET_USD (same rules as the
+   * extension's: empty is "absent", junk is the default, explicit 0 is off). */
+  defaultAppDailyBudgetUsd: 10,
+  appCallerCallsPerMinute: 30,
+  appCallerSearchesPerHour: 25,
 };
 
 /**
@@ -85,11 +102,11 @@ export const SPEND = {
  * would have silently removed the ceiling. Only an explicit numeric 0 does
  * that, which is the documented way to turn it off.
  */
-export function dailyBudgetUsd(env = process.env) {
-  const text = String(env.TRACELY_DAILY_BUDGET_USD ?? "").trim();
-  if (!text) return SPEND.defaultDailyBudgetUsd;
+export function dailyBudgetUsd(env = process.env, variable = "TRACELY_DAILY_BUDGET_USD", fallback = SPEND.defaultDailyBudgetUsd) {
+  const text = String(env[variable] ?? "").trim();
+  if (!text) return fallback;
   const raw = Number(text);
-  if (!Number.isFinite(raw) || raw < 0) return SPEND.defaultDailyBudgetUsd;
+  if (!Number.isFinite(raw) || raw < 0) return fallback;
   return raw;
 }
 

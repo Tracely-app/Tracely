@@ -9,12 +9,12 @@ import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
-import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck,
+import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, entitlementConfigured, forgetCachedPlans } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
-import { clampModel } from "./shared/plan.js";
-import { MODEL_TIERS } from "./lib/llm.js";
+import { clampModel, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
+import { MODEL_TIERS, ALLOWED_MODELS } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 
@@ -152,9 +152,24 @@ const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/s
  * shed first when the daily budget runs low.
  */
 const PAID_ROUTES = new Set([
-  "/api/check", "/api/flow", "/api/sources", "/api/detect-claims", "/api/evidence",
-  "/api/critique", "/api/grade", "/api/structure", "/api/tracer", "/api/compare-source",
+  "/api/check", "/api/flow", "/api/sources", "/api/evidence", "/api/compare-source",
   "/api/watch/critique", "/api/watch/fix", "/api/cite-url",
+]);
+
+/* The desktop app's AI routes. They are gated by appGate, NOT spendGate, and
+ * that separation is the point.
+ *
+ * They used to sit in PAID_ROUTES, which meant they shared the extension's
+ * per-caller rate limiter and its daily spend pool — while never recording
+ * any spend of their own. Two failures, pointing opposite ways: unmetered,
+ * the $10/day ceiling could not see them at all; metered into the shared
+ * pool, one busy desktop user on the thorough model could empty the day and
+ * 503 every extension user's /api/check. They now have their own pool, their
+ * own limiter, their own daily quota kind, and their own model choice — so the
+ * desktop can exhaust only the desktop. None of them is extension-reachable
+ * (they are not in EXTENSION_API), which is what makes changing them safe. */
+const APP_AI_ROUTES = new Set([
+  "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
 ]);
 const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
@@ -522,6 +537,8 @@ async function handleStripeWebhook(req, res) {
    this existed, which is how the local-first install runs. */
 const checkRate = keyedRateLimiter(SPEND.callerChecksPerMinute);
 const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
+// The app routes' own limiter — see APP_AI_ROUTES for why it is not checkRate.
+const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
 
 async function spendGate(req, { kind = "check" } = {}) {
   const ent = await planForRequest(req);
@@ -546,6 +563,79 @@ async function spendGate(req, { kind = "check" } = {}) {
   }
 
   return { ent, callerId: id, budget };
+}
+
+/* The app routes' gate: the same shape as spendGate, over the APP pool and
+ * the app limiter. Budget first, then velocity, both before the body is read. */
+async function appGate(req) {
+  const ent = await planForRequest(req);
+  const id = callerId(req, ent);
+  const budget = spendState({ enforced: ent.enforced, pool: "app" });
+  if (!budget.allowed) {
+    throw new CheckError("budget", "Tracely's writing checks have hit their daily usage limit. They reset at midnight.", { status: 503 });
+  }
+  if (ent.enforced && id) {
+    if (!appRate.ok(id)) {
+      throw new CheckError("rate_limit", "Slow down a moment — too many requests in the last minute.", { status: 429, retryAfter: 60 });
+    }
+    appRate.stamp(id);
+  }
+  return { ent, callerId: id, budget };
+}
+
+/**
+ * Which model an app-route call runs at.
+ *
+ * On a hosted server (enforced) it is what the CLIENT asked for, clamped to
+ * the caller's plan: the desktop resolves the user's chosen tier against their
+ * plan and sends that model, so a Pro user who picked "fast" gets fast, and
+ * nobody gets above their ceiling. An unrecognised request resolves DOWN to
+ * the fast model, never up (clampModel's rule).
+ *
+ * It deliberately does NOT read pickModel on a hosted server. pickModel reads
+ * ONE global prefs row, which `PUT /api/prefs` lets any caller rewrite with no
+ * authentication — and before this, an anonymous caller could set
+ * {modelStrategy:"uniform", model:"gpt-6-astra"} and every app route, for
+ * everyone, ran the thorough model. Locally (not enforced) there is one user
+ * and that row is theirs, so local runs keep pickModel exactly as before.
+ *
+ * The extension's routes still use pickModel + allowedModel, unchanged.
+ */
+function appModelFor(task, ent, requested) {
+  if (!ent.enforced) return pickModel(task);
+  return clampModel(ALLOWED_MODELS.has(requested) ? requested : MODEL_TIERS.fast, ent.plan);
+}
+
+/**
+ * One app-route model call: the cache, the daily quota, the call, the spend.
+ *
+ * A cache hit is free and is NOT counted against the quota — only calls that
+ * reach a model are. The quota is stamped before the call (like every counter
+ * here), and the spend is recorded after it, into the app pool.
+ *
+ * `cache` is { kind, key(model), maxAgeMs, version } or null; the key is built
+ * from the RESOLVED model so a Free answer is never served to a Pro request.
+ */
+async function appCall(gate, { task, requested, cache = null, webSearchCalls = 0, run }) {
+  const model = appModelFor(task, gate.ent, requested);
+  const key = cache ? cache.key(model) : null;
+  if (cache && !MOCK) {
+    const hit = cacheGet(cache.kind, key, { maxAgeMs: cache.maxAgeMs, version: cache.version ?? 1 });
+    if (hit) return hit;
+  }
+  const quota = aiQuota(gate.ent, gate.callerId);
+  if (!quota.allowed) {
+    throw new CheckError(
+      "plan_limit",
+      `Free accounts get ${FREE_DAILY_AI_CALLS} AI checks a day, and today's ${FREE_DAILY_AI_CALLS} are used. It resets at midnight — or upgrade for unlimited checks.`,
+      { status: 429 },
+    );
+  }
+  recordAi(gate.ent, gate.callerId);
+  const result = await run(model);
+  recordSpend({ model: result?.model ?? model, usage: result?.usage, webSearchCalls, enforced: gate.ent.enforced, pool: "app" });
+  if (cache && !MOCK) cacheSet(cache.kind, key, result, { version: cache.version ?? 1 });
+  return result;
 }
 
 function requireKey() {
@@ -591,7 +681,9 @@ const server = http.createServer(async (req, res) => {
     // for 60s, so a second call would be cheap, but one resolution per request
     // is one answer per request.
     let gate = null;
-    if (PAID_ROUTES.has(url.pathname)) {
+    if (APP_AI_ROUTES.has(url.pathname)) {
+      gate = await appGate(req);
+    } else if (PAID_ROUTES.has(url.pathname)) {
       gate = await spendGate(req, { kind: SOURCE_ROUTES.has(url.pathname) ? "sources" : "check" });
     }
 
@@ -776,20 +868,22 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/detect-claims") {
       loadEnvFile();
       requireKey();
-      const { text, effort } = (await parseJsonBody(req)) ?? {};
+      const { text, effort, model: requested } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
       const clipped = text.slice(0, GUARDS.maxInputChars);
-      const model = pickModel("detect");
-      const key = hashKey(`${model}|${effort ?? ""}|${clipped}`);
-      let result = MOCK ? null : cacheGet("detect", key, { maxAgeMs: 24 * 3600_000 });
-      if (!result) {
-        result = await ai.detectClaims({ text: clipped, model, effort });
-        // The id is salted with the start offset so the same claim text asserted
-        // in two sentences gets two ids (dismissal/merge state stays per-occurrence).
-        result.claims = (result.claims ?? []).slice(0, GUARDS.maxClaimsPerAnalysis)
-          .map((c) => ({ ...c, id: hashKey(`claim|${c.text}|${c.start}`).slice(0, 16) }));
-        if (!MOCK) cacheSet("detect", key, result);
-      }
+      const result = await appCall(gate, {
+        task: "detect",
+        requested,
+        cache: { kind: "detect", maxAgeMs: 24 * 3600_000, key: (model) => hashKey(`${model}|${effort ?? ""}|${clipped}`) },
+        run: async (model) => {
+          const r = await ai.detectClaims({ text: clipped, model, effort });
+          // The id is salted with the start offset so the same claim text asserted
+          // in two sentences gets two ids (dismissal/merge state stays per-occurrence).
+          r.claims = (r.claims ?? []).slice(0, GUARDS.maxClaimsPerAnalysis)
+            .map((c) => ({ ...c, id: hashKey(`claim|${c.text}|${c.start}`).slice(0, 16) }));
+          return r;
+        },
+      });
       json(res, 200, { ...result, cachedAt: undefined }, cors);
       return;
     }
@@ -824,10 +918,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/critique") {
       loadEnvFile();
       requireKey();
-      if (!critiqueCounter.ok()) throw new CheckError("rate_limit", "Critique hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
+      // The global 60/hour critique cap is a SINGLE-USER backstop: on a local
+      // server it bounds one person's auto-critique. On a hosted server it
+      // would be 60 an hour for every user combined, so there the per-caller
+      // quota, the app limiter and the app budget bound it instead.
+      const hosted = gate.ent.enforced;
+      if (!hosted && !critiqueCounter.ok()) throw new CheckError("rate_limit", "Critique hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       const body = (await parseJsonBody(req)) ?? {};
       if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
-      body.model = pickModel("critique");
+      const requested = body.model;
       // Trim the evidence payload to what the judgment needs — top 4 sources,
       // short fields only. Abstracts are the token hog.
       body.sources = (Array.isArray(body.sources) ? body.sources : []).slice(0, 4).map((s) => ({
@@ -841,20 +940,20 @@ const server = http.createServer(async (req, res) => {
       // sentence wording, the model, and which sources were provided — all of
       // them key segments so a stale verdict is never replayed against
       // different evidence.
-      const key = hashKey([
-        "crit",
-        body.claim,
-        body.sentence ?? "",
-        body.citedRef ?? "",
-        body.model ?? "",
-        hashKey(JSON.stringify((Array.isArray(body.sources) ? body.sources : []).map((s) => s?.url ?? s?.title ?? ""))),
-      ].join("|"));
-      let result = MOCK ? null : cacheGet("critique", key, { maxAgeMs: 7 * 24 * 3600_000 });
-      if (!result) {
-        critiqueCounter.stamp(); // before the call
-        result = await ai.critiqueClaim(body);
-        if (!MOCK) cacheSet("critique", key, result);
-      }
+      const sourcesKey = hashKey(JSON.stringify(body.sources.map((s) => s?.url ?? s?.title ?? "")));
+      const result = await appCall(gate, {
+        task: "critique",
+        requested,
+        cache: {
+          kind: "critique",
+          maxAgeMs: 7 * 24 * 3600_000,
+          key: (model) => hashKey(["crit", body.claim, body.sentence ?? "", body.citedRef ?? "", model, sourcesKey].join("|")),
+        },
+        run: (model) => {
+          if (!hosted) critiqueCounter.stamp(); // before the call
+          return ai.critiqueClaim({ ...body, model });
+        },
+      });
       json(res, 200, result, cors);
       return;
     }
@@ -862,9 +961,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/grade") {
       loadEnvFile();
       requireKey();
-      const { text, level, rubric } = (await parseJsonBody(req)) ?? {};
+      const { text, level, rubric, model: requested } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || text.trim().length < 40) throw new CheckError("bad_request", "text too short to grade");
-      const model = pickModel("grade");
       const clipped = text.slice(0, GUARDS.maxInputChars);
       /* A pasted rubric (web app: Settings → Custom rubric) replaces the
          built-in one. The web app has sent this field for weeks, and
@@ -876,14 +974,18 @@ const server = http.createServer(async (req, res) => {
       const custom = typeof rubric === "string" && rubric.trim() ? rubric.trim().slice(0, MAX_CUSTOM_RUBRIC_CHARS) : null;
       // Re-grading an unchanged draft is free. The rubric is in the key: the
       // same draft against a different rubric is a different grade.
-      const key = hashKey(`grade|${model}|${level ?? 12}|${custom ? hashKey(custom) : "builtin"}|${clipped}`);
-      let result = MOCK ? null : cacheGet("grade", key, { maxAgeMs: 7 * 24 * 3600_000 });
-      if (!result) {
-        result = custom
-          ? await ai.gradeWithCustomRubric({ text: clipped, rubric: custom, level, model })
-          : await ai.gradeDraft({ text: clipped, level, model });
-        if (!MOCK) cacheSet("grade", key, result);
-      }
+      const result = await appCall(gate, {
+        task: "grade",
+        requested,
+        cache: {
+          kind: "grade",
+          maxAgeMs: 7 * 24 * 3600_000,
+          key: (model) => hashKey(`grade|${model}|${level ?? 12}|${custom ? hashKey(custom) : "builtin"}|${clipped}`),
+        },
+        run: (model) => (custom
+          ? ai.gradeWithCustomRubric({ text: clipped, rubric: custom, level, model })
+          : ai.gradeDraft({ text: clipped, level, model })),
+      });
       json(res, 200, result, cors);
       return;
     }
@@ -891,15 +993,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/structure") {
       loadEnvFile();
       requireKey();
-      const { text } = (await parseJsonBody(req)) ?? {};
+      const { text, model: requested } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
-      const model = pickModel("structure");
-      const key = hashKey(`struct|${model}|${text}`);
-      let result = MOCK ? null : cacheGet("structure", key, { maxAgeMs: 24 * 3600_000 });
-      if (!result) {
-        result = await ai.classifyStructure({ text: text.slice(0, GUARDS.maxInputChars), model });
-        if (!MOCK) cacheSet("structure", key, result);
-      }
+      const result = await appCall(gate, {
+        task: "structure",
+        requested,
+        cache: { kind: "structure", maxAgeMs: 24 * 3600_000, key: (model) => hashKey(`struct|${model}|${text}`) },
+        run: (model) => ai.classifyStructure({ text: text.slice(0, GUARDS.maxInputChars), model }),
+      });
       json(res, 200, result, cors);
       return;
     }
@@ -907,8 +1008,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/tracer") {
       loadEnvFile();
       requireKey();
-      const { conversationId, documentId, message, draft } = (await parseJsonBody(req)) ?? {};
-      const model = pickModel("tracer");
+      const { conversationId, documentId, message, draft, model: requested } = (await parseJsonBody(req)) ?? {};
       if (typeof message !== "string" || !message.trim()) throw new CheckError("bad_request", "message required");
       let convId = conversationId;
       if (!convId) {
@@ -922,10 +1022,15 @@ const server = http.createServer(async (req, res) => {
       while (history.length > 0 && history[0].role !== "user") history.shift();
       db.prepare("INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)")
         .run(uuid(), convId, "user", message.slice(0, 4000), Date.now());
-      const { reply } = await ai.tracerReply({
-        messages: [...history, { role: "user", content: message.slice(0, 4000) }],
-        draft: typeof draft === "string" ? draft.slice(0, GUARDS.maxInputChars) : "",
-        model,
+      // Not cached: a chat turn depends on the whole conversation so far.
+      const { reply } = await appCall(gate, {
+        task: "tracer",
+        requested,
+        run: (model) => ai.tracerReply({
+          messages: [...history, { role: "user", content: message.slice(0, 4000) }],
+          draft: typeof draft === "string" ? draft.slice(0, GUARDS.maxInputChars) : "",
+          model,
+        }),
       });
       db.prepare("INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)")
         .run(uuid(), convId, "assistant", reply, Date.now());

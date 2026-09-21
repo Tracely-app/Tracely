@@ -33,17 +33,34 @@ import { costMicroCents } from "./llm.js";
 import { usageDay } from "../shared/plan.js";
 import { SPEND, dailyBudgetUsd } from "../shared/guards.js";
 
-const ACCOUNT = "__global__";
 const KIND = "spend_ucents";
 const MICRO_CENTS_PER_USD = 100 * 1e6;
 
-/** The day's ceiling in micro-cents. 0 means "unlimited" (see spendState). */
-export function dailyBudgetMicroCents(env = process.env) {
-  return Math.round(dailyBudgetUsd(env) * MICRO_CENTS_PER_USD);
+/* Two pools, each its own ceiling and its own running total.
+ *
+ * `extension` is the pool this module has always had — same synthetic account,
+ * same variable — and it is the default everywhere, so every existing caller
+ * is unchanged. `app` is the desktop's (see SPEND in shared/guards.js for why
+ * the two must not share a day): a desktop Pro user on the thorough model can
+ * spend its budget and never touch the extension's. */
+export const SPEND_POOLS = {
+  extension: { account: "__global__", variable: "TRACELY_DAILY_BUDGET_USD", fallback: SPEND.defaultDailyBudgetUsd },
+  app: { account: "__global_app__", variable: "TRACELY_APP_DAILY_BUDGET_USD", fallback: SPEND.defaultAppDailyBudgetUsd },
+};
+function poolOf(name) {
+  const p = SPEND_POOLS[name];
+  if (!p) throw new Error(`unknown spend pool "${name}"`);
+  return p;
 }
 
-export function spentTodayMicroCents(at = Date.now()) {
-  return usageCount(ACCOUNT, usageDay(at), KIND);
+/** The day's ceiling in micro-cents. 0 means "unlimited" (see spendState). */
+export function dailyBudgetMicroCents(env = process.env, pool = "extension") {
+  const p = poolOf(pool);
+  return Math.round(dailyBudgetUsd(env, p.variable, p.fallback) * MICRO_CENTS_PER_USD);
+}
+
+export function spentTodayMicroCents(at = Date.now(), pool = "extension") {
+  return usageCount(poolOf(pool).account, usageDay(at), KIND);
 }
 
 /**
@@ -55,12 +72,12 @@ export function spentTodayMicroCents(at = Date.now()) {
  * TRACELY_DAILY_BUDGET_USD=0, which is the documented way to turn the ceiling
  * off on a box whose spending is controlled some other way.
  */
-export function spendState({ enforced = true, at = Date.now(), env = process.env } = {}) {
-  const budget = dailyBudgetMicroCents(env);
+export function spendState({ enforced = true, at = Date.now(), env = process.env, pool = "extension" } = {}) {
+  const budget = dailyBudgetMicroCents(env, pool);
   if (!enforced || budget <= 0) {
     return { enforced: false, budget: null, spent: 0, remaining: null, remainingPct: 1, allowed: true, sourcesAllowed: true };
   }
-  const spent = spentTodayMicroCents(at);
+  const spent = spentTodayMicroCents(at, pool);
   const remaining = Math.max(0, budget - spent);
   const remainingPct = budget > 0 ? remaining / budget : 0;
   return {
@@ -78,11 +95,11 @@ export function spendState({ enforced = true, at = Date.now(), env = process.env
 }
 
 /** Record what a completed model call cost. Returns the new day total. */
-export function recordSpend({ model, usage, webSearchCalls = 0, enforced = true, at = Date.now() }) {
+export function recordSpend({ model, usage, webSearchCalls = 0, enforced = true, at = Date.now(), pool = "extension" }) {
   if (!enforced) return 0;
   const cost = costMicroCents(model, usage, { webSearchCalls });
-  if (cost <= 0) return spentTodayMicroCents(at);
-  return usageAdd(ACCOUNT, usageDay(at), KIND, cost);
+  if (cost <= 0) return spentTodayMicroCents(at, pool);
+  return usageAdd(poolOf(pool).account, usageDay(at), KIND, cost);
 }
 
 /** For /api/status and the operator, in human units. */
