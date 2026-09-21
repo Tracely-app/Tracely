@@ -23,7 +23,7 @@ Live fact-checking as you write. Every 10 seconds, Tracely checks the facts you'
 - Hover an underline for the explanation; click it to jump to its finding card.
 - **Apply fix** rewrites the sentence with the model's correction; **Fix all** applies every suggestion at once.
 - **Find sources** pulls up 3–5 real sources for a claim (via OpenAI's built-in web search — no extra API key). Pick one and Tracely inserts a `[n]` citation after the sentence and maintains a `Sources:` list at the end of the document. Verified claims can be cited too, via the *cite* button.
-- Model (Opus 5 / Sonnet 5 / Haiku 4.5) and depth (Fast / Balanced / Thorough) are switchable in the header.
+- Model (Fast / Balanced / Thorough — `gpt-5-nano`, `gpt-5.4`, `gpt-6-astra`) and depth (Fast / Balanced / Thorough reasoning effort) are switchable in the header.
 
 ## Google Docs widget
 

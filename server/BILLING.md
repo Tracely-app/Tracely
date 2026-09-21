@@ -77,8 +77,8 @@ from its own cost tiering, then clamps it to the plan's ceiling. Responses
 carry `plan` and `modelUsed` so the client can say what actually ran.
 
 An unrecognised or absent model request resolves *down* to the fast model, not
-up to the plan's ceiling — "the client sent nothing" must not become an Opus
-bill, and the cheap default was the pre-entitlement behaviour of every route.
+up to the plan's ceiling — "the client sent nothing" must not become a
+`gpt-6-astra` bill, and the cheap default was the pre-entitlement behaviour of every route.
 
 ## Free-tier metering
 
@@ -159,7 +159,8 @@ POST /api/billing/webhook
 `enforced` is false when no Supabase project is configured, and it means the
 server clamps **nothing** — not "everyone is free". The extension reads it and
 opens every stop of its model slider in that mode, because locking the slider
-and showing an upgrade prompt against a server that will serve Opus on request
+and showing an upgrade prompt against a server that will serve the dearest
+model on request
 would be a lie. Anything other than an explicit `false` is treated as enforced.
 
 ## Event outcomes, and which ones Stripe retries

@@ -1,26 +1,29 @@
 /** Typed-ish fetch wrappers — the renderer's only path to the server. */
 
+import { MODEL_PRICES, MODEL_FOR_TIER } from "/shared/plan.js";
+
 /* ── usage metering ─────────────────────────────────────────────────────────
    Every response carrying {usage:{input,output}, model} is accumulated into a
-   per-model-family ledger; after each accumulation a "tracely:usage" event
+   per-model ledger; after each accumulation a "tracely:usage" event
    fires on window with cumulative {input, output, cost}. Cost is a rough
    estimate from public per-MTok pricing. */
-const PRICING = { // $ per MTok: [input, output]
-  opus: [5, 25],
-  sonnet: [3, 15],
-  haiku: [1, 5],
-};
-const ledger = {
-  opus: { input: 0, output: 0 },
-  sonnet: { input: 0, output: 0 },
-  haiku: { input: 0, output: 0 },
-  other: { input: 0, output: 0 },
-};
+/* Prices come from /shared/plan.js — the same table lib/llm.js bills the spend
+   cap with, so the meter and the ledger cannot disagree.
 
-function familyOf(model) {
-  const m = String(model ?? "").toLowerCase();
-  for (const fam of Object.keys(PRICING)) if (m.includes(fam)) return fam;
-  return "other";
+   This was a local table keyed on the model FAMILIES `opus` / `sonnet` /
+   `haiku`, left behind by the move to OpenAI. `familyOf("gpt-5-nano")` matched
+   none of them, fell through to `other`, and `other` had no price — so the
+   meter reported $0.00 for every call made since that migration. Keyed on the
+   exact model id now, with an unknown id priced as the dearest tier rather
+   than as free, which is the same direction lib/llm.js rounds. */
+const ledger = new Map(); // model id -> { input, output }
+
+function priceFor(model) {
+  return (
+    MODEL_PRICES[model]
+    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // gpt-5-nano-2025-08-07
+    ?? MODEL_PRICES[MODEL_FOR_TIER.thorough]
+  );
 }
 
 function recordUsage(data) {
@@ -29,16 +32,18 @@ function recordUsage(data) {
   const input = Number(u.input) || 0;
   const output = Number(u.output) || 0;
   if (input === 0 && output === 0) return;
-  const fam = familyOf(data.model);
-  ledger[fam].input += input;
-  ledger[fam].output += output;
+  const model = String(data.model ?? "");
+  const tally = ledger.get(model) ?? { input: 0, output: 0 };
+  tally.input += input;
+  tally.output += output;
+  ledger.set(model, tally);
 
   let totalIn = 0, totalOut = 0, cost = 0;
-  for (const [name, tally] of Object.entries(ledger)) {
-    totalIn += tally.input;
-    totalOut += tally.output;
-    const [pIn, pOut] = PRICING[name] ?? [0, 0];
-    cost += (tally.input * pIn + tally.output * pOut) / 1e6;
+  for (const [id, t] of ledger) {
+    totalIn += t.input;
+    totalOut += t.output;
+    const p = priceFor(id);
+    cost += (t.input * p.input + t.output * p.output) / 1e6;
   }
   window.dispatchEvent(new CustomEvent("tracely:usage", {
     detail: { input: totalIn, output: totalOut, cost },

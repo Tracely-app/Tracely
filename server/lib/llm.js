@@ -38,15 +38,16 @@ export const MODEL_TIERS = {
 /* The same prices as DATA, because the spend cap has to do arithmetic with
  * them and a number in a comment cannot be summed. Dollars per 1M tokens.
  *
+ * They live in shared/plan.js and are re-exported here: the browser's usage
+ * meter needs them and cannot load this module. Re-exported rather than moved
+ * outright so every existing importer of MODEL_PRICES keeps working.
+ *
  * `search` is the part that surprises people: OpenAI bills the built-in
  * web_search tool PER CALL ($10 per 1000) on top of tokens, so one source
  * search costs about as much as 16 fact checks. Measured 2026-09-13.
  */
-export const MODEL_PRICES = {
-  "gpt-5-nano":  { input: 0.05, cached: 0.005, output: 0.40 },
-  "gpt-5.4":     { input: 2.50, cached: 0.25,  output: 15.00 },
-  "gpt-6-astra": { input: 10.00, cached: 1.00, output: 50.00 },
-};
+import { MODEL_PRICES } from "../shared/plan.js";
+export { MODEL_PRICES };
 export const WEB_SEARCH_CALL_DOLLARS = 0.01;
 
 /* Cost in MICRO-CENTS (1e-6 of a cent), as an integer.

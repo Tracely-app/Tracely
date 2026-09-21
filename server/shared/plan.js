@@ -88,6 +88,21 @@ export const TIER_FOR_MODEL = {
   "gpt-6-astra": "thorough",
 };
 
+/* Dollars per 1M tokens, input / cached / output.
+ *
+ * Defined HERE rather than in lib/llm.js, which imports them from this file,
+ * because the browser needs them too and cannot load lib/llm.js — that module
+ * reads env and talks to the API. The usage meter in public/app/api.js carried
+ * its own table for a while and it went stale against a provider migration:
+ * keyed on the families `opus` / `sonnet` / `haiku`, it matched no gpt id, fell
+ * through to a zero price, and reported $0.00 for every call ever made. One
+ * definition is the only arrangement in which that cannot recur. */
+export const MODEL_PRICES = {
+  "gpt-5-nano":  { input: 0.05, cached: 0.005, output: 0.40 },
+  "gpt-5.4":     { input: 2.50, cached: 0.25,  output: 15.00 },
+  "gpt-6-astra": { input: 10.00, cached: 1.00, output: 50.00 },
+};
+
 /** The best tier each plan may reach. Free never leaves `fast`. */
 export const PLAN_MODEL_CEILING = { free: "fast", student: "balanced", pro: "thorough" };
 
@@ -105,7 +120,7 @@ export function ceilingModelFor(plan) {
  *
  * The requested model is a REQUEST, never a grant — it arrives from a prefs
  * row or an extension build that both outlive the plan current when they were
- * written, and a cancelled Pro subscription leaves `claude-opus-5` sitting in
+ * written, and a cancelled Pro subscription leaves `gpt-6-astra` sitting in
  * SQLite. Narrowing here rather than at each call site is what makes "a stale
  * preference cannot leak a paid model" a property of one function.
  *

@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { MODEL_TIERS, ALLOWED_MODELS, DEFAULT_MODEL } from "../lib/llm.js";
+import { MODEL_TIERS, ALLOWED_MODELS, DEFAULT_MODEL, MODEL_PRICES } from "../lib/llm.js";
 import { MODEL_FOR_TIER, TIER_FOR_MODEL, MODEL_TIERS as TIER_NAMES, PLAN_MODEL_CEILING, PLANS } from "../shared/plan.js";
 
 test("shared/plan.js mirrors lib/llm.js exactly", () => {
@@ -36,6 +36,21 @@ test("every plan ceiling names a real tier", () => {
 test("the default model is the cheapest tier, and is allowed", () => {
   assert.equal(DEFAULT_MODEL, MODEL_TIERS.fast);
   assert.ok(ALLOWED_MODELS.has(DEFAULT_MODEL));
+});
+
+/* A missing price does not throw — costMicroCents falls through to the dearest
+   tier and the browser's meter does the same. That is the right direction to
+   round, and it is also why a gap here is invisible: nothing errors, the
+   numbers are just wrong. The browser's meter carried its own table keyed on
+   `opus`/`sonnet`/`haiku` and reported $0.00 for every call for months. */
+test("every allowed model has a price, and nothing else does", () => {
+  assert.deepEqual(Object.keys(MODEL_PRICES).sort(), [...ALLOWED_MODELS].sort());
+  for (const [model, p] of Object.entries(MODEL_PRICES)) {
+    for (const field of ["input", "cached", "output"]) {
+      assert.equal(typeof p[field], "number", `${model}.${field} is not a number`);
+      assert.ok(p[field] > 0, `${model}.${field} must be above zero`);
+    }
+  }
 });
 
 /* ── the extension's hand copies ──────────────────────────────────────────

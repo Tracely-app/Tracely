@@ -365,10 +365,10 @@ const critiqueCounter = rollingCounter(60);
 
 // ── model tiering (token optimization) ─────────────────────────────────
 // Decided here, once, so every surface prices identically.
-//   economy (default): Haiku for EVERYTHING — a full essay session lands in
-//     single-digit cents. This is the hard cost mandate.
-//   smart: Haiku for the frequent mechanical passes, Sonnet for the two
-//     judgment calls (critique, grading).
+//   economy (default): the FAST model for EVERYTHING — a full essay session
+//     lands in single-digit cents. This is the hard cost mandate.
+//   smart: the fast model for the frequent mechanical passes, the BALANCED one
+//     for the two judgment calls (critique, grading) and for /api/check.
 //   uniform: the user's chosen model everywhere (they pay for what they pick).
 // Read from the tier table rather than written out, so a model rename is one
 // edit in lib/llm.js instead of a hunt through every file that names one.
@@ -626,7 +626,7 @@ const server = http.createServer(async (req, res) => {
     // `enforced` is the honest half. When no Supabase project is configured
     // this server clamps NOTHING (see allowedModel), so a client that locked
     // its model picker to the free tier and showed an upgrade prompt would be
-    // lying about a server that will happily serve Opus. Reporting it lets the
+    // lying about a server that will happily serve the dearest model. Reporting it lets the
     // extension open every stop in exactly the mode the README calls "set none
     // of these env vars and nothing changes".
     if (req.method === "GET" && url.pathname === "/api/entitlement") {
@@ -860,15 +860,24 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/grade") {
       loadEnvFile();
       requireKey();
-      const { text, level } = (await parseJsonBody(req)) ?? {};
+      const { text, level, rubric } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || text.trim().length < 40) throw new CheckError("bad_request", "text too short to grade");
       const model = pickModel("grade");
       const clipped = text.slice(0, GUARDS.maxInputChars);
-      // Re-grading an unchanged draft is free.
-      const key = hashKey(`grade|${model}|${level ?? 12}|${clipped}`);
+      // A teacher's pasted rubric replaces our own. The route used to
+      // destructure only { text, level } while the Settings field, the prefs
+      // key and ai.gradeWithCustomRubric were all fully built — so the feature
+      // was dead end to end, silently, and a draft graded against a pasted
+      // rubric came back graded against ours.
+      const custom = typeof rubric === "string" && rubric.trim() ? rubric.trim() : null;
+      // Re-grading an unchanged draft is free. The rubric is IN the key: two
+      // rubrics over one draft are two different answers.
+      const key = hashKey(`grade|${model}|${level ?? 12}|${custom ?? ""}|${clipped}`);
       let result = MOCK ? null : cacheGet("grade", key, { maxAgeMs: 7 * 24 * 3600_000 });
       if (!result) {
-        result = await ai.gradeDraft({ text: clipped, level, model });
+        result = custom
+          ? await ai.gradeWithCustomRubric({ text: clipped, rubric: custom, level, model })
+          : await ai.gradeDraft({ text: clipped, level, model });
         if (!MOCK) cacheSet("grade", key, result);
       }
       json(res, 200, result, cors);
