@@ -303,19 +303,19 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
 const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
 
 /** A call that may search the web before answering. Returns raw text. */
-export async function webSearchCall({ model, system, user, maxTokens, what, effort = DEFAULT_EFFORT }) {
+export async function webSearchCall({ model, system, user, maxTokens, what, effort }) {
   const p = provider();
   const chosen = chooseModel(model);
-  // It sent no reasoning effort until the beta change (2026-09-21), so every
-  // source search ran at the vendor's default — per the table above, several
-  // times the tokens of "low" for the same verdicts on structured calls. It
-  // now sends the caller's effort (normalised; default "low"). Not re-measured
-  // on the source-search prompt, because this machine has no key: if source
-  // quality drops, that measurement is the first thing to run. "minimal" is
-  // raised to "low" because web_search does not run at minimal.
-  const normalized = normalizeEffort(effort);
+  // With NO effort it sends none, exactly as it always has: the source search
+  // runs at the vendor's default. That is a known cost (the table above) but
+  // it is the measured behaviour of every source search the shipped extension
+  // makes, and lowering it wants a fresh measurement on this prompt, not a
+  // drive-by default. An effort the CALLER chose (the widget's stop, which
+  // /api/sources passes through) is sent, normalised; "minimal" is raised to
+  // "low" because web_search does not run at minimal.
+  const normalized = effort == null ? null : normalizeEffort(effort);
   const level = normalized === "minimal" ? "low" : normalized;
-  const withEffort = effortFor(p, chosen) && !effortDisabled.has(webEffortKey(p, chosen));
+  const withEffort = level != null && effortFor(p, chosen) && !effortDisabled.has(webEffortKey(p, chosen));
   const sent = { model: chosen, effort: withEffort ? level : null };
   let json = null;
   try {

@@ -156,8 +156,9 @@ Rules:
 
   // The web_search tool bills per call on top of tokens, which is why
   // findSources is the one path with a caller-side budget (search/webBudget).
-  // `effort` undefined falls to lib/llm.js's DEFAULT_EFFORT ("low"), not to
-  // the vendor's costlier default — the same rule runFactCheck follows.
+  // `effort` undefined sends no reasoning effort — the vendor's default, which
+  // is what every source search ran at before the widget's stop reached this
+  // route (see webSearchCall). A caller-chosen level is sent.
   const { text: fullText, citations, model: usedModel, usage } = await webSearchCall({
     model: chosenModel,
     system: sys,

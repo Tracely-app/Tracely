@@ -998,10 +998,12 @@ const server = http.createServer(async (req, res) => {
       searchCounter.stamp(); // before the call, not after
       const started = Date.now();
       // Same model rule as /api/check (appModelFor). The effort is the
-      // client's when it is a real level, else "low" — this route used to send
-      // none at all, which is OpenAI's own and costliest default.
+      // client's when it sent one (normalised), and otherwise NONE — the
+      // vendor's default, which is what every source search ran at before and
+      // what the store build, which sends no effort here, still gets. Lowering
+      // that default wants a measurement on this prompt first (lib/llm.js).
       const modelUsed = extensionModel(gate, "/api/sources", appModelFor("sources", ent, model));
-      const level = normalizeEffort(effort);
+      const level = effort == null ? undefined : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // webSearchCalls: 1 — the tool fee is most of this route's cost and is

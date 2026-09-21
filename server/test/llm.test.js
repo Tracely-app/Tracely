@@ -60,26 +60,28 @@ test("textCall passes history through and trims the reply", async () => {
   assert.equal(r.text, "hi");
 });
 
-test("webSearchCall sends the web_search tool at the default effort, and returns url citations", async () => {
-  // It sent NO effort until 2026-09-21 — the vendor's own, costliest default
-  // on every source search. Now "low" unless the caller asks otherwise.
+test("webSearchCall sends the web_search tool, no effort unless asked, and returns url citations", async () => {
+  // With no effort it still sends none — the vendor's default, which is what
+  // every source search the shipped extension makes has always run at.
+  // Lowering that default wants a measurement on this prompt, not a drive-by.
   const llm = await fresh();
   const calls = stub(ok({ output: [{ content: [{ type: "output_text", text: "t", annotations: [
     { type: "url_citation", url: "https://a.org", title: "A" }, { type: "url_citation", url: "https://b.org" }, { type: "file_citation", url: "x" },
   ] }] }] }));
   const r = await llm.webSearchCall({ model: "nope", system: "S", user: "q", maxTokens: 5, what: "s" });
-  assert.deepEqual(calls[0].body, { model: "gpt-5-nano", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }], reasoning: { effort: "low" } });
+  assert.deepEqual(calls[0].body, { model: "gpt-5-nano", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }] });
   assert.deepEqual(r.citations, [{ url: "https://a.org", title: "A" }, { url: "https://b.org", title: "" }]);
 });
 
-test("webSearchCall passes a real effort through, normalises junk, and never sends minimal", async () => {
+test("webSearchCall passes a caller's effort through, normalises junk, and never sends minimal", async () => {
   // web_search does not run at "minimal"; sending it would draw a 400 that the
-  // fallback reads as "no effort for this model".
-  for (const [given, sent] of [["high", "high"], ["medium", "medium"], ["turbo", "low"], [null, "low"], ["minimal", "low"]]) {
+  // fallback reads as "no effort for this model". null/undefined is "not
+  // asked", which sends nothing, as above.
+  for (const [given, sent] of [["high", "high"], ["medium", "medium"], ["low", "low"], ["turbo", "low"], ["minimal", "low"], [null, undefined], [undefined, undefined]]) {
     const llm = await fresh();
     const calls = stub(ok({ output_text: "t" }));
     await llm.webSearchCall({ model: "gpt-5.4", system: "S", user: "q", maxTokens: 5, what: "s", effort: given });
-    assert.deepEqual(calls[0].body.reasoning, { effort: sent }, `effort ${JSON.stringify(given)}`);
+    assert.deepEqual(calls[0].body.reasoning, sent === undefined ? undefined : { effort: sent }, `effort ${JSON.stringify(given)}`);
   }
 });
 
@@ -93,8 +95,8 @@ test("a web search that rejects effort does not switch effort off for that model
     ok({ output_text: "t" }),
     ok({ output_text: '{"a":"x"}' }),
   );
-  await llm.webSearchCall({ model: "gpt-5-nano", system: "S", user: "q", maxTokens: 5, what: "s" }); // rejects, retries without
-  await llm.webSearchCall({ model: "gpt-5-nano", system: "S", user: "q", maxTokens: 5, what: "s" }); // stays off for web search
+  await llm.webSearchCall({ model: "gpt-5-nano", system: "S", user: "q", maxTokens: 5, what: "s", effort: "low" }); // rejects, retries without
+  await llm.webSearchCall({ model: "gpt-5-nano", system: "S", user: "q", maxTokens: 5, what: "s", effort: "low" }); // stays off for web search
   await llm.structuredCall({ model: "gpt-5-nano", schema: SCHEMA, what: "w" });                     // structured: still on
   assert.equal(calls[1].body.reasoning, undefined);
   assert.equal(calls[2].body.reasoning, undefined);
@@ -128,7 +130,7 @@ test("a failure leaving the facade carries the model and effort it was sent at, 
   llm = await fresh();
   stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 10, output_tokens: 6000 } }));
   const webTrunc = await llm.webSearchCall({ model: "gpt-5.4", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
-  assert.deepEqual(webTrunc.llm, { model: "gpt-5.4", effort: "low", usage: { input: 10, output: 6000, cached: 0 } });
+  assert.deepEqual(webTrunc.llm, { model: "gpt-5.4", effort: null, usage: { input: 10, output: 6000, cached: 0 } });
 
   llm = await fresh();
   stub(new TypeError("fetch failed"));

@@ -442,14 +442,20 @@ test("/api/flow passes the client's effort through, normalised, at the clamped m
   assert.equal(calls[0].effort, "low", "junk becomes the default, never OpenAI's own");
 });
 
-test("/api/sources sends a reasoning effort now — the client's, or low", async () => {
+test("/api/sources sends the client's effort when it sends one, and otherwise none — as before", async () => {
+  // The store build sends no effort here, and every one of its source
+  // searches has always run at the vendor's default. That must not move
+  // without a measurement; a client that picks a level gets that level.
   let { r, calls } = await sent(() => sources(D, { model: "gpt-5.4" }, { install: "d-src-free" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5-nano", effort: "low", webSearch: true }]);
+  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5-nano", effort: null, webSearch: true }]);
 
   ({ r, calls } = await sent(() => sources(D, { model: "gpt-5.4", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.4", effort: "high" }]);
+
+  ({ calls } = await sent(() => sources(D, { effort: "turbo" }, { install: "d-src-junk" })));
+  assert.equal(calls[0].effort, "low", "a junk level is normalised, never passed through");
 });
 
 test("/api/check sends the requested model and effort to the provider, not just in modelUsed", async () => {
