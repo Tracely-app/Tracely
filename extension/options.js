@@ -100,7 +100,7 @@ function paintSlider(pos) {
 const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
 
-let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false, beta: false };
+let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false, beta: false, provisional: true };
 
 function maxStop() {
   if (account.unenforced) return MODELS.length - 1;
@@ -127,8 +127,10 @@ function applyPlanState() {
     slider.value = String(pos);
     paintSlider(pos);
     // A stale paid choice must not sit in storage looking active after a
-    // downgrade — the widgets read this same value.
-    if (MODELS[pos] !== cfg.model) chrome.storage.local.set({ model: MODELS[pos] });
+    // downgrade — the widgets read this same value. Only on a REAL answer: a
+    // provisional free (server unreachable, worker restarting) must not
+    // overwrite the stop a tester or subscriber actually chose.
+    if (MODELS[pos] !== cfg.model && !account.provisional) chrome.storage.local.set({ model: MODELS[pos] });
   });
 }
 
@@ -209,7 +211,7 @@ function acctStatus(text, warn) {
 async function refreshAccount(force) {
   try {
     const r = await chrome.runtime.sendMessage({ type: "tracely-entitlement", force: force === true });
-    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced), beta: r.beta === true };
+    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
   } catch { /* worker restarting — keep the last answer */ }
   renderAccount();
   applyPlanState();

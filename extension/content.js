@@ -139,7 +139,9 @@
   const ORDER_URL = "https://jointracely.com/order";
 
   const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
-  let tier = { plan: "free", byoKey: false, unenforced: false };
+  // `provisional`: the worker had no real answer (server unreachable or
+  // erroring on the test build) — shown, never persisted as a clamp.
+  let tier = { plan: "free", byoKey: false, unenforced: false, provisional: false };
   const tierListeners = []; // widget re-renders to run when the tier resolves
 
   // The highest slider stop this account may use. Unknown plan → free, always.
@@ -211,9 +213,9 @@
     }
     pending.then((r) => {
       if (!r?.ok) return;
-      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced) };
+      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), provisional: r.provisional === true };
       if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey
-          && next.unenforced === tier.unenforced) return;
+          && next.unenforced === tier.unenforced && next.provisional === tier.provisional) return;
       tier = next;
       tierResolved = true;
       tierChanged(); // first resolve fires too: free-tier listeners clamp stale paid settings
@@ -2464,7 +2466,7 @@
       // not sit in localStorage looking active (API calls already clamp, and
       // the server clamps again regardless of what we send). Only a STORED
       // choice is rewritten: the options-page default lives in memory.
-      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null && !tier.provisional) lsSet(SETTINGS_KEY, JSON.stringify(settings));
       render();
     });
     applyDefaultStop(settings, SETTINGS_KEY, () => render());
@@ -2752,7 +2754,7 @@
     }
     tierListeners.push(() => {
       // Same downgrade clamp as docs mode; only repaint if the panel exists.
-      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null && !tier.provisional) lsSet(SETTINGS_KEY, JSON.stringify(settings));
       if (widget) render();
     });
     applyDefaultStop(settings, SETTINGS_KEY, () => { if (widget) render(); });

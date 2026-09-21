@@ -337,12 +337,21 @@ async function fetchEntitlement({ force = false } = {}) {
   }
   const { authToken } = await getAuth();
   if (!authToken) {
+    /* On a failure, a store build caches free: signed out IS free there, so
+       it is the right answer, not a guess. The test build's answer depends on
+       the server (it grants Pro), so a failure there is "we don't know" —
+       never cached, exactly like the signed-in path below. Cached, one
+       offline wake or one 503 put a tester on free for the whole TTL, and the
+       widgets and options page wrote that downgrade into their saved stop. */
+    const unknown = async () => ((await betaToken())
+      ? { ...FREE_ENTITLEMENT, beta: false, fetchedAt: 0 }
+      : storeEntitlement(DEFAULT_PLAN, null, true));
     // Signed out still asks, because the answer carries `enforced` — a server
     // with no Supabase project clamps nothing and the picker must say so.
-    if (!(await serverReachable())) return storeEntitlement(DEFAULT_PLAN, null, true);
+    if (!(await serverReachable())) return unknown();
     try {
       const res = await fetch(`${SERVER}/api/entitlement`, { headers: await withBeta() });
-      if (!res.ok) return storeEntitlement(DEFAULT_PLAN, null, true);
+      if (!res.ok) return unknown();
       const data = await res.json().catch(() => ({}));
       // Signed out is free — UNLESS the server granted the test build's Pro
       // plan, which it says with `beta: true`. Only that flag lifts the plan
@@ -350,7 +359,7 @@ async function fetchEntitlement({ force = false } = {}) {
       const beta = data?.beta === true;
       return storeEntitlement(beta ? data?.plan : DEFAULT_PLAN, null, data?.enforced, { beta });
     } catch {
-      return storeEntitlement(DEFAULT_PLAN, null, true);
+      return unknown();
     }
   }
   if (!(await serverReachable())) {
@@ -364,6 +373,10 @@ async function fetchEntitlement({ force = false } = {}) {
       const fresh = await refreshAccessToken();
       if (!fresh) {
         await clearAuth();
+        // Signed out now. On the test build that is still a question for the
+        // server (the beta grant needs no account), so ask it as signed out
+        // rather than storing free for the TTL.
+        if (await betaToken()) return fetchEntitlement({ force: true });
         return storeEntitlement(DEFAULT_PLAN, null, true);
       }
       res = await fetch(`${SERVER}/api/entitlement`, { headers: await withBeta({ Authorization: `Bearer ${fresh}` }) });
@@ -532,13 +545,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           userId: fromExtensionPage(sender) ? ent?.userId ?? null : null,
           unenforced: Boolean(up) && ent?.enforced === false,
           // The server granted this test build's Pro plan (X-Tracely-Beta).
-          // The options page shows "Pro (beta)" and hides every way to pay.
+          // The options page shows "Pro (beta)" and hides the ways to buy.
           beta: ent?.beta === true,
+          // No real answer behind this (server unreachable or erroring, never
+          // cached): show it, but do not SAVE anything because of it — a
+          // widget or the options page writing a clamp to the free stop here
+          // would outlive the outage.
+          provisional: !(Number(ent?.fetchedAt) > 0),
         });
       } catch (err) {
         // Fail closed, but still answer: an unanswered probe would leave the
         // widget with no tier at all.
-        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, message: err?.message });
+        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, provisional: true, message: err?.message });
       }
     })();
     return true; // async sendResponse

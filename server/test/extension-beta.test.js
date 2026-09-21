@@ -47,8 +47,12 @@ function loadWorker({
   noManagement = false,
   entitlement = { plan: "free", email: null, userId: null, enforced: true },
   store = {},
+  down = false,             // every server fetch throws (offline / server gone)
+  entitlementStatus = 200,  // what GET /api/entitlement answers
+  rejectBearer = false,     // a bearer token draws a 401 (expired session)
 } = {}) {
   const calls = [];
+  const net = { down, entitlementStatus, entitlement };
   const data = { ...store };
   const messageListeners = [];
   const chrome = {
@@ -86,9 +90,14 @@ function loadWorker({
       if (!betaFile) throw new TypeError("Failed to fetch"); // ERR_FILE_NOT_FOUND
       return { ok: true, status: 200, json: async () => betaFile };
     }
+    if (net.down) throw new TypeError("Failed to fetch");
     const { pathname } = new URL(url);
-    const body = pathname === "/api/entitlement" ? entitlement : {};
-    return { ok: true, status: 200, json: async () => body };
+    if (pathname === "/api/entitlement") {
+      if (rejectBearer && init?.headers?.Authorization) return { ok: false, status: 401, json: async () => ({}) };
+      const st = net.entitlementStatus;
+      return { ok: st >= 200 && st < 300, status: st, json: async () => net.entitlement };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
   }
   const ctx = vm.createContext({
     chrome, fetch, console, URL, URLSearchParams, AbortSignal, crypto: globalThis.crypto,
@@ -104,7 +113,7 @@ function loadWorker({
       for (const fn of messageListeners) fn(msg, sender, resolve);
     });
   }
-  return { run, calls, data, ask };
+  return { run, calls, data, ask, net };
 }
 
 const entitlementCalls = (w) => w.calls.filter((c) => c.url === `${LOCAL}/api/entitlement`);
@@ -172,6 +181,50 @@ test("signed out without beta: still free, whatever plan the body claims", async
     assert.equal(ent.plan, "free", JSON.stringify(body));
     assert.equal(ent.beta, false);
   }
+});
+
+test("test build, signed out: a failed entitlement is a guess — shown as provisional, never cached", async () => {
+  // Cached, one 503 or one offline wake put a tester on free for the whole
+  // TTL, and the widgets wrote that clamp into their saved stop.
+  for (const opts of [{ entitlementStatus: 503 }, { down: true }]) {
+    const w = loadWorker({ ...opts, entitlement: { plan: "pro", email: null, userId: null, enforced: true, beta: true } });
+    const ent = plain(await w.run("fetchEntitlement({ force: true })"));
+    assert.equal(ent.plan, "free", JSON.stringify(opts));
+    assert.equal(ent.fetchedAt, 0, "not a real answer");
+    assert.ok(!w.data.entitlement, `a guess was cached (${JSON.stringify(opts)})`);
+    const r = await w.ask({ type: "tracely-entitlement" });
+    assert.equal(r.provisional, true, "the widgets must not persist anything off this");
+  }
+  // ...and the next ask, once the server answers, is a real one.
+  const w = loadWorker({ entitlementStatus: 503, entitlement: { plan: "pro", email: null, userId: null, enforced: true, beta: true } });
+  await w.ask({ type: "tracely-entitlement" });
+  w.net.entitlementStatus = 200;
+  const r = await w.ask({ type: "tracely-entitlement" });
+  assert.equal(r.plan, "pro");
+  assert.equal(r.provisional, false);
+});
+
+test("a store build, signed out, still caches free on a failure — that IS its answer", async () => {
+  const w = loadWorker({ installType: "normal", entitlementStatus: 503 });
+  const ent = plain(await w.run("fetchEntitlement({ force: true })"));
+  assert.equal(ent.plan, "free");
+  assert.ok(ent.fetchedAt > 0);
+  assert.equal(w.data.entitlement.plan, "free");
+  assert.equal((await w.ask({ type: "tracely-entitlement" })).provisional, false);
+});
+
+test("test build: an expired session with no refresh falls through to the signed-out beta answer", async () => {
+  const w = loadWorker({
+    store: { authToken: "jwt-expired" },
+    rejectBearer: true,
+    entitlement: { plan: "pro", email: null, userId: null, enforced: true, beta: true },
+  });
+  const ent = plain(await w.run("fetchEntitlement({ force: true })"));
+  assert.equal(w.data.authToken, "", "signed out locally");
+  assert.equal(ent.plan, "pro", "not a cached free for the TTL");
+  assert.equal(ent.beta, true);
+  const store = loadWorker({ installType: "normal", store: { authToken: "jwt-expired" }, rejectBearer: true });
+  assert.equal(plain(await store.run("fetchEntitlement({ force: true })")).plan, "free", "a store build: free, as before");
 });
 
 test("a store build sends no beta header to /api/entitlement", async () => {
@@ -392,8 +445,9 @@ test("every model route the widgets call carries the stop's model AND effort", (
 
 /* ── options page ─────────────────────────────────────────────────────── */
 
-async function renderOptions(answer) {
+async function renderOptions(answer, { stored = {} } = {}) {
   const els = new Map();
+  const sets = [];
   const el = (id) => {
     if (!els.has(id)) {
       els.set(id, {
@@ -410,7 +464,7 @@ async function renderOptions(answer) {
   const chrome = {
     runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? answer : { ok: true }) },
     storage: {
-      local: { get: (d, cb) => cb?.({ ...d }), set() {}, remove() {} },
+      local: { get: (d, cb) => cb?.({ ...d, ...stored }), set: (o) => { sets.push(o); }, remove() {} },
       onChanged: { addListener() {} },
     },
   };
@@ -421,6 +475,7 @@ async function renderOptions(answer) {
   });
   vm.runInContext(read("options.js"), ctx, { filename: "options.js" });
   await tick(); await tick();
+  el.sets = sets;
   return el;
 }
 
@@ -459,6 +514,14 @@ test("options: nothing changes for a user who is not on the test build", async (
   const pro = await renderOptions({ ...BASE, signedIn: true, email: "p@example.com", plan: "pro" });
   assert.equal(pro("manageLink").hidden, false);
   assert.equal(pro("manageLink").textContent, "Manage subscription");
+});
+
+test("options: a provisional free answer never overwrites the saved stop; a real one still clamps it", async () => {
+  const guess = await renderOptions({ ...BASE, signedIn: false, plan: "free", provisional: true }, { stored: { model: "gpt-6-astra" } });
+  assert.deepEqual(guess.sets.filter((o) => "model" in o), [], "an outage rewrote the tester's stop to Fast");
+  const real = await renderOptions({ ...BASE, signedIn: false, plan: "free" }, { stored: { model: "gpt-6-astra" } });
+  const writes = plain(real.sets.filter((o) => "model" in o));
+  assert.ok(writes.length > 0 && writes.every((o) => o.model === "gpt-5-nano"), `a real downgrade still clamps: ${JSON.stringify(writes)}`);
 });
 
 test("options.html lets `hidden` beat the link and badge display rules", () => {
