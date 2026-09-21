@@ -42,6 +42,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import net from "node:net";
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -194,16 +195,26 @@ const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_
   "SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY", "TRACELY_MOCK", "TRACELY_EXTENSION_ID", "TRACELY_TRUSTED_PROXY_HOPS", "TRACELY_LLM_PROVIDER"];
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SCRUB.includes(k)));
 
-/* A port that is already taken — Discord's local RPC server sits on 6463,
- * inside this range — makes the child exit at once. That used to cost the
- * full 10 s wait, fail every test in the file, and leave the servers that DID
- * boot running, so the run never exited. An early exit now moves on to the
- * next port, and a boot that still fails kills whatever it started. */
-let port = 6000 + Math.floor(Math.random() * 800);
+/* A port the OS just handed out, so it is free and ephemeral. A fixed random
+ * range was not safe: Node's fetch refuses the Fetch standard's "bad ports"
+ * (5060, 5061, 6000, 6566, 6665-6669, 6697 — "bad port", forever), and local
+ * services hold others (AirPlay on 5000, Postgres on 5432, Discord on 6463).
+ * Any of those made a test server look like it never started. */
+const freePort = () => new Promise((resolve, reject) => {
+  const probe = net.createServer();
+  probe.unref();
+  probe.on("error", reject);
+  probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
+});
+
+/* Should the port be taken between the probe and the child's listen, the
+ * child exits at once and the next attempt takes a fresh port. A boot that
+ * still fails kills everything started so far: the servers that DID boot
+ * used to be left running, and `node --test` never exited. */
 const booted = [];
 async function boot(env, { preload } = {}) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const p = port++;
+    const p = await freePort();
     const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), SERVER], {
       env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: mkdtempSync(path.join(TMP, "data-")), ...env },
       stdio: ["ignore", "pipe", "pipe"],
