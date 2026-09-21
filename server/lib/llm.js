@@ -61,20 +61,27 @@ export { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS };
  * An unknown model is priced as the MOST expensive tier, not as zero. Getting
  * this wrong in the other direction means a model rename silently uncaps
  * spending, which is the failure this module exists to prevent.
+ *
+ * Input tokens come in three kinds (lib/providers/openai.js usageOf): cache
+ * READS (`cached`), cache WRITES (`cacheWrite`) and the fresh remainder. Both
+ * cache counts are subsets of `input`, so the fresh remainder is input minus
+ * both — a write is billed once, at the write rate, never again as fresh
+ * input. A model with no `cacheWrite` price bills a write at its input rate.
  */
 export function costMicroCents(model, usage, { webSearchCalls = 0 } = {}) {
   const p = MODEL_PRICES[model]
-    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // gpt-5-nano-2025-08-07
+    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // a dated snapshot id
     ?? MODEL_PRICES[MODEL_TIERS.thorough];
   // Math.max(0, NaN) is NaN, not 0 — so a non-finite token count used to
   // produce a NaN cost, which usageAdd then floored to zero. A malformed usage
   // block must cost SOMETHING or it is a free call.
   const n = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
   const cached = n(usage?.cached);
-  const fresh = n(n(usage?.input) - cached);
+  const written = n(usage?.cacheWrite);
+  const fresh = n(n(usage?.input) - cached - written);
   const out = n(usage?.output);
   const dollars =
-    (fresh * p.input + cached * p.cached + out * p.output) / 1e6 +
+    (fresh * p.input + cached * p.cached + written * (p.cacheWrite ?? p.input) + out * p.output) / 1e6 +
     webSearchCalls * WEB_SEARCH_CALL_DOLLARS;
   return Math.max(0, Math.round(dollars * 100 * 1e6));
 }

@@ -81,6 +81,50 @@ test("cached input is charged at the cached rate, not the fresh rate", () => {
   assert.equal(allCached, Math.round(1000 * MODEL_PRICES["gpt-5-nano"].cached / 1e6 * 100 * 1e6));
 });
 
+test("cache writes are charged at the cacheWrite rate, once, and never again as fresh input", () => {
+  // The thorough model bills a first-seen prefix at 1.25x input. 4,976 of
+  // 4,979 input tokens came back as cache writes on a real cold call.
+  const m = MODEL_TIERS.thorough;
+  const p = MODEL_PRICES[m];
+  assert.ok(p.cacheWrite > p.input, "the thorough tier bills cache writes above its input rate");
+  const micro = (dollarsPerM, tokens) => tokens * dollarsPerM / 1e6 * 100 * 1e6;
+
+  const cold = costMicroCents(m, { input: 4979, output: 5, cached: 0, cacheWrite: 4976 });
+  assert.equal(cold, Math.round(micro(p.input, 3) + micro(p.cacheWrite, 4976) + micro(p.output, 5)));
+
+  const asFresh = costMicroCents(m, { input: 4979, output: 5, cached: 0 });
+  assert.ok(cold > asFresh, "reading a write as plain input under-counts the call");
+  assert.ok(cold < asFresh * 1.26, "and a write is not ALSO billed as fresh input");
+
+  // Reads, writes and fresh input in one call: each at its own rate.
+  const mixed = costMicroCents(m, { input: 1000, output: 100, cached: 600, cacheWrite: 300 });
+  assert.equal(mixed, Math.round(micro(p.input, 100) + micro(p.cached, 600) + micro(p.cacheWrite, 300) + micro(p.output, 100)));
+
+  // Junk in the new field costs nothing extra and never goes negative.
+  for (const cacheWrite of [NaN, -50, undefined, null, "12"]) {
+    assert.equal(costMicroCents(m, { input: 1000, output: 0, cacheWrite }), costMicroCents(m, { input: 1000, output: 0 }));
+  }
+});
+
+test("a model with no cacheWrite price bills a write at its input rate", () => {
+  // Every current tier has a cacheWrite price, so the fallback is exercised on
+  // a throwaway row rather than skipped — a guard that quietly stops running
+  // is worse than none.
+  const m = "test-model-without-cache-write";
+  MODEL_PRICES[m] = { input: 1.0, cached: 0.1, output: 2.0 };
+  try {
+    assert.equal(costMicroCents(m, { input: 1000, output: 0, cacheWrite: 1000 }), costMicroCents(m, { input: 1000, output: 0 }));
+    assert.equal(costMicroCents(m, { input: 1000, output: 0, cacheWrite: 1000 }), 100_000);
+  } finally {
+    delete MODEL_PRICES[m];
+  }
+});
+
+test("an unknown model's cache writes price at the MOST expensive tier's write rate", () => {
+  const u = { input: 2000, output: 500, cached: 200, cacheWrite: 1500 };
+  assert.equal(costMicroCents("gpt-99-unreleased", u), costMicroCents(MODEL_TIERS.thorough, u));
+});
+
 test("junk usage cannot produce a negative cost", () => {
   for (const u of [{}, { input: -5, output: -5 }, { input: NaN }, null]) {
     assert.ok(costMicroCents("gpt-5-nano", u) >= 0);

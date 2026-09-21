@@ -49,7 +49,29 @@ test("structuredCall sends the Responses API strict json_schema body", async () 
     text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
     reasoning: { effort: "low" },
   });
-  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-5.4", usage: { input: 5, output: 7, cached: 2 } });
+  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-5.4", usage: { input: 5, output: 7, cached: 2, cacheWrite: 0 } });
+});
+
+test("usage reads cache writes from input_tokens_details.cache_write_tokens, apart from cache reads", async () => {
+  // The exact shape a real gpt-5.6-luna answer carried on 2026-09-21: a
+  // first-seen prefix is a WRITE (billed at 1.25x input), the same prefix a
+  // moment later a READ. Both are subsets of input_tokens.
+  let llm = await fresh();
+  stub(ok({ model: "m", output_text: '{"a":"x"}', usage: { input_tokens: 4979, output_tokens: 5, input_tokens_details: { cache_write_tokens: 4976, cached_tokens: 0 } } }));
+  let r = await llm.structuredCall({ model: "m", schema: SCHEMA, what: "w" });
+  assert.deepEqual(r.usage, { input: 4979, output: 5, cached: 0, cacheWrite: 4976 });
+
+  llm = await fresh();
+  stub(ok({ model: "m", output_text: '{"a":"x"}', usage: { input_tokens: 4979, output_tokens: 5, input_tokens_details: { cache_write_tokens: 0, cached_tokens: 4976 } } }));
+  r = await llm.structuredCall({ model: "m", schema: SCHEMA, what: "w" });
+  assert.deepEqual(r.usage, { input: 4979, output: 5, cached: 4976, cacheWrite: 0 });
+
+  // A failure that was billed carries its cache writes too, so the spend cap
+  // prices a truncated cold call at the write rate.
+  llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 1500, output_tokens: 16000, input_tokens_details: { cache_write_tokens: 1400 } } }));
+  const truncated = await llm.structuredCall({ model: "m", schema: SCHEMA, what: "w" }).catch((e) => e);
+  assert.deepEqual(truncated.llm.usage, { input: 1500, output: 16000, cached: 0, cacheWrite: 1400 });
 });
 
 test("textCall passes history through and trims the reply", async () => {
@@ -110,7 +132,7 @@ test("a failure leaving the facade carries the model and effort it was sent at, 
   stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 900, output_tokens: 16000 } }));
   const truncated = await llm.structuredCall({ model: "gpt-5.4", schema: SCHEMA, what: "w", effort: "high" }).catch((e) => e);
   assert.equal(truncated.kind, "truncated");
-  assert.deepEqual(truncated.llm, { model: "gpt-5.4", effort: "high", usage: { input: 900, output: 16000, cached: 0 } });
+  assert.deepEqual(truncated.llm, { model: "gpt-5.4", effort: "high", usage: { input: 900, output: 16000, cached: 0, cacheWrite: 0 } });
   assert.ok(!Object.keys(truncated).includes("llm"), "the tag must not be enumerable");
 
   llm = await fresh();
@@ -119,18 +141,18 @@ test("a failure leaving the facade carries the model and effort it was sent at, 
   assert.equal(garbage.kind, "server");
   assert.equal(garbage.reason, "unparseable");
   assert.equal(garbage.message, "Model returned unparseable fact check output.", "the wire message is unchanged");
-  assert.deepEqual(garbage.llm.usage, { input: 3, output: 4, cached: 0 });
+  assert.deepEqual(garbage.llm.usage, { input: 3, output: 4, cached: 0, cacheWrite: 0 });
 
   llm = await fresh();
   stub(bad(400, { error: { message: "Unsupported parameter: 'reasoning.effort'" } }), ok({ output: [{ content: [{ type: "refusal", refusal: "no" }] }] }));
   const refused = await llm.structuredCall({ model: "gpt-5-nano", schema: SCHEMA, what: "w" }).catch((e) => e);
   assert.equal(refused.kind, "refusal");
-  assert.deepEqual(refused.llm, { model: "gpt-5-nano", effort: null, usage: { input: 0, output: 0, cached: 0 } }, "the retry went without effort, and the tag says so");
+  assert.deepEqual(refused.llm, { model: "gpt-5-nano", effort: null, usage: { input: 0, output: 0, cached: 0, cacheWrite: 0 } }, "the retry went without effort, and the tag says so");
 
   llm = await fresh();
   stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 10, output_tokens: 6000 } }));
   const webTrunc = await llm.webSearchCall({ model: "gpt-5.4", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
-  assert.deepEqual(webTrunc.llm, { model: "gpt-5.4", effort: null, usage: { input: 10, output: 6000, cached: 0 } });
+  assert.deepEqual(webTrunc.llm, { model: "gpt-5.4", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 } });
 
   llm = await fresh();
   stub(new TypeError("fetch failed"));

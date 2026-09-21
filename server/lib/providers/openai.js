@@ -165,15 +165,28 @@ export const openai = {
     return out;
   },
 
-  /* OpenAI semantics: `cached` is a SUBSET of `input`, and reasoning tokens are
-   * already inside `output`. costMicroCents relies on both. A provider whose
-   * usage reports cache reads separately must normalise to this shape. */
+  /* OpenAI semantics: `cached` (cache READS) and `cacheWrite` (cache WRITES)
+   * are both SUBSETS of `input`, disjoint from each other, and reasoning
+   * tokens are already inside `output`. costMicroCents relies on all three. A
+   * provider whose usage reports cache traffic separately must normalise to
+   * this shape.
+   *
+   * `cacheWrite` is `usage.input_tokens_details.cache_write_tokens`, read off
+   * real Responses API answers from gpt-5.6-luna, gpt-5.6-terra and
+   * gpt-6-astra on 2026-09-21: a first-seen ~5k-token prefix came back as
+   * `{ input_tokens: 4979, input_tokens_details: { cache_write_tokens: 4976,
+   * cached_tokens: 0 } }`, and the identical call a moment later as
+   * `{ cache_write_tokens: 0, cached_tokens: 4976 }`. Those models bill a
+   * write at 1.25x the input rate (shared/prices.js `cacheWrite`), so reading
+   * it as plain input under-counted every cold call. Models that never report
+   * the field read 0. */
   usageOf(json) {
     const u = json?.usage ?? {};
     return {
       input: u.input_tokens ?? 0,
       output: u.output_tokens ?? 0,
       cached: u.input_tokens_details?.cached_tokens ?? 0,
+      cacheWrite: u.input_tokens_details?.cache_write_tokens ?? 0,
     };
   },
 

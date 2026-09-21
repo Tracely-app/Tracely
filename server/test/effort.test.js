@@ -94,6 +94,30 @@ test("a batch split by truncation keeps the effort on both halves", async () => 
   for (const body of sent) assert.equal(body.reasoning?.effort, "medium");
 });
 
+test("a split check's usage sums every call's cache reads AND writes, the truncated one included", async () => {
+  // Dropping cacheWrite in the sum would price the halves' cache writes as
+  // plain input — under the 1.25x write rate the tier models bill.
+  let n = 0;
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body);
+    const truncated = n++ === 0;
+    return {
+      ok: true,
+      json: async () => ({
+        status: truncated ? "incomplete" : "completed",
+        incomplete_details: truncated ? { reason: "max_output_tokens" } : undefined,
+        model: body.model,
+        output_text: truncated ? "" : JSON.stringify({ findings: [] }),
+        output: [],
+        usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 20, cache_write_tokens: 70 } },
+      }),
+    };
+  };
+  const r = await runFactCheck({ text: "a b", sentences: [{ id: "s1", text: "First." }, { id: "s2", text: "Second." }] });
+  assert.equal(n, 3, "one truncated call plus two halves");
+  assert.deepEqual(r.usage, { input: 300, output: 30, cached: 60, cacheWrite: 210 });
+});
+
 test("the flow check sends an effort too", async () => {
   const sent = stubFetch();
   await runFlowCheck({ text: "One paragraph.\n\nAnother paragraph entirely." });

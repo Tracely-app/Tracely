@@ -219,12 +219,15 @@ function hostOf(url) {
   }
 }
 
+// Every usage field is summed, cacheWrite included: dropping it would price a
+// split check's cache writes as plain input, under the write rate.
 function addUsage(a, b) {
   const n = (v) => (Number.isFinite(v) ? v : 0);
   return {
     input: n(a?.input) + n(b?.input),
     output: n(a?.output) + n(b?.output),
     cached: n(a?.cached) + n(b?.cached),
+    cacheWrite: n(a?.cacheWrite) + n(b?.cacheWrite),
   };
 }
 
