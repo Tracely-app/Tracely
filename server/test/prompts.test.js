@@ -35,11 +35,12 @@
  * specifier is pointed at the file.
  */
 import test from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import * as nodeModule from "node:module";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 import { assertStrictSchema } from "../lib/llm.js";
 import { RUBRIC_SECTIONS, RUBRIC_TEXT } from "../shared/rubricText.js";
@@ -50,6 +51,8 @@ import * as structure from "../lib/prompts/structure.js";
 import * as tracer from "../lib/prompts/tracer.js";
 import * as grade from "../lib/prompts/grade.js";
 import * as sources from "../lib/prompts/sources.js";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** [port export, the port's value, relay file, relay export name] */
 const PROMPTS = [
@@ -162,11 +165,37 @@ test("the tracer prompt still specifies the rewrite block the desktop parses", (
   assert.match(tracer.TRACER_SYSTEM_PROMPT, /<<<REWRITE\nFIND: [^\n]+\nREPLACE: [^\n]+\n>>>/);
 });
 
+/* ── pinned: the text that was verified against the relay ───────────────
+ * The byte-for-byte checks below need a relay checkout, and CI does not have
+ * one, so on their own they only ever run on a developer's machine. These
+ * hashes are of the exact strings verified identical to the relay at 027f920,
+ * and they run everywhere. The relay is retired, so these files ARE the
+ * prompts now and editing one is allowed — but it should be a decision, not an
+ * accident: if you change a prompt on purpose, update its hash here, and
+ * re-measure it first (each carries numbers from real drafts; see the
+ * critique's "17% of verdicts came back fabricated"). */
+const PINNED = {
+  CLAIM_DETECTION_SYSTEM_PROMPT: [detect, "5474d71beedb75ea8b782ea79a8f41f0063e5aefb7e18e6ef48401c09eef6968"],
+  CRITIQUE_SYSTEM_PROMPT: [critique, "deafe2461e12b982b16ec80360a75f6a0f5806b1f6ff26860f7b1da969f62cda"],
+  CORRECTION_SYSTEM_PROMPT: [correction, "e3792878660a49f2566f8be632a688a5b5b8061b5eaeebfff001bfff2affe789"],
+  STRUCTURE_SYSTEM_PROMPT: [structure, "99b5401744701a06da8564eda5b6e0687f236b9eeb3934680f1ba0ae34d6bdfc"],
+  TRACER_SYSTEM_PROMPT: [tracer, "6b8353a51b7cd61cb68b510341631e969730fc55fb6958e2ab494110884a8545"],
+  GRADE_SYSTEM_PROMPT: [grade, "5fb4215534fef78fba4b2f506110ba4061c9796f3bca13a01c9040955af72f1a"],
+  SOURCE_SEARCH_SYSTEM_PROMPT: [sources, "1c2a55d43f15bfbb9ef61273bc6316ba1558f0a955c362483d5bea93ec841e0a"],
+};
+test("every prompt is still the text that was verified against the relay", () => {
+  for (const [name, [mod, want]] of Object.entries(PINNED)) {
+    const got = createHash("sha256").update(mod[name]).digest("hex");
+    assert.equal(got, want, `${name} changed. If on purpose, re-measure it and update the hash in test/prompts.test.js.`);
+  }
+});
+
 /* ── against the relay source ─────────────────────────────────────────── */
 
-const SCRATCH_RELAY =
-  "/private/tmp/claude-503/-Users-sampeterson/05d4b4a7-7349-428d-94d8-1df2d5eb9090/scratchpad/relay";
-const RELAY = [process.env.RELAY_SRC, SCRATCH_RELAY]
+// RELAY_SRC, or a sibling checkout named like the repo. No machine-specific
+// path: the one that stood here was a scratch directory from the session that
+// did the port.
+const RELAY = [process.env.RELAY_SRC, path.join(HERE, "..", "..", "..", "Tracely-relay")]
   .filter(Boolean)
   .find((dir) => existsSync(path.join(dir, "lib", "prompts.ts")));
 const CAN_STRIP = Boolean(process.features?.typescript) && typeof nodeModule.stripTypeScriptTypes === "function";

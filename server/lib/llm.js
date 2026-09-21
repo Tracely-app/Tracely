@@ -264,3 +264,39 @@ export async function webSearchCall({ model, system, user, maxTokens, what }) {
   p.checkComplete(json, what);
   return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
 }
+
+/**
+ * A web search that must happen, answering JSON that matches `schema`.
+ *
+ * ADDITIVE. webSearchCall above is what the extension's /api/sources uses and
+ * it is untouched: it offers the tool, returns free text, and harvests url
+ * citations as a backstop. This is the desktop's source finder, which forces
+ * the search and parses a strict schema, exactly as the relay did.
+ */
+export async function webSearchStructuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
+  assertStrictSchema(schema, what);
+  const p = provider();
+  if (!p.webSearchStructuredBody) throw new CheckError("server", `Provider "${p.name}" cannot run a forced web search.`, { status: 500 });
+  const chosen = chooseModel(model);
+  const level = normalizeEffort(effort);
+  const withEffort = effortFor(p, chosen);
+  const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
+  let json;
+  try {
+    json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+  } catch (err) {
+    if (!withEffort || !p.isEffortError(err)) throw err;
+    effortDisabled.add(effortKey(p, chosen));
+    json = await post(p, build(undefined), { timeoutMs: 180_000 });
+  }
+  p.checkComplete(json, what);
+  const text = p.extractText(json);
+  if (!text) throw new CheckError("server", `Model returned no content for ${what}.`, { status: 502 });
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
+  }
+  return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
+}

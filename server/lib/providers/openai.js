@@ -70,6 +70,26 @@ export const openai = {
     };
   },
 
+  /* A web search that MUST happen and must answer in a strict schema — the
+   * desktop's source finder. `tool_choice: "required"` forces a tool call, and
+   * web_search is the only tool offered, so the model searches before it
+   * writes. The relay forced it for a measured reason: offered the tool and
+   * allowed to decline, the model wrote plausible URLs from memory, and a
+   * student cannot tell an invented link from a real one. */
+  webSearchStructuredBody({ model, system, user, schema, name, maxTokens, effort }) {
+    const body = {
+      model,
+      instructions: system,
+      input: user,
+      max_output_tokens: maxTokens,
+      tools: [{ type: "web_search" }],
+      tool_choice: "required",
+      text: { format: { type: "json_schema", name, schema, strict: true } },
+    };
+    if (effort) body.reasoning = { effort };
+    return body;
+  },
+
   /* Reads the global fetch at CALL time, never at import: test/effort.test.js
    * swaps globalThis.fetch after this module has loaded. */
   async send(body, { key, timeoutMs }) {

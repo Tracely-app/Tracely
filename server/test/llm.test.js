@@ -140,12 +140,14 @@ test("an unknown TRACELY_LLM_PROVIDER fails loudly instead of falling back", asy
   assert.deepEqual((await (await fresh()).structuredCall({ schema: SCHEMA, what: "w" })).parsed, { a: "x" });
 });
 
-test("the facade keeps exactly its thirteen exports", async () => {
+test("the facade keeps its thirteen exports, plus only additive ones", async () => {
+  // webSearchStructuredCall is the one addition: the desktop's forced,
+  // schema-checked source search. The original thirteen are unchanged.
   const llm = await fresh();
   assert.deepEqual(Object.keys(llm).sort(), [
     "ALLOWED_MODELS", "DEFAULT_MODEL", "MODEL_PRICES", "MODEL_TIERS", "WEB_SEARCH_CALL_DOLLARS",
     "assertStrictSchema", "chooseModel", "costMicroCents", "hasApiKey", "mapApiError",
-    "structuredCall", "textCall", "webSearchCall",
+    "structuredCall", "textCall", "webSearchCall", "webSearchStructuredCall",
   ]);
   assert.ok(llm.ALLOWED_MODELS instanceof Set);
 });
