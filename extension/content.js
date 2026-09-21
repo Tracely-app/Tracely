@@ -64,7 +64,14 @@
      until the tab reloads, and stop calling out at all once it has.
 
      These wrappers take the SAME arguments as the calls they replace, so the
-     call sites keep their shape. */
+     call sites keep their shape.
+
+     They must call the REAL chrome.* API inside extCall. The storage three
+     once called themselves (`storageGet` -> `storageGet` -> ...): the first
+     call overflowed the stack, extCall caught the RangeError as if the context
+     had died, and latched extDead on a perfectly live page. In field mode
+     that meant the per-site list never synced, sendMsg answered null forever,
+     and the plan never refreshed after its first answer. */
   let extDead = false;
   function extAlive() {
     if (extDead) return false;
@@ -78,9 +85,9 @@
     if (!extAlive()) return fallback;
     try { return fn(); } catch { extDead = true; return fallback; }
   }
-  const storageGet = (defaults, cb) => extCall(() => storageGet(defaults, cb));
-  const storageSet = (obj) => extCall(() => storageSet(obj));
-  const storageOnChanged = (cb) => extCall(() => storageOnChanged(cb));
+  const storageGet = (defaults, cb) => extCall(() => chrome.storage.local.get(defaults, cb));
+  const storageSet = (obj) => extCall(() => chrome.storage.local.set(obj)?.catch?.(() => { /* context died mid-write */ }));
+  const storageOnChanged = (cb) => extCall(() => chrome.storage.onChanged.addListener(cb));
   const sendMsg = (msg) => extCall(() => chrome.runtime.sendMessage(msg), Promise.resolve(null));
 
   /* Flow flags — passage-level coaching, drawn as a margin bracket rather
