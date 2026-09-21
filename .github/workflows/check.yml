@@ -1,8 +1,8 @@
 name: check
 
-# Catches a broken main between releases. preflight already runs typecheck
-# before every release, so this is the weaker of the two repos' CI — the relay's
-# matters more, because Vercel will deploy a type-broken relay to production.
+# Catches a broken main between releases, for both halves of this repo: the
+# desktop app (typecheck + its test suite) and server/ (the API behind the
+# extension and, soon, the desktop).
 #
 # Restricted to PRs and main rather than every push: `npm ci` here pulls
 # Electron, transformers.js and onnxruntime, which is minutes, not seconds.
@@ -24,6 +24,18 @@ jobs:
           # version, so a green CI and a green laptop mean the same thing.
           node-version: 24
           cache: npm
+
+      # server/ has ZERO npm dependencies, so its suite runs before `npm ci`
+      # and needs nothing installed.
+      #
+      # It was not in CI at all until now. This workflow ran only the desktop's
+      # `npm test`, so server/'s suite — the one guarding the API the shipped
+      # extension talks to, the spend ceiling, the plan clamp and billing —
+      # passed or failed on whoever happened to run it locally. A server change
+      # could merge red and nobody would know until it was deployed.
+      - name: server tests
+        working-directory: server
+        run: npm test
 
       - run: npm ci
 
