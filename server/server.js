@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runFactCheck, findSources, runFlowCheck, hasApiKey, CheckError } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
+import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
@@ -170,7 +171,13 @@ const PAID_ROUTES = new Set([
  * (they are not in EXTENSION_API), which is what makes changing them safe. */
 const APP_AI_ROUTES = new Set([
   "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
+  "/api/correction", "/api/find-sources",
 ]);
+
+// The desktop's source searches: their own rolling window, per caller. The
+// extension's /api/sources has a process-wide 15/hour counter; sharing it
+// would let desktop traffic 429 every extension user's source search.
+const appSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
 const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
   if (!origin || SELF_ORIGINS.has(origin)) return true;
@@ -616,22 +623,37 @@ function appModelFor(task, ent, requested) {
  * `cache` is { kind, key(model), maxAgeMs, version } or null; the key is built
  * from the RESOLVED model so a Free answer is never served to a Pro request.
  */
-async function appCall(gate, { task, requested, cache = null, webSearchCalls = 0, run }) {
+const AI_QUOTA = {
+  check: aiQuota,
+  record: recordAi,
+  refused: () => new CheckError(
+    "plan_limit",
+    `Free accounts get ${FREE_DAILY_AI_CALLS} AI checks a day, and today's ${FREE_DAILY_AI_CALLS} are used. It resets at midnight — or upgrade for unlimited checks.`,
+    { status: 429 },
+  ),
+};
+// find-sources draws on the SAME daily source allowance as the extension's
+// /api/sources: one plan, one allowance, whichever surface spends it.
+const SOURCE_QUOTA = {
+  check: sourceSearchQuota,
+  record: recordSourceSearch,
+  refused: (q) => new CheckError(
+    "plan_limit",
+    `Free accounts get ${q.limit} source searches a day, and today's ${q.limit} are used. It resets at midnight — or upgrade for unlimited searches.`,
+    { status: 429 },
+  ),
+};
+
+async function appCall(gate, { task, requested, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, run }) {
   const model = appModelFor(task, gate.ent, requested);
   const key = cache ? cache.key(model) : null;
   if (cache && !MOCK) {
     const hit = cacheGet(cache.kind, key, { maxAgeMs: cache.maxAgeMs, version: cache.version ?? 1 });
     if (hit) return hit;
   }
-  const quota = aiQuota(gate.ent, gate.callerId);
-  if (!quota.allowed) {
-    throw new CheckError(
-      "plan_limit",
-      `Free accounts get ${FREE_DAILY_AI_CALLS} AI checks a day, and today's ${FREE_DAILY_AI_CALLS} are used. It resets at midnight — or upgrade for unlimited checks.`,
-      { status: 429 },
-    );
-  }
-  recordAi(gate.ent, gate.callerId);
+  const quota = meter.check(gate.ent, gate.callerId);
+  if (!quota.allowed) throw meter.refused(quota);
+  meter.record(gate.ent, gate.callerId);
   const result = await run(model);
   recordSpend({ model: result?.model ?? model, usage: result?.usage, webSearchCalls, enforced: gate.ent.enforced, pool: "app" });
   if (cache && !MOCK) cacheSet(cache.kind, key, result, { version: cache.version ?? 1 });
@@ -865,26 +887,40 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ── pipeline routes ────────────────────────────────────────────────
+    /* ── the desktop's reasoning (lib/reasoning.js) ─────────────────────
+     * Every route below speaks the retired relay's contract, so the desktop's
+     * request builders and parsers work against it unchanged. The web app
+     * sends a raw `draft` where the desktop sends numbered text, and gets the
+     * same reasoning through a thin adapter. All of them go through appGate
+     * and appCall: their own pool, limiter and quota, never the extension's. */
+
     if (req.method === "POST" && url.pathname === "/api/detect-claims") {
       loadEnvFile();
       requireKey();
-      const { text, effort, model: requested } = (await parseJsonBody(req)) ?? {};
-      if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
-      const clipped = text.slice(0, GUARDS.maxInputChars);
+      const body = (await parseJsonBody(req)) ?? {};
+      const { effort, model: requested } = body;
+      // `draft` (or un-numbered `text` from an older caller) is split here with
+      // the desktop's sentence splitter; numbered `text` is the desktop's own.
+      const raw = typeof body.draft === "string" ? body.draft : typeof body.text === "string" && !reasoning.isNumbered(body.text) ? body.text : null;
+      const numbered = raw === null && typeof body.text === "string" ? body.text : null;
+      if (!(raw ?? numbered ?? "").trim()) throw new CheckError("bad_request", "text required");
       const result = await appCall(gate, {
         task: "detect",
         requested,
-        cache: { kind: "detect", maxAgeMs: 24 * 3600_000, key: (model) => hashKey(`${model}|${effort ?? ""}|${clipped}`) },
+        cache: {
+          kind: "detect", version: 2, maxAgeMs: 24 * 3600_000,
+          key: (model) => hashKey(`${raw !== null ? "draft" : "text"}|${model}|${effort ?? ""}|${raw ?? numbered}`),
+        },
         run: async (model) => {
-          const r = await ai.detectClaims({ text: clipped, model, effort });
-          // The id is salted with the start offset so the same claim text asserted
-          // in two sentences gets two ids (dismissal/merge state stays per-occurrence).
-          r.claims = (r.claims ?? []).slice(0, GUARDS.maxClaimsPerAnalysis)
-            .map((c) => ({ ...c, id: hashKey(`claim|${c.text}|${c.start}`).slice(0, 16) }));
+          if (numbered !== null) return reasoning.detectClaims({ text: numbered, model, effort });
+          const r = await reasoning.detectClaimsInDraft({ draft: raw, model, effort });
+          // The web app keys dismissal and merge state on an id salted with the
+          // start offset, so one claim asserted twice gets two ids.
+          r.claims = r.claims.map((c) => ({ ...c, id: hashKey(`claim|${c.text}|${c.start}`).slice(0, 16) }));
           return r;
         },
       });
-      json(res, 200, { ...result, cachedAt: undefined }, cors);
+      json(res, 200, result, cors);
       return;
     }
 
@@ -925,34 +961,50 @@ const server = http.createServer(async (req, res) => {
       const hosted = gate.ent.enforced;
       if (!hosted && !critiqueCounter.ok()) throw new CheckError("rate_limit", "Critique hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       const body = (await parseJsonBody(req)) ?? {};
-      if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
-      const requested = body.model;
-      // Trim the evidence payload to what the judgment needs — top 4 sources,
-      // short fields only. Abstracts are the token hog.
-      body.sources = (Array.isArray(body.sources) ? body.sources : []).slice(0, 4).map((s) => ({
-        title: String(s?.title ?? "").slice(0, 200),
-        venue: String(s?.venue ?? "").slice(0, 100),
-        year: s?.year ?? null,
-        url: String(s?.url ?? "").slice(0, 300),
-        abstract: String(s?.abstract ?? "").slice(0, 240),
-      }));
-      // Cached on claim TEXT (not id), but the verdict also depends on the
-      // sentence wording, the model, and which sources were provided — all of
-      // them key segments so a stale verdict is never replayed against
-      // different evidence.
-      const sourcesKey = hashKey(JSON.stringify(body.sources.map((s) => s?.url ?? s?.title ?? "")));
+      // The desktop sends the relay's request, with the evidence summary and
+      // the reference lookup already built on its side. The web app and older
+      // callers send a claim and raw sources; they are turned into the same
+      // request with NO reference lookup, which keeps "fabricated" unreachable
+      // for them — Pass 2(c) may only return it when a lookup ran.
+      let input;
+      if (typeof body.claimText === "string") {
+        if (!("strengthScore" in body)) throw new CheckError("bad_request", "strengthScore is required (a number or null)");
+        input = { claimText: body.claimText, strengthScore: body.strengthScore, evidenceSummary: body.evidenceSummary, referenceCheck: body.referenceCheck ?? undefined };
+      } else if (typeof body.claim === "string" && body.claim.trim()) {
+        input = reasoning.critiqueInputFromSources(body);
+      } else {
+        throw new CheckError("bad_request", "claimText required");
+      }
       const result = await appCall(gate, {
         task: "critique",
-        requested,
+        requested: body.model,
         cache: {
-          kind: "critique",
-          maxAgeMs: 7 * 24 * 3600_000,
-          key: (model) => hashKey(["crit", body.claim, body.sentence ?? "", body.citedRef ?? "", model, sourcesKey].join("|")),
+          kind: "critique", version: 2, maxAgeMs: 7 * 24 * 3600_000,
+          key: (model) => hashKey(["crit2", model, input.claimText, input.strengthScore ?? "null", input.evidenceSummary ?? "", input.referenceCheck ?? "none"].join("|")),
         },
         run: (model) => {
           if (!hosted) critiqueCounter.stamp(); // before the call
-          return ai.critiqueClaim({ ...body, model });
+          return reasoning.critique({ ...input, model, effort: body.effort });
         },
+      });
+      json(res, 200, result, cors);
+      return;
+    }
+
+    // A second opinion on a contradiction the desktop's local NLI flagged.
+    if (req.method === "POST" && url.pathname === "/api/correction") {
+      loadEnvFile();
+      requireKey();
+      const body = (await parseJsonBody(req)) ?? {};
+      const passages = Array.isArray(body.contradictingPassages) ? body.contradictingPassages : [];
+      const result = await appCall(gate, {
+        task: "critique",
+        requested: body.model,
+        cache: {
+          kind: "correction", maxAgeMs: 7 * 24 * 3600_000,
+          key: (model) => hashKey(["corr", model, String(body.claimText ?? ""), ...passages.map(String)].join("|")),
+        },
+        run: (model) => reasoning.correction({ claimText: body.claimText, contradictingPassages: passages, model, effort: body.effort }),
       });
       json(res, 200, result, cors);
       return;
@@ -961,45 +1013,54 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/grade") {
       loadEnvFile();
       requireKey();
-      const { text, level, rubric, model: requested } = (await parseJsonBody(req)) ?? {};
-      if (typeof text !== "string" || text.trim().length < 40) throw new CheckError("bad_request", "text too short to grade");
-      const clipped = text.slice(0, GUARDS.maxInputChars);
+      const body = (await parseJsonBody(req)) ?? {};
+      const { level, rubric, model: requested, effort } = body;
+      const raw = typeof body.draft === "string" ? body.draft : typeof body.text === "string" && !reasoning.isNumbered(body.text) ? body.text : null;
+      const numbered = raw === null && typeof body.text === "string" ? body.text : null;
+      if ((raw ?? numbered ?? "").trim().length < 40) throw new CheckError("bad_request", "text too short to grade");
       /* A pasted rubric (web app: Settings → Custom rubric) replaces the
-         built-in one. The web app has sent this field for weeks, and
-         ai.gradeWithCustomRubric has been fully implemented — mock included —
-         for as long; this handler simply never read it, so the Settings
-         textarea did nothing and every draft was graded against Tracely's
-         rubric while the page said otherwise. Capped because it goes into the
-         SYSTEM prompt verbatim, and an unbounded paste is an unbounded bill. */
+         built-in one, through its own prompt — the relay grader is written
+         against the owner's rubric and cannot grade against another. Capped
+         because it goes into the SYSTEM prompt verbatim, and an unbounded
+         paste is an unbounded bill. */
       const custom = typeof rubric === "string" && rubric.trim() ? rubric.trim().slice(0, MAX_CUSTOM_RUBRIC_CHARS) : null;
-      // Re-grading an unchanged draft is free. The rubric is in the key: the
-      // same draft against a different rubric is a different grade.
+      if (custom) {
+        const clipped = (raw ?? reasoning.unnumber(numbered, /\n\s*\n/).join("\n\n")).slice(0, GUARDS.maxInputChars);
+        const result = await appCall(gate, {
+          task: "grade",
+          requested,
+          cache: { kind: "grade", maxAgeMs: 7 * 24 * 3600_000, key: (model) => hashKey(`grade|${model}|${level ?? 12}|${hashKey(custom)}|${clipped}`) },
+          run: (model) => ai.gradeWithCustomRubric({ text: clipped, rubric: custom, level, model }),
+        });
+        json(res, 200, result, cors);
+        return;
+      }
+      // The desktop sends the prompt its buildGradePrompt made; a raw draft is
+      // split and capped here by the very same function.
+      const fromDraft = raw !== null ? reasoning.gradePromptFromDraft(raw) : null;
+      const prompt = fromDraft ? fromDraft.prompt : numbered;
       const result = await appCall(gate, {
         task: "grade",
         requested,
-        cache: {
-          kind: "grade",
-          maxAgeMs: 7 * 24 * 3600_000,
-          key: (model) => hashKey(`grade|${model}|${level ?? 12}|${custom ? hashKey(custom) : "builtin"}|${clipped}`),
-        },
-        run: (model) => (custom
-          ? ai.gradeWithCustomRubric({ text: clipped, rubric: custom, level, model })
-          : ai.gradeDraft({ text: clipped, level, model })),
+        cache: { kind: "grade", version: 2, maxAgeMs: 7 * 24 * 3600_000, key: (model) => hashKey(`grade2|${model}|${prompt}`) },
+        run: (model) => reasoning.gradeDraft({ text: prompt, model, effort }),
       });
-      json(res, 200, result, cors);
+      json(res, 200, fromDraft ? { ...result, paragraphTexts: fromDraft.paragraphTexts } : result, cors);
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/structure") {
       loadEnvFile();
       requireKey();
-      const { text, model: requested } = (await parseJsonBody(req)) ?? {};
-      if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
+      const body = (await parseJsonBody(req)) ?? {};
+      const raw = typeof body.draft === "string" ? body.draft : typeof body.text === "string" && !reasoning.isNumbered(body.text) ? body.text : null;
+      const prompt = raw !== null ? reasoning.structurePromptFromDraft(raw) : typeof body.text === "string" ? body.text : "";
+      if (!prompt.trim()) throw new CheckError("bad_request", "text required");
       const result = await appCall(gate, {
         task: "structure",
-        requested,
-        cache: { kind: "structure", maxAgeMs: 24 * 3600_000, key: (model) => hashKey(`struct|${model}|${text}`) },
-        run: (model) => ai.classifyStructure({ text: text.slice(0, GUARDS.maxInputChars), model }),
+        requested: body.model,
+        cache: { kind: "structure", version: 2, maxAgeMs: 24 * 3600_000, key: (model) => hashKey(`struct2|${model}|${prompt}`) },
+        run: (model) => reasoning.classifyStructure({ text: prompt, model, effort: body.effort }),
       });
       json(res, 200, result, cors);
       return;
@@ -1008,33 +1069,81 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/tracer") {
       loadEnvFile();
       requireKey();
-      const { conversationId, documentId, message, draft, model: requested } = (await parseJsonBody(req)) ?? {};
+      const body = (await parseJsonBody(req)) ?? {};
+      const { message, model: requested, effort } = body;
       if (typeof message !== "string" || !message.trim()) throw new CheckError("bad_request", "message required");
-      let convId = conversationId;
+      // Not cached: a chat turn depends on the whole conversation so far.
+
+      // The desktop's form: stateless, the client holds the history.
+      if (!("conversationId" in body) && !("draft" in body) && !("documentId" in body)) {
+        const out = await appCall(gate, {
+          task: "tracer",
+          requested,
+          run: (model) => reasoning.tracerReply({ message, history: body.history, context: body.context, model, effort }),
+        });
+        json(res, 200, out, cors);
+        return;
+      }
+
+      // The web app's form: the server keeps the conversation. The SAME
+      // reasoning answers it — only where the history lives differs.
+      let convId = body.conversationId;
       if (!convId) {
         convId = uuid();
-        db.prepare("INSERT INTO tracer_conversations (id, document_id, created_at) VALUES (?,?,?)").run(convId, documentId ?? null, Date.now());
+        db.prepare("INSERT INTO tracer_conversations (id, document_id, created_at) VALUES (?,?,?)").run(convId, body.documentId ?? null, Date.now());
       }
-      // Newest 30, re-sorted ascending for the prompt. rowid breaks the tie for
-      // user/assistant pairs stamped in the same millisecond; leading assistant
-      // rows are dropped because the API requires the first message to be a user's.
-      const history = db.prepare("SELECT role, content FROM tracer_messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30").all(convId).reverse();
-      while (history.length > 0 && history[0].role !== "user") history.shift();
-      db.prepare("INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)")
-        .run(uuid(), convId, "user", message.slice(0, 4000), Date.now());
-      // Not cached: a chat turn depends on the whole conversation so far.
-      const { reply } = await appCall(gate, {
+      const stored = db.prepare("SELECT role, content FROM tracer_messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30").all(convId).reverse();
+      while (stored.length > 0 && stored[0].role !== "user") stored.shift();
+      const out = await appCall(gate, {
         task: "tracer",
         requested,
-        run: (model) => ai.tracerReply({
-          messages: [...history, { role: "user", content: message.slice(0, 4000) }],
-          draft: typeof draft === "string" ? draft.slice(0, GUARDS.maxInputChars) : "",
+        run: (model) => reasoning.tracerReply({
+          message,
+          history: stored.map((m) => ({ role: m.role === "user" ? "user" : "tracer", content: m.content })),
+          context: typeof body.draft === "string" ? body.draft : "",
           model,
+          effort,
         }),
       });
+      // Both turns are written only after the reply exists, so a failed call
+      // leaves no orphaned question in the history.
+      const now = Date.now();
       db.prepare("INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)")
-        .run(uuid(), convId, "assistant", reply, Date.now());
-      json(res, 200, { conversationId: convId, reply }, cors);
+        .run(uuid(), convId, "user", message.slice(0, 4000), now);
+      db.prepare("INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)")
+        .run(uuid(), convId, "assistant", out.reply, now + 1);
+      json(res, 200, { ...out, conversationId: convId }, cors);
+      return;
+    }
+
+    // The desktop's web search for sources, forced and schema-checked as the
+    // relay ran it. Separate from the extension's /api/sources on purpose: its
+    // own prompt, its own per-caller hourly window, the app spend pool.
+    if (req.method === "POST" && url.pathname === "/api/find-sources") {
+      loadEnvFile();
+      requireKey();
+      const body = (await parseJsonBody(req)) ?? {};
+      if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
+      if (gate.ent.enforced && gate.callerId) {
+        if (!appSearchRate.ok(gate.callerId)) {
+          throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
+        }
+        appSearchRate.stamp(gate.callerId); // before the call
+      }
+      const result = await appCall(gate, {
+        task: "sources",
+        requested: body.model,
+        quota: SOURCE_QUOTA,
+        // The web_search tool fee is most of this route's cost and is invisible
+        // in the token usage.
+        webSearchCalls: 1,
+        cache: {
+          kind: "find-sources", maxAgeMs: 7 * 24 * 3600_000,
+          key: (model) => hashKey(["src", model, body.claim, body.context ?? ""].join("|")),
+        },
+        run: (model) => reasoning.findSources({ claim: body.claim, context: body.context, model, effort: body.effort }),
+      });
+      json(res, 200, result, cors);
       return;
     }
 

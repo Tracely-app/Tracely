@@ -78,12 +78,20 @@ export interface ServerDetectedClaim {
   query: string
 }
 
+/**
+ * The server's critique, in the DESKTOP's vocabulary.
+ *
+ * The desktop's five-pass critique (the retired relay's) moved into the
+ * server, so /api/critique now answers exactly what the desktop's own main
+ * process receives. It used to answer the server's older six-verdict shape
+ * ({verdict, explanation, revision, overstated, confidence}), and this bridge
+ * translated — lossily: `partially-supported` could not be expressed at all.
+ */
 export interface ServerCritiqueResponse {
+  critique: string
   verdict: string
-  explanation: string
-  revision: string
-  overstated: boolean
-  confidence: number
+  suggestedRevision: string | null
+  citationFix: string | null
 }
 
 export interface ServerDocRow {
@@ -136,13 +144,24 @@ export interface ServerPrefs {
 export interface ServerGradeComponent {
   score: number
   quote: string
-  note: string
-  absent?: boolean
-  paragraphsGoverning?: number
-  bodyParagraphs?: number
+  reason: string
 }
 
+/**
+ * The desktop's rubric grader, as the server now runs it (the retired
+ * relay's grade-draft, verified server-side). Paragraph roles, warrants and
+ * reasoning faults come back in the SAME answer as the scores, which is why
+ * the desktop makes one call for its report and this bridge now does too.
+ * Paragraph indices are 1-based, matching the prompt's [1] [2] … numbering.
+ */
 export interface ServerGradeResponse {
+  paragraphs: {
+    index: number
+    role: string
+    statesClaim: boolean
+    hasWarrant: boolean
+    reasoningFailure: string
+  }[]
   components: {
     thesis: ServerGradeComponent
     governingClaims: ServerGradeComponent
@@ -151,10 +170,17 @@ export interface ServerGradeResponse {
     significance: ServerGradeComponent
     conclusion: ServerGradeComponent
   }
-}
-
-export interface ServerStructureResponse {
-  paragraphs: { index: number; role: string; faults: string[] }[]
+  counterargumentApplicable: boolean
+  findings: {
+    paragraphIndex: number | null
+    rubricSection: string
+    severity: 'major' | 'minor'
+    label: string
+    quote: string
+    message: string
+    fix: string
+  }[]
+  summary: string
 }
 
 export interface ServerCompareMatch extends ServerSource {
@@ -339,18 +365,19 @@ export function evidenceItemsFromServer(sources: ServerSource[], register: (s: S
  * verdict on theirs; it wins only over the verdicts it refines (a contradicted
  * or fabricated finding is strictly worse news than an overstatement).
  */
-export function critiqueVerdictOf(server: ServerCritiqueResponse): CritiqueVerdict {
-  const map: Record<string, CritiqueVerdict> = {
-    contradicted: 'contradicted',
-    fabricated: 'fabricated',
-    weak: 'weak',
-    unsupported: 'unsupported',
-    sound: 'well-supported',
-    citationFix: 'partially-supported'
-  }
-  const mapped = map[server.verdict] ?? 'unsupported'
-  if (server.overstated && mapped !== 'contradicted' && mapped !== 'fabricated') return 'overstated'
-  return mapped
+const DESKTOP_VERDICTS: ReadonlySet<string> = new Set([
+  'contradicted',
+  'fabricated',
+  'overstated',
+  'well-supported',
+  'partially-supported',
+  'weak',
+  'unsupported'
+])
+
+/** The server speaks the desktop's verdicts natively; anything else is unsupported. */
+export function critiqueVerdictOf(server: Pick<ServerCritiqueResponse, 'verdict'>): CritiqueVerdict {
+  return (DESKTOP_VERDICTS.has(server.verdict) ? server.verdict : 'unsupported') as CritiqueVerdict
 }
 
 /**
@@ -613,16 +640,31 @@ const COMPONENT_META: readonly {
  */
 export function weaknessesFromGrade(grade: ServerGradeResponse): StructureWeakness[] {
   const out: StructureWeakness[] = []
+  // The grader's findings first: each one quotes a sentence the server has
+  // already located in the draft (verifyGrade), so they are the ones a writer
+  // can act on.
+  for (const f of grade.findings ?? []) {
+    out.push({
+      kind: 'model-finding',
+      paragraphIndex: f.paragraphIndex,
+      claimId: null,
+      message: f.fix ? `${f.message} ${f.fix}` : f.message,
+      tracerPrompt: `How do I fix this: ${f.label.toLowerCase()}?`,
+      quote: f.quote || undefined,
+      severity: f.severity,
+      label: f.label
+    })
+  }
   for (const meta of COMPONENT_META) {
     const comp = grade.components[meta.key]
-    if (!comp || !comp.note) continue
-    if (meta.key === 'counterargument' && comp.absent) continue
+    if (!comp || !comp.reason) continue
+    if (meta.key === 'counterargument' && grade.counterargumentApplicable === false) continue
     if (comp.score >= meta.max * 0.75) continue
     out.push({
       kind: 'model-finding',
       paragraphIndex: null,
       claimId: null,
-      message: comp.note,
+      message: comp.reason,
       tracerPrompt: `How do I strengthen the ${meta.label.toLowerCase()} in my draft?`,
       quote: comp.quote || undefined,
       severity: comp.score < meta.max / 2 ? 'major' : 'minor',
@@ -632,38 +674,29 @@ export function weaknessesFromGrade(grade: ServerGradeResponse): StructureWeakne
   return out
 }
 
+/** The grader's reasoningFailure values, named as the desktop's weakness kinds. */
 const FAULT_KINDS: Record<string, StructureWeakness['kind']> = {
   circular: 'circular-reasoning',
-  'circular-reasoning': 'circular-reasoning',
   'sequence-as-cause': 'sequence-as-cause',
-  'single-case-generalisation': 'single-case-generalisation',
-  'single-case-generalization': 'single-case-generalisation',
-  'unsupported-leap': 'logical-leap',
-  'non-sequitur': 'logical-leap',
-  'logical-leap': 'logical-leap',
-  restatement: 'restated-conclusion'
+  'single-case': 'single-case-generalisation',
+  leap: 'logical-leap'
 }
 
-export function weaknessesFromFaults(
-  paragraphs: ServerStructureResponse['paragraphs'],
-  indexOffset: number
-): StructureWeakness[] {
+export function weaknessesFromFaults(paragraphs: ServerGradeResponse['paragraphs']): StructureWeakness[] {
   const out: StructureWeakness[] = []
   for (const p of paragraphs) {
-    for (const fault of p.faults ?? []) {
-      const kind = FAULT_KINDS[fault] ?? 'model-finding'
-      const human = fault.replace(/-/g, ' ')
-      out.push({
-        kind,
-        // Our server numbers paragraphs 0-based; ParagraphOutline is 1-based.
-        paragraphIndex: p.index + 1 + indexOffset,
-        claimId: null,
-        message: `This paragraph's reasoning shows a ${human}.`,
-        tracerPrompt: `My draft was flagged for ${human} — how do I fix that paragraph?`,
-        severity: 'minor',
-        ...(kind === 'model-finding' ? { label: human } : {})
-      })
-    }
+    const kind = FAULT_KINDS[p.reasoningFailure]
+    if (!kind) continue // 'none', or a value the grader does not use
+    const human = p.reasoningFailure.replace(/-/g, ' ')
+    out.push({
+      kind,
+      // Already 1-based: the grader reads the paragraphs as [1] [2] …
+      paragraphIndex: p.index,
+      claimId: null,
+      message: `This paragraph's reasoning shows a ${human}.`,
+      tracerPrompt: `My draft was flagged for ${human} — how do I fix that paragraph?`,
+      severity: 'minor'
+    })
   }
   return out
 }

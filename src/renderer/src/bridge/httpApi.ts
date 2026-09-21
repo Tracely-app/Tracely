@@ -43,6 +43,8 @@ import { parseReferences } from '@shared/citedReference'
 import { formatInTextCitation } from '@shared/citationInText'
 import { bibliographyReferences } from '@shared/bibliography'
 import { splitParagraphs, bucketClaimsByParagraph } from '@shared/paragraphSplit'
+import { argumentParagraphs } from '@shared/structureText'
+import { buildGradePrompt } from '@shared/gradedDraft'
 import { computeClaimSpans } from '@shared/claimSpans'
 import type { ModelTier, Plan } from '@shared/plan'
 import { credibilityOf } from '@shared/sourceCredibility'
@@ -83,7 +85,6 @@ import type {
   ServerGradeResponse,
   ServerLibraryRow,
   ServerPrefs,
-  ServerStructureResponse,
   ServerWatchState
 } from './adapters'
 
@@ -377,8 +378,12 @@ export function createHttpApi(): TracelyApi {
   return {
     analyze: {
       detectClaims: async (req) => {
+        // `draft`: a raw document for the server to split. The desktop's main
+        // process sends numbered sentences in `text` instead; this bridge has
+        // no sentence splitter of its own, and each claim comes back carrying
+        // its sentence and offsets.
         const result = await post<{ claims: ServerDetectedClaim[] }>('/api/detect-claims', {
-          text: req.text
+          draft: req.text
         })
         const analysisId = crypto.randomUUID()
         const now = isoOf(Date.now())
@@ -543,13 +548,13 @@ export function createHttpApi(): TracelyApi {
           }))
         })
         const verdict = critiqueVerdictOf(result)
-        const correction = verdict === 'contradicted' && result.revision ? result.revision : null
+        const correction = verdict === 'contradicted' ? result.suggestedRevision : null
         rec.claim = {
           ...rec.claim,
-          critique: result.explanation,
+          critique: result.critique,
           critiqueVerdict: verdict,
-          suggestedRevision: verdict === 'overstated' && result.revision ? result.revision : null,
-          citationFix: result.verdict === 'citationFix' && result.revision ? result.revision : null,
+          suggestedRevision: verdict === 'overstated' ? result.suggestedRevision : null,
+          citationFix: result.citationFix,
           // True only when the writer's own reference was in front of the
           // judge (we pass it verbatim); null — "not read" — otherwise, which
           // problemKind.ts treats as "stay quiet about the citation".
@@ -557,7 +562,7 @@ export function createHttpApi(): TracelyApi {
         }
         claimsById.set(rec.claim.id, rec)
         persistAnalyses()
-        return { critique: result.explanation, verdict, correction }
+        return { critique: result.critique, verdict, correction }
       }
     },
     library: {
@@ -681,22 +686,25 @@ export function createHttpApi(): TracelyApi {
     structure: {
       analyze: async (req) => {
         const spans = splitParagraphs(req.text)
-        // Our server splits on BLANK lines where their editor's innerText has
-        // single newlines — re-join with blank lines so both sides number the
-        // same paragraphs.
-        const serverText = spans.map((s) => s.text).join('\n\n')
         const titleParagraph =
           spans.length >= 2 && spans[0].text.length <= 120 && !/[.!?]$/.test(spans[0].text.trim())
 
-        const p = await prefs()
-        const [structure, grade] = await Promise.all([
-          post<ServerStructureResponse>('/api/structure', { text: serverText }),
-          post<ServerGradeResponse>('/api/grade', { text: serverText, level: p.gradingLevel ?? 12 })
-        ])
+        // ONE call, built exactly as the desktop's main process builds it
+        // (ipc/structureHandlers.ts): the argument's paragraphs, works cited
+        // removed, numbered by buildGradePrompt. The grader returns each
+        // paragraph's role, warrant and reasoning fault alongside the scores,
+        // so the separate /api/structure call this used to make is gone.
+        // 40 / 16000 are MAX_GRADE_PARAGRAPHS / MAX_GRADE_INPUT_CHARS in
+        // services/ai/costGuard.ts, which the renderer cannot import.
+        const gradePrompt = buildGradePrompt(
+          argumentParagraphs(req.text).map((para) => para.text),
+          { maxParagraphs: 40, maxInputChars: 16000 }
+        )
+        // The level applies client-side (gradeFor below), exactly as on the
+        // desktop; the grader itself scores against the rubric alone.
+        const [p, grade] = await Promise.all([prefs(), post<ServerGradeResponse>('/api/grade', { text: gradePrompt })])
 
-        const roleByIndex = new Map<number, string>()
-        const faultsPresent = structure.paragraphs ?? []
-        for (const para of faultsPresent) roleByIndex.set(para.index, para.role)
+        const graded = new Map(grade.paragraphs.map((para) => [para.index, para]))
 
         // Bucket this analysis's claims into paragraphs by locating their text
         // in the CURRENT editor string — same move their main process makes.
@@ -726,14 +734,15 @@ export function createHttpApi(): TracelyApi {
           )
         )
 
+        // Works cited is a suffix, so argument paragraph n is document
+        // paragraph n; anything the grader did not read is 'unknown'.
         const paragraphs = spans.map((span) => {
-          const role = paragraphRoleOf(roleByIndex.get(span.index - 1) ?? 'other')
-          const faults = faultsPresent.find((f) => f.index === span.index - 1)?.faults ?? []
+          const g = graded.get(span.index)
           return {
             index: span.index,
-            role,
-            hasWarrant: faults.length === 0 && (role === 'claim' || role === 'evidence' || role === 'reasoning'),
-            statesClaim: role === 'claim',
+            role: paragraphRoleOf(g?.role ?? 'unknown'),
+            hasWarrant: g?.hasWarrant === true,
+            statesClaim: g?.statesClaim === true,
             claimIds: buckets.get(span.index) ?? []
           }
         })
@@ -750,7 +759,7 @@ export function createHttpApi(): TracelyApi {
           applicable: true,
           rolesFrom: 'model',
           coverage: coverageForAnalysis(analysisId),
-          weaknesses: [...weaknessesFromGrade(grade), ...weaknessesFromFaults(faultsPresent, 0)],
+          weaknesses: [...weaknessesFromGrade(grade), ...weaknessesFromFaults(grade.paragraphs)],
           cohesion: null,
           titleParagraph,
           analyzedAt: isoOf(Date.now())
@@ -1001,13 +1010,7 @@ export function createHttpApi(): TracelyApi {
           )
           return {
             critique: f.explanation ?? '',
-            verdict: critiqueVerdictOf({
-              verdict: f.verdict ?? 'unsupported',
-              explanation: f.explanation ?? '',
-              revision: f.revision ?? '',
-              overstated: false,
-              confidence: 0
-            }),
+            verdict: critiqueVerdictOf({ verdict: f.verdict ?? 'unsupported' }),
             suggestedRevision: f.revision ?? null,
             citationFix: null
           }

@@ -201,6 +201,12 @@ const VERDICTS = {
   weak: { label: "Weak evidence", paint: "var(--mark-orange)" },
   citationFix: { label: "Citation needs fixing", paint: "var(--mark-amber)" },
   no_claim: { label: "No checkable claim", paint: "var(--mark-grey)" },
+  // The relay's vocabulary, used by the critique since the desktop's
+  // five-pass version moved into the server. Without these three a finding
+  // printed its raw verdict string on a grey chip.
+  "well-supported": { label: "Well supported", paint: "var(--grade-a, #2f9e63)" },
+  "partially-supported": { label: "Partially supported", paint: "var(--mark-orange)" },
+  overstated: { label: "Overstated", paint: "var(--mark-amber)" },
 };
 function verdictInfo(v) {
   return VERDICTS[v] ?? { label: String(v), paint: "var(--mark-grey)" };

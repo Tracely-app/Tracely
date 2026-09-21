@@ -255,16 +255,5 @@ test("nothing the web app renders names a model vendor we do not use", () => {
   }
 });
 
-test("/api/grade honours a pasted rubric", () => {
-  // The web app has sent `rubric` for weeks and gradeWithCustomRubric has
-  // existed as long; the handler never read the field, so a teacher's rubric
-  // was silently replaced by Tracely's. The rubric is also part of the cache
-  // key — otherwise the second rubric tried on a draft is served the first's grade.
-  const src = readFileSync(path.join(HERE, "..", "server.js"), "utf8");
-  const start = src.indexOf('url.pathname === "/api/grade"');
-  const handler = src.slice(start, src.indexOf('url.pathname === "/api/structure"', start));
-  assert.ok(handler.length > 0, "could not isolate the /api/grade handler");
-  assert.match(handler, /const \{[^}]*\brubric\b[^}]*\} = \(await parseJsonBody\(req\)\)/);
-  assert.match(handler, /ai\.gradeWithCustomRubric\(/);
-  assert.match(handler, /hashKey\(`grade\|[^`]*custom/);
-});
+// "/api/grade honours a pasted rubric" moved to test/boundary.test.js, where it
+// drives the real route over HTTP instead of pattern-matching its source.

@@ -24,7 +24,7 @@
  * mutates the canned text instead of touching the real screen.
  */
 import { execFile } from "node:child_process";
-import * as ai from "./ai.js";
+import * as reasoning from "./reasoning.js";
 import * as evidence from "./evidence.js";
 import * as store from "./store.js";
 import { hashKey } from "./db.js";
@@ -319,7 +319,10 @@ async function pollOnce() {
     if (Date.now() - lastDetectAt < DETECT_FLOOR_MS) return; // floor holds; retry next poll
     lastDetectAt = Date.now(); // stamped BEFORE the call
 
-    const det = await ai.detectClaims({ text, model: deps.pickModel("detect") });
+    // The desktop's detector, over the watched text as a raw draft: claims come
+    // back as whole sentences with their offsets, the same unit the desktop's
+    // Screen Watch reads.
+    const det = await reasoning.detectClaimsInDraft({ draft: text, model: deps.pickModel("detect") });
     const built = await buildFindings(det.claims ?? [], state.app);
     detectCache.set(hash, built);
     trimCache();
@@ -359,23 +362,18 @@ export async function critiqueFinding(key) {
     throw new CheckError("rate_limit", "Critique hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
   }
   watchCritiqueCounter.stamp(); // before the call
-  const result = await ai.critiqueClaim({
-    claim: it.claim,
-    sentence: it.sentence,
-    sources: it.sources.map((s) => ({
-      title: String(s.title ?? "").slice(0, 200),
-      venue: String(s.venue ?? "").slice(0, 100),
-      year: s.year ?? null,
-      url: String(s.url ?? "").slice(0, 300),
-      abstract: String(s.abstract ?? "").slice(0, 240),
-    })),
+  // The desktop's five-pass critique. No reference lookup runs here, so the
+  // "Reference lookup" section is absent and "fabricated" is unreachable —
+  // which is right for text read off someone else's screen.
+  const result = await reasoning.critique({
+    ...reasoning.critiqueInputFromSources({ claim: it.claim, sentence: it.sentence, sources: it.sources }),
     model: deps.pickModel("critique"),
   });
-  it.state.critique = { verdict: result.verdict, overstated: result.overstated };
+  it.state.critique = { verdict: result.verdict, citationFix: result.citationFix ?? null };
   const f = it.finding;
   f.verdict = result.verdict;
-  f.explanation = result.explanation;
-  f.revision = result.revision || null;
+  f.explanation = result.critique;
+  f.revision = result.suggestedRevision || null;
   const mark = markFor(it.state);
   if (mark) {
     f.kind = mark.kind;
