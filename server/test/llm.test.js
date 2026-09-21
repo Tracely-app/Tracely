@@ -168,3 +168,22 @@ test("an invalid effort becomes the default, and cannot switch effort off for ev
   await llm.textCall({ messages: [], what: "t", effort: { evil: true } });
   assert.deepEqual(calls[0].body.reasoning, { effort: "low" });
 });
+
+test("a model that rejects effort does not switch it off for other models", async () => {
+  // The flag was process-wide, so one route's model rejecting effort would put
+  // every other route — including the extension's /api/check — onto the
+  // expensive no-effort path until restart.
+  const llm = await fresh();
+  const calls = stub(
+    bad(400, { error: { message: "Unsupported parameter: 'reasoning.effort'" } }),
+    ok({ output_text: '{"a":"1"}' }),
+    ok({ output_text: '{"a":"2"}' }),
+    ok({ output_text: '{"a":"3"}' }),
+  );
+  await llm.structuredCall({ model: "gpt-5.4", schema: SCHEMA, what: "w" });      // rejects, retries without
+  await llm.structuredCall({ model: "gpt-5-nano", schema: SCHEMA, what: "w" });   // different model: effort still sent
+  await llm.structuredCall({ model: "gpt-5.4", schema: SCHEMA, what: "w" });      // the model that rejected: stays off
+  assert.equal(calls[1].body.reasoning, undefined);
+  assert.deepEqual(calls[2].body.reasoning, { effort: "low" });
+  assert.equal(calls[3].body.reasoning, undefined);
+});

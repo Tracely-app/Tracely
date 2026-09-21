@@ -198,12 +198,19 @@ const DEFAULT_EFFORT = "low";
 const VALID_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
 const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
 
-/* Per provider, because "does this vendor accept reasoning effort" is a fact
- * about the vendor. With one provider registered this is exactly the single
- * process-wide flag it replaced: set false by the first 400 that blames the
- * parameter, and never reset. */
+/* Keyed per provider AND MODEL, because "does this accept reasoning effort" is
+ * a fact about one model, not about the process.
+ *
+ * It was a single process-wide flag: the first 400 that blamed the parameter
+ * switched effort off for every later call on every route. That coupled the
+ * routes to each other — a desktop-only route on one model rejecting effort
+ * would have put the extension's /api/check, on a different model, onto the
+ * expensive "(omitted)" row until restart. Now a rejection disables effort for
+ * the model that rejected it and nothing else. For a single model that is
+ * exactly the old behaviour: set by the first rejection, never reset. */
 const effortDisabled = new Set();
-const effortFor = (p, model) => !effortDisabled.has(p.name) && p.supportsEffort(model);
+const effortKey = (p, model) => `${p.name}:${model}`;
+const effortFor = (p, model) => !effortDisabled.has(effortKey(p, model)) && p.supportsEffort(model);
 
 /** A call that must return JSON matching `schema`. */
 export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
@@ -219,7 +226,7 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
     json = await post(p, body);
   } catch (err) {
     if (!withEffort || !p.isEffortError(err)) throw err;
-    effortDisabled.add(p.name);
+    effortDisabled.add(effortKey(p, chosen));
     json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
   }
   p.checkComplete(json, what);
