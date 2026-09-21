@@ -1,4 +1,9 @@
-node_modules/
+# No trailing slash, on purpose. `node_modules/` matches only a DIRECTORY, so
+# a node_modules SYMLINK — which is how a git worktree borrows the main
+# checkout's dependencies — slipped past it and was committed in #248, as a
+# link to one machine's absolute path. On a checkout without that path it is a
+# dangling link, and on Windows it collides with the real folder.
+node_modules
 out/
 release/
 release-preview/
