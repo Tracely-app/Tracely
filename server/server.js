@@ -18,6 +18,7 @@ import { clampModel, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
+import { isModelFailure, modelFailureLine } from "./lib/failureLog.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4477;
@@ -173,6 +174,12 @@ const APP_AI_ROUTES = new Set([
   "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
   "/api/correction", "/api/find-sources",
 ]);
+
+/* Routes whose failures are MODEL failures, logged by the central error
+ * handler (lib/failureLog.js): the extension's three model routes, the one
+ * paid watch route, and every desktop AI route. A fixed set, so the logged
+ * `route` can never be a path carrying an id. */
+const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources", "/api/watch/critique", ...APP_AI_ROUTES]);
 
 // The desktop's source searches: their own rolling window, per caller. The
 // extension's /api/sources has a process-wide 15/hour counter; sharing it
@@ -700,6 +707,10 @@ function requireKey() {
 
 const server = http.createServer(async (req, res) => {
   const cors = corsHeaders(req);
+  // For the failure log only: the route, and the model/effort an extension
+  // route resolved before its call. Never the request body.
+  let route = null;
+  const trace = { model: null, effort: null };
 
   try {
     let url;
@@ -709,6 +720,7 @@ const server = http.createServer(async (req, res) => {
       json(res, 400, { error: { kind: "bad_request", message: "Malformed request URL" } }, cors);
       return;
     }
+    route = url.pathname;
 
     if (!hostAllowed(req.headers.host ?? "")) {
       json(res, 403, { error: { kind: "forbidden", message: "Bad Host header" } });
@@ -855,6 +867,7 @@ const server = http.createServer(async (req, res) => {
       recordCheck(ent, who); // before the call, not after
       const modelUsed = appModelFor("check", ent, model);
       const level = normalizeEffort(effort);
+      Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFactCheck({ text, sentences, model: modelUsed, effort: level, mock: MOCK });
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
@@ -905,6 +918,7 @@ const server = http.createServer(async (req, res) => {
       // none at all, which is OpenAI's own and costliest default.
       const modelUsed = appModelFor("sources", ent, model);
       const level = normalizeEffort(effort);
+      Object.assign(trace, { model: modelUsed, effort: level });
       const result = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // webSearchCalls: 1 — the tool fee is most of this route's cost and is
       // invisible in the token usage, so pricing it off tokens alone would
@@ -935,6 +949,7 @@ const server = http.createServer(async (req, res) => {
       const { ent } = gate;
       const modelUsed = allowedModel(ent, ALLOWED_MODELS.has(model) ? model : MODEL_TIERS.fast);
       const level = normalizeEffort(effort);
+      Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFlowCheck({ text, model: modelUsed, effort: level, mock: MOCK });
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
@@ -1341,6 +1356,9 @@ const server = http.createServer(async (req, res) => {
 
     json(res, 404, { error: { kind: "not_found", message: "Not found" } }, cors);
   } catch (err) {
+    // Before the headersSent bail-out, so a failure is logged even when the
+    // response can no longer carry it. One line, no user text (failureLog.js).
+    if (MODEL_ROUTES.has(route) && isModelFailure(err)) console.error(modelFailureLine(route, err, trace));
     if (res.headersSent) { res.destroy(); return; }
     if (err instanceof CheckError) {
       json(res, err.status, { error: { kind: err.kind, message: err.message, retryAfter: err.retryAfter } }, cors);
