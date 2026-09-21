@@ -31,7 +31,7 @@ process.env.TRACELY_DATA_DIR = DIR;
 process.on("exit", () => { try { rmSync(DIR, { recursive: true, force: true }); } catch {} });
 
 const { costMicroCents, MODEL_TIERS, MODEL_PRICES } = await import("../lib/llm.js");
-const { spendState, recordSpend, dailyBudgetMicroCents, spentTodayMicroCents } = await import("../lib/spend.js");
+const { spendState, recordSpend, dailyBudgetMicroCents, spentTodayMicroCents, reserveSpend, reservedMicroCents, poolRoom } = await import("../lib/spend.js");
 const { callerId, isDailyQuotaKey, clientAddress, checkQuota, recordCheck,
         sourceSearchQuota, recordSourceSearch, aiQuota, recordAi } = await import("../lib/entitlement.js");
 const { FREE_DAILY_CHECKS, FREE_DAILY_SOURCE_SEARCHES, FREE_DAILY_AI_CALLS } = await import("../shared/plan.js");
@@ -335,6 +335,62 @@ test("the beta pool is unmetered on a local run, like every pool", () => {
   recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 1e6, output: 1e6 }, enforced: false, at, pool: "beta" });
   assert.equal(spentTodayMicroCents(at, "beta"), 0);
   assert.equal(spendState({ enforced: false, at, pool: "beta" }).allowed, true);
+});
+
+// ── the paid pool: Student/Pro on the extension routes ───────────────────
+
+test("the paid pool is its own day, and TRACELY_PAID_DAILY_BUDGET_USD follows the other budgets' rules", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "1", TRACELY_PAID_DAILY_BUDGET_USD: "1" };
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 0, output: 30_000 }, at, pool: "paid" });
+  assert.equal(spendState({ at, env, pool: "paid" }).allowed, false, "the paid pool is spent");
+  assert.equal(spendState({ at, env }).spent, 0, "the extension pool never saw it");
+
+  const def = SPEND.defaultPaidDailyBudgetUsd * 1e8;
+  assert.equal(SPEND.defaultPaidDailyBudgetUsd, 10);
+  assert.equal(dailyBudgetMicroCents({}, "paid"), def);
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "" }, "paid"), def, "empty is absent, not 0");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "NaN" }, "paid"), def);
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "0" }, "paid"), 0, "explicit 0 turns the ceiling off");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_PAID_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8, "and never moves the extension's");
+});
+
+// ── in-flight reservations ───────────────────────────────────────────────
+
+test("poolRoom counts calls in flight: a reserving pool stops admitting before the calls land", () => {
+  const at = nextAt();
+  const env = { TRACELY_BETA_DAILY_BUDGET_USD: "1" };
+  assert.equal(reservedMicroCents("beta"), 0);
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, true);
+  const a = reserveSpend("beta", 0.6e8); // $0.60 in flight
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, true, "$0.40 unreserved is still room");
+  const b = reserveSpend("beta", 0.6e8); // admitted on that room: at most one call over
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, false, "held reservations cover the pool");
+  assert.equal(poolRoom({ at, env, pool: "beta" }).budget.remaining, 1e8, "spendState still reports spend on disk only");
+  a.release();
+  assert.equal(poolRoom({ at, env, pool: "beta" }).room, true, "a finished call gives its hold back");
+  b.release();
+  b.release(); // idempotent: the handler's finally may release what a route already did
+  assert.equal(reservedMicroCents("beta"), 0);
+  assert.equal(reservedMicroCents("extension"), 0, "pools hold separately");
+});
+
+test("a reservation only ever shrinks, and an unmetered pool always has room", () => {
+  const r = reserveSpend("paid", 1000);
+  r.resize(400);
+  assert.equal(r.amount, 400);
+  assert.equal(reservedMicroCents("paid"), 400);
+  r.resize(5000); // never above what admission allowed
+  assert.equal(r.amount, 400);
+  r.release();
+  r.resize(900); // a released hold stays released
+  assert.equal(reservedMicroCents("paid"), 0);
+
+  const big = reserveSpend("beta", 1e12);
+  assert.equal(poolRoom({ enforced: false, pool: "beta" }).room, true, "local: nothing is metered");
+  assert.equal(poolRoom({ env: { TRACELY_BETA_DAILY_BUDGET_USD: "0" }, pool: "beta" }).room, true, "an explicit 0 removes the ceiling");
+  big.release();
+  assert.throws(() => reserveSpend("nope", 1), /unknown spend pool/);
 });
 
 // ── rate limiting ────────────────────────────────────────────────────────

@@ -106,6 +106,25 @@ export const SPEND = {
    * CEILING off (unlimited beta spend) — it does not turn beta off. Emptying
    * TRACELY_BETA_TOKENS is what turns beta off. */
   defaultBetaDailyBudgetUsd: 10,
+  /* Beta source searches get their own process-wide hourly window. A tester is
+   * Pro, so no daily source quota applies; on the extension's shared 15/hour
+   * counter one tester with auto-sources on could take the whole hour and 429
+   * every store user's source search. Theirs is paid by the beta pool, so it
+   * is bounded by the pool — this only keeps the two sets of users apart. */
+  betaWebSearchesPerHour: 30,
+
+  /* ── the PAID pool: Student and Pro accounts on the extension's routes ──
+   *
+   * Hosted /api/check, /api/flow and /api/sources run the model the client's
+   * slider asks for, clamped to the plan — up to the thorough model, ~125-200x
+   * the fast one per token. On the shared extension pool a single Pro user on
+   * "Smarter" could spend the $10 day in minutes and 503 every free user, the
+   * exact failure the app pool exists to prevent. So paid-plan calls on the
+   * extension routes spend HERE; when this pool is spent they drop to the fast
+   * model on the extension pool (their plan, and so their quotas, unchanged).
+   *
+   * Override with TRACELY_PAID_DAILY_BUDGET_USD, same rules as the others. */
+  defaultPaidDailyBudgetUsd: 10,
 };
 
 /**

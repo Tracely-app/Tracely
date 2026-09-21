@@ -10,6 +10,10 @@
  *   D  hosted (enforced), REAL request path with OpenAI stubbed by a preload,
  *      so the tests can read the exact model and effort the server sent, and
  *      make a call truncate / refuse / return garbage on demand
+ *   E  hosted (enforced), mock model, a 1-cent PAID pool and a 1.2-cent beta
+ *      pool — where the pools' edges are
+ *   G  hosted (enforced), the stubbed path again, but every call is slow and
+ *      costs real money at thorough-model prices — a concurrent burst
  *
  * "Enforced" needs a Supabase project, so a mock one runs here and answers
  * /auth/v1/user for three canned tokens (free, student, pro). No real network
@@ -26,7 +30,14 @@
  *   - PUT /api/prefs, which rewrote that row with no authentication, is
  *     refused on a hosted server and unchanged on a local one.
  *   - A failed model call leaves one log line naming route, kind, model and
- *     effort — and none of the user's text.
+ *     effort — and none of the user's text — and what it was billed still
+ *     reaches the pool.
+ *   - A burst of beta calls with rotating install ids cannot be admitted
+ *     against money the calls ahead of it are about to spend.
+ *   - Student and Pro calls on the extension's routes spend a pool of their
+ *     own, and fall back to the fast model — never a 503 — when it is spent.
+ *   - Beta source searches have their own hourly window, apart from the one
+ *     every store user shares.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -158,25 +169,28 @@ const emptyFor = (s) => {
   }
   return out;
 };
+const DELAY = Number(process.env.TRACELY_TEST_OPENAI_DELAY_MS || 0);
+const [IN, OUT] = String(process.env.TRACELY_TEST_OPENAI_USAGE || "1,1").split(",").map(Number);
 globalThis.fetch = async (url, init = {}) => {
   if (!String(url).startsWith("https://api.openai.com/")) return real(url, init);
+  if (DELAY) await new Promise((r) => setTimeout(r, DELAY));
   const body = JSON.parse(init.body);
   appendFileSync(process.env.TRACELY_TEST_OPENAI_LOG, JSON.stringify({ model: body.model, effort: body.reasoning?.effort ?? null, webSearch: Array.isArray(body.tools) }) + "\\n");
   const input = JSON.stringify(body.input);
   let reply;
-  if (input.includes("TRIGGER-TRUNCATE")) reply = { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } };
+  if (input.includes("TRIGGER-TRUNCATE")) reply = { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 1000, output_tokens: 16000 } };
   else if (input.includes("TRIGGER-REFUSE")) reply = { output: [{ content: [{ type: "refusal", refusal: "no" }] }] };
   else if (input.includes("TRIGGER-GARBAGE")) reply = { output_text: "this is not json {" };
   else if (body.tools) reply = { output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }) };
   else reply = { output_text: JSON.stringify(emptyFor(body.text?.format?.schema)) };
-  return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: 1, output_tokens: 1 }, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: IN, output_tokens: OUT }, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
 `);
 const openaiLog = () => readFileSync(OPENAI_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
 // Everything that could change these servers' behaviour is cleared, so a
 // developer's shell cannot make the suite pass or fail.
-const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_DAILY_BUDGET_USD", "TRACELY_APP_DAILY_BUDGET_USD",
+const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_DAILY_BUDGET_USD", "TRACELY_APP_DAILY_BUDGET_USD", "TRACELY_PAID_DAILY_BUDGET_USD",
   "SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY", "TRACELY_MOCK", "TRACELY_EXTENSION_ID", "TRACELY_TRUSTED_PROXY_HOPS", "TRACELY_LLM_PROVIDER"];
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SCRUB.includes(k)));
 
@@ -199,19 +213,26 @@ async function boot(env, { preload } = {}) {
   throw new Error(`server on ${p} did not start: ${stderr}`);
 }
 
-let A, B, C, D;
+let A, B, C, D, E, G;
+const G_LOG = path.join(TMP, "openai-g.jsonl");
+writeFileSync(G_LOG, "");
 test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
-  [A, B, C, D] = await Promise.all([
+  [A, B, C, D, E, G] = await Promise.all([
     boot({ ...hosted, TRACELY_MOCK: "1" }),
     boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: " old-token , right-token ", TRACELY_BETA_DAILY_BUDGET_USD: "0.01" }),
     boot({ TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token" }),
     boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_TEST_OPENAI_LOG: OPENAI_LOG }, { preload: STUB }),
+    boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.012", TRACELY_PAID_DAILY_BUDGET_USD: "0.01" }),
+    boot({
+      ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1",
+      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "20000,6000",
+    }, { preload: STUB }),
   ]);
 });
 test.after(() => {
-  for (const s of [A, B, C, D]) s?.child.kill();
+  for (const s of [A, B, C, D, E, G]) s?.child.kill();
   supabase.close();
 });
 
@@ -476,4 +497,82 @@ test("a failed model call logs route, kind, model and effort — and none of the
   for (const leak of ["PRIVATE-ESSAY", "grandmother", "TRIGGER-", "install-SECRET", "u-free", "free@example.test", "right-token"]) {
     assert.ok(!log.includes(leak), `the server log carries ${leak}:\n${log}`);
   }
+});
+
+// ── E: the pools' edges ──────────────────────────────────────────────────
+
+test("a beta source search stays on the beta pool below its 20% line, until the pool is actually spent", async () => {
+  const s1 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
+  assert.equal(s1.body.modelUsed, "gpt-6-astra");
+  let st = await status(E);
+  assert.equal(st.betaBudget.spentUsd, 0.01);
+  assert.ok(st.betaBudget.remainingPct < 0.2, "below the extension pool's shed line");
+
+  const s2 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
+  assert.equal(s2.status, 200, JSON.stringify(s2.body));
+  assert.equal(s2.body.modelUsed, "gpt-6-astra", "the beta pool still had money, so it still paid");
+  assert.equal(s2.body.plan, "pro");
+  st = await status(E);
+  assert.equal(st.betaBudget.spentUsd, 0.02, "at most one call over the ceiling");
+  assert.equal(st.budget.spentUsd, 0, "the extension pool never paid while the beta pool had room");
+
+  const s3 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
+  assert.equal(s3.status, 200);
+  assert.equal(s3.body.plan, "free", "spent: now the tester's own plan");
+});
+
+test("Student and Pro calls on the extension's routes spend the paid pool, never the free users' day", async () => {
+  const r = await sources(E, { model: "gpt-6-astra" }, { token: "tok-pro", install: "e-pro" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  const st = await status(E);
+  assert.equal(st.paidBudget.spentUsd, 0.01, "the paid pool paid");
+  assert.equal(st.budget.spentUsd, 0.01, "the extension pool only has the beta fallback search from before");
+});
+
+test("a spent paid pool drops a paying caller to the fast model on the extension pool — plan kept, never a 503", async () => {
+  const before = await status(E);
+  const c = await check(E, { model: "gpt-6-astra" }, { token: "tok-pro", install: "e-pro" });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.equal(c.body.modelUsed, "gpt-5-nano");
+  assert.equal(c.body.plan, "pro", "still Pro: unmetered quotas, just the fast model");
+  const s = await sources(E, { model: "gpt-5.4" }, { token: "tok-student", install: "e-student" });
+  assert.equal(s.status, 200, JSON.stringify(s.body));
+  assert.equal(s.body.modelUsed, "gpt-5-nano");
+  assert.equal(s.body.plan, "student");
+  const after = await status(E);
+  assert.equal(Number((after.budget.spentUsd - before.budget.spentUsd).toFixed(4)), 0.01, "that search was paid by the extension pool");
+  assert.equal(after.paidBudget.spentUsd, 0.01);
+});
+
+// ── C: the beta search window ────────────────────────────────────────────
+
+test("beta source searches have their own hourly window, apart from the one store users share", async () => {
+  for (let i = 0; i < 30; i++) {
+    const r = await sources(C, {}, { headers: BETA, install: `c-beta-${i}` });
+    assert.equal(r.status, 200, `beta search ${i + 1}: ${JSON.stringify(r.body)}`);
+  }
+  const over = await sources(C, {}, { headers: BETA, install: "c-beta-over" });
+  assert.equal(over.status, 429);
+  assert.equal(over.body.error.message, "Web-search hourly cap reached — try again later.", "the same wording the store build knows");
+  const store = await sources(C, {}, { install: "c-store-user" });
+  assert.equal(store.status, 200, "30 beta searches did not touch the window store users share");
+});
+
+// ── G: a concurrent burst against the beta pool ──────────────────────────
+
+test("a burst of beta checks with rotating install ids cannot overspend the beta pool", async () => {
+  // Reproduces the review's case: $1 pool, calls slow and priced at 20k in /
+  // 6k out ($0.50 on gpt-6-astra), a fresh install id per request. Before,
+  // all forty were admitted while `remaining > 0` and the pool spent $20.
+  const text = "Water boils at 100 degrees Celsius at sea level.";
+  const burst = await Promise.all(Array.from({ length: 40 }, (_, i) =>
+    call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` })));
+  assert.ok(burst.every((r) => r.status === 200), "beta never refuses: the overflow falls back");
+  const astra = burst.filter((r) => r.body.modelUsed === "gpt-6-astra").length;
+  assert.ok(astra >= 1, "the pool still served someone");
+  assert.ok(astra <= 2, `${astra} thorough calls admitted against a $1 pool at once`);
+  const st = await status(G);
+  // At most the pool plus the one call admitted last (worst case ~$1.04).
+  assert.ok(st.betaBudget.spentUsd <= 1 + 1.04, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
 });
