@@ -1367,7 +1367,7 @@ const server = http.createServer(async (req, res) => {
         requested: body.model,
         quota: SOURCE_QUOTA,
         // The web_search tool fee is most of this route's cost and is invisible
-        // in the token usage; a forced search often makes more than one call.
+        // in the token usage; a forced search can make more than one call.
         webSearchCalls: (r) => searchFee(r?.webSearchCalls),
         cache: {
           kind: "find-sources", maxAgeMs: 7 * 24 * 3600_000,
