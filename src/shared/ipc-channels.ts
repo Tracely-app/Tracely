@@ -92,6 +92,9 @@ export const IPC = {
   AUTH_DELETE_ACCOUNT: 'auth:deleteAccount',
   AUTH_GET_PLAN: 'auth:getPlan',
   AUTH_GET_THOROUGH: 'auth:getThorough',
+  // Re-read the account from Supabase now, so a plan bought on the website
+  // applies without waiting for the next token refresh.
+  AUTH_REFRESH: 'auth:refresh',
   SOURCES_FAVICONS: 'sources:favicons',
   // Receipts for the list a surface is showing — shared/sourceReceipts.ts.
   SOURCES_VERIFY: 'sources:verify'

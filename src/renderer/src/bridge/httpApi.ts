@@ -995,6 +995,14 @@ export function createHttpApi(): TracelyApi {
       getPlan: async () => ({ plan: 'free' as Plan }),
       // Free, so no Thorough allowance to meter.
       getThorough: async () => ({ thorough: null }),
+      // Sign-in lives in the desktop app: it needs a local port for Google to
+      // hand the result back to (main/services/auth/googleSignIn.ts), and a
+      // page in a browser has none. Said plainly rather than faked.
+      signInWithGoogle: async () => {
+        throw new Error('Sign in from the Tracely desktop app. The browser version runs as a local, single-user copy.')
+      },
+      signOut: async () => ({ ok: true as const }),
+      refresh: async () => ({ ok: true as const }),
     },
     history: {
       clear: async (req) => {
