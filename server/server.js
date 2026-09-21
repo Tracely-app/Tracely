@@ -15,7 +15,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
 import { spendState, recordSpend, spendSummary } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
 import { clampModel, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
-import { MODEL_TIERS, ALLOWED_MODELS } from "./lib/llm.js";
+import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 
@@ -617,7 +617,8 @@ async function appGate(req) {
 }
 
 /**
- * Which model an app-route call runs at.
+ * Which model an app-route call — and, since the beta change, an extension
+ * /api/check or /api/sources call — runs at.
  *
  * On a hosted server (enforced) it is what the CLIENT asked for, clamped to
  * the caller's plan: the desktop resolves the user's chosen tier against their
@@ -632,7 +633,12 @@ async function appGate(req) {
  * everyone, ran the thorough model. Locally (not enforced) there is one user
  * and that row is theirs, so local runs keep pickModel exactly as before.
  *
- * The extension's routes still use pickModel + allowedModel, unchanged.
+ * The extension's /api/check and /api/sources used pickModel + allowedModel
+ * until 2026-09-21, which on a hosted server meant the global prefs row
+ * (economy → the fast model) for everyone: a Pro subscriber's slider changed
+ * nothing, and anyone with curl could change the model every extension user
+ * got. They now share this rule. /api/flow always honoured the client's model
+ * and keeps allowedModel over it (the same clamp when enforced).
  */
 function appModelFor(task, ent, requested) {
   if (!ent.enforced) return pickModel(task);
@@ -832,9 +838,11 @@ const server = http.createServer(async (req, res) => {
       }
 
       const started = Date.now();
-      // Tiering owns the model — the widget's dropdown only applies in
-      // "uniform" strategy (cost mandate: economy = the cheap tier everywhere)
-      // — and the plan owns the ceiling above that.
+      // Hosted (enforced): the widget's slider owns the model — what the
+      // client asked for if it is a model we serve, else the fast tier — and
+      // the plan (Pro for a beta caller, see spendGate) owns the ceiling.
+      // Local (unenforced): server-side tiering (pickModel) still decides,
+      // exactly as before. appModelFor holds both rules.
       const { ent, callerId: who } = gate;
       const quota = checkQuota(ent, who);
       if (!quota.allowed) {
@@ -845,8 +853,9 @@ const server = http.createServer(async (req, res) => {
         );
       }
       recordCheck(ent, who); // before the call, not after
-      const modelUsed = allowedModel(ent, pickModel("check"));
-      const result = await runFactCheck({ text, sentences, model: modelUsed, effort, mock: MOCK });
+      const modelUsed = appModelFor("check", ent, model);
+      const level = normalizeEffort(effort);
+      const result = await runFactCheck({ text, sentences, model: modelUsed, effort: level, mock: MOCK });
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
@@ -859,7 +868,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { claim, correction, context, model } = (await parseJsonBody(req)) ?? {};
+      const { claim, correction, context, model, effort } = (await parseJsonBody(req)) ?? {};
       if (typeof claim !== "string" || !claim.trim() || claim.length > 2000) {
         throw new CheckError("bad_request", "claim must be a non-empty string of at most 2000 characters");
       }
@@ -891,8 +900,12 @@ const server = http.createServer(async (req, res) => {
 
       webSearchCounter.stamp(); // before the call, not after
       const started = Date.now();
-      const modelUsed = allowedModel(ent, pickModel("sources"));
-      const result = await findSources({ claim, correction, context, model: modelUsed, mock: MOCK });
+      // Same model rule as /api/check (appModelFor). The effort is the
+      // client's when it is a real level, else "low" — this route used to send
+      // none at all, which is OpenAI's own and costliest default.
+      const modelUsed = appModelFor("sources", ent, model);
+      const level = normalizeEffort(effort);
+      const result = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // webSearchCalls: 1 — the tool fee is most of this route's cost and is
       // invisible in the token usage, so pricing it off tokens alone would
       // under-count the expensive route by ~16x.
@@ -909,15 +922,20 @@ const server = http.createServer(async (req, res) => {
         json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
         return;
       }
-      const { text, model } = (await parseJsonBody(req)) ?? {};
+      const { text, model, effort } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
       if (text.length > GUARDS.maxInputChars) throw new CheckError("bad_request", "text too long");
       const started = Date.now();
       // The only route that ever honoured the client's model directly, which
-      // makes it the one the clamp matters most on.
+      // makes it the one the clamp matters most on. An unrecognised model is
+      // resolved to the fast tier HERE rather than inside runFlowCheck, so
+      // `modelUsed` reports what actually ran instead of echoing the request
+      // back on a local server. Its effort used to be dropped here, so a flow
+      // check ran at the default whatever the slider said.
       const { ent } = gate;
-      const modelUsed = allowedModel(ent, model);
-      const result = await runFlowCheck({ text, model: modelUsed, mock: MOCK });
+      const modelUsed = allowedModel(ent, ALLOWED_MODELS.has(model) ? model : MODEL_TIERS.fast);
+      const level = normalizeEffort(effort);
+      const result = await runFlowCheck({ text, model: modelUsed, effort: level, mock: MOCK });
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
