@@ -1,0 +1,3 @@
+# The test build's token, written into the STAGED copy by
+# server/scripts/pack-extension.sh --beta. This repo is public: never commit it.
+beta.json

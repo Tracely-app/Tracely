@@ -247,16 +247,81 @@ async function cachedEntitlement() {
 // Supabase project configured and clamps nothing, so the picker should not
 // pretend otherwise. Only an explicit `false` counts — a server too old to
 // send the field, or a body missing it, stays enforced.
-async function storeEntitlement(plan, email, enforced) {
+//
+// `userId` is kept because the upgrade links attach it as client_reference_id.
+// This used to take only the first three arguments, so the cached entitlement
+// never had a userId and every tracely-entitlement answer said null — the
+// server sent the id and the worker dropped it on the floor.
+//
+// `beta` records that the server granted the test build's Pro plan, so the
+// options page can say "Pro (beta)" and not offer to sell it.
+async function storeEntitlement(plan, email, enforced, { userId = null, beta = false } = {}) {
   const entitlement = {
     plan: normalizePlan(plan),
     email: email ?? null,
+    userId: typeof userId === "string" && userId ? userId : null,
     enforced: enforced !== false,
+    beta: beta === true,
     fetchedAt: Date.now(),
   };
   await chrome.storage.local.set({ entitlement });
   return entitlement;
 }
+
+/* ── the test build (X-Tracely-Beta) ─────────────────────────────────────────
+   The team's test build is this same extension, loaded unpacked, with one
+   extra file: beta.json, {"token": "..."}, written into the zip by
+   `server/scripts/pack-extension.sh --beta` and never committed. When the file
+   is there AND Chrome says this copy was loaded unpacked, every request to the
+   server carries the token as X-Tracely-Beta, and a server that recognises it
+   serves the caller as Pro (on its own spend pool).
+
+   Both halves are required. The manifest `key` gives the unpacked build the
+   SAME id as the Web Store build, so the id cannot tell them apart —
+   installType can: the store copy is "normal", Load-unpacked is
+   "development". A store build that somehow shipped the file still sends
+   nothing. getSelf needs no "management" permission.
+
+   The token is not a secret against the testers who hold the zip; it is a
+   switch the server can revoke by editing .env. Never throws: any failure —
+   no file, bad JSON, no management API — just means no beta. Cached for the
+   worker's lifetime; a new build is a new worker. */
+let betaTokenPromise = null;
+function betaToken() {
+  if (!betaTokenPromise) {
+    betaTokenPromise = (async () => {
+      try {
+        const self = await chrome.management?.getSelf?.();
+        if (self?.installType !== "development") return "";
+        const res = await fetch(chrome.runtime.getURL("beta.json"));
+        if (!res.ok) return "";
+        const data = await res.json();
+        const token = typeof data?.token === "string" ? data.token.trim() : "";
+        // Visible ASCII only. Anything else is not a legal header value, and
+        // fetch() would THROW on every relayed call — which the relay reads as
+        // "the server died" and turns into an offline widget.
+        return /^[\x21-\x7E]{1,512}$/.test(token) ? token : "";
+      } catch {
+        return "";
+      }
+    })();
+  }
+  return betaTokenPromise;
+}
+
+// Adds X-Tracely-Beta to a headers object when this is the test build.
+async function withBeta(headers = {}) {
+  const token = await betaToken();
+  if (token) headers["X-Tracely-Beta"] = token;
+  return headers;
+}
+
+// A build switch (store copy -> test build, or back) happens through an
+// install or reload, and must not wait out a cached entitlement from the other
+// build: the widgets clamp their stored stop to whatever plan they are shown.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.set({ entitlement: null }).catch(() => {});
+});
 
 /* Never throws and never answers above free — this is on the path of every
    render and every relayed call. Signed out, server down, a body in a shape
@@ -274,10 +339,14 @@ async function fetchEntitlement({ force = false } = {}) {
     // with no Supabase project clamps nothing and the picker must say so.
     if (!(await serverReachable())) return storeEntitlement(DEFAULT_PLAN, null, true);
     try {
-      const res = await fetch(`${SERVER}/api/entitlement`);
+      const res = await fetch(`${SERVER}/api/entitlement`, { headers: await withBeta() });
       if (!res.ok) return storeEntitlement(DEFAULT_PLAN, null, true);
       const data = await res.json().catch(() => ({}));
-      return storeEntitlement(DEFAULT_PLAN, null, data?.enforced);
+      // Signed out is free — UNLESS the server granted the test build's Pro
+      // plan, which it says with `beta: true`. Only that flag lifts the plan
+      // here; a bare `plan` in a signed-out answer is still ignored.
+      const beta = data?.beta === true;
+      return storeEntitlement(beta ? data?.plan : DEFAULT_PLAN, null, data?.enforced, { beta });
     } catch {
       return storeEntitlement(DEFAULT_PLAN, null, true);
     }
@@ -288,18 +357,21 @@ async function fetchEntitlement({ force = false } = {}) {
     return { ...FREE_ENTITLEMENT, fetchedAt: 0 };
   }
   try {
-    let res = await fetch(`${SERVER}/api/entitlement`, { headers: { Authorization: `Bearer ${authToken}` } });
+    let res = await fetch(`${SERVER}/api/entitlement`, { headers: await withBeta({ Authorization: `Bearer ${authToken}` }) });
     if (res.status === 401) {
       const fresh = await refreshAccessToken();
       if (!fresh) {
         await clearAuth();
         return storeEntitlement(DEFAULT_PLAN, null, true);
       }
-      res = await fetch(`${SERVER}/api/entitlement`, { headers: { Authorization: `Bearer ${fresh}` } });
+      res = await fetch(`${SERVER}/api/entitlement`, { headers: await withBeta({ Authorization: `Bearer ${fresh}` }) });
     }
     if (!res.ok) return { ...FREE_ENTITLEMENT, fetchedAt: 0 };
     const data = await res.json().catch(() => ({}));
-    return storeEntitlement(data?.plan, typeof data?.email === "string" ? data.email : null, data?.enforced);
+    return storeEntitlement(data?.plan, typeof data?.email === "string" ? data.email : null, data?.enforced, {
+      userId: data?.userId,
+      beta: data?.beta === true,
+    });
   } catch {
     return { ...FREE_ENTITLEMENT, fetchedAt: 0 };
   }
@@ -356,8 +428,12 @@ async function relay(path, body, { token = "", retried = false } = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   const install = await installId();
   if (install) headers["X-Tracely-Install"] = install;
+  // The test build's Pro grant has to reach every route the server gates on
+  // it, not only /api/entitlement — the plan is decided per request.
+  const beta = await betaToken();
+  if (beta) headers["X-Tracely-Beta"] = beta;
   const res = await fetch(`${SERVER}${path}`, body === undefined
-    ? (token ? { headers } : undefined)
+    ? (token || beta ? { headers } : undefined)
     : { method: "POST", headers, body: JSON.stringify(body) });
 
   // An expired token must cost the user a re-auth at worst, never a broken
@@ -440,11 +516,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           // account rather than guessing from the payer's email.
           userId: ent?.userId ?? null,
           unenforced: Boolean(up) && ent?.enforced === false,
+          // The server granted this test build's Pro plan (X-Tracely-Beta).
+          // The options page shows "Pro (beta)" and hides every way to pay.
+          beta: ent?.beta === true,
         });
       } catch (err) {
         // Fail closed, but still answer: an unanswered probe would leave the
         // widget with no tier at all.
-        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, message: err?.message });
+        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, message: err?.message });
       }
     })();
     return true; // async sendResponse
