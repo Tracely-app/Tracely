@@ -171,10 +171,14 @@ export const FREE_DAILY_SOURCE_SEARCHES = 5;
  * fast tier (gpt-5.6-luna at effort medium, which /api/check runs the fast
  * tier at) in the model eval, eval/models/FINDINGS.md, 2026-09-21 — each
  * range runs from measured (cache-warm) to cold:
- *   - a typing-pause check (1-3 sentences): 0.039-0.104 cents
+ *   - a 1-sentence typing-pause check: 0.039-0.068 cents
+ *   - a 3-sentence typing-pause check: 0.074-0.104 cents
  *   - a first check or paste (40 sentences): 0.34-0.39 cents
  *   - a free user at this cap, 1 first check + 399 typing-pause checks:
- *     $0.23-0.35 a day — the same ~34 cents the 400 was sized against.
+ *     $0.23-0.35 a day ASSUMING an even mix of 1- and 3-sentence checks
+ *     (0.0565-0.086 cents each, the eval's own convention) — the same ~34
+ *     cents the 400 was sized against. The full range, all 1-sentence warm
+ *     to all 3-sentence cold, is $0.16-0.42.
  * The extension fires at most one check per 10s, so 400 checks is about an
  * hour of continuous typing, and the server caches on a hash of the input,
  * so re-checking unchanged text is free. luna does NOT plateau the way nano
@@ -183,9 +187,10 @@ export const FREE_DAILY_SOURCE_SEARCHES = 5;
  * bound, not this number.
  *
  * Kept at 400. The trade-off of the new model is capacity: the $10/day
- * extension pool covers ~29-44 free users at the cap (it covered ~60-69 on
- * nano). If this ever needs raising, the number to recompute is
- * (0.39 cents + (limit - 1) x 0.086 cents) x expected capped users per day,
+ * extension pool covers ~29-44 free users at the cap on that even mix, and
+ * ~24 if every check is a cold 3-sentence one (it covered ~60-69 on nano).
+ * If this ever needs raising, the number to recompute, at its upper bound, is
+ * (0.39 cents + (limit - 1) x 0.104 cents) x expected capped users per day,
  * against the global budget in shared/guards.js.
  */
 export const FREE_DAILY_CHECKS = 400;

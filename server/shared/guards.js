@@ -51,18 +51,22 @@ export const GUARDS = {
  *
  * Costs on the current fast tier (gpt-5.6-luna, effort medium on /api/check),
  * from the model eval, eval/models/FINDINGS.md, 2026-09-21, measured to cold:
- * a typing-pause check is 0.039-0.104 cents and a 40-sentence first check
+ * a typing-pause check is 0.039-0.104 cents (1 sentence warm to 3 cold;
+ * 0.0565-0.086 on an even mix of the two) and a 40-sentence first check
  * 0.34-0.39 cents; a source search is >= 1 cent because OpenAI bills
  * web_search per call ($10/1000) on top of tokens — about 10-25 typing-pause
  * checks. That ratio is why sources are shed first when the budget runs low.
- * (luna's tokens on the source search itself were not measured.)
+ * (The 2026-09-21 smoke run measured luna source searches at 1.2-1.35 cents,
+ * one search each.)
  */
 export const SPEND = {
   // Override with TRACELY_DAILY_BUDGET_USD. The default is deliberately small:
   // a pre-revenue launch should find out it was wrong from a 503, not a card
   // statement. $10/day is ~12,000-18,000 typing-pause checks on the fast
-  // tier, or ~29-44 free users at their 400-check cap (shared/plan.js), or at
-  // most ~1,000 source searches (the per-call fee alone).
+  // tier at an even 1-/3-sentence mix (~9,600-25,600 across the full range),
+  // or ~29-44 free users at their 400-check cap on that mix (~24 if every
+  // check is a cold 3-sentence one; shared/plan.js), or at most ~1,000
+  // source searches (the per-call fee alone).
   defaultDailyBudgetUsd: 10,
 
   // Below this fraction of budget remaining, shed the expensive route first.

@@ -51,7 +51,8 @@ const MICRO_CENTS_PER_USD = 100 * 1e6;
  * first, and when it is gone the tester falls back to their own plan on the
  * extension pool rather than being refused. `paid` is Student and Pro
  * accounts on the extension routes, for the same reason `app` exists: their
- * slider reaches models 50-200x the fast one's price, and on the shared pool
+ * slider reaches models ~10x (gpt-5.6-terra) and 40-50x (gpt-6-astra) the
+ * fast one's price per token, and on the shared pool
  * one of them could empty the day and 503 every free user. When it is spent
  * they drop to the fast model on the extension pool — the day everyone had
  * before the slider meant anything. */
