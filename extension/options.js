@@ -100,7 +100,7 @@ function paintSlider(pos) {
 const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
 
-let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false };
+let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false, beta: false };
 
 function maxStop() {
   if (account.unenforced) return MODELS.length - 1;
@@ -137,6 +137,18 @@ function renderAccount() {
   $("signedIn").hidden = !signedIn;
   $("signedOut").hidden = signedIn;
 
+  /* The team's test build (beta.json + Load unpacked): the server serves it as
+     Pro whether or not anyone signs in, and says so with `beta`. A tester is
+     shown the plan they are on and is never offered one to buy — so the badge
+     appears signed out too, and every pay link is hidden. Without `beta` none
+     of this changes anything. */
+  const beta = account.beta === true;
+  $("betaPlanOut").hidden = !(beta && !signedIn);
+  $("betaPlanLabel").textContent = PLAN_LABEL[account.plan] ?? PLAN_LABEL.pro;
+  $("seePlans").hidden = beta;
+  $("acctBeta").hidden = !beta;
+  $("manageLink").hidden = beta;
+
   if (!account.configured) {
     $("acctHint").textContent = "This build has no Tracely accounts configured, so everything runs unmetered against whichever server answered.";
     $("signIn").disabled = true;
@@ -172,9 +184,13 @@ function renderAccount() {
       manage.textContent = "Email us to cancel";
       manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;
     }
-    $("acctHint").textContent = account.plan === "free"
-      ? "You're signed in on the free plan. Upgrading unlocks the smarter models everywhere Tracely runs."
-      : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
+    $("acctHint").textContent = beta
+      ? "This is a Tracely test build, so you're on Pro while the beta lasts — there is nothing to buy."
+      : account.plan === "free"
+        ? "You're signed in on the free plan. Upgrading unlocks the smarter models everywhere Tracely runs."
+        : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
+  } else if (beta) {
+    $("acctHint").textContent = "This is a Tracely test build, so every check runs on Pro while the beta lasts — no account and nothing to buy. Signing in is optional.";
   } else {
     $("acctHint").textContent = "Sign in to use the plan you pay for. Not required — without an account Tracely runs on the free tier.";
   }
@@ -193,7 +209,7 @@ function acctStatus(text, warn) {
 async function refreshAccount(force) {
   try {
     const r = await chrome.runtime.sendMessage({ type: "tracely-entitlement", force: force === true });
-    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced) };
+    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced), beta: r.beta === true };
   } catch { /* worker restarting — keep the last answer */ }
   renderAccount();
   applyPlanState();
