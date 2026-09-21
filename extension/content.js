@@ -660,7 +660,9 @@
       flowInflight = true;
       flowAt = Date.now();
       try {
-        const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: effModel(settings) });
+        // The stop's effort rides along, as it does on /api/check: without it
+        // the server ran every flow check at its default whatever the slider said.
+        const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: effModel(settings), effort: effEffort(settings) });
         flowIssues = Array.isArray(data.issues) ? data.issues : [];
         flowSig = sig;
         persistFlow();
@@ -2311,6 +2313,7 @@
           correction: f?.revision || undefined,
           context: docText.slice(0, 6000),
           model: effModel(settings),
+          effort: effEffort(settings), // the stop's effort, as on /api/check
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
         persistCaches();
@@ -3110,6 +3113,7 @@
           correction: f?.revision || undefined,
           context: fieldText.slice(0, 6000),
           model: effModel(settings),
+          effort: effEffort(settings), // the stop's effort, as on /api/check
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
       } catch (err) {

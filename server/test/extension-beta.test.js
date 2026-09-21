@@ -351,6 +351,19 @@ test("both widgets persist a plan clamp only over a stored per-site choice", () 
   assert.equal([...src.matchAll(/applyDefaultStop\(settings, SETTINGS_KEY/g)].length, 2, "both widgets use the default stop");
 });
 
+test("every model route the widgets call carries the stop's model AND effort", () => {
+  // /api/flow and /api/sources used to send the model alone, so the server ran
+  // them at its default effort while the slider said Thorough.
+  const src = read("content.js");
+  const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)"/g)];
+  assert.equal(sites.length, 5, "docs + field /api/check, docs /api/flow, docs + field /api/sources");
+  for (const m of sites) {
+    const body = src.slice(m.index, src.indexOf("});", m.index));
+    assert.match(body, /model: effModel\(settings\)/, `${m[1]} at ${m.index}`);
+    assert.match(body, /effort: effEffort\(settings\)/, `${m[1]} at ${m.index} sends no effort`);
+  }
+});
+
 /* ── options page ─────────────────────────────────────────────────────── */
 
 async function renderOptions(answer) {
