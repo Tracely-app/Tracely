@@ -1,12 +1,17 @@
 /**
- * The model ids live in two places on purpose: lib/llm.js owns them, and
- * shared/plan.js mirrors them because it must stay a leaf module the browser
- * and the tests can load without pulling in the API client.
+ * shared/plan.js now OWNS the model ids and lib/llm.js re-exports them, so the
+ * server-side mirror this file used to hold together no longer exists — the
+ * first test asserts they are the same object rather than merely equal, which
+ * is what makes drift impossible instead of merely detected.
  *
- * A mirror that drifts is silent and expensive: clampModel would stop
- * recognising the id the server actually sends, fall through its "unknown
- * model" branch, and quietly serve every paying account the cheap model. This
- * file is the only thing holding the two halves together.
+ * Do not soften that back to deepEqual against a second literal. A mirror that
+ * drifts is silent and expensive: clampModel would stop recognising the id the
+ * server actually sends, fall through its "unknown model" branch, and quietly
+ * serve every paying account the cheap model.
+ *
+ * The hand copies under extension/ are real and are still the point of this
+ * file — an MV3 worker cannot import from the server tree, so three files
+ * there spell the ids out again. Those assertions are below.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -14,8 +19,10 @@ import assert from "node:assert/strict";
 import { MODEL_TIERS, ALLOWED_MODELS, DEFAULT_MODEL, MODEL_PRICES } from "../lib/llm.js";
 import { MODEL_FOR_TIER, TIER_FOR_MODEL, MODEL_TIERS as TIER_NAMES, PLAN_MODEL_CEILING, PLANS } from "../shared/plan.js";
 
-test("shared/plan.js mirrors lib/llm.js exactly", () => {
-  assert.deepEqual(MODEL_FOR_TIER, MODEL_TIERS);
+test("lib/llm.js serves shared/plan.js's ids, not a copy of them", () => {
+  // Identity, not equality: deepEqual would also pass against a second literal
+  // that happened to agree today, which is the arrangement this replaced.
+  assert.equal(MODEL_TIERS, MODEL_FOR_TIER);
 });
 
 test("every tier name is spelled the same on both sides", () => {
