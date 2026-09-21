@@ -121,7 +121,7 @@ export const SPEND = {
   /* ── the PAID pool: Student and Pro accounts on the extension's routes ──
    *
    * Hosted /api/check, /api/flow and /api/sources run the model the client's
-   * slider asks for, clamped to the plan — up to the thorough model, ~125-200x
+   * slider asks for, clamped to the plan — up to the thorough model, ~40-50x
    * the fast one per token. On the shared extension pool a single Pro user on
    * "Smarter" could spend the $10 day in minutes and 503 every free user, the
    * exact failure the app pool exists to prevent. So paid-plan calls on the

@@ -101,9 +101,10 @@ export function spendState({ enforced = true, at = Date.now(), env = process.env
     remaining,
     remainingPct,
     allowed: remaining > 0,
-    // Sources cost ~16x a check (OpenAI bills web_search per call on top of
-    // tokens), so shedding them first buys 16x the runway for the feature
-    // people actually notice missing.
+    // A source search costs ~10-25x a typing-pause check on the fast tier
+    // (OpenAI bills web_search per call on top of tokens), so shedding them
+    // first buys that much runway for the feature people actually notice
+    // missing.
     sourcesAllowed: remaining > 0 && remainingPct > SPEND.shedSourcesAtRemainingPct,
   };
 }

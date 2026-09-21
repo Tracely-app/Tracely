@@ -570,8 +570,8 @@ async function handleStripeWebhook(req, res) {
 
    1. GLOBAL DAILY BUDGET (lib/spend.js) — the only thing that bounds a
       determined attacker, because it does not depend on identity at all. When
-      it runs low, sources are shed before checks: a source search costs ~16x
-      a check, so dropping it buys 16x the runway.
+      it runs low, sources are shed before checks: a source search costs
+      ~10-25x a typing-pause check, so dropping it buys that much runway.
    2. PER-CALLER DAILY QUOTA — bounds accidents and casual overuse, which is
       most of the real risk. Keyed on a signed-in id or a client-supplied
       install id; an address alone cannot carry a daily quota without locking
@@ -1040,7 +1040,7 @@ const server = http.createServer(async (req, res) => {
       const result = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // webSearchCalls: 1 — the tool fee is most of this route's cost and is
       // invisible in the token usage, so pricing it off tokens alone would
-      // under-count the expensive route by ~16x.
+      // under-count the expensive route ~5x on the fast tier.
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: 1, enforced: ent.enforced, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;

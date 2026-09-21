@@ -222,8 +222,9 @@ under a synthetic `__global__` account. SQLite-backed rather than in memory,
 because "restart the server to reset the budget" would be a bypass.
 
 When the day runs low, **sources are shed before checks.** OpenAI bills the
-`web_search` tool per call ($10/1000) on top of tokens, so one source search
-costs about as much as 16 fact checks; dropping it buys 16x the runway for the
+`web_search` tool per call ($10/1000) on top of tokens, so the fee alone for
+one source search costs about as much as 10-25 typing-pause checks on the fast
+tier (`eval/models/FINDINGS.md`); dropping it buys that much runway for the
 feature people actually notice missing. Below 20% remaining, `/api/sources`
 answers 503 and checking continues. At 0%, everything answers 503.
 
