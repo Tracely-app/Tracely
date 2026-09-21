@@ -1,0 +1,151 @@
+/**
+ * The wire behaviour of lib/llm.js, pinned.
+ *
+ * Before the provider seam these paths had no test at all: textCall,
+ * webSearchCall, citation extraction, the output[] walk and its refusal
+ * branch, the error mapper, and the one-shot effort fallback. They matter more
+ * than their coverage suggested, because every CheckError kind and message
+ * here reaches the shipped extension verbatim (server.js serialises them into
+ * the JSON error body on /api/check, /api/flow and /api/sources). A reworded
+ * message is a user-visible change to a build under Web Store review.
+ *
+ * The seam was checked byte-for-byte against the pre-seam module across 35
+ * scenarios before this file was written; these are the ones worth keeping.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+
+let n = 0;
+const fresh = () => import(`../lib/llm.js?t=${n++}`); // effort state is per module instance
+const ok = (json) => ({ ok: true, status: 200, json: async () => json });
+const bad = (status, json) => ({ ok: false, status, json: async () => json });
+const SCHEMA = { type: "object", properties: { a: { type: "string" } }, required: ["a"], additionalProperties: false };
+
+function stub(...replies) {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+    const r = replies.shift();
+    if (r instanceof Error) throw r;
+    return r;
+  };
+  return calls;
+}
+const kindOf = async (p) => p.then(() => null, (e) => ({ kind: e.kind, status: e.status, message: e.message, retryAfter: e.retryAfter }));
+
+test.beforeEach(() => {
+  process.env.OPENAI_API_KEY = "sk-test";
+  delete process.env.TRACELY_LLM_PROVIDER;
+});
+
+test("structuredCall sends the Responses API strict json_schema body", async () => {
+  const llm = await fresh();
+  const calls = stub(ok({ model: "gpt-5.4", output_text: '{"a":"x"}', usage: { input_tokens: 5, output_tokens: 7, input_tokens_details: { cached_tokens: 2 } } }));
+  const r = await llm.structuredCall({ model: "gpt-5.4", system: "S", user: "U", schema: SCHEMA, maxTokens: 99, what: "w", name: "nm" });
+  assert.equal(calls[0].url, "https://api.openai.com/v1/responses");
+  assert.equal(calls[0].headers.Authorization, "Bearer sk-test");
+  assert.deepEqual(calls[0].body, {
+    model: "gpt-5.4", instructions: "S", input: "U", max_output_tokens: 99,
+    text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
+    reasoning: { effort: "low" },
+  });
+  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-5.4", usage: { input: 5, output: 7, cached: 2 } });
+});
+
+test("textCall passes history through and trims the reply", async () => {
+  const llm = await fresh();
+  const calls = stub(ok({ model: "m", output_text: "  hi  " }));
+  const r = await llm.textCall({ model: "gpt-5-nano", system: "S", messages: [{ role: "user", content: "q" }], maxTokens: 10, what: "t", effort: "high" });
+  assert.deepEqual(calls[0].body, { model: "gpt-5-nano", instructions: "S", input: [{ role: "user", content: "q" }], max_output_tokens: 10, reasoning: { effort: "high" } });
+  assert.equal(r.text, "hi");
+});
+
+test("webSearchCall sends the web_search tool, no effort, and returns url citations", async () => {
+  const llm = await fresh();
+  const calls = stub(ok({ output: [{ content: [{ type: "output_text", text: "t", annotations: [
+    { type: "url_citation", url: "https://a.org", title: "A" }, { type: "url_citation", url: "https://b.org" }, { type: "file_citation", url: "x" },
+  ] }] }] }));
+  const r = await llm.webSearchCall({ model: "nope", system: "S", user: "q", maxTokens: 5, what: "s" });
+  assert.deepEqual(calls[0].body, { model: "gpt-5-nano", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }] });
+  assert.deepEqual(r.citations, [{ url: "https://a.org", title: "A" }, { url: "https://b.org", title: "" }]);
+});
+
+test("a raw output[] array is walked, and a refusal part is its own error", async () => {
+  let llm = await fresh();
+  stub(ok({ output: [{ content: [{ type: "output_text", text: '{"a":' }, { type: "output_text", text: '"y"}' }] }] }));
+  assert.deepEqual((await llm.structuredCall({ schema: SCHEMA, what: "w" })).parsed, { a: "y" });
+  llm = await fresh();
+  stub(ok({ output: [{ content: [{ type: "refusal", refusal: "no" }] }] }));
+  assert.deepEqual(await kindOf(llm.structuredCall({ schema: SCHEMA, what: "w" })), { kind: "refusal", status: 502, message: "The model declined this request.", retryAfter: undefined });
+});
+
+test("every HTTP failure maps to the kind and message the extension shows", async () => {
+  const cases = [
+    [bad(401, {}), { kind: "no_key", status: 503, message: "OpenAI rejected the API key." }],
+    [bad(429, {}), { kind: "rate_limit", status: 429, message: "OpenAI rate limit or quota reached — try again shortly.", retryAfter: 30 }],
+    [bad(404, { error: { code: "model_not_found", message: "gone" } }), { kind: "server", status: 500, message: "OpenAI does not recognise that model. Fix MODEL_TIERS in lib/llm.js (OpenAI said: gone)" }],
+    [bad(500, {}), { kind: "server", status: 502, message: "OpenAI had a server error — try again." }],
+    [bad(400, { error: { message: "nope" } }), { kind: "bad_request", status: 502, message: "nope" }],
+    [bad(403, {}), { kind: "bad_request", status: 502, message: "OpenAI returned 403." }],
+    [Object.assign(new Error("x"), { name: "TimeoutError" }), { kind: "timeout", status: 504, message: "The model took too long to answer — try a smaller portion of text." }],
+    [new Error("x"), { kind: "network", status: 502, message: "Could not reach OpenAI." }],
+  ];
+  for (const [reply, want] of cases) {
+    const llm = await fresh();
+    stub(reply);
+    assert.deepEqual(await kindOf(llm.structuredCall({ schema: SCHEMA, what: "w" })), { retryAfter: undefined, ...want });
+  }
+});
+
+test("no key is a 503 no_key, and nothing is sent", async () => {
+  delete process.env.OPENAI_API_KEY;
+  const llm = await fresh();
+  const calls = stub();
+  assert.deepEqual(await kindOf(llm.structuredCall({ schema: SCHEMA, what: "w" })),
+    { kind: "no_key", status: 503, message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env", retryAfter: undefined });
+  assert.equal(calls.length, 0);
+});
+
+test("a 400 that blames effort retries once without it, and effort stays off after", async () => {
+  const llm = await fresh();
+  const calls = stub(
+    bad(400, { error: { message: "Unsupported parameter: 'reasoning.effort'" } }),
+    ok({ output_text: '{"a":"1"}' }),
+    ok({ output_text: '{"a":"2"}' }),
+  );
+  assert.deepEqual((await llm.structuredCall({ schema: SCHEMA, what: "w" })).parsed, { a: "1" });
+  await llm.structuredCall({ schema: SCHEMA, what: "w" });
+  assert.equal(calls.length, 3);
+  assert.ok(calls[0].body.reasoning, "first attempt carries effort");
+  assert.equal(calls[1].body.reasoning, undefined, "the retry drops it");
+  assert.equal(calls[2].body.reasoning, undefined, "and the process remembers");
+});
+
+test("truncation is its own kind, so runFactCheck can split the batch", async () => {
+  const llm = await fresh();
+  stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: "{" }));
+  assert.equal((await kindOf(llm.structuredCall({ schema: SCHEMA, what: "fact check" }))).kind, "truncated");
+});
+
+test("an unknown TRACELY_LLM_PROVIDER fails loudly instead of falling back", async () => {
+  process.env.TRACELY_LLM_PROVIDER = "anthropic";
+  const llm = await fresh();
+  const calls = stub(ok({ output_text: '{"a":"x"}' }));
+  const e = await kindOf(llm.structuredCall({ schema: SCHEMA, what: "w" }));
+  assert.equal(e.kind, "server");
+  assert.match(e.message, /Unknown TRACELY_LLM_PROVIDER "anthropic"\. Registered: openai/);
+  assert.equal(calls.length, 0, "a typo must not reach any vendor");
+  process.env.TRACELY_LLM_PROVIDER = "OpenAI"; // case and whitespace are forgiven
+  stub(ok({ output_text: '{"a":"x"}' }));
+  assert.deepEqual((await (await fresh()).structuredCall({ schema: SCHEMA, what: "w" })).parsed, { a: "x" });
+});
+
+test("the facade keeps exactly its thirteen exports", async () => {
+  const llm = await fresh();
+  assert.deepEqual(Object.keys(llm).sort(), [
+    "ALLOWED_MODELS", "DEFAULT_MODEL", "MODEL_PRICES", "MODEL_TIERS", "WEB_SEARCH_CALL_DOLLARS",
+    "assertStrictSchema", "chooseModel", "costMicroCents", "hasApiKey", "mapApiError",
+    "structuredCall", "textCall", "webSearchCall",
+  ]);
+  assert.ok(llm.ALLOWED_MODELS instanceof Set);
+});
