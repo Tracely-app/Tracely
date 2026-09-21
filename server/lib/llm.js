@@ -196,7 +196,27 @@ const DEFAULT_EFFORT = "low";
  * can now disable effort is the vendor rejecting a valid level — what the
  * fallback was for. */
 const VALID_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
-const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
+/* Exported (additively) so server.js can normalise a client's effort ONCE at
+ * the route and log the level it will actually send. */
+export const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
+
+/* Every failure leaving this facade carries the model and effort it was SENT
+ * at, so server.js can log what failed without logging what was sent — the
+ * user's text never appears in the tag. Non-enumerable, and never serialised:
+ * the wire body is built from kind/message/retryAfter alone. `effort: null`
+ * means the request carried no reasoning effort. */
+function tagFailure(err, sent) {
+  if (err instanceof CheckError && !err.llm) {
+    Object.defineProperty(err, "llm", { value: { model: sent.model, effort: sent.effort ?? null }, enumerable: false, configurable: true });
+  }
+  return err;
+}
+
+/* The two "server" failures that are really answer-quality failures get a
+ * finer `reason` for the log. Same kind, same status, same wire message as
+ * before — only the log line can tell them apart. */
+const unparseable = (what) => Object.assign(new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 }), { reason: "unparseable" });
+const noContent = (what) => Object.assign(new CheckError("server", `Model returned no content for ${what}.`, { status: 502 }), { reason: "empty" });
 
 /* Keyed per provider AND MODEL, because "does this accept reasoning effort" is
  * a fact about one model, not about the process.
@@ -219,57 +239,98 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
   const chosen = chooseModel(model);
   const level = normalizeEffort(effort);
   const withEffort = effortFor(p, chosen);
-  const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
+  const sent = { model: chosen, effort: withEffort ? level : null };
+  try {
+    const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
 
-  let json;
-  try {
-    json = await post(p, body);
+    let json;
+    try {
+      json = await post(p, body);
+    } catch (err) {
+      if (!withEffort || !p.isEffortError(err)) throw err;
+      effortDisabled.add(effortKey(p, chosen));
+      sent.effort = null;
+      json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
+    }
+    p.checkComplete(json, what);
+    const text = p.extractText(json);
+    if (!text) throw noContent(what);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw unparseable(what);
+    }
+    return { parsed, model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    if (!withEffort || !p.isEffortError(err)) throw err;
-    effortDisabled.add(effortKey(p, chosen));
-    json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
+    throw tagFailure(err, sent);
   }
-  p.checkComplete(json, what);
-  const text = p.extractText(json);
-  if (!text) throw new CheckError("server", `Model returned no content for ${what}.`, { status: 502 });
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
-  }
-  return { parsed, model: p.modelOf(json), usage: p.usageOf(json) };
 }
 
 /** A free-text call with conversation history. Returns the reply text. */
 export async function textCall({ model, system, messages, maxTokens, what, effort = DEFAULT_EFFORT }) {
   const p = provider();
   const chosen = chooseModel(model);
-  // No effort fallback here, and none was ever added: a textCall that 400s on
-  // effort fails. structuredCall is where the retry has been measured.
-  const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: effortFor(p, chosen) ? normalizeEffort(effort) : undefined });
-  const json = await post(p, body);
-  p.checkComplete(json, what);
-  return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };
+  const level = effortFor(p, chosen) ? normalizeEffort(effort) : undefined;
+  const sent = { model: chosen, effort: level ?? null };
+  try {
+    // No effort fallback here, and none was ever added: a textCall that 400s on
+    // effort fails. structuredCall is where the retry has been measured.
+    const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: level });
+    const json = await post(p, body);
+    p.checkComplete(json, what);
+    return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };
+  } catch (err) {
+    throw tagFailure(err, sent);
+  }
 }
 
+/* Whether a model takes reasoning effort ALONGSIDE the web_search tool is its
+ * own fact, keyed apart from effortKey: OpenAI refuses web_search at
+ * "minimal" effort, and that refusal must not switch effort off for the same
+ * model's structured calls — which would put every /api/check on that model
+ * onto the expensive "(omitted)" row of the table above. */
+const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
+
 /** A call that may search the web before answering. Returns raw text. */
-export async function webSearchCall({ model, system, user, maxTokens, what }) {
+export async function webSearchCall({ model, system, user, maxTokens, what, effort = DEFAULT_EFFORT }) {
   const p = provider();
-  // Searching then writing is slower than writing, hence the longer timeout.
-  // It sends no reasoning effort — it never has, so every source search runs
-  // at the vendor's default. That is a known cost (see the effort table
-  // above) and changing it wants a fresh measurement, not a drive-by edit.
-  const json = await post(p, p.webSearchBody({ model: chooseModel(model), system, user, maxTokens }), { timeoutMs: 180_000 });
-  p.checkComplete(json, what);
-  return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
+  const chosen = chooseModel(model);
+  // It sent no reasoning effort until the beta change (2026-09-21), so every
+  // source search ran at the vendor's default — per the table above, several
+  // times the tokens of "low" for the same verdicts on structured calls. It
+  // now sends the caller's effort (normalised; default "low"). Not re-measured
+  // on the source-search prompt, because this machine has no key: if source
+  // quality drops, that measurement is the first thing to run. "minimal" is
+  // raised to "low" because web_search does not run at minimal.
+  const normalized = normalizeEffort(effort);
+  const level = normalized === "minimal" ? "low" : normalized;
+  const withEffort = effortFor(p, chosen) && !effortDisabled.has(webEffortKey(p, chosen));
+  const sent = { model: chosen, effort: withEffort ? level : null };
+  try {
+    // Searching then writing is slower than writing, hence the longer timeout.
+    const build = (e) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e });
+    let json;
+    try {
+      json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+    } catch (err) {
+      if (!withEffort || !p.isEffortError(err)) throw err;
+      effortDisabled.add(webEffortKey(p, chosen));
+      sent.effort = null;
+      json = await post(p, build(undefined), { timeoutMs: 180_000 });
+    }
+    p.checkComplete(json, what);
+    return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
+  } catch (err) {
+    throw tagFailure(err, sent);
+  }
 }
 
 /**
  * A web search that must happen, answering JSON that matches `schema`.
  *
  * ADDITIVE. webSearchCall above is what the extension's /api/sources uses and
- * it is untouched: it offers the tool, returns free text, and harvests url
+ * it stays separate: it offers the tool, returns free text, and harvests url
  * citations as a backstop. This is the desktop's source finder, which forces
  * the search and parses a strict schema, exactly as the relay did.
  */
@@ -280,23 +341,29 @@ export async function webSearchStructuredCall({ model, system, user, schema, max
   const chosen = chooseModel(model);
   const level = normalizeEffort(effort);
   const withEffort = effortFor(p, chosen);
-  const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
-  let json;
+  const sent = { model: chosen, effort: withEffort ? level : null };
   try {
-    json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+    const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
+    let json;
+    try {
+      json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+    } catch (err) {
+      if (!withEffort || !p.isEffortError(err)) throw err;
+      effortDisabled.add(effortKey(p, chosen));
+      sent.effort = null;
+      json = await post(p, build(undefined), { timeoutMs: 180_000 });
+    }
+    p.checkComplete(json, what);
+    const text = p.extractText(json);
+    if (!text) throw noContent(what);
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw unparseable(what);
+    }
+    return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
   } catch (err) {
-    if (!withEffort || !p.isEffortError(err)) throw err;
-    effortDisabled.add(effortKey(p, chosen));
-    json = await post(p, build(undefined), { timeoutMs: 180_000 });
+    throw tagFailure(err, sent);
   }
-  p.checkComplete(json, what);
-  const text = p.extractText(json);
-  if (!text) throw new CheckError("server", `Model returned no content for ${what}.`, { status: 502 });
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
-  }
-  return { parsed, citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
 }

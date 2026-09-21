@@ -60,14 +60,16 @@ export const openai = {
     return body;
   },
 
-  webSearchBody({ model, system, user, maxTokens }) {
-    return {
+  webSearchBody({ model, system, user, maxTokens, effort }) {
+    const body = {
       model,
       instructions: system,
       input: user,
       max_output_tokens: maxTokens,
       tools: [{ type: "web_search" }],
     };
+    if (effort) body.reasoning = { effort };
+    return body;
   },
 
   /* A web search that MUST happen and must answer in a strict schema — the

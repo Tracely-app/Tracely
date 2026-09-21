@@ -130,7 +130,7 @@ async function checkBatch({ text, sentences, model, effort }) {
 // Search bills PER CALL on top of tokens, which is why this is the one path
 // with a caller-side budget (search/webBudget in server.js).
 // ---------------------------------------------------------------------------
-export async function findSources({ claim, correction, context, model, mock = false }) {
+export async function findSources({ claim, correction, context, model, effort, mock = false }) {
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockSources(claim, chosenModel);
 
@@ -153,12 +153,15 @@ Rules:
 
   // The web_search tool bills per call on top of tokens, which is why
   // findSources is the one path with a caller-side budget (search/webBudget).
+  // `effort` undefined falls to lib/llm.js's DEFAULT_EFFORT ("low"), not to
+  // the vendor's costlier default — the same rule runFactCheck follows.
   const { text: fullText, citations, model: usedModel, usage } = await webSearchCall({
     model: chosenModel,
     system: sys,
     user: userMsg,
     maxTokens: 6_000,
     what: "source search",
+    effort,
   });
 
   let sources = [];
