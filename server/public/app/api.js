@@ -1,27 +1,20 @@
 /** Typed-ish fetch wrappers — the renderer's only path to the server. */
 
 /* ── usage metering ─────────────────────────────────────────────────────────
-   Every response carrying {usage:{input,output}, model} is accumulated into a
-   per-model-family ledger; after each accumulation a "tracely:usage" event
-   fires on window with cumulative {input, output, cost}. Cost is a rough
-   estimate from public per-MTok pricing. */
-const PRICING = { // $ per MTok: [input, output]
-  opus: [5, 25],
-  sonnet: [3, 15],
-  haiku: [1, 5],
-};
-const ledger = {
-  opus: { input: 0, output: 0 },
-  sonnet: { input: 0, output: 0 },
-  haiku: { input: 0, output: 0 },
-  other: { input: 0, output: 0 },
-};
+   Every response carrying {usage:{input,output}, model} is accumulated; after
+   each accumulation a "tracely:usage" event fires on window with cumulative
+   {input, output, cost}.
 
-function familyOf(model) {
-  const m = String(model ?? "").toLowerCase();
-  for (const fam of Object.keys(PRICING)) if (m.includes(fam)) return fam;
-  return "other";
-}
+   Prices come from /shared/prices.js, the SAME table the server's spend cap
+   bills against. This used to be its own table keyed by Anthropic family name
+   — opus / sonnet / haiku, matched by substring — and no OpenAI model id
+   contains any of those, so every call landed in an unpriced bucket and the
+   header read $0.00 for any session, however long. A model with no price
+   still counts its tokens; it just adds nothing to the dollar figure, which
+   is the honest answer for a model we cannot price. */
+import { priceFor } from "/shared/prices.js";
+
+let totalIn = 0, totalOut = 0, cost = 0;
 
 function recordUsage(data) {
   const u = data?.usage;
@@ -29,17 +22,11 @@ function recordUsage(data) {
   const input = Number(u.input) || 0;
   const output = Number(u.output) || 0;
   if (input === 0 && output === 0) return;
-  const fam = familyOf(data.model);
-  ledger[fam].input += input;
-  ledger[fam].output += output;
-
-  let totalIn = 0, totalOut = 0, cost = 0;
-  for (const [name, tally] of Object.entries(ledger)) {
-    totalIn += tally.input;
-    totalOut += tally.output;
-    const [pIn, pOut] = PRICING[name] ?? [0, 0];
-    cost += (tally.input * pIn + tally.output * pOut) / 1e6;
-  }
+  const cached = Math.min(Number(u.cached) || 0, input);
+  totalIn += input;
+  totalOut += output;
+  const p = priceFor(data.model);
+  if (p) cost += ((input - cached) * p.input + cached * p.cached + output * p.output) / 1e6;
   window.dispatchEvent(new CustomEvent("tracely:usage", {
     detail: { input: totalIn, output: totalOut, cost },
   }));
