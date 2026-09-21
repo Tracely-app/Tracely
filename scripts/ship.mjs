@@ -14,7 +14,7 @@
  * the published one — so a bad state stops here rather than reaching users.
  */
 import { execSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -219,7 +219,38 @@ if (!existsSync(envFile)) die('.env.release not found — GH_TOKEN is required t
 const token = readFileSync(envFile, 'utf8').match(/^GH_TOKEN=(.+)$/m)?.[1]?.trim()
 if (!token) die('No GH_TOKEN in .env.release.')
 
-console.log('\n4/4  Build + publish')
+console.log('\n4/5  Build + publish')
+// release:win builds with --publish never and then runs scripts/publish-dl.mjs,
+// which uploads to dl.jointracely.com and verifies the feed over HTTPS before
+// returning. By the time this line completes, users are already being offered
+// the new version — the GitHub release below is bookkeeping, not delivery.
 run('npm run release:win', { env: { ...SHIP_ENV, GH_TOKEN: token } })
+
+console.log('\n5/5  Tagging and recording the release on GitHub')
+// electron-builder used to do this as a side effect of uploading. It does not
+// any more — `publish: generic` has nothing to create a release on — so the tag
+// and the release object are made here explicitly.
+//
+// Two things still depend on them, which is why they did not go away with the
+// hosting. The tag is how a version maps back to a commit for ROLLBACK.md, and
+// `release: published` is the trigger for .github/workflows/mac-installers.yml,
+// which is the entire Mac build. Nothing here reaches a user.
+//
+// --target pins the tag to the commit that was actually built. The old API path
+// sent no target_commitish, so GitHub put the tag at the default branch's head
+// — which was right only because nothing lands on main during a ship, i.e. by
+// luck rather than by construction.
+const head = out('git rev-parse HEAD')
+const releaseEnv = { ...SHIP_ENV, GH_TOKEN: token }
+const artifacts = readdirSync(join(ROOT, 'release'))
+  .filter((f) => /\.(exe|blockmap)$/.test(f) || f === 'latest.yml')
+  .map((f) => `"${join(ROOT, 'release', f)}"`)
+  .join(' ')
+run(
+  `gh release create v${version} --target ${head} --title "v${version}" ` +
+    `--notes "Windows installer and the update feed are live at https://dl.jointracely.com — this release is the record, not the download. Mac installers are attached by the mac-installers workflow a few minutes from now." ` +
+    artifacts,
+  { env: releaseEnv }
+)
 
 console.log(`\nPublished v${version}. Users are offered it within 6 hours.\n`)

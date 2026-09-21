@@ -157,6 +157,31 @@ jobs:
           rm -rf node_modules/@img/sharp-darwin-arm64 node_modules/@img/sharp-libvips-darwin-arm64
           npx electron-builder --mac --x64 --publish never
 
+      # dl.jointracely.com is where users actually get the Mac installers — the
+      # website's buttons point at /download/Tracely-arm64.dmg and
+      # /download/Tracely-x64.dmg, which this step repoints at the build below.
+      # It runs BEFORE the GitHub upload because the GitHub copy is the archive
+      # and this is the delivery.
+      #
+      # --no-feed: there is no latest.yml to publish here. electron-builder
+      # writes latest-mac.yml, which is deliberately never uploaded — Mac
+      # auto-update needs a signed app and a .zip target and has neither, so
+      # publishing it would have every installed Mac copy find an update it
+      # cannot apply. Mac is download-only until signing exists.
+      - name: publish installers to dl.jointracely.com
+        shell: bash
+        env:
+          DL_SSH_KEY: ${{ secrets.DL_SSH_KEY }}
+        run: |
+          if [ -z "$DL_SSH_KEY" ]; then
+            echo "::error::DL_SSH_KEY is not set. The Mac installers would build and never reach anyone — see DEPLOY.md 'Release hosting'."
+            exit 1
+          fi
+          key="$RUNNER_TEMP/tracely-dl"
+          printf '%s\n' "$DL_SSH_KEY" > "$key"
+          chmod 600 "$key"
+          TRACELY_DL_KEY="$key" node scripts/publish-dl.mjs --no-feed
+
       - name: attach installers to the release
         shell: bash
         env:
