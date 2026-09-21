@@ -1301,7 +1301,23 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "DELETE") { json(res, 200, store.library.remove(libMatch[1]), cors); return; }
     }
     if (url.pathname === "/api/prefs" && req.method === "GET") { json(res, 200, store.prefs.get(), cors); return; }
-    if (url.pathname === "/api/prefs" && req.method === "PUT") { json(res, 200, store.prefs.set((await parseJsonBody(req)) ?? {}), cors); return; }
+    if (url.pathname === "/api/prefs" && req.method === "PUT") {
+      /* Refused on a hosted (enforced) server. The prefs row is ONE row shared
+       * by every caller and this route has no authentication, so on a public
+       * box it was a way for anyone with curl to rewrite settings everyone
+       * reads — until 2026-09-21 including the model every extension user's
+       * /api/check ran at. Its only callers are the web renderer's bridge
+       * (src/renderer/src/bridge/httpApi.ts) and the vanilla web app
+       * (public/app/api.js), both built for a LOCAL server; on the hosted box
+       * the browser's Origin is already refused before this line. A local,
+       * single-user server keeps it exactly as it was. */
+      loadEnvFile();
+      if (entitlementConfigured()) {
+        throw new CheckError("forbidden", "Preferences cannot be changed on a hosted Tracely server.", { status: 403 });
+      }
+      json(res, 200, store.prefs.set((await parseJsonBody(req)) ?? {}), cors);
+      return;
+    }
     if (url.pathname === "/api/stats" && req.method === "GET") { json(res, 200, store.stats(), cors); return; }
     if (url.pathname === "/api/analyses" && req.method === "POST") { json(res, 200, store.analyses.create((await parseJsonBody(req)) ?? {}), cors); return; }
     if (url.pathname === "/api/analyses" && req.method === "GET") {

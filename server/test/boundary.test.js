@@ -88,9 +88,10 @@ test("the app routes have a limiter of their own", async () => {
 
 test("a hosted app route cannot be steered to the top model through the global prefs row", async () => {
   // PUT /api/prefs has no authentication. Before appModelFor, this made every
-  // app route run the thorough model for everyone.
+  // app route run the thorough model for everyone. It is now refused outright
+  // on a hosted server; the model check below stands either way.
   const put = await fetch(`${BASE}/api/prefs`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modelStrategy: "uniform", model: "gpt-6-astra" }) });
-  assert.equal(put.status, 200);
+  assert.equal(put.status, 403);
   const r = await post("/api/structure", { text: DRAFT + "prefs" }, "prefs-user");
   assert.equal(r.status, 200);
   assert.match(r.body.model, /^gpt-5-nano/, `an anonymous free caller ran ${r.body.model}`);
