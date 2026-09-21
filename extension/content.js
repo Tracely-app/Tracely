@@ -172,6 +172,33 @@
     for (const fn of tierListeners) { try { fn(); } catch { /* widget torn down */ } }
   }
   let tierResolved = false;
+
+  /* The options page's Faster↔Smarter slider writes chrome.storage.local
+     `model`, and nothing used to read it — the widgets only knew their own
+     setting in the page's localStorage, so moving it did nothing anywhere.
+     It is now the DEFAULT stop: what a site with no widget setting of its own
+     starts on. A per-site choice still wins, and the plan still caps it —
+     clampSettingsToPlan here once the tier is known, the tier listeners when
+     it arrives later, and effModel/effEffort on every request regardless.
+
+     Applied in memory only, never written back to localStorage, so a later
+     change on the options page keeps reaching every site that has not picked
+     its own stop. The tier listeners persist a clamp only when there IS a
+     stored per-site setting to correct, for the same reason. */
+  function applyDefaultStop(settings, settingsKey, onApplied) {
+    if (!useRelay) return; // harness and plain pages: no extension storage
+    const hasOwn = () => typeof jsonParse(lsGet(settingsKey) ?? "null", null)?.model === "string";
+    if (hasOwn()) return;
+    storageGet({ model: "" }, (cfg) => {
+      if (hasOwn()) return; // the user picked a stop while this was in flight
+      const i = SPEED_STOPS.findIndex((s) => s.model === cfg?.model);
+      if (i === -1 || settings.model === SPEED_STOPS[i].model) return;
+      settings.model = SPEED_STOPS[i].model;
+      settings.effort = SPEED_STOPS[i].effort;
+      if (tierResolved) clampSettingsToPlan(settings);
+      onApplied();
+    });
+  }
   let tierTimer = 0;
   function refreshTier() {
     if (!useRelay) return; // harness page: no background worker — stays free
@@ -2439,10 +2466,12 @@
     tierListeners.push(() => {
       // On downgrade, clamp the STORED choice too — a stale top-tier setting must
       // not sit in localStorage looking active (API calls already clamp, and
-      // the server clamps again regardless of what we send).
-      if (clampSettingsToPlan(settings)) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      // the server clamps again regardless of what we send). Only a STORED
+      // choice is rewritten: the options-page default lives in memory.
+      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null) lsSet(SETTINGS_KEY, JSON.stringify(settings));
       render();
     });
+    applyDefaultStop(settings, SETTINGS_KEY, () => render());
 
     function render() {
       const issues = currentIssues();
@@ -2727,9 +2756,10 @@
     }
     tierListeners.push(() => {
       // Same downgrade clamp as docs mode; only repaint if the panel exists.
-      if (clampSettingsToPlan(settings)) lsSet(SETTINGS_KEY, JSON.stringify(settings));
+      if (clampSettingsToPlan(settings) && lsGet(SETTINGS_KEY) !== null) lsSet(SETTINGS_KEY, JSON.stringify(settings));
       if (widget) render();
     });
+    applyDefaultStop(settings, SETTINGS_KEY, () => { if (widget) render(); });
 
     /* ── editable tracking ── */
 
