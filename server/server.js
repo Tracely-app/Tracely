@@ -458,6 +458,19 @@ function servedModel(requested) {
   return ALLOWED_MODELS.has(id) ? id : MODEL_TIERS.fast;
 }
 
+/* /api/check on the fast tier runs at effort "medium" or above, whatever the
+ * client sent. Measured (eval/models/FINDINGS.md): gpt-5.6-luna checks at
+ * 100% at medium vs 90% at low (0 vs 5 harmful verdicts), and builds up to
+ * 2.19.2 send "low" from their Fast stop. /api/check only — the desktop
+ * critique measured no better at medium and no other route was measured, so
+ * everything else keeps the client's effort or the default. A higher level
+ * the client asked for ("high") is kept. */
+const EFFORT_ORDER = ["minimal", "low", "medium", "high"];
+function checkEffort(model, level) {
+  if (model !== MODEL_TIERS.fast) return level;
+  return EFFORT_ORDER.indexOf(level) < EFFORT_ORDER.indexOf("medium") ? "medium" : level;
+}
+
 /**
  * POST /api/billing/webhook.
  *
@@ -961,7 +974,7 @@ const server = http.createServer(async (req, res) => {
       }
       recordCheck(ent, who); // before the call, not after
       const modelUsed = extensionModel(gate, "/api/check", appModelFor("check", ent, model));
-      const level = normalizeEffort(effort);
+      const level = checkEffort(modelUsed, normalizeEffort(effort));
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFactCheck({ text, sentences, model: modelUsed, effort: level, mock: MOCK });
       recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });

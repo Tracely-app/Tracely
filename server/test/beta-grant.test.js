@@ -503,6 +503,31 @@ test("/api/check sends the requested model and effort to the provider, not just 
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "medium" }]);
 });
 
+test("/api/check on the fast tier sends effort medium at least; other tiers and routes keep the client's", async () => {
+  // eval/models/FINDINGS.md: gpt-5.6-luna checks at 100% at medium and 90% at
+  // low. Builds up to 2.19.2 send "low" from their Fast stop.
+  const fastCheck = [["low", "medium"], [undefined, "medium"], ["minimal", "medium"], ["turbo", "medium"], ["medium", "medium"], ["high", "high"]];
+  for (const [asked, expected] of fastCheck) {
+    const { r, calls } = await sent(() => check(D, asked === undefined ? { model: "gpt-5-nano" } : { model: "gpt-5-nano", effort: asked }, { install: `d-floor-${asked}` }));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: expected }], `fast check at ${asked}`);
+  }
+  // A paid caller clamped to fast by plan gets the floor too — it is the model, not the plan.
+  let { calls } = await sent(() => check(D, { model: "gpt-6-astra", effort: "low" }, { token: "tok-free", install: "d-floor-clamped" }));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }]);
+
+  // Not the other tiers: the thorough stop sends low, and low is what runs.
+  ({ calls } = await sent(() => check(D, { model: "gpt-6-astra", effort: "low" }, { headers: BETA, install: "d-floor-astra" })));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "low" }]);
+  ({ calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "low" }, { token: "tok-pro", install: "d-floor-terra" })));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "low" }]);
+
+  // Not the other routes: a fast /api/flow at low stays low.
+  const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
+  ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.6-luna", effort: "low" }, install: "d-floor-flow" })));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
+});
+
 test("a retired id reaches the provider as its tier's current model — on /api/check and /api/flow", async () => {
   let { r, calls } = await sent(() => check(D, { model: "gpt-5.4", effort: "low" }, { token: "tok-student", install: "d-legacy-check" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -536,7 +561,8 @@ test("a failed model call logs route, kind, model and effort — and none of the
   assert.equal(r.status, 502);
   assert.equal(r.body.error.kind, "truncated", "the wire error is unchanged");
   const truncated = await logLine(D, "route=/api/check");
-  assert.equal(truncated, "[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5.6-luna effort=low");
+  // effort=medium: the fast tier's /api/check floor, logged as sent.
+  assert.equal(truncated, "[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5.6-luna effort=medium");
 
   const garbage = await call(D, "POST", "/api/flow", { body: { text: `TRIGGER-GARBAGE ${secret}`, model: "gpt-6-astra", effort: "high" }, headers: BETA, install });
   assert.equal(garbage.status, 502);
