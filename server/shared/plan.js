@@ -179,9 +179,16 @@ export const FREE_DAILY_SOURCE_SEARCHES = 5;
  *     (0.0565-0.086 cents each, the eval's own convention) — the same ~34
  *     cents the 400 was sized against. The full range, all 1-sentence warm
  *     to all 3-sentence cold, is $0.16-0.42.
+ * Plan on the COLD end. The warm figures assume a re-sent document reads
+ * from the prompt cache; in the 2026-09-21 smoke run (one probe) the same
+ * document re-sent with a different sentence to check read nothing from it
+ * and wrote it again — only a byte-identical request hit — and a
+ * typing-pause check's sentence list changes every time. Cold, the even mix
+ * is $0.35 a day at the cap.
  * The extension fires at most one check per 10s, so 400 checks is about an
- * hour of continuous typing, and the server caches on a hash of the input,
- * so re-checking unchanged text is free. luna does NOT plateau the way nano
+ * hour of continuous typing, and the Docs widget keeps each sentence's
+ * verdict (by hash), so re-checking unchanged text costs nothing — the
+ * server itself does not cache /api/check. luna does NOT plateau the way nano
  * did: a caller sending a full 40-sentence batch every time could reach
  * ~$1.56 at the cap, which the per-caller rate limit and the global budget
  * bound, not this number.
