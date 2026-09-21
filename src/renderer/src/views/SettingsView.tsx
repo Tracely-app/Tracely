@@ -881,7 +881,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   <div>
                     <div className="settings-toggle-row-title">Upgrade</div>
                     <div className="settings-toggle-row-subtitle">
-                      Student is {PLAN_PRICE.student} for unlimited checks and sources and a smarter model. Pro is{' '}
+                      Student is {PLAN_PRICE.student} for unlimited checks and sources and the Balanced model. Pro is{' '}
                       {PLAN_PRICE.pro} and adds the most thorough one.
                     </div>
                   </div>

@@ -723,6 +723,7 @@ test("options: the stop notes claim only what the model eval measured", () => {
     assert.ok(!claim.test(notes), `MODEL_NOTES claims ${claim}`);
   }
   assert.ok(!/catches subtler|smarter models/i.test(read("options.html") + src), "the hint copy still sells Smarter as catching more");
+  assert.ok(!/smarter models?/i.test(read("content.js")), "the widget's locked-slider hint still sells a smarter model");
 });
 
 test("options.html lets `hidden` beat the link and badge display rules", () => {

@@ -301,7 +301,7 @@
     const ceiling = maxStop();
     const locked = ceiling < SPEED_STOPS.length - 1; // some stops are above this plan
     const p = Math.min(pos, ceiling);
-    const title = locked ? ' title="Smarter models come with a paid Tracely plan"' : "";
+    const title = locked ? ' title="Balanced and Thorough come with a paid Tracely plan"' : "";
     return `<div class="speedbar${locked ? " locked" : ""}"${title}>
       <span class="sb-lab${p === 0 ? " on" : ""}" data-sb-lab="0">Faster</span>
       <div class="sb-track">
