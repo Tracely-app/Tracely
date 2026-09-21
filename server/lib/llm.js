@@ -345,9 +345,9 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
   // above) and it is what every source search from the store build runs at;
   // the model eval did not cover this route (eval/models/FINDINGS.md), so
   // lowering it wants a fresh measurement on this prompt, not a drive-by
-  // default. An effort the CALLER chose (the widget's stop, which
-  // /api/sources passes through) is sent, normalised; "minimal" is raised to
-  // "low" because web_search does not run at minimal.
+  // default. An effort the CALLER chose (/api/sources passes one through,
+  // though no shipped widget sends it) is sent, normalised; "minimal" is
+  // raised to "low" because web_search does not run at minimal.
   const normalized = effort == null ? null : normalizeEffort(effort);
   const level = normalized === "minimal" ? "low" : normalized;
   const withEffort = level != null && effortFor(p, chosen) && !effortDisabled.has(webEffortKey(p, chosen));

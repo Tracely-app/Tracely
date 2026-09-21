@@ -543,16 +543,19 @@ test("every settings write in both widgets goes through persistSettings", () => 
   assert.match(src, /pinSiteStop\(settings\);[^\n]*\n\s*saveSettings\(\);/, "the slider's snap pins the site's stop");
 });
 
-test("every model route the widgets call carries the stop's model AND effort", () => {
-  // /api/flow and /api/sources used to send the model alone, so the server ran
-  // them at its default effort while the slider said Thorough.
+test("every model route carries the stop's model; only /api/check carries its effort", () => {
+  // The stops' efforts are the ones the eval measured on the CHECK (Fast at
+  // medium). Sent on /api/flow they ran a flow check at an effort nobody
+  // measured (it had always run at the server's default, low), and on
+  // /api/sources they replaced the vendor default every search has run at.
   const src = read("content.js");
   const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)"/g)];
   assert.equal(sites.length, 5, "docs + field /api/check, docs /api/flow, docs + field /api/sources");
   for (const m of sites) {
     const body = src.slice(m.index, src.indexOf("});", m.index));
     assert.match(body, /model: effModel\(settings\)/, `${m[1]} at ${m.index}`);
-    assert.match(body, /effort: effEffort\(settings\)/, `${m[1]} at ${m.index} sends no effort`);
+    if (m[1] === "check") assert.match(body, /effort: effEffort\(settings\)/, `check at ${m.index} sends no effort`);
+    else assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);
   }
 });
 

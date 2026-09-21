@@ -164,6 +164,8 @@
   // control that sets effort is the slider, which sets the stop's, so a saved
   // effort can only differ when an earlier build's stops saved it (Fast at
   // "low", Thorough at "medium") — and sending that would undo the stop.
+  // It is sent on /api/check ONLY, the route the eval measured each stop's
+  // effort on; /api/flow and /api/sources send the model alone.
   function effEffort(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].effort; }
   // Pull a stored preference down to what the plan reaches. Returns whether it
   // moved, so the caller knows to persist.
@@ -719,9 +721,10 @@
       flowInflight = true;
       flowAt = Date.now();
       try {
-        // The stop's effort rides along, as it does on /api/check: without it
-        // the server ran every flow check at its default whatever the slider said.
-        const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: effModel(settings), effort: effEffort(settings) });
+        // The stop's MODEL only. Its effort is the /api/check effort the eval
+        // measured (Fast at medium); a flow check was never measured at
+        // medium, so it runs at the server's default (low) — as it always has.
+        const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: effModel(settings) });
         flowIssues = Array.isArray(data.issues) ? data.issues : [];
         flowSig = sig;
         persistFlow();
@@ -2371,8 +2374,9 @@
           claim: seg.text,
           correction: f?.revision || undefined,
           context: docText.slice(0, 6000),
+          // The stop's model and no effort — the vendor's default, as every
+          // source search has run (the stop's effort is /api/check's).
           model: effModel(settings),
-          effort: effEffort(settings), // the stop's effort, as on /api/check
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
         persistCaches();
@@ -3171,8 +3175,9 @@
           claim: seg.text,
           correction: f?.revision || undefined,
           context: fieldText.slice(0, 6000),
+          // The stop's model and no effort — the vendor's default, as every
+          // source search has run (the stop's effort is /api/check's).
           model: effModel(settings),
-          effort: effEffort(settings), // the stop's effort, as on /api/check
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
       } catch (err) {

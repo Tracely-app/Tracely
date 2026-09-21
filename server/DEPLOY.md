@@ -143,8 +143,10 @@ web renderer bridge and the vanilla web app, both built for a LOCAL server
 anything. Hosted `/api/check` and `/api/sources` now run the model the client
 asks for, clamped to the caller's plan — the prefs row drives the model only
 on a local server. `/api/sources` sends the client's reasoning effort when it
-sends one (the 2.19.3 widgets do) and otherwise none, i.e. the vendor's
-default, exactly as every source search from the store build always has.
+sends one and otherwise none, i.e. the vendor's default, exactly as every
+source search from the store build always has. No shipped widget sends one:
+2.19.3 sends its stop's effort on `/api/check` only (the route it was
+measured on), and `/api/flow` and `/api/sources` get the model alone.
 
 Watch it with:
 
@@ -221,7 +223,10 @@ Before a deploy that changes a tier, know three things:
   (`checkEffort` in server.js). Extension <= 2.19.2 sends `low` from Fast
   and `medium` from Thorough; astra at medium was never measured, and before
   2026-09-21 it never ran (hosted `/api/check` ignored the client's model).
-  Every other route keeps the client's effort or the default (`low`).
+  Every other route keeps the client's effort or the default (`low`) — and
+  the widgets send an effort on `/api/check` only, so in practice `/api/flow`
+  runs at `low` and `/api/sources` at the vendor's default (medium, as
+  gpt-5.6-luna echoed it in the 2026-09-21 smoke run).
 - **Every tier id must be in `shared/prices.js` before it serves traffic**,
   with its `cacheWrite` rate. An unpriced id is billed as the thorough model
   (40-50x luna per token), which would trip the spend cap early; a missing

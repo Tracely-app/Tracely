@@ -170,8 +170,8 @@ Rules:
   // The web_search tool bills per call on top of tokens, which is why
   // findSources is the one path with a caller-side budget (search/webBudget).
   // `effort` undefined sends no reasoning effort — the vendor's default, which
-  // is what every source search ran at before the widget's stop reached this
-  // route (see webSearchCall). A caller-chosen level is sent.
+  // is what every source search has run at; the widgets send none here (see
+  // webSearchCall). A caller-chosen level is sent.
   const { text: fullText, citations, model: usedModel, usage, webSearchCalls, sent } = await webSearchCall({
     model: chosenModel,
     system: sys,
