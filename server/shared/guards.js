@@ -49,20 +49,25 @@ export const GUARDS = {
  * determined attacker. Set DAILY_BUDGET_USD to what you can afford to lose in
  * a day, because that is exactly what it is.
  *
- * Costs measured against the real API on 2026-09-13: a fast-model check is
- * 0.014-0.084 cents; a source search is >= 1 cent because OpenAI bills
- * web_search per call ($10/1000) on top of tokens — about 16 checks. That
- * ratio is why sources are shed first when the budget runs low.
+ * Costs on the current fast tier (gpt-5.6-luna, effort medium on /api/check),
+ * from the model eval, eval/models/FINDINGS.md, 2026-09-21, measured to cold:
+ * a typing-pause check is 0.039-0.104 cents and a 40-sentence first check
+ * 0.34-0.39 cents; a source search is >= 1 cent because OpenAI bills
+ * web_search per call ($10/1000) on top of tokens — about 10-25 typing-pause
+ * checks. That ratio is why sources are shed first when the budget runs low.
+ * (luna's tokens on the source search itself were not measured.)
  */
 export const SPEND = {
   // Override with TRACELY_DAILY_BUDGET_USD. The default is deliberately small:
   // a pre-revenue launch should find out it was wrong from a 503, not a card
-  // statement. $10/day is ~12,000 fast checks or ~1,000 source searches.
+  // statement. $10/day is ~12,000-18,000 typing-pause checks on the fast
+  // tier, or ~29-44 free users at their 400-check cap (shared/plan.js), or at
+  // most ~1,000 source searches (the per-call fee alone).
   defaultDailyBudgetUsd: 10,
 
   // Below this fraction of budget remaining, shed the expensive route first.
-  // Sources cost ~16x a check, so dropping them buys 16x the runway for the
-  // feature people actually notice missing.
+  // A source search costs ~10-25x a typing-pause check, so dropping them buys
+  // that much runway for the feature people actually notice missing.
   shedSourcesAtRemainingPct: 0.2,
 
   // Per-caller velocity. The client fires at most 6 checks a minute (one per

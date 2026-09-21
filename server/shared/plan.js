@@ -166,17 +166,27 @@ export const FREE_DAILY_SOURCE_SEARCHES = 5;
 /**
  * Checks a free caller may run per day.
  *
- * Measured 2026-09-13 against the real API: a check on the fast model costs
- * 0.014 cents for one sentence and PLATEAUS at 0.084 cents around twenty (the
- * output is bounded by how much explanation the findings need, not by sentence
- * count). The extension fires at most one check per 10s, so 400 checks is
- * about an hour of continuous typing and costs at most ~34 cents — and far
- * less in practice, because the server caches on a hash of the input, so
- * re-checking unchanged text is free.
+ * Sized on 2026-09-13 against gpt-5-nano, whose check plateaued at 0.084
+ * cents, so 400 checks cost at most ~34 cents. Re-measured on the current
+ * fast tier (gpt-5.6-luna at effort medium, which /api/check floors the fast
+ * tier to) in the model eval, eval/models/FINDINGS.md, 2026-09-21 — each
+ * range runs from measured (cache-warm) to cold:
+ *   - a typing-pause check (1-3 sentences): 0.039-0.104 cents
+ *   - a first check or paste (40 sentences): 0.34-0.39 cents
+ *   - a free user at this cap, 1 first check + 399 typing-pause checks:
+ *     $0.23-0.35 a day — the same ~34 cents the 400 was sized against.
+ * The extension fires at most one check per 10s, so 400 checks is about an
+ * hour of continuous typing, and the server caches on a hash of the input,
+ * so re-checking unchanged text is free. luna does NOT plateau the way nano
+ * did: a caller sending a full 40-sentence batch every time could reach
+ * ~$1.56 at the cap, which the per-caller rate limit and the global budget
+ * bound, not this number.
  *
- * Sized for a real student writing an essay, not for a demo. If this ever
- * needs raising, the number to recompute is (limit x 0.084 cents x expected
- * daily free users) against the global budget in shared/guards.js.
+ * Kept at 400. The trade-off of the new model is capacity: the $10/day
+ * extension pool covers ~29-44 free users at the cap (it covered ~60-69 on
+ * nano). If this ever needs raising, the number to recompute is
+ * (0.39 cents + (limit - 1) x 0.086 cents) x expected capped users per day,
+ * against the global budget in shared/guards.js.
  */
 export const FREE_DAILY_CHECKS = 400;
 

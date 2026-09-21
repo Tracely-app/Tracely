@@ -180,20 +180,25 @@ export function mapApiError(status, json) {
  *
  * DEFAULT_EFFORT is "low" and it is a DEFAULT, not a suggestion: omitting
  * `reasoning` entirely does NOT mean "don't reason", it means OpenAI picks, and
- * what OpenAI picks is expensive. Measured on gpt-5-nano against the real fact
- * check prompt, 8 deliberately hard sentences, 2026-09-13:
+ * what OpenAI picks is expensive — on gpt-5-nano (2026-09-13) it cost 4x the
+ * output tokens and 3x the latency of "low" for the same verdicts, and
+ * "minimal" flagged needs_citation on "According to Smith (2019)…", the
+ * false-positive class the rubric work exists to stop.
  *
- *   effort      secs   output tokens   verdicts correct
- *   (omitted)   33.3   6165            8/8
- *   minimal      4.8    347            6/8
- *   low         10.5   1546            8/8
- *   medium      29.4   5187            8/8
+ * On the current tiers the measurement is the model eval,
+ * eval/models/FINDINGS.md (2026-09-21, the real check and critique paths,
+ * 2 reps each, blind-judged). For the fast tier, gpt-5.6-luna:
  *
- * So the shipped default was paying 4x the tokens and 3x the latency for
- * nothing over "low". "minimal" is NOT the answer despite being cheapest: it
- * flagged needs_citation on a sentence reading "According to Smith (2019)…",
- * which is precisely the false-positive class the rubric work exists to stop.
- * Anything that raises this above "low" should re-run that comparison first. */
+ *   task                  low                   medium
+ *   fact check (55 x 2)   90%, 5 harmful        100%, 0 harmful   (p = 0.001)
+ *   40-sentence check     93%                   99%
+ *   desktop critique      48/52, judge 7.13     48/52, judge 6.58
+ *   cost, 1-sentence      0.038-0.067 cents     0.039-0.068 cents
+ *
+ * So the default stays "low" — the critique and every unmeasured route — and
+ * /api/check alone raises the fast tier to "medium" (server.js checkEffort).
+ * terra and astra were measured only at "low". "high" and "minimal" were not
+ * measured on any current tier. Re-run the eval before moving either. */
 const DEFAULT_EFFORT = "low";
 
 /* Effort is WHITELISTED here, at the one place every call passes through.
@@ -206,9 +211,9 @@ const DEFAULT_EFFORT = "low";
  *     is exactly what the fallback below reads as "this vendor does not do
  *     effort" — so ONE malformed request would switch effort off for every
  *     user of the process until restart, putting every later call on the
- *     "(omitted)" row of the table above: ~4x the tokens, ~3x the latency.
+ *     no-effort path described above: ~4x the tokens, ~3x the latency.
  *   - null, "" and 0 sent no `reasoning` at all, which is that same expensive
- *     row, chosen by anyone who POSTs `"effort": null`.
+ *     path, chosen by anyone who POSTs `"effort": null`.
  * Now anything that is not a real effort level becomes DEFAULT_EFFORT. The
  * shipped extension only ever sends low / medium / high, all unchanged, and
  * lib/ai.js already applied this rule to its own callers. The ONLY thing that
@@ -253,7 +258,7 @@ const noContent = (what) => Object.assign(new CheckError("server", `Model return
  * switched effort off for every later call on every route. That coupled the
  * routes to each other — a desktop-only route on one model rejecting effort
  * would have put the extension's /api/check, on a different model, onto the
- * expensive "(omitted)" row until restart. Now a rejection disables effort for
+ * expensive no-effort path until restart. Now a rejection disables effort for
  * the model that rejected it and nothing else. For a single model that is
  * exactly the old behaviour: set by the first rejection, never reset. */
 const effortDisabled = new Set();
@@ -318,7 +323,7 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
  * own fact, keyed apart from effortKey: OpenAI refuses web_search at
  * "minimal" effort, and that refusal must not switch effort off for the same
  * model's structured calls — which would put every /api/check on that model
- * onto the expensive "(omitted)" row of the table above. */
+ * onto the expensive no-effort path described above. */
 const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
 
 /** A call that may search the web before answering. Returns raw text. */
@@ -326,10 +331,11 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
   const p = provider();
   const chosen = chooseModel(model);
   // With NO effort it sends none, exactly as it always has: the source search
-  // runs at the vendor's default. That is a known cost (the table above) but
-  // it is the measured behaviour of every source search the shipped extension
-  // makes, and lowering it wants a fresh measurement on this prompt, not a
-  // drive-by default. An effort the CALLER chose (the widget's stop, which
+  // runs at the vendor's default. That is a known cost (the no-effort path
+  // above) and it is what every source search from the store build runs at;
+  // the model eval did not cover this route (eval/models/FINDINGS.md), so
+  // lowering it wants a fresh measurement on this prompt, not a drive-by
+  // default. An effort the CALLER chose (the widget's stop, which
   // /api/sources passes through) is sent, normalised; "minimal" is raised to
   // "low" because web_search does not run at minimal.
   const normalized = effort == null ? null : normalizeEffort(effort);
