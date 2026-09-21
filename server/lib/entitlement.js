@@ -26,6 +26,7 @@ import {
   usageDay,
   dailySourceSearchLimit,
   dailyCheckLimit,
+  dailyAiLimit,
   withinDailyLimit,
 } from "../shared/plan.js";
 
@@ -129,6 +130,7 @@ export function forgetCachedPlans() {
 
 const SOURCE_SEARCH_KIND = "source_search";
 const CHECK_KIND = "check";
+const AI_KIND = "ai"; // the desktop's app routes — never shares a count with "check"
 
 /**
  * The identity a quota counts against, as a namespaced string.
@@ -262,4 +264,17 @@ export function recordCheck(ent, id, at = Date.now()) {
   const q = checkQuota(ent, id, at);
   if (q.limit === null) return 0;
   return usageBump(id, q.day, CHECK_KIND);
+}
+
+/* The desktop's AI calls. Same rungs and same rules as checks — unenforced and
+ * address-only callers are unmetered, paid plans are unmetered — under a kind
+ * of their own so the two products never draw on one allowance. */
+export function aiQuota(ent, id, at = Date.now()) {
+  return dailyQuota(ent, id, AI_KIND, dailyAiLimit, at);
+}
+
+export function recordAi(ent, id, at = Date.now()) {
+  const q = aiQuota(ent, id, at);
+  if (q.limit === null) return 0;
+  return usageBump(id, q.day, AI_KIND);
 }

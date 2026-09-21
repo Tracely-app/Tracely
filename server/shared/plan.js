@@ -146,6 +146,21 @@ export const FREE_DAILY_SOURCE_SEARCHES = 5;
  */
 export const FREE_DAILY_CHECKS = 400;
 
+/* The desktop app's AI calls — detect, critique, grade, structure, tracer,
+ * correction — on the free tier. 150 is the relay's number, carried over so a
+ * free desktop user keeps the allowance they had before the relay retired.
+ * Counted under its own usage kind ("ai"), never "check": sharing a kind would
+ * let desktop use eat a free extension user's 400 checks.
+ *
+ * Paid plans are unmetered here, as they are for checks and sources, and
+ * bounded instead by the app pool's daily budget. That also fixes the relay's
+ * accident: it had no "student" key, so Student paid for a plan and got the
+ * free 150. */
+export const FREE_DAILY_AI_CALLS = 150;
+export function dailyAiLimit(plan) {
+  return normalizePlan(plan) === "free" ? FREE_DAILY_AI_CALLS : null;
+}
+
 /** null means "not metered" — a paid plan is bounded by the global budget. */
 export function dailyCheckLimit(plan) {
   return normalizePlan(plan) === "free" ? FREE_DAILY_CHECKS : null;

@@ -33,8 +33,8 @@ process.on("exit", () => { try { rmSync(DIR, { recursive: true, force: true }); 
 const { costMicroCents, MODEL_TIERS, MODEL_PRICES } = await import("../lib/llm.js");
 const { spendState, recordSpend, dailyBudgetMicroCents } = await import("../lib/spend.js");
 const { callerId, isDailyQuotaKey, clientAddress, checkQuota, recordCheck,
-        sourceSearchQuota, recordSourceSearch } = await import("../lib/entitlement.js");
-const { FREE_DAILY_CHECKS, FREE_DAILY_SOURCE_SEARCHES } = await import("../shared/plan.js");
+        sourceSearchQuota, recordSourceSearch, aiQuota, recordAi } = await import("../lib/entitlement.js");
+const { FREE_DAILY_CHECKS, FREE_DAILY_SOURCE_SEARCHES, FREE_DAILY_AI_CALLS } = await import("../shared/plan.js");
 const { SPEND, dailyBudgetUsd, keyedRateLimiter } = await import("../shared/guards.js");
 
 const HOSTED = { plan: "free", userId: null, enforced: true };
@@ -259,6 +259,50 @@ test("checks and source searches are counted separately", () => {
   for (let i = 0; i < FREE_DAILY_SOURCE_SEARCHES; i++) recordSourceSearch(HOSTED, id, at);
   assert.equal(sourceSearchQuota(HOSTED, id, at).allowed, false);
   assert.equal(checkQuota(HOSTED, id, at).allowed, true, "using up searches must not block checking");
+});
+
+// ── the desktop's app routes: their own quota, their own spend pool ──────
+
+test("desktop AI calls are counted apart from extension checks", () => {
+  // Under one kind, a free user's desktop use would eat their 400 extension
+  // checks — and the reverse.
+  const at = nextAt();
+  const id = "install:both-products";
+  for (let i = 0; i < FREE_DAILY_AI_CALLS; i++) recordAi(HOSTED, id, at);
+  assert.equal(aiQuota(HOSTED, id, at).allowed, false, "the free AI allowance runs out");
+  assert.equal(checkQuota(HOSTED, id, at).used, 0, "and the extension's check count never moved");
+  assert.equal(checkQuota(HOSTED, id, at).allowed, true);
+});
+
+test("the free AI allowance is 150, Student and Pro are unmetered", () => {
+  const at = nextAt();
+  assert.equal(FREE_DAILY_AI_CALLS, 150, "the relay's number, so a free desktop user keeps what they had");
+  assert.equal(aiQuota(HOSTED, "install:free-ai", at).limit, 150);
+  // The relay had no "student" key, so Student paid and got the free 150.
+  assert.equal(aiQuota({ ...PAID, plan: "student" }, "user:u-student", at).limit, null);
+  assert.equal(aiQuota(PAID, "user:u-pro", at).limit, null);
+  assert.equal(aiQuota(LOCAL, "install:local-ai", at).limit, null, "a local run meters nothing");
+  assert.equal(aiQuota(HOSTED, "addr:deadbeefdeadbeefdeadbeefdeadbeef", at).limit, null, "an address never carries a daily quota");
+});
+
+test("the app pool and the extension pool are separate days", () => {
+  const at = nextAt();
+  const env = { TRACELY_DAILY_BUDGET_USD: "1", TRACELY_APP_DAILY_BUDGET_USD: "1" };
+  // Burn the whole app day on thorough-model output.
+  recordSpend({ model: MODEL_TIERS.thorough, usage: { input: 0, output: 30_000 }, at, pool: "app" });
+  assert.equal(spendState({ at, env, pool: "app" }).allowed, false, "the app pool is spent");
+  assert.equal(spendState({ at, env }).allowed, true, "the extension pool never saw it");
+  assert.equal(spendState({ at, env }).spent, 0);
+});
+
+test("TRACELY_APP_DAILY_BUDGET_USD follows the extension budget's rules", () => {
+  assert.equal(dailyBudgetMicroCents({}, "app"), SPEND.defaultAppDailyBudgetUsd * 1e8, "absent is the default");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "" }, "app"), SPEND.defaultAppDailyBudgetUsd * 1e8, "empty is absent, not 0");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "lots" }, "app"), SPEND.defaultAppDailyBudgetUsd * 1e8, "junk is the default, not unlimited");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "0" }, "app"), 0, "explicit 0 is off");
+  assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "3" }, "app"), 3e8);
+  // …and setting the app's never moves the extension's.
+  assert.equal(dailyBudgetMicroCents({ TRACELY_APP_DAILY_BUDGET_USD: "3" }), SPEND.defaultDailyBudgetUsd * 1e8);
 });
 
 // ── rate limiting ────────────────────────────────────────────────────────
