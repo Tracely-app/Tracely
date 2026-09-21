@@ -65,6 +65,33 @@ describe('problemKindFor', () => {
     )
   })
 
+  // Both kinds were in the union and missing from SEVERITY, so indexOf gave
+  // -1 and the sort put them FIRST — a placeholder author outranked an invented
+  // source, a tangent outranked a wrong fact. These pin the positions the kinds'
+  // own doc comments state. (Leaving one out of SEVERITY is now a type error.)
+  it('ranks a malformed reference directly under an invented one, not above it', () => {
+    deepStrictEqual(
+      problemKindsFor({ ...base, hasInlineCitation: true, citationDefect: 'placeholder author', critiqueVerdict: 'fabricated' }).slice(0, 2),
+      ['fabricated-citation', 'citation-defect']
+    )
+    strictEqual(problemSeverity('citation-defect'), problemSeverity('fabricated-citation') + 1)
+  })
+
+  it('ranks a tangent under a wrong fact and above every support finding', () => {
+    deepStrictEqual(
+      problemKindsFor({ ...base, onTopic: false, critiqueVerdict: 'contradicted' }).slice(0, 2),
+      ['contradicted-claim', 'off-topic']
+    )
+    ok(problemSeverity('off-topic') < problemSeverity('cited-unverified'))
+    ok(problemSeverity('off-topic') < problemSeverity('unsupported-by-evidence'))
+  })
+
+  it('gives every kind a real rank', () => {
+    for (const kind of ['citation-defect', 'off-topic', 'fabricated-citation', 'contradicted-claim', 'searching'] as const) {
+      ok(problemSeverity(kind) >= 0, `${kind} is unranked and would sort first`)
+    }
+  })
+
   it('puts reasoning above evidence, however well sourced', () => {
     // The point of the ordering: a claim can be perfectly well sourced and
     // still not follow from what those sources say.
