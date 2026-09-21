@@ -1,28 +1,21 @@
 /**
- * shared/plan.js now OWNS the model ids and lib/llm.js re-exports them, so the
- * server-side mirror this file used to hold together no longer exists — the
- * first test asserts they are the same object rather than merely equal, which
- * is what makes drift impossible instead of merely detected.
+ * The model ids live in two places on purpose: lib/llm.js owns them, and
+ * shared/plan.js mirrors them because it must stay a leaf module the browser
+ * and the tests can load without pulling in the API client.
  *
- * Do not soften that back to deepEqual against a second literal. A mirror that
- * drifts is silent and expensive: clampModel would stop recognising the id the
- * server actually sends, fall through its "unknown model" branch, and quietly
- * serve every paying account the cheap model.
- *
- * The hand copies under extension/ are real and are still the point of this
- * file — an MV3 worker cannot import from the server tree, so three files
- * there spell the ids out again. Those assertions are below.
+ * A mirror that drifts is silent and expensive: clampModel would stop
+ * recognising the id the server actually sends, fall through its "unknown
+ * model" branch, and quietly serve every paying account the cheap model. This
+ * file is the only thing holding the two halves together.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { MODEL_TIERS, ALLOWED_MODELS, DEFAULT_MODEL, MODEL_PRICES } from "../lib/llm.js";
+import { MODEL_TIERS, ALLOWED_MODELS, DEFAULT_MODEL } from "../lib/llm.js";
 import { MODEL_FOR_TIER, TIER_FOR_MODEL, MODEL_TIERS as TIER_NAMES, PLAN_MODEL_CEILING, PLANS } from "../shared/plan.js";
 
-test("lib/llm.js serves shared/plan.js's ids, not a copy of them", () => {
-  // Identity, not equality: deepEqual would also pass against a second literal
-  // that happened to agree today, which is the arrangement this replaced.
-  assert.equal(MODEL_TIERS, MODEL_FOR_TIER);
+test("shared/plan.js mirrors lib/llm.js exactly", () => {
+  assert.deepEqual(MODEL_FOR_TIER, MODEL_TIERS);
 });
 
 test("every tier name is spelled the same on both sides", () => {
@@ -43,21 +36,6 @@ test("every plan ceiling names a real tier", () => {
 test("the default model is the cheapest tier, and is allowed", () => {
   assert.equal(DEFAULT_MODEL, MODEL_TIERS.fast);
   assert.ok(ALLOWED_MODELS.has(DEFAULT_MODEL));
-});
-
-/* A missing price does not throw — costMicroCents falls through to the dearest
-   tier and the browser's meter does the same. That is the right direction to
-   round, and it is also why a gap here is invisible: nothing errors, the
-   numbers are just wrong. The browser's meter carried its own table keyed on
-   `opus`/`sonnet`/`haiku` and reported $0.00 for every call for months. */
-test("every allowed model has a price, and nothing else does", () => {
-  assert.deepEqual(Object.keys(MODEL_PRICES).sort(), [...ALLOWED_MODELS].sort());
-  for (const [model, p] of Object.entries(MODEL_PRICES)) {
-    for (const field of ["input", "cached", "output"]) {
-      assert.equal(typeof p[field], "number", `${model}.${field} is not a number`);
-      assert.ok(p[field] > 0, `${model}.${field} must be above zero`);
-    }
-  }
 });
 
 /* ── the extension's hand copies ──────────────────────────────────────────

@@ -1,75 +1,53 @@
 /* The one place Tracely talks to a model.
  *
- * This module owns POLICY — which model, how hard it tries, what happens when
- * an answer is truncated or a parameter is rejected. The vendor's wire format
- * lives behind a provider in lib/providers/, so those two concerns can change
- * independently.
+ * A FACADE over a provider. Every caller imports structuredCall, textCall and
+ * webSearchCall from here with the same signatures they have always had; this
+ * file owns the flow around a call (schema check, model choice, the effort
+ * policy and its one-shot fallback, completeness, parsing) and delegates the
+ * vendor-specific parts — request body, transport, error envelope, reading
+ * text / citations / usage back — to the active provider in lib/providers/.
  *
- * ── The provider seam ─────────────────────────────────────────────────────
- * There is exactly one provider today and it is OpenAI, over plain fetch with
- * no SDK — which is why this server still has ZERO runtime dependencies, and
- * why the request shape here and the one in extension/background.js (which
- * cannot load an SDK at all under MV3) remain legible against each other.
+ * OpenAI is the only provider registered, and it serves every call. The seam
+ * exists so that moving to another vendor is a new file in lib/providers/ plus
+ * TRACELY_LLM_PROVIDER, rather than an edit to every checker. The Responses
+ * API is still spoken over plain fetch with no SDK, which is why this server
+ * has ZERO runtime dependencies.
  *
- * The seam exists because moving vendors is otherwise a rewrite of this file
- * under time pressure. It does NOT make the switch free, and pretending
- * otherwise would be the trap: the three model ids are hand-copied into
- * extension/background.js, content.js and options.js, so the models a provider
- * offers are part of the SHIPPED EXTENSION's contract. Changing provider means
- * changing shared/plan.js's ids and releasing the extension. What the seam
- * buys is that none of the transport has to be rewritten to do it.
- *
- * Two call shapes cover all eight AI functions in this codebase:
+ * Three call shapes cover every AI function in this codebase:
  *   structuredCall — JSON matching a schema, used by every checker
+ *   textCall       — free text with history, used by Tracer
  *   webSearchCall  — the built-in web_search tool, used only by findSources
- * plus textCall, free prose with history, used only by Tracer.
  */
 import { CheckError } from "./errors.js";
-import { MODEL_FOR_TIER } from "../shared/plan.js";
-import { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS } from "../shared/prices.js";
-import * as openai from "./providers/openai.js";
+import { openai } from "./providers/openai.js";
 
-/* The active provider. A registry rather than a bare import so that adding a
- * second one is an entry here, and so the chosen one is visible in one line
- * instead of being implied by what happens to be imported. */
-const PROVIDERS = { openai };
-const provider = PROVIDERS[process.env.TRACELY_LLM_PROVIDER?.trim() || "openai"] ?? openai;
-
-export const providerId = provider.id;
-
-/* MODEL TIERS — the ids this server will actually send.
+/* MODEL TIERS — the only place model IDs appear on the server.
  *
  * The tier NAMES (fast / balanced / thorough) are shared/plan.js's vocabulary,
  * because that file decides which tier a plan may reach and it must be able to
  * name the same three things. test/models.test.js pins the two together.
  *
- * The IDS live in shared/plan.js too, and are mirrored here under this
- * module's historical name so every importer keeps working. They are the
- * ACTIVE PROVIDER's ids: they are not a property of this module, which is why
- * they are not defined in it.
- *
  * These were read off OpenAI's pricing page rather than probed, because this
  * machine has no OpenAI key to probe with. If one is wrong the API answers 400
- * `model_not_found`, and the provider's mapError turns that into a message
- * naming shared/plan.js, so the fix is one line rather than a hunt.
+ * `model_not_found`, and mapApiError turns that into a message naming this
+ * constant, so the fix is one line here rather than a hunt.
  *
  * Prices per 1M tokens at the time of writing, input / cached / output:
  *   fast      gpt-5-nano    $0.05 / $0.005 / $0.40
  *   balanced  gpt-5.4       $2.50 / $0.25  / $15.00
  *   thorough  gpt-6-astra   $10.00 / $1.00 / $50.00
  */
-export const MODEL_TIERS = MODEL_FOR_TIER;
+export const MODEL_TIERS = {
+  fast: "gpt-5-nano",
+  balanced: "gpt-5.4",
+  thorough: "gpt-6-astra",
+};
 
 /* The same prices as DATA, because the spend cap has to do arithmetic with
- * them and a number in a comment cannot be summed. Dollars per 1M tokens.
- *
- * They live in shared/prices.js and are re-exported here: the browser's usage
- * meter needs them and cannot load this module.
- *
- * `search` is the part that surprises people: OpenAI bills the built-in
- * web_search tool PER CALL ($10 per 1000) on top of tokens, so one source
- * search costs about as much as 16 fact checks. Measured 2026-09-13.
- */
+ * them and a number in a comment cannot be summed. They live in
+ * shared/prices.js — a leaf module the web app's spend meter also loads — and
+ * are re-exported here so every existing importer is unchanged. */
+import { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS } from "../shared/prices.js";
 export { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS };
 
 /* Cost in MICRO-CENTS (1e-6 of a cent), as an integer.
@@ -105,22 +83,74 @@ export const ALLOWED_MODELS = new Set(Object.values(MODEL_TIERS));
 export const DEFAULT_MODEL = MODEL_TIERS.fast;
 export const chooseModel = (m) => (ALLOWED_MODELS.has(m) ? m : DEFAULT_MODEL);
 
-export function hasApiKey() {
-  return Boolean(provider.apiKey());
+/* ── providers ─────────────────────────────────────────────────────────────
+ * Registered by name. TRACELY_LLM_PROVIDER picks one, read at CALL time
+ * rather than import time because server.js re-reads .env while it runs
+ * (loadEnvFile), and a value pasted in mid-session has to take effect the way
+ * the API key does. Unset means OpenAI, which is the only thing registered —
+ * so today the variable can only ever select the one provider, or be a typo,
+ * and a typo fails loudly on the first call instead of silently falling back
+ * to a vendor nobody chose. */
+const PROVIDERS = { openai };
+
+function provider() {
+  const name = (process.env.TRACELY_LLM_PROVIDER ?? "").trim().toLowerCase() || "openai";
+  const p = PROVIDERS[name];
+  if (!p) {
+    throw new CheckError("server", `Unknown TRACELY_LLM_PROVIDER "${name}". Registered: ${Object.keys(PROVIDERS).join(", ")}.`, { status: 500 });
+  }
+  return p;
 }
 
-/* Kept under their old names because callers and tests import them. Both are
- * the active provider's dialect, not ours. */
-export const assertStrictSchema = (schema, where) => provider.assertSchema(schema, where);
-export const mapApiError = (status, json) => provider.mapError(status, json);
+/* The key is cached per provider, and the cache is STICKY: a key that has
+ * been seen keeps working after the variable is removed. That matches what
+ * this module has always done and what server.js expects of hasApiKey(). */
+const cachedKeys = new Map();
+export function hasApiKey() {
+  return Boolean(apiKey(provider()));
+}
+function apiKey(p) {
+  const k = process.env[p.keyEnv]?.trim();
+  if (k) cachedKeys.set(p.name, k);
+  return cachedKeys.get(p.name) ?? null;
+}
 
-function checkComplete(json, what) {
-  if (provider.truncatedReason(json)) {
-    // Its own kind, because runFactCheck answers truncation by SPLITTING the
-    // batch and retrying rather than failing — behaviour worth keeping, and it
-    // needs to tell this apart from every other server error.
-    throw new CheckError("truncated", `The ${what} response was truncated — try a smaller portion of text.`, { status: 502 });
-  }
+/* OpenAI's strict mode is stricter than Anthropic's was: EVERY property must
+ * appear in `required`, and every object needs additionalProperties:false. A
+ * schema that breaks either is a 400 at call time, in production, on a path
+ * that may only run for one user. Checking it here turns that into a precise
+ * local failure naming the offending object. */
+export function assertStrictSchema(schema, where = "schema") {
+  const walk = (node, path) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "object") {
+      const props = Object.keys(node.properties ?? {});
+      const req = new Set(node.required ?? []);
+      if (node.additionalProperties !== false) {
+        throw new CheckError("server", `${where}: ${path} must set additionalProperties:false for OpenAI strict mode`, { status: 500 });
+      }
+      const missing = props.filter((p) => !req.has(p));
+      if (missing.length) {
+        throw new CheckError("server", `${where}: ${path} must list every property in "required" for OpenAI strict mode — missing ${missing.join(", ")}`, { status: 500 });
+      }
+      for (const [k, v] of Object.entries(node.properties ?? {})) walk(v, `${path}.${k}`);
+    }
+    if (node.type === "array") walk(node.items, `${path}[]`);
+  };
+  walk(schema, "root");
+  return schema;
+}
+
+async function post(p, body, { timeoutMs = 120_000 } = {}) {
+  const key = apiKey(p);
+  if (!key) throw new CheckError("no_key", p.missingKeyMessage, { status: 503 });
+  return p.send(body, { key, timeoutMs });
+}
+
+/* Kept as an export with its (status, json) signature. It maps the ACTIVE
+ * provider's error envelope, which today is OpenAI's. */
+export function mapApiError(status, json) {
+  return provider().mapError(status, json);
 }
 
 /* Reasoning effort is the OpenAI equivalent of the old output_config.effort,
@@ -145,45 +175,62 @@ function checkComplete(json, what) {
  * flagged needs_citation on a sentence reading "According to Smith (2019)…",
  * which is precisely the false-positive class the rubric work exists to stop.
  * Anything that raises this above "low" should re-run that comparison first. */
-export const DEFAULT_EFFORT = "low";
-let effortSupported = true;
+const DEFAULT_EFFORT = "low";
 
-/* One send, with the effort retry. The retry is POLICY and lives here: a
- * provider that rejects the parameter should cost the caller nothing, and that
- * judgement should not be re-made by each provider. */
-async function sendWithEffortFallback(body, wantsEffort, options) {
-  try {
-    return await provider.send(body, options);
-  } catch (err) {
-    if (!wantsEffort || !provider.isEffortRejection(err)) throw err;
-    effortSupported = false;
-    return provider.send(provider.withoutEffort(body), options);
-  }
-}
+/* Effort is WHITELISTED here, at the one place every call passes through.
+ *
+ * It was forwarded as given. /api/check and /api/flow pass the client's
+ * `effort` straight through factcheck.js unvalidated, so any value a client
+ * sent went into `reasoning.effort`. Two consequences, both on extension
+ * routes:
+ *   - A junk value ({}, "turbo") draws a 400 that names the parameter, which
+ *     is exactly what the fallback below reads as "this vendor does not do
+ *     effort" — so ONE malformed request would switch effort off for every
+ *     user of the process until restart, putting every later call on the
+ *     "(omitted)" row of the table above: ~4x the tokens, ~3x the latency.
+ *   - null, "" and 0 sent no `reasoning` at all, which is that same expensive
+ *     row, chosen by anyone who POSTs `"effort": null`.
+ * Now anything that is not a real effort level becomes DEFAULT_EFFORT. The
+ * shipped extension only ever sends low / medium / high, all unchanged, and
+ * lib/ai.js already applied this rule to its own callers. The ONLY thing that
+ * can now disable effort is the vendor rejecting a valid level — what the
+ * fallback was for. */
+const VALID_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
+const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
 
-function effortFor(effort, model) {
-  return Boolean(effort) && effortSupported && provider.supportsEffort(model) ? effort : null;
-}
+/* Keyed per provider AND MODEL, because "does this accept reasoning effort" is
+ * a fact about one model, not about the process.
+ *
+ * It was a single process-wide flag: the first 400 that blamed the parameter
+ * switched effort off for every later call on every route. That coupled the
+ * routes to each other — a desktop-only route on one model rejecting effort
+ * would have put the extension's /api/check, on a different model, onto the
+ * expensive "(omitted)" row until restart. Now a rejection disables effort for
+ * the model that rejected it and nothing else. For a single model that is
+ * exactly the old behaviour: set by the first rejection, never reset. */
+const effortDisabled = new Set();
+const effortKey = (p, model) => `${p.name}:${model}`;
+const effortFor = (p, model) => !effortDisabled.has(effortKey(p, model)) && p.supportsEffort(model);
 
 /** A call that must return JSON matching `schema`. */
 export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
   assertStrictSchema(schema, what);
+  const p = provider();
   const chosen = chooseModel(model);
-  const useEffort = effortFor(effort, chosen);
-  const body = provider.buildRequest({
-    kind: "structured",
-    model: chosen,
-    system,
-    input: user,
-    maxTokens,
-    schema,
-    schemaName: name,
-    effort: useEffort,
-  });
+  const level = normalizeEffort(effort);
+  const withEffort = effortFor(p, chosen);
+  const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
 
-  const json = await sendWithEffortFallback(body, Boolean(useEffort));
-  checkComplete(json, what);
-  const text = provider.extractText(json);
+  let json;
+  try {
+    json = await post(p, body);
+  } catch (err) {
+    if (!withEffort || !p.isEffortError(err)) throw err;
+    effortDisabled.add(effortKey(p, chosen));
+    json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
+  }
+  p.checkComplete(json, what);
+  const text = p.extractText(json);
   if (!text) throw new CheckError("server", `Model returned no content for ${what}.`, { status: 502 });
   let parsed;
   try {
@@ -191,44 +238,29 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
   } catch {
     throw new CheckError("server", `Model returned unparseable ${what} output.`, { status: 502 });
   }
-  return { parsed, model: provider.modelOf(json), usage: provider.extractUsage(json) };
+  return { parsed, model: p.modelOf(json), usage: p.usageOf(json) };
 }
 
 /** A free-text call with conversation history. Returns the reply text. */
 export async function textCall({ model, system, messages, maxTokens, what, effort = DEFAULT_EFFORT }) {
+  const p = provider();
   const chosen = chooseModel(model);
-  const useEffort = effortFor(effort, chosen);
-  const body = provider.buildRequest({
-    kind: "text",
-    model: chosen,
-    system,
-    // The Responses API takes the same {role, content} items the old Messages
-    // API did, so the caller's history passes straight through.
-    input: messages,
-    maxTokens,
-    effort: useEffort,
-  });
-  const json = await sendWithEffortFallback(body, Boolean(useEffort));
-  checkComplete(json, what);
-  return { text: provider.extractText(json).trim(), model: provider.modelOf(json), usage: provider.extractUsage(json) };
+  // No effort fallback here, and none was ever added: a textCall that 400s on
+  // effort fails. structuredCall is where the retry has been measured.
+  const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: effortFor(p, chosen) ? normalizeEffort(effort) : undefined });
+  const json = await post(p, body);
+  p.checkComplete(json, what);
+  return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };
 }
 
 /** A call that may search the web before answering. Returns raw text. */
 export async function webSearchCall({ model, system, user, maxTokens, what }) {
-  const body = provider.buildRequest({
-    kind: "search",
-    model: chooseModel(model),
-    system,
-    input: user,
-    maxTokens,
-  });
-  // searching then writing is slower than writing
-  const json = await provider.send(body, { timeoutMs: 180_000 });
-  checkComplete(json, what);
-  return {
-    text: provider.extractText(json),
-    citations: provider.extractCitations(json),
-    model: provider.modelOf(json),
-    usage: provider.extractUsage(json),
-  };
+  const p = provider();
+  // Searching then writing is slower than writing, hence the longer timeout.
+  // It sends no reasoning effort — it never has, so every source search runs
+  // at the vendor's default. That is a known cost (see the effort table
+  // above) and changing it wants a fresh measurement, not a drive-by edit.
+  const json = await post(p, p.webSearchBody({ model: chooseModel(model), system, user, maxTokens }), { timeoutMs: 180_000 });
+  p.checkComplete(json, what);
+  return { text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json) };
 }
