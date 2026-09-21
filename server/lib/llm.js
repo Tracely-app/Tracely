@@ -176,20 +176,43 @@ export function mapApiError(status, json) {
  * which is precisely the false-positive class the rubric work exists to stop.
  * Anything that raises this above "low" should re-run that comparison first. */
 const DEFAULT_EFFORT = "low";
+
+/* Effort is WHITELISTED here, at the one place every call passes through.
+ *
+ * It was forwarded as given. /api/check and /api/flow pass the client's
+ * `effort` straight through factcheck.js unvalidated, so any value a client
+ * sent went into `reasoning.effort`. Two consequences, both on extension
+ * routes:
+ *   - A junk value ({}, "turbo") draws a 400 that names the parameter, which
+ *     is exactly what the fallback below reads as "this vendor does not do
+ *     effort" — so ONE malformed request would switch effort off for every
+ *     user of the process until restart, putting every later call on the
+ *     "(omitted)" row of the table above: ~4x the tokens, ~3x the latency.
+ *   - null, "" and 0 sent no `reasoning` at all, which is that same expensive
+ *     row, chosen by anyone who POSTs `"effort": null`.
+ * Now anything that is not a real effort level becomes DEFAULT_EFFORT. The
+ * shipped extension only ever sends low / medium / high, all unchanged, and
+ * lib/ai.js already applied this rule to its own callers. The ONLY thing that
+ * can now disable effort is the vendor rejecting a valid level — what the
+ * fallback was for. */
+const VALID_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
+const normalizeEffort = (e) => (VALID_EFFORTS.has(e) ? e : DEFAULT_EFFORT);
+
 /* Per provider, because "does this vendor accept reasoning effort" is a fact
  * about the vendor. With one provider registered this is exactly the single
  * process-wide flag it replaced: set false by the first 400 that blames the
  * parameter, and never reset. */
 const effortDisabled = new Set();
-const effortFor = (p, model, effort) => Boolean(effort) && !effortDisabled.has(p.name) && p.supportsEffort(model);
+const effortFor = (p, model) => !effortDisabled.has(p.name) && p.supportsEffort(model);
 
 /** A call that must return JSON matching `schema`. */
 export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
   assertStrictSchema(schema, what);
   const p = provider();
   const chosen = chooseModel(model);
-  const withEffort = effortFor(p, chosen, effort);
-  const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? effort : undefined });
+  const level = normalizeEffort(effort);
+  const withEffort = effortFor(p, chosen);
+  const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
 
   let json;
   try {
@@ -217,7 +240,7 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
   const chosen = chooseModel(model);
   // No effort fallback here, and none was ever added: a textCall that 400s on
   // effort fails. structuredCall is where the retry has been measured.
-  const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: effortFor(p, chosen, effort) ? effort : undefined });
+  const body = p.textBody({ model: chosen, system, messages, maxTokens, effort: effortFor(p, chosen) ? normalizeEffort(effort) : undefined });
   const json = await post(p, body);
   p.checkComplete(json, what);
   return { text: p.extractText(json).trim(), model: p.modelOf(json), usage: p.usageOf(json) };

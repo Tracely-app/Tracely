@@ -149,3 +149,22 @@ test("the facade keeps exactly its thirteen exports", async () => {
   ]);
   assert.ok(llm.ALLOWED_MODELS instanceof Set);
 });
+
+test("an invalid effort becomes the default, and cannot switch effort off for everyone", async () => {
+  // One malformed value from any client used to draw a 400 naming
+  // `reasoning.effort`, which the fallback reads as "vendor does not support
+  // effort" — disabling it process-wide. null used to send no effort at all,
+  // which is OpenAI's own (expensive) default.
+  for (const junk of [{}, "turbo", null, "", 0, 7]) {
+    const llm = await fresh();
+    const calls = stub(ok({ output_text: '{"a":"x"}' }), ok({ output_text: '{"a":"x"}' }));
+    await llm.structuredCall({ schema: SCHEMA, what: "w", effort: junk });
+    assert.deepEqual(calls[0].body.reasoning, { effort: "low" }, `effort ${JSON.stringify(junk)} should send "low"`);
+    await llm.structuredCall({ schema: SCHEMA, what: "w", effort: "medium" });
+    assert.deepEqual(calls[1].body.reasoning, { effort: "medium" }, "a valid level still passes through untouched");
+  }
+  const llm = await fresh();
+  const calls = stub(ok({ output_text: "t" }));
+  await llm.textCall({ messages: [], what: "t", effort: { evil: true } });
+  assert.deepEqual(calls[0].body.reasoning, { effort: "low" });
+});
