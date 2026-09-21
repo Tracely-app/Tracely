@@ -58,8 +58,9 @@
  *     36% off an eight-claim run, with the model seeing byte-identical input.
  *     That is why this is the FIRST message and why it must stay constant —
  *     interpolating anything per-request into it would silently cost more than
- *     every trim above would save. See the relay's lib/usageLog.ts, which logged the cache
- *     hit rate so this stays a measurement rather than an assumption.
+ *     every trim above would save. See the relay's lib/usageLog.ts, which
+ *     logged the cache hit rate so this stays a measurement rather than an
+ *     assumption.
  *
  * If critique needs to be cheaper, the levers are the model choice and the
  * cache hit rate. Not these words.

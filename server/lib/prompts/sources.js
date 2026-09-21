@@ -6,31 +6,28 @@
  * returns free text.
  *
  * Ported from the relay (questionablepuddle/Tracely-relay @ 027f920,
- * lib/sourceSearchPrompt.ts), which answered the desktop app before this server took its
- * routes over. THE PROMPT STRINGS ARE BYTE-IDENTICAL to the relay's, and
+ * lib/sourceSearchPrompt.ts), which answered the desktop app before this
+ * server took its routes over. THE PROMPT STRINGS ARE BYTE-IDENTICAL to the relay's, and
  * test/prompts.test.js compares them against the relay source whenever a relay
  * checkout is present. The desktop's parsing was tuned against these exact
  * words, so a "harmless" rewording here is a behaviour change on a surface
  * nobody is watching.
  *
  * What differs from the relay's source, none of which the model sees:
- *  - Each schema is exported as { name, schema } with the BARE JSON schema.
- *    The relay wrapped it as { name, strict, schema } for chat completions'
- *    json_schema. structuredCall in lib/llm.js wants the bare schema plus a
- *    name and adds strict itself — and handed the wrapper instead, it would
- *    sail through assertStrictSchema (the wrapper has no `type`, so nothing
- *    gets walked) and then 400 at OpenAI on the first real call.
+ *  - The schema is exported as { name, schema } with the BARE JSON schema, the
+ *    shape every schema in this directory has. The relay's was already in
+ *    Responses-API `text.format` shape, { type: 'json_schema', name, strict,
+ *    schema }; the caller rebuilds exactly that from these two fields. One
+ *    shape here means assertStrictSchema is always handed the real schema,
+ *    never a wrapper whose root has no `type` and so gets nothing walked.
  *  - TypeScript's `as const` is dropped; this tree is plain ESM with no build.
  *  - The relay's formatting (single quotes, no semicolons) is kept on purpose,
  *    so a diff against the relay shows only the changes listed here.
- *  - The relay's schema was already in Responses-API `text.format` shape,
- *    with `type: 'json_schema'` and `strict` at the top. Both are gone, so it
- *    has the same { name, schema } shape as every other schema here; the
- *    caller puts them back as { type: 'json_schema', name, schema, strict: true }.
  *  - The JSDoc for `assertions` sat above `searchesRun` in the relay; it is
  *    moved to the property it describes. Property ORDER is unchanged.
- *  - The module comment below said "the rest of this relay"; that is the
- *    relay's own wording and is kept, since it describes where the rule began.
+ *  - The module comment below said the model is never asked for a source by
+ *    "the rest of this relay"; it now says which relay, since this file no
+ *    longer lives in one.
  */
 
 /**
@@ -46,8 +43,8 @@
  *
  * ── Why a model can be trusted with this and not with recall ───────────────
  * Asked from memory, a model invents citations: plausible titles, plausible
- * authors, DOIs that resolve to nothing. That is the reason the rest of this
- * relay never asks it for a source.
+ * authors, DOIs that resolve to nothing. That is the reason the rest of the
+ * relay this was ported from never asked it for a source.
  *
  * With `web_search_preview` it is not recalling, it is retrieving — the URLs
  * come from pages it actually opened. The client then fetches every URL before

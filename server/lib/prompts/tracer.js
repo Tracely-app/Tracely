@@ -14,8 +14,8 @@
  * words, so a "harmless" rewording here is a behaviour change on a surface
  * nobody is watching.
  *
- * What differs from the relay's source: nothing but the file it lives in. The
- * relay's formatting is kept so a diff against it is empty.
+ * What differs from the relay's source: nothing. The prompt and the comment
+ * above it are the relay's, formatting included.
  */
 
 // Tracer — the conversational tutor opened from Tracely's Screen Watch

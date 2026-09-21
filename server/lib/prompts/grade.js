@@ -13,8 +13,8 @@
  * in the paragraphs that were actually sent.
  *
  * Ported from the relay (questionablepuddle/Tracely-relay @ 027f920,
- * lib/gradePrompt.ts), which answered the desktop app before this server took its
- * routes over. THE PROMPT STRINGS ARE BYTE-IDENTICAL to the relay's, and
+ * lib/gradePrompt.ts), which answered the desktop app before this server
+ * took its routes over. THE PROMPT STRINGS ARE BYTE-IDENTICAL to the relay's, and
  * test/prompts.test.js compares them against the relay source whenever a relay
  * checkout is present. The desktop's parsing was tuned against these exact
  * words, so a "harmless" rewording here is a behaviour change on a surface
