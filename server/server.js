@@ -360,14 +360,16 @@ async function fetchUrlMetadata(raw) {
 
 // Rolling-window backstops (spec §14): the caps that hold when "one analysis"
 // stops being a meaningful unit. Stamped BEFORE each call.
+// A teacher's rubric is a page, not a book. Enough for any real one.
+const MAX_CUSTOM_RUBRIC_CHARS = 6000;
 const webSearchCounter = rollingCounter(GUARDS.maxWebSearchesPerHour);
 const critiqueCounter = rollingCounter(60);
 
 // ── model tiering (token optimization) ─────────────────────────────────
 // Decided here, once, so every surface prices identically.
-//   economy (default): the FAST model for EVERYTHING — a full essay session
+//   economy (default): the FAST tier for everything — a full essay session
 //     lands in single-digit cents. This is the hard cost mandate.
-//   smart: the fast model for the frequent mechanical passes, the BALANCED one
+//   smart: the fast tier for the frequent mechanical passes, the BALANCED tier
 //     for the two judgment calls (critique, grading) and for /api/check.
 //   uniform: the user's chosen model everywhere (they pay for what they pick).
 // Read from the tier table rather than written out, so a model rename is one
@@ -626,7 +628,7 @@ const server = http.createServer(async (req, res) => {
     // `enforced` is the honest half. When no Supabase project is configured
     // this server clamps NOTHING (see allowedModel), so a client that locked
     // its model picker to the free tier and showed an upgrade prompt would be
-    // lying about a server that will happily serve the dearest model. Reporting it lets the
+    // lying about a server that will happily serve the top model. Reporting it lets the
     // extension open every stop in exactly the mode the README calls "set none
     // of these env vars and nothing changes".
     if (req.method === "GET" && url.pathname === "/api/entitlement") {
@@ -892,15 +894,17 @@ const server = http.createServer(async (req, res) => {
       if (typeof text !== "string" || text.trim().length < 40) throw new CheckError("bad_request", "text too short to grade");
       const model = pickModel("grade");
       const clipped = text.slice(0, GUARDS.maxInputChars);
-      // A teacher's pasted rubric replaces our own. The route used to
-      // destructure only { text, level } while the Settings field, the prefs
-      // key and ai.gradeWithCustomRubric were all fully built — so the feature
-      // was dead end to end, silently, and a draft graded against a pasted
-      // rubric came back graded against ours.
-      const custom = typeof rubric === "string" && rubric.trim() ? rubric.trim() : null;
-      // Re-grading an unchanged draft is free. The rubric is IN the key: two
-      // rubrics over one draft are two different answers.
-      const key = hashKey(`grade|${model}|${level ?? 12}|${custom ?? ""}|${clipped}`);
+      /* A pasted rubric (web app: Settings → Custom rubric) replaces the
+         built-in one. The web app has sent this field for weeks, and
+         ai.gradeWithCustomRubric has been fully implemented — mock included —
+         for as long; this handler simply never read it, so the Settings
+         textarea did nothing and every draft was graded against Tracely's
+         rubric while the page said otherwise. Capped because it goes into the
+         SYSTEM prompt verbatim, and an unbounded paste is an unbounded bill. */
+      const custom = typeof rubric === "string" && rubric.trim() ? rubric.trim().slice(0, MAX_CUSTOM_RUBRIC_CHARS) : null;
+      // Re-grading an unchanged draft is free. The rubric is in the key: the
+      // same draft against a different rubric is a different grade.
+      const key = hashKey(`grade|${model}|${level ?? 12}|${custom ? hashKey(custom) : "builtin"}|${clipped}`);
       let result = MOCK ? null : cacheGet("grade", key, { maxAgeMs: 7 * 24 * 3600_000 });
       if (!result) {
         result = custom

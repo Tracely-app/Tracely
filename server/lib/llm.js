@@ -25,7 +25,8 @@
  * plus textCall, free prose with history, used only by Tracer.
  */
 import { CheckError } from "./errors.js";
-import { MODEL_FOR_TIER, MODEL_PRICES } from "../shared/plan.js";
+import { MODEL_FOR_TIER } from "../shared/plan.js";
+import { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS } from "../shared/prices.js";
 import * as openai from "./providers/openai.js";
 
 /* The active provider. A registry rather than a bare import so that adding a
@@ -62,15 +63,14 @@ export const MODEL_TIERS = MODEL_FOR_TIER;
 /* The same prices as DATA, because the spend cap has to do arithmetic with
  * them and a number in a comment cannot be summed. Dollars per 1M tokens.
  *
- * They live in shared/plan.js and are re-exported here: the browser's usage
+ * They live in shared/prices.js and are re-exported here: the browser's usage
  * meter needs them and cannot load this module.
  *
  * `search` is the part that surprises people: OpenAI bills the built-in
  * web_search tool PER CALL ($10 per 1000) on top of tokens, so one source
  * search costs about as much as 16 fact checks. Measured 2026-09-13.
  */
-export { MODEL_PRICES };
-export const WEB_SEARCH_CALL_DOLLARS = 0.01;
+export { MODEL_PRICES, WEB_SEARCH_CALL_DOLLARS };
 
 /* Cost in MICRO-CENTS (1e-6 of a cent), as an integer.
  *

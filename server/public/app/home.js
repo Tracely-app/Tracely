@@ -170,13 +170,13 @@ function citingGuide() {
 function costGuide(ctx) {
   const g = ctx.guards.GUARDS;
   return `
-    <p>Tracely runs on your own OpenAI API key, so it is worth knowing which actions spend money and which
-    are free. Searching scholarly indexes for evidence, resolving a citation against public records, saving
+    <p>Some of what Tracely does calls a paid AI model and some of it does not, so it is worth knowing which
+    actions spend money and which are free. Searching scholarly indexes for evidence, resolving a citation against public records, saving
     sources to your library, and citing a pasted link cost nothing — those use free public services.</p>
     <p>Four things are model calls and therefore paid: detecting the claims in a draft, grading it against the
     rubric, fact-check critiques of individual claims, and chatting with Tracer. Web search for sources is
-    also paid. The model you pick in Settings changes the price of every one of these — Thorough is the
-    sharpest and by far the most expensive, Fast the cheapest.</p>
+    also paid. The model you pick in Settings changes the price of every one of these — Thorough is the sharpest
+    and the most expensive, Fast the cheapest.</p>
     <p>Every automatic path has a cap so a busy session cannot run away with your budget: at most
     ${g.maxAutoCritiqueClaims} automatic fact-checks per analysis, ${g.maxWebSearchesPerAnalysis} web searches
     per analysis, and ${g.maxWebSearchesPerHour} web searches per hour no matter how many analyses you run.

@@ -1,30 +1,20 @@
 /** Typed-ish fetch wrappers — the renderer's only path to the server. */
 
-import { MODEL_PRICES, MODEL_FOR_TIER } from "/shared/plan.js";
-
 /* ── usage metering ─────────────────────────────────────────────────────────
-   Every response carrying {usage:{input,output}, model} is accumulated into a
-   per-model ledger; after each accumulation a "tracely:usage" event
-   fires on window with cumulative {input, output, cost}. Cost is a rough
-   estimate from public per-MTok pricing. */
-/* Prices come from /shared/plan.js — the same table lib/llm.js bills the spend
-   cap with, so the meter and the ledger cannot disagree.
+   Every response carrying {usage:{input,output}, model} is accumulated; after
+   each accumulation a "tracely:usage" event fires on window with cumulative
+   {input, output, cost}.
 
-   This was a local table keyed on the model FAMILIES `opus` / `sonnet` /
-   `haiku`, left behind by the move to OpenAI. `familyOf("gpt-5-nano")` matched
-   none of them, fell through to `other`, and `other` had no price — so the
-   meter reported $0.00 for every call made since that migration. Keyed on the
-   exact model id now, with an unknown id priced as the dearest tier rather
-   than as free, which is the same direction lib/llm.js rounds. */
-const ledger = new Map(); // model id -> { input, output }
+   Prices come from /shared/prices.js, the SAME table the server's spend cap
+   bills against. This used to be its own table keyed by Anthropic family name
+   — opus / sonnet / haiku, matched by substring — and no OpenAI model id
+   contains any of those, so every call landed in an unpriced bucket and the
+   header read $0.00 for any session, however long. A model with no price
+   still counts its tokens; it just adds nothing to the dollar figure, which
+   is the honest answer for a model we cannot price. */
+import { priceFor } from "/shared/prices.js";
 
-function priceFor(model) {
-  return (
-    MODEL_PRICES[model]
-    ?? MODEL_PRICES[String(model).replace(/-\d{4}-\d{2}-\d{2}$/, "")] // gpt-5-nano-2025-08-07
-    ?? MODEL_PRICES[MODEL_FOR_TIER.thorough]
-  );
-}
+let totalIn = 0, totalOut = 0, cost = 0;
 
 function recordUsage(data) {
   const u = data?.usage;
@@ -32,19 +22,11 @@ function recordUsage(data) {
   const input = Number(u.input) || 0;
   const output = Number(u.output) || 0;
   if (input === 0 && output === 0) return;
-  const model = String(data.model ?? "");
-  const tally = ledger.get(model) ?? { input: 0, output: 0 };
-  tally.input += input;
-  tally.output += output;
-  ledger.set(model, tally);
-
-  let totalIn = 0, totalOut = 0, cost = 0;
-  for (const [id, t] of ledger) {
-    totalIn += t.input;
-    totalOut += t.output;
-    const p = priceFor(id);
-    cost += (t.input * p.input + t.output * p.output) / 1e6;
-  }
+  const cached = Math.min(Number(u.cached) || 0, input);
+  totalIn += input;
+  totalOut += output;
+  const p = priceFor(data.model);
+  if (p) cost += ((input - cached) * p.input + cached * p.cached + output * p.output) / 1e6;
   window.dispatchEvent(new CustomEvent("tracely:usage", {
     detail: { input: totalIn, output: totalOut, cost },
   }));
