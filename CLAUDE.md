@@ -2,9 +2,110 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
+## What this repo is — three clients, one backend
 
-Tracely is a private, local-first Electron desktop app (React + TypeScript) that checks the *credibility* of user-written text: it detects factual claims, finds academic evidence (OpenAlex, Crossref, Semantic Scholar, PubMed), scores how well-supported each claim is, critiques weak arguments, and generates citations (APA/MLA/Chicago). All user data lives in a local SQLite (`sql.js`, WASM — no native module compilation needed) database under Electron's per-OS user-data dir. Network calls are to academic search APIs, to the **Tracely Relay** (a separate sibling project, `../Tracely-relay`, that holds the real OpenAI key server-side — this app has no API-key field and never talks to OpenAI directly), and to a public favicon service (`main/services/search/favicon.ts`) for real per-source icons in the Screen Watch overlay — the one place this app's "only academic APIs + relay" network surface is knowingly broadened, opted into by the user after being told it reveals source domains to that service.
+This file used to describe only the desktop app, and never mentioned the
+server, the extension, the web app or billing — so the most active part of the
+codebase was invisible to the file both developers read first, and the two
+halves grew two complete, independent implementations of the same product. Read
+this section before touching anything that makes a model call.
+
+| Part | Where | Ships as | Talks to |
+|---|---|---|---|
+| **Desktop app** | `src/` | Electron installer (`npm run ship`) | the server (`callServer`), plus free academic APIs directly |
+| **Chrome extension** | `extension/` | Chrome Web Store (manual upload) | the server, `EXTENSION_API` routes only |
+| **Web app** | `server/public/app/` | served by `server.js` | the same server — works against a LOCAL server only; the hosted box refuses its POSTs by origin |
+| **Server** | `server/` | rsync to the Linode at `api.jointracely.com` (`server/DEPLOY.md`) | OpenAI (`lib/llm.js` → `lib/providers/openai.js`), Supabase (accounts, plans), Stripe (`server/BILLING.md`) |
+
+### One backend, one reasoning implementation
+
+- **Every AI call from every client goes to `server/`.** The desktop called a
+  separate Vercel relay (`questionablepuddle/Tracely-relay`) until the backend
+  unification; its prompts, schemas and guardrails moved into the server and
+  the relay is retired. It stays deployed only for installs too old to update —
+  electron-updater cannot downgrade — and nothing new ships to it.
+- **The prompts live in `server/lib/prompts/`**, one file per route, and
+  `server/test/prompts.test.js` pins each one's SHA-256. Editing a prompt is
+  allowed and should be a decision: every one carries numbers measured on real
+  drafts, so re-measure, then update the hash.
+- **The guardrails run on the server**, so every client gets them:
+  `normalizeCritique` (a revision may only narrow; `fabricated` is withdrawn
+  when no reference lookup ran) and `verifyGrade` (a finding whose quote is not
+  in the draft is dropped), in `server/shared/`. The desktop still runs its own
+  copies on the answer; both are idempotent.
+- **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
+  route, on the relay's request/response contract — which is why the desktop's
+  request builders and parsers did not change when it moved.
+- **Models are the server's tier map, gated by plan**: free → `gpt-5-nano`,
+  student → `gpt-5.4`, pro → `gpt-6-astra`. The ids are copied by hand into
+  `server/shared/plan.js`, `src/shared/plan.ts` (`MODEL_FOR_TIER`) and three
+  extension files; `server/test/models.test.js` fails if any copy drifts. The
+  desktop resolves the user's chosen tier against their plan and sends that
+  model; the server clamps it (`appModelFor`).
+- **Hand-copied logic is mirror-tested.** `server/shared/*` holds leaf ports of
+  desktop modules (the splitters, `gradedDraft`, `normalizeCritique`,
+  `narrowing`, the owner's `RUBRIC_TEXT`); `server/test/mirror.test.js` runs
+  each side by side with its `src/` original. Change one side and the test
+  names the other.
+- **The provider is a seam.** `lib/llm.js` is a facade; everything
+  OpenAI-specific is in `lib/providers/openai.js`, selected by
+  `TRACELY_LLM_PROVIDER` (only `openai` is registered). Every error message on
+  that path reaches the shipped extension verbatim — reword nothing there
+  without an extension release in mind.
+
+### Two products on one server: keep them apart
+
+- **The extension's routes are FROZEN while a Web Store build is in review**:
+  `/api/status /api/check /api/flow /api/sources /api/cite-url /api/docs/apply
+  /api/entitlement`. Their response fields, error `kind`/`message` text, the
+  401-then-anonymous behaviour, `corsHeaders()` (it must keep `Authorization`
+  and `X-Tracely-Install`), port 4477, `api.jointracely.com`, the Supabase
+  project, the three model ids, the plan names `free|student|pro` and the
+  Stripe `PORTAL_URL` are all baked into the shipped extension. Changing any of
+  them needs an extension release, not a server deploy.
+- **The desktop's routes have their own guard rails and must never share the
+  extension's**: `APP_AI_ROUTES` go through `appGate`/`appCall` — their own
+  spend pool (`TRACELY_APP_DAILY_BUDGET_USD`), their own per-caller limiter,
+  their own daily quota kind (`ai`: free 150/day, paid unmetered), their own
+  web-search window. Shared, one busy desktop user on the thorough model could
+  empty the extension's day and 503 every `/api/check`.
+  `server/test/boundary.test.js` drives desktop traffic at a real mock server
+  and asserts the extension's routes do not move.
+- **A caller's model is never read from the global prefs row on a hosted
+  server.** `PUT /api/prefs` is unauthenticated and that row is shared by every
+  caller; it drives the model only on a local, single-user server.
+
+### Accounts and billing
+
+- One Supabase project, `sxifbtelrtbsgnnwnmdf`, for every surface. Stripe
+  checkout → webhook → `app_metadata.plan` on the user (`server/BILLING.md`).
+  `user_metadata` is user-writable and is never read for a plan.
+- **Anonymous sign-ins are OFF** on that project. The desktop works signed out
+  anyway: every call carries `X-Tracely-Install` (a stable per-install UUID in
+  `config.json`), and the server meters it as a free install.
+
+### Checks
+
+`npm run typecheck && npm test` for the desktop; `cd server && npm test` for the
+server (zero npm dependencies). Both run in CI's required `check` job.
+`TRACELY_MOCK=1 node server/server.js` runs the whole product keyless with
+deterministic answers in the real shapes — use it for every shape check.
+
+### The desktop app
+
+Tracely's desktop app is a private, local-first Electron app (React +
+TypeScript) that checks the *credibility* of user-written text: it detects
+factual claims, finds academic evidence (OpenAlex, Crossref, Semantic Scholar,
+PubMed), scores how well-supported each claim is, critiques weak arguments, and
+generates citations (APA/MLA/Chicago). All user data lives in a local SQLite
+(`sql.js`, WASM — no native module compilation needed) database under
+Electron's per-OS user-data dir. Network calls are to academic search APIs, to
+the **Tracely server** for every model call (this app has no API-key field and
+never talks to OpenAI directly), and to a public favicon service
+(`main/services/search/favicon.ts`) for real per-source icons in the Screen
+Watch overlay — the one place this app's "only academic APIs + our server"
+network surface is knowingly broadened, opted into by the user after being told
+it reveals source domains to that service.
 
 ## The design file
 
@@ -119,7 +220,7 @@ npm run dist:win     # build + electron-builder --win -> installer in release/
 npm run dist:mac     # build + electron-builder --mac (untested, config-only)
 ```
 
-There is no lint script configured. The two automated correctness checks are `npm run typecheck` and `npm test` (Node's built-in runner over `src/**/*.test.ts` — 282 tests, 57 suites, under a second). Run both after making changes; neither costs anything. This line previously claimed there was no test suite, which sent agents pushing on typecheck alone.
+There is no lint script configured. The two automated correctness checks are `npm run typecheck` and `npm test` (Node's built-in runner over `src/**/*.test.ts` — about 1,200 tests, a few seconds). Run both after making changes; neither costs anything. This line previously claimed there was no test suite, which sent agents pushing on typecheck alone.
 
 ### Server setup for AI features
 
