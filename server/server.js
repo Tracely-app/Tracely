@@ -827,24 +827,52 @@ const server = http.createServer(async (req, res) => {
       if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
       body.model = pickModel("critique");
       // Trim the evidence payload to what the judgment needs — top 4 sources,
-      // short fields only. Abstracts are the token hog.
+      // short fields only. Abstracts are the token hog, but 240 characters is
+      // a title and half a first sentence: the desktop relay raised its own
+      // ceiling to 900 because the pass that reads these has to decide whether
+      // a finding answers THIS claim, and it cannot do that from an opening
+      // clause. ai.js sends at most one of them when the writer's own source
+      // resolved with an abstract, so the wider clip is not four times the
+      // cost in the common case.
       body.sources = (Array.isArray(body.sources) ? body.sources : []).slice(0, 4).map((s) => ({
         title: String(s?.title ?? "").slice(0, 200),
         venue: String(s?.venue ?? "").slice(0, 100),
         year: s?.year ?? null,
         url: String(s?.url ?? "").slice(0, 300),
-        abstract: String(s?.abstract ?? "").slice(0, 240),
+        abstract: String(s?.abstract ?? "").slice(0, 900),
       }));
+
+      // Resolve the work the sentence NAMES, against Crossref and Open Library.
+      // Free — no model, no key — and it is what licenses the "fabricated"
+      // verdict at all: the prompt may not return one unless a lookup ran and
+      // came back empty. Without this the gate is unreachable and every
+      // invented reference reads as merely unsupported. A lookup failure is
+      // not a lookup: it must stay null so the gate stays shut.
+      body.referenceCheck = null;
+      if (typeof body.citedRef === "string" && body.citedRef.trim()) {
+        body.referenceCheck = await evidence
+          .compareSource({ citedRef: body.citedRef })
+          .catch(() => null);
+      }
       // Cached on claim TEXT (not id), but the verdict also depends on the
       // sentence wording, the model, and which sources were provided — all of
       // them key segments so a stale verdict is never replayed against
       // different evidence.
+      // "crit2" because the prompt, the evidence layout and the response shape
+      // all changed with the port of the desktop's five passes. A stored v1
+      // verdict was reasoned from a different question and carries no
+      // citationFix; replaying one would be the staleness bug this codebase
+      // has already been bitten by three times.
       const key = hashKey([
-        "crit",
+        "crit2",
         body.claim,
         body.sentence ?? "",
         body.citedRef ?? "",
         body.model ?? "",
+        // The lookup changes the answer — it decides whether "fabricated" is
+        // even available and which source is judged first — so it is a key
+        // segment, not an incidental input.
+        body.referenceCheck ? (body.referenceCheck.resolved ? `ref:${body.referenceCheck.matches?.[0]?.title ?? ""}` : "ref:none") : "ref:nolookup",
         hashKey(JSON.stringify((Array.isArray(body.sources) ? body.sources : []).map((s) => s?.url ?? s?.title ?? ""))),
       ].join("|"));
       let result = MOCK ? null : cacheGet("critique", key, { maxAgeMs: 7 * 24 * 3600_000 });

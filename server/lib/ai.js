@@ -7,7 +7,7 @@
  *
  * Exports (all async, all throw CheckError on failure):
  *   detectClaims({ text, model, effort })            → { claims: [{ text, sentence, start, end, claimType, confidence, query }], model, usage }
- *   critiqueClaim({ claim, sentence, citedRef, sources, model }) → { verdict, explanation, revision, overstated, confidence, model, usage }
+ *   critiqueClaim({ claim, sentence, citedRef, referenceCheck, sources, model, effort }) → { verdict, explanation, revision, overstated, citationFix, confidence, model, usage }
  *   gradeDraft({ text, level, model })               → { components, model, usage } (counterargument may carry absent:true)
  *   gradeWithCustomRubric({ text, rubric, level, model }) → { components, custom, model, usage }
  *   classifyStructure({ text, model })               → { paragraphs: [{ index, role, faults }], model, usage }
@@ -20,12 +20,12 @@ import { CheckError } from "./errors.js";
 import { ALLOWED_MODELS, DEFAULT_MODEL, structuredCall as llmCall, textCall } from "./llm.js";
 import { GUARDS } from "../shared/guards.js";
 import { MAX_CUSTOM_COMPONENTS, normalizeCustomComponents, RUBRIC } from "../shared/rubric.js";
+import { CRITIQUE_SCHEMA, critiqueSystemPrompt, normalizeCritique } from "./prompts/critique.js";
 
 const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
 const DEFAULT_EFFORT = "low";
 
 const CLAIM_TYPES = ["factual", "statistic", "causal", "opinion", "prediction"];
-const VERDICTS = ["contradicted", "citationFix", "fabricated", "weak", "unsupported", "sound"];
 const PARA_ROLES = ["thesis", "claim", "evidence", "counterargument", "significance", "conclusion", "other"];
 const MIN_CLAIM_CONFIDENCE = 0.35;
 
@@ -143,72 +143,76 @@ export async function detectClaims({ text, model, effort } = {}) {
 // 2. critiqueClaim
 // ═══════════════════════════════════════════════════════════════════════════
 
-const CRITIQUE_SCHEMA = {
-  type: "object",
-  properties: {
-    verdict: { type: "string", enum: VERDICTS },
-    explanation: { type: "string" },
-    revision: { type: "string" },
-    overstated: { type: "boolean" },
-    confidence: { type: "number" },
-  },
-  required: ["verdict", "explanation", "revision", "overstated", "confidence"],
-  additionalProperties: false,
-};
+/* How many topically-searched sources ride along beside the writer's own.
+ *
+ * Pass 2.5 tells the model to answer from the cited source and STOP when that
+ * source bears the claim out — so sending a long list of items it has just
+ * been told not to read is paying for tokens to be ignored. When the cited
+ * work resolved AND has an abstract, one fallback goes; otherwise the prompt's
+ * own fall-through condition is already met and the full set goes.
+ *
+ * This route previously sent twelve regardless, which is the request
+ * contradicting its own prompt. */
+const MAX_CRITIQUE_SOURCES = 4;
 
-function critiqueSystemPrompt() {
-  const today = new Date().toISOString().slice(0, 10);
-  return `You are Tracely's fact-checker inside a student writing tool. You receive one claim from a draft, its sentence, optionally the citation the writer attached, and optionally a list of retrieved candidate sources. Run three passes and fold them into ONE verdict:
-
-(a) Is the claim TRUE as stated, on your own knowledge?
-(b) If a cited reference is present: is that source real, and is it plausibly the kind of work that says what the sentence uses it for?
-(c) Do the provided sources (titles, venues, years, abstracts) actually carry the sentence — support it, contradict it, or fail to speak to it?
-
-Verdicts (pick exactly one):
-- "contradicted": a specific fact in the claim is wrong.
-- "citationFix": the citation is malformed or mismatched to the sentence, but the source itself appears real.
-- "fabricated": the cited source appears NOT TO EXIST. Only use this when a citation is present and you strongly suspect it is invented — never merely because retrieval found nothing.
-- "weak": the evidence only weakly supports the claim.
-- "unsupported": no provided evidence carries the claim (and you cannot vouch for it yourself).
-- "sound": the claim holds and the evidence situation is fine.
-
-Also return:
-- "overstated": true when the claim overshoots what the evidence supports (a narrower version would be defensible), regardless of verdict.
-- "explanation": at most 30 words, concrete — name the wrong fact, the mismatch, or the gap. Empty string is not allowed; for "sound" say briefly why it holds.
-- "revision": a minimal rewrite of the claim that fixes the problem while keeping the writer's voice. Empty string when the verdict is "sound".
-- "confidence": 0 to 1 in your verdict.
-
-Today's date is ${today}. If the claim depends on events after your knowledge, do not call it contradicted — prefer "weak" or "unsupported" and say why.`;
+function formatSource(s, n, { tag = "" } = {}) {
+  const bits = [
+    `[S${n}] ${String(s?.title ?? "Untitled").slice(0, 200)}${tag}`,
+    s?.venue ? `venue: ${String(s.venue).slice(0, 120)}` : "",
+    s?.year ? `year: ${s.year}` : "",
+    s?.url ? `url: ${String(s.url).slice(0, 300)}` : "",
+    s?.abstract ? `abstract: ${String(s.abstract).slice(0, 900)}` : "",
+  ].filter(Boolean);
+  return bits.join("\n  ");
 }
 
-export async function critiqueClaim({ claim, sentence, citedRef, sources, model } = {}) {
+export async function critiqueClaim({ claim, sentence, citedRef, referenceCheck = null, sources, model, effort } = {}) {
   const chosenModel = chooseModel(model);
   if (typeof claim !== "string" || !claim.trim()) {
     throw new CheckError("bad_request", "critiqueClaim needs a claim");
   }
   if (isMock()) return mockCritique({ claim, citedRef, sources, model: chosenModel });
 
-  const srcList = (Array.isArray(sources) ? sources : []).slice(0, 12).map((s, i) => {
-    const bits = [
-      `[S${i + 1}] ${String(s?.title ?? "Untitled").slice(0, 200)}`,
-      s?.venue ? `venue: ${String(s.venue).slice(0, 120)}` : "",
-      s?.year ? `year: ${s.year}` : "",
-      s?.url ? `url: ${String(s.url).slice(0, 300)}` : "",
-      s?.abstract ? `abstract: ${String(s.abstract).slice(0, 600)}` : "",
-    ].filter(Boolean);
-    return bits.join("\n  ");
-  });
+  // The work the sentence itself names, resolved against Crossref/Open Library.
+  // It is the only source in the list the writer is answerable for, so it goes
+  // first and is tagged — Pass 2.5 keys on that tag.
+  const lookupRan = referenceCheck !== null && referenceCheck !== undefined;
+  const lookupResolved = Boolean(referenceCheck?.resolved);
+  const citedWork = lookupResolved ? referenceCheck.matches?.[0] ?? null : null;
+  const citedHasAbstract = Boolean(citedWork?.abstract);
+
+  const topical = (Array.isArray(sources) ? sources : [])
+    .slice(0, citedHasAbstract ? 1 : MAX_CRITIQUE_SOURCES);
+
+  const blocks = [];
+  if (citedWork) blocks.push(formatSource(citedWork, 1, { tag: " [CITED BY THE WRITER]" }));
+  if (topical.length > 0) {
+    const offset = citedWork ? 1 : 0;
+    const heading = citedWork ? "Other sources found by a topical search:" : "Sources found by a topical search:";
+    blocks.push(`${heading}\n${topical.map((s, i) => formatSource(s, i + 1 + offset)).join("\n")}`);
+  }
+
+  // PRESENCE of this heading is what Pass 2(c) gates the "fabricated" verdict
+  // on, so it must be omitted entirely — not sent empty — when no lookup ran.
+  const lookupSection = lookupRan
+    ? `Reference lookup:\n${
+        lookupResolved
+          ? `Found in Crossref/Open Library: ${String(citedWork?.title ?? "a matching work").slice(0, 300)}`
+          : String(referenceCheck?.resolvedNote ?? "No work matching these authors and year was found in Crossref or Open Library.").slice(0, 600)
+      }\n\n`
+    : "";
 
   const user =
     `CLAIM:\n${claim.slice(0, 2000)}\n\n` +
     `SENTENCE:\n${String(sentence ?? claim).slice(0, 2000)}\n\n` +
     (citedRef ? `WRITER'S CITATION:\n${String(citedRef).slice(0, 1000)}\n\n` : "WRITER'S CITATION: none\n\n") +
-    (srcList.length > 0 ? `RETRIEVED SOURCES:\n${srcList.join("\n")}\n\n` : "RETRIEVED SOURCES: none\n\n") +
-    "Run the three passes and return one verdict.";
+    lookupSection +
+    (blocks.length > 0 ? `EVIDENCE:\n${blocks.join("\n\n")}\n\n` : "EVIDENCE: none\n\n") +
+    "Run the passes in order and return one verdict.";
 
   const { parsed, model: usedModel, usage } = await structuredCall({
     model: chosenModel,
-    effort: DEFAULT_EFFORT,
+    effort: chooseEffort(effort),
     maxTokens: 16_000,
     system: critiqueSystemPrompt(),
     user,
@@ -216,16 +220,8 @@ export async function critiqueClaim({ claim, sentence, citedRef, sources, model 
     what: "critique",
   });
 
-  let verdict = VERDICTS.includes(parsed.verdict) ? parsed.verdict : "unsupported";
-  // Never call fabrication on retrieval absence alone — it needs a citation to accuse.
-  if (verdict === "fabricated" && !citedRef) verdict = "unsupported";
-
   return {
-    verdict,
-    explanation: String(parsed.explanation ?? "").slice(0, 400),
-    revision: verdict === "sound" ? "" : String(parsed.revision ?? "").slice(0, 2000),
-    overstated: Boolean(parsed.overstated),
-    confidence: clamp01(parsed.confidence),
+    ...normalizeCritique(parsed, { lookupRan, lookupResolved, citedRef: citedRef ?? null }),
     model: usedModel,
     usage,
   };
@@ -676,7 +672,9 @@ const MOCK_CRITIQUES = [
 ];
 
 function mockCritique({ claim, citedRef, sources, model }) {
-  const base = { model: `${model} (mock)`, usage: zeroUsage(), confidence: 0.9 };
+  // citationFix rides in the base so mock mode returns the SAME shape as the
+  // real call — a UI that reads it must not work only against one of them.
+  const base = { model: `${model} (mock)`, usage: zeroUsage(), confidence: 0.9, citationFix: null };
   const rule = MOCK_CRITIQUES.find((r) => r.re.test(claim));
   if (rule) {
     return { verdict: rule.verdict, explanation: rule.explanation, revision: rule.revision, overstated: rule.overstated, ...base };
