@@ -39,8 +39,8 @@ checkout should set them.
 
 | Plan | Model ceiling | Source searches |
 | --- | --- | --- |
-| `free` | `gpt-5-nano` (Fast) | 5 per calendar day, per account |
-| `student` | `gpt-5.4` (Balanced) | unlimited |
+| `free` | `gpt-5.6-luna` (Fast) | 5 per calendar day, per account |
+| `student` | `gpt-5.6-terra` (Balanced) | unlimited |
 | `pro` | `gpt-6-astra` (Thorough) | unlimited |
 
 The ids come from `lib/llm.js`'s `MODEL_TIERS` and are mirrored in

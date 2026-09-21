@@ -9,7 +9,7 @@ Nothing in the existing app is modified — every file here is additive:
 
 | Path | What it is |
 |---|---|
-| `server/` | The backend: Express-free Node server (`node server/server.js`, port 4477), OpenAI calls with model tiering (gpt-5-nano by default — a full essay session costs well under a cent), free scholarly retrieval (OpenAlex/Crossref/S2/PubMed), SQLite storage (`node:sqlite`, no native builds), macOS Screen Watch via the accessibility API, Google Docs write-back bridge. 98 backend tests. See `server/README.md`. |
+| `server/` | The backend: Express-free Node server (`node server/server.js`, port 4477), OpenAI calls with model tiering (gpt-5.6-luna by default — a few cents to write and check a whole essay, see `eval/models/FINDINGS.md`), free scholarly retrieval (OpenAlex/Crossref/S2/PubMed), SQLite storage (`node:sqlite`, no native builds), macOS Screen Watch via the accessibility API, Google Docs write-back bridge. 98 backend tests. See `server/README.md`. |
 | `src/renderer/src/bridge/` | A typed HTTP implementation of the whole `window.tracely` preload contract — the renderer talks to `server/` instead of Electron IPC. Typechecked against `ipc-contract.ts`, so drift fails `npm run typecheck`. |
 | `web.vite.config.mts` | Builds the real renderer for the browser with the bridge injected (same mechanism as the preview harness's mock injection). Output: `dist-web/`, served by the server at `/`. |
 | `demo.vite.config.mts` + `scripts/make-demo.mjs` | Single-file offline demo (`demo.html`) with the preview mock — shareable, runs with zero backend, sandbox-safe. |

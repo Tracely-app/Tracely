@@ -36,12 +36,19 @@ this section before touching anything that makes a model call.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
   request builders and parsers did not change when it moved.
-- **Models are the server's tier map, gated by plan**: free → `gpt-5-nano`,
-  student → `gpt-5.4`, pro → `gpt-6-astra`. The ids are copied by hand into
+- **Models are the server's tier map, gated by plan**: free → `gpt-5.6-luna`,
+  student → `gpt-5.6-terra`, pro → `gpt-6-astra`, chosen by a measured,
+  blind-judged eval (`eval/models/FINDINGS.md`; re-run it before changing a
+  tier or an effort). The ids are copied by hand into
   `server/shared/plan.js`, `src/shared/plan.ts` (`MODEL_FOR_TIER`) and three
   extension files; `server/test/models.test.js` fails if any copy drifts. The
   desktop resolves the user's chosen tier against their plan and sends that
-  model; the server clamps it (`appModelFor`).
+  model; the server clamps it (`appModelFor`). The ids the tiers used before
+  2026-09-21 (`gpt-5-nano`, `gpt-5.4`) are still SENT by extension <= 2.19.2
+  and older desktops: `shared/plan.js` `LEGACY_MODEL_TIER` / `currentModelId`
+  translate them to their tier's current model — keep that map until no such
+  build is in use. `/api/check` runs the fast tier at effort medium or above
+  (`checkEffort` in server.js), the one route the eval measured it on.
 - **Hand-copied logic is mirror-tested.** `server/shared/*` holds leaf ports of
   desktop modules (the splitters, `gradedDraft`, `normalizeCritique`,
   `narrowing`, the owner's `RUBRIC_TEXT`); `server/test/mirror.test.js` runs

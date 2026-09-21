@@ -99,7 +99,7 @@ it off; an empty value does **not** (it falls back to the built-in default).
 
 **The extension's routes spend three pools, not one.** Hosted `/api/check`,
 `/api/flow` and `/api/sources` run the model the widget's slider asks for,
-clamped to the plan — up to `gpt-6-astra`, 125-200x the fast model per token.
+clamped to the plan — up to `gpt-6-astra`, 40-50x the fast model per token.
 One Pro user on "Smarter" could empty a shared $10 day in minutes and 503
 every free user, so:
 
@@ -113,11 +113,12 @@ All three follow the same parsing (empty or junk = default, explicit `0` =
 no ceiling). The paid and beta pools admit a call only while their spend
 PLUS the worst case of every call still in flight leaves room: the worst
 case is the route's output ceiling plus its largest input at the plan's top
-model (~$1.04 for a thorough check, `WORST_CALL` in server.js), shrunk to the
+model (~$1.10 for a thorough check, every input token priced as a cache
+write, `WORST_CALL` in server.js), shrunk to the
 model actually chosen once the body is read. So a burst — including one with
 a rotating install id per request — overshoots by at most one call, and the
 number of thorough calls those pools run AT ONCE is about the remaining
-budget ÷ $1.04. Raise the ceiling for a bigger team, not the reservation.
+budget ÷ $1.10. Raise the ceiling for a bigger team, not the reservation.
 A call that fails after OpenAI billed it (truncated, refused, unparseable)
 is recorded into its pool too.
 
@@ -195,13 +196,35 @@ lying in `extension/`. The token must be 1-200 characters of
 the script refuses anything else rather than build a zip that is silently free.
 Generate one with `openssl rand -base64 24 | tr -d '\n'`.
 
+## The model tiers (remapped 2026-09-21)
+
+fast `gpt-5.6-luna`, balanced `gpt-5.6-terra`, thorough `gpt-6-astra`
+(`lib/llm.js` MODEL_TIERS), chosen by the eval in `eval/models/FINDINGS.md`.
+Before a deploy that changes a tier, know three things:
+
+- **Old clients keep sending the old ids.** Extension <= 2.19.2 (the Web
+  Store build under review included) sends `gpt-5-nano` from Fast and
+  `gpt-5.4` from Balanced; older desktops send the same. The server
+  translates them to their tier's current model (`shared/plan.js`
+  `currentModelId`), so a deploy needs no extension release. Nothing runs,
+  prices or logs a retired id.
+- **`/api/check` runs the fast tier at effort medium or above**, whatever the
+  client sends (`checkEffort` in server.js) — the measured best config. Every
+  other route keeps the client's effort or the default (`low`).
+- **Every tier id must be in `shared/prices.js` before it serves traffic**,
+  with its `cacheWrite` rate. An unpriced id is billed as the thorough model
+  (40-50x luna per token), which would trip the spend cap early; a missing
+  `cacheWrite` would under-count every cold call on these models, which bill
+  a first-seen prefix at 1.25x input
+  (`usage.input_tokens_details.cache_write_tokens`).
+
 ## Model failures in the log
 
 A truncated, refused or unparseable answer — or any other failed model call on
 a model route, extension or desktop — writes one line to `/var/log/tracely.log`:
 
 ```
-[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5-nano effort=low
+[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5.6-luna effort=medium
 ```
 
 `kind` is `truncated`, `refusal`, `unparseable`, `empty`, `timeout`,
