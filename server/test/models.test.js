@@ -209,3 +209,62 @@ test("the extension cannot call OpenAI directly", () => {
   // An options page with no key field must not still tell people to set one.
   assert.ok(!/add (an|your) API key/i.test(read("options.html")), "options.html still points at a key field it no longer has");
 });
+
+/* ── the web app, and the one price table ─────────────────────────────────
+ * The web app under public/ migrated off Anthropic in name only: its model
+ * picker offered three claude-* ids none of which the server accepts, its
+ * spend meter priced calls by Anthropic family name and so read $0.00 for any
+ * OpenAI session, and its first-run banner asked for ANTHROPIC_API_KEY.
+ */
+import { MODEL_PRICES as SHARED_PRICES, priceFor } from "../shared/prices.js";
+import { MODEL_PRICES as LLM_PRICES } from "../lib/llm.js";
+
+const PUBLIC = path.join(HERE, "..", "public");
+const readPublic = (f) => readFileSync(path.join(PUBLIC, f), "utf8");
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/<!--[\s\S]*?-->/g, "");
+
+test("there is exactly one price table, and it prices every tier", () => {
+  assert.equal(LLM_PRICES, SHARED_PRICES, "lib/llm.js must re-export shared/prices.js, not keep its own copy");
+  assert.deepEqual(Object.keys(SHARED_PRICES).sort(), Object.values(MODEL_TIERS).sort());
+  // The API echoes dated snapshots back as `model`; the meter must still price them.
+  assert.ok(priceFor(`${MODEL_TIERS.fast}-2025-08-07`), "a dated snapshot id must resolve to its family's price");
+  assert.equal(priceFor("claude-opus-5"), null, "an unknown model is unpriced, never priced as something else");
+});
+
+test("the web app's model picker is the server's tier map, not a copy", () => {
+  const src = readPublic("app/settings.js");
+  assert.ok(src.includes('from "/shared/plan.js"'), "settings.js must import MODEL_FOR_TIER from /shared/plan.js");
+  const code = stripComments(src);
+  for (const id of Object.values(MODEL_TIERS)) {
+    assert.ok(!code.includes(`"${id}"`), `settings.js hard-codes ${id} — import it instead`);
+  }
+});
+
+test("the web app's spend meter reads the shared price table", () => {
+  const src = readPublic("app/api.js");
+  assert.ok(src.includes('from "/shared/prices.js"'), "api.js must price usage from /shared/prices.js");
+  assert.ok(!/opus:\s*\[|sonnet:\s*\[|haiku:\s*\[/.test(stripComments(src)), "api.js still carries its own per-family price table");
+});
+
+test("nothing the web app renders names a model vendor we do not use", () => {
+  for (const f of ["index.html", "app/settings.js", "app/home.js", "app/api.js"]) {
+    const code = stripComments(readPublic(f));
+    for (const s of ["anthropic", "claude-", "sk-ant", "haiku", "sonnet", "opus"]) {
+      assert.ok(!code.toLowerCase().includes(s), `${f} still says "${s}" outside a comment`);
+    }
+  }
+});
+
+test("/api/grade honours a pasted rubric", () => {
+  // The web app has sent `rubric` for weeks and gradeWithCustomRubric has
+  // existed as long; the handler never read the field, so a teacher's rubric
+  // was silently replaced by Tracely's. The rubric is also part of the cache
+  // key — otherwise the second rubric tried on a draft is served the first's grade.
+  const src = readFileSync(path.join(HERE, "..", "server.js"), "utf8");
+  const start = src.indexOf('url.pathname === "/api/grade"');
+  const handler = src.slice(start, src.indexOf('url.pathname === "/api/structure"', start));
+  assert.ok(handler.length > 0, "could not isolate the /api/grade handler");
+  assert.match(handler, /const \{[^}]*\brubric\b[^}]*\} = \(await parseJsonBody\(req\)\)/);
+  assert.match(handler, /ai\.gradeWithCustomRubric\(/);
+  assert.match(handler, /hashKey\(`grade\|[^`]*custom/);
+});

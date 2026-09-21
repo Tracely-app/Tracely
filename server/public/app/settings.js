@@ -8,6 +8,8 @@
  * a "tracely:prefs" CustomEvent and main.js re-themes (html[data-theme]).
  */
 
+import { MODEL_FOR_TIER } from "/shared/plan.js";
+
 const FALLBACK_ACCENT = "#f97316";
 
 /* ── tiny shared helpers (imported by home/documents/library) ─────────── */
@@ -221,10 +223,18 @@ function ensureStyles() {
 
 /* ── render ───────────────────────────────────────────────────────────── */
 
+/* The model list is the server's tier map, IMPORTED — never a copy.
+   This was three hand-written Anthropic ids (claude-opus-5 / claude-sonnet-5 /
+   claude-haiku-4-5) for weeks after the server moved to OpenAI. None of them
+   was in ALLOWED_MODELS, so chooseModel quietly mapped every pick to the free
+   model: the picker looked like it worked and chose nothing. /shared/plan.js
+   is the same leaf module the server and tests read, so a model rename there
+   reaches this select with no edit here. Labels name the TIER, never the
+   model — the same rule the extension's slider follows. */
 const MODELS = [
-  { id: "claude-opus-5", label: "Opus 5 · sharpest" },
-  { id: "claude-sonnet-5", label: "Sonnet 5 · balanced" },
-  { id: "claude-haiku-4-5", label: "Haiku 4.5 · fastest" },
+  { id: MODEL_FOR_TIER.fast, label: "Fast" },
+  { id: MODEL_FOR_TIER.balanced, label: "Balanced" },
+  { id: MODEL_FOR_TIER.thorough, label: "Thorough" },
 ];
 
 const EFFORTS = [
@@ -251,8 +261,8 @@ const STRATEGIES = [
 ];
 
 const STRATEGY_HINTS = {
-  smart: "Haiku detects &amp; maps structure, Sonnet runs Tracer, your model judges critique &amp; grading — routine passes run on the cheaper models.",
-  uniform: "Every call uses the model above — simplest to reason about, and the priciest option when that model is Opus.",
+  smart: "The fast model detects claims, maps structure and runs Tracer; the balanced model judges critique &amp; grading — routine passes run on the cheaper model.",
+  uniform: "Every call uses the model above — simplest to reason about, and the priciest option when that model is Thorough.",
 };
 
 function options(list, current) {
@@ -307,7 +317,7 @@ export async function render(mount, ctx) {
 
       <section class="card set-group">
         <span class="eyebrow">Watch (macOS)</span>
-        ${row("Watch my Mac apps", "Reads the focused text field in allowed apps. Detection uses Haiku automatically — critique only when you click.", `<span class="set-status"><input type="checkbox" id="setWatchEnabled" /></span>`, { costs: true })}
+        ${row("Watch my Mac apps", "Reads the focused text field in allowed apps. Detection uses the fast model automatically — critique only when you click.", `<span class="set-status"><input type="checkbox" id="setWatchEnabled" /></span>`, { costs: true })}
         <div class="set-row set-col">
           <div class="set-lab">
             <span>Allowed apps</span>
@@ -340,7 +350,7 @@ export async function render(mount, ctx) {
         </div>
         ${row("Fact-check my claims automatically", "Uses the API when on", `<input type="checkbox" data-set="autoCritique"${settings.autoCritique ? " checked" : ""} />`, { costs: true })}
         ${row("Auto-find sources for flagged claims", "Uses web search, capped", `<input type="checkbox" data-set="autoSources"${settings.autoSources ? " checked" : ""} />`, { costs: true })}
-        ${row("Model", "Affects cost", `<select class="input" data-set="model">${options(MODELS, settings.model ?? "claude-opus-5")}</select>`, { costs: true })}
+        ${row("Model", "Affects cost", `<select class="input" data-set="model">${options(MODELS, settings.model ?? MODEL_FOR_TIER.fast)}</select>`, { costs: true })}
         ${row(
           "Model strategy",
           `<span id="setStrategyHint">${STRATEGY_HINTS[strategy]}</span>`,
