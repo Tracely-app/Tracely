@@ -37,7 +37,7 @@ async function git(...args) {
 async function ensureEnv() {
   if (existsSync(join(REPO, '.env'))) return
   console.error(
-    '\n[live] No .env found. The dev app needs the relay + Supabase values to run.\n' +
+    '\n[live] No .env found. The dev app needs the Supabase values to run.\n' +
       '       Ask Sam for the .env contents (they are the same values the shipped\n' +
       '       app is built with) and save them as .env in this folder, then rerun.\n'
   )

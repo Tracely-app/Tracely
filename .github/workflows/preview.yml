@@ -14,8 +14,8 @@ name: preview
 # is in the loop.
 #
 # This deliberately does NOT cut real releases. `npm run ship` stays a manual
-# decision on Merrick's machine, so the production Supabase and relay
-# credentials never enter CI. The blast radius of everything here is the preview
+# decision on Merrick's machine, so the production Supabase credentials never
+# enter CI. The blast radius of everything here is the preview
 # channel, which only reviewers install.
 
 on:
@@ -86,25 +86,36 @@ jobs:
 
       # loadEnv() refuses to fall back to .env when staging is requested, and
       # it is right to: that fallback would build something labelled "preview",
-      # point it at the production relay and production Supabase, and publish it
-      # to reviewers. So the file has to exist, and it has to hold staging
-      # values. It is gitignored, so writing it here does not dirty the tree
-      # that preflight is about to check.
+      # point it at production Supabase, and publish it to reviewers. So the
+      # file has to exist, and it has to hold staging values. It is gitignored,
+      # so writing it here does not dirty the tree that preflight is about to
+      # check.
       #
       # NCBI and Semantic Scholar keys are optional — they are used by the eval
       # harness rather than the build, and an empty value degrades those
       # providers rather than breaking the installer.
+      #
+      # STAGING_RELAY_URL / STAGING_RELAY_TOKEN are no longer read: the app
+      # talks to the Tracely server now. The server URL is optional too. With
+      # no STAGING_API_URL secret the build uses the default
+      # (https://api.jointracely.com — see apiUrl() in scripts/env.mjs), and
+      # the line is written only when the secret exists, so a missing secret
+      # never becomes an empty TRACELY_API_URL= in the file. env.mjs would
+      # treat blank as unset anyway; not writing it keeps the file honest.
       - name: write .env.staging
         shell: bash
+        env:
+          TRACELY_API_URL: ${{ secrets.STAGING_API_URL }}
         run: |
           cat > .env.staging <<'EOF'
-          RELAY_URL=${{ secrets.STAGING_RELAY_URL }}
-          RELAY_TOKEN=${{ secrets.STAGING_RELAY_TOKEN }}
           SUPABASE_URL=${{ secrets.STAGING_SUPABASE_URL }}
           SUPABASE_ANON_KEY=${{ secrets.STAGING_SUPABASE_ANON_KEY }}
           NCBI_API_KEY=${{ secrets.NCBI_API_KEY }}
           SEMANTIC_SCHOLAR_API_KEY=${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           EOF
+          if [ -n "$TRACELY_API_URL" ]; then
+            echo "TRACELY_API_URL=$TRACELY_API_URL" >> .env.staging
+          fi
 
       # ship-preview.mjs runs `git commit` and `git push`. A fresh runner has no
       # identity configured, so the commit fails before the build ever starts.

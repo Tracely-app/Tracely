@@ -18,11 +18,12 @@ name: mac installers
 #
 # Deliberately NOT modelled on preview.yml's credential handling: previews are
 # built with staging secrets that already live in this repo, whereas a release
-# build compiles the PRODUCTION relay and Supabase values into the binary. Those
-# are not in CI today, and inventing a fallback here is exactly the mistake
+# build compiles the PRODUCTION Supabase values into the binary. Those are not
+# in CI today, and inventing a fallback here is exactly the mistake
 # scripts/env.mjs refuses to make — a build labelled "release" pointing at
 # staging. So the release path requires its own secrets and fails loudly
-# without them; see BUILDING.md.
+# without them; see BUILDING.md. (The server URL is the exception, and only
+# because its default IS production — see the write .env step.)
 
 on:
   # Fires when `npm run ship` (or the GitHub UI) publishes a release: the tag
@@ -64,27 +65,35 @@ jobs:
 
       - run: npm ci
 
-      # The four values esbuild compiles into the bundle. A release build must
-      # carry production ones; there is no safe default, so stop here rather
-      # than silently shipping something pointed at the wrong backend.
+      # The values esbuild compiles into the bundle. The Supabase pair must be
+      # production's and has no safe default, so stop here rather than
+      # silently shipping something pointed at the wrong project.
+      #
+      # The server URL is optional, and the asymmetry is deliberate. Its
+      # default (https://api.jointracely.com, apiUrl() in scripts/env.mjs) is
+      # the production server — there is one hosted server, not one per
+      # environment the way there was one relay per environment — so a missing
+      # secret yields the right build rather than the wrong one. The line is
+      # only written when RELEASE_API_URL exists; RELEASE_RELAY_URL and
+      # RELEASE_RELAY_TOKEN are no longer read.
       - name: write .env
         shell: bash
         env:
-          RELAY_URL: ${{ secrets.RELEASE_RELAY_URL }}
-          RELAY_TOKEN: ${{ secrets.RELEASE_RELAY_TOKEN }}
+          TRACELY_API_URL: ${{ secrets.RELEASE_API_URL }}
           SUPABASE_URL: ${{ secrets.RELEASE_SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.RELEASE_SUPABASE_ANON_KEY }}
         run: |
-          if [ -z "$RELAY_URL" ] || [ -z "$RELAY_TOKEN" ] || [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "::error::Missing release secrets. Add RELEASE_RELAY_URL, RELEASE_RELAY_TOKEN, RELEASE_SUPABASE_URL and RELEASE_SUPABASE_ANON_KEY to the repository secrets — these are the production values compiled into the binary, and there is deliberately no fallback to staging."
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Missing release secrets. Add RELEASE_SUPABASE_URL and RELEASE_SUPABASE_ANON_KEY to the repository secrets — these are the production values compiled into the binary, and there is deliberately no fallback to staging."
             exit 1
           fi
           cat > .env <<EOF
-          RELAY_URL=$RELAY_URL
-          RELAY_TOKEN=$RELAY_TOKEN
           SUPABASE_URL=$SUPABASE_URL
           SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
           EOF
+          if [ -n "$TRACELY_API_URL" ]; then
+            echo "TRACELY_API_URL=$TRACELY_API_URL" >> .env
+          fi
 
       - run: npm run fetch-models
 
