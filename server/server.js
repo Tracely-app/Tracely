@@ -14,7 +14,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
          callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
-import { clampModel, ceilingModelFor, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
+import { clampModel, ceilingModelFor, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
@@ -425,8 +425,11 @@ const TIERS = {
 function pickModel(task) {
   const p = store.prefs.get();
   const strat = p.modelStrategy ?? "economy";
-  if (strat === "uniform") return p.model;
-  return (TIERS[strat] ?? TIERS.economy)[task] ?? p.model;
+  // A local prefs row saved before the 2026-09-21 remap can still name a
+  // retired id; it means the tier it named (shared/plan.js currentModelId).
+  const model = currentModelId(p.model);
+  if (strat === "uniform") return model;
+  return (TIERS[strat] ?? TIERS.economy)[task] ?? model;
 }
 
 // The watch loop reuses the exact same tiering — detection is always priced
@@ -443,6 +446,16 @@ watch.init({ pickModel });
 // empty .env must reach the same model it reached before entitlement existed.
 function allowedModel(ent, requested) {
   return ent.enforced ? clampModel(requested, ent.plan) : requested;
+}
+
+/* A client's model id as one this server serves, before any plan clamp: a
+ * retired id that shipped builds still send ("gpt-5-nano" from the Fast stop,
+ * "gpt-5.4" from Balanced — extension <= 2.19.2 and pre-remap desktops)
+ * becomes its tier's current model, so an old build keeps the tier it asked
+ * for; anything else unrecognised is the fast tier, as it always was. */
+function servedModel(requested) {
+  const id = currentModelId(requested);
+  return ALLOWED_MODELS.has(id) ? id : MODEL_TIERS.fast;
 }
 
 /**
@@ -703,8 +716,9 @@ async function appGate(req) {
  * On a hosted server (enforced) it is what the CLIENT asked for, clamped to
  * the caller's plan: the desktop resolves the user's chosen tier against their
  * plan and sends that model, so a Pro user who picked "fast" gets fast, and
- * nobody gets above their ceiling. An unrecognised request resolves DOWN to
- * the fast model, never up (clampModel's rule).
+ * nobody gets above their ceiling. A retired id a shipped build still sends
+ * is its tier's current model (servedModel); any other unrecognised request
+ * resolves DOWN to the fast model, never up (clampModel's rule).
  *
  * It deliberately does NOT read pickModel on a hosted server. pickModel reads
  * ONE global prefs row, which `PUT /api/prefs` lets any caller rewrite with no
@@ -722,7 +736,7 @@ async function appGate(req) {
  */
 function appModelFor(task, ent, requested) {
   if (!ent.enforced) return pickModel(task);
-  return clampModel(ALLOWED_MODELS.has(requested) ? requested : MODEL_TIERS.fast, ent.plan);
+  return clampModel(servedModel(requested), ent.plan);
 }
 
 /**
@@ -930,7 +944,8 @@ const server = http.createServer(async (req, res) => {
 
       const started = Date.now();
       // Hosted (enforced): the widget's slider owns the model — what the
-      // client asked for if it is a model we serve, else the fast tier — and
+      // client asked for if it is a model we serve (a retired id an old
+      // build sends counts as its tier, servedModel), else the fast tier — and
       // the plan (Pro for a beta caller, see spendGate) owns the ceiling; a
       // paid caller whose pool is spent runs the fast tier (extensionModel).
       // Local (unenforced): server-side tiering (pickModel) still decides,
@@ -1033,7 +1048,7 @@ const server = http.createServer(async (req, res) => {
       // back on a local server. Its effort used to be dropped here, so a flow
       // check ran at the default whatever the slider said.
       const { ent } = gate;
-      const modelUsed = extensionModel(gate, "/api/flow", allowedModel(ent, ALLOWED_MODELS.has(model) ? model : MODEL_TIERS.fast));
+      const modelUsed = extensionModel(gate, "/api/flow", allowedModel(ent, servedModel(model)));
       const level = normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFlowCheck({ text, model: modelUsed, effort: level, mock: MOCK });

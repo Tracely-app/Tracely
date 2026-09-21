@@ -302,6 +302,41 @@ test("hosted /api/sources follows the same rule", async () => {
   }
 });
 
+/* Extension <= 2.19.2 — testers' copies and the Web Store build under review
+ * — sends "gpt-5-nano" from its Fast stop and "gpt-5.4" from Balanced, and a
+ * pre-remap desktop sends the same ids. Coerced to fast as unknown ids, a
+ * Student's Balanced stop would silently stop meaning anything. */
+test("a retired id from a shipped build keeps its tier on /api/check and /api/sources", async () => {
+  const checks = [
+    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.6-terra"],
+    [{ token: "tok-student" }, "gpt-5.4", "gpt-5.6-terra"],
+    [{ token: "tok-free" }, "gpt-5.4", "gpt-5.6-luna"],     // never above the plan
+    [{ token: "tok-pro" }, "gpt-5-nano", "gpt-5.6-luna"],
+    [{}, "gpt-5-nano", "gpt-5.6-luna"],
+    [{ token: "tok-pro" }, "gpt-5.4-mini", "gpt-5.6-luna"], // a lookalike is not an alias: DOWN to fast
+    [{ token: "tok-pro" }, "toString", "gpt-5.6-luna"],
+  ];
+  for (const [who, asked, expected] of checks) {
+    const r = await check(A, { model: asked }, { ...who, install: `a-legacy-${who.token ?? "anon"}-${asked}` });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.modelUsed, expected, `${who.token ?? "anonymous"} asking /api/check for ${asked}`);
+  }
+  const searches = [["tok-student", "gpt-5.4", "gpt-5.6-terra"], ["tok-pro", "gpt-5-nano", "gpt-5.6-luna"], ["tok-free", "gpt-5.4", "gpt-5.6-luna"]];
+  for (const [token, asked, expected] of searches) {
+    const r = await sources(A, { model: asked }, { token, install: `a-legacy-src-${token}-${asked}` });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.modelUsed, expected, `${token} asking /api/sources for ${asked}`);
+  }
+});
+
+test("a pre-remap desktop's retired id keeps its tier on the app routes", async () => {
+  const r = await call(A, "POST", "/api/structure", { body: { text: DRAFT, model: "gpt-5.4" }, token: "tok-student", install: "a-legacy-desktop" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.model, /^gpt-5\.6-terra/, `a Student's old balanced request ran ${r.body.model}`);
+  const free = await call(A, "POST", "/api/structure", { body: { text: DRAFT + " free", model: "gpt-5.4" }, token: "tok-free", install: "a-legacy-desktop-free" });
+  assert.match(free.body.model, /^gpt-5\.6-luna/, "and never above the plan");
+});
+
 test("hosted PUT /api/prefs is refused, GET still answers, and the row cannot steer anyone's model", async () => {
   const put = await call(A, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-6-astra" } });
   assert.equal(put.status, 403);
@@ -413,6 +448,10 @@ test("a local server keeps server-side tiering (pickModel) and a writable prefs 
   assert.equal((await check(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra", "uniform: the prefs row decides");
   assert.equal((await sources(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra");
 
+  // A prefs row saved before the remap names a retired id: it means its tier.
+  assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.4" } })).status, 200);
+  assert.equal((await check(C, {})).body.modelUsed, "gpt-5.6-terra", "a legacy prefs row keeps its tier");
+
   assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "economy" } })).status, 200);
   assert.equal((await check(C, { model: "gpt-6-astra" })).body.modelUsed, "gpt-5.6-luna", "economy: the fast tier, whatever was asked");
 
@@ -462,6 +501,22 @@ test("/api/check sends the requested model and effort to the provider, not just 
   const { r, calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "medium" }, { token: "tok-pro", install: "d-check-pro" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "medium" }]);
+});
+
+test("a retired id reaches the provider as its tier's current model — on /api/check and /api/flow", async () => {
+  let { r, calls } = await sent(() => check(D, { model: "gpt-5.4", effort: "low" }, { token: "tok-student", install: "d-legacy-check" }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-terra"]);
+  assert.equal(r.body.modelUsed, "gpt-5.6-terra");
+
+  const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
+  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.4", effort: "low" }, token: "tok-pro", install: "d-legacy-flow" })));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "low" }]);
+  assert.equal(r.body.modelUsed, "gpt-5.6-terra");
+
+  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5-nano", effort: "low" }, token: "tok-pro", install: "d-legacy-flow-fast" })));
+  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-luna"]);
 });
 
 async function logLine(srv, needle) {

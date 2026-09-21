@@ -88,6 +88,35 @@ export const TIER_FOR_MODEL = {
   "gpt-6-astra": "thorough",
 };
 
+/**
+ * Retired model ids that clients already in people's hands still send, and
+ * the tier each one asked for.
+ *
+ * The tiers were remapped on 2026-09-21 (eval/models/FINDINGS.md): fast moved
+ * off gpt-5-nano and balanced off gpt-5.4. Extension builds up to 2.19.2 —
+ * testers' copies and the Web Store build under review — send "gpt-5-nano"
+ * from the Fast stop and "gpt-5.4" from Balanced, and desktop builds from
+ * before the remap send the same ids from their MODEL_FOR_TIER. None of them
+ * can be changed by a server deploy. Without this map both ids are
+ * unrecognised and resolve DOWN to fast, which quietly takes a Student's
+ * Balanced stop away; with it, an old build keeps the tier it asked for and
+ * runs that tier's current model. (Thorough was already "gpt-6-astra".)
+ *
+ * These ids only. Every other unrecognised id still resolves down to fast
+ * (clampModel), and nothing ever RUNS a retired id: it is translated before
+ * the model is chosen, priced or logged.
+ */
+export const LEGACY_MODEL_TIER = {
+  "gpt-5-nano": "fast",
+  "gpt-5.4": "balanced",
+};
+
+/** A client's model id with a retired one (LEGACY_MODEL_TIER) translated to its tier's current model; anything else unchanged. */
+export function currentModelId(requested) {
+  if (typeof requested !== "string" || !Object.hasOwn(LEGACY_MODEL_TIER, requested)) return requested;
+  return MODEL_FOR_TIER[LEGACY_MODEL_TIER[requested]];
+}
+
 /** The best tier each plan may reach. Free never leaves `fast`. */
 export const PLAN_MODEL_CEILING = { free: "fast", student: "balanced", pro: "thorough" };
 
@@ -116,12 +145,17 @@ export function ceilingModelFor(plan) {
  * the pre-entitlement behaviour of every route was already "unknown model →
  * the cheap default" (factcheck.js DEFAULT_MODEL). Resolving up would turn
  * "the client sent nothing" into a bill.
+ *
+ * A retired id an old client still sends is translated to its tier's current
+ * model first (currentModelId), so it is clamped as the tier it asked for.
+ * The lookup is own-keys only: "toString" or "constructor" is not a model.
  */
 export function clampModel(requested, plan) {
   const ceiling = PLAN_MODEL_CEILING[plan] ?? PLAN_MODEL_CEILING[DEFAULT_PLAN];
-  const tier = TIER_FOR_MODEL[requested];
+  const id = currentModelId(requested);
+  const tier = typeof id === "string" && Object.hasOwn(TIER_FOR_MODEL, id) ? TIER_FOR_MODEL[id] : null;
   if (!tier) return MODEL_FOR_TIER.fast;
-  return modelTierRank(tier) <= modelTierRank(ceiling) ? requested : MODEL_FOR_TIER[ceiling];
+  return modelTierRank(tier) <= modelTierRank(ceiling) ? id : MODEL_FOR_TIER[ceiling];
 }
 
 // ── free-tier metering ─────────────────────────────────────────────────
