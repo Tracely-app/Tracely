@@ -8,7 +8,7 @@
  * a "tracely:prefs" CustomEvent and main.js re-themes (html[data-theme]).
  */
 
-import { MODEL_FOR_TIER } from "/shared/plan.js";
+import { MODEL_FOR_TIER, currentModelId } from "/shared/plan.js";
 
 const FALLBACK_ACCENT = "#f97316";
 
@@ -230,7 +230,9 @@ function ensureStyles() {
    model: the picker looked like it worked and chose nothing. /shared/plan.js
    is the same leaf module the server and tests read, so a model rename there
    reaches this select with no edit here. Labels name the TIER, never the
-   model — the same rule the extension's slider follows. */
+   model — the same rule the extension's slider follows. A prefs row saved
+   before the 2026-09-21 remap can hold a retired id; currentModelId shows it
+   as the tier it means, which is also what the server runs (pickModel). */
 const MODELS = [
   { id: MODEL_FOR_TIER.fast, label: "Fast" },
   { id: MODEL_FOR_TIER.balanced, label: "Balanced" },
@@ -350,7 +352,7 @@ export async function render(mount, ctx) {
         </div>
         ${row("Fact-check my claims automatically", "Uses the API when on", `<input type="checkbox" data-set="autoCritique"${settings.autoCritique ? " checked" : ""} />`, { costs: true })}
         ${row("Auto-find sources for flagged claims", "Uses web search, capped", `<input type="checkbox" data-set="autoSources"${settings.autoSources ? " checked" : ""} />`, { costs: true })}
-        ${row("Model", "Affects cost", `<select class="input" data-set="model">${options(MODELS, settings.model ?? MODEL_FOR_TIER.fast)}</select>`, { costs: true })}
+        ${row("Model", "Affects cost", `<select class="input" data-set="model">${options(MODELS, currentModelId(settings.model) ?? MODEL_FOR_TIER.fast)}</select>`, { costs: true })}
         ${row(
           "Model strategy",
           `<span id="setStrategyHint">${STRATEGY_HINTS[strategy]}</span>`,
