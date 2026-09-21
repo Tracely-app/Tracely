@@ -1,0 +1,479 @@
+/**
+ * The test build's Pro grant, the honest model choice on the extension's
+ * routes, the prefs lockdown and the model-failure log — over real HTTP.
+ *
+ * Four real servers, each spawned from server.js with its own data dir:
+ *
+ *   A  hosted (enforced), mock model, beta OFF
+ *   B  hosted (enforced), mock model, beta ON with a 1-cent beta pool
+ *   C  local (unenforced), mock model, beta ON
+ *   D  hosted (enforced), REAL request path with OpenAI stubbed by a preload,
+ *      so the tests can read the exact model and effort the server sent, and
+ *      make a call truncate / refuse / return garbage on demand
+ *
+ * "Enforced" needs a Supabase project, so a mock one runs here and answers
+ * /auth/v1/user for three canned tokens (free, student, pro). No real network
+ * is touched: the model is mocked (A-C) or stubbed (D).
+ *
+ * What is pinned, and why each matters:
+ *   - A beta token is honoured only when TRACELY_BETA_TOKENS lists it, lifts
+ *     the caller to Pro on the EXTENSION's routes, and never on the desktop's.
+ *   - Beta spend lands in its own pool, and when that runs dry the tester
+ *     drops to their own plan on the extension pool — never a 503, and never
+ *     the extension pool while the beta pool can pay.
+ *   - Hosted /api/check and /api/sources run the model the client asked for,
+ *     clamped to the plan, instead of one global prefs row for everybody.
+ *   - PUT /api/prefs, which rewrote that row with no authentication, is
+ *     refused on a hosted server and unchanged on a local one.
+ *   - A failed model call leaves one log line naming route, kind, model and
+ *     effort — and none of the user's text.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SERVER = path.join(HERE, "..", "server.js");
+const TMP = mkdtempSync(path.join(tmpdir(), "tracely-beta-"));
+// Before any import that opens the database (lib/entitlement.js → lib/db.js).
+process.env.TRACELY_DATA_DIR = TMP;
+process.on("exit", () => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+
+const { betaTokens, betaTokenMatches, withBetaGrant } = await import("../lib/entitlement.js");
+const { CheckError } = await import("../lib/errors.js");
+const { isModelFailure, modelFailureLine } = await import("../lib/failureLog.js");
+
+const BETA = { "X-Tracely-Beta": "right-token" };
+
+// ── the helpers, as units ────────────────────────────────────────────────
+
+test("betaTokens: comma-separated, trimmed, blanks dropped; absent or empty is none", () => {
+  assert.deepEqual(betaTokens({}), []);
+  assert.deepEqual(betaTokens({ TRACELY_BETA_TOKENS: "" }), []);
+  assert.deepEqual(betaTokens({ TRACELY_BETA_TOKENS: " , ," }), []);
+  assert.deepEqual(betaTokens({ TRACELY_BETA_TOKENS: " a ,, b ," }), ["a", "b"]);
+});
+
+test("betaTokenMatches: exact, case-sensitive, and nothing matches when beta is off", () => {
+  const env = { TRACELY_BETA_TOKENS: "alpha-1, bravo-2" };
+  assert.equal(betaTokenMatches("alpha-1", env), true);
+  assert.equal(betaTokenMatches("bravo-2", env), true, "every listed token works, not just the first");
+  for (const wrong of ["Alpha-1", "alpha-", "alpha-11", " alpha-1", "", null, undefined, 42, {}]) {
+    assert.equal(betaTokenMatches(wrong, env), false, `matched ${JSON.stringify(wrong)}`);
+  }
+  assert.equal(betaTokenMatches("alpha-1", {}), false, "no TRACELY_BETA_TOKENS means no beta at all");
+  assert.equal(betaTokenMatches("", { TRACELY_BETA_TOKENS: "" }), false, "an empty header cannot match an empty list");
+});
+
+test("withBetaGrant: Pro for a match, a NEW object, and the entitlement it was given untouched", () => {
+  const env = { TRACELY_BETA_TOKENS: "right-token" };
+  const req = (v) => ({ headers: v === undefined ? {} : { "x-tracely-beta": v } });
+  const free = Object.freeze({ plan: "free", email: null, userId: null, enforced: true });
+
+  assert.equal(withBetaGrant(free, req(undefined), env), free, "no header: the same object back");
+  assert.equal(withBetaGrant(free, req("wrong"), env), free, "a wrong token: the same object back");
+  assert.equal(withBetaGrant(free, req("right-token"), {}), free, "beta off: the same object back");
+
+  const granted = withBetaGrant(free, req("right-token"), env);
+  assert.notEqual(granted, free, "a cached entitlement must never be mutated into Pro");
+  assert.deepEqual(granted, { plan: "pro", email: null, userId: null, enforced: true, beta: true });
+
+  const student = withBetaGrant({ plan: "student", userId: "u", email: "e", enforced: true }, req("right-token"), env);
+  assert.equal(student.plan, "pro", "max(plan, pro)");
+  assert.equal(student.userId, "u", "a signed-in tester is still metered and billed as themselves");
+  assert.equal(withBetaGrant({ plan: "pro", enforced: true }, req("right-token"), env).plan, "pro");
+  assert.equal(withBetaGrant(free, req(["right-token"]), env).beta, true, "a repeated header reads its first value");
+  assert.equal(withBetaGrant(free, req(" right-token "), env).beta, true, "surrounding space is not part of a header value");
+  assert.equal(withBetaGrant(free, req("x".repeat(500)), { TRACELY_BETA_TOKENS: "x".repeat(500) }), free,
+    "an over-long header is ignored rather than hashed");
+});
+
+test("the failure line names route, kind, model and effort — never the message or anything unlisted", () => {
+  const leak = "My essay says the Treaty of Paris was 1783 — student@example.test";
+  const tagged = new CheckError("bad_request", leak, { status: 502 });
+  Object.defineProperty(tagged, "llm", { value: { model: "gpt-5.4", effort: "medium" }, enumerable: false });
+  const line = modelFailureLine("/api/check", tagged, { model: "gpt-6-astra", effort: "high" });
+  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-5.4 effort=medium",
+    "the facade's tag wins over the route's trace: it is what was actually sent");
+  assert.ok(!line.includes("Treaty") && !line.includes("student@"), "the message never reaches the log");
+
+  const reasoned = Object.assign(new CheckError("server", leak, { status: 502 }), { reason: "unparseable" });
+  assert.match(modelFailureLine("/api/flow", reasoned, { model: "gpt-5-nano", effort: "low" }), /kind=unparseable status=502 model=gpt-5-nano effort=low$/);
+  // Anything that is not a value this server chose is refused a place in the line.
+  const junk = Object.assign(new CheckError("server", "x", { status: 502 }), { reason: leak });
+  assert.match(modelFailureLine("/api/check", junk, { model: leak, effort: leak }), /kind=unknown status=502 model=unlisted effort=unlisted$/);
+  const noEffort = new CheckError("refusal", leak, { status: 502 });
+  Object.defineProperty(noEffort, "llm", { value: { model: "gpt-5-nano", effort: null } });
+  assert.match(modelFailureLine("/api/grade", noEffort), /model=gpt-5-nano effort=none$/);
+});
+
+test("only model failures are logged — never a caller's own 4xx, the budget, or a missing key", () => {
+  const tag = (e) => Object.defineProperty(e, "llm", { value: { model: "gpt-5-nano", effort: "low" } });
+  assert.equal(isModelFailure(new CheckError("bad_request", "text required")), false);
+  assert.equal(isModelFailure(new CheckError("plan_limit", "used up", { status: 429 })), false);
+  assert.equal(isModelFailure(new CheckError("rate_limit", "slow down", { status: 429 })), false);
+  assert.equal(isModelFailure(new CheckError("budget", "daily limit", { status: 503 })), false);
+  assert.equal(isModelFailure(new CheckError("no_key", "no key", { status: 503 })), false);
+  assert.equal(isModelFailure(new Error("boom")), false, "non-CheckErrors have their own log line already");
+  assert.equal(isModelFailure(new CheckError("server", "unusable grade", { status: 502 })), true);
+  assert.equal(isModelFailure(tag(new CheckError("rate_limit", "OpenAI 429", { status: 429 }))), true, "anything out of the facade counts");
+  assert.equal(isModelFailure(tag(new CheckError("no_key", "OpenAI rejected the key", { status: 503 }))), true);
+});
+
+// ── the servers ──────────────────────────────────────────────────────────
+
+const USERS = {
+  "tok-free": { id: "u-free", email: "free@example.test", app_metadata: {} },
+  "tok-student": { id: "u-student", email: "student@example.test", app_metadata: { plan: "student" } },
+  "tok-pro": { id: "u-pro", email: "pro@example.test", app_metadata: { plan: "pro" } },
+};
+const supabase = http.createServer((req, res) => {
+  const token = /^Bearer (\S+)$/.exec(req.headers.authorization ?? "")?.[1];
+  const user = req.url === "/auth/v1/user" ? USERS[token] : undefined;
+  res.writeHead(user ? 200 : 401, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(user ?? { msg: "invalid token" }));
+});
+
+/* D's OpenAI: a preload that swaps globalThis.fetch for api.openai.com only.
+ * It records model + effort per call and answers from the request's own
+ * schema; a TRIGGER word in the input picks a failure. Written to a temp dir
+ * at runtime, because anything under test/ would be run as a test file. */
+const OPENAI_LOG = path.join(TMP, "openai.jsonl");
+const STUB = path.join(TMP, "openai-stub.mjs");
+writeFileSync(OPENAI_LOG, "");
+writeFileSync(STUB, `
+import { appendFileSync } from "node:fs";
+const real = globalThis.fetch;
+const emptyFor = (s) => {
+  if (!s) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(s.properties ?? {})) {
+    const t = Array.isArray(v.type) ? v.type[0] : v.type;
+    out[k] = t === "array" ? [] : t === "object" ? emptyFor(v) : t === "number" || t === "integer" ? 0 : t === "boolean" ? false : "";
+  }
+  return out;
+};
+globalThis.fetch = async (url, init = {}) => {
+  if (!String(url).startsWith("https://api.openai.com/")) return real(url, init);
+  const body = JSON.parse(init.body);
+  appendFileSync(process.env.TRACELY_TEST_OPENAI_LOG, JSON.stringify({ model: body.model, effort: body.reasoning?.effort ?? null, webSearch: Array.isArray(body.tools) }) + "\\n");
+  const input = JSON.stringify(body.input);
+  let reply;
+  if (input.includes("TRIGGER-TRUNCATE")) reply = { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } };
+  else if (input.includes("TRIGGER-REFUSE")) reply = { output: [{ content: [{ type: "refusal", refusal: "no" }] }] };
+  else if (input.includes("TRIGGER-GARBAGE")) reply = { output_text: "this is not json {" };
+  else if (body.tools) reply = { output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }) };
+  else reply = { output_text: JSON.stringify(emptyFor(body.text?.format?.schema)) };
+  return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: 1, output_tokens: 1 }, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
+};
+`);
+const openaiLog = () => readFileSync(OPENAI_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+// Everything that could change these servers' behaviour is cleared, so a
+// developer's shell cannot make the suite pass or fail.
+const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_DAILY_BUDGET_USD", "TRACELY_APP_DAILY_BUDGET_USD",
+  "SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY", "TRACELY_MOCK", "TRACELY_EXTENSION_ID", "TRACELY_TRUSTED_PROXY_HOPS", "TRACELY_LLM_PROVIDER"];
+const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SCRUB.includes(k)));
+
+let port = 6000 + Math.floor(Math.random() * 800);
+async function boot(env, { preload } = {}) {
+  const p = port++;
+  const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), SERVER], {
+    env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: mkdtempSync(path.join(TMP, "data-")), ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (d) => { stderr += d; });
+  child.stdout.resume();
+  const base = `http://127.0.0.1:${p}`;
+  for (let i = 0; i < 200; i++) {
+    try { if ((await fetch(`${base}/api/status`)).ok) return { base, child, stderr: () => stderr }; } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  child.kill();
+  throw new Error(`server on ${p} did not start: ${stderr}`);
+}
+
+let A, B, C, D;
+test.before(async () => {
+  await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
+  const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
+  [A, B, C, D] = await Promise.all([
+    boot({ ...hosted, TRACELY_MOCK: "1" }),
+    boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: " old-token , right-token ", TRACELY_BETA_DAILY_BUDGET_USD: "0.01" }),
+    boot({ TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token" }),
+    boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_TEST_OPENAI_LOG: OPENAI_LOG }, { preload: STUB }),
+  ]);
+});
+test.after(() => {
+  for (const s of [A, B, C, D]) s?.child.kill();
+  supabase.close();
+});
+
+function call(srv, method, p, { body, install = "install-default", token, headers = {} } = {}) {
+  return fetch(`${srv.base}${p}`, {
+    method,
+    headers: {
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      "X-Tracely-Install": install,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+}
+const entitlement = (srv, opts) => call(srv, "GET", "/api/entitlement", opts);
+const status = (srv) => call(srv, "GET", "/api/status").then((r) => r.body);
+const SENTENCE = "Water boils at 100 degrees Celsius at sea level.";
+const check = (srv, extra = {}, opts = {}) =>
+  call(srv, "POST", "/api/check", { ...opts, body: { text: SENTENCE, sentences: [{ id: "s1", text: SENTENCE }], ...extra } });
+const sources = (srv, extra = {}, opts = {}) =>
+  call(srv, "POST", "/api/sources", { ...opts, body: { claim: "Water boils at 100 degrees Celsius at sea level.", ...extra } });
+const DRAFT = "Social media harms teenagers.\n\nStudies since 2012 show a rise in anxiety among heavy users.\n\nSchools should therefore limit phone use.";
+
+// ── A: hosted, beta off ──────────────────────────────────────────────────
+
+test("beta off (no TRACELY_BETA_TOKENS): the header grants nothing, and /api/status is unchanged", async () => {
+  const e = await entitlement(A, { headers: BETA });
+  assert.equal(e.status, 200);
+  assert.equal(e.body.plan, "free");
+  assert.ok(!("beta" in e.body), "beta is omitted, not false, when the grant did not apply");
+  const r = await check(A, { model: "gpt-6-astra" }, { headers: BETA, install: "a-beta-off" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.modelUsed, "gpt-5-nano");
+  assert.equal(r.body.plan, "free");
+  assert.ok(!("betaBudget" in (await status(A))), "no beta, no betaBudget");
+});
+
+test("hosted /api/check runs the model the client asked for, clamped to the plan", async () => {
+  const cases = [
+    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.4"],          // a Pro user who picked balanced gets balanced
+    [{ token: "tok-pro" }, "gpt-6-astra", "gpt-6-astra"],
+    [{ token: "tok-pro" }, undefined, "gpt-5-nano"],        // nothing asked: the fast tier, not a guess upward
+    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5-nano"], // unknown: DOWN to fast
+    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.4"],   // clamped to the student ceiling
+    [{ token: "tok-free" }, "gpt-5.4", "gpt-5-nano"],
+    [{}, "gpt-6-astra", "gpt-5-nano"],                      // anonymous is free
+  ];
+  for (const [who, asked, expected] of cases) {
+    const r = await check(A, asked === undefined ? {} : { model: asked }, { ...who, install: `a-check-${who.token ?? "anon"}` });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.modelUsed, expected, `${who.token ?? "anonymous"} asking for ${asked}`);
+  }
+});
+
+test("hosted /api/sources follows the same rule", async () => {
+  const cases = [
+    ["tok-pro", "gpt-5.4", "gpt-5.4"],
+    ["tok-student", "gpt-6-astra", "gpt-5.4"],
+    ["tok-free", "gpt-6-astra", "gpt-5-nano"],
+    ["tok-pro", "nonsense", "gpt-5-nano"],
+  ];
+  for (const [token, asked, expected] of cases) {
+    const r = await sources(A, { model: asked }, { token, install: `a-src-${token}-${asked}` });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.modelUsed, expected, `${token} asking for ${asked}`);
+  }
+});
+
+test("hosted PUT /api/prefs is refused, GET still answers, and the row cannot steer anyone's model", async () => {
+  const put = await call(A, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-6-astra" } });
+  assert.equal(put.status, 403);
+  assert.equal(put.body.error.kind, "forbidden");
+  assert.equal(typeof put.body.error.message, "string");
+  const get = await call(A, "GET", "/api/prefs");
+  assert.equal(get.status, 200);
+  assert.notEqual(get.body.model, "gpt-6-astra", "the refused write did not land");
+  const r = await check(A, {}, { token: "tok-pro", install: "a-after-prefs" });
+  assert.equal(r.body.modelUsed, "gpt-5-nano");
+});
+
+// ── B: hosted, beta on, a 1-cent beta pool ───────────────────────────────
+
+test("beta on: no header or a wrong token is free; the right token is Pro with beta:true", async () => {
+  const none = await entitlement(B);
+  assert.equal(none.body.plan, "free");
+  assert.ok(!("beta" in none.body));
+  for (const wrong of ["wrong-token", "right-toke", "right-token2", "RIGHT-TOKEN", "old-token,right-token"]) {
+    const r = await entitlement(B, { headers: { "X-Tracely-Beta": wrong } });
+    assert.equal(r.body.plan, "free", `"${wrong}" was granted`);
+    assert.ok(!("beta" in r.body));
+  }
+  const right = await entitlement(B, { headers: BETA });
+  assert.equal(right.status, 200);
+  assert.equal(right.body.plan, "pro");
+  assert.equal(right.body.beta, true);
+  assert.equal(right.body.enforced, true, "enforced keeps meaning 'this server clamps'");
+  assert.equal(right.body.userId, null);
+  const old = await entitlement(B, { headers: { "X-Tracely-Beta": "old-token" } });
+  assert.equal(old.body.beta, true, "every token in the comma-separated list works");
+});
+
+test("a signed-in free user with the token is Pro, and the grant never sticks to their cached plan", async () => {
+  const granted = await entitlement(B, { token: "tok-free", headers: BETA });
+  assert.equal(granted.body.plan, "pro");
+  assert.equal(granted.body.beta, true);
+  assert.equal(granted.body.userId, "u-free", "still themselves");
+  assert.equal(granted.body.email, "free@example.test");
+  // Same bearer token, inside the 60s plan cache, no header: free again.
+  const after = await entitlement(B, { token: "tok-free" });
+  assert.equal(after.body.plan, "free", "the grant leaked into the cached entitlement");
+  assert.ok(!("beta" in after.body));
+  const student = await entitlement(B, { token: "tok-student", headers: BETA });
+  assert.equal(student.body.plan, "pro");
+});
+
+test("a beta caller runs /api/check at Pro, signed in or out; the same caller without the header does not", async () => {
+  const out = await check(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
+  assert.equal(out.status, 200, JSON.stringify(out.body));
+  assert.equal(out.body.modelUsed, "gpt-6-astra");
+  assert.equal(out.body.plan, "pro");
+  const signedIn = await check(B, { model: "gpt-6-astra" }, { token: "tok-free", headers: BETA, install: "beta-tester-2" });
+  assert.equal(signedIn.body.modelUsed, "gpt-6-astra");
+  const plain = await check(B, { model: "gpt-6-astra" }, { install: "beta-tester-1" });
+  assert.equal(plain.body.modelUsed, "gpt-5-nano");
+  assert.equal(plain.body.plan, "free");
+});
+
+test("the desktop's app routes ignore the beta header entirely", async () => {
+  const r = await call(B, "POST", "/api/structure", { body: { text: DRAFT, model: "gpt-6-astra" }, headers: BETA, install: "beta-desktop" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.model, /^gpt-5-nano/, `a beta header reached an app route and ran ${r.body.model}`);
+});
+
+test("beta spend lands in the beta pool; the extension pool is untouched", async () => {
+  const before = await status(B);
+  assert.deepEqual(before.betaBudget, { enforced: true, budgetUsd: 0.01, spentUsd: 0, remainingPct: 1, sourcesAllowed: true });
+  assert.equal(before.budget.spentUsd, 0);
+
+  // A source search costs exactly one cent (the web_search fee) even on the
+  // mock model, which makes it the one call whose spend is visible here.
+  const r = await sources(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.equal(r.body.plan, "pro");
+
+  const after = await status(B);
+  assert.equal(after.betaBudget.spentUsd, 0.01, "the beta pool paid");
+  assert.equal(after.budget.spentUsd, 0, "the extension pool never saw it");
+});
+
+test("an exhausted beta pool drops the tester to their own plan on the extension pool — never a 503", async () => {
+  const c = await check(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.equal(c.body.modelUsed, "gpt-5-nano", "back on the free model");
+  assert.equal(c.body.plan, "free");
+
+  const s = await sources(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
+  assert.equal(s.status, 200, JSON.stringify(s.body));
+  assert.equal(s.body.modelUsed, "gpt-5-nano");
+  assert.equal(s.body.plan, "free");
+
+  const after = await status(B);
+  assert.equal(after.budget.spentUsd, 0.01, "the fallback search was paid by the extension pool");
+  assert.equal(after.betaBudget.spentUsd, 0.01, "and not by the spent beta pool");
+
+  // The grant itself is unchanged: the pool only decides who pays.
+  const e = await entitlement(B, { headers: BETA });
+  assert.equal(e.body.plan, "pro");
+  assert.equal(e.body.beta, true);
+});
+
+// ── C: local, unenforced ─────────────────────────────────────────────────
+
+test("a local server keeps server-side tiering (pickModel) and a writable prefs row", async () => {
+  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.4" } });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.equal((await check(C, { model: "gpt-5-nano" })).body.modelUsed, "gpt-5.4", "uniform: the prefs row decides");
+  assert.equal((await sources(C, { model: "gpt-5-nano" })).body.modelUsed, "gpt-5.4");
+
+  assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "economy" } })).status, 200);
+  assert.equal((await check(C, { model: "gpt-6-astra" })).body.modelUsed, "gpt-5-nano", "economy: the fast tier, whatever was asked");
+
+  const e = await entitlement(C, { headers: BETA });
+  assert.equal(e.body.enforced, false, "nothing is clamped locally, beta or not");
+});
+
+// ── D: the real request path, OpenAI stubbed ─────────────────────────────
+
+async function sent(fn) {
+  const n = openaiLog().length;
+  const r = await fn();
+  return { r, calls: openaiLog().slice(n) };
+}
+
+test("/api/flow passes the client's effort through, normalised, at the clamped model", async () => {
+  const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
+  let { r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: "d-flow-beta" }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "high" }]);
+
+  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "medium" }, install: "d-flow-free" })));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5-nano", effort: "medium" }], "clamped model, the client's effort");
+  assert.equal(r.body.modelUsed, "gpt-5-nano");
+
+  ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, effort: "turbo" }, install: "d-flow-junk" })));
+  assert.equal(calls[0].effort, "low", "junk becomes the default, never OpenAI's own");
+});
+
+test("/api/sources sends a reasoning effort now — the client's, or low", async () => {
+  let { r, calls } = await sent(() => sources(D, { model: "gpt-5.4" }, { install: "d-src-free" }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5-nano", effort: "low", webSearch: true }]);
+
+  ({ r, calls } = await sent(() => sources(D, { model: "gpt-5.4", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.4", effort: "high" }]);
+});
+
+test("/api/check sends the requested model and effort to the provider, not just in modelUsed", async () => {
+  const { r, calls } = await sent(() => check(D, { model: "gpt-5.4", effort: "medium" }, { token: "tok-pro", install: "d-check-pro" }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.4", effort: "medium" }]);
+});
+
+async function logLine(srv, needle) {
+  for (let i = 0; i < 40; i++) {
+    const line = srv.stderr().split("\n").find((l) => l.includes(needle));
+    if (line) return line;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return null;
+}
+
+test("a failed model call logs route, kind, model and effort — and none of the user's text", async () => {
+  const secret = "PRIVATE-ESSAY-7731 my grandmother emigrated in 1952";
+  const install = "install-SECRET-4242";
+  const text = `TRIGGER-TRUNCATE ${secret}`;
+  const r = await call(D, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }] }, install, token: "tok-free" });
+  assert.equal(r.status, 502);
+  assert.equal(r.body.error.kind, "truncated", "the wire error is unchanged");
+  const truncated = await logLine(D, "route=/api/check");
+  assert.equal(truncated, "[tracely] model call failed route=/api/check kind=truncated status=502 model=gpt-5-nano effort=low");
+
+  const garbage = await call(D, "POST", "/api/flow", { body: { text: `TRIGGER-GARBAGE ${secret}`, model: "gpt-6-astra", effort: "high" }, headers: BETA, install });
+  assert.equal(garbage.status, 502);
+  assert.equal(await logLine(D, "route=/api/flow"), "[tracely] model call failed route=/api/flow kind=unparseable status=502 model=gpt-6-astra effort=high");
+
+  // A desktop route passes the same handler.
+  const refused = await call(D, "POST", "/api/structure", { body: { text: `${DRAFT} TRIGGER-REFUSE ${secret}` }, install });
+  assert.equal(refused.status, 502, JSON.stringify(refused.body));
+  assert.match(await logLine(D, "route=/api/structure") ?? "", /^\[tracely\] model call failed route=\/api\/structure kind=refusal status=502 model=gpt-5-nano effort=\w+$/);
+
+  // A caller's own mistake is not a model failure.
+  const before = D.stderr();
+  const bad = await call(D, "POST", "/api/check", { body: { text: secret, sentences: [] }, install });
+  assert.equal(bad.status, 400);
+  await new Promise((res) => setTimeout(res, 100));
+  assert.equal(D.stderr(), before, "a 400 wrote a log line");
+
+  const log = D.stderr();
+  for (const leak of ["PRIVATE-ESSAY", "grandmother", "TRIGGER-", "install-SECRET", "u-free", "free@example.test", "right-token"]) {
+    assert.ok(!log.includes(leak), `the server log carries ${leak}:\n${log}`);
+  }
+});
