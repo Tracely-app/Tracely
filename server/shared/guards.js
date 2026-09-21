@@ -139,19 +139,29 @@ export function rollingCounter(limit, windowMs = 3_600_000) {
  * actual ceiling, stamped before the call.
  */
 export function detectGate() {
-  let lastRunAt = 0;
-  let lastText = "";
+  /* The desktop's rule (src/shared/liveDetect.ts shouldDetectNow), mirrored and
+   * pinned by test/mirror-contracts.test.js. Two ways this copy used to differ:
+   *  - it measured the RAW draft, so 79 characters and a few trailing spaces
+   *    cleared the 80-character minimum here and not on the desktop;
+   *  - it started from lastRunAt = 0, so "has never run" was only distinguished
+   *    from "ran at the epoch" by the real clock being large. Null says it.
+   * Both measure the trimmed draft now, and a first run skips the floor. */
+  let lastRunAt = null;
+  let lastText = null;
   return {
-    shouldRun(text, now = Date.now()) {
+    shouldRun(raw, now = Date.now()) {
+      const text = String(raw ?? "").trim();
       if (text.length < GUARDS.detect.minChars) return false;
-      if (text === lastText) return false;
-      if (Math.abs(text.length - lastText.length) < GUARDS.detect.minDelta) return false;
-      if (now - lastRunAt < GUARDS.detect.minIntervalMs) return false;
+      if (lastText !== null) {
+        if (text === lastText) return false;
+        if (Math.abs(text.length - lastText.length) < GUARDS.detect.minDelta) return false;
+      }
+      if (lastRunAt !== null && now - lastRunAt < GUARDS.detect.minIntervalMs) return false;
       return true;
     },
-    stamp(text, now = Date.now()) {
+    stamp(raw, now = Date.now()) {
       lastRunAt = now; // before the call
-      lastText = text;
+      lastText = String(raw ?? "").trim();
     },
   };
 }
