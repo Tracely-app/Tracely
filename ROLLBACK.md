@@ -154,9 +154,12 @@ Deleting rows from it changes everyone's rate limit. Never run an unfiltered
 
 ## What cannot be rolled back at all
 
-`RELAY_URL`, `RELAY_TOKEN`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY` are inlined
-into the main bundle at build time by `electron.vite.config.ts`. They have **no
-runtime representation** — no setting, no config file, no override.
+`TRACELY_API_URL` (or its default, `https://api.jointracely.com`),
+`SUPABASE_URL`, and `SUPABASE_ANON_KEY` are inlined into the main bundle at
+build time by `electron.vite.config.ts`. They have **no runtime
+representation** — no setting, no config file, no override. (Builds from before
+the move onto the Tracely server inlined `RELAY_URL` and `RELAY_TOKEN` instead,
+and the same applies to them.)
 
 If a shipped build points at the wrong host, or a token it uses is rotated, every
 install of that version is permanently broken and only a new release fixes it.

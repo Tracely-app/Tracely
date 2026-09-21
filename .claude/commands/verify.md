@@ -1,5 +1,5 @@
 ---
-description: Free end-to-end health check of the relay, auth, quota and RLS
+description: Free end-to-end health check of the server, auth, quota and RLS
 ---
 
 Check that Tracely's backend is actually working. **This costs nothing** — every
@@ -11,23 +11,27 @@ skipped is not a check that passed.
 
 ## 1. Which host is production
 
-`RELAY_URL` in `.env` is compiled into every installer, so pointing a release at
-the wrong host breaks every copy of the app.
+The Tracely server URL is compiled into every installer — `TRACELY_API_URL` in
+`.env`, or `https://api.jointracely.com` when it is unset (the build banner says
+`api=<host> (default)` in that case). Pointing a release at the wrong host
+breaks every copy of the app.
 
-An unauthenticated probe returns `401` from *any* host that exists, including the
-wrong one — so it cannot tell them apart. Send the real shared token and compare
-the message:
+`GET <server>/api/status` answers only from a Tracely server, and says whether
+it can spend: expect JSON with `hasKey: true` and `mock: false`. Anything else —
+a 404, an HTML page, `mock: true` — means this is not the production server.
+No token is needed and nothing is spent.
 
-- `Sign in to use Tracely.` → token accepted, relay healthy
-- `Unauthorized` → token rejected, **this is not production**
-
-Read `RELAY_TOKEN` out of `.env` without printing it.
+(Installed builds from before the move onto the server still call the relay
+until they update. For the relay: send the real shared token and compare the
+message — `Sign in to use Tracely.` means the token was accepted, `Unauthorized`
+means this is not production. Read `RELAY_TOKEN` out of `.env` without printing
+it, where an older checkout still has one.)
 
 ## 2. Every endpoint is live
 
-`node scripts/preflight.mjs` covers this, or probe each endpoint in `callRelay`'s
-type union directly. A `404` means the relay was not deployed with the client —
-the failure that shipped in v0.3.73.
+`node scripts/preflight.mjs` covers this, or probe each endpoint in
+`callServer`'s type union directly with an empty `POST {}`. A `404` means the
+server was not deployed with the client — the failure that shipped in v0.3.73.
 
 ## 3. The migration actually ran
 

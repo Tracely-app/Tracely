@@ -20,7 +20,16 @@ detection, every critique. Fine for looking at a button. Not fine for
 running detection twenty times while tuning something.
 
 `TRACELY_ENV=staging` reads `.env.staging` instead: separate Supabase project,
-separate OpenAI key with a low hard cap, throwaway data.
+throwaway data.
+
+The AI calls are the exception now that the app talks to the Tracely server
+rather than a per-environment relay. They go wherever `TRACELY_API_URL` in the
+env file points, and when it points nowhere that is the hosted server — the
+production OpenAI key, though a staging session will not verify there unless
+the server shares the staging Supabase project, so it is metered as a
+signed-out free install. For AI calls that cost nothing real, set
+`TRACELY_API_URL=http://localhost:4477` in `.env.staging` and run the server
+locally with `TRACELY_MOCK=1` (`cd server && npm start`).
 
 The variable lasts only for that terminal session. A new terminal is back to
 production, which is the right default for a maintainer — but check the banner
@@ -31,11 +40,14 @@ rather than assuming.
 Every build prints it. This is the only way to know:
 
 ```
-env=staging  file=.env.staging  relay=tracely-relay-staging.vercel.app  supabase=sxifbtelrtbsgnnwnmdf
+env=staging  file=.env.staging  api=api.jointracely.com (default)  supabase=sxifbtelrtbsgnnwnmdf
 ```
 
-`relay=` is the line that matters. If it says `folio-relay`, the variable did not
-take and you are on production.
+`env=` and `supabase=` are the fields that matter. If `env=` says `production`,
+the variable did not take and you are on the production Supabase project.
+`api=` is the Tracely server the build's AI calls go to; there is one hosted
+server, so it reads `api.jointracely.com (default)` in both environments unless
+`TRACELY_API_URL` in the env file names another.
 
 ## You will need the staging account
 

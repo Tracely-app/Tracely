@@ -121,9 +121,9 @@ npm run dist:mac     # build + electron-builder --mac (untested, config-only)
 
 There is no lint script configured. The two automated correctness checks are `npm run typecheck` and `npm test` (Node's built-in runner over `src/**/*.test.ts` — 282 tests, 57 suites, under a second). Run both after making changes; neither costs anything. This line previously claimed there was no test suite, which sent agents pushing on typecheck alone.
 
-### Relay setup for AI features
+### Server setup for AI features
 
-Claim detection and critique require a deployed Tracely Relay. Copy `.env.example` to `.env` and set `RELAY_URL` / `RELAY_TOKEN`. These are read once by `electron.vite.config.ts` and compiled directly into the main-process bundle via the `define` block (`__RELAY_URL__` / `__RELAY_TOKEN__`) — there's no runtime/user-facing way to change them; changing the relay means editing `.env` and rebuilding. Evidence search, scoring, citations, and the library all work with no relay configured.
+Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. The relay (`Tracely-relay`) still serves installed builds from before this change. Evidence search, scoring, citations, and the library all work with no server.
 
 ### Nobody signs in, and the app still has an account
 
@@ -243,15 +243,15 @@ after something broke:**
 
 `npm run release:win` runs `scripts/preflight.mjs` first and refuses to publish
 unless: you're on `main`, the tree is clean and in sync with origin, typecheck
-passes, **every relay endpoint in `callRelay`'s parameter type answers
+passes, **every server endpoint in `callServer`'s parameter type answers
 something other than 404**, and the version is strictly above the latest
 published GitHub release.
 
-That relay check is the important one. **The desktop app and the relay
-(`C:\Users\merri\Tracely-relay`, deployed to Vercel) must ship together**, and
-nothing else enforces it: v0.3.73 was committed, typechecked and building
-cleanly with the then-new `/api/tracer` returning 404 in production. Deploy the
-relay first, then release the client. The version check matters for the
+That endpoint check is the important one. **The desktop app and the server
+(`server/`, deployed per `server/DEPLOY.md`) must ship together**, and nothing
+else enforces it: v0.3.73 was committed, typechecked and building cleanly with
+the then-new `/api/tracer` returning 404 in production (on the relay, which the
+app called then). Deploy the server first, then release the client. The version check matters for the
 opposite failure — `electron-updater` only offers a *strictly higher* version,
 so publishing without bumping produces a release nobody is ever shown.
 
@@ -384,7 +384,7 @@ Every handler validates its input with zod before touching a service — there i
 
 ### `main/services/` — four independent domains
 
-- **`ai/`** — `client.ts` (`callRelay`) is the only thing that ever makes a network call to the relay; `claimDetection.ts` and `critique.ts` build the request bodies. `costGuard.ts` centralizes hard limits (max input chars, max claims per analysis, max evidence items sent to critique) — check here before loosening any AI-related limit. AI is invoked either from an explicit user action (Analyze / Find Evidence / Critique) or automatically by Screen Watch after a debounced pause in typing — never on every keystroke. (This used to say "the renderer's Live tab (`LiveView.tsx`)"; there is no such tab.) Every call result is cached in SQLite (`cacheRepo.ts`) keyed by a hash of normalized input, which also caps live-editing cost since re-detecting unchanged text is free.
+- **`ai/`** — `client.ts` (`callServer`) is the only thing that ever makes a network call to the Tracely server; its retry/timeout/error-envelope rules are the tested leaf `serverCallPolicy.ts`; `claimDetection.ts` and `critique.ts` build the request bodies. `costGuard.ts` centralizes hard limits (max input chars, max claims per analysis, max evidence items sent to critique) — check here before loosening any AI-related limit. AI is invoked either from an explicit user action (Analyze / Find Evidence / Critique) or automatically by Screen Watch after a debounced pause in typing — never on every keystroke. (This used to say "the renderer's Live tab (`LiveView.tsx`)"; there is no such tab.) Every call result is cached in SQLite (`cacheRepo.ts`) keyed by a hash of normalized input, which also caps live-editing cost since re-detecting unchanged text is free.
 - **`search/`** — one client module per provider, each returning a `NormalizedSourceResult`. The three core scholarly searches always run; routing can add PubMed for biomedical claims, Wikipedia for general facts, or World Development Indicators from the World Bank for statistical claims. `worldBank.ts` embeds the indicator catalogue once per session and returns at most one dataset only above its measured semantic-match floor. `aggregator.ts` fans providers out in parallel via `safeSearch` (a provider failure returns `[]` rather than failing the whole search), dedupes by DOI (falling back to normalized title+year), and caps merged results. `scoring.ts` computes evidence strength as a **deterministic formula** (source count, venue quality, recency, relevance rank) — not an AI call. `rateLimiter.ts` throttles per-provider request rate.
 - **`citations/`** — pure formatters (`formatters/{apa,mla,chicago}.ts`) from source metadata, no AI/network involved. `authorUtils.ts` truncates author lists to "et al." after 3 authors (a known MVP simplification, not the full style-guide rule).
 - **`storage/`** — `db.ts` wraps `sql.js`: the whole database is an in-memory WASM DB that gets fully re-serialized and written to disk (`persist()`) after every `run()`. `schema.ts` holds the SQL DDL. One repo module per table (`analysesRepo`, `claimsRepo`, `claimEvidenceRepo`, `sourcesRepo`, `citationsRepo`, `libraryRepo`, `cacheRepo`, `settingsRepo`) — go through these rather than querying `db.ts` directly from elsewhere. `config.ts` handles the small `config.json` (currently just the optional Semantic Scholar key).
@@ -805,7 +805,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 
 - **Evidence is deliberately NOT in the /100.** `strengthScore` already contains a `sourceCount` factor, so folding retrieval in would double-count it — and worse, would make the score track how *searchable* the topic is, capping a close reading of a novel near 50 because the academic APIs have nothing to say about it. `structure/evidenceCoverage.ts` reports it beside the score as a ratio instead. It reads `scoreBreakdown.sourceCount` rather than re-thresholding `claim_evidence.relevance_score`, because which metric produced those values (lexical 0.2 vs dense 0.35 floor) is *not* persisted with the rows.
 - **`unknown` is a real answer.** `structure/roles.ts` labels only what a marker or a detected claim justifies and returns `unknown` for everything else; `complete: false` then makes the panel say **"provisional"**, and `structure/weaknesses.ts` **withholds whole-draft findings entirely** while any paragraph is unlabelled — "this draft has no counterargument" is an assertion about paragraphs nothing read. A guessed label produces a confident number computed from nothing, which is worse than admitting the paragraph wasn't read.
-- **Exactly one relay call, and it IS live.** `ai/structureClassifier.ts` is called unconditionally from `ipc/structureHandlers.ts` for every editor analysis; `'classify-structure'` is in `callRelay`'s union, and `api/classify-structure.ts` is deployed on the relay's `main` and `staging` (probed 2026-08-19: 401, not 404, on both). `scripts/preflight.mjs` reads that union and would have blocked every release otherwise.
+- **The structure classifier is gone.** `ai/structureClassifier.ts` and the `classify-structure` endpoint were deleted when the desktop moved onto the Tracely server: nothing had called `classifyStructure` since `ipc/structureHandlers.ts` switched to the graded read (`ai/gradeDraft.ts`, now `/api/grade`), whose paragraph roles replaced it — yet preflight was still probing the route before every release. This bullet said it was live, and before that said it was undeployed; it was right about neither for long.
   - **This paragraph used to say the opposite, and the stale comment block at the top of `structureClassifier.ts` said it too — three enabling steps that had all already been taken.** It cost a wrong answer to the owner about where the grading weakness lives. **Probe the endpoint before repeating either claim**; a source comment is not evidence about a deployment.
   - **Screen Watch deliberately does NOT classify** (`screenWatch/watchOutline.ts`), so the overlay's grade is heuristic-only and the editor's is not. Two surfaces, two label qualities, one rubric — worth remembering before comparing scores between them.
   - **The client and the relay prompt version each other.** `statesClaim` arrived in the client and in `STRUCTURE_SYSTEM_PROMPT` at the same time; a production relay behind staging returns a vector the client then falls back on (`governsAClaim` degrades to `role === 'claim'`). Check `git log origin/main..origin/staging` in `../Tracely-relay` before concluding anything from a production score.
@@ -1009,10 +1009,11 @@ existed to give a separate window a sidebar.
   = 12). Every prior turn is re-sent on every message, so an uncapped
   conversation costs quadratically. The OLDEST turns are trimmed, which keeps
   the exchange the user is in the middle of intact.
-- **`callRelay`'s endpoint union names `'tracer'` again.**
+- **`callServer`'s endpoint union names `'tracer'`.**
   `scripts/preflight.mjs` scrapes that union and requires each endpoint to
-  answer non-404 in production; `api/tracer.ts` is on the relay's `main` and
-  `staging`, so this does not block a release. It was never taken down.
+  answer non-404 on the server, so the server's `/api/tracer` has to be
+  deployed before a release. (It was `callRelay` and the relay's
+  `api/tracer.ts` until the move onto the server.)
 - **The `tracer_conversations` / `tracer_messages` tables and both Privacy
   clears' DELETEs against them** survived the removal, so restoring wrote no
   migration. `tracerRepo.ts` came back from `git show f7eb21a^` unchanged.

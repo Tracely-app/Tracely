@@ -21,14 +21,14 @@ not seconds.
    git checkout live-preview
    npm install
    ```
-3. Create a `.env` file in the `Tracely` folder with the relay + Supabase values.
+3. Create a `.env` file in the `Tracely` folder with the Supabase values.
    **Ask Sam for these** — they're the same values the shipped app already uses:
    ```
-   RELAY_URL=...
-   RELAY_TOKEN=...
    SUPABASE_URL=...
    SUPABASE_ANON_KEY=...
    ```
+   The app's AI calls go to `https://api.jointracely.com` unless the file also
+   sets `TRACELY_API_URL`.
 4. Load the extension in Chrome **once**:
    - run `npm run live` (next section) so `extension-dev/` gets generated,
    - go to `chrome://extensions`, turn on **Developer mode** (top right),
