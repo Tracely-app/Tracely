@@ -2,6 +2,7 @@ import { deepStrictEqual, strictEqual } from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   DEFAULT_PLAN,
+  MODEL_FOR_TIER,
   MODEL_TIERS,
   PLAN_MODEL_CEILING,
   isModelTier,
@@ -121,6 +122,43 @@ describe('modelTierUnlocked', () => {
       ['fast', 'balanced', 'thorough']
     )
     strictEqual(PLAN_MODEL_CEILING.free, 'fast')
+  })
+})
+
+describe('MODEL_FOR_TIER', () => {
+  it('maps every tier to its own model id', () => {
+    // Two tiers sharing an id would sell a plan upgrade that changes nothing,
+    // and a missing tier would put `undefined` in a request body — which the
+    // server resolves down to the cheapest model without an error.
+    const ids = MODEL_TIERS.map((tier) => MODEL_FOR_TIER[tier])
+    for (const id of ids) strictEqual(typeof id === 'string' && id.length > 0, true)
+    strictEqual(new Set(ids).size, MODEL_TIERS.length)
+    deepStrictEqual(Object.keys(MODEL_FOR_TIER).sort(), [...MODEL_TIERS].sort())
+  })
+
+  it('names the model a tier costs, cheapest first', () => {
+    deepStrictEqual(MODEL_FOR_TIER, { fast: 'gpt-5-nano', balanced: 'gpt-5.4', thorough: 'gpt-6-astra' })
+  })
+
+  it("matches the server's copy exactly", async () => {
+    // The server clamps model IDS; a desktop id the server does not know is
+    // silently resolved down to the cheapest model. So the two maps drifting is
+    // not a crash anyone would see — it is every paying user quietly served
+    // the free model. Read from the server tree directly: server/shared is a
+    // leaf with no imports, and only this suite runs in CI.
+    const server = (await import('../../server/shared/plan.js')) as {
+      MODEL_FOR_TIER: Record<string, string>
+      clampModel: (requested: unknown, plan: string) => string
+    }
+    deepStrictEqual({ ...MODEL_FOR_TIER }, { ...server.MODEL_FOR_TIER })
+    // And the property the desktop relies on: whatever it resolves for a plan,
+    // the server lets through unchanged rather than lowering it further.
+    for (const plan of ['free', 'student', 'pro'] as const) {
+      for (const preferred of [...MODEL_TIERS, 'junk', null]) {
+        const model = MODEL_FOR_TIER[resolveModelTier(preferred, plan)]
+        strictEqual(server.clampModel(model, plan), model)
+      }
+    }
   })
 })
 
