@@ -130,23 +130,16 @@
 
      There was a second, `byoKey`, for the bring-your-own-key standalone
      engine. That engine is gone; see the note in background.js. */
+  /* The widget's PRO link is the bare order page, never one carrying a uid.
+     The widget draws into an OPEN shadow root on the host page, so a uid in
+     that link would hand every site's scripts a stable, cross-site account id
+     (it doubles as the Stripe client_reference_id). The worker does not send
+     this script the id at all; the options page, an extension page, is where
+     an upgrade carries it. Without it the webhook maps the payment by email. */
   const ORDER_URL = "https://jointracely.com/order";
-  /* The upgrade link carries the signed-in account id as `uid`, which the order
-     page forwards to Stripe as client_reference_id.
-   
-     Without it the billing webhook can only map a payment to an account by
-     matching the PAYER'S email against a Tracely account — which is wrong in
-     exactly the case that matters: a student who pays with a parent's card gets
-     charged and stays on the free plan. The server's fallback chain
-     (client_reference_id -> learned customer mapping -> email) is only as good
-     as its first rung, and nothing was filling it. */
-  function orderUrl(userId) {
-    if (!userId) return ORDER_URL; // signed out: Stripe falls back to email
-    return `${ORDER_URL}?uid=${encodeURIComponent(userId)}`;
-  }
 
   const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
-  let tier = { plan: "free", byoKey: false, unenforced: false, userId: null };
+  let tier = { plan: "free", byoKey: false, unenforced: false };
   const tierListeners = []; // widget re-renders to run when the tier resolves
 
   // The highest slider stop this account may use. Unknown plan → free, always.
@@ -218,9 +211,9 @@
     }
     pending.then((r) => {
       if (!r?.ok) return;
-      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), userId: r.userId ?? null };
+      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced) };
       if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey
-          && next.unenforced === tier.unenforced && next.userId === tier.userId) return;
+          && next.unenforced === tier.unenforced) return;
       tier = next;
       tierResolved = true;
       tierChanged(); // first resolve fires too: free-tier listeners clamp stale paid settings
@@ -256,7 +249,7 @@
         <input type="range" class="speed" id="speedSel" min="0" max="${SPEED_STOPS.length - 1}" step="0.01" value="${p}" style="--sb-fill:${sbFill(p)}"${ceiling === 0 ? " disabled" : ""}>
         <span class="sb-dots">${SPEED_STOPS.map((_, i) => `<i${i > ceiling ? ' class="off"' : ""}></i>`).join("")}</span>
       </div>
-      <span class="sb-lab${p === SPEED_STOPS.length - 1 ? " on" : ""}" data-sb-lab="max">Smarter${locked ? `<a class="sb-pro" href="${orderUrl(tier.userId)}" target="_blank" rel="noopener noreferrer">PRO</a>` : ""}</span>
+      <span class="sb-lab${p === SPEED_STOPS.length - 1 ? " on" : ""}" data-sb-lab="max">Smarter${locked ? `<a class="sb-pro" href="${ORDER_URL}" target="_blank" rel="noopener noreferrer">PRO</a>` : ""}</span>
     </div>`;
   }
   // Wire the slider without re-rendering: a full render mid-drag drops the

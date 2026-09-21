@@ -248,7 +248,9 @@ async function cachedEntitlement() {
 // pretend otherwise. Only an explicit `false` counts — a server too old to
 // send the field, or a body missing it, stays enforced.
 //
-// `userId` is kept because the upgrade links attach it as client_reference_id.
+// `userId` is kept because the options page's upgrade link attaches it as
+// client_reference_id (it is never handed to a content script — see
+// fromExtensionPage).
 // This used to take only the first three arguments, so the cached entitlement
 // never had a userId and every tracely-entitlement answer said null — the
 // server sent the id and the worker dropped it on the floor.
@@ -479,7 +481,17 @@ async function relay(path, body, { token = "", retried = false } = {}) {
 
 /* ── messaging ───────────────────────────────────────────────────────────── */
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+/* Whether a message came from one of this extension's OWN pages (the options
+   page) rather than a content script. A content script runs inside somebody
+   else's page and draws into an OPEN shadow root on it, so anything it is
+   handed can end up readable by that page's scripts — which is why the
+   account id never goes to one (see tracely-entitlement). */
+function fromExtensionPage(sender) {
+  const base = chrome.runtime.getURL("");
+  return typeof sender?.url === "string" && sender.url.startsWith(base);
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "tracely-getState") {
     (async () => {
       const up = await serverReachable();
@@ -511,10 +523,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           signedIn: Boolean(authToken),
           plan: normalizePlan(ent?.plan),
           email: ent?.email ?? null,
-          // Carried so the upgrade link can attach client_reference_id — the
-          // only thing that lets the Stripe webhook map a payment to THIS
-          // account rather than guessing from the payer's email.
-          userId: ent?.userId ?? null,
+          // Carried so the options page's upgrade link can attach
+          // client_reference_id — the only thing that lets the Stripe webhook
+          // map a payment to THIS account rather than guessing from the
+          // payer's email. Extension pages only: a content script would put it
+          // in a link inside an open shadow root on every site, where any
+          // page's scripts could read a stable cross-site account id.
+          userId: fromExtensionPage(sender) ? ent?.userId ?? null : null,
           unenforced: Boolean(up) && ent?.enforced === false,
           // The server granted this test build's Pro plan (X-Tracely-Beta).
           // The options page shows "Pro (beta)" and hides every way to pay.

@@ -96,9 +96,12 @@ function loadWorker({
   });
   vm.runInContext(read("background.js"), ctx, { filename: "background.js" });
   const run = (expr) => vm.runInContext(expr, ctx);
-  function ask(msg) {
+  // The default sender is the options page; pass a content script's to see
+  // what a host page's widget is told.
+  const OPTIONS_PAGE = { id: EXT_ID, url: `chrome-extension://${EXT_ID}/options.html` };
+  function ask(msg, sender = OPTIONS_PAGE) {
     return new Promise((resolve) => {
-      for (const fn of messageListeners) fn(msg, {}, resolve);
+      for (const fn of messageListeners) fn(msg, sender, resolve);
     });
   }
   return { run, calls, data, ask };
@@ -192,6 +195,29 @@ test("signed in: userId survives the cache, and beta rides along", async () => {
   const [call] = entitlementCalls(w);
   assert.equal(call.init.headers.Authorization, "Bearer jwt-abc");
   assert.equal(betaHeader(call.init), "tok-123");
+});
+
+test("the account id reaches the options page, never a content script on a host page", async () => {
+  // The widget draws into an OPEN shadow root on the host page; a uid there
+  // is a stable cross-site id any page's scripts can read.
+  const w = loadWorker({
+    store: { authToken: "jwt-abc" },
+    entitlement: { plan: "free", email: "t@example.com", userId: "user-42", enforced: true },
+  });
+  const page = await w.ask({ type: "tracely-entitlement" }, { id: EXT_ID, url: "https://docs.google.com/document/d/x/edit", tab: { id: 7 } });
+  assert.equal(page.userId, null, "a content script was handed the account id");
+  assert.equal(page.plan, "free", "and nothing else about the answer changed");
+  const options = await w.ask({ type: "tracely-entitlement" });
+  assert.equal(options.userId, "user-42");
+  const spoof = await w.ask({ type: "tracely-entitlement" }, { id: EXT_ID, url: `https://evil.test/chrome-extension://${EXT_ID}/` });
+  assert.equal(spoof.userId, null, "a prefix match only");
+});
+
+test("content.js never builds a uid into a link on the host page", () => {
+  const src = read("content.js");
+  assert.ok(!/uid=/.test(src), "content.js builds a ?uid= link");
+  assert.ok(!/userId/.test(src), "content.js handles the account id at all");
+  assert.match(src, /class="sb-pro" href="\$\{ORDER_URL\}"/);
 });
 
 test("relay carries X-Tracely-Beta on POSTs and GETs; a store build's requests are unchanged", async () => {
