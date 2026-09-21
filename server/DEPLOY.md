@@ -193,7 +193,8 @@ What a matching token does, and does not:
   it); the beta grant raises the ceiling, not the default stop.
 
 Build the zip from a checkout (never commit `extension/beta.json`; the repo is
-public and `.gitignore` covers it):
+public and `.gitignore` covers it) — and only once the server from the same
+change is deployed (see "The model tiers" below):
 
 ```sh
 TRACELY_BETA_TOKEN='<one of TRACELY_BETA_TOKENS>' server/scripts/pack-extension.sh --beta ~/Desktop
@@ -210,7 +211,22 @@ Generate one with `openssl rand -base64 24 | tr -d '\n'`.
 
 fast `gpt-5.6-luna`, balanced `gpt-5.6-terra`, thorough `gpt-6-astra`
 (`lib/llm.js` MODEL_TIERS), chosen by the eval in `eval/models/FINDINGS.md`.
-Before a deploy that changes a tier, know three things:
+Before a deploy that changes a tier, know four things:
+
+- **Deploy this server BEFORE any extension zip from the same change reaches
+  a user**, beta or store, and never roll the server back to a snapshot from
+  before 2026-09-21 (`app.bak-*`) while 2.19.3 or later is installed. The
+  skew is harmless one way and not the other. An old client on this server
+  is translated (below). A 2.19.3 client on an OLD server is not: its Fast
+  stop sends `effort: "medium"`, and the old hosted `/api/check` ran
+  `gpt-5-nano` at whatever effort the client sent — nano at medium, which
+  the eval measured at p50 41.5 s / p90 62.4 s and 3.2x the cost of nano at
+  low, for 76% accuracy, on the shared extension pool. An old server also
+  ignores `X-Tracely-Beta`, so testers are served as free. Before
+  `pack-extension.sh --beta` hands anyone a zip, confirm the new build is
+  live: `curl -s -H 'Host: localhost:4477' localhost:4477/api/status` shows
+  `paidBudget` (absent before this build), and `/api/entitlement` with
+  `X-Tracely-Beta: <token>` answers `beta: true`.
 
 - **Old clients keep sending the old ids.** Extension <= 2.19.2 (the Web
   Store build under review included) sends `gpt-5-nano` from Fast and
