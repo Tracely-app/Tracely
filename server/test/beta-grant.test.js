@@ -673,6 +673,6 @@ test("a burst of beta checks with rotating install ids cannot overspend the beta
   assert.ok(astra >= 1, "the pool still served someone");
   assert.ok(astra <= 2, `${astra} thorough calls admitted against a $1 pool at once`);
   const st = await status(G);
-  // At most the pool plus the one call admitted last (worst case ~$1.04).
-  assert.ok(st.betaBudget.spentUsd <= 1 + 1.04, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
+  // At most the pool plus the one call admitted last (worst case ~$1.10).
+  assert.ok(st.betaBudget.spentUsd <= 1 + 1.10, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
 });

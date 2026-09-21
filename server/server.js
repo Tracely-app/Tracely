@@ -614,11 +614,15 @@ function stampCallerRate(ent, id, kind) {
  *   flow    a document clamped to 12,000 chars + the prompt: ~4k tokens
  *   sources claim + correction + context (<= 10,000 chars) plus the pages
  *           web_search reads back, which nothing here bounds: 20k allowed
+ * Every input token is priced as a cache WRITE, the dearest way input is
+ * billed: a first-seen prompt on the tier models costs 1.25x input
+ * (shared/prices.js cacheWrite), and a cold call is the worst case.
  * Held against the beta and paid pools while the call is in flight, so a
  * burst cannot be admitted against money the calls ahead of it are about to
- * spend. On gpt-6-astra that is ~$1.04 / $0.44 / $0.51; on gpt-5-nano well
- * under a cent. A check that truncates and splits (checkBatch) can make more
- * than one call; each is recorded, including the one that truncated. */
+ * spend. On gpt-6-astra that is ~$1.10 / $0.45 / $0.56; on gpt-5.6-luna
+ * ~2.5 / 1.1 / 2.2 cents. A check that truncates and splits (checkBatch) can
+ * make more than one call; each is recorded, including the one that
+ * truncated. */
 const WORST_CALL = {
   "/api/check": { input: 24_000, output: 16_000, webSearchCalls: 0 },
   "/api/flow": { input: 4_000, output: 8_000, webSearchCalls: 0 },
@@ -627,7 +631,7 @@ const WORST_CALL = {
 function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
   if (!w) return 0;
-  return costMicroCents(model, { input: w.input, output: w.output }, { webSearchCalls: w.webSearchCalls });
+  return costMicroCents(model, { input: w.input, cacheWrite: w.input, output: w.output }, { webSearchCalls: w.webSearchCalls });
 }
 
 /* `extension` is true only for EXTENSION_API routes, and only those choose
