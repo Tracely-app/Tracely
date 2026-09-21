@@ -583,14 +583,20 @@ export function problemKindFor(input: ProblemKindInput): ScreenWatchProblemKind 
  * panel by this instead puts the reasoning failure above the tidy claim that
  * merely wants a citation.
  */
-const SEVERITY: ScreenWatchProblemKind[] = [
+const SEVERITY = [
   // Above everything, including a wrong fact: a wrong fact is an error, an
   // invented source is a fabrication, and the reader of the finished essay has
   // no way at all to catch the second.
   'fabricated-citation',
+  // Directly under an invented source: a malformed reference is also a fact
+  // about the citation, decidable the moment it is typed.
+  'citation-defect',
   // Nothing else outranks "a fact in this sentence is wrong". Every other kind
   // here is a statement about support; this one is a statement about truth.
   'contradicted-claim',
+  // Just under the truth findings and above every support finding: deleting a
+  // tangent makes its citations moot, so it is said first.
+  'off-topic',
   // Above weak reasoning: a claim whose own citation does not support it is
   // the one error a reader has no prompt to go and check.
   'cited-unverified',
@@ -612,8 +618,22 @@ const SEVERITY: ScreenWatchProblemKind[] = [
   // about — it would push a contradicted fact down the widget's list.
   'outside-index',
   'searching'
-]
+] as const satisfies readonly ScreenWatchProblemKind[]
+
+/* Every kind must be ranked, and that is now a COMPILE error rather than a
+ * silent -1.
+ *
+ * `citation-defect` and `off-topic` were added to the union with comments
+ * saying exactly where they rank — and never added here. `indexOf` returned -1
+ * for both, the sort put -1 first, and a malformed reference or a tangent
+ * outranked an invented source and a wrong fact in every sentence that had
+ * both: the widget coloured a fabricated citation amber. Nothing failed,
+ * because a missing entry is not an error to indexOf. If this line stops
+ * compiling, the kind it names is missing from SEVERITY above. */
+type Unranked = Exclude<ScreenWatchProblemKind, (typeof SEVERITY)[number]>
+const everyKindRanked: [Unranked] extends [never] ? true : { missingFromSeverity: Unranked } = true
+void everyKindRanked
 
 export function problemSeverity(kind: ScreenWatchProblemKind): number {
-  return SEVERITY.indexOf(kind)
+  return (SEVERITY as readonly ScreenWatchProblemKind[]).indexOf(kind)
 }
