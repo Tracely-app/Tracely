@@ -670,6 +670,7 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
       docsEdit, probeInDoc, canEditDoc, docApply, docFix, docCite, addTransition, undoLastDocEdit, editView, editBtnHtml, segHint, hashText,
       setBridge: (v) => { bridgeReady = v; },
       setDoc: (text, segs) => { docText = text; segments = segs; },
+      setBars: (b) => { docsBars = b; },
       cache, sourcesMap, flowDismissed, editedHashes, docEditState,
       state: () => ({ inDoc, lastDocEdit, statusMsg, statusKind, docBusy, flowSig, renders, marks, lastCheckEnd }),
     })`;
@@ -946,19 +947,53 @@ test("content.js: with only the dev bridge, edits go to /api/docs/apply — no h
   void ctx; void copied;
 });
 
-test("content.js: a repeated sentence carries which copy it is — counting whole sentences, as the engine does", () => {
+test("content.js: a sentence's hint counts its copies as whole sentences, as the engine does", () => {
   const S = "It is good.";
   const body = `${S} Then more. ${S}`;
   const { w } = loadWiring({ body });
   const second = body.lastIndexOf(S);
   w.setDoc(body, [seg(S), seg("Then more.", S.length + 1), seg(S, second)]);
-  assert.deepEqual(plain(w.segHint({ text: S, start: second, hash: "h" })), { occurrence: 1, occurrences: 2 });
-  assert.deepEqual(plain(w.segHint({ text: S, start: 0, hash: "h" })), { occurrence: 0, occurrences: 2 });
+  assert.deepEqual(plain(w.segHint({ text: S, start: second, hash: "h" })), { occurrences: 2 }, "repeated, and nothing says which: no index");
+  assert.deepEqual(plain(w.segHint({ text: "Then more.", start: S.length + 1, hash: "t" })), { occurrence: 0, occurrences: 1 });
   // The tail of a longer sentence is not a copy on either side.
   const T = "The myth that Einstein failed math.", E = "Einstein failed math.";
   const b2 = `${T} ${E}`;
   w.setDoc(b2, [seg(T), seg(E, T.length + 1)]);
   assert.deepEqual(plain(w.segHint({ text: E, start: T.length + 1, hash: "e" })), { occurrence: 0, occurrences: 1 });
+});
+
+test("content.js: a repeated sentence — the popover edits the copy it hangs from, the panel refuses, and other copies stay flagged", async () => {
+  const S = "Einstein failed math.";
+  const body = `${S} Then more. ${S}`;
+  const second = body.lastIndexOf(S);
+  const bar = (top) => ({ hash: "h", el: { isConnected: true, getBoundingClientRect: () => ({ left: 100, top, width: 180, height: 4 }) }, size: 18 });
+  const [b1, b2] = [bar(200), bar(600)];
+  let replies = [];
+  const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? replies.shift() : undefined), body });
+  await w.probeInDoc();
+  const h = w.hashText(S);
+  w.setDoc(body, [{ ...seg(S), hash: h }, { ...seg("Then more.", S.length + 1), hash: "t" }, { ...seg(S, second), hash: h }]);
+  b1.hash = b2.hash = h;
+  w.setBars([b1, b2]);
+  const finding = { verdict: "false", revision: "Einstein excelled at math." };
+  w.cache.set(h, finding);
+
+  // From the paragraph-2 underline's popover: only that bar's rect, no index.
+  replies = [{ ok: true, undoToken: "r1" }];
+  assert.equal(await w.docFix(h, b2), true);
+  const fromPop = ops().filter((o) => o.op === "replace").pop();
+  assert.deepEqual(plain(fromPop.hint), { occurrences: 2, rects: [{ left: 100, top: 600 - 18, width: 180, height: 18 }] });
+  assert.equal(w.cache.get(h), finding, "the other copy keeps its verdict");
+  assert.equal(w.editedHashes.has(h), false, "and its underline");
+
+  // From the panel: nothing says which copy — no rects, no index; the engine
+  // refuses, and the note says where to click instead.
+  await w.undoLastDocEdit();
+  replies = [{ ok: false, reason: "ambiguous", matches: 2 }];
+  assert.equal(await w.docFix(h), false);
+  const fromPanel = ops().filter((o) => o.op === "replace").pop();
+  assert.deepEqual(plain(fromPanel.hint), { occurrences: 2 });
+  assert.match(w.editView(`fix:${h}`, "Fix in doc").note, /appears more than once — use Fix in doc on the underline/);
 });
 
 test("content.js: one edit at a time — a second click while one is in flight does nothing", async () => {

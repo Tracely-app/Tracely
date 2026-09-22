@@ -2214,7 +2214,7 @@
           // Rewriting the sentence in the document itself beats a clipboard
           // round-trip, so it takes the primary slot. Copy stays one click away
           // in the widget, and is what any failure falls back to.
-          fixNote = popEditBtn(row, `fix:${hash}`, "Fix in doc", () => docFix(hash));
+          fixNote = popEditBtn(row, `fix:${hash}`, "Fix in doc", () => docFix(hash, popAnchor));
         } else {
           const copy = popBtn("Copy fix", true);
           copy.addEventListener("click", () => {
@@ -2408,7 +2408,7 @@
         let citeNote = null;
         if (canEditDoc()) {
           const idle = st.citedUrl === srcItem.url ? "Cited ✓" : "Cite in doc";
-          citeNote = popEditBtn(btns, `cite:${hash}:${srcItem.url}`, idle, () => docCite(hash, i), { style: { padding: "4px 10px" } });
+          citeNote = popEditBtn(btns, `cite:${hash}:${srcItem.url}`, idle, () => docCite(hash, i, popAnchor), { style: { padding: "4px 10px" } });
         }
         const copy = popBtn("Copy cite", !canEditDoc());
         copy.style.padding = "4px 10px";
@@ -2866,14 +2866,28 @@
     // engine counts only whole sentences too, so the tail of a longer
     // sentence counts on neither side — and the engine refuses when the two
     // counts disagree (one side is stale). It never overrides the text check.
-    function segHint(seg) {
+    //
+    // anchor = the underline a popover hangs from. When the sentence is
+    // repeated, only THAT copy is meant: its rect goes alone, and no index
+    // goes at all (the index would name the export's first copy, which may not
+    // be the one the user pointed at). The panel's card stands for every copy,
+    // so from there nothing says which: the engine refuses as ambiguous.
+    function segHint(seg, anchor = null) {
       const copies = segments.filter((s) => s.text === seg.text);
       const hint = { occurrence: Math.max(0, copies.findIndex((s) => s.start === seg.start)), occurrences: Math.max(1, copies.length) };
+      const onScreen = (r) => r && r.width > 0 && r.left >= 0 && r.top >= 0 && r.left + r.width <= innerWidth && r.top + r.height <= innerHeight;
+      if (hint.occurrences > 1) {
+        delete hint.occurrence;
+        const r = anchor && anchor.hash === seg.hash && anchor.el?.isConnected ? barTextRect(anchor) : null;
+        if (onScreen(r)) hint.rects = [r];
+        return hint;
+      }
+      // Unique: every bar is this one copy (the no-API path selects across them).
       const rects = [];
       for (const b of docsBars) {
         if (b.hash !== seg.hash || !b.el?.isConnected) continue;
         const r = barTextRect(b);
-        if (r && r.width > 0 && r.left >= 0 && r.top >= 0 && r.left + r.width <= innerWidth && r.top + r.height <= innerHeight) rects.push(r);
+        if (onScreen(r)) rects.push(r);
       }
       if (rects.length) hint.rects = rects.slice(0, 8);
       return hint;
@@ -2991,7 +3005,7 @@
       const copied = await copyFallback(job.copy);
       const note = fail.stuck
         ? "Part of it landed and couldn't be undone automatically — press ⌘Z / Ctrl+Z"
-        : editReasonText(fail);
+        : job.notes?.[fail.reason] ?? editReasonText(fail);
       statusKind = fail.stuck ? "error" : "idle";
       statusMsg = `${copied ? "Couldn't apply — copied instead" : "Couldn't apply"} (${note})`;
       setEditState(key, { state: "failed", copied, note });
@@ -3024,17 +3038,28 @@
       return !!r.ok;
     }
 
-    async function docFix(hash) {
+    // A repeated sentence from the panel (no anchor): say where to click instead.
+    const REPEATED_NOTE = "that sentence appears more than once — use Fix in doc on the underline you mean";
+
+    // anchor: the underline bar a popover was opened from (null from the panel).
+    async function docFix(hash, anchor = null) {
       const seg = segments.find((s) => s.hash === hash);
       const f = cache.get(hash);
       if (!seg || !f?.revision || docBusy) return false;
+      const hint = segHint(seg, anchor);
+      // Another copy stays in the doc, flagged exactly as before: keep its
+      // verdict and its underline (hiding the hash would hide every copy).
+      const repeated = hint.occurrences > 1;
       return runDocEdit(`fix:${hash}`, {
-        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, f.revision), hint: segHint(seg) }],
+        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, f.revision), hint }],
         copy: f.revision,
         doneMsg: "fixed in doc",
+        notes: repeated && !anchor ? { ambiguous: REPEATED_NOTE } : null,
         onApplied: () => {
-          cache.delete(hash); // the rewritten sentence gets re-verified on the next read
-          markEdited(hash);
+          if (!repeated) {
+            cache.delete(hash); // the rewritten sentence gets re-verified on the next read
+            markEdited(hash);
+          }
           persistCaches();
         },
         onUndone: () => {
@@ -3047,11 +3072,12 @@
 
     // In-text marker + the Sources entry (and the heading, the first time),
     // as ONE group: all of it lands, or none of it stays.
-    async function docCite(hash, i) {
+    async function docCite(hash, i, anchor = null) {
       const seg = segments.find((s) => s.hash === hash);
       const st = sourcesMap.get(hash);
       const src = st?.list?.[Number(i)];
       if (!seg || !src || docBusy) return false;
+      const hint = segHint(seg, anchor);
       const block = sourcesBlock(docText);
       const existing = block?.entries.find((e) => e.url === src.url);
       const num = existing ? existing.num : (block?.entries.length ?? 0) + 1;
@@ -3064,7 +3090,7 @@
         const punct = seg.text.match(/[.!?]+["')\]]*$/);
         const at = punct ? seg.text.length - punct[0].length : seg.text.length;
         replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` [${num}]` + seg.text.slice(at);
-        steps.push({ action: "replace", find: seg.text, replacement, hint: segHint(seg) });
+        steps.push({ action: "replace", find: seg.text, replacement, hint });
       }
       if (!existing) {
         if (!block) steps.push({ action: "appendLine", line: "Sources:" });
@@ -3077,12 +3103,13 @@
         steps,
         copy: styled.ref,
         doneMsg: `cited [${num}] in doc`,
+        notes: hint.occurrences > 1 && !anchor ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Cite in doc") } : null,
         onApplied: () => {
           if (replacement) {
             const newHash = hashText(replacement);
             if (cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
             if (sourcesMap.has(hash) && !sourcesMap.has(newHash)) sourcesMap.set(newHash, sourcesMap.get(hash));
-            markEdited(hash);
+            if (!(hint.occurrences > 1)) markEdited(hash); // another copy keeps its underline
           }
           st.citedUrl = src.url;
           persistCaches();
