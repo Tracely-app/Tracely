@@ -336,8 +336,14 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
  * onto the expensive no-effort path described above. */
 const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
 
-/** A call that may search the web before answering. Returns raw text. */
-export async function webSearchCall({ model, system, user, maxTokens, what, effort }) {
+/** A call that may search the web before answering. Returns raw text.
+ *
+ * `schema` (optional) constrains that text to strict JSON; the search stays
+ * the model's choice, unlike webSearchStructuredCall below, and the text is
+ * still returned raw for the caller to parse. /api/sources passes one so the
+ * citation fields come back in every source, empty when the page is silent. */
+export async function webSearchCall({ model, system, user, maxTokens, what, effort, schema, name = "result" }) {
+  if (schema) assertStrictSchema(schema, what);
   const p = provider();
   const chosen = chooseModel(model);
   // With NO effort it sends none, exactly as it always has: the source search
@@ -355,7 +361,7 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
   let json = null;
   try {
     // Searching then writing is slower than writing, hence the longer timeout.
-    const build = (e) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e });
+    const build = (e) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e, schema, name });
     try {
       json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
     } catch (err) {
@@ -380,8 +386,9 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
  * A web search that must happen, answering JSON that matches `schema`.
  *
  * ADDITIVE. webSearchCall above is what the extension's /api/sources uses and
- * it stays separate: it offers the tool, returns free text, and harvests url
- * citations as a backstop. This is the desktop's source finder, which forces
+ * it stays separate: it offers the tool without forcing it, returns the text
+ * raw for the caller to parse, and the caller harvests url citations as a
+ * backstop. This is the desktop's source finder, which forces
  * the search and parses a strict schema, exactly as the relay did.
  */
 export async function webSearchStructuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {

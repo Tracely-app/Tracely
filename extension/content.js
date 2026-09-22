@@ -357,6 +357,32 @@
     return "s" + h.toString(36);
   }
 
+  /* A Doc opened from a second signed-in Google account is served at
+     /document/u/<n>/d/<id>/... — every student with a school and a personal
+     account — or at /document/d/<id>/...?authuser=<n> (links out of Gmail
+     and Drive). The export must go to that same account slot:
+     /document/d/<id>/export answers as the DEFAULT account, which may not be
+     able to read the doc at all. The committed navigation URL is asked first
+     (it is what the page was served as, whatever Docs later does to the
+     address bar), then location.href for when the Navigation Timing entry is
+     unavailable. In each, the /u/<n>/ path wins over ?authuser=. Only a slot
+     NUMBER is honoured; an ?authuser=<email> falls back to the default. */
+  function docAccountPrefix(...urls) {
+    for (const u of urls) {
+      if (!u) continue;
+      let url;
+      try { url = new URL(u, "https://docs.google.com"); } catch { continue; }
+      const m = url.pathname.match(/^\/document\/u\/(\d+)\/d\//);
+      if (m) return `/u/${m[1]}`;
+      const slot = url.pathname.startsWith("/document/d/") ? url.searchParams.get("authuser") : null;
+      if (slot && /^\d{1,3}$/.test(slot)) return `/u/${slot}`;
+    }
+    return "";
+  }
+  function docExportUrl(docId, prefix) {
+    return `https://docs.google.com/document${prefix}/d/${docId}/export?format=txt`;
+  }
+
   // Bibliography block ("Sources:" + numbered entries) — mirrors public/app.js.
   function sourcesBlock(text) {
     const m = text.match(/(?:^|\n)Sources:\n/);
@@ -378,37 +404,257 @@
   }
 
   // ── citation formatting ──
-  // Web sources rarely expose author/year, so all three styles use the
-  // site-name + access-date web-page form. `doc` deliberately omits the URL:
-  // bibliography lines in the doc must stay "N. <text> — <url>" so
-  // sourcesBlock can keep parsing (and deduping) them.
+  // Plain text only (the Docs bridge appends plain lines). Returns
+  // { doc, ref, marker }:
+  //   ref    — the full reference, locator included (Copy cite, the popover)
+  //   doc    — the same without the locator: docCite appends " — <url>", and
+  //            bibliography lines must stay "N. <text> — <url>" on ONE line so
+  //            sourcesBlock keeps parsing (and deduping) them
+  //   marker — the in-text citation
+  // Every field beyond title/url/publisher is optional (kind, authors,
+  // groupAuthor, year, date, container, editors, doi from /api/sources; the
+  // same plus volume/issue/pages/permalink from /api/cite-url). A source from
+  // an older server, or an old scache entry, formats as far as its fields go.
+  //
+  // What the old formatter got wrong, and this one must not: it hard-coded
+  // "(n.d.)" and a retrieval/access date (today's) on every source, and put
+  // the publisher — or a bare hostname — in the author slot. The author slot
+  // is now: the people named, else the group author, else the publisher for
+  // an organisation's own page (never a hostname), else the title. News,
+  // reference, journal and book sources with no author lead with the title,
+  // as APA and MLA require. "n.d." appears only when no year or date is
+  // known, and no citation carries a retrieval or access date.
   const CITE_STYLES = [["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"]];
   const CITE_MONTHS = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
-  function formatCitation(src, style) {
-    let host = (src.publisher || "").trim();
-    if (!host) {
-      try { host = new URL(src.url).hostname.replace(/^www\./, ""); } catch { host = "Web source"; }
+  const CITE_MLA_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."];
+  const CITE_PARTICLE = /^(van|von|de|del|della|der|den|da|di|du|dos|das|la|le|el|al|bin|ibn|ter|ten|st\.?)$/i;
+  // Kinds where an organisation's page or report is its own work: the
+  // publisher stands in as the group author when no author is named. A
+  // report is an organisation's work even unsigned (APA leads with the
+  // organisation, not the title); an authorless book leads with its title.
+  const CITE_ORG_KINDS = ["institutional", "report", "archive", "other"];
+  const CITE_KINDS = ["institutional", "news", "reference", "journal", "report", "book", "archive", "other"];
+
+  const citeStr = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+  const citeLoose = (s) => String(s ?? "").toLowerCase().replace(/^the\s+/, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]/g, "");
+  const citeIsHost = (s) => /^[\w-]+(\.[\w-]+)+$/.test(s);
+  const citeEndDot = (s) => (/[.?!]$/.test(s) ? s : `${s}.`);
+  const citeQuote = (t) => `“${citeEndDot(t)}”`; // terminal punctuation inside the quotes
+
+  // Generational suffixes, kept and printed where each style puts them.
+  const CITE_SUFFIX = /^(?:(jr|sr|jnr|snr)\.?|(II|III|IV))$/i;
+  // Degrees and honorifics, dropped: no style cites "Dr." or "PhD". Case-
+  // sensitive, so a surname such as "Ma" or "Do" is never taken for one.
+  const CITE_DEGREE = /^(?:Ph\.?\s?D\.?|D\.?Phil\.?|Ed\.?D\.?|Psy\.?D\.?|Dr\.?P\.?H\.?|Pharm\.?D\.?|M\.D\.|MD|MPH|M\.P\.H\.|DNP|RN|FACP|FRCP|FRCS|Esq\.?)$/;
+  const CITE_HONORIFIC = /^(?:dr|prof|professor|mr|mrs|ms|mx|sir|dame|rev)\.?$/i;
+  const citeSuffix = (t) => { const m = t.match(CITE_SUFFIX); return m[2] ? m[2].toUpperCase() : `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()}.`; };
+
+  /* A name as a page or the model wrote it → { family, given, suffix }.
+     "Family, Given" and "Given Family" both arrive (citation_author tags are
+     the first, the model's "full names as written" usually the second), with
+     suffixes ("Martin Luther King Jr.", "King, Martin Luther, Jr."), degrees
+     ("Jane Doe, PhD"), honorifics ("Dr. Jane Doe") and particles, which stay
+     with the family name ("Ludwig van Beethoven" → "van Beethoven, L."). */
+  function citeParseName(raw) {
+    const s = citeStr(raw).replace(/^by\s+/i, "");
+    if (!s) return null;
+    let suffix = "";
+    const segs = s.split(",").map((t) => t.trim()).filter(Boolean);
+    // Trailing ", Jr." / ", PhD" / ", MD, MPH" segments. An all-capitals
+    // segment is a degree only after a full name: "Jane Doe, MD" is a degree,
+    // "Smith, JD" is a family name and initials.
+    while (segs.length > 1) {
+      const last = segs[segs.length - 1];
+      if (CITE_SUFFIX.test(last)) { if (!suffix) suffix = citeSuffix(last); segs.pop(); }
+      else if (CITE_DEGREE.test(last) && (!/^[A-Z]{2,4}$/.test(last) || segs[0].includes(" "))) segs.pop();
+      else break;
     }
-    const title = (src.title || src.url || "").trim().replace(/[.?!]\s*$/, "");
-    const d = new Date();
-    const long = `${CITE_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-    const mlaDate = `${d.getDate()} ${CITE_MONTHS[d.getMonth()].slice(0, 3)}. ${d.getFullYear()}`;
-    if (style === "mla") return {
-      doc: `“${title}.” ${host}. Accessed ${mlaDate}.`,
-      ref: `“${title}.” ${host}, ${src.url}. Accessed ${mlaDate}.`,
-      marker: `(${host})`,
-    };
-    if (style === "chicago") return {
-      doc: `${host}. “${title}.” Accessed ${long}.`,
-      ref: `${host}. “${title}.” Accessed ${long}. ${src.url}.`,
-      marker: `(${host}, n.d.)`,
-    };
-    return {
-      doc: `${host}. (n.d.). ${title}.`,
-      ref: `${host}. (n.d.). ${title}. Retrieved ${long}, from ${src.url}`,
-      marker: `(${host}, n.d.)`,
-    };
+    if (segs.length >= 2) {
+      const g = segs.slice(1).join(" ").split(" ");
+      while (g.length > 1 && CITE_HONORIFIC.test(g[0])) g.shift(); // "Doe, Dr. Jane"
+      return { family: segs[0], given: g.join(" "), suffix };
+    }
+    const w = segs[0].split(" ");
+    while (w.length > 2 && CITE_HONORIFIC.test(w[0])) w.shift();
+    while (w.length > 2 && CITE_DEGREE.test(w[w.length - 1])) w.pop();
+    if (w.length > 1 && CITE_SUFFIX.test(w[w.length - 1])) { if (!suffix) suffix = citeSuffix(w[w.length - 1]); w.pop(); }
+    let i = w.length - 1;
+    while (i > 1 && CITE_PARTICLE.test(w[i - 1])) i--;
+    return i === 0 ? { family: w.join(" "), given: "", suffix } : { family: w.slice(i).join(" "), given: w.slice(0, i).join(" "), suffix };
+  }
+  const citeInitials = (given) => given.split(/\s+/).filter(Boolean)
+    .map((p) => p.split("-").map((h) => h.replace(/\./g, "")).filter(Boolean)
+      .map((h) => (h.length > 1 && h === h.toUpperCase() ? h.split("").map((x) => `${x}.`).join(" ") : `${h[0].toUpperCase()}.`)).join("-"))
+    .join(" ");
+  // Inverted, a suffix follows the given names after a comma ("King, M. L.,
+  // Jr." in APA; "King, Martin Luther, Jr." in MLA and Chicago); in natural
+  // order it follows the family name with no comma ("Martin Luther King Jr.").
+  const citeSfx = (a, sep) => (a.suffix ? `${sep}${a.suffix}` : "");
+  const citeApaName = (a) => (a.given ? `${a.family}, ${citeInitials(a.given)}` : a.family) + citeSfx(a, ", ");
+  const citeInv = (a) => (a.given ? `${a.family}, ${a.given}` : a.family) + citeSfx(a, ", ");
+  const citeNat = (a) => (a.given ? `${a.given} ${a.family}` : a.family) + citeSfx(a, " ");
+  const citeEdNat = (a) => (a.given ? `${citeInitials(a.given)} ${a.family}` : a.family) + citeSfx(a, " "); // APA editors: "M. McAuliffe"
+
+  /** Two names for the same organisation: equal, or one is the other's
+   *  acronym ("IOM" / "International Organization for Migration"). */
+  function citeSameOrg(a, b) {
+    if (!a || !b) return false;
+    if (citeLoose(a) === citeLoose(b)) return true;
+    const acro = (s) => s.split(/\s+/).filter((w) => /^[A-Z]/.test(w)).map((w) => w[0]).join("");
+    const short = [a, b].find((s) => /^[A-Z]{2,8}$/.test(s.trim()));
+    if (!short) return false;
+    const letters = acro(short === a ? b : a);
+    let i = 0;
+    for (const ch of letters) if (ch === short[i]) i++;
+    return i === short.length && short.length >= Math.ceil(letters.length * 0.6);
+  }
+
+  function citeDateParts(src) {
+    const m = citeStr(src.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) {
+      return { year: Number(m[1]), month: Number(m[2]) - 1, day: Number(m[3]) };
+    }
+    const y = Number.isInteger(src.year) ? src.year
+      : /^\d{4}$/.test(citeStr(String(src.year ?? ""))) ? Number(src.year) : null;
+    return { year: y, month: null, day: null };
+  }
+
+  function citeShortTitle(t) {
+    let s = t.split(/:\s|\s[–—]\s|\?\s/)[0].replace(/[.,;:]+$/, "");
+    const w = s.split(" ");
+    if (w.length > 5) s = w.slice(0, 4).join(" ");
+    return s;
+  }
+
+  function formatCitation(src, style) {
+    const url = citeStr(src.url);
+    const title = citeStr(src.title || src.url).replace(/[.]\s*$/, "") || url;
+    const publisher = citeStr(src.publisher);
+    const site = publisher && !citeIsHost(publisher) ? publisher : ""; // a hostname is never a site name
+    const kind = CITE_KINDS.includes(src.kind) ? src.kind : "other"; // an older server sends none, a newer one may send one this build does not know
+    const people = (Array.isArray(src.authors) ? src.authors : []).map(citeParseName).filter(Boolean);
+    let group = citeStr(src.groupAuthor);
+    if (!people.length && !group && site && CITE_ORG_KINDS.includes(kind)) group = site;
+    const editors = (Array.isArray(src.editors) ? src.editors : []).map(citeParseName).filter(Boolean);
+    const container = citeStr(src.container);
+    const isJournal = kind === "journal";
+    const isBookLike = kind === "book" || kind === "report";
+    const isChapter = Boolean(container) && !isJournal && (editors.length > 0 || isBookLike);
+    const isRef = kind === "reference";
+    const standalone = isBookLike && !isChapter; // italic in print → no quotes here
+    const { year, month, day } = citeDateParts(src);
+    const hasDay = day != null && !isJournal && !isBookLike && !isChapter; // books and reports cite a year
+    const doi = citeStr(src.doi).replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
+    const permalink = citeStr(src.permalink);
+    const locator = doi ? `https://doi.org/${doi}` : (isRef && permalink && hasDay ? permalink : url);
+    const vol = citeStr(src.volume), iss = citeStr(src.issue), pages = citeStr(src.pages);
+    const join = (parts) => parts.filter(Boolean).join(" ");
+    const edList = (fmt, amp) => (editors.length === 2
+      ? `${fmt(editors[0])} ${amp} ${fmt(editors[1])}`
+      : editors.length > 2 ? `${editors.slice(0, -1).map(fmt).join(", ")}, ${amp} ${fmt(editors[editors.length - 1])}` : fmt(editors[0]));
+
+    if (style === "mla") {
+      // MLA 9: an organisation that is both author and publisher is named
+      // once, as publisher, and the entry starts with the title.
+      const authorIsPublisher = !people.length && group && (citeSameOrg(group, site) || citeSameOrg(group, container));
+      let head = "";
+      if (people.length === 1) head = citeEndDot(citeInv(people[0]));
+      else if (people.length === 2) head = citeEndDot(`${citeInv(people[0])}, and ${citeNat(people[1])}`);
+      else if (people.length > 2) head = citeEndDot(`${citeInv(people[0])}, et al.`);
+      else if (group && !authorIsPublisher) head = citeEndDot(group);
+      const t = standalone ? citeEndDot(title) : citeQuote(title);
+      const when = year == null ? "" : hasDay ? `${day} ${CITE_MLA_MONTHS[month]} ${year}` : String(year);
+      const loc = doi ? locator : locator.replace(/^https?:\/\//, "");
+      const els = [];
+      if (isJournal) {
+        els.push(container || site, vol && `vol. ${vol}`, iss && `no. ${iss}`, when, pages && `pp. ${pages}`);
+      } else if (isChapter) {
+        els.push(container, editors.length && `edited by ${editors.length > 2 ? `${citeNat(editors[0])} et al.` : edList(citeNat, "and")}`, site, when);
+      } else {
+        els.push(site, when);
+      }
+      const tail = els.filter(Boolean);
+      const ref = join([head, t, tail.length ? `${tail.join(", ")},` : "", citeEndDot(loc)]);
+      const doc = join([head, t, tail.length ? citeEndDot(tail.join(", ")) : ""]);
+      let lead;
+      if (people.length === 1) lead = people[0].family;
+      else if (people.length === 2) lead = `${people[0].family} and ${people[1].family}`;
+      else if (people.length > 2) lead = `${people[0].family} et al.`;
+      else if (group && !authorIsPublisher) lead = group;
+      else lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
+      return { doc, ref, marker: `(${lead})` };
+    }
+
+    if (style === "chicago") {
+      // CMOS 18 author-date. No author: the site owner stands in (an unsigned
+      // news story files under the paper), else the title leads.
+      let head = "", lead = "";
+      if (people.length) {
+        const n = people.length;
+        head = n === 1 ? citeInv(people[0])
+          : n >= 7 ? `${citeInv(people[0])}, ${citeNat(people[1])}, ${citeNat(people[2])}, et al.`
+          : `${[citeInv(people[0]), ...people.slice(1, -1).map(citeNat)].join(", ")}, and ${citeNat(people[n - 1])}`;
+        lead = n >= 3 ? `${people[0].family} et al.` : n === 2 ? `${people[0].family} and ${people[1].family}` : people[0].family;
+      } else if (group || site) {
+        head = group || site;
+        lead = head;
+      }
+      const y = year ?? "n.d.";
+      const t = standalone ? citeEndDot(title) : citeQuote(title);
+      const ySeg = citeEndDot(String(y)); // "n.d." already ends in its period
+      const parts = head ? [citeEndDot(head), ySeg, t] : [t, ySeg];
+      if (isJournal) {
+        // Nothing to name (no journal, a hostname publisher) → no element, never a stray "."
+        const j = `${container || site}${vol ? ` ${vol}` : ""}${iss ? ` (${iss})` : ""}`.trim();
+        const jEl = pages ? (j ? `${j}: ${pages}` : pages) : j;
+        if (jEl) parts.push(citeEndDot(jEl));
+      } else if (isChapter) {
+        parts.push(citeEndDot(`In ${container}${editors.length ? `, edited by ${edList(citeNat, "and")}` : ""}`));
+        if (site) parts.push(citeEndDot(site));
+      } else {
+        const showSite = site && !citeSameOrg(site, head);
+        const full = hasDay ? `${CITE_MONTHS[month]} ${day}, ${year}` : "";
+        if (isRef && full) parts.push(showSite ? citeEndDot(site) : "", `Last modified ${full}.`);
+        else if (showSite || full) parts.push(citeEndDot([showSite ? site : "", full].filter(Boolean).join(", ")));
+      }
+      const doc = join(parts);
+      const ref = join([doc, citeEndDot(locator)]);
+      if (!lead) lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
+      return { doc, ref, marker: `(${lead} ${y})` };
+    }
+
+    // APA 7
+    let author = "", lead = "";
+    if (people.length) {
+      const n = people.length;
+      author = n === 1 ? citeApaName(people[0])
+        : n >= 21 ? `${people.slice(0, 19).map(citeApaName).join(", ")}, . . . ${citeApaName(people[n - 1])}`
+        : `${people.slice(0, -1).map(citeApaName).join(", ")}, & ${citeApaName(people[n - 1])}`;
+      lead = n >= 3 ? `${people[0].family} et al.` : n === 2 ? `${people[0].family} & ${people[1].family}` : people[0].family;
+    } else if (group) {
+      author = group;
+      lead = group;
+    }
+    const when = year == null ? "n.d." : hasDay ? `${year}, ${CITE_MONTHS[month]} ${day}` : String(year);
+    const parts = author ? [citeEndDot(author), `(${when}).`, citeEndDot(title)] : [citeEndDot(title), `(${when}).`];
+    if (isJournal) {
+      const jEl = [container || site, `${vol}${iss ? `(${iss})` : ""}`, pages].filter(Boolean).join(", ");
+      if (jEl) parts.push(citeEndDot(jEl)); // never a stray "." when there is nothing to name
+    } else if (isChapter) {
+      const eds = editors.length ? `${edList(citeEdNat, "&")} (${editors.length === 1 ? "Ed." : "Eds."}), ` : "";
+      parts.push(citeEndDot(`In ${eds}${container}`));
+      if (site && !citeSameOrg(site, author)) parts.push(citeEndDot(site));
+    } else if (isRef) {
+      if (site) parts.push(`In ${citeEndDot(site)}`); // never a guessed "Wikipedia"
+    } else if (site && !citeSameOrg(site, author)) {
+      parts.push(citeEndDot(site)); // site / publisher only when it is not the author
+    }
+    const doc = join(parts);
+    const ref = join([...parts, locator]);
+    if (!lead) lead = standalone || (!isRef && kind !== "news" && !isJournal && !isChapter) ? citeShortTitle(title) : `“${citeShortTitle(title)},”`;
+    const marker = lead.endsWith(",”") ? `(${lead} ${year ?? "n.d."})` : `(${lead}, ${year ?? "n.d."})`;
+    return { doc, ref, marker };
   }
 
   function segmentText(text) {
@@ -504,6 +750,22 @@
 
   const PLANE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>`;
 
+  /* What an ORPHANED tab's pill says — the extension was reloaded, updated,
+     disabled or uninstalled while this page kept running (Chrome orphans the
+     content script in every one of those cases, and the script cannot tell
+     which). That script can no longer reach the server, and its findings
+     predate the change, so a count in the pill is a stale claim (it used to
+     stay up after the underlines had been cleared). Say what happened
+     without claiming an update the user may not have had, and the one thing
+     that fixes it either way — a reload reconnects, or clears the pill of an
+     extension that is off — in the quiet style: nothing is wrong with the
+     user's writing. No click-to-reload — on a field-mode site that could
+     throw away what they were typing. */
+  const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
+  function orphanPillHtml() {
+    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+  }
+
   // jointracely.com's own font, bundled in the extension (web_accessible).
   const FONT_URL = (() => { try { return chrome.runtime.getURL("fonts/PlusJakartaSans.woff2"); } catch { return ""; } })();
   const JAKARTA = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
@@ -525,6 +787,8 @@
     .pill:hover { transform: translateY(-1px); }
     .pill.quiet { color: #8e8e93; }
     .pill.quiet .plane { background: linear-gradient(150deg, #c7c7cc, #a7a7ac); }
+    .pill.orphan { cursor: default; }
+    .pill.orphan:hover { transform: none; }
     .plane {
       width: 28px; height: 28px; border-radius: 9px;
       background: linear-gradient(150deg, #ff7f00, #f9a35a);
@@ -678,6 +942,10 @@
   function docsMode() {
     const DOC_ID = harness ? "harness" : (location.pathname.match(/\/document\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] ?? null);
     if (!DOC_ID) return;
+    const ACCOUNT_PREFIX = harness ? "" : docAccountPrefix(
+      (() => { try { return performance.getEntriesByType("navigation")[0]?.name; } catch { return ""; } })(),
+      location.href,
+    );
 
     const SETTINGS_KEY = "tracely.widget.settings";
     const DISMISS_KEY = `tracely.widget.dismissed.${DOC_ID}`;
@@ -812,6 +1080,7 @@
     let lastCheckEnd = Date.now();
     let statusMsg = "starting…";
     let statusKind = "idle"; // idle | checking | error | offline
+    let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
@@ -823,7 +1092,7 @@
     // ── doc reading ──
     async function getDocText() {
       if (harness) return harness.getText();
-      const res = await fetch(`https://docs.google.com/document/d/${DOC_ID}/export?format=txt`, {
+      const res = await fetch(docExportUrl(DOC_ID, ACCOUNT_PREFIX), {
         credentials: "same-origin",
       });
       if (!res.ok) throw new Error(`doc export failed (${res.status})`);
@@ -844,7 +1113,7 @@
     }
 
     async function cycle() {
-      if (inflight || document.hidden) return;
+      if (orphaned || inflight || document.hidden) return;
       inflight = true;
       try {
         docText = await getDocText();
@@ -1586,12 +1855,13 @@
 
     window.addEventListener("message", (ev) => {
       if (ev.source !== window || ev.data?.type !== "tracely-docs-rects") return;
+      if (orphaned) return; // a reply already in flight when the tab stood down
       if (ev.data.id !== locateSeq) return; // stale response from an older request
       drawDocsMarks(ev.data.rects);
     });
 
     function requestDocsMarks() {
-      if (document.hidden) return;
+      if (orphaned || document.hidden) return;
       lastLocateAt = Date.now();
       armAnnotationObserver();
       // The hook caps at 40 wants — cap here too so nothing is silently dropped
@@ -2369,6 +2639,11 @@
       window.removeEventListener("resize", scheduleDocsMarks);
       hideDocsPopover();
       clearDocsMarks();
+      // The pill goes too: a count with no underlines under it, from an
+      // instance that can no longer check anything, reads as a live widget.
+      orphaned = true;
+      expanded = false;
+      render();
       console.log(`[tracely] v${EXT_VERSION} stood down (${why}) — reload the tab to resume`);
     }
     /* Only meaningful where there WAS an extension context to lose. The
@@ -2471,6 +2746,7 @@
     const canEditDoc = () => bridgeReady && !harness;
 
     async function fetchServerStatus() {
+      if (orphaned) return;
       try {
         const s = await api("/api/status");
         bridgeReady = Boolean(s.docsBridge);
@@ -2564,6 +2840,7 @@
     followDefaultStop(settings, SETTINGS_KEY, () => render());
 
     function render() {
+      if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
       const issues = currentIssues();
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
       const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
@@ -2748,6 +3025,7 @@
 
     // ── loop ──
     setInterval(() => {
+      if (orphaned) return;
       if (!inflight && !document.hidden && Date.now() - lastCheckEnd >= CHECK_INTERVAL_MS) {
         cycle();
       } else if (expanded && !inflight) {
@@ -2831,6 +3109,7 @@
     let lastCheckEnd = Date.now();
     let statusMsg = siteEnabled() ? "waiting for a text field…" : "auto-check off — click to check";
     let statusKind = "idle"; // idle | checking | error | offline
+    let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
     let fieldText = "";
     let copiedFixHash = null;
@@ -3012,6 +3291,7 @@
     }
 
     function drawMarks() {
+      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); return; }
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
       const layer = ensureOverlay();
       layer.textContent = "";
@@ -3131,7 +3411,7 @@
     }
 
     async function cycle() {
-      if (inflight || document.hidden) return;
+      if (orphaned || inflight || document.hidden) return;
       if (!tracked || !tracked.isConnected) {
         statusKind = "idle";
         statusMsg = "click into a text field first";
@@ -3352,6 +3632,12 @@
       scheduleMarks(); // keep in-page underlines in step with every state change
       if (!widget) return;
       const { shadow, root } = widget;
+      if (orphaned) {
+        // Shown where the counting pill would have been, never anywhere new.
+        root.style.display = tracked && (fieldEligible() || segments.length > 0) ? "" : "none";
+        root.innerHTML = orphanPillHtml();
+        return;
+      }
       const enabled = siteEnabled();
       const show = Boolean(tracked && (expanded || fieldEligible() || segments.length > 0));
       root.style.display = show ? "" : "none";
@@ -3525,7 +3811,24 @@
       render();
     }
 
+    /* Field mode's ghost instance (docs mode's standDown explains the
+       general case): after an extension reload this script keeps running on
+       its old findings, its underlines still drawn and its pill still
+       counting, while every check it tries fails. Stand down: clear the
+       marks, stop checking, and let the pill say why. */
+    function standDownField(why) {
+      orphaned = true;
+      expanded = false;
+      segments = [];
+      drawMarks(); // the orphaned branch clears every bar
+      if (widget) render();
+      console.log(`[tracely] v${EXT_VERSION} stood down (${why}) — reload the tab to resume`);
+    }
+
     setInterval(() => {
+      // Only where there WAS an extension context to lose (plain test pages
+      // have no chrome.* and would stand down on the first tick).
+      if (useRelay && !orphaned && !extAlive()) standDownField("extension reloaded");
       if (tracked && !tracked.isConnected) {
         tracked = null;
         segments = [];

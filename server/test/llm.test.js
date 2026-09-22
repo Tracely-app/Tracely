@@ -95,6 +95,28 @@ test("webSearchCall sends the web_search tool, no effort unless asked, and retur
   assert.deepEqual(r.citations, [{ url: "https://a.org", title: "A" }, { url: "https://b.org", title: "" }]);
 });
 
+test("webSearchCall with a schema adds the strict json_schema format, never tool_choice, and still returns raw text", async () => {
+  // /api/sources passes one so every source carries the citation fields. The
+  // search stays optional, as it always was on that route; forcing it is
+  // webSearchStructuredCall's job (the desktop's finder).
+  let llm = await fresh();
+  const calls = stub(ok({ output_text: '{"a":"x"}' }));
+  const r = await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", schema: SCHEMA, name: "nm" });
+  assert.deepEqual(calls[0].body, {
+    model: "gpt-5.6-luna", instructions: "S", input: "q", max_output_tokens: 5, tools: [{ type: "web_search" }],
+    text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
+  });
+  assert.equal(r.text, '{"a":"x"}');
+
+  // A schema OpenAI's strict mode would 400 on fails here, before any call.
+  llm = await fresh();
+  const none = stub();
+  const loose = { type: "object", properties: { a: { type: "string" } }, required: [], additionalProperties: false };
+  const err = await llm.webSearchCall({ model: "gpt-5.6-luna", system: "S", user: "q", maxTokens: 5, what: "s", schema: loose }).catch((e) => e);
+  assert.match(err.message, /must list every property in "required"/);
+  assert.equal(none.length, 0);
+});
+
 test("webSearchCall passes a caller's effort through, normalises junk, and never sends minimal", async () => {
   // web_search does not run at "minimal"; sending it would draw a 400 that the
   // fallback reads as "no effort for this model". null/undefined is "not

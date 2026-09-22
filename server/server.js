@@ -19,6 +19,7 @@ import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine } from "./lib/failureLog.js";
+import { fetchUrlMetadata } from "./lib/citeMeta.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4477;
@@ -334,68 +335,8 @@ async function applyToDoc(body) {
   return data;
 }
 
-// ── "Paste a URL and cite it" — free metadata fetch, no AI involved ────
-const PRIVATE_HOST = /^(localhost$|.*\.local$|127\.|10\.|192\.168\.|169\.254\.|0\.|\[::1\]$|172\.(1[6-9]|2\d|3[01])\.)/i;
-
-function metaLookup(html, attr, name) {
-  const tags = html.match(/<meta\s[^>]*>/gi) ?? [];
-  for (const t of tags) {
-    if (new RegExp(`${attr}\\s*=\\s*["']${name}["']`, "i").test(t)) {
-      const c = t.match(/content\s*=\s*["']([^"']*)["']/i);
-      if (c?.[1]) return decodeEntities(c[1]);
-    }
-  }
-  return "";
-}
-
-function decodeEntities(s) {
-  return s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ");
-}
-
-async function fetchUrlMetadata(raw) {
-  let u;
-  try {
-    u = new URL(String(raw ?? "").trim());
-  } catch {
-    throw new CheckError("bad_request", "That doesn't look like a URL");
-  }
-  if (!/^https?:$/.test(u.protocol)) throw new CheckError("bad_request", "Only http(s) URLs can be cited");
-  if (PRIVATE_HOST.test(u.hostname)) throw new CheckError("bad_request", "Local and private addresses can't be cited");
-
-  let res;
-  try {
-    res = await fetch(u, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Tracely/1.0; local fact-checker)" },
-    });
-  } catch (e) {
-    throw new CheckError("server", `Couldn't fetch that URL: ${e?.cause?.message ?? e?.message ?? e}`, { status: 502 });
-  }
-  // Per the reference: 404/410 mean the page doesn't exist; auth walls and rate limits do not.
-  if (res.status === 404 || res.status === 410) {
-    throw new CheckError("bad_request", `That page returns ${res.status} — it doesn't seem to exist`);
-  }
-  let html = "";
-  try {
-    html = (await res.text()).slice(0, 500_000);
-  } catch { /* binary or unreadable body — fall through to URL-derived metadata */ }
-
-  const title =
-    metaLookup(html, "property", "og:title") ||
-    decodeEntities(html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? "") ||
-    u.href;
-  const publisher = metaLookup(html, "property", "og:site_name") || u.hostname.replace(/^www\./, "");
-  const snippet = metaLookup(html, "name", "description") || metaLookup(html, "property", "og:description");
-
-  return {
-    title: title.trim().slice(0, 200),
-    url: u.href.slice(0, 600),
-    publisher: publisher.trim().slice(0, 100),
-    snippet: snippet.trim().slice(0, 300),
-    stance: "manual",
-  };
-}
+// "Paste a URL and cite it" (/api/cite-url) — free metadata fetch, no AI
+// involved: lib/citeMeta.js fetchUrlMetadata.
 
 // Rolling-window backstops (spec §14): the caps that hold when "one analysis"
 // stops being a meaningful unit. Stamped BEFORE each call.
