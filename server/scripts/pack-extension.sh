@@ -96,8 +96,11 @@ if [ "$BETA" = 1 ]; then NAME="Tracely-$VERSION-beta"; else NAME="Tracely-$VERSI
 # directory as its top-level folder (see the header for why the two differ).
 # /beta.json is excluded on EVERY build: a plain build must never carry one,
 # and a beta build gets a fresh one written below, never a stray local copy.
+# /dev/ is developer tooling (the fix-in-doc spike and its browser harness,
+# which names a public test Doc): nothing in the manifest loads it, and no
+# tester's copy should carry it.
 mkdir -p "$STAGE/$NAME"
-rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' "$EXT/" "$STAGE/$NAME/"
+rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' --exclude '/dev/' "$EXT/" "$STAGE/$NAME/"
 
 if [ "$BETA" = 1 ]; then
   # JSON-encoded by node, not by string pasting, so no token can break the file.
@@ -128,6 +131,10 @@ fail() {
 LISTING=$(unzip -Z1 "$ZIP")
 has() { grep -Fqx -- "$1" <<<"$LISTING"; }
 count() { grep -cE -- "$1" <<<"$LISTING" || true; }
+
+# extension/dev/ is developer tooling (the fix-in-doc spike and its browser
+# harness). rsync excludes it; this proves it stayed out, in either layout.
+[ "$(count '(^|/)dev/')" = 0 ] || fail "the zip contained extension/dev/ (developer tooling)"
 
 if [ "$BETA" = 1 ]; then
   MANIFEST_ENTRY="$NAME/manifest.json"

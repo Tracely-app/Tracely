@@ -1,0 +1,11 @@
+const tgt = "Rooster still holds a grudge";
+const t0 = T(); const s = t0.indexOf(tgt);
+window.__AT.setSelection(s, s + tgt.length);
+snap('selected');
+__K.press('Backspace', 'Backspace', 8);
+snap('sync after Backspace');
+await wait(200); snap('200ms');
+const end = T().indexOf("his father's death.") + "his father's death.".length;
+window.__AT.setSelection(end, end);
+__K.press('Enter', 'Enter', 13);
+await wait(200); snap('after Enter 200ms');

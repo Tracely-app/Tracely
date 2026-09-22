@@ -1,0 +1,13 @@
+const tgt = "his father's death.";
+const t0 = T(); const end = t0.indexOf(tgt) + tgt.length;
+window.__AT.setSelection(end, end);
+const t = __K.target(); const W = t.ownerDocument.defaultView;
+const r1 = t.dispatchEvent(new W.InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: 'B' }));
+snap('beforeinput ret=' + r1);
+t.dispatchEvent(new W.InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'B' }));
+await wait(200); snap('after input 200ms');
+t.focus(); const r3 = t.ownerDocument.execCommand('insertText', false, 'E');
+snap('execCommand ret=' + r3);
+await wait(300); snap('300ms');
+t.ownerDocument.execCommand('insertHTML', false, '<span>H</span>');
+await wait(300); snap('insertHTML 300ms');
