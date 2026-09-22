@@ -137,9 +137,28 @@ function renderThoroughMeter() {
   meter.hidden = false;
   $("thoroughFill").style.width = `${left}%`;
   text.hidden = false;
+  /* A fair-use suspension turns the allowance OFF without spending it, so the
+     percentage alone would read as a promise the account is not getting: the
+     meter is the only thing on this page that speaks about Thorough, and the
+     fair-use line below covers checks and sources, not this. Say it is paused,
+     and say how much is waiting on the other side of the reset. */
+  if (t.suspended === true) {
+    text.textContent = `Thorough is paused while this account is over its fair-use limit — explanations use the standard model until ${pausedUntil(on)}. ${left}% of this month's allowance is still unused.`;
+    return;
+  }
   text.textContent = left > 0
     ? `${left}% of this month's Thorough allowance left · resets ${on}`
     : `This month's Thorough allowance is used up. Explanations use the standard model until ${on}.`;
+}
+
+/* When the pause lifts. A daily fair-use trip clears at midnight; a monthly
+   one on the date the fair-use line names. Only if the server sent neither do
+   we fall back to the allowance's own reset. */
+function pausedUntil(allowanceResetsOn) {
+  const f = account.fairUse;
+  if (f?.state === "day") return "midnight";
+  if (f?.state === "month" && f.resetsOn) return monthDayLabel(f.resetsOn);
+  return allowanceResetsOn;
 }
 
 function renderSourcesLine() {

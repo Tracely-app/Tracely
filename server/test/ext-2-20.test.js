@@ -528,6 +528,33 @@ test("options: a spent allowance says what answers until the reset", async () =>
   assert.equal($("thoroughMeterText").textContent, "This month's Thorough allowance is used up. Explanations use the standard model until Nov 1.");
 });
 
+/* A fair-use suspension turns Thorough off without spending a cent of the
+   allowance. The meter is the only line on the page that speaks about
+   Thorough, so if it keeps reporting the percentage it is the one thing
+   telling a paying account it still has something it is not getting. */
+test("options: a suspended allowance says paused, not how much is left", async () => {
+  const $ = await renderOptions({
+    ...PAID,
+    thorough: { remainingPct: 71, resetsOn: "2026-10-01", suspended: true },
+    fairUse: { state: "month", resetsOn: "2026-10-01" },
+  });
+  const text = $("thoroughMeterText").textContent;
+  assert.match(text, /^Thorough is paused while this account is over its fair-use limit/);
+  assert.match(text, /standard model until Oct 1/);
+  assert.match(text, /71% of this month's allowance is still unused\./);
+  assert.doesNotMatch(text, /used up/);
+  assert.doesNotMatch(text, /71% of this month's Thorough allowance left/);
+});
+
+test("options: a daily fair-use trip pauses Thorough until midnight", async () => {
+  const $ = await renderOptions({
+    ...PAID,
+    thorough: { remainingPct: 40, resetsOn: "2026-10-01", suspended: true },
+    fairUse: { state: "day", resetsOn: "2026-09-23" },
+  });
+  assert.match($("thoroughMeterText").textContent, /standard model until midnight/);
+});
+
 test("options: Free and Student get the locked line instead", async () => {
   for (const plan of ["free", "student"]) {
     const $ = await renderOptions({ signedIn: true, email: "s@example.com", plan });
