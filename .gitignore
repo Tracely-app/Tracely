@@ -75,3 +75,8 @@ extension-dev/
 # beta.json into its STAGED copy only; one sitting in extension/ is a mistake
 # waiting for `git add -A`, and this repo is public.
 extension/beta.json
+
+# The fix-in-doc browser drivers write screenshots and throwaway Chrome
+# profiles next to themselves (out/ is already ignored above).
+extension/dev/fix-in-doc/shots/
+extension/dev/fix-in-doc/profile-*

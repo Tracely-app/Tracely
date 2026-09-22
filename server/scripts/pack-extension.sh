@@ -75,8 +75,11 @@ NAME="Tracely-$VERSION"
 # whatever else is in Downloads, and "pick the folder" then has no folder.
 # /beta.json is excluded on EVERY build: a plain build must never carry one,
 # and a beta build gets a fresh one written below, never a stray local copy.
+# /dev/ is developer tooling (the fix-in-doc spike and its browser harness,
+# which names a public test Doc): nothing in the manifest loads it, and no
+# tester's copy should carry it.
 mkdir -p "$STAGE/$NAME"
-rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' "$EXT/" "$STAGE/$NAME/"
+rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' --exclude '/dev/' "$EXT/" "$STAGE/$NAME/"
 
 if [ "$BETA" = 1 ]; then
   # JSON-encoded by node, not by string pasting, so no token can break the file.
@@ -92,6 +95,12 @@ rm -f "$ZIP"
 # Belt and braces: check the zip itself, not the intent. grep -c rather than
 # grep -q: -q exits on the first match, unzip then dies of SIGPIPE, and
 # pipefail turns a found file into "not found".
+HAS_DEV=$(unzip -Z1 "$ZIP" | grep -c "^$NAME/dev/" || true)
+if [ "$HAS_DEV" -gt 0 ]; then
+  rm -f "$ZIP"
+  echo "pack-extension: the zip contained extension/dev/ (developer tooling) — refusing to leave that zip behind." >&2
+  exit 1
+fi
 HAS_BETA=$(unzip -Z1 "$ZIP" | grep -c '/beta\.json$' || true)
 if [ "$HAS_BETA" -gt 0 ]; then
   if [ "$BETA" != 1 ]; then
