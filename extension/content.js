@@ -399,37 +399,214 @@
   }
 
   // ── citation formatting ──
-  // Web sources rarely expose author/year, so all three styles use the
-  // site-name + access-date web-page form. `doc` deliberately omits the URL:
-  // bibliography lines in the doc must stay "N. <text> — <url>" so
-  // sourcesBlock can keep parsing (and deduping) them.
+  // Plain text only (the Docs bridge appends plain lines). Returns
+  // { doc, ref, marker }:
+  //   ref    — the full reference, locator included (Copy cite, the popover)
+  //   doc    — the same without the locator: docCite appends " — <url>", and
+  //            bibliography lines must stay "N. <text> — <url>" on ONE line so
+  //            sourcesBlock keeps parsing (and deduping) them
+  //   marker — the in-text citation
+  // Every field beyond title/url/publisher is optional (kind, authors,
+  // groupAuthor, year, date, container, editors, doi from /api/sources; the
+  // same plus volume/issue/pages/permalink from /api/cite-url). A source from
+  // an older server, or an old scache entry, formats as far as its fields go.
+  //
+  // What the old formatter got wrong, and this one must not: it hard-coded
+  // "(n.d.)" and a retrieval/access date (today's) on every source, and put
+  // the publisher — or a bare hostname — in the author slot. The author slot
+  // is now: the people named, else the group author, else the publisher for
+  // an organisation's own page (never a hostname), else the title. News,
+  // reference, journal and book sources with no author lead with the title,
+  // as APA and MLA require. "n.d." appears only when no year or date is
+  // known, and no citation carries a retrieval or access date.
   const CITE_STYLES = [["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"]];
   const CITE_MONTHS = ["January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"];
-  function formatCitation(src, style) {
-    let host = (src.publisher || "").trim();
-    if (!host) {
-      try { host = new URL(src.url).hostname.replace(/^www\./, ""); } catch { host = "Web source"; }
+  const CITE_MLA_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."];
+  const CITE_PARTICLE = /^(van|von|de|del|della|der|den|da|di|du|dos|das|la|le|el|al|bin|ibn|ter|ten|st\.?)$/i;
+  // Kinds where an organisation's page is its own work: the publisher stands
+  // in as the group author when no author is named.
+  const CITE_ORG_KINDS = ["institutional", "archive", "other"];
+
+  const citeStr = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+  const citeLoose = (s) => String(s ?? "").toLowerCase().replace(/^the\s+/, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]/g, "");
+  const citeIsHost = (s) => /^[\w-]+(\.[\w-]+)+$/.test(s);
+  const citeEndDot = (s) => (/[.?!]$/.test(s) ? s : `${s}.`);
+  const citeQuote = (t) => `“${citeEndDot(t)}”`; // terminal punctuation inside the quotes
+
+  function citeParseName(raw) {
+    const s = citeStr(raw);
+    if (!s) return null;
+    const c = s.indexOf(",");
+    if (c > 0) return { family: s.slice(0, c).trim(), given: s.slice(c + 1).trim() };
+    const w = s.split(" ");
+    let i = w.length - 1;
+    while (i > 1 && CITE_PARTICLE.test(w[i - 1])) i--;
+    return i === 0 ? { family: s, given: "" } : { family: w.slice(i).join(" "), given: w.slice(0, i).join(" ") };
+  }
+  const citeInitials = (given) => given.split(/\s+/).filter(Boolean)
+    .map((p) => p.split("-").map((h) => h.replace(/\./g, "")).filter(Boolean)
+      .map((h) => (h.length > 1 && h === h.toUpperCase() ? h.split("").map((x) => `${x}.`).join(" ") : `${h[0].toUpperCase()}.`)).join("-"))
+    .join(" ");
+  const citeApaName = (a) => (a.given ? `${a.family}, ${citeInitials(a.given)}` : a.family);
+  const citeInv = (a) => (a.given ? `${a.family}, ${a.given}` : a.family);
+  const citeNat = (a) => (a.given ? `${a.given} ${a.family}` : a.family);
+  const citeEdNat = (a) => (a.given ? `${citeInitials(a.given)} ${a.family}` : a.family); // APA editors: "M. McAuliffe"
+
+  /** Two names for the same organisation: equal, or one is the other's
+   *  acronym ("IOM" / "International Organization for Migration"). */
+  function citeSameOrg(a, b) {
+    if (!a || !b) return false;
+    if (citeLoose(a) === citeLoose(b)) return true;
+    const acro = (s) => s.split(/\s+/).filter((w) => /^[A-Z]/.test(w)).map((w) => w[0]).join("");
+    const short = [a, b].find((s) => /^[A-Z]{2,8}$/.test(s.trim()));
+    if (!short) return false;
+    const letters = acro(short === a ? b : a);
+    let i = 0;
+    for (const ch of letters) if (ch === short[i]) i++;
+    return i === short.length && short.length >= Math.ceil(letters.length * 0.6);
+  }
+
+  function citeDateParts(src) {
+    const m = citeStr(src.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) {
+      return { year: Number(m[1]), month: Number(m[2]) - 1, day: Number(m[3]) };
     }
-    const title = (src.title || src.url || "").trim().replace(/[.?!]\s*$/, "");
-    const d = new Date();
-    const long = `${CITE_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-    const mlaDate = `${d.getDate()} ${CITE_MONTHS[d.getMonth()].slice(0, 3)}. ${d.getFullYear()}`;
-    if (style === "mla") return {
-      doc: `“${title}.” ${host}. Accessed ${mlaDate}.`,
-      ref: `“${title}.” ${host}, ${src.url}. Accessed ${mlaDate}.`,
-      marker: `(${host})`,
-    };
-    if (style === "chicago") return {
-      doc: `${host}. “${title}.” Accessed ${long}.`,
-      ref: `${host}. “${title}.” Accessed ${long}. ${src.url}.`,
-      marker: `(${host}, n.d.)`,
-    };
-    return {
-      doc: `${host}. (n.d.). ${title}.`,
-      ref: `${host}. (n.d.). ${title}. Retrieved ${long}, from ${src.url}`,
-      marker: `(${host}, n.d.)`,
-    };
+    const y = Number.isInteger(src.year) ? src.year
+      : /^\d{4}$/.test(citeStr(String(src.year ?? ""))) ? Number(src.year) : null;
+    return { year: y, month: null, day: null };
+  }
+
+  function citeShortTitle(t) {
+    let s = t.split(/:\s|\s[–—]\s|\?\s/)[0].replace(/[.,;:]+$/, "");
+    const w = s.split(" ");
+    if (w.length > 5) s = w.slice(0, 4).join(" ");
+    return s;
+  }
+
+  function formatCitation(src, style) {
+    const url = citeStr(src.url);
+    const title = citeStr(src.title || src.url).replace(/[.]\s*$/, "") || url;
+    const publisher = citeStr(src.publisher);
+    const site = publisher && !citeIsHost(publisher) ? publisher : ""; // a hostname is never a site name
+    const kind = citeStr(src.kind) || "other"; // an older server sends no kind
+    const people = (Array.isArray(src.authors) ? src.authors : []).map(citeParseName).filter(Boolean);
+    let group = citeStr(src.groupAuthor);
+    if (!people.length && !group && site && CITE_ORG_KINDS.includes(kind)) group = site;
+    const editors = (Array.isArray(src.editors) ? src.editors : []).map(citeParseName).filter(Boolean);
+    const container = citeStr(src.container);
+    const isJournal = kind === "journal";
+    const isChapter = Boolean(container) && !isJournal && (editors.length > 0 || kind === "book");
+    const isRef = kind === "reference";
+    const standalone = kind === "book" && !isChapter; // italic in print → no quotes here
+    const { year, month, day } = citeDateParts(src);
+    const hasDay = day != null && !isJournal && kind !== "book" && !isChapter;
+    const doi = citeStr(src.doi).replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
+    const permalink = citeStr(src.permalink);
+    const locator = doi ? `https://doi.org/${doi}` : (isRef && permalink && hasDay ? permalink : url);
+    const vol = citeStr(src.volume), iss = citeStr(src.issue), pages = citeStr(src.pages);
+    const join = (parts) => parts.filter(Boolean).join(" ");
+    const edList = (fmt, amp) => (editors.length === 2
+      ? `${fmt(editors[0])} ${amp} ${fmt(editors[1])}`
+      : editors.length > 2 ? `${editors.slice(0, -1).map(fmt).join(", ")}, ${amp} ${fmt(editors[editors.length - 1])}` : fmt(editors[0]));
+
+    if (style === "mla") {
+      // MLA 9: an organisation that is both author and publisher is named
+      // once, as publisher, and the entry starts with the title.
+      const authorIsPublisher = !people.length && group && (citeSameOrg(group, site) || citeSameOrg(group, container));
+      let head = "";
+      if (people.length === 1) head = citeEndDot(citeInv(people[0]));
+      else if (people.length === 2) head = citeEndDot(`${citeInv(people[0])}, and ${citeNat(people[1])}`);
+      else if (people.length > 2) head = citeEndDot(`${citeInv(people[0])}, et al.`);
+      else if (group && !authorIsPublisher) head = citeEndDot(group);
+      const t = standalone ? citeEndDot(title) : citeQuote(title);
+      const when = year == null ? "" : hasDay ? `${day} ${CITE_MLA_MONTHS[month]} ${year}` : String(year);
+      const loc = doi ? locator : locator.replace(/^https?:\/\//, "");
+      const els = [];
+      if (isJournal) {
+        els.push(container || site, vol && `vol. ${vol}`, iss && `no. ${iss}`, when, pages && `pp. ${pages}`);
+      } else if (isChapter) {
+        els.push(container, editors.length && `edited by ${editors.length > 2 ? `${citeNat(editors[0])} et al.` : edList(citeNat, "and")}`, site, when);
+      } else {
+        els.push(site, when);
+      }
+      const tail = els.filter(Boolean);
+      const ref = join([head, t, tail.length ? `${tail.join(", ")},` : "", citeEndDot(loc)]);
+      const doc = join([head, t, tail.length ? citeEndDot(tail.join(", ")) : ""]);
+      let lead;
+      if (people.length === 1) lead = people[0].family;
+      else if (people.length === 2) lead = `${people[0].family} and ${people[1].family}`;
+      else if (people.length > 2) lead = `${people[0].family} et al.`;
+      else if (group && !authorIsPublisher) lead = group;
+      else lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
+      return { doc, ref, marker: `(${lead})` };
+    }
+
+    if (style === "chicago") {
+      // CMOS 18 author-date. No author: the site owner stands in (an unsigned
+      // news story files under the paper), else the title leads.
+      let head = "", lead = "";
+      if (people.length) {
+        const n = people.length;
+        head = n === 1 ? citeInv(people[0])
+          : n >= 7 ? `${citeInv(people[0])}, ${citeNat(people[1])}, ${citeNat(people[2])}, et al.`
+          : `${[citeInv(people[0]), ...people.slice(1, -1).map(citeNat)].join(", ")}, and ${citeNat(people[n - 1])}`;
+        lead = n >= 3 ? `${people[0].family} et al.` : n === 2 ? `${people[0].family} and ${people[1].family}` : people[0].family;
+      } else if (group || site) {
+        head = group || site;
+        lead = head;
+      }
+      const y = year ?? "n.d.";
+      const t = standalone ? citeEndDot(title) : citeQuote(title);
+      const ySeg = citeEndDot(String(y)); // "n.d." already ends in its period
+      const parts = head ? [citeEndDot(head), ySeg, t] : [t, ySeg];
+      if (isJournal) {
+        parts.push(citeEndDot(`${container || site}${vol ? ` ${vol}` : ""}${iss ? ` (${iss})` : ""}${pages ? `: ${pages}` : ""}`));
+      } else if (isChapter) {
+        parts.push(citeEndDot(`In ${container}${editors.length ? `, edited by ${edList(citeNat, "and")}` : ""}`));
+        if (site) parts.push(citeEndDot(site));
+      } else {
+        const showSite = site && !citeSameOrg(site, head);
+        const full = hasDay ? `${CITE_MONTHS[month]} ${day}, ${year}` : "";
+        if (isRef && full) parts.push(showSite ? citeEndDot(site) : "", `Last modified ${full}.`);
+        else if (showSite || full) parts.push(citeEndDot([showSite ? site : "", full].filter(Boolean).join(", ")));
+      }
+      const doc = join(parts);
+      const ref = join([doc, citeEndDot(locator)]);
+      if (!lead) lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
+      return { doc, ref, marker: `(${lead} ${y})` };
+    }
+
+    // APA 7
+    let author = "", lead = "";
+    if (people.length) {
+      const n = people.length;
+      author = n === 1 ? citeApaName(people[0])
+        : n >= 21 ? `${people.slice(0, 19).map(citeApaName).join(", ")}, . . . ${citeApaName(people[n - 1])}`
+        : `${people.slice(0, -1).map(citeApaName).join(", ")}, & ${citeApaName(people[n - 1])}`;
+      lead = n >= 3 ? `${people[0].family} et al.` : n === 2 ? `${people[0].family} & ${people[1].family}` : people[0].family;
+    } else if (group) {
+      author = group;
+      lead = group;
+    }
+    const when = year == null ? "n.d." : hasDay ? `${year}, ${CITE_MONTHS[month]} ${day}` : String(year);
+    const parts = author ? [citeEndDot(author), `(${when}).`, citeEndDot(title)] : [citeEndDot(title), `(${when}).`];
+    if (isJournal) {
+      parts.push(citeEndDot(`${container || site}${vol ? `, ${vol}` : ""}${iss ? `(${iss})` : ""}${pages ? `, ${pages}` : ""}`));
+    } else if (isChapter) {
+      const eds = editors.length ? `${edList(citeEdNat, "&")} (${editors.length === 1 ? "Ed." : "Eds."}), ` : "";
+      parts.push(citeEndDot(`In ${eds}${container}`));
+      if (site && !citeSameOrg(site, author)) parts.push(citeEndDot(site));
+    } else if (isRef) {
+      if (site) parts.push(`In ${citeEndDot(site)}`); // never a guessed "Wikipedia"
+    } else if (site && !citeSameOrg(site, author)) {
+      parts.push(citeEndDot(site)); // site / publisher only when it is not the author
+    }
+    const doc = join(parts);
+    const ref = join([...parts, locator]);
+    if (!lead) lead = standalone || (!isRef && kind !== "news" && !isJournal && !isChapter) ? citeShortTitle(title) : `“${citeShortTitle(title)},”`;
+    const marker = lead.endsWith(",”") ? `(${lead} ${year ?? "n.d."})` : `(${lead}, ${year ?? "n.d."})`;
+    return { doc, ref, marker };
   }
 
   function segmentText(text) {
