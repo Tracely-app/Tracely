@@ -1003,16 +1003,22 @@
     const FLOW_MIN_CHARS = harness ? 0 : 400; // below this there's no structure to judge
     // Opt-in escape hatch, read once. See the comment at the draw site.
     const FLOW_IN_DOC = lsGet("tracely.flowInDoc") === "1";
-    const FLOW_MIN_INTERVAL = 45_000; // never more than one flow call per 45s
+    // Never more than one flow call per 120 s — the server's own floor
+    // (shared/plan.js FLOW_MIN_INTERVAL_MS answers faster callers 429).
+    const FLOW_MIN_INTERVAL = 120_000;
 
     // Signature of the document's SHAPE: paragraph count plus each one's
     // opening and closing words. Editing inside a sentence doesn't move it;
     // adding, cutting, or reordering a paragraph does.
+    // The LAST paragraph contributes its opening words only: its closing
+    // words are where the writer is typing, and every keystroke at the end
+    // of the document used to count as a new shape and re-run flow.
     function flowSignature(text) {
       const paras = text.split(/\n{1,}/).map((p) => p.trim()).filter((p) => p.split(/\s+/).length >= 12);
-      return paras.length + "|" + paras.map((p) => {
+      return paras.length + "|" + paras.map((p, i) => {
         const w = p.split(/\s+/);
-        return w.slice(0, 4).join(" ") + "…" + w.slice(-3).join(" ");
+        const open = w.slice(0, 4).join(" ");
+        return i === paras.length - 1 ? open : open + "…" + w.slice(-3).join(" ");
       }).join("¶");
     }
 
@@ -1049,7 +1055,10 @@
         scheduleDocsMarks();
       } catch {
         // Flow is an enhancement — a failure must never disturb the checker's
-        // status line. Retry naturally on the next structural change.
+        // status line. That includes the server's 429 "flow_rate" (another
+        // tab or an old build asked within 120 s) and the daily flow quota:
+        // silent, and since flowSig was not advanced, retried one interval
+        // later (flowAt was stamped before the call) if the shape still differs.
       } finally {
         flowInflight = false;
       }
