@@ -62,10 +62,13 @@ test("desktop and server read a plan off the same inputs the same way", { skip: 
 
 test("the server never downgrades the model the desktop resolved", { skip: SKIP }, () => {
   for (const plan of srvPlan.PLANS) {
-    for (const pref of [...srvPlan.MODEL_TIERS, "junk", null, undefined]) {
+    for (const pref of [...srvPlan.MODEL_TIERS, "balanced", "junk", null, undefined]) {
       const model = deskPlan.MODEL_FOR_TIER[deskPlan.resolveModelTier(pref, plan)];
       assert.equal(srvPlan.clampModel(model, plan), model, `${plan} / ${pref}: desktop sent ${model}`);
     }
+    // A settings row an older desktop wrote as 'balanced' (the retired tier)
+    // sends the fast id, exactly as the server reads that build's terra id.
+    assert.equal(deskPlan.MODEL_FOR_TIER[deskPlan.resolveModelTier("balanced", plan)], srvPlan.currentModelId("gpt-5.6-terra"), plan);
   }
 });
 
@@ -84,22 +87,48 @@ test("the extension's plan copies agree with the plan", () => {
     const m = src.match(/const PLAN_MAX_STOP = \{\s*free:\s*(\d),\s*student:\s*(\d),\s*pro:\s*(\d)\s*\}/);
     assert.ok(m, `${f}: PLAN_MAX_STOP not found`);
     const stops = { free: +m[1], student: +m[2], pro: +m[3] };
+    // The extension still has its THREE-stop ladder (terra on the middle stop)
+    // until 2.20.0 replaces the slider, so a stop index no longer equals a
+    // server tier index. What must hold: the model at each plan's top stop is
+    // one the server maps to that plan's ceiling tier (Student's Balanced stop
+    // sends terra, which the server now reads as fast). 2.20.0 realigns them.
+    const src2 = read("extension", f);
+    const ladder = f === "options.js"
+      ? [...src2.match(/const MODELS = \[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map((x) => x[1])
+      : [...src2.match(/const SPEED_STOPS = \[([\s\S]*?)\];/)[1].matchAll(/model: "([^"]+)"/g)].map((x) => x[1]);
+    const tierOf = (id) => srvPlan.TIER_FOR_MODEL[id] ?? srvPlan.LEGACY_MODEL_TIER[id] ?? null;
     for (const plan of srvPlan.PLANS) {
-      assert.equal(stops[plan], srvPlan.MODEL_TIERS.indexOf(srvPlan.PLAN_MODEL_CEILING[plan]), `${f}: ${plan} reaches the wrong stop`);
+      assert.equal(tierOf(ladder[stops[plan]]), srvPlan.PLAN_MODEL_CEILING[plan], `${f}: ${plan}'s top stop maps to the wrong tier`);
     }
   }
 });
 
 test("the plans' advertised allowances are the ones the server meters", { skip: SKIP }, () => {
+  // The section 7 copy of the 2026-09-21 plan policy: every number it states
+  // is the one the server meters.
   const free = deskPlan.PLAN_INCLUDES.free.join(" | ");
-  const searches = free.match(/(\d+) source searches a day/);
+  const searches = free.match(/(\d+) source searches a day \((\d+) a month\)/);
   assert.ok(searches, `free plan copy no longer states its source allowance: ${free}`);
   assert.equal(Number(searches[1]), srvPlan.FREE_DAILY_SOURCE_SEARCHES);
-  assert.ok(deskPlan.PLAN_INCLUDES.student.some((s) => /unlimited checks and sources/i.test(s)));
-  for (const limit of [srvPlan.dailyCheckLimit, srvPlan.dailySourceSearchLimit, srvPlan.dailyAiLimit]) {
-    assert.equal(limit("student"), null, "Student is advertised as unlimited");
-    assert.equal(limit("pro"), null);
+  assert.equal(Number(searches[2]), srvPlan.monthlySourceSearchLimit("free"));
+  const daily = free.match(/(\d+) checks and (\d+) AI actions a day/);
+  assert.ok(daily, `free plan copy no longer states its check and AI allowance: ${free}`);
+  assert.equal(Number(daily[1]), srvPlan.dailyCheckLimit("free"));
+  assert.equal(Number(daily[2]), srvPlan.dailyAiLimit("free"));
+  for (const plan of ["student", "pro"]) {
+    const copy = deskPlan.PLAN_INCLUDES[plan].join(" | ");
+    const month = copy.match(/(\d+) source searches a month/);
+    assert.ok(month, `${plan} plan copy no longer states its monthly searches: ${copy}`);
+    assert.equal(Number(month[1]), srvPlan.monthlySourceSearchLimit(plan), plan);
+    assert.ok(!/unlimited/i.test(copy), `${plan} is no longer sold as unlimited: ${copy}`);
+    // "No daily check or AI-action limit (fair use)": unmetered per day, bounded by fair use.
+    assert.equal(srvPlan.dailyCheckLimit(plan), null, plan);
+    assert.equal(srvPlan.dailyAiLimit(plan), null, plan);
+    assert.ok(srvPlan.fairUseLimits(plan), `${plan} has no fair-use limit behind "no daily limit"`);
   }
+  assert.ok(deskPlan.PLAN_INCLUDES.student.some((s) => /no daily check or AI-action limit \(fair use\)/i.test(s)));
+  assert.ok(deskPlan.PLAN_INCLUDES.pro.some((s) => /Thorough/.test(s) && /monthly allowance/.test(s)));
+  assert.ok(srvPlan.thoroughMonthlyUsd("pro") > 0 && srvPlan.thoroughMonthlyUsd("student") === 0);
   const ext = read("extension", "options.js").match(/const PLAN_LABEL = (\{[^}]+\})/);
   assert.ok(ext);
   assert.deepEqual(JSON.parse(ext[1].replace(/(\w+):/g, '"$1":')), deskPlan.PLAN_LABEL);
