@@ -887,6 +887,29 @@ async function appCall(gate, { task, route = task, requested, effort = undefined
   return result;
 }
 
+/* /api/entitlement's OPTIONAL fields (hosted only — a local server meters
+ * nothing, so it reports none): the limits the caller is metered at right now
+ * (the EFFECTIVE plan's; null = no daily limit), today's and this month's
+ * source searches, Pro's Thorough allowance as a whole percent (never
+ * dollars), and the fair-use state when one applies. Old clients ignore them. */
+function entitlementDetails(ent, id) {
+  const plan = effectivePlan(ent, id);
+  const q = sourceSearchQuota(ent, id);
+  const t = thoroughState(ent, id);
+  const fu = fairUseState(ent, id);
+  return {
+    limits: {
+      checksPerDay: dailyCheckLimit(plan),
+      aiActionsPerDay: dailyAiLimit(plan),
+      flowPerDay: dailyFlowLimit(plan),
+      sources: { day: dailySourceSearchLimit(plan), month: monthlySourceSearchLimit(plan) },
+    },
+    usage: { sources: { today: q.used, month: q.monthUsed } },
+    ...(t.allowanceMicroCents > 0 ? { thorough: { remainingPct: t.remainingPct, resetsOn: t.resetsOn, ...(t.suspended ? { suspended: true } : {}) } } : {}),
+    ...(fu.state ? { fairUse: { state: fu.state, resetsOn: fu.resetsOn } } : {}),
+  };
+}
+
 function requireKey() {
   if (!hasApiKey() && !MOCK) {
     throw new CheckError("no_key", "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env", { status: 503 });
@@ -1006,7 +1029,10 @@ const server = http.createServer(async (req, res) => {
       // to an account by EMAIL, which is wrong exactly when it matters most:
       // a student paying with a parent's card. Not a disclosure — the caller
       // presented that user's own token, and the id is inside it.
-      json(res, 200, { plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}) }, cors);
+      json(res, 200, {
+        plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}),
+        ...(ent.enforced ? entitlementDetails(ent, callerId(req, ent)) : {}),
+      }, cors);
       return;
     }
 
