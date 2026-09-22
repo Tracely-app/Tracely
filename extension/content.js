@@ -2862,11 +2862,13 @@
 
     // Which copy of a repeated sentence is meant: its index among the export's
     // copies, and where its underline is on screen (the engine clicks one to
-    // read the caret offset). Only used when the sentence is not unique, and
-    // it never overrides the engine's text check.
+    // read the caret offset). A copy is a whole SENTENCE of the export — the
+    // engine counts only whole sentences too, so the tail of a longer
+    // sentence counts on neither side — and the engine refuses when the two
+    // counts disagree (one side is stale). It never overrides the text check.
     function segHint(seg) {
-      const occ = (hay, needle) => { let n = 0, i = -1; while ((i = hay.indexOf(needle, i + 1)) >= 0) n++; return n; };
-      const hint = { occurrence: occ(docText.slice(0, seg.start), seg.text), occurrences: occ(docText, seg.text) };
+      const copies = segments.filter((s) => s.text === seg.text);
+      const hint = { occurrence: Math.max(0, copies.findIndex((s) => s.start === seg.start)), occurrences: Math.max(1, copies.length) };
       const rects = [];
       for (const b of docsBars) {
         if (b.hash !== seg.hash || !b.el?.isConnected) continue;
@@ -2897,7 +2899,8 @@
 
     function editReasonText(r) {
       switch (r?.reason) {
-        case "not-found": return "that sentence changed since the last check";
+        case "not-found":
+        case "stale": return "that sentence changed since the last check";
         case "ambiguous": return "that sentence appears more than once";
         case "view-only":
         case "not-applied": return "this doc isn't editable right now";
@@ -3099,8 +3102,12 @@
       if (docBusy || !issue?.transition) return false;
       const bridge = issue.transition.trim().replace(/\s+/g, " ");
       const passage = String(issue.passage ?? "").trim();
+      // A flow flag can be old (it lives until its paragraph changes): when
+      // the passage is one sentence of the export, say how many copies there
+      // are now, so the engine refuses if the live doc disagrees.
+      const copies = segments.filter((s) => s.text === passage).length;
       return runDocEdit(`flow:${hash}`, {
-        steps: [{ action: "replace", find: passage, replacement: `${bridge} ${passage}` }],
+        steps: [{ action: "replace", find: passage, replacement: `${bridge} ${passage}`, ...(copies ? { hint: { occurrences: copies } } : {}) }],
         copy: issue.transition,
         doneMsg: "transition added",
         onApplied: () => {

@@ -978,27 +978,67 @@
       return sel && sel.length ? sel[0].start : null;
     }
 
-    // Pure: every acceptable match of `find` in model text T.
-    function matchText(T, find) {
+    // A find is a whole sentence as content.js segments the export
+    // (segmentText: /[^.!?]+(?:[.!?]+["')\]]*|$)/ per line). So a real copy
+    // starts where a line starts or right after the previous sentence's end
+    // punctuation (+ closers, + whitespace) — never as the tail of a longer
+    // sentence: "The myth that Einstein failed math." holds "Einstein failed
+    // math." but is not it. Read on the RAW text, so "…" (not a sentence end
+    // there) stays distinct from "...", and a soft line break (U+000B) or an
+    // object/structure marker counts as a line start.
+    const isHard = (c) => {
+      const code = c.charCodeAt(0);
+      return code < 32 || (code >= 0x7f && code < 0xa0) || code === 0x2028 || code === 0x2029 || (code >= 0xe000 && code <= 0xf8ff);
+    };
+    function atSentenceStart(T, rs) {
+      let i = rs - 1;
+      while (i >= 0 && T[i] !== "\u000b" && (DROP.test(T[i]) || SPACE.test(T[i]))) i--;
+      if (i < 0 || isHard(T[i])) return true;
+      while (i >= 0 && "\"')]".includes(T[i])) i--;
+      return i >= 0 && ".!?".includes(T[i]);
+    }
+    // ...and ends where segmentText ended it: after the WHOLE punctuation run
+    // ("Wait." is not a sentence of "Wait..."), or — unpunctuated — at the
+    // end of its line.
+    const SENT_END = /[.!?\u2026]["'\u201d\u2019)\]]*$/;
+    function atSentenceEnd(T, re, terminal) {
+      let i = re;
+      while (i < T.length && DROP.test(T[i])) i++;
+      if (terminal) return i >= T.length || !".!?\"')]".includes(T[i]);
+      while (i < T.length && T[i] !== "\u000b" && (DROP.test(T[i]) || SPACE.test(T[i]))) i++;
+      return i >= T.length || isHard(T[i]);
+    }
+
+    // Pure: every acceptable match of `find` in model text T. sentence: only
+    // whole-sentence copies (what every protocol find is).
+    function matchText(T, find, { sentence = false } = {}) {
       const { n: N, map } = normMap(T);
       let needle = nrm(find).trim();
       let stripped = "";
-      let hits = findAll(N, map, needle);
+      const terminal = SENT_END.test(String(find).trim());
+      const whole = (h) => !sentence || (atSentenceStart(T, map[h]) && atSentenceEnd(T, map[h + needle.length - 1] + 1, terminal));
+      let hits = findAll(N, map, needle).filter(whole);
       if (!hits.length) {
         const lm = needle.match(LIST_MARK);
         if (lm) {
           stripped = lm[0];
           needle = needle.slice(lm[0].length);
-          hits = findAll(N, map, needle);
+          hits = findAll(N, map, needle).filter(whole);
         }
       }
       return { N, map, needle, stripped, hits };
     }
 
     // Pure choice among several hits: the caret a rect click produced, else
-    // the export's occurrence index — only while the export and the live
-    // model agree on how many copies there are. null = ambiguous.
+    // the export's occurrence index. Either way only while the export and the
+    // live model agree on how many copies there are — a disagreement means
+    // one of them is stale, and then even a lone hit may be a different
+    // sentence from the one on the card. null = refuse (see pickWhy).
+    function pickWhy(hits, hint) {
+      return hint.occurrences != null && hint.occurrences !== hits.length ? "stale" : "ambiguous";
+    }
     function pickHit(hits, map, needleLen, hint, caret) {
+      if (hint.occurrences != null && hint.occurrences !== hits.length) return null;
       if (hits.length === 1) return { m: hits[0], via: "unique" };
       if (caret != null) {
         let best = null, bestD = Infinity;
@@ -1009,22 +1049,22 @@
         }
         if (best != null && bestD <= Math.max(8, needleLen / 4)) return { m: best, via: "rects" };
       }
-      if (hint.occurrence != null && hint.occurrence < hits.length && (hint.occurrences == null || hint.occurrences === hits.length)) {
+      if (hint.occurrence != null && hint.occurrence < hits.length) {
         return { m: hits[hint.occurrence], via: "occurrence" };
       }
       return null;
     }
 
     function locate(at, T, find, hint, why) {
-      const { N, map, needle, stripped, hits } = matchText(T, find);
+      const { N, map, needle, stripped, hits } = matchText(T, find, { sentence: true });
       if (!hits.length) { why.reason = "not-found"; return null; }
       let caret = null;
-      if (hits.length > 1 && hint.rects.length) {
+      if (hits.length > 1 && hint.rects.length && pickWhy(hits, hint) !== "stale") {
         const r = hint.rects[0];
         caret = caretAtPoint(at, r.left + 1, r.top + (r.height || 10) / 2);
       }
       const pick = pickHit(hits, map, needle.length, hint, caret);
-      if (!pick) { why.reason = "ambiguous"; why.matches = hits.length; return null; }
+      if (!pick) { why.reason = pickWhy(hits, hint); why.matches = hits.length; return null; }
       return {
         N, map, m: pick.m, needle, stripped, via: pick.via, matches: hits.length,
         rawS: map[pick.m], rawE: map[pick.m + needle.length - 1] + 1,
@@ -1411,7 +1451,7 @@
 
     // Test hook (unit tests and the dev harness only): pure helpers, no side effects.
     if (window.__tracelyEditExpose) {
-      window.__tracelyEditInternals = { normMap, planDiff, findAll, matchText, planEdit, planAppend, pickHit, hintOf, LIST_MARK };
+      window.__tracelyEditInternals = { normMap, planDiff, findAll, matchText, planEdit, planAppend, pickHit, pickWhy, hintOf, LIST_MARK };
     }
 
     /* ── dispatch: one edit at a time ────────────────────────────────────── */

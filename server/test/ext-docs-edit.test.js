@@ -303,6 +303,34 @@ test("planner: repeated copies are picked by the caret a rect click reads, else 
   const r = I.pickHit(hits, map, needle.length, { ...none, occurrence: 0, occurrences: 2 }, caretInSecond);
   assert.deepEqual([r.m, r.via], [hits[1], "rects"], "the caret wins over the occurrence index");
   assert.equal(I.pickHit([hits[0]], map, needle.length, none, null).via, "unique");
+  // A lone hit where the export counted more copies: one of the two is stale,
+  // and the lone hit may not be the card's sentence.
+  assert.equal(I.pickHit([hits[0]], map, needle.length, { ...none, occurrence: 0, occurrences: 2 }, null), null);
+  assert.equal(I.pickWhy([hits[0]], { ...none, occurrences: 2 }), "stale");
+  assert.equal(I.pickHit([hits[0]], map, needle.length, { ...none, occurrence: 0, occurrences: 1 }, null).via, "unique");
+  assert.equal(I.pickHit(hits, map, needle.length, { ...none, occurrences: 2 }, caretInSecond).m, hits[1], "the count agrees: the caret picks");
+});
+
+test("planner: a protocol find matches only WHOLE sentences, the way content.js segments the export", () => {
+  const S = (body) => "\u0003" + body + "\n\u0003\n";
+  const whole = (T, find) => I.matchText(T, find, { sentence: true }).hits.length;
+  const T = S("The myth that Einstein failed math. Einstein failed math.");
+  assert.equal(I.matchText(T, "Einstein failed math.").hits.length, 2, "(plain matching sees both)");
+  assert.equal(whole(T, "Einstein failed math."), 1, "never the tail of a longer sentence");
+  assert.equal(whole(S("The myth that Einstein failed math."), "Einstein failed math."), 0);
+  assert.equal(whole(S("Einstein failed math."), "Einstein failed math."), 1, "at the start of the text");
+  assert.equal(whole(S("Intro.\nEinstein failed math."), "Einstein failed math."), 1, "at the start of a paragraph");
+  assert.equal(whole(S("Intro\u000bEinstein failed math."), "Einstein failed math."), 1, "after a soft line break");
+  assert.equal(whole(S("Intro.\u00a0\u200b Einstein failed math."), "Einstein failed math."), 1, "after odd whitespace");
+  assert.equal(whole(S("He said \"Stop.\" Einstein failed math."), "Einstein failed math."), 1, "after end punctuation + closers");
+  assert.equal(whole(S("He said \u201cStop.\u201d Then he left."), "\u201d Then he left."), 1, "a smart closer starts the next segment, as segmentText has it");
+  assert.equal(whole(S("It had 3.5 million people."), "5 million people."), 1, "segmentText splits \"3.5\" too");
+  assert.equal(whole(S("He waited\u2026 Einstein failed math."), "Einstein failed math."), 0, "\u2026 is not a sentence end to segmentText");
+  assert.equal(whole(S("Wait... then go."), "Wait."), 0, "never part of a punctuation run");
+  assert.equal(whole(S("Wait. Then go."), "Wait."), 1);
+  assert.equal(whole(S("He was born in Ulm in 1879\nNext."), "He was born in Ulm in 1879"), 1, "unpunctuated: runs to the end of its line");
+  assert.equal(whole(S("He was born in Ulm in 1879 and died in 1955."), "He was born in Ulm in 1879"), 0, "never the head of a longer sentence");
+  assert.equal(whole(S("Intro.\nEinstein failed math."), "* Einstein failed math."), 1, "the export's list marker is still stripped");
 });
 
 test("planner: hints are sanitised to numbers and at most 8 rects", () => {
@@ -516,11 +544,24 @@ test("engine: refusals — not found, ambiguous, view-only, unverifiable selecti
   const amb = await h.call("replace", { find: "It is good.", replacement: "It is great." });
   assert.deepEqual([amb.reason, amb.matches], ["ambiguous", 2]);
   const wrongCount = await h.call("replace", { find: "It is good.", replacement: "It is great.", hint: { occurrence: 1, occurrences: 3 } });
-  assert.equal(wrongCount.reason, "ambiguous", "the export's count disagrees with the live doc: refuse");
+  assert.equal(wrongCount.reason, "stale", "the export's count disagrees with the live doc: refuse");
   const second = await h.call("replace", { find: "It is good.", replacement: "It is great.", hint: { occurrence: 1, occurrences: 2 } });
   assert.equal(second.ok, true);
   assert.equal(second.target.via, "occurrence");
   assert.equal(docs.body(), "It is good. Then more. It is great.", "the copy the hint named, and only it");
+
+  // The card is older than the doc: the export had two copies, the user has
+  // since rewritten one. The lone copy left may not be the card's sentence.
+  const moved = new FakeDocs("Einstein failed math. Then more. Einstein never failed math.");
+  const hm = loadHook({ docs: moved });
+  const st = await hm.call("replace", { find: "Einstein failed math.", replacement: "Einstein excelled at math.", hint: { occurrence: 1, occurrences: 2 } });
+  assert.equal(st.reason, "stale");
+  // The reviewer's case: what is left is only the tail of a longer sentence.
+  const tail = new FakeDocs("The myth that Einstein failed math. Einstein never failed math.");
+  const ht = loadHook({ docs: tail });
+  assert.equal((await ht.call("replace", { find: "Einstein failed math.", replacement: "Einstein excelled at math.", hint: { occurrence: 0, occurrences: 2 } })).reason, "not-found");
+  assert.equal((await ht.call("replace", { find: "Einstein failed math.", replacement: "Einstein excelled at math." })).reason, "not-found");
+  assert.equal(moved.pastes.length + tail.pastes.length, 0, "nothing was pasted");
 
   const view = new FakeDocs("The film stars Tom Cruise.", { mode: "View only" });
   const hv = loadHook({ docs: view });
@@ -730,6 +771,7 @@ test("content.js: a refused edit copies the fix instead, with a short reason", a
   const S = "Einstein was a basketball player.";
   for (const [reason, text] of [
     ["not-found", "that sentence changed since the last check"],
+    ["stale", "that sentence changed since the last check"],
     ["ambiguous", "that sentence appears more than once"],
     ["not-applied", "this doc isn't editable right now"],
     ["view-only", "this doc isn't editable right now"],
@@ -861,10 +903,18 @@ test("content.js: Add transition pastes the bridge ahead of the passage, and is 
   const rep = ops().find((o) => o.op === "replace");
   assert.equal(rep.find, passage);
   assert.equal(rep.replacement, `Meanwhile, in the east. ${passage}`);
+  assert.equal(rep.hint, undefined, "a two-sentence passage is no one sentence of the export: no count to send");
   assert.ok(w.flowDismissed.has("flowX"));
   assert.equal(w.state().flowSig, "", "structure changed: flow re-runs");
   await w.undoLastDocEdit();
   assert.equal(w.flowDismissed.has("flowX"), false);
+
+  const one = "Its fall reshaped Europe.";
+  const single = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: "f2" }), body: `Rome fell in 476. ${one}` });
+  single.w.setDoc(`Rome fell in 476. ${one}`, [seg("Rome fell in 476."), seg(one, 18)]);
+  await single.w.probeInDoc();
+  await single.w.addTransition("flowZ", { passage: one, transition: "Meanwhile." });
+  assert.deepEqual(plain(single.ops().find((o) => o.op === "replace").hint), { occurrences: 1 }, "a one-sentence passage says how many copies the export has");
 
   const refused = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : { ok: false, reason: "not-found" }), body: passage });
   await refused.w.probeInDoc();
@@ -896,13 +946,19 @@ test("content.js: with only the dev bridge, edits go to /api/docs/apply — no h
   void ctx; void copied;
 });
 
-test("content.js: a repeated sentence carries which copy it is", () => {
+test("content.js: a repeated sentence carries which copy it is — counting whole sentences, as the engine does", () => {
   const S = "It is good.";
   const body = `${S} Then more. ${S}`;
   const { w } = loadWiring({ body });
   const second = body.lastIndexOf(S);
+  w.setDoc(body, [seg(S), seg("Then more.", S.length + 1), seg(S, second)]);
   assert.deepEqual(plain(w.segHint({ text: S, start: second, hash: "h" })), { occurrence: 1, occurrences: 2 });
   assert.deepEqual(plain(w.segHint({ text: S, start: 0, hash: "h" })), { occurrence: 0, occurrences: 2 });
+  // The tail of a longer sentence is not a copy on either side.
+  const T = "The myth that Einstein failed math.", E = "Einstein failed math.";
+  const b2 = `${T} ${E}`;
+  w.setDoc(b2, [seg(T), seg(E, T.length + 1)]);
+  assert.deepEqual(plain(w.segHint({ text: E, start: T.length + 1, hash: "e" })), { occurrence: 0, occurrences: 1 });
 });
 
 test("content.js: one edit at a time — a second click while one is in flight does nothing", async () => {
