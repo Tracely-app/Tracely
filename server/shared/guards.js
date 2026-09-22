@@ -97,7 +97,9 @@ export const SPEND = {
    * only the desktop.
    *
    * Override the budget with TRACELY_APP_DAILY_BUDGET_USD (same rules as the
-   * extension's: empty is "absent", junk is the default, explicit 0 is off). */
+   * extension's: empty is "absent", junk is the default, explicit 0 is off).
+   * It must SCALE WITH SUBSCRIBERS, like the paid pool below: set it to
+   * max(10, 0.15 x paying subscribers). */
   defaultAppDailyBudgetUsd: 10,
   appCallerCallsPerMinute: 30,
   appCallerSearchesPerHour: 25,
@@ -124,13 +126,19 @@ export const SPEND = {
 
   /* ── the PAID pool: Student and Pro accounts on the extension's routes ──
    *
-   * Hosted /api/check, /api/flow and /api/sources run the model the client's
-   * slider asks for, clamped to the plan — up to the thorough model, ~40-50x
-   * the fast one per token. On the shared extension pool a single Pro user on
-   * "Smarter" could spend the $10 day in minutes and 503 every free user, the
-   * exact failure the app pool exists to prevent. So paid-plan calls on the
+   * Hosted /api/check, /api/flow and /api/sources run the fast model on every
+   * plan since the 2026-09-21 plan policy, except Pro's "Explain in depth" on
+   * the thorough model (~40-50x the fast one per token) out of a monthly
+   * allowance. Paid traffic must still never spend the free users' day — the
+   * exact failure the app pool exists to prevent — so paid-plan calls on the
    * extension routes spend HERE; when this pool is spent they drop to the fast
    * model on the extension pool (their plan, and so their quotas, unchanged).
+   *
+   * It must SCALE WITH SUBSCRIBERS: a regular Pro user spends ~9 cents a day
+   * and a regular Student ~4 (their per-account fair-use limits are $2 and $1
+   * a day), so at $10 this pool binds at roughly 110-240 active regular users
+   * a day. Set TRACELY_PAID_DAILY_BUDGET_USD (and TRACELY_APP_DAILY_BUDGET_USD)
+   * to max(10, 0.15 x paying subscribers).
    *
    * Override with TRACELY_PAID_DAILY_BUDGET_USD, same rules as the others. */
   defaultPaidDailyBudgetUsd: 10,
