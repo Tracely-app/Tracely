@@ -23,22 +23,25 @@ import { openai } from "./providers/openai.js";
 
 /* MODEL TIERS — the only place model IDs appear on the server.
  *
- * The tier NAMES (fast / balanced / thorough) are shared/plan.js's vocabulary,
- * because that file decides which tier a plan may reach and it must be able to
- * name the same three things. test/models.test.js pins the two together.
+ * The tier NAMES (fast / thorough) are shared/plan.js's vocabulary, because
+ * that file decides which tier a plan may reach and it must be able to name
+ * the same things. test/models.test.js pins the two together.
  *
  * Chosen by a measured, blind-judged eval of 13 configs on the production
- * code paths (eval/models/FINDINGS.md, 2026-09-21), which replaced
- * gpt-5-nano (fast) and gpt-5.4 (balanced):
+ * code paths (eval/models/FINDINGS.md, 2026-09-21), then cut to two tiers by
+ * the plan policy of the same day (FINDINGS.md, "Plan policy"):
  *   - fast: gpt-5.6-luna was the most accurate fact check measured at any
  *     price (100% at effort medium, vs 74% for gpt-5-nano at low, which never
  *     flagged an uncited statistic), and at low effort it beat the retired
- *     relay's gpt-4.1 on the desktop critique.
- *   - balanced: gpt-5.6-terra beat gpt-5.4 on every measured axis at lower
- *     cost. It is NOT measurably more accurate than fast on these tasks; it is
- *     here because each tier needs its own id (shared/plan.js TIER_FOR_MODEL).
- *   - thorough: gpt-6-astra gave the most thorough explanations and the most
- *     consistent verdicts, at ~30x fast's cost per check.
+ *     relay's gpt-4.1 on the desktop critique. It runs every volume route on
+ *     every plan (shared/plan.js modelForRoute).
+ *   - thorough: gpt-6-astra gave the most thorough explanations, at ~30x
+ *     fast's cost per check. Pro only, only on the desktop critique and the
+ *     one-sentence "Explain in depth", and only out of a monthly allowance.
+ *   - gpt-5.6-terra (the old "balanced") is RETIRED: it lost to luna on both
+ *     measured tasks at ~8-10x the cost. Its price row stays in
+ *     shared/prices.js so historical usage still prices; clients that still
+ *     send its id get fast (shared/plan.js LEGACY_MODEL_TIER).
  * If an id is wrong the API answers 400 `model_not_found`, and mapApiError
  * turns that into a message naming this constant, so the fix is one line here
  * rather than a hunt. Retired ids that shipped clients still send are
@@ -46,12 +49,10 @@ import { openai } from "./providers/openai.js";
  *
  * Prices per 1M tokens, input / cached / output / cache write:
  *   fast      gpt-5.6-luna    $0.20 / $0.02 / $1.20  / $0.25
- *   balanced  gpt-5.6-terra   $2.00 / $0.20 / $12.00 / $2.50
  *   thorough  gpt-6-astra     $10.00 / $1.00 / $50.00 / $12.50
  */
 export const MODEL_TIERS = {
   fast: "gpt-5.6-luna",
-  balanced: "gpt-5.6-terra",
   thorough: "gpt-6-astra",
 };
 
@@ -196,9 +197,9 @@ export function mapApiError(status, json) {
  *   cost, 1-sentence      0.038-0.067 cents     0.039-0.068 cents
  *
  * So the default stays "low" — the critique and every unmeasured route — and
- * /api/check alone runs the fast tier at "medium" (server.js checkEffort,
- * which pins every tier to its measured effort on that route). terra and
- * astra were measured only at "low". "high" and "minimal" were not measured
+ * /api/check alone runs the fast tier at "medium" (shared/plan.js
+ * modelForRoute pins every route's effort on a hosted server). astra was
+ * measured only at "low". "high" and "minimal" were not measured
  * on any current tier. Re-run the eval before moving either. */
 const DEFAULT_EFFORT = "low";
 

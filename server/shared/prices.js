@@ -11,8 +11,10 @@
  * any session, however long. A copy of a price table is a price table that is
  * wrong the next time prices change; this is the only copy.
  *
- * Dollars per 1M tokens. The ids MUST equal lib/llm.js MODEL_TIERS — pinned by
- * test/models.test.js.
+ * Dollars per 1M tokens. The ids MUST include every lib/llm.js MODEL_TIERS id
+ * — pinned by test/models.test.js — and may keep a retired one: gpt-5.6-terra
+ * left the tiers on 2026-09-21 but stays here so usage already recorded
+ * against it still prices (an unpriced id prices as the dearest tier).
  *
  * `cacheWrite` is what a first-seen prompt prefix costs on a model that bills
  * cache writes (1.25x input); usage reports those tokens as
