@@ -11,7 +11,8 @@ import {
   normalizeModelTier,
   normalizePlan,
   planFromMetadata,
-  resolveModelTier
+  resolveModelTier,
+  servedModel
 } from './plan.ts'
 
 describe('normalizePlan', () => {
@@ -168,6 +169,21 @@ describe('MODEL_FOR_TIER', () => {
         const model = MODEL_FOR_TIER[resolveModelTier(preferred, plan)]
         strictEqual(server.clampModel(model, plan), model)
       }
+    }
+  })
+})
+
+describe('servedModel', () => {
+  it('keys a cached answer on the model the server ran, dated snapshots included', () => {
+    strictEqual(servedModel('gpt-6-astra'), 'gpt-6-astra')
+    strictEqual(servedModel('gpt-6-astra-2026-08-01'), 'gpt-6-astra')
+    strictEqual(servedModel('gpt-5.6-luna'), 'gpt-5.6-luna')
+    strictEqual(servedModel('gpt-5.6-luna-2026-07-15'), 'gpt-5.6-luna')
+  })
+
+  it('reads anything unrecognised as fast, so it can never sit under the thorough key', () => {
+    for (const v of [undefined, null, '', 'gpt-5.6-terra', 'gpt-6-astral', 'mock', 7, {}]) {
+      strictEqual(servedModel(v), MODEL_FOR_TIER.fast, JSON.stringify(v))
     }
   })
 })

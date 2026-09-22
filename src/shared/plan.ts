@@ -141,6 +141,29 @@ export const MODEL_FOR_TIER = {
 /** A model id this app may put in a request body. */
 export type ServerModel = (typeof MODEL_FOR_TIER)[ModelTier]
 
+/**
+ * The model the server says it ACTUALLY ran, as one of MODEL_FOR_TIER's ids —
+ * what a cached answer must be keyed on, rather than the id the call asked for.
+ *
+ * Since the 2026-09-21 plan policy the server answers a Pro critique on the
+ * thorough model only while the monthly allowance lasts, then on the fast
+ * one, so the id requested and the id served can differ. Keyed on the request,
+ * a fast fallback would sit in the local cache under the thorough key for its
+ * whole lifetime and be shown as a Thorough critique after the allowance
+ * resets. The API echoes dated snapshots ("gpt-6-astra-2026-08-01"), so a
+ * family prefix matches. Anything unrecognised — no model field, a mock, a
+ * provider rename — is treated as fast: it can then never be served under the
+ * thorough key.
+ */
+export function servedModel(served: unknown): ServerModel {
+  if (typeof served === 'string') {
+    for (const id of Object.values(MODEL_FOR_TIER)) {
+      if (served === id || served.startsWith(`${id}-`)) return id
+    }
+  }
+  return MODEL_FOR_TIER.fast
+}
+
 /** The best tier each plan may reach. Only Pro reaches `thorough`, and the server uses it for critiques only. */
 export const PLAN_MODEL_CEILING: Record<Plan, ModelTier> = {
   free: 'fast',

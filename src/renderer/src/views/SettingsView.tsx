@@ -747,12 +747,16 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   will actually RUN — resolveModelTier, the same function the
                   main process clamps with before every relay call — so a
                   `thorough` row left behind by a lapsed subscription reads as
-                  Fast here rather than naming a model this account is not
-                  getting. The tiers above the plan stay in the list, disabled
-                  and labelled with what they cost; removing them would hide
-                  that there is anything to upgrade to.
+                  Standard here rather than naming a model this account is not
+                  getting, and a row an older build wrote as 'balanced' reads
+                  as Standard too. Two choices since the 2026-09-21 plan
+                  policy: everything runs on Standard, and Thorough only
+                  changes Pro's critiques (while the monthly allowance lasts —
+                  the server decides). Thorough stays in the list for other
+                  plans, disabled and labelled; removing it would hide that
+                  there is anything to upgrade to.
                 */}
-                <SettingsField label="Model">
+                <SettingsField label="Critique model">
                   <select
                     value={resolveModelTier(settings.modelTier, plan)}
                     onChange={(e) => void save({ modelTier: e.target.value as ModelTier })}
@@ -766,6 +770,9 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                       </option>
                     ))}
                   </select>
+                  {modelTierUnlocked('thorough', plan) ? null : (
+                    <div className="settings-toggle-row-subtitle">Thorough critiques come with Pro.</div>
+                  )}
                 </SettingsField>
                 <SettingsField label={`Claim sensitivity — ${Math.round(settings.claimSensitivity * 100)}%`}>
                   <input
@@ -790,9 +797,10 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                 in a session you started yourself.
               </p>
               <p className="muted settings-app-note">
-                Checks, critique and grading run on the {MODEL_TIER_LABEL[resolveModelTier(settings.modelTier, plan)].toLowerCase()} model
-                — {MODEL_TIER_DESCRIPTION[resolveModelTier(settings.modelTier, plan)].toLowerCase()} Tiers your
-                plan does not include are listed but cannot be chosen; Billing says what unlocks them.
+                Checks, claim detection, grading and source searches run on Standard, the most accurate model in
+                our tests. On Pro, critiques use Thorough while this month&apos;s allowance lasts.{' '}
+                {MODEL_TIER_LABEL[resolveModelTier(settings.modelTier, plan)]}:{' '}
+                {MODEL_TIER_DESCRIPTION[resolveModelTier(settings.modelTier, plan)]}
               </p>
             </div>
           ) : null}
@@ -881,8 +889,9 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   <div>
                     <div className="settings-toggle-row-title">Upgrade</div>
                     <div className="settings-toggle-row-subtitle">
-                      Student is {PLAN_PRICE.student} for unlimited checks and sources and the Balanced model. Pro is{' '}
-                      {PLAN_PRICE.pro} and adds the most thorough one.
+                      Student is {PLAN_PRICE.student} and removes the daily check and AI-action limits, with 100
+                      source searches a month. Pro is {PLAN_PRICE.pro} and adds Thorough critiques from our largest
+                      model.
                     </div>
                   </div>
                   {/* The user's own browser, never a window of ours — the same
