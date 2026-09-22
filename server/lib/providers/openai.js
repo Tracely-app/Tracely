@@ -60,7 +60,7 @@ export const openai = {
     return body;
   },
 
-  webSearchBody({ model, system, user, maxTokens, effort }) {
+  webSearchBody({ model, system, user, maxTokens, effort, schema, name }) {
     const body = {
       model,
       instructions: system,
@@ -68,6 +68,7 @@ export const openai = {
       max_output_tokens: maxTokens,
       tools: [{ type: "web_search" }],
     };
+    if (schema) body.text = { format: { type: "json_schema", name, schema, strict: true } };
     if (effort) body.reasoning = { effort };
     return body;
   },

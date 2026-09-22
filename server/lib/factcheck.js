@@ -7,6 +7,7 @@ import {
   structuredCall,
   webSearchCall,
 } from "./llm.js";
+import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -146,20 +147,72 @@ async function checkBatch({ text, sentences, model, effort, admitSplit }) {
 // Search bills PER CALL on top of tokens, which is why this is the one path
 // with a caller-side budget (search/webBudget in server.js).
 // ---------------------------------------------------------------------------
-export async function findSources({ claim, correction, context, model, effort, mock = false }) {
-  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
-  if (mock) return mockSources(claim, chosenModel);
 
-  const sys = `You are Tracely's source finder. Given a claim from a document (and optionally a proposed correction), use web search to find authoritative sources that address it.
+/* The answer's shape, strict: every property required, nothing extra, so
+ * each source carries every citation field — "" / [] / null when the page
+ * does not state it. The fields past `stance` feed the extension's
+ * citations; before them its formatter had only a title, a URL and a
+ * publisher, so every reference was "(n.d.)" with the publisher (often a
+ * hostname) in the author slot. They are validated (lib/citeFields.js)
+ * before they reach a client, and they are OPTIONAL on the wire: a source
+ * harvested from the search's url_citations carries none of them. */
+const SOURCES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["sources"],
+  properties: {
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "url", "publisher", "snippet", "stance", "kind", "authors", "groupAuthor", "year", "date", "container", "editors", "doi"],
+        properties: {
+          title: { type: "string" },
+          url: { type: "string" },
+          publisher: { type: "string" },
+          snippet: { type: "string" },
+          stance: { type: "string", enum: ["supports", "refutes", "context"] },
+          kind: { type: "string", enum: SOURCE_KINDS },
+          authors: { type: "array", items: { type: "string" } },
+          groupAuthor: { type: "string" },
+          year: { type: ["integer", "null"] },
+          date: { type: "string" },
+          container: { type: "string" },
+          editors: { type: "array", items: { type: "string" } },
+          doi: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const SOURCES_SYSTEM = `You are Tracely's source finder. Given a claim from a document (and optionally a proposed correction), use web search to find authoritative sources that address it.
 
 After researching, your FINAL message must be ONLY a JSON object, no prose, in this exact shape:
-{"sources":[{"title":"...","url":"...","publisher":"...","snippet":"...","stance":"supports"|"refutes"|"context"}]}
+{"sources":[{"title":"...","url":"...","publisher":"...","snippet":"...","stance":"supports"|"refutes"|"context","kind":"...","authors":[],"groupAuthor":"","year":null,"date":"","container":"","editors":[],"doi":""}]}
 
 Rules:
 - 3 to 5 sources, ranked best-first. Prefer primary and authoritative sources (scientific bodies, encyclopedias, government agencies, reputable news) over blogs and content farms.
 - "stance" is relative to the ORIGINAL claim: "supports" backs the claim as written, "refutes" contradicts it, "context" informs without settling it.
 - "snippet": one sentence (max 30 words) describing what the source says about the claim.
-- Use real URLs from your search results only. Never invent URLs.`;
+- Use real URLs from your search results only. Never invent URLs.
+
+Citation fields. A student's reference list is built from these, so copy ONLY what the source itself states; never guess, never infer from the URL, the site or what is typical. Empty is correct: use "", [] or null whenever the source does not say.
+- "title": the work's own title, without the site name.
+- "publisher": the organization that publishes it, by name (e.g. "International Organization for Migration"), never a web address.
+- "kind": institutional (government, intergovernmental, NGO, university or research body), news, reference (encyclopedia, dictionary), journal (journal article), book (book, report or chapter), archive, other.
+- "authors": the named PEOPLE credited, full names as written. Never an organization, a website, "Staff" or "Editors".
+- "groupAuthor": the organization credited as author when no person is; otherwise "".
+- "year": the year of publication the source states (integer), else null — not the year it was updated or retrieved.
+- "date": "YYYY-MM-DD" only when the source states the full publication date, else "".
+- "container": the larger work this is part of — the journal of an article, the book or report of a chapter — else "".
+- "editors": the editors of that container as the source names them, else [].
+- "doi": the DOI when shown (10.xxxx/...), else "".`;
+
+export async function findSources({ claim, correction, context, model, effort, mock = false }) {
+  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
+  if (mock) return mockSources(claim, chosenModel);
 
   const userMsg =
     `CLAIM:\n${claim}\n` +
@@ -174,11 +227,13 @@ Rules:
   // webSearchCall). A caller-chosen level is sent.
   const { text: fullText, citations, model: usedModel, usage, webSearchCalls, sent } = await webSearchCall({
     model: chosenModel,
-    system: sys,
+    system: SOURCES_SYSTEM,
     user: userMsg,
     maxTokens: 6_000,
     what: "source search",
     effort,
+    schema: SOURCES_SCHEMA,
+    name: "sources",
   });
 
   let sources = [];
@@ -192,7 +247,10 @@ Rules:
 
   // Harvest search citations as backup candidates (and to backfill a thin list).
   // OpenAI hangs these off the text as url_citation annotations; they carry a
-  // title and URL but no excerpt, so the snippet stays empty here.
+  // title and URL but no excerpt, so the snippet stays empty here. Under the
+  // strict schema the answer may carry none: the one measured call
+  // (2026-09-21, gpt-5.6-luna, two searches) had zero, so a list is now what
+  // the model wrote, and this is the backstop for an answer that does not parse.
   const harvested = citations.map((c) => ({
     title: c.title || c.url,
     url: c.url,
@@ -201,21 +259,7 @@ Rules:
     stance: "context",
   }));
 
-  const seen = new Set();
-  const merged = [];
-  for (const s of [...sources, ...harvested]) {
-    const url = String(s?.url ?? "").trim();
-    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
-    seen.add(url);
-    merged.push({
-      title: String(s.title ?? url).slice(0, 200),
-      url: url.slice(0, 600),
-      publisher: String(s.publisher ?? hostOf(url)).slice(0, 100),
-      snippet: String(s.snippet ?? "").slice(0, 300),
-      stance: ["supports", "refutes", "context"].includes(s.stance) ? s.stance : "context",
-    });
-    if (merged.length >= 6) break;
-  }
+  const merged = mergeSources([...sources, ...harvested]);
 
   if (merged.length === 0) {
     // Answered, so billed — tokens and every search — like any failure the
@@ -228,6 +272,29 @@ Rules:
   // `webSearchCalls`: what the search tool billed, per call — the route
   // records it and keeps it out of the response.
   return { sources: merged, model: usedModel, usage, webSearchCalls };
+}
+
+/* De-duplicated by URL, at most six, each with the five fields every client
+ * has always read — then whatever citation fields survive validation. The
+ * mock runs through here too, so TRACELY_MOCK answers in the real shape. */
+function mergeSources(list, now = new Date()) {
+  const seen = new Set();
+  const merged = [];
+  for (const s of list) {
+    const url = String(s?.url ?? "").trim();
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    const source = {
+      title: String(s.title ?? url).slice(0, 200),
+      url: url.slice(0, 600),
+      publisher: String(s.publisher ?? hostOf(url)).slice(0, 100),
+      snippet: String(s.snippet ?? "").slice(0, 300),
+      stance: ["supports", "refutes", "context"].includes(s.stance) ? s.stance : "context",
+    };
+    merged.push({ ...source, ...citeFields(s, { publisher: source.publisher, title: source.title, now }) });
+    if (merged.length >= 6) break;
+  }
+  return merged;
 }
 
 function hostOf(url) {
@@ -393,12 +460,17 @@ function mockFlow(model) {
 }
 
 function mockSources(claim, model) {
+  // Canned, in the real shape: the citation fields go through the same
+  // validation a real answer does. Nothing here is asserted about the pages
+  // beyond what a citation needs; unknowns are empty, as the prompt asks.
+  const none = { authors: [], groupAuthor: "", year: null, date: "", container: "", editors: [], doi: "" };
+  const raw = [
+    { title: "Great Wall of China — Visibility from space", url: "https://en.wikipedia.org/wiki/Great_Wall_of_China", publisher: "en.wikipedia.org", snippet: "Notes that the wall is not visible to the naked eye from low Earth orbit, per astronaut accounts.", stance: "refutes", ...none, kind: "reference" },
+    { title: "China's Wall Less Great in View from Space", url: "https://www.nasa.gov/vision/space/workinginspace/great_wall.html", publisher: "nasa.gov", snippet: "NASA explains the Great Wall is generally invisible to the unaided eye from orbit.", stance: "refutes", ...none, kind: "institutional", groupAuthor: "NASA", year: 2005 },
+    { title: "Is the Great Wall of China visible from space?", url: "https://www.scientificamerican.com/article/is-chinas-great-wall-visible-from-space/", publisher: "scientificamerican.com", snippet: "Reviews the myth and what astronauts actually report seeing from orbit.", stance: "context", ...none, kind: "news" },
+  ].map((s) => ({ ...s, snippet: `[mock] ${s.snippet}` }));
   return {
-    sources: [
-      { title: "Great Wall of China — Visibility from space", url: "https://en.wikipedia.org/wiki/Great_Wall_of_China", publisher: "en.wikipedia.org", snippet: "Notes that the wall is not visible to the naked eye from low Earth orbit, per astronaut accounts.", stance: "refutes" },
-      { title: "China's Wall Less Great in View from Space", url: "https://www.nasa.gov/vision/space/workinginspace/great_wall.html", publisher: "nasa.gov", snippet: "NASA explains the Great Wall is generally invisible to the unaided eye from orbit.", stance: "refutes" },
-      { title: "Is the Great Wall of China visible from space?", url: "https://www.scientificamerican.com/article/is-chinas-great-wall-visible-from-space/", publisher: "scientificamerican.com", snippet: "Reviews the myth and what astronauts actually report seeing from orbit.", stance: "context" },
-    ].map((s, i) => ({ ...s, snippet: `[mock] ${s.snippet}` })),
+    sources: mergeSources(raw),
     model: `${model} (mock)`,
     usage: { input: 0, output: 0, cached: 0 },
   };
