@@ -357,6 +357,27 @@
     return "s" + h.toString(36);
   }
 
+  /* A Doc opened from a second signed-in Google account is served at
+     /document/u/<n>/d/<id>/... — every student with a school and a personal
+     account. The export must go to that same account slot: /document/d/<id>/
+     export answers as the DEFAULT account, which may not be able to read the
+     doc at all. The committed navigation URL is asked first (it is what the
+     page was served as, whatever Docs later does to the address bar), then
+     location.pathname for when the Navigation Timing entry is unavailable. */
+  function docAccountPrefix(...urls) {
+    for (const u of urls) {
+      if (!u) continue;
+      let p;
+      try { p = new URL(u, "https://docs.google.com").pathname; } catch { continue; }
+      const m = p.match(/^\/document\/u\/(\d+)\/d\//);
+      if (m) return `/u/${m[1]}`;
+    }
+    return "";
+  }
+  function docExportUrl(docId, prefix) {
+    return `https://docs.google.com/document${prefix}/d/${docId}/export?format=txt`;
+  }
+
   // Bibliography block ("Sources:" + numbered entries) — mirrors public/app.js.
   function sourcesBlock(text) {
     const m = text.match(/(?:^|\n)Sources:\n/);
@@ -678,6 +699,10 @@
   function docsMode() {
     const DOC_ID = harness ? "harness" : (location.pathname.match(/\/document\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] ?? null);
     if (!DOC_ID) return;
+    const ACCOUNT_PREFIX = harness ? "" : docAccountPrefix(
+      (() => { try { return performance.getEntriesByType("navigation")[0]?.name; } catch { return ""; } })(),
+      location.pathname,
+    );
 
     const SETTINGS_KEY = "tracely.widget.settings";
     const DISMISS_KEY = `tracely.widget.dismissed.${DOC_ID}`;
@@ -823,7 +848,7 @@
     // ── doc reading ──
     async function getDocText() {
       if (harness) return harness.getText();
-      const res = await fetch(`https://docs.google.com/document/d/${DOC_ID}/export?format=txt`, {
+      const res = await fetch(docExportUrl(DOC_ID, ACCOUNT_PREFIX), {
         credentials: "same-origin",
       });
       if (!res.ok) throw new Error(`doc export failed (${res.status})`);
