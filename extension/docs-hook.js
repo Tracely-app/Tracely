@@ -1268,15 +1268,19 @@
         history.splice(i, 1);
         return { ok: true, method: "undo-key", verified: false };
       }
-      // Fast path: nothing at all has changed since our edit, and it is our
-      // newest one, so the top of the user's undo stack IS our paste.
+      // Fast path: the text is exactly as our edit left it, and it is our
+      // newest one, so the top of the user's undo stack is USUALLY our paste.
+      // Not always: bold, a link, a heading style or a colour change leaves
+      // the text alone, and then Cmd+Z takes THAT back instead.
       if (i === history.length - 1 && at.getText() === rec.T2) {
         undoKey();
         const t = await waitText(at, (x) => x !== rec.T2, UNDO_WAIT_MS);
         if (t === rec.T1) { history.splice(i, 1); return { ok: true, method: "undo-key" }; }
+        // Undid something else — a text change (t != null) or a step that
+        // changes no text (t == null; redo does nothing if nothing was undone).
+        // Put it back either way, then go semantic.
+        redoKey();
         if (t != null) {
-          // Undid more (or something else): put it back, then go semantic.
-          redoKey();
           await waitText(at, (x) => x === rec.T2, UNDO_WAIT_MS);
           if (at.getText() !== rec.T2) return { ok: false, reason: "undo-overshoot" };
         }

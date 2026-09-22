@@ -69,6 +69,7 @@ class FakeDocs {
     this.ignoreSetSelection = ignoreSetSelection;
     this.undoStack = [];
     this.redoStack = [];
+    this.fmt = []; // text-neutral steps (bold, a heading style): undoable, invisible to getText
     this.pastes = [];
     this.requesters = [];
     const self = this;
@@ -104,26 +105,31 @@ class FakeDocs {
     }
     return true;
   }
+  snap() { return { T: this.T, sel: this.sel, fmt: this.fmt }; }
+  restore(x) { this.T = x.T; this.sel = x.sel; this.fmt = x.fmt; }
   apply(text) {
     const { start, end } = this.sel[0];
-    this.undoStack.push({ T: this.T, sel: this.sel });
+    this.undoStack.push(this.snap());
     this.redoStack = [];
     this.T = this.T.slice(0, start) + text + this.T.slice(end);
     this.sel = [{ start: start + text.length, end: start + text.length }];
   }
+  format(what) { // one undo step that changes no text
+    this.undoStack.push(this.snap());
+    this.redoStack = [];
+    this.fmt = [...this.fmt, what];
+  }
   undo() {
     const u = this.undoStack.pop();
     if (!u) return;
-    this.redoStack.push({ T: this.T, sel: this.sel });
-    this.T = u.T;
-    this.sel = u.sel;
+    this.redoStack.push(this.snap());
+    this.restore(u);
   }
   redo() {
     const r = this.redoStack.pop();
     if (!r) return;
-    this.undoStack.push({ T: this.T, sel: this.sel });
-    this.T = r.T;
-    this.sel = r.sel;
+    this.undoStack.push(this.snap());
+    this.restore(r);
   }
   body() { return this.T.slice(1, -3); }
 }
@@ -468,6 +474,29 @@ test("engine: undo after someone else typed reverses only our words (semantic un
   assert.equal(u.ok, true, JSON.stringify(u));
   assert.equal(u.steps[0].method, "reverse-edit");
   assert.equal(docs.body(), `The story is really good. ${MID} The very end.`, "our edit gone, theirs kept");
+});
+
+test("engine: undo when the user's last step changed no text (bold, a heading style) keeps that step", async () => {
+  const MID = "The rest of this document is long enough to sit well clear of the edit's context.";
+  const body = `The story is really good. ${MID} The end.`;
+  const docs = new FakeDocs(body);
+  const h = loadHook({ docs });
+  const r = await h.call("replace", { find: "The story is really good.", replacement: "The story is good." });
+  assert.equal(r.ok, true);
+  docs.format("bold"); // the text is still exactly as our edit left it
+  const u = await h.call("undo", { undoToken: r.undoToken });
+  assert.equal(u.ok, true, JSON.stringify(u));
+  assert.equal(u.steps[0].method, "reverse-edit");
+  assert.equal(docs.body(), body, "our edit is gone");
+  assert.deepEqual(docs.fmt, ["bold"], "the user's formatting is still applied — not left in the redo stack");
+  assert.equal(docs.redoStack.length, 0);
+
+  // Nothing after our edit: Cmd+Z is our paste, and nothing is redone.
+  const d2 = new FakeDocs(body);
+  const h2 = loadHook({ docs: d2 });
+  const r2 = await h2.call("replace", { find: "The story is really good.", replacement: "The story is good." });
+  const u2 = await h2.call("undo", { undoToken: r2.undoToken });
+  assert.deepEqual([u2.ok, u2.steps[0].method, d2.body()], [true, "undo-key", body]);
 });
 
 test("engine: a locked editor ignores the paste, and that is reported — never assumed", async () => {
