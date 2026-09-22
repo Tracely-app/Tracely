@@ -210,6 +210,50 @@ test("bylines that are not people: placeholders, handles and hostnames are dropp
   assert.equal(org.groupAuthor, "World Health Organization");
 });
 
+test("a byline naming several people is one author each; a Family, Given name is one person", () => {
+  const by = (tag, content) => extractCitationMeta(`<title>T</title><meta name="${tag}" content="${content}">`, "https://example.com/a", NOW);
+  assert.deepEqual(by("author", "Jane Doe, John Roe").authors, ["Jane Doe", "John Roe"]);
+  assert.deepEqual(by("byl", "By Jane Doe and John Roe").authors, ["Jane Doe", "John Roe"]);
+  assert.deepEqual(by("author", "Jane Doe, John Roe &amp; Max Poe").authors, ["Jane Doe", "John Roe", "Max Poe"]);
+  assert.deepEqual(by("author", "Martin Luther King, Jr.").authors, ["Martin Luther King, Jr."], "a suffix is not a second person");
+  assert.deepEqual(by("author", "Doe, Jane").authors, ["Doe, Jane"]);
+  assert.deepEqual(by("citation_author", "van der Walt, St&#233;fan J.").authors, ["van der Walt, Stéfan J."]);
+  assert.deepEqual(by("citation_author", "Doe, Jane; Roe, John").authors, ["Doe, Jane", "Roe, John"]);
+  assert.equal(by("author", "Department of Health and Human Services").groupAuthor, "Department of Health and Human Services", "an organisation is never cut up");
+});
+
+test("citation_author names people: a surname like Press or Bank is not an organisation", () => {
+  const html = (...names) => `<title>T</title>${names.map((n) => `<meta name="citation_author" content="${n}">`).join("")}`;
+  assert.deepEqual(extractCitationMeta(html("Press, Eyal", "Doe, Jane"), "https://example.com/a", NOW).authors, ["Press, Eyal", "Doe, Jane"]);
+  assert.deepEqual(extractCitationMeta(html("Eyal Press", "Joseph Bank"), "https://example.com/a", NOW).authors, ["Eyal Press", "Joseph Bank"]);
+  const wb = extractCitationMeta(html("World Bank"), "https://example.com/a", NOW);
+  assert.deepEqual([wb.authors, wb.groupAuthor], [undefined, "World Bank"]);
+  assert.equal(extractCitationMeta(html("World Health Organization"), "https://example.com/a", NOW).groupAuthor, "World Health Organization");
+  // A JSON-LD author typed Person is a person too.
+  const ld = `<title>T</title><script type="application/ld+json">{"@type":"NewsArticle","author":{"@type":"Person","name":"Eyal Press"}}</script>`;
+  assert.deepEqual(extractCitationMeta(ld, "https://example.com/a", NOW).authors, ["Eyal Press"]);
+});
+
+test("a JSON-LD author typed Organization is still filtered: no hostname, URL or placeholder", () => {
+  const ld = (name) => `<title>T</title><script type="application/ld+json">{"@type":"NewsArticle","author":{"@type":"Organization","name":"${name}"}}</script>`;
+  for (const name of ["www.example.com", "example.co.uk", "Staff", "https://example.com/about", "@example", ""]) {
+    const m = extractCitationMeta(ld(name), "https://example.com/a", NOW);
+    assert.equal(m.groupAuthor, undefined, name);
+    assert.equal(m.authors, undefined, name);
+  }
+  assert.equal(extractCitationMeta(ld("Reuters"), "https://example.com/a", NOW).groupAuthor, "Reuters");
+  assert.equal(extractCitationMeta(ld("Pew Research Center"), "https://example.com/a", NOW).groupAuthor, "Pew Research Center");
+});
+
+test("more than 30 authors keeps the last one, whom APA names after the ellipsis", () => {
+  const html = `<title>T</title>${Array.from({ length: 40 }, (_, i) => `<meta name="citation_author" content="Author${i + 1}, A.">`).join("")}`;
+  const { authors } = extractCitationMeta(html, "https://example.com/a", NOW);
+  assert.equal(authors.length, 30);
+  assert.deepEqual(authors.slice(0, 2), ["Author1, A.", "Author2, A."]);
+  assert.equal(authors[28], "Author29, A.");
+  assert.equal(authors.at(-1), "Author40, A.", "the 40th author, not the 30th");
+});
+
 // ── the route's function ───────────────────────────────────────────────
 
 test("fetchUrlMetadata: the IOM page cites with its year, old fields first and unchanged in kind", async () => {

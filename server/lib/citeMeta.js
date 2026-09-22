@@ -124,21 +124,71 @@ const ORG_WORDS = /\b(Center|Centre|Centers|Institute|Organi[sz]ation|Agency|Dep
 export const PLACEHOLDER_NAME = /^(unknown|unknown author|anonymous author|author|authors|admin|administrator|staff|staff writer|editor|editors|guest|n\/a|none|null|undefined|various|contributors?)$/i;
 export const isHostname = (s) => /^[\w-]+(\.[\w-]+)+$/.test(String(s ?? "").trim());
 
+/* In a list that names PEOPLE — citation_author, a JSON-LD Person, the
+ * authors the model was told are people — an institutional word can be a
+ * surname: "Eyal Press", "Joseph Bank", "Press, Eyal". There an organisation
+ * needs a word no person's name carries, or more than a two-word name. */
+const STRONG_ORG = /\b(Institute|Organi[sz]ation|Agency|Department|Ministry|University|Association|Foundation|Commission|Committee|Administration|Corporation|Laboratory|Nations|Inc|LLC|Ltd|Consortium|Collaboration|Initiative|Coalition|Federation|Authority|Hospital|Museum|Clinic|Company|Network)\b/i;
+const SURNAME_ORG_WORD = /^(Press|Bank|Board|Service|Council|Fund|Office|News|Center|Centre|Survey|Library|College|Group|Society|Staff|Team|Program|Bureau)$/i;
+// ...unless the word before it is one no given name is: "World Bank", "Associated Press".
+const ORG_MODIFIER = /^(World|National|Federal|Central|Reserve|Development|Associated|United|International|European|African|Asian|American|Islamic|Investment|Export|Academic|University|State|City|County|Royal|Public|Research|Science|Policy|Health|Civil|Foreign|Security|Budget|Census|Geological)$/i;
+const ACRONYM = /^[A-Z][A-Z&.]{1,7}$/;
+
 /** An organisation's name, not a person's: an acronym ("CDC", "IOM") or a
- *  name carrying an institutional word ("Pew Research Center"). */
-export function looksLikeOrg(s) {
+ *  name carrying an institutional word ("Pew Research Center"). With
+ *  `person`, the name came from a list of people, and a surname that is an
+ *  institutional word stays a person. */
+export function looksLikeOrg(s, { person = false } = {}) {
   const t = String(s ?? "").trim();
-  return /^[A-Z][A-Z&.]{1,7}$/.test(t) || ORG_WORDS.test(t);
+  if (!person) return ACRONYM.test(t) || ORG_WORDS.test(t);
+  if (STRONG_ORG.test(t)) return true;
+  if (t.includes(",")) return false; // "Press, Eyal" is Family, Given
+  if (ACRONYM.test(t)) return true;
+  if (!ORG_WORDS.test(t)) return false;
+  const w = t.split(/\s+/);
+  return !(w.length === 2 && SURNAME_ORG_WORD.test(w[1]) && !ORG_MODIFIER.test(w[0]) && !/^[A-Z]{2,}$/.test(w[0]));
 }
+
+/**
+ * One byline naming several people → one name each: "Jane Doe and John Roe",
+ * "Jane Doe, John Roe & Max Poe", "By Doe, Jane; Roe, John". A separator
+ * splits only when every part it leaves is itself a full name (two words, or
+ * "Family, Given"), so "Doe, Jane", "Jane Doe, Jr." and "Procter & Gamble"
+ * stay whole, and an organisation's name ("Department of Health and Human
+ * Services", "Office of Science and Technology Policy") is never cut up.
+ *
+ * A comma separates two people only when both halves read as "Given Family":
+ * "van der Walt, Stéfan J." (a particle leads, an initial ends) is one
+ * person. `commas: false` for tags whose every value is "Family, Given"
+ * (citation_author).
+ */
+export function splitNames(raw, { commas = true } = {}) {
+  const t = String(raw ?? "").replace(/\s+/g, " ").trim().replace(/^by\s+/i, "");
+  if (!t || STRONG_ORG.test(t) || /\b(of|for|the)\b/i.test(t)) return t ? [t] : [];
+  const words = (p) => p.split(" ").length;
+  const strong = t.split(/\s*(?:;|&|\band\b)\s*/i).map((p) => p.replace(/^,|,$/g, "").trim()).filter(Boolean);
+  const groups = strong.length > 1 && strong.every((p) => p.includes(",") || words(p) >= 2) ? strong : [t];
+  if (!commas) return groups;
+  const fullName = (p) => words(p) >= 2 && !/^\p{Ll}/u.test(p) && !/(^|\s)\p{Lu}\.?$/u.test(p);
+  return groups.flatMap((g) => {
+    const parts = g.split(/\s*,\s*/).filter(Boolean);
+    return parts.length > 1 && parts.every(fullName) ? parts : [g];
+  });
+}
+
+/** A list of authors kept to 30 — but never by dropping the LAST one, whom
+ *  APA 7 names after the ellipsis for 21 or more. */
+export const capAuthors = (list, max = 30) => (list.length > max ? [...list.slice(0, max - 1), list.at(-1)] : list);
 
 /** `raw` is already entity-decoded (meta values are decoded once, in
  *  collectMeta; JSON-LD names by the caller) — decoding again would turn a
- *  page's literal "&lt;" into "<". */
-function personOrOrg(raw) {
+ *  page's literal "&lt;" into "<". An organisation the page TYPED as one
+ *  (`org`) still has to be a name: a hostname, a URL or "Staff" is not. */
+function personOrOrg(raw, { person = false, org = false } = {}) {
   const s = String(raw ?? "").replace(/\s+/g, " ").trim().replace(/^by\s+/i, "");
-  if (!s || s.length > 120 || PLACEHOLDER_NAME.test(s) || /^(https?:|www\.|@)|@|\.(com|org|net)\b/i.test(s)) return null;
-  if (looksLikeOrg(s)) return { org: s };
-  if (s.split(/\s+/).length > 6) return null; // a sentence, not a name
+  if (!s || s.length > 150 || PLACEHOLDER_NAME.test(s) || isHostname(s) || /^(https?:|www\.|@)|@|\.(com|org|net)\b/i.test(s)) return null;
+  if (org || looksLikeOrg(s, { person })) return { org: s };
+  if (s.length > 120 || s.split(" ").length > 6) return null; // a sentence, not a name
   return { person: s };
 }
 
@@ -361,19 +411,24 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
 
   // Authors: scholarly tags first (already "Family, Given"), then JSON-LD, then bylines.
   const persons = [], orgs = [];
-  const add = (raw, forcedOrg) => {
-    const r = forcedOrg ? { org: raw } : personOrOrg(raw);
-    if (!r) return;
-    const list = r.person ? persons : orgs, v = r.person ?? r.org;
-    if (v && !list.some((x) => loose(x) === loose(v))) list.push(v);
+  const add = (raw, how = {}) => {
+    for (const name of how.org ? [raw] : splitNames(raw, { commas: !how.scholarly })) {
+      const r = personOrOrg(name, how);
+      if (!r) continue;
+      const list = r.person ? persons : orgs, v = r.person ?? r.org;
+      if (v && !list.some((x) => loose(x) === loose(v))) list.push(v);
+    }
   };
+  // citation_author and dc.creator name people (Google Scholar's rule), so a
+  // surname like Press or Bank is not read as an organisation there.
   const scholarly = all("citation_author", "dc.creator", "dcterms.creator");
-  if (scholarly.length) scholarly.forEach((a) => add(a));
+  if (scholarly.length) scholarly.forEach((a) => add(a, { person: true, scholarly: true }));
   else if (main?.author && !isWiki) {
     for (const a of [].concat(main.author)) {
       const n = ldName(a);
       if (!n) continue;
-      add(clean(n), typesOf(a).includes("Organization") || typesOf(a).includes("NewsMediaOrganization"));
+      const t = typesOf(a);
+      add(clean(n), { org: t.includes("Organization") || t.includes("NewsMediaOrganization"), person: t.includes("Person") });
     }
   }
   if (!persons.length && !orgs.length && !isWiki) all("article:author", "og:author", "author", "parsely-author", "byl", "sailthru.author").forEach((a) => add(a));
@@ -413,7 +468,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
   else if (orgs.length || /\.(gov|int|edu|mil)$|\.gov\.[a-z]{2}$|\.org$/.test(host)) kind = "institutional";
 
   const out = { title: title.slice(0, 200), publisher: publisher.slice(0, 100), kind };
-  if (persons.length) out.authors = persons.slice(0, 30);
+  if (persons.length) out.authors = capAuthors(persons);
   else if (orgs.length) out.groupAuthor = orgs[0].slice(0, 150);
   if (pub) {
     out.year = pub.year;

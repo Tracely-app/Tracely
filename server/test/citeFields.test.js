@@ -127,3 +127,22 @@ test("container is the larger work, never the publisher or the title restated; e
   assert.equal(f({ editors: ["Marie McAuliffe"] }).editors, undefined, "editors of nothing");
   assert.deepEqual(f({ container: "World Migration Report 2024", editors: ["Marie McAuliffe", "Editors", "iom.int", "IOM", "Marie McAuliffe"] }).editors, ["Marie McAuliffe"]);
 });
+
+test("the model's authors are people: Press and Bank are surnames there, and one entry naming two is split", () => {
+  assert.deepEqual(f({ authors: ["Eyal Press", "Joseph Bank"] }).authors, ["Eyal Press", "Joseph Bank"]);
+  assert.deepEqual(f({ authors: ["Press, Eyal"] }).authors, ["Press, Eyal"]);
+  const wb = f({ authors: ["World Bank"] });
+  assert.deepEqual([wb.authors, wb.groupAuthor], [[], "World Bank"]);
+  assert.deepEqual(f({ authors: ["Jane Doe and John Roe", "Max Poe"] }).authors, ["Jane Doe", "John Roe", "Max Poe"]);
+  assert.deepEqual(f({ authors: ["Martin Luther King, Jr."] }).authors, ["Martin Luther King, Jr."]);
+  assert.deepEqual(f({ container: "C", editors: ["Eyal Press", "Associated Press"] }).editors, ["Eyal Press"]);
+});
+
+test("more than 30 authors keeps the last one (APA 7 names it after the ellipsis)", () => {
+  const authors = Array.from({ length: 40 }, (_, i) => `Person Number${i + 1}`);
+  const got = f({ authors }).authors;
+  assert.equal(got.length, 30);
+  assert.equal(got[0], "Person Number1");
+  assert.equal(got.at(-1), "Person Number40");
+  assert.deepEqual(f({ authors: authors.slice(0, 30) }).authors, authors.slice(0, 30), "30 or fewer: all kept");
+});

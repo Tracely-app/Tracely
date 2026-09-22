@@ -16,7 +16,7 @@
  * that). A source with none of these fields — a harvested url_citation —
  * gets none back.
  */
-import { contradictsTitle, isHostname, looksLikeOrg, PLACEHOLDER_NAME } from "./citeMeta.js";
+import { capAuthors, contradictsTitle, isHostname, looksLikeOrg, PLACEHOLDER_NAME, splitNames } from "./citeMeta.js";
 
 export const SOURCE_KINDS = ["institutional", "news", "reference", "journal", "book", "archive", "other"];
 const KINDS = new Set(SOURCE_KINDS);
@@ -41,17 +41,18 @@ export function citeFields(raw, { publisher = "", title = "", now = new Date() }
   let group = str(raw.groupAuthor, 150);
   if (notAName(group)) group = "";
   const names = [];
-  for (const a of Array.isArray(raw.authors) ? raw.authors : []) {
-    const n = str(a, 120);
-    if (notAName(n) || n.split(" ").length > 6) continue;
-    if (looksLikeOrg(n)) {
+  // The model was told these are people, so a surname like Press or Bank
+  // stays a person; one entry naming several people is split.
+  for (const n of (Array.isArray(raw.authors) ? raw.authors : []).flatMap((a) => splitNames(str(a, 400)))) {
+    if (notAName(n) || n.length > 120 || n.split(" ").length > 6) continue;
+    if (looksLikeOrg(n, { person: true })) {
       if (!group) group = n; // an organisation in the people list is the group author
       continue;
     }
     if (loose(n) === loose(group) || loose(n) === loose(publisher)) continue;
     if (!names.some((x) => loose(x) === loose(n))) names.push(n);
   }
-  if (Array.isArray(raw.authors)) out.authors = names.slice(0, 30);
+  if (Array.isArray(raw.authors)) out.authors = capAuthors(names);
   if (group && !names.length) out.groupAuthor = group;
   else if (typeof raw.groupAuthor === "string") out.groupAuthor = "";
 
@@ -87,7 +88,8 @@ export function citeFields(raw, { publisher = "", title = "", now = new Date() }
   const container = str(raw.container, 200);
   if (container && loose(container) !== loose(publisher) && loose(container) !== loose(title)) out.container = container;
   if (out.container) {
-    const eds = (Array.isArray(raw.editors) ? raw.editors : []).map((a) => str(a, 120)).filter((a) => !notAName(a) && !looksLikeOrg(a));
+    const eds = (Array.isArray(raw.editors) ? raw.editors : []).flatMap((a) => splitNames(str(a, 400)))
+      .filter((a) => !notAName(a) && a.length <= 120 && !looksLikeOrg(a, { person: true }));
     if (eds.length) out.editors = [...new Set(eds)].slice(0, 10);
   }
   return out;
