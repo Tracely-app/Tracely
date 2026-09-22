@@ -771,29 +771,17 @@ async function appGate(req) {
 }
 
 /**
- * Which model an app-route call — and, since the beta change, an extension
- * /api/check or /api/sources call — runs at.
+ * The model a call runs at WITHOUT the hosted policy — in practice, a LOCAL
+ * (unenforced) server: pickModel, the server-side tiering over the one prefs
+ * row, exactly as before. Every hosted route chooses with hostedChoice
+ * (shared/plan.js modelForRoute) instead.
  *
- * On a hosted server (enforced) it is what the CLIENT asked for, clamped to
- * the caller's plan: the desktop resolves the user's chosen tier against their
- * plan and sends that model, so a Pro user who picked "fast" gets fast, and
- * nobody gets above their ceiling. A retired id a shipped build still sends
- * is its tier's current model (servedModel); any other unrecognised request
- * resolves DOWN to the fast model, never up (clampModel's rule).
- *
- * It deliberately does NOT read pickModel on a hosted server. pickModel reads
- * ONE global prefs row, which `PUT /api/prefs` lets any caller rewrite with no
- * authentication — and before this, an anonymous caller could set
+ * It never reads pickModel on a hosted server: that row is writable by
+ * `PUT /api/prefs`, and before 2026-09-21 an anonymous caller could set
  * {modelStrategy:"uniform", model:"gpt-6-astra"} and every app route, for
- * everyone, ran the thorough model. Locally (not enforced) there is one user
- * and that row is theirs, so local runs keep pickModel exactly as before.
- *
- * The extension's /api/check and /api/sources used pickModel + allowedModel
- * until 2026-09-21, which on a hosted server meant the global prefs row
- * (economy → the fast model) for everyone: a Pro subscriber's slider changed
- * nothing, and anyone with curl could change the model every extension user
- * got. They now share this rule. /api/flow always honoured the client's model
- * and keeps allowedModel over it (the same clamp when enforced).
+ * everyone, ran the thorough model. The enforced branch below (the client's
+ * request clamped to the plan) is the pre-policy rule, kept as the fallback
+ * for any caller that is not routed through hostedChoice.
  */
 function appModelFor(task, ent, requested) {
   if (!ent.enforced) return pickModel(task);
