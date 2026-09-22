@@ -79,6 +79,13 @@ test("a tier NAME is not a model id — the desktop must translate before it sen
   }
 });
 
+test("desktop and server word a reset date the same way (the Thorough meter's resetsOn)", { skip: SKIP }, () => {
+  for (const ymd of ["2026-10-01", "2027-01-01", "2026-02-28", "not-a-date", ""]) {
+    assert.equal(deskPlan.monthDayLabel(ymd), srvPlan.monthDayLabel(ymd), ymd);
+  }
+  assert.equal(deskPlan.monthDayLabel("2026-10-01"), "Oct 1");
+});
+
 test("the extension's plan copies agree with the plan", () => {
   const bg = read("extension", "background.js");
   assert.match(bg, /const PLANS = \["free", "student", "pro"\];/);

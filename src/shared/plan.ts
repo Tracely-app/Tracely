@@ -255,3 +255,16 @@ export const MODEL_TIER_REQUIRES: Record<ModelTier, Plan> = {
 
 /** Opened in the user's own browser, never in a window of ours. */
 export const UPGRADE_URL = 'https://jointracely.com/order'
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * `YYYY-MM-DD` as people read it in a message: "Oct 1". Anything else is
+ * returned as given. Mirrors server/shared/plan.js monthDayLabel, which words
+ * the server's own copy of the same dates (a Thorough allowance's `resetsOn`).
+ */
+export function monthDayLabel(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? ''))
+  if (!m) return String(ymd ?? '')
+  return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}`
+}

@@ -7,6 +7,7 @@ import type {
   AnalyzeGetResultRequest,
   AnalyzeGetResultResponse,
   AuthGetPlanResponse,
+  AuthGetThoroughResponse,
   AuthGetUserResponse,
   CitationGenerateRequest,
   CitationGenerateResponse,
@@ -198,7 +199,9 @@ const api = {
   auth: {
     getUser: (): Promise<AuthGetUserResponse> => ipcRenderer.invoke(IPC.AUTH_GET_USER, {}),
     /** Which plan this account is on. Never throws, never answers above free. */
-    getPlan: (): Promise<AuthGetPlanResponse> => ipcRenderer.invoke(IPC.AUTH_GET_PLAN, {})
+    getPlan: (): Promise<AuthGetPlanResponse> => ipcRenderer.invoke(IPC.AUTH_GET_PLAN, {}),
+    /** Pro's Thorough allowance for the Settings meter. Never throws; null when unknown. */
+    getThorough: (): Promise<AuthGetThoroughResponse> => ipcRenderer.invoke(IPC.AUTH_GET_THOROUGH, {})
   },
   history: {
     clear: (req: HistoryClearRequest): Promise<HistoryClearResponse> =>

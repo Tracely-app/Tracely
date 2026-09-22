@@ -938,6 +938,8 @@ export function createHttpApi(): TracelyApi {
       // read. `free` is the contract's answer for anything unreadable, and it
       // is the honest one here: the local stub has not paid for anything.
       getPlan: async () => ({ plan: 'free' as Plan }),
+      // Free, so no Thorough allowance to meter.
+      getThorough: async () => ({ thorough: null }),
     },
     history: {
       clear: async (req) => {

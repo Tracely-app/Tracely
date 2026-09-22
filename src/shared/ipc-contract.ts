@@ -1046,6 +1046,17 @@ export interface AuthGetPlanResponse {
   plan: Plan
 }
 
+export interface AuthGetThoroughResponse {
+  /**
+   * Pro's monthly Thorough allowance as the server reports it on
+   * GET /api/entitlement: a whole percent left (never dollars) and the day it
+   * resets ("YYYY-MM-DD", the 1st, UTC). Null when the account has none, the
+   * server is unreachable or not configured, or its answer lacks the field —
+   * the Settings line then leaves the meter out rather than guess.
+   */
+  thorough: { remainingPct: number; resetsOn: string } | null
+}
+
 export interface DocumentsListResponse {
   documents: DocumentListItem[]
 }

@@ -41,6 +41,7 @@ import {
   PLAN_PRICE,
   UPGRADE_URL,
   modelTierUnlocked,
+  monthDayLabel,
   resolveModelTier,
   type ModelTier
 } from '@shared/plan'
@@ -160,6 +161,21 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
   const setGradingLevel = useSetGradeLevel()
   const plan = usePlan()
   const [error, setError] = useState<string | null>(null)
+
+  // Pro's Thorough allowance, for the meter under the critique model: the
+  // server's percent left and reset day (GET /api/entitlement). Display only;
+  // null — no meter — for other plans, offline, or an older server.
+  const [thorough, setThorough] = useState<{ remainingPct: number; resetsOn: string } | null>(null)
+  useEffect(() => {
+    if (!modelTierUnlocked('thorough', plan)) {
+      setThorough(null)
+      return
+    }
+    tracelyApi
+      .getThorough()
+      .then((res) => setThorough(res.thorough))
+      .catch(() => setThorough(null))
+  }, [plan])
 
   useEffect(() => {
     tracelyApi
@@ -773,6 +789,16 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   {modelTierUnlocked('thorough', plan) ? null : (
                     <div className="settings-toggle-row-subtitle">Thorough critiques come with Pro.</div>
                   )}
+                  {thorough ? (
+                    <meter
+                      className="settings-thorough-meter"
+                      min={0}
+                      max={100}
+                      low={15}
+                      value={thorough.remainingPct}
+                      aria-label={`Thorough allowance: ${thorough.remainingPct}% left this month`}
+                    />
+                  ) : null}
                 </SettingsField>
                 <SettingsField label={`Claim sensitivity — ${Math.round(settings.claimSensitivity * 100)}%`}>
                   <input
@@ -798,7 +824,12 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               </p>
               <p className="muted settings-app-note">
                 Checks, claim detection, grading and source searches run on Standard, the most accurate model in
-                our tests. On Pro, critiques use Thorough while this month&apos;s allowance lasts.{' '}
+                our tests.{' '}
+                {thorough && thorough.remainingPct <= 0
+                  ? `This month's Thorough allowance is used, so critiques run on Standard until ${monthDayLabel(thorough.resetsOn)}.`
+                  : thorough
+                    ? `On Pro, critiques use Thorough while this month's allowance lasts (${thorough.remainingPct}% left, resets ${monthDayLabel(thorough.resetsOn)}).`
+                    : "On Pro, critiques use Thorough while this month's allowance lasts."}{' '}
                 {MODEL_TIER_LABEL[resolveModelTier(settings.modelTier, plan)]}:{' '}
                 {MODEL_TIER_DESCRIPTION[resolveModelTier(settings.modelTier, plan)]}
               </p>

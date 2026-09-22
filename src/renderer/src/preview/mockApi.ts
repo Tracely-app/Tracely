@@ -588,7 +588,10 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     },
     auth: {
       getUser: () => ok('auth.getUser', { user: authUser(), configured: true }),
-      getPlan: () => ok('auth.getPlan', { plan: scenario.plan })
+      getPlan: () => ok('auth.getPlan', { plan: scenario.plan }),
+      // A Pro scenario shows the Settings meter part-used.
+      getThorough: () =>
+        ok('auth.getThorough', { thorough: scenario.plan === 'pro' ? { remainingPct: 64, resetsOn: '2026-10-01' } : null })
     },
     history: {
       clear: () => ok('history.clear', { ok: true as const })
