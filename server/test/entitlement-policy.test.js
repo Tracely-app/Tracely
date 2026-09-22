@@ -176,3 +176,69 @@ test("recordSpend returns the call's cost, and 0 when unenforced", () => {
   assert.equal(spentTodayMicroCents(SEP(15), "paid"), cost);
   assert.equal(recordSpend({ model: "gpt-5.6-luna", usage, enforced: false, at: SEP(15), pool: "paid" }), 0);
 });
+
+// ── fair use ───────────────────────────────────────────────────────────
+
+test("fair use: Pro over $2 in a day acts as Free until midnight, then Pro again", () => {
+  const { ent, id } = account("pro");
+  E.recordAccountSpend(id, 1.99 * USD, SEP(15));
+  assert.equal(E.fairUseState(ent, id, SEP(15)).state, "ok");
+  assert.equal(E.effectivePlan(ent, id, SEP(15)), "pro");
+  E.recordAccountSpend(id, 0.01 * USD, SEP(15));
+  const s = E.fairUseState(ent, id, SEP(15));
+  assert.deepEqual([s.state, s.resetsOn, s.limits.day, s.limits.month], ["day", P.nextUsageDay(SEP(15)), 2 * USD, 8 * USD]);
+  assert.equal(E.effectivePlan(ent, id, SEP(15)), "free");
+  assert.equal(ent.plan, "pro", "the plan itself is untouched");
+  assert.equal(E.effectivePlan(ent, id, SEP(16)), "pro");
+});
+
+test("fair use: Pro over $8 in a month acts as Free until the 1st", () => {
+  const { ent, id } = account("pro");
+  for (let d = 2; d <= 5; d++) E.recordAccountSpend(id, 1.9 * USD, SEP(d)); // $7.60, never $2 in a day
+  assert.equal(E.effectivePlan(ent, id, SEP(6)), "pro");
+  E.recordAccountSpend(id, 0.4 * USD, SEP(6));
+  const s = E.fairUseState(ent, id, SEP(7));
+  assert.deepEqual([s.state, s.resetsOn], ["month", "2026-10-01"]);
+  assert.equal(E.effectivePlan(ent, id, SEP(30)), "free");
+  assert.equal(E.effectivePlan(ent, id, OCT(1) + 3_600_000), "pro");
+});
+
+test("fair use: Student's limits are $1 a day and $4 a month", () => {
+  const { ent, id } = account("student");
+  E.recordAccountSpend(id, 1 * USD, SEP(15));
+  assert.equal(E.fairUseState(ent, id, SEP(15)).state, "day");
+  assert.equal(E.effectivePlan(ent, id, SEP(15)), "free");
+  for (let d = 16; d <= 18; d++) E.recordAccountSpend(id, 0.99 * USD, SEP(d));
+  assert.equal(E.effectivePlan(ent, id, SEP(19)), "student"); // $3.97
+  E.recordAccountSpend(id, 0.03 * USD, SEP(19));
+  assert.equal(E.fairUseState(ent, id, SEP(19)).state, "month");
+});
+
+test("fair use: beta testers, Free, unenforced and address callers have no limit", () => {
+  const signedInBeta = account("pro", { beta: true });
+  const anonBeta = betaTester();
+  const free = account("free");
+  for (const { ent, id } of [signedInBeta, anonBeta, free]) {
+    E.recordAccountSpend(id, 50 * USD, SEP(15));
+    assert.equal(E.fairUseState(ent, id, SEP(15)).state, null);
+    assert.equal(E.effectivePlan(ent, id, SEP(15)), ent.plan);
+  }
+  const local = { plan: "pro", userId: "local", email: null, enforced: false };
+  assert.equal(E.effectivePlan(local, "user:local", SEP(15)), "pro");
+  assert.equal(E.effectivePlan({ plan: "pro", enforced: true }, "addr:school", SEP(15)), "pro");
+  assert.equal(E.effectivePlan(undefined, null), "free");
+});
+
+test("fair use: over the limit, every quota meters at Free's numbers", () => {
+  const { ent, id } = account("pro");
+  assert.deepEqual([E.checkQuota(ent, id, SEP(15)).limit, E.aiQuota(ent, id, SEP(15)).limit], [null, null]);
+  E.recordAccountSpend(id, 2 * USD, SEP(15));
+  assert.equal(E.checkQuota(ent, id, SEP(15)).limit, P.FREE_DAILY_CHECKS);
+  assert.equal(E.aiQuota(ent, id, SEP(15)).limit, P.FREE_DAILY_AI_CALLS);
+  assert.equal(E.flowQuota(ent, id, SEP(15)).limit, 40);
+  const q = E.sourceSearchQuota(ent, id, SEP(15));
+  assert.deepEqual([q.limit, q.monthLimit], [5, 40]);
+  E.recordCheck(ent, id, SEP(15));
+  assert.equal(E.checkQuota(ent, id, SEP(15)).used, 1);
+  assert.equal(E.checkQuota(ent, id, SEP(16)).limit, null, "back to unmetered after midnight");
+});
