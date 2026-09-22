@@ -242,3 +242,102 @@ test("fair use: over the limit, every quota meters at Free's numbers", () => {
   assert.equal(E.checkQuota(ent, id, SEP(15)).used, 1);
   assert.equal(E.checkQuota(ent, id, SEP(16)).limit, null, "back to unmetered after midnight");
 });
+
+// ── the Thorough allowance ─────────────────────────────────────────────
+
+const ASTRA = P.MODEL_FOR_TIER.thorough;
+const LUNA = P.MODEL_FOR_TIER.fast;
+
+test("thorough: Pro has $1.50 a month, shown as a whole percent, resetting on the 1st", () => {
+  const { ent, id } = account("pro");
+  const s = E.thoroughState(ent, id, SEP(15));
+  assert.deepEqual([s.allowanceMicroCents, s.usedMicroCents, s.remainingPct, s.resetsOn, s.suspended], [1.5 * USD, 0, 100, "2026-10-01", false]);
+  assert.equal(E.recordThorough(id, 0.75 * USD, SEP(15)), 0.75 * USD);
+  assert.equal(E.thoroughState(ent, id, SEP(20)).remainingPct, 50);
+  E.recordThorough(id, 0.7 * USD, SEP(20));
+  assert.equal(E.thoroughState(ent, id, SEP(20)).remainingPct, 3);
+  E.recordThorough(id, 1 * USD, SEP(21)); // an overshoot still reads 0, never negative
+  assert.equal(E.thoroughState(ent, id, SEP(21)).remainingPct, 0);
+  assert.deepEqual([E.thoroughState(ent, id, OCT(2)).usedMicroCents, E.thoroughState(ent, id, OCT(2)).remainingPct], [0, 100]);
+});
+
+test("thorough: Free, Student and address callers have no allowance", () => {
+  for (const plan of ["free", "student"]) {
+    const { ent, id } = account(plan);
+    const s = E.thoroughState(ent, id, SEP(15));
+    assert.deepEqual([s.allowanceMicroCents, s.remainingPct], [0, 0], plan);
+    assert.equal(E.reserveThorough(ent, id, "critique", { requested: ASTRA, at: SEP(15) }), null, plan);
+  }
+  const pro = { plan: "pro", userId: null, email: null, enforced: true };
+  assert.equal(E.thoroughState(pro, "addr:school", SEP(15)).allowanceMicroCents, 0);
+  assert.equal(E.reserveThorough(pro, "addr:school", "critique", { requested: ASTRA, at: SEP(15) }), null);
+});
+
+test("thorough: admitted only on a thorough route, for a thorough request", () => {
+  const { ent, id } = account("pro");
+  for (const route of ["check", "flow", "sources", "grade"]) {
+    assert.equal(E.reserveThorough(ent, id, route, { requested: ASTRA, at: SEP(15) }), null, route);
+  }
+  for (const requested of [LUNA, "gpt-5.6-terra", "gpt-5.4", undefined, "junk"]) {
+    assert.equal(E.reserveThorough(ent, id, "critique", { requested, at: SEP(15) }), null, String(requested));
+  }
+  const hold = E.reserveThorough(ent, id, "checkDeep", { requested: ASTRA, at: SEP(15) });
+  assert.equal(hold.amount, 0.15 * USD);
+  hold.release();
+  const local = { ...ent, enforced: false };
+  assert.equal(E.reserveThorough(local, id, "critique", { requested: ASTRA, at: SEP(15) }), null);
+});
+
+test("thorough: holds in flight stop the allowance being overshot", () => {
+  const { ent, id } = account("pro");
+  E.recordThorough(id, 0.75 * USD, SEP(15)); // 75 cents left; a critique holds 35
+  const opts = { requested: ASTRA, at: SEP(15) };
+  const a = E.reserveThorough(ent, id, "critique", opts);
+  const b = E.reserveThorough(ent, id, "critique", opts);
+  assert.ok(a && b);
+  assert.equal(reservedAccountMicroCents(`thorough:${id}`), 0.7 * USD);
+  assert.equal(E.reserveThorough(ent, id, "critique", opts), null, "a third would pass 75 cents");
+  const deep = E.reserveThorough(ent, id, "checkDeep", opts);
+  assert.equal(deep, null, "5 cents left does not cover a 15-cent explanation");
+  a.release();
+  a.release(); // idempotent
+  assert.equal(E.thoroughState(ent, id, SEP(15)).reservedMicroCents, 0.35 * USD);
+  const c = E.reserveThorough(ent, id, "critique", opts);
+  assert.ok(c);
+  E.recordThorough(id, 0.02 * USD, SEP(15));
+  b.release();
+  c.release();
+  assert.equal(reservedAccountMicroCents(`thorough:${id}`), 0);
+});
+
+test("thorough: the allowance is exhausted -> null, and a new month admits again", () => {
+  const { ent, id } = account("pro");
+  E.recordThorough(id, 1.4 * USD, SEP(15));
+  assert.equal(E.reserveThorough(ent, id, "checkDeep", { requested: ASTRA, at: SEP(15) }), null);
+  const oct = E.reserveThorough(ent, id, "checkDeep", { requested: ASTRA, at: OCT(2) });
+  assert.ok(oct);
+  oct.release();
+});
+
+test("thorough: off while the account is over its fair-use limit", () => {
+  const { ent, id } = account("pro");
+  E.recordAccountSpend(id, 2 * USD, SEP(15));
+  assert.equal(E.thoroughState(ent, id, SEP(15)).suspended, true);
+  assert.equal(E.reserveThorough(ent, id, "critique", { requested: ASTRA, at: SEP(15) }), null);
+  assert.equal(E.thoroughState(ent, id, SEP(16)).suspended, false);
+  const next = E.reserveThorough(ent, id, "critique", { requested: ASTRA, at: SEP(16) });
+  assert.ok(next);
+  next.release();
+});
+
+test("thorough: an anonymous beta tester's allowance is keyed on their install id", () => {
+  const { ent, id } = betaTester();
+  assert.equal(E.thoroughState(ent, id, SEP(15)).allowanceMicroCents, 1.5 * USD);
+  const hold = E.reserveThorough(ent, id, "checkDeep", { requested: ASTRA, at: SEP(15) });
+  assert.ok(hold);
+  E.recordThorough(id, 0.03 * USD, SEP(15));
+  hold.release();
+  assert.equal(usageCount(id, "2026-09", "thorough_ucents"), 0.03 * USD);
+  E.recordAccountSpend(id, 50 * USD, SEP(15)); // no fair-use limit for beta
+  assert.equal(E.thoroughState(ent, id, SEP(15)).suspended, false);
+});
