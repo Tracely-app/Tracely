@@ -582,7 +582,9 @@ test("options: the page no longer stores a model, and drops the retired one", as
   // The Faster↔Smarter default stop lived in chrome.storage `model`. Nothing
   // reads it since 2.20.0, so the page must neither write it nor leave it.
   const src = read("options.js");
-  assert.match(src, /chrome\.storage\.local\.remove\("model"\);/);
+  // The cleanup lives in background.js, which every install runs on each
+  // service-worker wake — the options page is a screen most people never open.
+  assert.match(read("background.js"), /chrome\.storage\.local\.remove\("model"\);/);
   assert.ok(!/storage\.local\.set\(\{ model/.test(src), "the page still writes a model stop");
   for (const answer of [
     { ...BASE, signedIn: false, plan: "free", provisional: true },

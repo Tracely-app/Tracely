@@ -91,8 +91,11 @@ test("no extension file still names a retired model id", () => {
   // would be a silent request for a model the server no longer serves. Only
   // ids in the CODE count: the history behind a cache generation or a stored
   // setting is worth writing down in a comment.
+  // Comments are stripped first, so a comment may explain WHICH id was retired
+  // (background.js's storage cleanup does) without tripping this.
+  const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   for (const f of ["background.js", "content.js", "options.js"]) {
-    const src = read(f);
+    const src = codeOf(read(f));
     for (const id of Object.keys(LEGACY_MODEL_TIER)) {
       for (const quoted of [`"${id}"`, `'${id}'`, `\`${id}\``]) {
         assert.ok(!src.includes(quoted), `${f} still names the retired ${id}`);
