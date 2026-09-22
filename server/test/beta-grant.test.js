@@ -13,9 +13,11 @@
  *   E  hosted (enforced), mock model, a 1-cent PAID pool and a 1.2-cent beta
  *      pool — where the pools' edges are
  *   G  hosted (enforced), the stubbed path again, but every call is slow and
- *      costs real money at thorough-model prices — a concurrent burst
- *   H  hosted (enforced), the stubbed path with a $1 beta pool — too small
- *      for a thorough check's split to be admitted
+ *      costs real money at thorough-model prices — a concurrent burst of
+ *      "Explain in depth" checks
+ *   H  hosted (enforced), the stubbed path with a 2-cent beta pool — smaller
+ *      than one check's worst case (~2.5 cents on luna), so a check is
+ *      admitted but its split is not
  *
  * "Enforced" needs a Supabase project, so a mock one runs here and answers
  * /auth/v1/user for three canned tokens (free, student, pro). No real network
@@ -264,9 +266,9 @@ test.before(async () => {
     boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.012", TRACELY_PAID_DAILY_BUDGET_USD: "0.01" }),
     boot({
       ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1",
-      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "20000,6000",
+      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "4000,2000",
     }, { preload: STUB }),
-    boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
+    boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.02", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
   ]).catch((err) => {
     for (const child of booted) child.kill(); // or the run never exits
     throw err;
@@ -333,8 +335,9 @@ test("hosted /api/check runs luna on every plan, whatever the client asks for", 
 });
 
 test("hosted /api/sources follows the same rule: luna for everyone", async () => {
+  // (A caller may run 4 searches a minute; the retired-id test below spends
+  // the rest of tok-pro's, terra included.)
   const cases = [
-    ["tok-pro", "gpt-5.6-terra", "gpt-5.6-luna"],
     ["tok-pro", "gpt-6-astra", "gpt-5.6-luna"],
     ["tok-student", "gpt-6-astra", "gpt-5.6-luna"],
     ["tok-free", "gpt-6-astra", "gpt-5.6-luna"],
@@ -640,7 +643,8 @@ test("a failed model call logs route, kind, model and effort — and none of the
 
   const garbage = await call(D, "POST", "/api/flow", { body: { text: `TRIGGER-GARBAGE ${secret}`, model: "gpt-6-astra", effort: "high" }, headers: BETA, install });
   assert.equal(garbage.status, 502);
-  assert.equal(await logLine(D, "route=/api/flow"), "[tracely] model call failed route=/api/flow kind=unparseable status=502 model=gpt-6-astra effort=high");
+  // The model and effort the server pinned for /api/flow, not the ones asked for.
+  assert.equal(await logLine(D, "route=/api/flow"), "[tracely] model call failed route=/api/flow kind=unparseable status=502 model=gpt-5.6-luna effort=low");
 
   // A desktop route passes the same handler.
   const refused = await call(D, "POST", "/api/structure", { body: { text: `${DRAFT} TRIGGER-REFUSE ${secret}` }, install });
@@ -667,9 +671,18 @@ test("a truncated call's billed cost reaches the pool that admitted it", async (
   const text = "TRIGGER-TRUNCATE the pool must see this";
   const r = await call(D, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], model: "gpt-6-astra" }, headers: BETA, install: "d-trunc-beta" });
   assert.equal(r.status, 502);
-  const after = await status(D);
+  let after = await status(D);
+  // 1,000 in + 16,000 out on gpt-5.6-luna (every check's model) = $0.0194
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.0194);
+  assert.equal(after.budget.spentUsd, before.budget.spentUsd, "and only there");
+
+  // "Explain in depth" on the thorough model: the same, at astra's price.
+  const mid = after;
+  const deep = await call(D, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], deep: true }, headers: BETA, install: "d-trunc-deep" });
+  assert.equal(deep.status, 502);
+  after = await status(D);
   // 1,000 in + 16,000 out on gpt-6-astra = $0.81
-  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.81);
+  assert.equal(Number((after.betaBudget.spentUsd - mid.betaBudget.spentUsd).toFixed(4)), 0.81);
   assert.equal(after.budget.spentUsd, before.budget.spentUsd, "and only there");
 });
 
@@ -683,8 +696,8 @@ test("a split check that fails in a half still records the truncated call and th
   assert.equal(r.body.error.kind, "truncated");
   assert.equal(calls.length, 3);
   const after = await status(D);
-  // 2 x (1,000 in + 16,000 out) on gpt-6-astra = $1.62, plus the tiny half.
-  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 1.62);
+  // 2 x (1,000 in + 16,000 out) on gpt-5.6-luna = $0.0388, plus the tiny half.
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.0388);
 });
 
 test("a source search records every web_search_call its answer made, and keeps the count off the wire", async () => {
@@ -714,21 +727,23 @@ test("a source search records every web_search_call its answer made, and keeps t
 // A split: the whole batch truncates, each half answers.
 const SPLIT = { text: "TRIGGER-SPLIT essay.", sentences: [{ id: "s1", text: "One." }, { id: "s2", text: "Two." }] };
 
-test("a truncated thorough check splits when the pool has room for the halves", async () => {
+test("a truncated check splits when the pool has room for the halves", async () => {
   const before = await status(D);
   const { r, calls } = await sent(() => call(D, "POST", "/api/check", { body: { ...SPLIT, model: "gpt-6-astra" }, headers: BETA, install: "d-split-ok" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(calls.length, 3, "the truncated call and two halves");
   const after = await status(D);
-  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 0.81, "the truncated call is paid for too");
+  // 1,000 in + 16,000 out on gpt-5.6-luna = $0.0194, plus two tiny halves.
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.0194, "the truncated call is paid for too");
 });
 
 // ── H: a beta pool too small for a split ─────────────────────────────────
 
 test("a split is admitted against the pool like a call: no room, no halves, the check fails as truncated", async () => {
-  // A $1 pool admits one thorough check (its worst case, ~$1.10, is held).
-  // The halves would be two more worst cases; the reservation covered one
-  // call, and a split used to run on money nobody had held.
+  // A 2-cent pool admits one check (a pool admits while anything is left
+  // unheld) and then holds its worst case on luna, ~2.5 cents. The halves
+  // would be two more worst cases, and nothing is left unheld; a split used
+  // to run on money nobody had held.
   const hLog = () => readFileSync(H_LOG, "utf8").split("\n").filter(Boolean);
   let n = hLog().length;
   const r = await call(H, "POST", "/api/check", { body: { ...SPLIT, model: "gpt-6-astra" }, headers: BETA, install: "h-split-beta" });
@@ -736,7 +751,7 @@ test("a split is admitted against the pool like a call: no room, no halves, the 
   assert.equal(r.body.error.kind, "truncated", "the wire error a truncated single sentence gives");
   assert.equal(hLog().length - n, 1, "no halves were sent");
   const st = await status(H);
-  assert.equal(st.betaBudget.spentUsd, 0.81, "the truncated call is recorded");
+  assert.equal(st.betaBudget.spentUsd, 0.0194, "the truncated call is recorded");
 
   // The extension pool reserves nothing, so a fast check still splits there.
   n = hLog().length;
@@ -750,14 +765,15 @@ test("a split is admitted against the pool like a call: no room, no halves, the 
 
 test("a beta source search stays on the beta pool below its 20% line, until the pool is actually spent", async () => {
   const s1 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
-  assert.equal(s1.body.modelUsed, "gpt-6-astra");
+  assert.equal(s1.body.modelUsed, "gpt-5.6-luna");
+  assert.equal(s1.body.plan, "pro");
   let st = await status(E);
   assert.equal(st.betaBudget.spentUsd, 0.01);
   assert.ok(st.betaBudget.remainingPct < 0.2, "below the extension pool's shed line");
 
   const s2 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
   assert.equal(s2.status, 200, JSON.stringify(s2.body));
-  assert.equal(s2.body.modelUsed, "gpt-6-astra", "the beta pool still had money, so it still paid");
+  assert.equal(s2.body.modelUsed, "gpt-5.6-luna");
   assert.equal(s2.body.plan, "pro");
   st = await status(E);
   assert.equal(st.betaBudget.spentUsd, 0.02, "at most one call over the ceiling");
@@ -771,7 +787,7 @@ test("a beta source search stays on the beta pool below its 20% line, until the 
 test("Student and Pro calls on the extension's routes spend the paid pool, never the free users' day", async () => {
   const r = await sources(E, { model: "gpt-6-astra" }, { token: "tok-pro", install: "e-pro" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
   const st = await status(E);
   assert.equal(st.paidBudget.spentUsd, 0.01, "the paid pool paid");
   assert.equal(st.budget.spentUsd, 0.01, "the extension pool only has the beta fallback search from before");
@@ -809,17 +825,22 @@ test("beta source searches have their own hourly window, apart from the one stor
 // ── G: a concurrent burst against the beta pool ──────────────────────────
 
 test("a burst of beta checks with rotating install ids cannot overspend the beta pool", async () => {
-  // Reproduces the review's case: $1 pool, calls slow and priced at 20k in /
-  // 6k out ($0.50 on gpt-6-astra), a fresh install id per request. Before,
-  // all forty were admitted while `remaining > 0` and the pool spent $20.
+  // The review's case, on the only check that still reaches the thorough
+  // model: "Explain in depth" (deep:true). $1 pool, calls slow and priced at
+  // 4k in / 2k out ($0.14 on gpt-6-astra, inside its 15-cent reservation), a
+  // fresh install id — so a fresh Thorough allowance — per request. The
+  // allowance cannot bound a tester who rotates ids; the POOL must: each
+  // astra admission holds luna's check worst case (~2.5 cents) plus astra's
+  // 15 cents: five fit in $1, and a pool admits while anything is left
+  // unheld, so at most six at once.
   const text = "Water boils at 100 degrees Celsius at sea level.";
   const burst = await Promise.all(Array.from({ length: 40 }, (_, i) =>
-    call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` })));
+    call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], deep: true, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` })));
   assert.ok(burst.every((r) => r.status === 200), "beta never refuses: the overflow falls back");
   const astra = burst.filter((r) => r.body.modelUsed === "gpt-6-astra").length;
   assert.ok(astra >= 1, "the pool still served someone");
-  assert.ok(astra <= 2, `${astra} thorough calls admitted against a $1 pool at once`);
+  assert.ok(astra <= 6, `${astra} thorough calls admitted against a $1 pool at once`);
   const st = await status(G);
-  // At most the pool plus the one call admitted last (worst case ~$1.10).
-  assert.ok(st.betaBudget.spentUsd <= 1 + 1.10, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
+  // At most the pool plus the one call admitted last (its worst case, 15 cents).
+  assert.ok(st.betaBudget.spentUsd <= 1 + 0.15, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
 });
