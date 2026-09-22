@@ -242,6 +242,9 @@
     label: "In depth",
     differs: "Our largest model reads this differently:",
     fallback: "This month's Thorough allowance is used up — this explanation is from the standard model.",
+    // The allowance is not spent, so saying it is would contradict the meter.
+    paused: "Thorough explanations are paused while this account is over its fair-use limit — this explanation is from the standard model.",
+    short: "Not enough of this month's Thorough allowance was left for this one — this explanation is from the standard model.",
     failed: "Couldn't get a deeper explanation — try again.",
   };
   const DEEP_VERDICT_LABEL = { ...VERDICT_LABEL, accurate: "Looks accurate", no_claim: "No claim to check" };
@@ -263,20 +266,45 @@
     if (e?.state === "loading") return { kind: "loading", text: DEEP_COPY.loading };
     if (e?.state === "done") {
       const differs = e.verdict !== verdict;
+      const note = e.fallback ?? "";
+      /* A verdict that contradicts the card's own badge is only shown when
+         the card can also say WHERE it came from: the largest model's
+         reading (prefix), or the standard model's after a fallback (note).
+         A server that reports neither — a local `node server.js`, or one
+         older than the plan policy — used to leave Tracely flatly
+         disagreeing with itself, with nothing to tell the two readings
+         apart. There the fuller explanation stands on its own. */
+      const introduced = differs && Boolean(e.fromLargest || note);
       return {
         kind: "result",
         label: DEEP_COPY.label,
         prefix: differs && e.fromLargest ? DEEP_COPY.differs : "",
-        verdict: differs ? e.verdict : "",
-        verdictLabel: differs ? DEEP_VERDICT_LABEL[e.verdict] ?? String(e.verdict) : "",
+        verdict: introduced ? e.verdict : "",
+        verdictLabel: introduced ? DEEP_VERDICT_LABEL[e.verdict] ?? String(e.verdict) : "",
         text: e.explanation,
-        note: e.fallback ? DEEP_COPY.fallback : "",
+        note,
       };
     }
     if (e?.state === "locked" || !canDeep()) {
       return { kind: "locked", label: DEEP_COPY.button, title: DEEP_COPY.locked, note: e?.state === "locked" ? DEEP_COPY.locked : "" };
     }
     return { kind: "button", label: DEEP_COPY.button, error: e?.state === "error" ? DEEP_COPY.failed : "" };
+  }
+
+  /* Why a deep answer came back on the standard model, or "" when it did not.
+     Three different things make the server fall back, and only one of them is
+     "you've spent the allowance": it is also OFF for a month while a paid
+     account is over its fair-use limit (`suspended`, with most of the
+     allowance still showing on the meter), and it declines a call whose worst
+     case no longer fits in what is left. Reading `used === false` alone told
+     all three the allowance was used up — flatly contradicting the meter and
+     the fair-use promise that the plan is unchanged. A server too old to send
+     `remainingPct` says nothing rather than guessing. */
+  function fallbackNote(t) {
+    if (!t || t.used !== false) return "";
+    if (t.suspended === true) return DEEP_COPY.paused;
+    if (typeof t.remainingPct !== "number") return "";
+    return t.remainingPct <= 0 ? DEEP_COPY.fallback : DEEP_COPY.short;
   }
 
   // A click on the locked button: say why, and never call the server.
@@ -310,7 +338,7 @@
         verdict: typeof f.verdict === "string" ? f.verdict : verdict,
         explanation: f.explanation,
         fromLargest,
-        fallback: data.thorough?.used === false,
+        fallback: fallbackNote(data.thorough),
       };
     } catch (err) {
       next = err?.kind === "plan_required" ? { state: "locked" } : { state: "error" };

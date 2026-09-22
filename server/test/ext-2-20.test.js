@@ -8,11 +8,16 @@
  *   - neither widget renders a speed bar, and both render the deep button;
  *   - every request names the fast model and sends no effort, and the deep
  *     request is {text, sentences:[one], deep:true} and nothing else;
- *   - the locked state, the used-up note, the differing-verdict prefix, and
- *     one answer per sentence hash per session (the allowance is not spent
- *     twice on the same sentence);
+ *   - the locked state, the differing-verdict prefix, and one answer per
+ *     sentence hash per session (the allowance is not spent twice on the
+ *     same sentence);
+ *   - each reason the server falls back to the standard model gets its own
+ *     note — spent, paused for fair use, or too little left for this call —
+ *     and a verdict contradicting the card's badge is shown only when the
+ *     card can say which model reached it;
  *   - flowSignature ignores typing at the END of the document but not a
- *     paragraph added, cut or reordered, and the floor is the server's 120 s;
+ *     paragraph added, cut, reordered, or grown by a block of prose, and the
+ *     floor clears the server's 120 s;
  *   - the options page's section 7 copy in each of its states.
  */
 import test from "node:test";
@@ -128,6 +133,35 @@ test("a spent allowance is answered by the standard model, and says so", async (
   assert.equal(v.prefix, "", "the standard model's verdict is not the largest model's reading");
   assert.equal(v.verdictLabel, "Questionable", "the verdict it did reach is still shown");
   assert.ok(d.api.deepHtml("s1", "false").includes("allowance is used up"), "the note reaches the card");
+});
+
+test("a fair-use pause is not reported as a spent allowance", async () => {
+  // suspended: the allowance is OFF for the month, not used up — the meter
+  // still shows most of it, and §7 promises the plan is unchanged.
+  const thorough = { used: false, remainingPct: 71, resetsOn: "2026-10-01", suspended: true };
+  const d = loadDeep({ answer: { findings: [{ id: "s1", verdict: "false", explanation: "Still wrong." }], modelUsed: "gpt-5.6-luna", thorough } });
+  await d.api.explainInDepth("s1", "A claim.", "doc", "false", () => {});
+  assert.equal(d.api.deepView("s1", "false").note, d.api.DEEP_COPY.paused);
+  assert.ok(!d.api.deepView("s1", "false").note.includes("used up"), "71% left was called used up");
+});
+
+test("an allowance too small for this one call says that, not that it is spent", async () => {
+  const thorough = { used: false, remainingPct: 6, resetsOn: "2026-10-01" };
+  const d = loadDeep({ answer: { findings: [{ id: "s1", verdict: "false", explanation: "Still wrong." }], modelUsed: "gpt-5.6-luna", thorough } });
+  await d.api.explainInDepth("s1", "A claim.", "doc", "false", () => {});
+  assert.equal(d.api.deepView("s1", "false").note, d.api.DEEP_COPY.short);
+});
+
+test("a server that reports no provenance shows no contradicting verdict", async () => {
+  // `node server.js` answers with modelUsed and no `thorough` at all. The
+  // card cannot say which reading is which, so it must not print both.
+  const d = loadDeep({ answer: { findings: [{ id: "s1", verdict: "questionable", explanation: "It is more complicated." }], modelUsed: "gpt-5.6-luna" } });
+  await d.api.explainInDepth("s1", "A claim.", "doc", "false", () => {});
+  const v = d.api.deepView("s1", "false");
+  assert.equal(v.prefix, "");
+  assert.equal(v.note, "");
+  assert.equal(v.verdictLabel, "", "a verdict contradicting the card's own badge, with nothing to tell them apart");
+  assert.ok(d.api.deepHtml("s1", "false").includes("It is more complicated."), "the explanation itself still shows");
 });
 
 test("Free and Student see a locked button with the Pro tooltip, and no request is made", async () => {
