@@ -728,7 +728,9 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
   const ctx = vm.createContext({
     window: win, location: { origin: ORIGIN }, document: { hidden: false },
     innerWidth: 1280, innerHeight: 900, console,
-    setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, 40)), clearTimeout,
+    // Every wait shrinks to 40 ms, except the 15 s window a late reply is
+    // still heard in (1 s here), so tests can deliver one without racing it.
+    setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, ms >= 15_000 ? 1000 : 40)), clearTimeout,
     navigator: { clipboard: { writeText: async (t) => { if (clipboard !== "ok") throw new Error("denied"); copied.push(t); } } },
     URL,
     api: async (p, b) => { apiCalls.push({ path: p, body: plain(b ?? null) }); if (ctx.__apiFails) throw new Error("bridge said no"); return {}; },
@@ -911,6 +913,60 @@ test("content.js: an edit that landed wrong is taken back before copying", async
   assert.deepEqual(ops().find((o) => o.op === "undo").undoToken, ["bad1"]);
   assert.equal(ops().find((o) => o.op === "undo").rollback, true, "the immediate take-back says so");
   assert.deepEqual(copied, ["Einstein was a physicist."]);
+});
+
+test("content.js: late answers — a late wrong edit is taken back, a late take-back or Undo corrects the message", async () => {
+  const S = "Einstein was a basketball player.";
+  const late = (env, op, r) => {
+    const req = env.ops().filter((o) => o.op === op).pop();
+    env.deliver({ source: env.win, origin: ORIGIN, data: { source: "tracely-hook", type: "tracely-docs-edit-result", id: req.id, op, ...r } });
+  };
+  const setup = (respond) => {
+    const env = loadWiring({ respond, body: S });
+    const h = env.w.hashText(S);
+    env.w.setDoc(S, [{ ...seg(S), hash: h }]);
+    env.w.cache.set(h, { verdict: "false", revision: "Einstein was a physicist." });
+    return { ...env, h };
+  };
+
+  // 1. The replace times out, then lands WRONG: it must still be taken back.
+  const a = setup((m) => (m.op === "ping" ? okPing(m) : m.op === "undo" ? { ok: true } : undefined));
+  await a.w.probeInDoc();
+  assert.equal(await a.w.docFix(a.h), false);
+  assert.match(a.w.state().statusMsg, /the editor didn't answer/);
+  late(a, "replace", { ok: false, reason: "mismatch", changed: true, undoToken: "late1" });
+  await tick(5);
+  assert.deepEqual(a.ops().filter((o) => o.op === "undo").map((o) => o.undoToken), ["late1"]);
+
+  // 2. A group's take-back times out ("stuck"), then lands: the doc is as it was.
+  let n = 0;
+  const b = citeSetup((m) => {
+    if (m.op === "ping") return okPing(m);
+    if (m.op === "undo") return undefined;
+    n++;
+    return n < 2 ? { ok: true, undoToken: `t${n}` } : { ok: false, reason: "not-applied" };
+  });
+  await b.w.probeInDoc();
+  await b.w.docCite(b.h, 0);
+  const key = `cite:${b.h}:https://example.com/wall`;
+  assert.match(b.w.editView(key, "Cite in doc").note, /^Part of it landed/);
+  late(b, "undo", { ok: true, steps: [] });
+  await tick(5);
+  assert.equal(b.w.editView(key, "Cite in doc").note, "this doc isn't editable right now", "the plain reason — nothing is stuck");
+  assert.equal(b.w.state().statusKind, "idle");
+
+  // 3. Undo times out, then lands: say "undone", and put the verdict back.
+  const c = setup((m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "u1" } : undefined));
+  await c.w.probeInDoc();
+  const finding = c.w.cache.get(c.h);
+  await c.w.docFix(c.h);
+  assert.equal(await c.w.undoLastDocEdit(), false);
+  assert.match(c.w.state().statusMsg, /^Couldn't undo automatically/);
+  late(c, "undo", { ok: true, steps: [] });
+  await tick(5);
+  assert.equal(c.w.state().statusMsg, "undone");
+  assert.equal(c.w.cache.get(c.h), finding);
+  assert.equal(c.w.editView(`fix:${c.h}`, "Fix in doc").label, "Fix in doc");
 });
 
 test("content.js: an edit the hook could only verify blind lands without an Undo", async () => {

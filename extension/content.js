@@ -2769,6 +2769,9 @@
        Edits happen only on an explicit click. The only thing on a timer is
        the read-only ping. */
     const DOCS_EDIT_TIMEOUT_MS = 6000;
+    // An undo verifies each step (up to ~3.6 s apiece when Cmd+Z has to be
+    // redone and the edit reversed by hand), so its wait grows with the group.
+    const undoTimeout = (tokens) => DOCS_EDIT_TIMEOUT_MS + 4000 * (Array.isArray(tokens) ? tokens.length : 1);
     let docsEditSeq = 0;
 
     // One request to the engine. Resolves its reply, or {ok:false, reason:"timeout"};
@@ -2826,10 +2829,12 @@
     }
 
     // A reply that came back after we had already reported failure and copied
-    // instead: the document changed behind the UI's back, so take it back.
+    // instead: if it carries an undo token the document DID change behind the
+    // UI's back — landed (ok) or landed wrong (ok:false, "mismatch") — so take
+    // it back.
     function lateEdit(r) {
-      if (!r?.ok || !r.undoToken) return;
-      docsEdit("undo", { undoToken: r.undoToken }).then((u) => {
+      if (!r?.undoToken) return;
+      docsEdit("undo", { undoToken: r.undoToken }, { timeoutMs: undoTimeout(r.undoToken) }).then((u) => {
         if (u.ok) return;
         statusKind = "error";
         statusMsg = u.newest
@@ -2983,6 +2988,23 @@
       let untracked = 0; // steps that landed with no way to take them back (the bridge)
       let rollbackOnly = false; // a step the hook could only verify blind: no later Undo
       let fail = null;
+      let reason = null; // why it failed, before any "stuck" — for a late take-back
+      let shown = null;  // { copied } once the failure is on screen
+      let lateBack = false;
+      // A take-back that answered after its timeout: if it did land, the doc
+      // IS as it was, and the "stuck — check the doc" note is wrong.
+      const lateRollback = (u) => {
+        if (!u?.ok) return;
+        lateBack = true;
+        if (shown) settleTakenBack();
+      };
+      const settleTakenBack = () => {
+        if (docEditState.get(key)?.state !== "failed") return;
+        const note = job.notes?.[reason.reason] ?? editReasonText(reason);
+        statusKind = "idle";
+        statusMsg = `${shown.copied ? "Couldn't apply — copied instead" : "Couldn't apply"} (${note})`;
+        setEditState(key, { state: "failed", copied: shown.copied, note });
+      };
       try {
         for (const step of job.steps) {
           const { hint, ...payload } = step;
@@ -2990,18 +3012,19 @@
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
-          if (!r.ok) { fail = r; break; }
+          if (!r.ok) { fail = reason = r; break; }
         }
         if (fail && tokens.length) {
           // rollback: this is the immediate take-back, the one time the hook
           // may undo a blind step with Cmd/Ctrl+Z.
-          const u = await docsEdit("undo", { undoToken: tokens, rollback: true });
+          const u = await docsEdit("undo", { undoToken: tokens, rollback: true }, { timeoutMs: undoTimeout(tokens), onLate: lateRollback });
           if (!u.ok) fail = { ...fail, stuck: undoAdvice(u) };
         }
         // (a bridge edit is made by Apps Script, not in the user's undo stack)
         if (fail && untracked) fail = { ...fail, stuck: "check the doc" };
       } catch {
         fail = fail || { ok: false, reason: "error" }; // docApply never throws; belt and braces
+        reason = reason || fail;
       } finally {
         docBusy = false;
       }
@@ -3022,6 +3045,8 @@
       statusKind = fail.stuck ? "error" : "idle";
       statusMsg = `${copied ? "Couldn't apply — copied instead" : "Couldn't apply"} (${note})`;
       setEditState(key, { state: "failed", copied, note });
+      shown = { copied };
+      if (lateBack) settleTakenBack();
       if (!fail.stuck) {
         setTimeout(() => { if (docEditState.get(key)?.state === "failed" && !docBusy) setEditState(key, null); }, 4000);
       }
@@ -3034,13 +3059,26 @@
       docBusy = true;
       setEditState(e.key, { state: "undoing" });
       let r = { ok: false };
-      try { r = await docsEdit("undo", { undoToken: e.tokens }); } finally { docBusy = false; }
-      lastDocEdit = null;
-      if (r.ok) {
+      let reported = false;
+      const undone = (u) => {
         try { e.onUndone?.(); } catch { /* bookkeeping only */ }
         statusKind = "idle";
-        statusMsg = r.already ? "already undone in the doc" : "undone";
+        statusMsg = u.already ? "already undone in the doc" : "undone";
         setEditState(e.key, null);
+      };
+      // An undo that finishes after its timeout did happen: say so, instead
+      // of leaving advice that would now redo or undo something else.
+      const onLate = (u) => {
+        if (!u?.ok || !reported) return;
+        undone(u);
+        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
+        requestDocsMarks();
+      };
+      try { r = await docsEdit("undo", { undoToken: e.tokens }, { timeoutMs: undoTimeout(e.tokens), onLate }); } finally { docBusy = false; }
+      lastDocEdit = null;
+      reported = true;
+      if (r.ok) {
+        undone(r);
       } else {
         statusKind = "error";
         statusMsg = `Couldn't undo automatically — ${undoAdvice(r)}`;
