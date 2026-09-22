@@ -525,6 +525,18 @@
 
   const PLANE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>`;
 
+  /* What an ORPHANED tab's pill says — the extension was reloaded or updated
+     while this page kept running. That script can no longer reach the
+     server, and its findings predate the update, so a count in the pill is a
+     stale claim (it used to stay up after the underlines had been cleared).
+     Say what happened and the one thing that fixes it, in the quiet style:
+     nothing is wrong with the user's writing. No click-to-reload — on a
+     field-mode site that could throw away what they were typing. */
+  const ORPHAN_PILL_TEXT = "Tracely was updated — reload this tab";
+  function orphanPillHtml() {
+    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+  }
+
   // jointracely.com's own font, bundled in the extension (web_accessible).
   const FONT_URL = (() => { try { return chrome.runtime.getURL("fonts/PlusJakartaSans.woff2"); } catch { return ""; } })();
   const JAKARTA = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
@@ -546,6 +558,8 @@
     .pill:hover { transform: translateY(-1px); }
     .pill.quiet { color: #8e8e93; }
     .pill.quiet .plane { background: linear-gradient(150deg, #c7c7cc, #a7a7ac); }
+    .pill.orphan { cursor: default; }
+    .pill.orphan:hover { transform: none; }
     .plane {
       width: 28px; height: 28px; border-radius: 9px;
       background: linear-gradient(150deg, #ff7f00, #f9a35a);
@@ -837,6 +851,7 @@
     let lastCheckEnd = Date.now();
     let statusMsg = "starting…";
     let statusKind = "idle"; // idle | checking | error | offline
+    let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
@@ -869,7 +884,7 @@
     }
 
     async function cycle() {
-      if (inflight || document.hidden) return;
+      if (orphaned || inflight || document.hidden) return;
       inflight = true;
       try {
         docText = await getDocText();
@@ -1611,12 +1626,13 @@
 
     window.addEventListener("message", (ev) => {
       if (ev.source !== window || ev.data?.type !== "tracely-docs-rects") return;
+      if (orphaned) return; // a reply already in flight when the tab stood down
       if (ev.data.id !== locateSeq) return; // stale response from an older request
       drawDocsMarks(ev.data.rects);
     });
 
     function requestDocsMarks() {
-      if (document.hidden) return;
+      if (orphaned || document.hidden) return;
       lastLocateAt = Date.now();
       armAnnotationObserver();
       // The hook caps at 40 wants — cap here too so nothing is silently dropped
@@ -2394,6 +2410,11 @@
       window.removeEventListener("resize", scheduleDocsMarks);
       hideDocsPopover();
       clearDocsMarks();
+      // The pill goes too: a count with no underlines under it, from an
+      // instance that can no longer check anything, reads as a live widget.
+      orphaned = true;
+      expanded = false;
+      render();
       console.log(`[tracely] v${EXT_VERSION} stood down (${why}) — reload the tab to resume`);
     }
     /* Only meaningful where there WAS an extension context to lose. The
@@ -2496,6 +2517,7 @@
     const canEditDoc = () => bridgeReady && !harness;
 
     async function fetchServerStatus() {
+      if (orphaned) return;
       try {
         const s = await api("/api/status");
         bridgeReady = Boolean(s.docsBridge);
@@ -2589,6 +2611,7 @@
     followDefaultStop(settings, SETTINGS_KEY, () => render());
 
     function render() {
+      if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
       const issues = currentIssues();
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
       const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
@@ -2773,6 +2796,7 @@
 
     // ── loop ──
     setInterval(() => {
+      if (orphaned) return;
       if (!inflight && !document.hidden && Date.now() - lastCheckEnd >= CHECK_INTERVAL_MS) {
         cycle();
       } else if (expanded && !inflight) {
@@ -2856,6 +2880,7 @@
     let lastCheckEnd = Date.now();
     let statusMsg = siteEnabled() ? "waiting for a text field…" : "auto-check off — click to check";
     let statusKind = "idle"; // idle | checking | error | offline
+    let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
     let fieldText = "";
     let copiedFixHash = null;
@@ -3037,6 +3062,7 @@
     }
 
     function drawMarks() {
+      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); return; }
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
       const layer = ensureOverlay();
       layer.textContent = "";
@@ -3156,7 +3182,7 @@
     }
 
     async function cycle() {
-      if (inflight || document.hidden) return;
+      if (orphaned || inflight || document.hidden) return;
       if (!tracked || !tracked.isConnected) {
         statusKind = "idle";
         statusMsg = "click into a text field first";
@@ -3377,6 +3403,12 @@
       scheduleMarks(); // keep in-page underlines in step with every state change
       if (!widget) return;
       const { shadow, root } = widget;
+      if (orphaned) {
+        // Shown where the counting pill would have been, never anywhere new.
+        root.style.display = tracked && (fieldEligible() || segments.length > 0) ? "" : "none";
+        root.innerHTML = orphanPillHtml();
+        return;
+      }
       const enabled = siteEnabled();
       const show = Boolean(tracked && (expanded || fieldEligible() || segments.length > 0));
       root.style.display = show ? "" : "none";
@@ -3550,7 +3582,24 @@
       render();
     }
 
+    /* Field mode's ghost instance (docs mode's standDown explains the
+       general case): after an extension reload this script keeps running on
+       its old findings, its underlines still drawn and its pill still
+       counting, while every check it tries fails. Stand down: clear the
+       marks, stop checking, and let the pill say why. */
+    function standDownField(why) {
+      orphaned = true;
+      expanded = false;
+      segments = [];
+      drawMarks(); // the orphaned branch clears every bar
+      if (widget) render();
+      console.log(`[tracely] v${EXT_VERSION} stood down (${why}) — reload the tab to resume`);
+    }
+
     setInterval(() => {
+      // Only where there WAS an extension context to lose (plain test pages
+      // have no chrome.* and would stand down on the first tick).
+      if (useRelay && !orphaned && !extAlive()) standDownField("extension reloaded");
       if (tracked && !tracked.isConnected) {
         tracked = null;
         segments = [];
