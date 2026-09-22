@@ -38,9 +38,9 @@ const MODE = LIVE ? "LIVE" : "TEST";
  * the Pro link being billed for both. */
 const PLANS = [
   { key: "student", product: "Tracely Student", cents: 499, env: "STRIPE_PRICE_STUDENT",
-    blurb: "Unlimited checking and sources for one writer." },
+    blurb: "No daily check limit, 100 source searches a month and auto-sources for one writer." },
   { key: "pro", product: "Tracely Pro", cents: 999, env: "STRIPE_PRICE_PRO",
-    blurb: "Tracely's most thorough checking, everywhere." },
+    blurb: "Everything in Student plus Thorough explanations from Tracely's largest model and 250 source searches a month." },
 ];
 const WEBHOOK_URL = "https://api.jointracely.com/api/billing/webhook";
 // Four, not three. lib/billing.js:174 handles customer.subscription.created
