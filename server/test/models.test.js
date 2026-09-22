@@ -170,17 +170,90 @@ test("the Docs annotation requester is not another vendor's extension id", () =>
   }
 });
 
-test("the Docs hook is scoped to documents, not to all of /document/*", () => {
-  // /document/* also matches the docs LIST page, where the flag can do nothing
-  // and only widens the surface we touch.
+/* Chrome match-pattern semantics, enough to ask the manifest a behavioural
+ * question instead of pinning its array: `<scheme>://<host><path>`, where a
+ * `*` in the path matches any run of characters (slashes included) and the
+ * path is tested against the URL's path + query, never its fragment. */
+function matchesPattern(pattern, url) {
+  if (pattern === "<all_urls>") return /^(https?|wss?|ftp|file):/.test(url);
+  const m = pattern.match(/^(\*|https?|wss?|ftp|file):\/\/([^/]*)(\/.*)$/);
+  assert.ok(m, `not a Chrome match pattern: ${pattern}`);
+  const [, scheme, host, pathPart] = m;
+  const u = new URL(url);
+  const proto = u.protocol.slice(0, -1);
+  if (scheme === "*" ? !["http", "https"].includes(proto) : scheme !== proto) return false;
+  if (host !== "*") {
+    if (host.startsWith("*.")) {
+      const base = host.slice(2);
+      if (u.hostname !== base && !u.hostname.endsWith(`.${base}`)) return false;
+    } else if (u.hostname !== host) return false;
+  }
+  const body = pathPart.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+  return new RegExp(`^${body}$`).test(u.pathname + u.search);
+}
+
+// A Doc opened from a second signed-in Google account lives at
+// /document/u/<n>/d/<id>/... — every student with a school and a personal
+// account. 2.19.3 matched /document/d/* only, so on those URLs the hook never
+// ran, Docs never built its annotation layer, and the widget listed issues
+// with not one underline under them.
+const DOC_URLS = [
+  "https://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit",
+  "https://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit?tab=t.0",
+  "https://docs.google.com/document/u/0/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit",
+  "https://docs.google.com/document/u/1/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit?usp=sharing",
+  "https://docs.google.com/document/u/12/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit#heading=h.abc",
+];
+// /document/* also matches the docs LIST page, where the flag can do nothing
+// and only widens the surface we touch.
+const NOT_DOC_URLS = [
+  "https://docs.google.com/document/",
+  "https://docs.google.com/document/u/0/",
+  "https://docs.google.com/document/u/1/?tgif=d",
+  "https://docs.google.com/spreadsheets/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit",
+  "https://docs.google.com/spreadsheets/u/1/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit",
+  "https://docs.google.com.evil.test/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit",
+  "http://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit",
+];
+
+test("the Docs hook runs on every Doc URL, signed-in account prefix or not", () => {
   const manifest = JSON.parse(read("manifest.json"));
   const hook = manifest.content_scripts.find((c) => (c.js ?? []).includes("docs-hook.js"));
   assert.ok(hook, "docs-hook.js is not registered as a content script");
-  assert.deepEqual(hook.matches, ["https://docs.google.com/document/d/*"]);
+  const runs = (url) => hook.matches.some((p) => matchesPattern(p, url));
+  for (const url of DOC_URLS) assert.ok(runs(url), `docs-hook.js does not run on ${url}`);
   // It must still run before kix bootstraps, in the page world, or the global
   // is set too late to be read.
   assert.equal(hook.world, "MAIN");
   assert.equal(hook.run_at, "document_start");
+});
+
+test("the Docs hook is scoped to documents, not to all of /document/*", () => {
+  const manifest = JSON.parse(read("manifest.json"));
+  const hook = manifest.content_scripts.find((c) => (c.js ?? []).includes("docs-hook.js"));
+  for (const url of NOT_DOC_URLS) {
+    assert.ok(!hook.matches.some((p) => matchesPattern(p, url)), `docs-hook.js runs on ${url}`);
+  }
+});
+
+test("wherever the hook runs, content.js finds the document id — and nowhere else", () => {
+  // The two halves must agree: a hook with no widget reading the doc paints
+  // nothing, and a widget without the hook lists issues with no underlines.
+  const m = read("content.js").match(/const DOC_ID = harness \? "harness" : \(location\.pathname\.match\((\/.+?\/)\)\?\.\[1\]/);
+  assert.ok(m, "docsMode's DOC_ID expression not found in content.js");
+  const docIdRe = new RegExp(m[1].slice(1, -1));
+  for (const url of DOC_URLS) assert.equal(new URL(url).pathname.match(docIdRe)?.[1], "1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo", url);
+  for (const url of NOT_DOC_URLS.filter((u) => u.startsWith("https://docs.google.com/document/"))) {
+    assert.equal(new URL(url).pathname.match(docIdRe), null, url);
+  }
+});
+
+test("the match-pattern helper agrees with Chrome on the edge cases the hook depends on", () => {
+  assert.ok(matchesPattern("https://docs.google.com/document/u/*/d/*", "https://docs.google.com/document/u/0/d/x"));
+  assert.ok(!matchesPattern("https://docs.google.com/document/u/*/d/*", "https://docs.google.com/document/u/0/"));
+  assert.ok(matchesPattern("https://*.google.com/*", "https://docs.google.com/a"));
+  assert.ok(!matchesPattern("https://*.google.com/*", "https://google.com.evil.test/a"));
+  assert.ok(matchesPattern("<all_urls>", "https://example.test/"));
 });
 
 /* ── what the options page SAYS ───────────────────────────────────────────

@@ -33,7 +33,8 @@
     },
     {
       "matches": [
-        "https://docs.google.com/document/d/*"
+        "https://docs.google.com/document/d/*",
+        "https://docs.google.com/document/u/*/d/*"
       ],
       "js": [
         "docs-hook.js"
