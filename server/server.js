@@ -193,10 +193,13 @@ const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources", "/api/w
  * app routes keep their own accounting (appCall), untouched. */
 const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources"]);
 
-// The desktop's source searches: their own rolling window, per caller. The
-// extension's /api/sources has a process-wide 15/hour counter; sharing it
-// would let desktop traffic 429 every extension user's source search.
-const appSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
+// Source searches by one IDENTIFIED caller ("user:" / "install:") on a hosted
+// server: a rolling hourly window per caller, shared by the desktop's
+// /api/find-sources and the extension's /api/sources — one person, one hour.
+// The process-wide 15/hour counter (webSearchCounter) is kept only for callers
+// with nothing to key on; sharing THAT would let one busy account 429 every
+// extension user's source search.
+const callerSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
 const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
   if (!origin || SELF_ORIGINS.has(origin)) return true;
@@ -1117,45 +1120,48 @@ const server = http.createServer(async (req, res) => {
         throw new CheckError("bad_request", "context must be a string of at most 6000 characters");
       }
 
-      // The beta pool's searches count against a window of their own, so a
-      // tester can never take the hour store users share (and store traffic
-      // never takes the testers').
-      const searchCounter = gate.pool === "beta" ? betaWebSearchCounter : webSearchCounter;
-      if (!searchCounter.ok()) {
+      /* Hourly windows, before the quota. An IDENTIFIED caller on a hosted
+       * server ("user:" / "install:") gets a window of its own
+       * (callerSearchRate, shared with the desktop's /api/find-sources); the
+       * process-wide 15/hour counter now holds only callers with nothing to
+       * key on ("addr:" / none) — one busy account can no longer take the hour
+       * every store user shares. The beta pool keeps its own global window on
+       * top, since a tester can rotate the install id the per-caller window
+       * is keyed on. A local server keeps the global counter, as before. */
+      const { ent, callerId: who } = gate;
+      const perCaller = ent.enforced && isDailyQuotaKey(who);
+      const globalCounter = gate.pool === "beta" ? betaWebSearchCounter : perCaller ? null : webSearchCounter;
+      if (globalCounter && !globalCounter.ok()) {
         throw new CheckError("rate_limit", "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       }
-
-      // The free tier's daily quota, on top of the cost guard above and the
-      // global budget in spendGate. Keyed on callerId rather than ent.userId,
-      // which is what used to leave every anonymous caller unmetered — and
-      // anonymous is the DEFAULT, since the extension needs no sign-in.
-      const { ent, callerId: who } = gate;
-      const quota = sourceSearchQuota(ent, who);
-      if (!quota.allowed) {
-        throw new CheckError(
-          "plan_limit",
-          `Free accounts get ${quota.limit} source searches a day, and today's ${quota.limit} are used. It resets at midnight — or upgrade for unlimited searches.`,
-          { status: 429 },
-        );
+      if (perCaller && !callerSearchRate.ok(who)) {
+        throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
       }
+
+      // The day AND month source quota (SOURCE_LIMITS, at the effective
+      // plan), one count with the desktop's /api/find-sources. Keyed on
+      // callerId, so an anonymous extension user is metered too.
+      const quota = sourceSearchQuota(ent, who);
+      if (!quota.allowed) throw quotaRefusal(ent, who, sourceLimitMessage(quota));
       recordSourceSearch(ent, who); // before the call, not after
 
-      searchCounter.stamp(); // before the call, not after
+      globalCounter?.stamp(); // before the call, not after
+      if (perCaller) callerSearchRate.stamp(who);
       const started = Date.now();
-      // Same model rule as /api/check (appModelFor). The effort is the
-      // client's when it sent one (normalised), and otherwise NONE — the
-      // vendor's default, which is what every source search ran at before and
-      // what the store build, which sends no effort here, still gets. Lowering
-      // that default wants a measurement on this prompt first (lib/llm.js).
-      const modelUsed = extensionModel(gate, "/api/sources", appModelFor("sources", ent, model));
-      const level = effort == null ? undefined : normalizeEffort(effort);
+      // Hosted: the fast model with NO effort sent (modelForRoute "sources") —
+      // the vendor default every source search was measured at; the client's
+      // model and effort are not read. Local: pickModel, and the client's
+      // effort when it sent one (normalised), as before.
+      const choice = ent.enforced ? hostedChoice("sources", ent, who) : null;
+      const modelUsed = extensionModel(gate, "/api/sources", choice ? choice.model : appModelFor("sources", ent, model));
+      const level = choice ? choice.effort : effort == null ? undefined : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const { webSearchCalls, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
       // search more than once per answer, so the calls are counted.
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), enforced: ent.enforced, pool: gate.pool });
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -1427,18 +1433,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     // The desktop's web search for sources, forced and schema-checked as the
-    // relay ran it. Separate from the extension's /api/sources on purpose: its
-    // own prompt, its own per-caller hourly window, the app spend pool.
+    // relay ran it. Separate from the extension's /api/sources on purpose (its
+    // own prompt, the app spend pool), but ONE allowance with it: the day and
+    // month source quota (SOURCE_QUOTA) and the per-caller hourly window
+    // (callerSearchRate). Hosted, it runs the fast model at low.
     if (req.method === "POST" && url.pathname === "/api/find-sources") {
       loadEnvFile();
       requireKey();
       const body = (await parseJsonBody(req)) ?? {};
       if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
       if (gate.ent.enforced && gate.callerId) {
-        if (!appSearchRate.ok(gate.callerId)) {
+        if (!callerSearchRate.ok(gate.callerId)) {
           throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
         }
-        appSearchRate.stamp(gate.callerId); // before the call
+        callerSearchRate.stamp(gate.callerId); // before the call
       }
       const result = await appCall(gate, {
         task: "sources",
