@@ -85,6 +85,23 @@ class FakeDocs {
     this.ce = { ownerDocument: { defaultView: W }, dispatchEvent: (ev) => self.onEvent(ev) };
     this.iframe = { contentDocument: { querySelector: (s) => (s === "[contenteditable]" ? self.ce : null) } };
   }
+  // The page surface under a synthetic click (mouse: true only): x IS the
+  // model offset, so a rect's left edge names where the caret lands; a
+  // shift-click extends from the caret, as kix does.
+  onMouse(ev) {
+    if (ev.type !== "mousedown" || this.locked) return true;
+    const off = Math.max(1, Math.min(this.T.length - 2, Math.round(ev.clientX)));
+    const { start, end } = this.sel[0];
+    if (ev.shiftKey) {
+      const a = this.caretEnd ? end : start;
+      this.sel = [{ start: Math.min(a, off), end: Math.max(a, off) }];
+      this.caretEnd = off < a;
+    } else {
+      this.sel = [{ start: off, end: off }];
+      this.caretEnd = false;
+    }
+    return true;
+  }
   onEvent(ev) {
     if (ev.type === "copy") {
       const { start, end } = this.sel[0];
@@ -100,6 +117,10 @@ class FakeDocs {
     } else if (ev.type === "keydown") {
       const mod = ev.metaKey || ev.ctrlKey;
       if (ev.key === "Backspace") this.apply("");
+      else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+        const p = ev.key === "ArrowLeft" ? this.sel[0].start : this.sel[0].end;
+        this.sel = [{ start: p, end: p }];
+      }
       else if (mod && ev.key === "z" && !ev.shiftKey) this.undo();
       else if (mod && ((ev.key === "z" && ev.shiftKey) || ev.key === "y")) this.redo();
     }
@@ -148,7 +169,12 @@ function loadHook({ docs = null, expose = true, canvas = true, pre } = {}) {
     },
     querySelectorAll: () => [],
     getElementById: (id) => (id === "docs-toolbar-mode-switcher" && docs ? { getAttribute: () => docs.modeLabel } : null),
-    elementsFromPoint: () => [],
+    // Only a FakeDocs with mouse: true has a page surface to click on.
+    elementsFromPoint: () => (docs && docs.mouse ? [{
+      tagName: "CANVAS",
+      closest: (sel) => (sel === ".kix-appview-editor" ? {} : null),
+      dispatchEvent: (ev) => docs.onMouse(ev),
+    }] : []),
   };
   const ctx = {
     console, setTimeout, clearTimeout, performance, Promise,
@@ -156,7 +182,7 @@ function loadHook({ docs = null, expose = true, canvas = true, pre } = {}) {
     location: { origin: ORIGIN, href: `${ORIGIN}/document/d/doc/edit` },
     innerWidth: 1280, innerHeight: 900,
     document,
-    MouseEvent: class {},
+    MouseEvent: class { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } },
     addEventListener: (type, fn) => { if (type === "message") listeners.push(fn); },
     postMessage: (data, targetOrigin) => posted.push({ data, targetOrigin }),
   };
@@ -590,6 +616,39 @@ test("engine: no text API → replace refuses without rects, append refuses outr
   assert.equal(docs.pastes.length, 0);
 });
 
+test("engine: an edit made blind (no text API) is never undone later by a bare Cmd+Z — only rolled back at once", async () => {
+  const S = "The film stars Tom Cruise.";
+  const body = `${S} The end is near.`;
+  const docs = new FakeDocs(body);
+  docs.mouse = true;
+  const h = loadHook({ docs, pre: (ctx) => { delete ctx._docs_annotate_getAnnotatedText; } });
+  // The bar rect spans the sentence's caret positions 1..1+S.length (x = model offset, the fake's rule).
+  const hint = { rects: [{ left: 1 - 0.5, top: 100, width: S.length + 1, height: 12 }] };
+  const r = await h.call("replace", { find: S, replacement: "The film stars Tom Cruise and Miles Teller.", hint });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual([r.path, r.verified, r.rollbackOnly], ["mouse", "copy-readback", true]);
+  assert.match(r.undoToken, /^m/);
+  const edited = docs.body();
+  assert.ok(edited.startsWith("The film stars Tom Cruise and Miles Teller."), edited);
+
+  // The user types; a later Undo would press Cmd+Z over THEIR typing.
+  docs.sel = [{ start: docs.T.length - 3, end: docs.T.length - 3 }];
+  docs.apply(" Really");
+  const later = await h.call("undo", { undoToken: r.undoToken });
+  assert.deepEqual([later.ok, later.reason], [false, "blind"]);
+  assert.ok(docs.body().endsWith("near. Really"), "their typing is kept");
+
+  // The immediate rollback of a failed group (nothing else happened) may.
+  const d2 = new FakeDocs(body);
+  d2.mouse = true;
+  const h2 = loadHook({ docs: d2, pre: (ctx) => { delete ctx._docs_annotate_getAnnotatedText; } });
+  const r2 = await h2.call("replace", { find: S, replacement: "The film stars Tom Cruise and Miles Teller.", hint });
+  assert.equal(r2.ok, true);
+  const rb = await h2.call("undo", { undoToken: [r2.undoToken], rollback: true });
+  assert.equal(rb.ok, true, JSON.stringify(rb));
+  assert.equal(d2.body(), body);
+});
+
 test("engine: edits run one at a time, in order", async () => {
   const docs = new FakeDocs("One two three. Four five six.");
   const h = loadHook({ docs });
@@ -815,7 +874,20 @@ test("content.js: an edit that landed wrong is taken back before copying", async
   w.cache.set(h, { verdict: "false", revision: "Einstein was a physicist." });
   assert.equal(await w.docFix(h), false);
   assert.deepEqual(ops().find((o) => o.op === "undo").undoToken, ["bad1"]);
+  assert.equal(ops().find((o) => o.op === "undo").rollback, true, "the immediate take-back says so");
   assert.deepEqual(copied, ["Einstein was a physicist."]);
+});
+
+test("content.js: an edit the hook could only verify blind lands without an Undo", async () => {
+  const S = "Einstein was a basketball player.";
+  const { w } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "m1", rollbackOnly: true, path: "mouse" } : undefined), body: S });
+  await w.probeInDoc();
+  const h = w.hashText(S);
+  w.setDoc(S, [{ ...seg(S), hash: h }]);
+  w.cache.set(h, { verdict: "false", revision: "Einstein was a physicist." });
+  assert.equal(await w.docFix(h), true);
+  assert.equal(w.state().lastDocEdit, null, "a later Cmd+Z could hit the user's own typing");
+  assert.ok(!/Undo/.test(w.editBtnHtml(`fix:${h}`, "Fix in doc", "")));
 });
 
 function citeSetup(respond) {

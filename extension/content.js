@@ -2973,6 +2973,7 @@
       const path = editPath();
       const tokens = []; // newest first
       let untracked = 0; // steps that landed with no way to take them back (the bridge)
+      let rollbackOnly = false; // a step the hook could only verify blind: no later Undo
       let fail = null;
       try {
         for (const step of job.steps) {
@@ -2980,10 +2981,13 @@
           const r = await docApply(payload, hint, path);
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
+          if (r.rollbackOnly) rollbackOnly = true;
           if (!r.ok) { fail = r; break; }
         }
         if (fail && tokens.length) {
-          const u = await docsEdit("undo", { undoToken: tokens });
+          // rollback: this is the immediate take-back, the one time the hook
+          // may undo a blind step with Cmd/Ctrl+Z.
+          const u = await docsEdit("undo", { undoToken: tokens, rollback: true });
           if (!u.ok) fail = { ...fail, stuck: true };
         }
         if (fail && untracked) fail = { ...fail, stuck: true };
@@ -2993,7 +2997,7 @@
         docBusy = false;
       }
       if (!fail) {
-        lastDocEdit = tokens.length ? { key, tokens, onUndone: job.onUndone, label: String(job.doneMsg || "edited in doc") } : null;
+        lastDocEdit = tokens.length && !rollbackOnly ? { key, tokens, onUndone: job.onUndone, label: String(job.doneMsg || "edited in doc") } : null;
         try { job.onApplied?.(); } catch { /* bookkeeping only */ }
         statusKind = "idle";
         statusMsg = job.doneMsg;

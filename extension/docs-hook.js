@@ -601,7 +601,8 @@
        replace     { find, replacement, hint? }
        insertAfter { find, text, html?, hint? }
        appendLine  { line, html? }
-       undo        { undoToken }             (a token, or an array of them, newest first)
+       undo        { undoToken, rollback? }  (a token, or an array of them, newest first;
+                                              rollback = the immediate take-back of a failed group)
      hint = { occurrence?, occurrences?, rects? } picks among repeated copies of
      `find`; it never overrides the text check.
 
@@ -633,6 +634,7 @@
     const VERSION = 1;
     const APPLY_WAIT_MS = 1500; // a paste lands in ~40ms; this is the "it never landed" bound
     const UNDO_WAIT_MS = 1200;
+    const BLIND_UNDO_MS = 10000; // an unverifiable (no-API) edit can be rolled back only this soon
     const CTX = 24;             // normalized chars of context used to re-find an edit later
     const MAX_FIND = 4000;
     const MAX_HTML = 20000;
@@ -1247,7 +1249,9 @@
       press("ArrowRight", "ArrowRight", 39); // collapse to the end of the edit
       const ms = Math.round(now() - t0);
       if (back == null) return { ok: false, reason: "unverified", path: "mouse", ms };
-      return { ok: true, verified: "copy-readback", path: "mouse", undoToken: rememberBlind(), ms };
+      // rollbackOnly: the token can take this edit back only as the immediate
+      // rollback of a failed group (see blindUndoOk) — never as a later Undo.
+      return { ok: true, verified: "copy-readback", path: "mouse", undoToken: rememberBlind(), rollbackOnly: true, ms };
     }
 
     /* ── undo ────────────────────────────────────────────────────────────── */
@@ -1262,10 +1266,17 @@
     }
     function rememberBlind() {
       const token = "m" + Date.now().toString(36) + "-" + ++tokSeq;
-      history.push({ token, blind: true });
+      history.push({ token, blind: true, at: now() });
       if (history.length > 50) history.shift();
       return token;
     }
+    // A blind edit (made without the text API) can only be taken back by an
+    // unverified Cmd/Ctrl+Z, which undoes whatever is newest — the user's
+    // typing, if they typed since. So only the immediate rollback of a group
+    // that just failed may do it (content.js sends rollback:true only there,
+    // while the button still says "Applying…"), only for our newest edit, and
+    // only within seconds of it. A later Undo is refused.
+    const blindUndoOk = (op, i, rec) => op.rollback === true && i === history.length - 1 && now() - rec.at < BLIND_UNDO_MS;
 
     async function waitText(at, pred, ms) {
       const until = now() + ms;
@@ -1299,11 +1310,12 @@
       return t ? { ok: true, method: "reverse-edit" } : { ok: false, reason: "not-applied" };
     }
 
-    async function undoOne(at, token) {
+    async function undoOne(at, token, op) {
       const i = history.findIndex((h) => h.token === token);
       if (i < 0) return { ok: false, reason: "unknown-token" };
       const rec = history[i];
       if (rec.blind) {
+        if (!blindUndoOk(op, i, rec)) return { ok: false, reason: "blind" };
         undoKey();
         history.splice(i, 1);
         return { ok: true, method: "undo-key", verified: false };
@@ -1339,10 +1351,15 @@
       const at = await getAT();
       if (!at) {
         if (tokens.every((t) => history.some((h) => h.token === t && h.blind))) {
-          for (const t of tokens) {
+          // All or nothing: every token must be the next-newest edit, in order.
+          const n = history.length;
+          if (!tokens.every((t, k) => history[n - 1 - k]?.token === t && blindUndoOk(op, n - 1, history[n - 1 - k]))) {
+            return { ok: false, reason: "blind" };
+          }
+          for (let k = 0; k < tokens.length; k++) {
             undoKey();
             await sleep(150);
-            history.splice(history.findIndex((h) => h.token === t), 1);
+            history.pop();
           }
           return { ok: true, method: "undo-key", verified: false };
         }
@@ -1353,7 +1370,7 @@
       const saved = readSel(at);
       const steps = [];
       for (const t of tokens) {
-        const r = await undoOne(at, t);
+        const r = await undoOne(at, t, op);
         steps.push({ token: t, ...r });
         if (!r.ok) break;
       }
