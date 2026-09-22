@@ -52,11 +52,25 @@ const failure = (p) => p.then(() => null, (e) => ({ kind: e.kind, status: e.stat
 
 // ── entities and dates ─────────────────────────────────────────────────
 
-test("decodeEntities decodes hex, decimal and named entities, &amp; last", () => {
+test("decodeEntities decodes hex, decimal and named entities in one pass", () => {
   assert.equal(decodeEntities("Teens&#x2019; lives &#8212; a &quot;study&quot; &amp; more"), "Teens’ lives — a \"study\" & more");
   assert.equal(decodeEntities("http&#58;&#47;&#47;x&#46;org"), "http://x.org");
   assert.equal(decodeEntities("&amp;#39; stays literal"), "&#39; stays literal", "a double-escaped entity is the text the page meant");
+  assert.equal(decodeEntities("&amp;lt;b&amp;gt; &amp;amp;"), "&lt;b&gt; &amp;", "one pass: a replacement is never decoded again");
   assert.equal(decodeEntities("bad&#xD800;&#0;&#x110000;end"), "badend", "surrogates, NUL and out-of-range code points are dropped");
+});
+
+test("decodeEntities knows the Latin-1 letters and the punctuation pages carry", () => {
+  assert.equal(decodeEntities("Caf&eacute; M&uuml;ller Fran&ccedil;ois &Eacute;cole &Agrave;&yuml;"), "Café Müller François École Àÿ");
+  assert.equal(decodeEntities("&copy; 2024 &laquo;Le Monde&raquo; &trade; &euro;5 &hellip;"), "© 2024 «Le Monde» ™ €5 …");
+  assert.equal(decodeEntities("co&shy;operate&nbsp;now"), "cooperate now");
+  assert.equal(decodeEntities("&AMP; &QUOT;"), "& \"", "the upper-case forms HTML accepts");
+  assert.equal(decodeEntities("&bogus; &Eacutex; & ; &constructor; &toString;"), "&bogus; &Eacutex; & ; &constructor; &toString;", "unknown names stay as written");
+});
+
+test("an author's name is decoded exactly once", () => {
+  const html = `<title>T</title><meta name="author" content="Jos&eacute; &amp;lt;Admin&amp;gt; Garc&iacute;a">`;
+  assert.deepEqual(extractCitationMeta(html, "https://example.com/a", NOW).authors, ["José &lt;Admin&gt; García"]);
 });
 
 test("parseDate keeps the calendar day the page wrote, in every format seen live", () => {

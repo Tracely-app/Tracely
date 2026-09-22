@@ -28,16 +28,31 @@
 import { CheckError } from "./errors.js";
 
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
-const NAMED = { quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " ", ndash: "–", mdash: "—", rsquo: "’", lsquo: "‘", ldquo: "“", rdquo: "”", hellip: "…", amp: "&" };
+/* HTML's Latin-1 entities (U+00A0..U+00FF, in code-point order), then the
+ * punctuation and letters pages actually carry. Names are case-sensitive
+ * (&Eacute; is not &eacute;), as in HTML. */
+const LATIN1 = "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml".split(" ");
+const NAMED = Object.assign(Object.create(null),
+  Object.fromEntries(LATIN1.map((name, i) => [name, String.fromCodePoint(0xa0 + i)])),
+  {
+    nbsp: " ", shy: "", amp: "&", AMP: "&", lt: "<", LT: "<", gt: ">", GT: ">", quot: '"', QUOT: '"', apos: "'",
+    ndash: "–", mdash: "—", lsquo: "‘", rsquo: "’", sbquo: "‚", ldquo: "“", rdquo: "”", bdquo: "„",
+    hellip: "…", bull: "•", prime: "′", Prime: "″", lsaquo: "‹", rsaquo: "›", dagger: "†", Dagger: "‡",
+    permil: "‰", trade: "™", euro: "€", ensp: " ", emsp: " ", thinsp: " ", zwnj: "", zwj: "", lrm: "", rlm: "",
+    OElig: "Œ", oelig: "œ", Scaron: "Š", scaron: "š", Yuml: "Ÿ", fnof: "ƒ", circ: "ˆ", tilde: "˜",
+    minus: "−", nbhy: "‑", hyphen: "‐", dash: "‐", period: ".", comma: ",", colon: ":", semi: ";",
+    lpar: "(", rpar: ")", sol: "/", num: "#", excl: "!", quest: "?", ast: "*", commat: "@",
+  });
 
-/** Numeric (decimal and hex) and the common named entities. `&amp;` last, so
- *  "&amp;#39;" stays the literal text "&#39;" the page meant. */
+/** Numeric (decimal and hex) and named entities, in ONE pass: what a
+ *  replacement produces is never decoded again, so "&amp;lt;" is the text
+ *  "&lt;" the page meant, not "<". An unknown name is left as written. */
 export function decodeEntities(s) {
-  return String(s ?? "")
-    .replace(/&#x([0-9a-f]{1,6});/gi, (_, h) => safeChar(parseInt(h, 16)))
-    .replace(/&#(\d{1,7});/g, (_, d) => safeChar(Number(d)))
-    .replace(/&(quot|apos|lt|gt|nbsp|ndash|mdash|rsquo|lsquo|ldquo|rdquo|hellip);/g, (_, n) => NAMED[n])
-    .replace(/&amp;/g, "&");
+  return String(s ?? "").replace(/&(?:#[xX]([0-9a-fA-F]{1,6})|#(\d{1,7})|([A-Za-z][A-Za-z0-9]{1,31}));/g, (whole, hex, dec, name) => {
+    if (hex) return safeChar(parseInt(hex, 16));
+    if (dec) return safeChar(Number(dec));
+    return name in NAMED ? NAMED[name] : whole;
+  });
 }
 function safeChar(n) {
   if (!(n > 0 && n < 0x110000) || (n >= 0xd800 && n <= 0xdfff)) return "";
@@ -116,8 +131,11 @@ export function looksLikeOrg(s) {
   return /^[A-Z][A-Z&.]{1,7}$/.test(t) || ORG_WORDS.test(t);
 }
 
+/** `raw` is already entity-decoded (meta values are decoded once, in
+ *  collectMeta; JSON-LD names by the caller) — decoding again would turn a
+ *  page's literal "&lt;" into "<". */
 function personOrOrg(raw) {
-  const s = clean(String(raw ?? "")).replace(/^by\s+/i, "");
+  const s = String(raw ?? "").replace(/\s+/g, " ").trim().replace(/^by\s+/i, "");
   if (!s || s.length > 120 || PLACEHOLDER_NAME.test(s) || /^(https?:|www\.|@)|@|\.(com|org|net)\b/i.test(s)) return null;
   if (looksLikeOrg(s)) return { org: s };
   if (s.split(/\s+/).length > 6) return null; // a sentence, not a name
@@ -344,7 +362,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
   // Authors: scholarly tags first (already "Family, Given"), then JSON-LD, then bylines.
   const persons = [], orgs = [];
   const add = (raw, forcedOrg) => {
-    const r = forcedOrg ? { org: clean(raw) } : personOrOrg(raw);
+    const r = forcedOrg ? { org: raw } : personOrOrg(raw);
     if (!r) return;
     const list = r.person ? persons : orgs, v = r.person ?? r.org;
     if (v && !list.some((x) => loose(x) === loose(v))) list.push(v);
@@ -355,7 +373,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
     for (const a of [].concat(main.author)) {
       const n = ldName(a);
       if (!n) continue;
-      add(n, typesOf(a).includes("Organization") || typesOf(a).includes("NewsMediaOrganization"));
+      add(clean(n), typesOf(a).includes("Organization") || typesOf(a).includes("NewsMediaOrganization"));
     }
   }
   if (!persons.length && !orgs.length && !isWiki) all("article:author", "og:author", "author", "parsely-author", "byl", "sailthru.author").forEach((a) => add(a));
