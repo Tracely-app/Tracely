@@ -721,3 +721,18 @@ test("options: a plan with a daily source allowance and no monthly one still rea
   });
   assert.equal($("sourcesLine").textContent, "Source searches: 4 of 5 today.");
 });
+
+/* The server reports per-CALLER metering on /api/entitlement — the Thorough
+   allowance, fair use, searches used. Without the install header it has no
+   caller to report about, so a signed-out Pro tester saw no allowance at all
+   (found in a real browser against production: thorough came back null). */
+test("the entitlement request carries the install id, like every relayed call", async () => {
+  const src = read("background.js");
+  const withBeta = src.slice(src.indexOf("async function withBeta"), src.indexOf("async function withBeta") + 400);
+  assert.match(withBeta, /X-Tracely-Install/, "withBeta must add the install header");
+  assert.match(withBeta, /await installId\(\)/);
+  // Every /api/entitlement fetch goes through withBeta.
+  for (const m of src.matchAll(/fetch\(`\$\{SERVER\}\/api\/entitlement`,\s*\{\s*headers:\s*([^}]+)/g)) {
+    assert.match(m[1], /await withBeta\(/, `an entitlement fetch bypasses withBeta: ${m[1].slice(0, 60)}`);
+  }
+});

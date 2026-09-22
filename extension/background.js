@@ -352,10 +352,17 @@ function betaToken() {
   return betaTokenPromise;
 }
 
-// Adds X-Tracely-Beta to a headers object when this is the test build.
+/* Adds X-Tracely-Beta (test build) and X-Tracely-Install to a headers object.
+   The install id belongs on /api/entitlement as much as on a relayed call:
+   the server reports per-CALLER metering there — the Thorough allowance, the
+   fair-use state, the searches used — and without a caller id it has nobody
+   to report about. A signed-out Pro tester was told nothing about the
+   allowance the page has a meter for. */
 async function withBeta(headers = {}) {
   const token = await betaToken();
   if (token) headers["X-Tracely-Beta"] = token;
+  const install = await installId();
+  if (install) headers["X-Tracely-Install"] = install;
   return headers;
 }
 
