@@ -254,5 +254,6 @@ test("find-sources draws on the free source allowance, not the AI one", async ()
   }
   assert.ok(refused, "the free source allowance never ran out");
   assert.equal(refused.body.error.kind, "plan_limit");
-  assert.match(refused.body.error.message, /source searches a day/);
+  // The §7 copy of the 2026-09-21 plan policy.
+  assert.match(refused.body.error.message, /You've used today's 5 source searches\. They reset at midnight\./);
 });
