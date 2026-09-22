@@ -196,9 +196,9 @@ const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources
 // Source searches by one IDENTIFIED caller ("user:" / "install:") on a hosted
 // server: a rolling hourly window per caller, shared by the desktop's
 // /api/find-sources and the extension's /api/sources — one person, one hour.
-// The process-wide 15/hour counter (webSearchCounter) is kept only for callers
-// with nothing to key on; sharing THAT would let one busy account 429 every
-// extension user's source search.
+// It sits on top of the pool's global window (webSearchCounter for the
+// extension pool, whatever the caller id, since an install id rotates freely);
+// only the paid pool, which reserves every call, has no global window.
 const callerSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
 const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
@@ -1143,15 +1143,19 @@ const server = http.createServer(async (req, res) => {
 
       /* Hourly windows, before the quota. An IDENTIFIED caller on a hosted
        * server ("user:" / "install:") gets a window of its own
-       * (callerSearchRate, shared with the desktop's /api/find-sources); the
-       * process-wide 15/hour counter now holds only callers with nothing to
-       * key on ("addr:" / none) — one busy account can no longer take the hour
-       * every store user shares. The beta pool keeps its own global window on
-       * top, since a tester can rotate the install id the per-caller window
-       * is keyed on. A local server keeps the global counter, as before. */
+       * (callerSearchRate, shared with the desktop's /api/find-sources), ON
+       * TOP of a global window for the pool that pays:
+       *   - extension pool: the process-wide 15/hour counter, for EVERY
+       *     caller. An install id is the client's to rotate, and this pool
+       *     holds no reservation (spendState sees only spend already on
+       *     disk), so this counter is the only bound on a burst of fresh ids;
+       *   - beta pool: its own global window, for the same reason;
+       *   - paid pool: none — every call reserves its worst case first, so
+       *     the pool itself is the bound, and its callers are paying accounts.
+       * A local server keeps the global counter, as before. */
       const { ent, callerId: who } = gate;
       const perCaller = ent.enforced && isDailyQuotaKey(who);
-      const globalCounter = gate.pool === "beta" ? betaWebSearchCounter : perCaller ? null : webSearchCounter;
+      const globalCounter = gate.pool === "beta" ? betaWebSearchCounter : gate.pool === "paid" ? null : webSearchCounter;
       if (globalCounter && !globalCounter.ok()) {
         throw new CheckError("rate_limit", "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       }

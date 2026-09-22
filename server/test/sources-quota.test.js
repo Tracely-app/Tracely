@@ -6,9 +6,9 @@
  *   - /api/sources runs the fast model with no effort sent, find-sources the
  *     fast model at low, whatever the client asks;
  *   - an IDENTIFIED caller ("user:" / "install:") has a 25-an-hour window of
- *     its own, shared by both routes; the process-wide 15-an-hour counter now
- *     holds only callers with nothing to key on, so identified traffic can no
- *     longer take the hour every anonymous-by-address caller shares.
+ *     its own, shared by both routes, on top of the process-wide 15-an-hour
+ *     counter every extension-pool caller draws on (an install id rotates
+ *     freely); the paid pool, which reserves every call, skips that counter.
  * Month counts are seeded straight into the server's database (node:sqlite).
  * OpenAI is stubbed by a preload that logs what the server sent.
  */
@@ -244,21 +244,26 @@ test("fair use: a Pro account past its $2 day searches at Free's 5 a day, and th
   assert.deepEqual(e.body.limits.sources, { day: 5, month: 40 });
 });
 
-/* Last: it is the only test that searches as an address-only caller, and the
- * 15-an-hour counter it fills is process-wide. */
-test("the process-wide 15-an-hour counter holds only callers with nothing to key on — identified callers never touch it", async () => {
-  for (let i = 0; i < 16; i++) {
-    const r = await sources(`ident-${i}`, { install: `ident-install-${i}` });
-    assert.equal(r.status, 200, `identified search ${i + 1} is not on the shared hour`);
+/* Last: the 15-an-hour counter it fills is process-wide. The Free searches
+ * above (5) already drew on it. */
+test("every extension-pool caller draws on the process-wide 15-an-hour counter — a fresh install id per request does not get past it; a paid caller does not touch it", async () => {
+  let admitted = 0;
+  let capped = null;
+  for (let i = 0; i < 16 && !capped; i++) {
+    const r = await sources(`rot-${i}`, { install: `rot-install-${i}` });
+    if (r.status === 200) admitted++;
+    else capped = { i, r };
   }
-  for (let i = 0; i < 15; i++) {
-    const r = await sources(`addr-${i}`, { headers: { "X-Forwarded-For": `10.0.0.${i + 1}` } });
-    assert.equal(r.status, 200, `address-only search ${i + 1}: ${JSON.stringify(r.body)}`);
-  }
-  const capped = await sources("addr-16", { headers: { "X-Forwarded-For": "10.0.0.99" } });
-  assert.equal(capped.status, 429);
-  assert.equal(capped.body.error.kind, "rate_limit");
-  assert.match(capped.body.error.message, /hourly cap/);
-  assert.equal((await sources("ident-after", { install: "ident-install-after" })).status, 200,
-    "the shared hour being spent does not stop an identified caller");
+  assert.ok(capped, "rotating the install id never reaches the cap");
+  assert.equal(capped.r.status, 429);
+  assert.equal(capped.r.body.error.kind, "rate_limit");
+  assert.match(capped.r.body.error.message, /hourly cap/);
+  assert.ok(admitted >= 1 && admitted <= 15, `admitted ${admitted}`);
+  assert.equal(openaiLog(`rot-${capped.i}`).length, 0, "the capped search sent nothing");
+  const addr = await sources("addr-after", { headers: { "X-Forwarded-For": "10.0.0.99" } });
+  assert.equal(addr.status, 429, "an address-only caller shares the same hour");
+  const free = await sources("free-after", { token: "tok-free-after" });
+  assert.equal(free.status, 429, "so does a signed-in Free account");
+  const paid = await sources("paid-after", { token: "tok-pro-after" });
+  assert.equal(paid.status, 200, `the paid pool reserves every call and skips it: ${JSON.stringify(paid.body)}`);
 });

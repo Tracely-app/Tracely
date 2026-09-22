@@ -279,8 +279,11 @@ per-account fair-use limit (`FAIR_USE`, above) and by the pools.
 memory. The client fires at most 6 checks a minute, so this never throttles
 honest use; it exists to stop a burst. `/api/flow` admits one call per caller
 per 120 s (429 `flow_rate`, which shipped extensions swallow silently), and
-an identified caller's source searches have their own hourly window; the
-shared global search counter now applies only to address-only callers.
+an identified caller's source searches have their own hourly window (25), on
+top of the pool's global one: every caller the extension pool pays for, install
+ids included, shares the 15/hour counter (an install id rotates freely and that
+pool holds no reservation); beta has its own; the paid pool, which reserves
+every call, has none.
 
 ### What identity a quota counts against
 
