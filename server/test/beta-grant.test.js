@@ -27,8 +27,10 @@
  *   - Beta spend lands in its own pool, and when that runs dry the tester
  *     drops to their own plan on the extension pool — never a 503, and never
  *     the extension pool while the beta pool can pay.
- *   - Hosted /api/check and /api/sources run the model the client asked for,
- *     clamped to the plan, instead of one global prefs row for everybody.
+ *   - Hosted /api/check and /api/sources run the model the SERVER chooses per
+ *     route (shared/plan.js modelForRoute: luna on every plan since the
+ *     2026-09-21 plan policy), whatever the client asks for — never one
+ *     global prefs row for everybody, and never the client's slider.
  *   - PUT /api/prefs, which rewrote that row with no authentication, is
  *     refused on a hosted server and unchanged on a local one.
  *   - A failed model call leaves one log line naming route, kind, model and
@@ -110,9 +112,9 @@ test("withBetaGrant: Pro for a match, a NEW object, and the entitlement it was g
 test("the failure line names route, kind, model and effort — never the message or anything unlisted", () => {
   const leak = "My essay says the Treaty of Paris was 1783 — student@example.test";
   const tagged = new CheckError("bad_request", leak, { status: 502 });
-  Object.defineProperty(tagged, "llm", { value: { model: "gpt-5.6-terra", effort: "medium" }, enumerable: false });
-  const line = modelFailureLine("/api/check", tagged, { model: "gpt-6-astra", effort: "high" });
-  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-5.6-terra effort=medium",
+  Object.defineProperty(tagged, "llm", { value: { model: "gpt-6-astra", effort: "medium" }, enumerable: false });
+  const line = modelFailureLine("/api/check", tagged, { model: "gpt-5.6-luna", effort: "high" });
+  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-6-astra effort=medium",
     "the facade's tag wins over the route's trace: it is what was actually sent");
   assert.ok(!line.includes("Treaty") && !line.includes("student@"), "the message never reaches the log");
 
@@ -310,13 +312,16 @@ test("beta off (no TRACELY_BETA_TOKENS): the header grants nothing, and /api/sta
   assert.ok(!("betaBudget" in (await status(A))), "no beta, no betaBudget");
 });
 
-test("hosted /api/check runs the model the client asked for, clamped to the plan", async () => {
+test("hosted /api/check runs luna on every plan, whatever the client asks for", async () => {
+  // The server decides per route (modelForRoute). A shipped extension's
+  // Balanced or Thorough stop is cosmetic until 2.20.0; Pro's thorough model
+  // is reached only through deep:true ("Explain in depth", thorough.test.js).
   const cases = [
-    [{ token: "tok-pro" }, "gpt-5.6-terra", "gpt-5.6-terra"],          // a Pro user who picked balanced gets balanced
-    [{ token: "tok-pro" }, "gpt-6-astra", "gpt-6-astra"],
-    [{ token: "tok-pro" }, undefined, "gpt-5.6-luna"],        // nothing asked: the fast tier, not a guess upward
-    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5.6-luna"], // unknown: DOWN to fast
-    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.6-terra"],   // clamped to the student ceiling
+    [{ token: "tok-pro" }, "gpt-5.6-terra", "gpt-5.6-luna"],   // the retired balanced id is fast
+    [{ token: "tok-pro" }, "gpt-6-astra", "gpt-5.6-luna"],     // a typing check is never astra
+    [{ token: "tok-pro" }, undefined, "gpt-5.6-luna"],
+    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5.6-luna"],
+    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.6-luna"],
     [{ token: "tok-free" }, "gpt-5.6-terra", "gpt-5.6-luna"],
     [{}, "gpt-6-astra", "gpt-5.6-luna"],                      // anonymous is free
   ];
@@ -327,10 +332,11 @@ test("hosted /api/check runs the model the client asked for, clamped to the plan
   }
 });
 
-test("hosted /api/sources follows the same rule", async () => {
+test("hosted /api/sources follows the same rule: luna for everyone", async () => {
   const cases = [
-    ["tok-pro", "gpt-5.6-terra", "gpt-5.6-terra"],
-    ["tok-student", "gpt-6-astra", "gpt-5.6-terra"],
+    ["tok-pro", "gpt-5.6-terra", "gpt-5.6-luna"],
+    ["tok-pro", "gpt-6-astra", "gpt-5.6-luna"],
+    ["tok-student", "gpt-6-astra", "gpt-5.6-luna"],
     ["tok-free", "gpt-6-astra", "gpt-5.6-luna"],
     ["tok-pro", "nonsense", "gpt-5.6-luna"],
   ];
@@ -342,14 +348,16 @@ test("hosted /api/sources follows the same rule", async () => {
 });
 
 /* Extension <= 2.19.2 — testers' copies and the Web Store build under review
- * — sends "gpt-5-nano" from its Fast stop and "gpt-5.4" from Balanced, and a
- * pre-remap desktop sends the same ids. Coerced to fast as unknown ids, a
- * Student's Balanced stop would silently stop meaning anything. */
-test("a retired id from a shipped build keeps its tier on /api/check and /api/sources", async () => {
+ * — sends "gpt-5-nano" from its Fast stop and "gpt-5.4" from Balanced, 2.19.3+
+ * sends "gpt-5.6-terra" from Balanced, and a pre-remap desktop sends the same
+ * ids. Since the 2026-09-21 plan policy every one of them means fast (the
+ * balanced tier is retired), and they must still be answered, never refused. */
+test("a retired id from a shipped build is answered on fast on /api/check and /api/sources", async () => {
   const checks = [
-    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.6-terra"],
-    [{ token: "tok-student" }, "gpt-5.4", "gpt-5.6-terra"],
-    [{ token: "tok-free" }, "gpt-5.4", "gpt-5.6-luna"],     // never above the plan
+    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.6-luna"],
+    [{ token: "tok-student" }, "gpt-5.4", "gpt-5.6-luna"],
+    [{ token: "tok-student" }, "gpt-5.6-terra", "gpt-5.6-luna"],
+    [{ token: "tok-free" }, "gpt-5.4", "gpt-5.6-luna"],
     [{ token: "tok-pro" }, "gpt-5-nano", "gpt-5.6-luna"],
     [{}, "gpt-5-nano", "gpt-5.6-luna"],
     [{ token: "tok-pro" }, "gpt-5.4-mini", "gpt-5.6-luna"], // a lookalike is not an alias: DOWN to fast
@@ -360,7 +368,7 @@ test("a retired id from a shipped build keeps its tier on /api/check and /api/so
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.modelUsed, expected, `${who.token ?? "anonymous"} asking /api/check for ${asked}`);
   }
-  const searches = [["tok-student", "gpt-5.4", "gpt-5.6-terra"], ["tok-pro", "gpt-5-nano", "gpt-5.6-luna"], ["tok-free", "gpt-5.4", "gpt-5.6-luna"]];
+  const searches = [["tok-student", "gpt-5.4", "gpt-5.6-luna"], ["tok-pro", "gpt-5.6-terra", "gpt-5.6-luna"], ["tok-pro", "gpt-5-nano", "gpt-5.6-luna"], ["tok-free", "gpt-5.4", "gpt-5.6-luna"]];
   for (const [token, asked, expected] of searches) {
     const r = await sources(A, { model: asked }, { token, install: `a-legacy-src-${token}-${asked}` });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -368,10 +376,13 @@ test("a retired id from a shipped build keeps its tier on /api/check and /api/so
   }
 });
 
-test("a pre-remap desktop's retired id keeps its tier on the app routes", async () => {
+test("a pre-remap desktop's retired id is answered on fast on the app routes", async () => {
   const r = await call(A, "POST", "/api/structure", { body: { text: DRAFT, model: "gpt-5.4" }, token: "tok-student", install: "a-legacy-desktop" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.match(r.body.model, /^gpt-5\.6-terra/, `a Student's old balanced request ran ${r.body.model}`);
+  assert.match(r.body.model, /^gpt-5\.6-luna/, `a Student's old balanced request ran ${r.body.model}`);
+  const terra = await call(A, "POST", "/api/structure", { body: { text: DRAFT + " terra", model: "gpt-5.6-terra" }, token: "tok-pro", install: "a-legacy-desktop-pro" });
+  assert.equal(terra.status, 200, JSON.stringify(terra.body));
+  assert.match(terra.body.model, /^gpt-5\.6-luna/, `a Pro desktop's old balanced request ran ${terra.body.model}`);
   const free = await call(A, "POST", "/api/structure", { body: { text: DRAFT + " free", model: "gpt-5.4" }, token: "tok-free", install: "a-legacy-desktop-free" });
   assert.match(free.body.model, /^gpt-5\.6-luna/, "and never above the plan");
 });
@@ -424,15 +435,27 @@ test("a signed-in free user with the token is Pro, and the grant never sticks to
 });
 
 test("a beta caller runs /api/check at Pro, signed in or out; the same caller without the header does not", async () => {
+  // Every check runs luna since the 2026-09-21 plan policy, Pro's included.
+  // What Pro adds on /api/check is "Explain in depth" (deep:true), which a
+  // free caller is refused — so that is what tells the grant apart here.
+  // (Whether it then runs on astra is thorough.test.js's; B's 1-cent beta
+  // pool cannot hold astra's worst case, so here it answers on luna.)
   const out = await check(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
   assert.equal(out.status, 200, JSON.stringify(out.body));
-  assert.equal(out.body.modelUsed, "gpt-6-astra");
+  assert.equal(out.body.modelUsed, "gpt-5.6-luna");
   assert.equal(out.body.plan, "pro");
-  const signedIn = await check(B, { model: "gpt-6-astra" }, { token: "tok-free", headers: BETA, install: "beta-tester-2" });
-  assert.equal(signedIn.body.modelUsed, "gpt-6-astra");
+  const deep = await check(B, { deep: true }, { headers: BETA, install: "beta-tester-1" });
+  assert.equal(deep.status, 200, JSON.stringify(deep.body));
+  assert.equal(deep.body.plan, "pro");
+  const signedIn = await check(B, { deep: true }, { token: "tok-free", headers: BETA, install: "beta-tester-2" });
+  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+  assert.equal(signedIn.body.plan, "pro");
   const plain = await check(B, { model: "gpt-6-astra" }, { install: "beta-tester-1" });
   assert.equal(plain.body.modelUsed, "gpt-5.6-luna");
   assert.equal(plain.body.plan, "free");
+  const plainDeep = await check(B, { deep: true }, { install: "beta-tester-1" });
+  assert.equal(plainDeep.status, 403, JSON.stringify(plainDeep.body));
+  assert.equal(plainDeep.body.error.kind, "plan_required");
 });
 
 test("the desktop's app routes ignore the beta header entirely", async () => {
@@ -450,7 +473,7 @@ test("beta spend lands in the beta pool; the extension pool is untouched", async
   // mock model, which makes it the one call whose spend is visible here.
   const r = await sources(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna", "every source search runs luna, the client's id ignored");
   assert.equal(r.body.plan, "pro");
 
   const after = await status(B);
@@ -482,14 +505,17 @@ test("an exhausted beta pool drops the tester to their own plan on the extension
 // ── C: local, unenforced ─────────────────────────────────────────────────
 
 test("a local server keeps server-side tiering (pickModel) and a writable prefs row", async () => {
-  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.6-terra" } });
+  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-6-astra" } });
   assert.equal(put.status, 200, JSON.stringify(put.body));
-  assert.equal((await check(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra", "uniform: the prefs row decides");
-  assert.equal((await sources(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra");
+  assert.equal((await check(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-6-astra", "uniform: the prefs row decides");
+  assert.equal((await sources(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-6-astra");
 
-  // A prefs row saved before the remap names a retired id: it means its tier.
-  assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.4" } })).status, 200);
-  assert.equal((await check(C, {})).body.modelUsed, "gpt-5.6-terra", "a legacy prefs row keeps its tier");
+  // A prefs row saved before the remap names a retired id: it means its tier,
+  // which for both old balanced ids is fast since the 2026-09-21 plan policy.
+  for (const legacy of ["gpt-5.4", "gpt-5.6-terra"]) {
+    assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: legacy } })).status, 200);
+    assert.equal((await check(C, {})).body.modelUsed, "gpt-5.6-luna", `a legacy ${legacy} prefs row means fast`);
+  }
 
   assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "economy" } })).status, 200);
   assert.equal((await check(C, { model: "gpt-6-astra" })).body.modelUsed, "gpt-5.6-luna", "economy: the fast tier, whatever was asked");
