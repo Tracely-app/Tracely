@@ -286,3 +286,47 @@ test("/api/entitlement: a Pro account sees its limits, source usage and Thorough
   assert.equal(free.body.limits.checksPerDay, 400);
   assert.ok(!("thorough" in free.body) && !("fairUse" in free.body));
 });
+
+// ── the desktop's critique ───────────────────────────────────────────────
+
+const critique = (tag, token, model, extra = "") => call("POST", "/api/critique", {
+  token, body: { claimText: `Screen time causes anxiety. TAG-${tag} ${extra}`.trim(), strengthScore: 0.4, evidenceSummary: "two surveys", model, effort: "high" },
+});
+
+test("critique: Pro on Thorough gets astra at low under 4,000 tokens; Pro on Fast, Student and Free get luna at low", async () => {
+  const cases = [
+    ["crit-pro-thorough", "tok-pro-crit", ASTRA, [ASTRA, "low", 4000]],
+    ["crit-pro-fast", "tok-pro-crit", LUNA, [LUNA, "low", null]],
+    ["crit-pro-legacy", "tok-pro-crit", "gpt-5.6-terra", [LUNA, "low", null]],
+    ["crit-student", "tok-student-crit", ASTRA, [LUNA, "low", null]],
+    ["crit-free", "tok-free-crit", ASTRA, [LUNA, "low", null]],
+  ];
+  for (const [tag, token, model, [m, effort, maxTokens]] of cases) {
+    const r = await critique(tag, token, model);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const [sent] = openaiLog(tag);
+    assert.equal(sent.model, m, tag);
+    assert.equal(sent.effort, effort, `${tag}: the client's "high" is never sent`);
+    if (maxTokens) assert.equal(sent.maxTokens, maxTokens, tag);
+    else assert.notEqual(sent.maxTokens, 4000, `${tag}: the route's own ceiling`);
+  }
+});
+
+test("critique allowance: astra while it covers the 35-cent worst case (12 at 10 cents), then luna — never refused", async () => {
+  const models = [];
+  for (let i = 0; i < 13; i++) {
+    const r = await critique(`crit-drain-${i}`, "tok-pro-critdrain", ASTRA);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    models.push(openaiLog(`crit-drain-${i}`)[0].model);
+  }
+  assert.deepEqual(models, [...Array(12).fill(ASTRA), LUNA], "150 - 10k >= 35 for k = 0..11");
+  const e = await call("GET", "/api/entitlement", { token: "tok-pro-critdrain" });
+  assert.equal(e.body.thorough.remainingPct, 20);
+});
+
+test("critique and Explain in depth draw on ONE allowance per account", async () => {
+  const token = "tok-pro-shared";
+  await critique("shared-crit", token, ASTRA);
+  const r = await explain("shared-deep", { token });
+  assert.equal(r.body.thorough.remainingPct, 86, "10 cents from the critique, 10 from the explanation");
+});
