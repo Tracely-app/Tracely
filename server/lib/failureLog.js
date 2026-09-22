@@ -57,3 +57,20 @@ export function modelFailureLine(route, err, trace = {}) {
   const status = Number.isInteger(err?.status) ? err.status : "-";
   return `[tracely] model call failed route=${route} kind=${safeKind(err?.reason ?? err?.kind)} status=${status} model=${model} effort=${effort}`;
 }
+
+/* When OpenAI last said the account is out of credit. One timestamp, no
+ * detail: /api/status reports it so an outage caused by an empty balance is
+ * visible at a glance instead of looking like ordinary rate limiting. */
+const OUT_OF_CREDIT_WINDOW_MS = 15 * 60_000;
+let outOfCreditAt = 0;
+
+export function noteUpstreamFailure(err, now = Date.now()) {
+  if (err?.reason === "out_of_credit") outOfCreditAt = now;
+}
+
+/** `{ outOfCreditAt }` (ISO) if OpenAI refused for lack of credit in the last 15 minutes, else null. */
+export function upstreamStatus(now = Date.now()) {
+  return outOfCreditAt && now - outOfCreditAt < OUT_OF_CREDIT_WINDOW_MS
+    ? { outOfCreditAt: new Date(outOfCreditAt).toISOString() }
+    : null;
+}

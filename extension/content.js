@@ -1,10 +1,16 @@
 /* Tracely — universal writing checker.
 
    Three modes, chosen at load:
-   • Docs mode (docs.google.com/document/*) — the original behavior, untouched:
-     reads the doc via the signed-in export endpoint every 10s, shows findings
-     in the floating widget; edits go through the local server's Docs bridge
-     (or copy-paste when the bridge isn't configured).
+   • Docs mode (docs.google.com/document/*, /document/u/N/d/ included) —
+     reads the doc as the signed-in account via the export endpoint every
+     10s, shows findings in the floating widget, and underlines flagged
+     sentences over Docs' canvas (positions from Docs' SVG annotation layer,
+     docs-hook.js's paint ledger as the fallback). Fixes are COPY-and-paste
+     ("Copy fix") for everyone on the hosted server. "Fix in doc" appears
+     only when /api/status reports docsBridge, i.e. a developer's local
+     server with the Apps Script bridge (server/docs-bridge/Code.gs,
+     GOOGLE_DOCS_BRIDGE_URL) configured; that script edits as whoever
+     deployed it, so the hosted server has none.
    • Harness mode (window.__tracelyHarness) — the test page stands in for Docs.
    • Field mode (everywhere else) — Grammarly's actual core mechanism: track
      the focused textarea / contenteditable, check its sentences, and rewrite
@@ -18,9 +24,10 @@
    test pages fetch the server directly.
 
    Field mode also draws Grammarly-style overlay underlines: flagged
-   sentences get a wavy colored underline (no highlight wash) — false #d93636,
-   questionable #ffb800, incoherent #ff5900; grey dotted while pending;
-   clicking one opens the panel and flashes that verdict's card. */
+   sentences get a 3px solid underline (no highlight wash) in their verdict's
+   colour from MARK_COLORS below (false, questionable, incoherent,
+   needs_citation each distinct); 2px grey dotted while pending; clicking one
+   opens the panel and flashes that verdict's card. */
 "use strict";
 
 (() => {

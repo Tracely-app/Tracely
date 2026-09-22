@@ -12,8 +12,10 @@ answers 503. That is the supported way to run Tracely locally, and it is what
 
 ## Env vars
 
-Put these in `~/tracely/.env` (same file as `OPENAI_API_KEY`; the running
-server picks up changes without a restart).
+Put these in `server/.env` locally, `/srv/tracely/app/.env` on the hosted box
+(same file as `OPENAI_API_KEY`; the running server picks up changes without a
+restart — except `TRACELY_DATA_DIR`, below, and the boot-time values listed in
+`DEPLOY.md`).
 
 | Variable | Needed for | What it is |
 | --- | --- | --- |
@@ -23,9 +25,9 @@ server picks up changes without a restart).
 | `STRIPE_WEBHOOK_SECRET` | webhook | The `whsec_…` signing secret for this endpoint. |
 | `STRIPE_PRICE_STUDENT` | webhook | The Stripe price id sold as the Student plan. |
 | `STRIPE_PRICE_PRO` | webhook | The Stripe price id sold as the Pro plan. |
-
 | `TRACELY_DAILY_BUDGET_USD` | the spend cap | Dollars of OpenAI spend allowed per day. Defaults to 10. An explicit `0` turns the ceiling off; an EMPTY value does not (it falls back to the default). |
 | `TRACELY_PAID_DAILY_BUDGET_USD` | the spend cap | The Student/Pro pool on the extension's routes. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, paid callers run the fast model on the normal pool — never a 503 because of it. |
+| `TRACELY_APP_DAILY_BUDGET_USD` | the spend cap | The desktop app routes' own pool (`__global_app__`). Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent the app routes answer 503 and the extension's pools are untouched. |
 | `TRACELY_BETA_TOKENS` | the test extension | Comma-separated tokens. A caller sending one as `X-Tracely-Beta` is served as Pro on the extension's routes (never the desktop's), spending from its own pool. Empty or unset = beta off. See DEPLOY.md. |
 | `TRACELY_BETA_DAILY_BUDGET_USD` | the test extension | The beta pool's daily ceiling. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, testers fall back to their own plan on the normal pool. |
 | `TRACELY_TRUSTED_PROXY_HOPS` | the spend cap | How many proxies you control sit in front of this server. Unset = ignore `X-Forwarded-For` entirely, which is right for a direct connection. |
@@ -73,34 +75,37 @@ Resolutions are cached in memory for 60 seconds, keyed on a hash of the token.
 
 ## The model clamp
 
-Every AI endpoint (`/api/check`, `/api/flow`, `/api/sources`) accepts an
-optional `Authorization: Bearer <supabase access token>` header. Whatever model
-the client asks for is a **request, never a grant**: the server picks a model
-from its own cost tiering, then clamps it to the plan's ceiling. Responses
-carry `plan` and `modelUsed` so the client can say what actually ran.
+Every AI endpoint (the extension's `/api/check`, `/api/flow` and
+`/api/sources`, and the desktop's app routes) accepts an optional
+`Authorization: Bearer <supabase access token>` header. Whatever model the
+client asks for is a **request, never a grant**: on a hosted (enforced) server
+the requested model runs, clamped to the plan's ceiling (`appModelFor` in
+`server.js`); the prefs-row cost tiering (`pickModel`) applies only on a local
+server. Responses carry `plan` and `modelUsed` so the client can say what
+actually ran.
 
 An unrecognised or absent model request resolves *down* to the fast model, not
-up to the plan's ceiling — "the client sent nothing" must not become an Opus
-bill, and the cheap default was the pre-entitlement behaviour of every route.
+up to the plan's ceiling — "the client sent nothing" must not become a
+`gpt-6-astra` bill, and the cheap default was the pre-entitlement behaviour of every route.
 
 ## Free-tier metering
 
-Counted server-side in SQLite (`entitlement_usage`, one row per account per
+Counted server-side in SQLite (`entitlement_usage`, one row per caller per
 calendar day), so a restart does not hand the quota back. The day boundary is
 **local midnight**, not UTC — a UTC reset lands mid-evening in the US and would
 expire someone's quota while they were still writing.
 
-Only *identified* free accounts are metered. An anonymous caller is counted by
-nothing, which is what keeps a signed-out local run unaffected. Over the limit
-is a 429 naming the limit.
+Accounts **and** anonymous callers that send an install id are metered, keyed
+by `callerId` (`user:<id>`, else `install:<hash>`, see "What identity a quota
+counts against" below); only a caller with neither escapes the daily quota,
+because the address rung carries a rate limit only. Over the limit is a 429
+naming the limit. Locally (not enforced) nothing is metered at all.
 
-**That is also the meter's escape hatch, and it is only acceptable while this
-server is loopback-only.** A free account that has spent its five searches can
-send the next request without the `Authorization` header and be served as an
-anonymous caller. Today the server binds `127.0.0.1` and is started by the same
-person it would be metering, so there is nothing to defend; the moment this is
-hosted, "anonymous ⇒ unmetered" has to become "anonymous ⇒ metered by something
-else" (IP, install id) or the quota is decorative. The model clamp does not
+Dropping the `Authorization` header therefore moves a free account onto its
+install id's quota, not off the meter. The remaining hole is rotating
+`X-Tracely-Install`, or minting anonymous Supabase accounts with the public
+anon key (anonymous sign-ins are enabled), and the global budget is what
+bounds it ("What an attacker can still do"). The model clamp does not
 share this problem — dropping the header downgrades you to `free`, which is the
 strictest tier, so the only thing an attacker wins by going anonymous is a
 worse model.
@@ -108,7 +113,8 @@ worse model.
 ## The Stripe webhook
 
 `POST /api/billing/webhook`, handling `checkout.session.completed`,
-`customer.subscription.updated` and `customer.subscription.deleted`.
+`customer.subscription.created`, `customer.subscription.updated` and
+`customer.subscription.deleted`.
 
 The signature is HMAC-SHA256 over `"{timestamp}.{raw body}"`, compared
 timing-safely, rejecting timestamps more than five minutes old. **The raw body
@@ -141,9 +147,10 @@ that has stopped being active (`canceled`, `unpaid`, `incomplete_expired`).
    ```
 
    Paste the `whsec_…` it prints into `.env` as `STRIPE_WEBHOOK_SECRET`.
-3. In production, terminate TLS in front of the server and forward with
-   `Host: localhost:4477` preserved, or widen `hostAllowed()` in `server.js`
-   deliberately — it is a DNS-rebinding guard, not an accident.
+3. In production Apache terminates TLS with `ProxyPreserveHost Off`, so the
+   app sees `Host: 127.0.0.1:4477` (`DEPLOY.md`, "Apache"). Do not widen
+   `hostAllowed()` in `server.js` — it is a DNS-rebinding guard, not an
+   accident.
 
 ## Endpoints
 
@@ -162,7 +169,7 @@ POST /api/billing/webhook
 `enforced` is false when no Supabase project is configured, and it means the
 server clamps **nothing** — not "everyone is free". The extension reads it and
 opens every stop of its model slider in that mode, because locking the slider
-and showing an upgrade prompt against a server that will serve Opus on request
+and showing an upgrade prompt against a server that will serve `gpt-6-astra` on request
 would be a lie. Anything other than an explicit `false` is treated as enforced.
 
 ## Event outcomes, and which ones Stripe retries
@@ -217,8 +224,10 @@ hunting free tokens, and a real student who must not be locked out.
 **1. A global daily budget (`lib/spend.js`).** The only layer that bounds a
 determined caller, because it does not depend on identity at all. Every model
 response carries its token usage; `costMicroCents` prices it from
-`MODEL_PRICES` in `lib/llm.js` and the total accumulates in `entitlement_usage`
-under a synthetic `__global__` account. SQLite-backed rather than in memory,
+`MODEL_PRICES` (`shared/prices.js`, re-exported by `lib/llm.js`) and the total
+accumulates in `entitlement_usage` under one synthetic account per pool:
+`__global__` (extension), `__global_paid__`, `__global_beta__` and
+`__global_app__` (desktop). SQLite-backed rather than in memory,
 because "restart the server to reset the budget" would be a bypass.
 
 When the day runs low, **sources are shed before checks.** OpenAI bills the
@@ -229,7 +238,8 @@ feature people actually notice missing. Below 20% remaining, `/api/sources`
 answers 503 and checking continues. At 0%, everything answers 503.
 
 **2. Per-caller daily quotas.** Free callers get `FREE_DAILY_CHECKS` (400) and
-`FREE_DAILY_SOURCE_SEARCHES` (5) a day. 400 checks is about an hour of
+`FREE_DAILY_SOURCE_SEARCHES` (5) a day on the extension's routes, and
+`FREE_DAILY_AI_CALLS` (150) on the desktop's. 400 checks is about an hour of
 continuous typing and costs at most ~34 cents; far less in practice, because
 the server caches on a hash of the input, so re-checking unchanged text is
 free. Paid plans are not quota-metered — they are bounded by the global budget.
@@ -257,7 +267,8 @@ option was rejected, not overlooked.
 
 ### What an attacker can still do
 
-Rotate `X-Tracely-Install` and consume the whole day's global budget. There is
+Rotate `X-Tracely-Install`, or mint anonymous Supabase accounts with the
+public anon key, and consume the whole day's global budget. There is
 no fix for that which does not also break the no-sign-in promise, which is why
 the budget exists and why it should be set to a number you can afford to lose
 in a day. Watch `budget` on `GET /api/status` — it reports dollars spent and

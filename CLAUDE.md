@@ -22,8 +22,14 @@ this section before touching anything that makes a model call.
 - **Every AI call from every client goes to `server/`.** The desktop called a
   separate Vercel relay (`questionablepuddle/Tracely-relay`) until the backend
   unification; its prompts, schemas and guardrails moved into the server and
-  the relay is retired. It stays deployed only for installs too old to update —
-  electron-updater cannot downgrade — and nothing new ships to it.
+  nothing new ships to the relay. **Every stable install is still a
+  relay-era build:** the newest stable release, v0.3.97 (2026-08-23), predates
+  the move, was compiled against the relay and the since-deleted Supabase
+  project `epafyygdvvkgpdkbevqi`, and cannot sign in; only
+  0.3.98-preview.251 (#251) and later call the server. Stable users leave the
+  relay only when a stable release from `main` ships (0.3.98 is pending) —
+  electron-updater offers only a strictly higher version and cannot
+  downgrade.
 - **The prompts live in `server/lib/prompts/`**, one file per route, and
   `server/test/prompts.test.js` pins each one's SHA-256. Editing a prompt is
   allowed and should be a decision: every one carries numbers measured on real
@@ -104,9 +110,16 @@ this section before touching anything that makes a model call.
 - One Supabase project, `sxifbtelrtbsgnnwnmdf`, for every surface. Stripe
   checkout → webhook → `app_metadata.plan` on the user (`server/BILLING.md`).
   `user_metadata` is user-writable and is never read for a plan.
-- **Anonymous sign-ins are OFF** on that project. The desktop works signed out
-  anyway: every call carries `X-Tracely-Install` (a stable per-install UUID in
-  `config.json`), and the server meters it as a free install.
+- **Anonymous sign-ins are ON** on that project (checked 2026-09-22:
+  `/auth/v1/settings` reports `external.anonymous_users: true`; #251's
+  description predates this). A desktop built against `sxifbtelrtbsgnnwnmdf`
+  signs in anonymously at boot and is metered as `user:<id>` on the free plan.
+  Every call also carries `X-Tracely-Install` (a stable per-install UUID in
+  `config.json`), which the server meters when there is no session — sign-in
+  failed, or the build names another project.
+- **The old production project `epafyygdvvkgpdkbevqi` is deleted** (its host
+  no longer resolves). A build compiled against it — every stable release up
+  to v0.3.97 — can never get a session.
 
 ### Checks
 
@@ -119,8 +132,10 @@ deterministic answers in the real shapes — use it for every shape check.
 
 Tracely's desktop app is a private, local-first Electron app (React +
 TypeScript) that checks the *credibility* of user-written text: it detects
-factual claims, finds academic evidence (OpenAlex, Crossref, Semantic Scholar,
-PubMed), scores how well-supported each claim is, critiques weak arguments, and
+factual claims, finds evidence (OpenAlex, Crossref and Semantic Scholar
+always; PubMed for biomedical claims, Wikipedia for general ones, the World
+Bank's indicators for statistical ones — `search/aggregator.ts`), scores how
+well-supported each claim is, critiques weak arguments, and
 generates citations (APA/MLA/Chicago). All user data lives in a local SQLite
 (`sql.js`, WASM — no native module compilation needed) database under
 Electron's per-OS user-data dir. Network calls are to academic search APIs, to
@@ -159,13 +174,19 @@ Read it with the Figma MCP (`get_metadata` on `0:1` to list frames, then
 | `Collapsed Launcher` | the 56px circle and its 31px count badge |
 | `Inline Detection (Resting State)` | the underline marks with nothing hovered |
 
-**Three underline colours, not eight.** `#ff5900` for an unverified figure,
+**Three underline colours, not thirteen.** `#ff5900` for an unverified figure,
 `#ffb800` for a missing citation, `#d93636` for weak reasoning — read off the
 marks in those frames, with the popover's dot always matching the mark that
-opened it. `PROBLEM_COLOR` in `OverlayApp.tsx` groups all eight problem kinds
-onto those three, because inventing a fourth hue is what produced a purple
-statistic underline and an orange "missing citation" one — the design's two
-colours, swapped.
+opened it. `PROBLEM_COLOR` in `components/problemCopy.ts` (shared by the
+editor and the overlay, and mirrored in `server/shared/marks.js` for every
+kind except the desktop-only `off-topic`, which
+`server/test/mirror-contracts.test.js` pins) groups all
+thirteen problem kinds onto those three, plus grey `#9a9ba1` for `searching`,
+because inventing a fourth hue is what produced a purple statistic underline
+and an orange "missing citation" one — the design's two colours, swapped.
+**The extension does not follow this yet** (`extension/content.js`
+`MARK_COLORS`: false red, questionable amber, incoherent violet,
+needs_citation blue); see "UI decisions" below.
 
 **Every popover has a 16x10 tail** (`PopoverTail`, path from node `288:545`)
 pointing at the sentence, overlapping the card border by 2px so the strokes
@@ -233,6 +254,42 @@ its lines.
   is the only thing that ever fires in a hidden window. Measured in the
   harness: 0 marks before, 4 after, with the hover popover opening on them.
 
+## UI decisions (ratified 2026-09-22)
+
+Decided from an audit of main at 67120d1. **Implementation is pending**: the
+desktop half ships with a normal desktop release, and the extension half
+(colours, CSS and a comment in `extension/content.js`, nothing else) waits
+until the current Web Store review clears. Add no new mark or grade UI that
+contradicts these in the meantime.
+
+- **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`
+  in `src/renderer/src/components/problemCopy.ts`, mirrored by `COLORS` and
+  the kinds table in `server/shared/marks.js` (every kind but the desktop-only
+  `off-topic`): red `#d93636` = wrong or
+  invented (contradicted fact, fabricated source); orange `#ff5900` = thin
+  evidence or an unverified figure; amber `#ffb800` = add or fix the
+  attribution (`PROBLEM_COLOR` also draws `overstated-claim` and `off-topic`
+  amber today); blue `#2563eb` = grammar only (`PROSE_ERROR`,
+  `DocumentMarkLayer.tsx`); grey dotted `#9a9ba1` = still checking. The
+  extension maps onto it — false and incoherent → red, questionable → orange,
+  needs_citation → amber — where today its `MARK_COLORS` uses amber, violet
+  and blue for the last three.
+- **Colour only ever means a finding.** Colour that encodes anything else
+  becomes neutral with a text label: the overlay's claim-type dots
+  (`BUCKET_COLOR`, `OverlayApp.tsx`), the orange "Searching for a source" dot,
+  the extension's violet flow bracket and its red "any issues" pill.
+- **Never colour alone** (accessibility). Every finding also gets a
+  non-colour cue and there is one legend; amber `#ffb800` is 1.73:1 on white,
+  below WCAG's 3:1 for graphics, and red vs orange is close under
+  tritanopia. Style suggestions (`PROSE_STYLE` `#9aa1ad`, grey dotted) must
+  stop looking like "checking" once reduced motion stops the pulse.
+- **One grader: the server's `/api/grade`** (`src/main/services/ai/gradeDraft.ts`,
+  rubric prompt `server/lib/prompts/grade.js`), which the editor's AI Insights
+  already uses. Screen Watch's local keyword scorer
+  (`screenWatch/watchOutline.ts` → `structure/analyzeStructure.ts` /
+  `scoreDraft.ts`) must not show a number or a letter; it may list structure
+  findings, with a user-triggered "Grade this draft" that calls `/api/grade`.
+
 ## Commands
 
 ```bash
@@ -248,7 +305,7 @@ There is no lint script configured. The two automated correctness checks are `np
 
 ### Server setup for AI features
 
-Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. The relay (`Tracely-relay`) still serves installed builds from before this change. Evidence search, scoring, citations, and the library all work with no server.
+Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. Stable installs (v0.3.97 and older) still call the relay (`Tracely-relay`) until a stable release from `main` reaches them. Evidence search, scoring, citations, and the library all work with no server.
 
 ### Nobody signs in, and the app still has an account
 
@@ -257,29 +314,34 @@ sign-out and no account panel. There is still a Supabase ACCOUNT, created
 without asking, because two things downstream need one and neither is a UI
 concern:
 
-- **The relay refuses a call it cannot attribute.** `resolveUser` in the
-  relay's `lib/auth.ts` fails closed, on all seven AI endpoints — no
-  `Authorization` header is a 401, not a cheaper answer.
-- **Both spend guards are keyed on a user id**: the burst limiter
-  (`lib/rateLimit.ts`, `relay_quota(p_user_id)`) and the 150-per-UTC-day free
-  ceiling (`lib/entitlements.ts`). With nothing to count against, the shared
-  installer token — extractable from any release in about a minute — would be
-  the only thing between a script and the OpenAI bill.
+- **The server's quotas are keyed on an identity** (`callerId`,
+  `server/lib/entitlement.js`): `user:<supabase id>`, then
+  `install:<X-Tracely-Install>`, then the address, which only ever carries a
+  rate limit, never a daily quota. The desktop's free ceiling is
+  `FREE_DAILY_AI_CALLS` (150/day, `server/shared/plan.js`); its limiter is
+  `appCallerCallsPerMinute` (30, `server/shared/guards.js`).
+- **A plan needs a user to attach to.** A signed-out call is not refused — it
+  is served as free and metered by install id — but a plan
+  (`app_metadata.plan`) or a later sign-in can only attach to a Supabase user,
+  and the anonymous session is that user.
 
 So `ensureAnonymousSession` (`services/auth/client.ts`) signs the install in
 anonymously at boot, and `main/index.ts` awaits it before registering the
 access-token provider. A Supabase anonymous user is an ordinary user row with
-an ordinary JWT: **the relay needed no change and was not changed.**
+an ordinary JWT. (This section was written against the relay, whose
+`resolveUser` 401'd any call without a session; the server does not.)
 
 - **THE SESSION FILE IS THE IDENTITY.** `sessionStore.ts` persists it under the
   user-data dir and supabase-js refreshes it, so one install keeps one account
   and its daily allowance means something. Getting the stored session BEFORE
   minting one is the whole of that — skip it and every launch is a new account
   with a fresh 150.
-- **It requires "Allow anonymous sign-ins" on the Supabase project.** With that
-  off, Supabase refuses, the app logs it and carries on: local features work
-  and relay calls 401, which is exactly the state a signed-out install used to
-  be in.
+- **It requires "Allow anonymous sign-ins", which is ON for
+  `sxifbtelrtbsgnnwnmdf`.** If it is turned off, Supabase refuses, the app
+  logs it and carries on, and server calls are metered by install id; nothing
+  401s. A build compiled against the deleted project `epafyygdvvkgpdkbevqi`
+  gets the same refusal, and on a relay-era build (v0.3.97 or older) every AI
+  call then fails, because the relay 401s a call without a session.
 - **`ensureAnonymousSession` cannot throw.** It runs inside the boot sequence.
 - **`authRequired` did not go away and no longer means "sign in".** It is a 401
   reaching Screen Watch, and the one thing it must not now say is that the
@@ -297,8 +359,9 @@ The section this replaced described the `tracely://` scheme fight between dev,
 stable and preview builds over Google's OAuth callback. All of it — the scheme,
 `registerOAuthProtocol`, the `protocols:` block in `electron-builder.yml`, the
 per-channel redirect URLs — is deleted. `npm run dev` no longer takes anything
-from the installed app. **`tracely-preview://auth-callback` is still on the
-staging Supabase project's allowlist**; harmless, and left there because
+from the installed app. **`tracely-preview://auth-callback` is still on
+`sxifbtelrtbsgnnwnmdf`'s redirect allowlist** (the old staging project, now
+the only one); harmless, and left there because
 removing an allowlist entry is the kind of change that is only noticed when
 something needs it back.
 
@@ -308,9 +371,28 @@ something needs it back.
 
 ## Branches and releasing
 
-One workspace, `C:\Users\merri\Tracely-agent1`, on `main`. Work happens on
-`feat/*` branches. A `Stop` hook auto-commits and pushes the current branch at
-the end of every turn, so work is never left only in a working tree.
+More than one workspace: two people (Sam and Merrick) each run Claude Code
+sessions, Merrick's Windows workspace `C:\Users\merri\Tracely-agent1` is where
+stable Windows releases have been cut (no CI workflow builds a stable Windows
+release), and the Discord bridge bot makes changes on Sam's Mac and pushes the
+`live-preview` branch (LIVE-PREVIEW.md). Work happens on `feat/*` branches;
+claim it first (see "Claiming work" below). A `Stop` hook auto-commits and
+pushes the current branch at the end of every turn, so work is never left only
+in a working tree.
+
+### Claiming work
+
+- **Claim before starting** any multi-PR or multi-hour work: a GitHub issue
+  assigned to its owner (or a draft PR) titled `Claim: <phase>`, naming the
+  paths or routes in scope and the planned PRs.
+- **Check open claims first**: `gh issue list -s open -S 'in:title "Claim:"'`
+  and `gh pr list -S 'in:title "Claim:"'`. If one overlaps, comment there and
+  wait for its owner; never build a parallel implementation.
+- **One owner per phase.** Claude sessions claim exactly as people do, and the
+  Discord bridge bot's work belongs to whoever asked it — that person owns it.
+- **Link every PR to its claim** (`Part of #N`); the owner closes the claim when
+  the last PR merges or the work is dropped.
+- **A claim with no commits for 3 days lapses**: say so on it, then take it.
 
 - **`main` is the integration branch and the only branch releases are cut
   from.** It advances by deliberate merge. `.claude/hooks/guard-edit.sh` refuses
@@ -345,10 +427,12 @@ the end of every turn, so work is never left only in a working tree.
 
 ### When a release goes wrong
 
-See **[ROLLBACK.md](ROLLBACK.md)**. The short version: the relay reverts in
-seconds with `vercel rollback`, the desktop app cannot be reverted at all
-(electron-updater will not downgrade), so the first question in any incident is
-whether the relay can fix it instead.
+See **[ROLLBACK.md](ROLLBACK.md)** (still written around the relay). The short
+version: the server reverts in about a minute by restoring the `app.bak-*`
+snapshot taken before each deploy (`server/DEPLOY.md`), the desktop app cannot
+be reverted at all (electron-updater will not downgrade), so the first question
+in any incident is whether the server can fix it instead. The relay's
+`vercel rollback` matters only for stable installs at v0.3.97 or older.
 
 **Two rules survive from the old ownership contract, because both were written
 after something broke:**
@@ -509,10 +593,10 @@ Every handler validates its input with zod before touching a service — there i
 
 ### `main/services/` — four independent domains
 
-- **`ai/`** — `client.ts` (`callServer`) is the only thing that ever makes a network call to the Tracely server; its retry/timeout/error-envelope rules are the tested leaf `serverCallPolicy.ts`; `claimDetection.ts` and `critique.ts` build the request bodies. `costGuard.ts` centralizes hard limits (max input chars, max claims per analysis, max evidence items sent to critique) — check here before loosening any AI-related limit. AI is invoked either from an explicit user action (Analyze / Find Evidence / Critique) or automatically by Screen Watch after a debounced pause in typing — never on every keystroke. (This used to say "the renderer's Live tab (`LiveView.tsx`)"; there is no such tab.) Every call result is cached in SQLite (`cacheRepo.ts`) keyed by a hash of normalized input, which also caps live-editing cost since re-detecting unchanged text is free.
+- **`ai/`** — `client.ts` (`callServer`) is the only thing that ever makes a network call to the Tracely server; its retry/timeout/error-envelope rules are the tested leaf `serverCallPolicy.ts`; `claimDetection.ts` and `critique.ts` build the request bodies. `costGuard.ts` centralizes hard limits (max input chars, max claims per analysis, max evidence items sent to critique) — check here before loosening any AI-related limit. AI is invoked either from an explicit user action (AI Insights / Find Evidence / Critique) or automatically after a debounced pause: Screen Watch detection, the editor's live detection (`shared/liveDetect.ts`: 2.5 s idle, ≥80 chars, the length changed by ≥80 chars since the last detection (`MIN_DETECT_DELTA_CHARS`), ≥15 s apart), and up to `MAX_AUTO_CRITIQUE_CLAIMS` (6) automatic critiques per analysis while "Fact-check my claims automatically" is on (the default) — never on every keystroke. (This used to say "the renderer's Live tab (`LiveView.tsx`)"; there is no such tab.) Every call result is cached in SQLite (`cacheRepo.ts`) keyed by a hash of normalized input, which also caps live-editing cost since re-detecting unchanged text is free.
 - **`search/`** — one client module per provider, each returning a `NormalizedSourceResult`. The three core scholarly searches always run; routing can add PubMed for biomedical claims, Wikipedia for general facts, or World Development Indicators from the World Bank for statistical claims. `worldBank.ts` embeds the indicator catalogue once per session and returns at most one dataset only above its measured semantic-match floor. `aggregator.ts` fans providers out in parallel via `safeSearch` (a provider failure returns `[]` rather than failing the whole search), dedupes by DOI (falling back to normalized title+year), and caps merged results. `scoring.ts` computes evidence strength as a **deterministic formula** (source count, venue quality, recency, relevance rank) — not an AI call. `rateLimiter.ts` throttles per-provider request rate.
 - **`citations/`** — pure formatters (`formatters/{apa,mla,chicago}.ts`) from source metadata, no AI/network involved. `authorUtils.ts` truncates author lists to "et al." after 3 authors (a known MVP simplification, not the full style-guide rule).
-- **`storage/`** — `db.ts` wraps `sql.js`: the whole database is an in-memory WASM DB that gets fully re-serialized and written to disk (`persist()`) after every `run()`. `schema.ts` holds the SQL DDL. One repo module per table (`analysesRepo`, `claimsRepo`, `claimEvidenceRepo`, `sourcesRepo`, `citationsRepo`, `libraryRepo`, `cacheRepo`, `settingsRepo`) — go through these rather than querying `db.ts` directly from elsewhere. `config.ts` handles the small `config.json` (currently just the optional Semantic Scholar key).
+- **`storage/`** — `db.ts` wraps `sql.js`: the whole database is an in-memory WASM DB that gets fully re-serialized and written to disk (`persist()`) after every `run()`. `schema.ts` holds the SQL DDL. One repo module per table (`analysesRepo`, `claimsRepo`, `claimEvidenceRepo`, `sourcesRepo`, `citationsRepo`, `libraryRepo`, `cacheRepo`, `settingsRepo`) — go through these rather than querying `db.ts` directly from elsewhere. `config.ts` handles the small `config.json` (the optional Semantic Scholar and NCBI keys, and the `X-Tracely-Install` id).
 
 ### Main-process entry (`src/main/index.ts`)
 
@@ -530,9 +614,11 @@ the default tab is Home (`App.tsx`). The main window's tabs are Home, Analyze
 and Settings.
 
 What survives of it is `shared/claimSpans.ts`, which locates a claim's text
-within a document to compute underline offsets. Its only importer now is
-`screenWatchService.ts` — Screen Watch is where in-place underlining actually
-happens, and it is the only place AI runs automatically.
+within a document to compute underline offsets. Both surfaces underline in
+place now — Screen Watch over other apps, and the Analyze editor's
+`DocumentMarkLayer` over Tracely's own document — and both run AI
+automatically after a pause (see "The editor DETECTS CLAIMS automatically"
+below).
 
 ### Screen Watch (`main/services/screenWatch/`, `windows/overlayWindow.ts`, `resources/uia-watch.ps1`)
 
@@ -540,7 +626,7 @@ Opt-in (Settings → Screen Watch, off by default, also toggleable from the tray
 
 - **`resources/uia-watch.ps1`** does the actual reading via .NET's `System.Windows.Automation` (UI Automation / UIA), spawned fresh by `uiaSnapshot.ts` on every poll tick (no persistent helper process, to sidestep async-stdin complexity in PowerShell). It reads `AutomationElement.FocusedElement`, extracts text via `TextPattern.DocumentRange` (falling back to `ValuePattern` for controls that don't support rich text access), and — for already-detected claims passed in via `-ClaimsB64` — uses `TextPatternRange.FindText()` + `GetBoundingRectangles()` to get exact on-screen rectangles for underlining. **Writes raw UTF-8 bytes directly to the stdout handle** rather than `Write-Output`, because PowerShell's console encoding is inconsistent across hosts/versions and silently corrupts non-ASCII characters (smart quotes, accents, em-dashes) into invalid JSON otherwise — this was caught by live-testing against a real Chromium browser, not by inspection, so don't "simplify" it back to `Write-Output` without re-testing against real accented text.
 - **Coverage is real but bounded by UIA support in the target app**: works well in Word, WordPad, other RichEdit-based apps, and — usefully — in Chromium-based browsers (Chrome/Edge/Opera all expose page text via UIA TextPattern when an accessibility client is attached), confirmed against live pages during development. It does **not** work in apps that render text as pixels without exposing an accessibility tree — Google Docs is the main example. `controlRect` is always available as a fallback even without `TextPattern`, but per-claim underline rectangles require it.
-- **`screenWatchService.ts`** owns the poll loop (`POLL_INTERVAL_MS` = 1200ms) and a stability debounce (text must be unchanged for `STABLE_MS` before triggering `detectClaims`) — this is the other place AI runs automatically. Detected claims here are **not persisted** to the analyses/claims tables (they're synthesized in-memory `Claim` objects with a fresh UUID) — deliberately, so passive background reading doesn't pollute Analysis History with things the user never asked to save. Unlike claim detection, evidence search for these claims (`findEvidence` from `search/aggregator.ts`) *does* run automatically here, fire-and-forget per claim right after detection (`triggerEvidenceSearch`) — safe to auto-run since it only hits the four free public search APIs, not the paid relay, and results are kept in an in-memory `evidenceResultByClaimId` map (also never persisted), not written to the `evidence`/`sources` tables the main Analyze flow uses. The overlay also exposes real "Find Evidence"/"Critique Argument" actions (`refreshEvidenceForClaim`/`critiqueClaim`, same `ai/critique.ts` call the main app uses). **Critique never runs automatically here** — it is the paid relay, and Screen Watch is passive and always-on, so an unprompted call is a bill the user did not ask for and cannot watch being run up. Evidence search gets to stay automatic precisely because it only hits the four free public APIs; that is the whole line, and it is the one to hold when this comes up again. A bounded automatic version (one call per detection, spent on the first top claim whose evidence resolved) was built, shipped to beta, and pulled before the stable release that would have carried it. Its known cost is real and is not a bug to be rediscovered: `problemKindFor` reports "Weak reasoning" only when `critiqueVerdict` is set, so passive watching can speak about citations and evidence but never about reasoning until asked. Everything needed to bring it back — `synthesizeEvidenceItem`, `withEvidenceScores`, the evidence map — is still in place, and an opt-in Settings toggle is the shape it should return in. `refreshEvidenceForClaim` **deletes** the claim's critique: the critique cites its sources by number, so leaving it would show a verdict reasoned over a source list that no longer exists. Critique needs `EvidenceItem`-shaped objects (with a `Source`), which normally come from `sourcesRepo`; since Screen Watch results are never persisted there, `synthesizeEvidenceItem` builds them in-memory from the raw search results instead.
+- **`screenWatchService.ts`** owns the poll loop (`POLL_INTERVAL_MS` = 1200ms) and a stability debounce (text must be unchanged for `STABLE_MS` before triggering `detectClaims`) — this is the other place AI runs automatically. Detected claims here are **not persisted** to the analyses/claims tables (they're synthesized in-memory `Claim` objects with a fresh UUID) — deliberately, so passive background reading doesn't pollute Analysis History with things the user never asked to save. Unlike claim detection, evidence search for these claims (`findEvidence` from `search/aggregator.ts`) *does* run automatically here, fire-and-forget per claim right after detection (`triggerEvidenceSearch`) — safe to auto-run since it hits the free public search APIs, not a paid model call (the one paid provider, web search, is a capped fallback — see "Web search is a FALLBACK" under Known MVP simplifications), and results are kept in an in-memory `evidenceResultByClaimId` map (also never persisted), not written to the `evidence`/`sources` tables the main Analyze flow uses. The overlay also exposes real "Find Evidence"/"Critique Argument" actions (`refreshEvidenceForClaim`/`critiqueClaim`, same `ai/critique.ts` call the main app uses). **Critique never runs automatically here** — it is a paid server call, and Screen Watch is passive and always-on, so an unprompted call is a bill the user did not ask for and cannot watch being run up. Evidence search gets to stay automatic precisely because it hits the free public APIs; that is the whole line, and it is the one to hold when this comes up again. A bounded automatic version (one call per detection, spent on the first top claim whose evidence resolved) was built, shipped to beta, and pulled before the stable release that would have carried it. Its known cost is real and is not a bug to be rediscovered: `problemKindFor` reports "Weak reasoning" only when `critiqueVerdict` is set, so passive watching can speak about citations and evidence but never about reasoning until asked. Everything needed to bring it back — `synthesizeEvidenceItem`, `withEvidenceScores`, the evidence map — is still in place, and an opt-in Settings toggle is the shape it should return in. `refreshEvidenceForClaim` **deletes** the claim's critique: the critique cites its sources by number, so leaving it would show a verdict reasoned over a source list that no longer exists. Critique needs `EvidenceItem`-shaped objects (with a `Source`), which normally come from `sourcesRepo`; since Screen Watch results are never persisted there, `synthesizeEvidenceItem` builds them in-memory from the raw search results instead.
 - The overlay's widget popup (`OverlayApp.tsx`) has three view modes, `single` (top claim by confidence), `all` (every currently-flagged claim, as a single vertical column — it was a grid once, and `gridColumns` no longer exists) and `structure` (the draft's structural read) — `widgetViewMode` lives server-side in `screenWatchService.ts` because the panel's actual pixel size is computed there too, so hoverTracking.ts's click-through hit-test region matches what's drawn. That sizing now lives in `screenWatch/panelSize.ts`, a leaf module so it can be unit tested; **every mode is `PANEL_WIDTH` wide on purpose** — the panel is anchored bottom-right, so a mode with its own width would make the whole card jump sideways on a mode switch, and there is a test asserting the three agree. The card-size math is duplicated client-side in `OverlayApp.tsx` (`GRID_*`) and must be kept in sync, or the rendered cards won't fit the panel sized for them.
 - Off-screen/scrolled-out matches come back from `GetBoundingRectangles()` with zero/negative extents and are filtered out rather than drawn — underlines only ever appear over currently-visible text.
 - **Underline rendering (`UnderlineMark` / `useStableUnderlines` in `OverlayApp.tsx`) fights three specific artifacts.** Hovering a flagged span fades in a translucent highlighter band over the text plus a slightly thicker line; the band is `rgba(color, 0.3)` and *must* stay translucent, because the overlay window sits **on top of** the watched app — anything opaque hides the very words it is highlighting.
@@ -554,7 +640,7 @@ Opt-in (Settings → Screen Watch, off by default, also toggleable from the tray
 
 ### Structure (`main/services/structure/`, `shared/paragraphSplit.ts`, `renderer/src/components/ArgumentScoreModal.tsx`)
 
-> **READ THIS FIRST — the editor's report is ONE relay call now.**
+> **READ THIS FIRST — the editor's report is ONE server call now (`/api/grade`).**
 >
 > `ipc/structureHandlers.ts` calls `ai/gradeDraft.ts` (`/api/grade` on the Tracely server) and
 > builds the outline from what comes back (`structure/gradedOutline.ts`). There
@@ -592,7 +678,7 @@ Opt-in (Settings → Screen Watch, off by default, also toggleable from the tray
 >
 > **Not done:** Screen Watch still grades with the heuristics. The owner's call
 > (2026-08-19) is that it gets a manual "Grade this draft" button running the
-> same relay call, so passive reading never bills anyone — until then the two
+> same `/api/grade` call, so passive reading never bills anyone — until then the two
 > surfaces grade one draft differently, which is the disagreement class fixed in
 > #156 on the same day.
 
@@ -676,8 +762,9 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   timeline site, an enthusiast blog and an opinion journal, offered as five
   equal options. A student loses marks for three of them and the card said
   nothing.
-  - **Decided LOCALLY and deterministically**, not by the model. The relay
-    prompt already says to avoid content farms and returned those five anyway,
+  - **Decided LOCALLY and deterministically**, not by the model. The
+    web-search prompt (then the relay's, now `server/lib/prompts/sources.js`)
+    already says to avoid content farms and returned those five anyway,
     labelling an enthusiast history site `news`. A model grading its own output
     grades it generously, and this verdict has to be defensible to a student who
     disagrees — same stance as `scoring.ts` and `weaknessSeverity.ts`.
@@ -836,7 +923,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 - **The Strong / Needs Work badge is `needsWork(this paragraph's findings)` and nothing else.** `ArgumentScoreModal` computed it from the average of `outline.components` for the paragraph's ROLE — draft-level numbers, identical for every paragraph sharing a role and blind to the findings printed underneath. So the full report (which asks `weaknessSeverity.ts`) said NEEDS WORK and the card behind that row said **Strong**, about one paragraph, on one screen. Owner, 2026-08-19. Both surfaces ask `shared/weaknessSeverity.ts` now; the role components are still drawn as bars, where they are labelled as what they are.
 
 - **The rubric asks what a paragraph IS; `structure/reasoningIssues.ts` asks whether it does the job.** A draft could score well by being well-formed — a thesis in place, evidence present, a conclusion at the end — while none of the links between them held. The reasoning pass reads the prose for the CLAIM → EVIDENCE → REASONING → SIGNIFICANCE chain and names the link that is missing: evidence dropped without analysis, an absolute nothing earns, emphasis standing in for argument, a demonstrative with no antecedent, a conclusion that restates the thesis, a sentence that repeats the one before it, an opening that would fit any essay.
-  - **Most of the rubric is NOT in that module and must not be moved there.** Whether evidence actually proves the claim it is attached to, whether a counterargument is the strongest available one, whether an analysis explains a mechanism or merely restates — those need a reader. They live in `CRITIQUE_SYSTEM_PROMPT` (Pass 3) and `STRUCTURE_SYSTEM_PROMPT` (`hasWarrant`) in `../Tracely-relay/lib/prompts.ts`. What is local is the subset a rule can be *right* about.
+  - **Most of the rubric is NOT in that module and must not be moved there.** Whether evidence actually proves the claim it is attached to, whether a counterargument is the strongest available one, whether an analysis explains a mechanism or merely restates — those need a reader. They live in `CRITIQUE_SYSTEM_PROMPT` (Pass 3, `server/lib/prompts/critique.js`) and `GRADE_SYSTEM_PROMPT` (`hasWarrant`, `server/lib/prompts/grade.js`), each SHA-256-pinned by `server/test/prompts.test.js`. What is local is the subset a rule can be *right* about.
   - **Every detector is anchored** — to the end of a paragraph, the start of a paragraph, or a closed word list — rather than matched anywhere in the draft, and the negative tests outnumber the positive ones. Two rules were already caught being too wide by their own negatives: `\([^)]*\)` read "(an itinerary few would attempt)" as a citation, and `every (?:country|society|culture)` read "she visited every country on the itinerary" as an unfalsifiable claim. Both were narrowed rather than kept with an exception list.
   - **Exactly two of the findings reach the score, and both quote the sentence they cost points for.** `dropped-evidence` vetoes `hasWarrant` in `analyzeStructure` — a paragraph whose last sentence IS the citation has demonstrably not explained it, and where the label and the text disagree the text wins. `restated-conclusion` halves the conclusion component, compounding with the existing halving for a misplaced one. Nothing else touches the number: a prose rule is a weaker instrument than a role label, and the rule of this rubric is that a point lost traces to something the writer can look at.
   - **They are NOT gated on `allLabelled`, unlike every whole-draft weakness.** That gate exists because "this draft has no counterargument" asserts something about paragraphs nothing read; these assert something about words that are demonstrably there and are quoted back. Suppressing them because a model returned `unknown` for paragraph 6 would withhold the only feedback that does not depend on the labelling at all.
@@ -848,7 +935,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   - **A named fault VETOES `hasWarrant`** the way `dropped-evidence` does, so the finding costs marks rather than being free — and it REPLACES `warrant-gap` on its paragraph, because they are one complaint at two resolutions and printing both buries the one that says something.
   - **`'none'` must stay the easy answer.** The prompt says so explicitly, including for paragraphs where `hasWarrant` is false: a paragraph that presents a statistic and stops has no reasoning to be faulty, it has none at all. Without that line the field becomes a slot the model fills.
   - **The model supplies a LABEL and never a sentence.** Every word a student reads is a local template in `weaknesses.ts` — the rule that file has held since it was written.
-- **`structure/thesisSupport.ts` answers the two rubric lines no rule can reach**: *"Flag if the body paragraphs do not actually support the thesis"* and *"Flag tangents."* Both had zero implementation. It embeds each body paragraph and the thesis with the LOCAL MiniLM in `services/ml` and reports the ones below `MIN_THESIS_SIMILARITY` — free, in-process, no relay, which is what makes it safe to run on every analysis.
+- **`structure/thesisSupport.ts` answers the two rubric lines no rule can reach**: *"Flag if the body paragraphs do not actually support the thesis"* and *"Flag tangents."* Both had zero implementation. It embeds each body paragraph and the thesis with the LOCAL MiniLM in `services/ml` and reports the ones below `MIN_THESIS_SIMILARITY` — free, in-process, no server call, which is what makes it safe to run on every analysis.
   - **0.15, and it is NOT `MIN_COUNTABLE_RELEVANCE.dense` (0.42).** That constant separates "this source speaks to this claim" from "it does not". Two paragraphs of ONE essay are related by construction, and a body paragraph developing a strand of the argument sits at 0.25-0.40 from the thesis — exactly what it should look like. Borrowing 0.42 would flag half of every draft. On the same labelled pairs irrelevant sources sat at 0.03-0.23, so 0.15 is inside that band rather than at its edge.
   - **`cohesion.ts`'s `topic-jump` is not this.** It compares a paragraph to its NEIGHBOUR, so an essay that drifts away from its thesis over five paragraphs passes it at every step.
   - **Null, never `[]`, when nothing could be measured** — no thesis, no ML worker, too little text. The caller must be able to tell "nothing is off-topic" from "nothing was measured"; only the first is a finding.
@@ -859,7 +946,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   - **Measured across the owner's five real documents, 2026-08-19: 42% of the paragraphs sent to the classifier were reference lines, and 24% of its input tokens.** A quarter of every structure call asked a model what role an ODNB entry plays in the argument.
   - **It also explains most of a 37% `unknown` rate** across 249 cached classifications, which had made the classifier look far worse than it is. A reference line is correctly `unknown`; it just should never have been asked.
   - **Alignment survived only by luck.** `withoutWorksCited` trims a SUFFIX, so indices 0..n-1 of the untrimmed vector name the same paragraphs. The real exposure is the caps: `MAX_STRUCTURE_PARAGRAPHS` (24) and `MAX_STRUCTURE_INPUT_CHARS` (8000) apply to whatever is handed over, so a long bibliography pushes real paragraphs out of the classification entirely — one of those documents already sends 25 paragraphs, 11 of them references.
-  - **Read the cached relay responses before theorising about the classifier.** `request_cache` holds every `ai:classifyStructure` and `ai:critique` result the app has ever received; the role distribution, the `hasWarrant` rate and the verdict spread are all one query away, and every wrong guess in this feature's history would have been caught by looking.
+  - **Read the cached AI responses before theorising about the classifier.** `request_cache` holds every `ai:classifyStructure` and `ai:critique` result the app has ever received; the role distribution, the `hasWarrant` rate and the verdict spread are all one query away, and every wrong guess in this feature's history would have been caught by looking.
 
 - **Three scoring changes on 2026-08-19 closed a 25-point gap that was entirely labelling artifact**, measured on the owner's own essay: 75/100 where every lost point came from one of these, not from the writing.
   - **`conclusionFallbackIndex`** — the mirror of `thesisFallbackIndex`, and it exists for the same reason `significanceAnywhere` does. A paragraph carries ONE role, and the closing paragraph is routinely both the conclusion and the place the stakes are stated; the classifier called it `significance`, so `lastIndexOf('conclusion')` was -1 and the draft scored 0/10 for a conclusion plainly there. `looksLikeClosing` already returned true on it — the signal existed and was simply not consulted.
@@ -868,18 +955,18 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   - **The essay now scores 100, and that is the remaining problem rather than the fix working.** `warrant` and `governingClaims` are computed from the classifier's labels and still saturate — every paragraph came back warranted. Do not answer that by re-adding a penalty somewhere else; the lever is the classifier prompt.
 
 - **Four of the six components are presence checks, and two now have a quality axis.** Owner, 2026-08-19: *"Can these all be 100%? Besides significance and counterargument, it just doesn't make sense."* They could, and it didn't: `thesis` was 20/20 for a thesis-shaped paragraph in the first third, `conclusion` 10/10 for a last paragraph labelled one. `topic-not-thesis` now halves the first (an opening that announces a subject has oriented the reader and claimed nothing) and `restated-conclusion` halves the second, each compounding with the existing positional halving. `summary-without-point` vetoes `statesClaim`, so a paragraph that only relays sources stops counting toward `governingClaims`.
-  - **This narrows the saturation; it does not remove it.** The remaining cause is that `warrant` and `governingClaims` are computed from the role vector, and the vector is only as good as whatever produced it. In the editor that is the relay classifier; in Screen Watch it is `roles.ts`, hand-written patterns, where a draft can max `warrant` by writing "therefore" once per paragraph. **An earlier version of this bullet said the classifier was not deployed. It is, and has been** — see below. The lever is the classifier's PROMPT, not its existence.
+  - **This narrows the saturation; it does not remove it.** The remaining cause is that `warrant` and `governingClaims` are computed from the role vector, and the vector is only as good as whatever produced it. In the editor that is the model's graded read (`/api/grade`, whose paragraph roles replaced the deleted classifier — see below); in Screen Watch it is `roles.ts`, hand-written patterns, where a draft can max `warrant` by writing "therefore" once per paragraph. The lever is the grading PROMPT (`server/lib/prompts/grade.js`), not its existence.
 - **`new-claim-in-conclusion` is gated on `conclusionDrawsOnBody`, and was wrong without it.** It fired on ANY detected claim in the closing paragraph, which is the move a conclusion exists to make: owner, 2026-08-19, *"obviously by the end, it is completely supported by everything above. It is simply creating a claim using the evidence from everything preceding it."* Correct. The finding is only about a claim made of material the draft never introduced, measured as vocabulary overlap with everything above it, at a deliberately low bar (half) — a false positive here tells a student to delete the best sentence in their essay.
-- **Where a critique's money actually goes**, measured 2026-08-19 from the caps in `costGuard.ts` and the price table in the relay's `lib/usageLog.ts` (gpt-4.1, $2/$0.50-cached/$8 per 1M): system prompt 32% (3,213 tokens, identical every call, so it prefix-caches at a quarter price), **evidence summary 40%**, completion 26%, claim and score 2%. A warm call is ~$0.004; six are ~2.9c.
+- **Where a critique's money actually goes**, measured 2026-08-19 on the retired relay, from the caps in `costGuard.ts` and its price table (gpt-4.1, $2/$0.50-cached/$8 per 1M; the desktop now runs luna/terra/astra, priced in `server/shared/prices.js`, so re-measure before quoting these shares): system prompt 32% (3,213 tokens, identical every call, so it prefix-caches at a quarter price), **evidence summary 40%**, completion 26%, claim and score 2%. A warm call is ~$0.004; six are ~2.9c.
   - **The evidence summary is the lever, not the system prompt.** The prompt is the bigger token count and the smaller bill, because it is cached; the evidence is fresh every call.
   - **`searchedSlots` takes `citedHasAbstract` for that reason.** Pass 2.5 tells the model to STOP at slot 1 when the cited source answers — "do not read the other items" — and we were sending three of them anyway at ~225 tokens each. When the resolved work came back with an abstract the client knows the model can answer from it, so one fallback goes instead of three; with no abstract, Pass 2.5's own fall-through condition is already met and the full set goes. ~20% off a cited claim's call, and the request now agrees with the prompt instead of contradicting it. An UNCITED claim is untouched: that list is not a fallback, it is the evidence.
   - **Anything changing what is SENT must change the cache key.** `searchedSlots` is exported precisely so `cacheKey` and the request derive the cut from one place; the abstract flag is now in both.
-  - **Not done, and why:** batching claims into one call saves ~27% of the prompt cost and breaks the per-claim SQLite cache — editing one sentence would re-critique all six, which makes the common case worse. `gpt-4.1-mini` is 5x cheaper and is a real option, but it is the model that has to hold `fabricated` to a high bar, and swapping it is an eval question (`eval/critique/FINDINGS.md`), not a config change.
-  - **The cache hit rate is assumed, not observed.** `logUsage` prints `cached=N (X%)` per call and nothing has read it. Six auto-critiques fire back to back so calls 2-6 should hit; one essay an hour may pay cold every time. Read the relay logs before optimising further.
+  - **Not done, and why:** batching claims into one call saves ~27% of the prompt cost and breaks the per-claim SQLite cache — editing one sentence would re-critique all six, which makes the common case worse. The model question was answered by `eval/models/FINDINGS.md` (2026-09-21): `gpt-5.6-luna` at low effort beat gpt-4.1 on this critique (48/52 vs 43/52), and `gpt-4.1-mini` scored 28/52.
+  - **The cache hit rate is assumed, not observed.** The server logs no per-call cache stats (spend goes to `entitlement_usage` `__global_app__`, failures to `/var/log/tracely.log`). Six auto-critiques fire back to back so calls 2-6 should hit; one essay an hour may pay cold every time. Add a measurement before optimising further.
 
 - **The citation check has a free half and a paid half, and they were added together for one reason.** Once `claimsWithoutEvidence` stopped calling a cited claim unsupported, a broken citation and a good one both went silent — the owner's own draft carried `(Unknown Author, 2025)` one card below a real reference and neither was named.
   - **Free: `shared/citationShape.ts`** — defects visible in the SHAPE of a reference, nothing read. Placeholder authors, `[citation needed]`, a year that has not happened yet, a bare URL, `n.d.`, and the same reference pasted twice in a row (which that draft also had). Raised as the `malformed-citation` weakness, run per paragraph over the works-cited-TRIMMED spans — a reference list is a page of parentheses and every rule would fire down it. **"Anonymous" is deliberately not a placeholder** and `(Smith)` with no year is deliberately not a defect: nothing on the surface separates it from "(see Smith)".
-  - **Paid: `autoCritiqueCited`** (Settings → Preferences, ON by default). The critique is the only thing in this app that opens the cited work, so it is the only thing that can tell a formatting slip from a fabrication. Eligibility lives in `shared/autoCritique.ts` — a tested leaf, not a `useEffect` — because it decides when money is spent without anyone pressing anything: cited only, evidence resolved, no verdict yet, capped at `MAX_AUTO_CRITIQUE_CLAIMS`, in document order.
+  - **Paid: `autoCritiqueCited`** (Settings → Preferences, ON by default). The critique is the only thing in this app that opens the cited work, so it is the only thing that can tell a formatting slip from a fabrication. Eligibility lives in `shared/autoCritique.ts` — a tested leaf, not a `useEffect` — because it decides when money is spent without anyone pressing anything: cited or a checkable claim type (see "ELIGIBILITY IS THE CLAIM'S TYPE NOW" below), evidence resolved, no verdict yet, capped at `MAX_AUTO_CRITIQUE_CLAIMS`, in document order with claims carrying a number first.
   - **ON by default here, still NEVER in Screen Watch, and the difference is consent.** Screen Watch reads whatever is on screen forever without being asked, so an unprompted paid call there is a bill nobody can watch being run up — that rule stands. This fires inside a document the user opened, on claims they themselves attached a source to. `autoCritiquedRef` guards re-firing, and a failed settings read leaves it null so the sweep never runs.
   - `MAX_AUTO_CRITIQUE_CLAIMS` is defined in `shared/` and **re-exported from `costGuard.ts`**, so that file stays the one place to look for an AI limit while the renderer — which drives the sweep — can still import it.
   - **`hasCheckableAssertion` is ANY DIGIT, and it used to be a list that only
@@ -899,7 +986,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
     (`isCheckableClaim`). A digit-only gate catches the arithmetic half of
     being wrong and nothing else: `Lamine Yamal plays for Real Madrid` is
     false, uncited, and carries no number, and it was answered with a list of
-    topical sources. The relay already returns `factual | statistic | causal |
+    topical sources. The detect call already returns `factual | statistic | causal |
     opinion | prediction` on every claim and nothing here read it —
     `opinion`/`prediction` are exactly the "nothing for Pass 1 to be confident
     about" cases this module had been describing in prose and inferring from
@@ -913,7 +1000,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
     RANKING signal**, deciding which claims get the six slots.
   - It reversed four tests in `autoCritique.test.ts`, and the fix was the
     FIXTURE rather than the assertion: they hardcoded `claimType: 'factual'` on
-    interpretive sentences the relay would type `opinion`. The ones testing the
+    interpretive sentences the detect call would type `opinion`. The ones testing the
     citation path now pass `opinion` deliberately, so they measure that path in
     isolation instead of passing for the wrong reason.
   - The Settings toggle is **"Fact-check my claims automatically"**. It read
@@ -924,7 +1011,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 - **A claim the WRITER cited is never reported as unsupported on retrieval's say-so.** `claimsWithoutEvidence` filtered on resolved / no-relevant-source / in-scope and never asked whether the sentence carried a reference, so a line ending `(Lähteenmäki, 2006)` was named **"Unsupported claim · 0/100 evidence — no supporting source yet"**. That sentence is not unhelpful, it is false: there is a supporting source, in the sentence. What was established is that a topical search of four scholarly indexes returned nothing, and nothing in the retrieval path ever opens the work the writer named.
   - It is the SAME rule `problemKindsFor` has applied to the underline since 2026-08-16, where `nothingFound` gates `cited-unverified`. The two surfaces were reading one claim and disagreeing — the mark stayed quiet, the report accused. `citationLookup` is now shared with `computeEvidenceCoverage`, so a claim counted under `withOwnCitation` cannot also be listed under "no supporting source" in the same panel.
   - **Pass `documentText`.** A detected claim is a sub-span of its sentence, so the reference frequently sits outside the claim text; without the document this falls back to the claim-only test and misses it. Both callers (`structureHandlers`, `watchOutline`) pass it.
-  - **The cost is the same one `problemKind.ts` already accepts: a genuinely miscited claim says nothing HERE until the critique runs.** That is not a gap — `citedEvidence.ts` puts the writer's resolved source in slot 1 and `CRITIQUE_SYSTEM_PROMPT` Pass 2/2.5 judge the citation itself, which is the only path in this app that ever reads it. Retrieval cannot reach `citationFix` or `fabricated` and must stop implying it has. **Critique is manual**, so between analysis and that click Tracely is silent about a cited claim rather than wrong about it.
+  - **The cost is the same one `problemKind.ts` already accepts: a genuinely miscited claim says nothing HERE until the critique runs.** That is not a gap — `citedEvidence.ts` puts the writer's resolved source in slot 1 and `CRITIQUE_SYSTEM_PROMPT` Pass 2/2.5 judge the citation itself, which is the only path in this app that ever reads it. Retrieval cannot reach `citationFix` or `fabricated` and must stop implying it has. **Critique runs only on request or through the capped automatic sweep**, so until it reaches a cited claim Tracely is silent about it rather than wrong about it.
 
 - **A strength score of 0 means two different things and must not render as one.** When nothing clears the relevance floor, every factor in `ScoreBreakdown` is 0 by construction, and the Argument Check card drew "0/100" over four empty bars beside a correctly cited biographical sentence. `problemKindsFor` has drawn this distinction since 2026-08-16 (`nothingFound` gates `cited-unverified`); the score display had not, so the accusation the problem kinds refuse to make was being made by the number underneath them. `ArgumentScoreModal`'s `measured` now suppresses the number, the track and the metric grid entirely and says what was searched instead. **There were two of these and the first fix caught one**: the problem card's `· 0/100 evidence` chip is a separate render path and kept printing for another day. Both are gated on `hasRelevantSource` now; grep for `/100` before assuming a third does not exist. **Do not reinstate a zero here.** The four indexes hold scholarly articles; biography, institutional records, news and primary texts are structurally outside them, and `retrievalScope.ts` names only five of those categories.
 
@@ -933,7 +1020,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 - **The structure classifier is gone.** `ai/structureClassifier.ts` and the `classify-structure` endpoint were deleted when the desktop moved onto the Tracely server: nothing had called `classifyStructure` since `ipc/structureHandlers.ts` switched to the graded read (`ai/gradeDraft.ts`, now `/api/grade`), whose paragraph roles replaced it — yet preflight was still probing the route before every release. This bullet said it was live, and before that said it was undeployed; it was right about neither for long.
   - **This paragraph used to say the opposite, and the stale comment block at the top of `structureClassifier.ts` said it too — three enabling steps that had all already been taken.** It cost a wrong answer to the owner about where the grading weakness lives. **Probe the endpoint before repeating either claim**; a source comment is not evidence about a deployment.
   - **Screen Watch deliberately does NOT classify** (`screenWatch/watchOutline.ts`), so the overlay's grade is heuristic-only and the editor's is not. Two surfaces, two label qualities, one rubric — worth remembering before comparing scores between them.
-  - **The client and the relay prompt version each other.** `statesClaim` arrived in the client and in `STRUCTURE_SYSTEM_PROMPT` at the same time; a production relay behind staging returns a vector the client then falls back on (`governsAClaim` degrades to `role === 'claim'`). Check `git log origin/main..origin/staging` in `../Tracely-relay` before concluding anything from a production score.
+  - **The client and the server prompt version each other.** `statesClaim` arrived in the client and in the prompt at the same time (it is in `GRADE_SYSTEM_PROMPT` now); a server behind the client returns a vector the client then falls back on (`governsAClaim` degrades to `role === 'claim'`). Both now live in this repo (`server/lib/prompts/`, SHA-pinned), so one commit changes both — but the server must still be deployed before the client that needs it.
 - **It runs in Screen Watch too, and that is where it costs least.** `uia-watch.ps1` returns the *whole* document of the focused control (`TextPattern.DocumentRange.GetText(-1)`, falling back to `ValuePattern.Current.Value`), and the whole engine is local, so the draft score follows the user into Word or Chrome for nothing. `screenWatch/watchOutline.ts` runs it; `screenWatchService.ts` memoises the result against `sourceHashFor(lastAnalyzedText)` + the claim ids + which claims have a relevant source. Three things about that are load-bearing:
   - **It analyses `lastAnalyzedText`, never the live snapshot.** Every paragraph index and role is a joint function of the text *and* the claims found in it; analysing live text while bucketing older claims lets a claim relocate into another paragraph and flips its role underneath the score. It also damps the whole feature for free — that text moves at most once per detection.
   - **The memo protects the payload dedupe, not just CPU.** `updateOverlayAndWidget` dedupes its IPC push by `JSON.stringify` of the whole payload, and it runs on every poll tick *and* every resolved favicon. A structure object rebuilt each tick would differ by identity alone and re-render the overlay over another app at 1.2s intervals forever.
@@ -948,7 +1035,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   what comparing sources means."* The lookup has existed since #155 because the
   critique needs it; nothing surfaced it.
   - **Free, so it does not wait for a critique.** Crossref and Open Library, no
-    relay and no key — which is what lets it run whenever the card opens. The
+    server call and no key — which is what lets it run whenever the card opens. The
     card is pressed on sentences nobody has critiqued.
   - **`found: false` must never render as "your source is fake".** Those two
     indexes hold journal articles and books; a UNICEF page, a newspaper, a
@@ -1013,7 +1100,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   2026-08-21: *"How can we get the underlines to appear immediately, kind of
   like Grammarly, instead of waiting until we click the 'grade essay' button?"*
   - **Detection is not grading, and only ONE of them was ever the button's
-    job.** `runStructure` makes two relay calls: `detect-claims`, which is what
+    job.** `runStructure` makes two server calls: `detect-claims`, which is what
     marks are made of, and `grade`, the essay score. Only the first has
     anything to do with underlines. So detection is automatic and **`AI
     Insights` still means "grade my essay"** — automating the second would
@@ -1057,23 +1144,27 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   inside the full report. `AnalyzeView` now sweeps unsearched claims once per
   analysis, tracked in `autoSearchedRef` so a search that comes back empty
   cannot loop. The rule that allows it is the same one Screen Watch runs under:
-  evidence search hits the four free public APIs and never the relay. Critique
-  — the paid call — stays manual on both surfaces. The sweep shows its progress
+  evidence search hits the free public APIs and never a paid model call (web
+  search, the one paid provider, is a capped fallback). Critique
+  — the paid call — stays manual in Screen Watch; in the editor it runs
+  unprompted only through the capped `autoCritiqueCited` sweep (below). The sweep shows its progress
   (`.docedit-checking`), because a 30-second wait that shows nothing is
   indistinguishable from marks that never come.
   - **The sweep refreshes AS IT GOES, and runs three at a time.** It was a
     strictly serial loop with ONE `onRefreshClaims` after it, so `claims` never
     changed until the last search returned and every underline in the document
     appeared at once, minutes in. Owner, 2026-08-20: *"the underlines are too
-    delayed."* A refresh is a SQLite read and a setState — no relay — so it now
+    delayed."* A refresh is a SQLite read and a setState — no server call — so it now
     runs per completed claim, behind an in-flight guard because three workers
     finish independently. `runStructure` is the expensive one and stays at the
     end, once.
   - **The four scholarly indexes were never the wait.** Measured 2026-08-20,
     all four answer one claim in ~700ms because they fan out in parallel. What
-    costs seconds is `findWebSources`, which `aggregator.ts` **awaits inside**
-    the fan-out for any `general`-routed claim — a relay call running several
-    site-restricted web searches. Eight of those one after another is where the
+    cost seconds was `findWebSources`, which `aggregator.ts` then **awaited
+    inside** the fan-out for any `general`-routed claim — a server call running
+    several site-restricted web searches. (It has since moved out of the
+    fan-out: it is now a capped fallback that runs only when nothing citable
+    came back — see "Web search is a FALLBACK".) Eight of those one after another is where the
     delay came from, so the fix is concurrency across CLAIMS, not tuning
     providers.
   - Verified in the preview harness with 300ms injected per search: three
@@ -1082,7 +1173,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 - **Screen Watch's 4-second typing debounce does not apply to text that was
   already there.** `STABLE_MS` exists because the 1200ms poll is the pause
   between WORDS, and a drafting writer clears that bar dozens of times a
-  paragraph — each one a full relay call on the whole document. None of that
+  paragraph — each one a full server call on the whole document. None of that
   describes the first snapshot after a tracking reset: a document switched to
   with a page in it was written before Screen Watch looked at it.
   `screenWatch/firstSight.ts` is the rule, as a leaf so it is testable at all.
@@ -1126,7 +1217,7 @@ existed to give a separate window a sidebar.
   The old one read whatever document was focused in another application, which
   is the wrong source for a launcher on Home: if Home is on screen, the app's
   own window is focused, so Screen Watch is by definition looking at nothing.
-- **Nothing is cached.** Every other relay call is keyed by a hash of its input
+- **Nothing is cached.** Every other server call is keyed by a hash of its input
   and served from `cacheRepo` on a repeat, because those are pure functions of
   their input. A chat turn depends on the whole conversation so far, so a cache
   would be actively wrong rather than merely useless.
@@ -1148,7 +1239,8 @@ existed to give a separate window a sidebar.
   passes `isNarrowing` — it may DROP a named thing, a number or a date, never
   introduce one. That is the same rule critique's `suggestedRevision` lives by,
   which is why `isNarrowing` moved to `shared/narrowing.ts`: one copy, enforced
-  on both paths. The relay prompt asks for the same thing and the client checks
+  on both paths. The server's prompt (`server/lib/prompts/tracer.js`) asks for
+  the same thing and the client checks
   it again, because the model broke this rule in production once already.
 - **The Apply button only exists in the editor.** `TracerChat`'s
   `onApplyRewrite` is optional, and Home does not pass it — there is no open
@@ -1175,7 +1267,7 @@ and this panel is `.tracer-*` classes in `index.css` like everything else.
 
 ### Where user data lives at runtime
 
-- Windows: `%APPDATA%\Tracely\tracely.db` (SQLite: analyses, claims, evidence, citations, library, request cache) and `config.json` (Semantic Scholar key only — never the relay URL/token, which are compiled in).
+- Windows: `%APPDATA%\Tracely\tracely.db` (SQLite: analyses, claims, evidence, citations, library, request cache) and `config.json` (optional Semantic Scholar/NCBI keys and the `X-Tracely-Install` id — never the server URL or Supabase values, which are compiled in).
 - Settings → Privacy has two destructive ops: "Clear Analysis History" (`historyHandlers.ts` → `clearAnalysisHistory()`, keeps the library) vs. "Clear History + Library" (also wipes `sources`/`library_items`/`citations`). Both also clear `tracer_*` rows — Tracer conversations are real rows again (see above), and "clear my history" has to mean them too.
 
 ### Spelling and grammar

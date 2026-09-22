@@ -35,17 +35,40 @@ with `ENOENT ... mkdir`. Every other variable belongs in `.env`.
 
 ## Redeploy
 
+Deploy from a clean snapshot of `origin/main`, never from a working checkout
+(on Sam's Mac other sessions and branches share `~/tracely-repo`), and take a
+backup first:
+
 ```sh
-cd ~/tracely-repo
+git -C ~/tracely-repo fetch -q origin
+git -C ~/tracely-repo worktree add --detach /tmp/tracely-deploy origin/main   # clean snapshot
+ssh root@45.56.92.67 'cp -a /srv/tracely/app /srv/tracely/app.bak-$(date +%Y%m%d-%H%M%S)'
 rsync -az --delete \
   --exclude node_modules --exclude data --exclude .env \
   --exclude test --exclude .git --exclude '*.log' \
-  server/ root@45.56.92.67:/srv/tracely/app/
+  /tmp/tracely-deploy/server/ root@45.56.92.67:/srv/tracely/app/
 ssh root@45.56.92.67 'chown -R tracely:tracely /srv/tracely/app && systemctl restart tracely'
+git -C ~/tracely-repo worktree remove /tmp/tracely-deploy
 ```
 
 `--delete` is safe: `.env` and `data` are both excluded, so rsync will not
 remove them. The database is outside the target anyway.
+
+Verify after every deploy: `/api/status` has its usual shape
+(`hasKey: true`, `budget.enforced: true`, `paidBudget`); `/api/entitlement`
+with a bad token answers 200 `plan: "free"`; an `OPTIONS /api/check` from
+`chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm` answers 204 and one from
+a foreign extension id 403; `PUT /api/prefs` answers 403.
+
+**Roll back** by syncing the backup over the app (keep the live `.env`) and
+restarting:
+
+```sh
+ssh root@45.56.92.67 'rsync -a --delete --exclude .env /srv/tracely/app.bak-<ts>/ /srv/tracely/app/ && chown -R tracely:tracely /srv/tracely/app && systemctl restart tracely'
+```
+
+Never restore an `app.bak-*` from before 2026-09-21 while extension 2.19.3 or
+later is installed (see "The model tiers").
 
 The server has **zero runtime dependencies**, so there is no `npm install`
 step. If one ever appears, this document is wrong.
@@ -145,8 +168,9 @@ asks for, clamped to the caller's plan — the prefs row drives the model only
 on a local server. `/api/sources` sends the client's reasoning effort when it
 sends one and otherwise none, i.e. the vendor's default, exactly as every
 source search from the store build always has. No shipped widget sends one:
-2.19.3 sends its stop's effort on `/api/check` only (the route it was
-measured on), and `/api/flow` and `/api/sources` get the model alone.
+2.19.3 and later (2.19.4 is current) send their stop's effort on `/api/check`
+only (the route it was measured on), and `/api/flow` and `/api/sources` get
+the model alone.
 
 Watch it with:
 
@@ -192,20 +216,42 @@ What a matching token does, and does not:
 - The widgets default to the options-page slider (Fast until a tester moves
   it); the beta grant raises the ceiling, not the default stop.
 
-Build the zip from a checkout (never commit `extension/beta.json`; the repo is
-public and `.gitignore` covers it) — and only once the server from the same
-change is deployed (see "The model tiers" below):
+Build both zips from a checkout (never commit `extension/beta.json`; the repo
+is public and `.gitignore` covers it) — and only once the server from the same
+change is deployed (see "The model tiers" below). The two zips have different
+layouts, because their consumers disagree about where `manifest.json` goes:
 
 ```sh
+server/scripts/pack-extension.sh ~/Desktop
+# -> ~/Desktop/Tracely-<version>-store.zip: the Web Store upload.
+#    manifest.json at the ZIP ROOT (the store rejects a foldered zip), no beta.json.
+
 TRACELY_BETA_TOKEN='<one of TRACELY_BETA_TOKENS>' server/scripts/pack-extension.sh --beta ~/Desktop
-# -> ~/Desktop/Tracely-<version>-beta.zip, with beta.json in the staged copy only
+# -> ~/Desktop/Tracely-<version>-beta.zip: for testers. Everything inside a
+#    Tracely-<version>-beta/ folder, because Load unpacked installs a folder;
+#    beta.json is written into the staged copy only.
 ```
 
-A plain `pack-extension.sh [OUT_DIR]` excludes `beta.json` even if one is
-lying in `extension/`. The token must be 1-200 characters of
-`A-Z a-z 0-9 . _ ~ + / = -` (no commas: the server's list is comma-separated);
-the script refuses anything else rather than build a zip that is silently free.
-Generate one with `openssl rand -base64 24 | tr -d '\n'`.
+`OUT_DIR` defaults to `~/Desktop`. The store build excludes `beta.json` even if
+one is lying in `extension/`. Each build then checks the zip it produced and
+deletes it, exiting non-zero, if the layout is wrong: the store zip must have
+`manifest.json` at the root and no `beta.json` anywhere; the beta zip must have
+`Tracely-<version>-beta/manifest.json` and exactly one `beta.json`, at
+`Tracely-<version>-beta/beta.json`, holding the token, with nothing outside
+that folder. Before #256 the plain build produced `Tracely-<version>.zip`
+with the same folder wrapper as the beta, which is not a valid store upload;
+do not upload a zip with that name.
+
+The manifest's `key` ships unchanged in both zips: it is the store item's
+public key and pins the id for unpacked builds (`TRACELY_EXTENSION_ID`, see
+"Still outstanding" below). Verify it on the first store upload of a
+root-layout zip. If the store rejects the zip over `key`, strip it from the
+script's STAGED store copy, never from `extension/`.
+
+The token must be 1-200 characters of `A-Z a-z 0-9 . _ ~ + / = -` (no commas:
+the server's list is comma-separated); the script refuses anything else rather
+than build a zip that is silently free. Generate one with
+`openssl rand -base64 24 | tr -d '\n'`.
 
 ## The model tiers (remapped 2026-09-21)
 
@@ -217,7 +263,8 @@ Before a deploy that changes a tier, know four things:
   a user**, beta or store, and never roll the server back to a snapshot from
   before 2026-09-21 (`app.bak-*`) while 2.19.3 or later is installed. The
   skew is harmless one way and not the other. An old client on this server
-  is translated (below). A 2.19.3 client on an OLD server is not: its Fast
+  is translated (below). A 2.19.3+ client (2.19.4 included) on an OLD server
+  is not: its Fast
   stop sends `effort: "medium"`, and the old hosted `/api/check` ran
   `gpt-5-nano` at whatever effort the client sent — nano at medium, which
   the eval measured at p50 41.5 s / p90 62.4 s and 3.2x the cost of nano at
@@ -291,12 +338,10 @@ answer HTTP-01 without going through the app.
 
 ## Still outstanding
 
-1. **DNS.** `api.jointracely.com` resolves to `64.29.17.65`, not this box. Point
-   its A record at `45.56.92.67`. Until then the extension's hosted probe
-   reaches the wrong host and TLS cannot be issued.
-2. **TLS**, once DNS resolves here:
-   `certbot --apache -d api.jointracely.com`
-3. **The OpenAI key**, per above.
+1. ~~DNS~~ — **done**: `api.jointracely.com` resolves to `45.56.92.67`
+   (checked 2026-09-22).
+2. ~~TLS~~ — **done**: HTTPS to `api.jointracely.com` verifies.
+3. ~~The OpenAI key~~ — **done**: `/api/status` reports `hasKey: true`.
 4. ~~Pin the extension id~~ — **done**. `TRACELY_EXTENSION_ID` is
    `dffmoeebkkghhgcklkbmaibfhgiegmdm`, which the manifest `key` pins for
    unpacked builds too, so one value covers the team's betas and the published
@@ -305,6 +350,11 @@ answer HTTP-01 without going through the app.
 5. **Billing**, when Stripe live setup is done: `STRIPE_WEBHOOK_SECRET`,
    `STRIPE_PRICE_STUDENT`, `STRIPE_PRICE_PRO`, and
    `SUPABASE_SERVICE_ROLE_KEY` (the webhook needs it to write plans).
+6. **Release hosting** (#242, draft): `dl.jointracely.com` on this box is
+   blocked on an `A dl 45.56.92.67` record in the zone (Vercel's nameservers;
+   `dl` still answers from Vercel), then `certbot --apache -d
+   dl.jointracely.com`. Until then desktop updates are served from GitHub
+   Releases, so `Tracely-app/Tracely` must stay public.
 
 ## Not done, and worth knowing
 

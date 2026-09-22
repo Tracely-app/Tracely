@@ -1,8 +1,8 @@
 # Tracely
 
-Tracely is a private, local AI writing and research assistant. Instead of fixing grammar, it checks the *credibility* of what you write: it detects factual claims, finds academic evidence for them (OpenAlex, Crossref, Semantic Scholar, PubMed), scores how well-supported each claim is, critiques weak arguments, generates citations (APA/MLA/Chicago), and keeps a local library of sources you've used.
+Tracely is a private, local AI writing and research assistant. Instead of fixing grammar, it checks the *credibility* of what you write: it detects factual claims, finds evidence for them (OpenAlex, Crossref and Semantic Scholar always; PubMed for biomedical claims, Wikipedia for general ones, the World Bank's indicators for statistical ones), scores how well-supported each claim is, critiques weak arguments, generates citations (APA/MLA/Chicago), and keeps a local library of sources you've used.
 
-It's a desktop app (Electron + React + TypeScript), not a website. Everything — your text, your source library, your settings — stays on your machine in a local SQLite database. The only network calls are to the **Tracely server** (see below) for claim detection/critique, and to the academic search APIs, and only when you explicitly click Analyze, Find Evidence, or Critique.
+It's a desktop app (Electron + React + TypeScript), not a website. Everything — your text, your source library, your settings — stays on your machine in a local SQLite database. Network calls go to the **Tracely server** (see below) for AI features and to free academic search APIs. The editor detects claims after a 2.5-second pause in typing, searches evidence for them, and, while Settings → "Fact-check my claims automatically" is on (the default), critiques up to 6 claims per analysis. Screen Watch (Windows, off by default) detects claims in other apps after a pause in typing.
 
 ## Requirements
 
@@ -65,7 +65,7 @@ Everything is local, under Electron's per-OS user-data directory for the app (`T
 
 - Windows: `%APPDATA%\Tracely\`
   - `tracely.db` — SQLite database: analyses, claims, evidence, citations, your saved library, and a request cache (so repeated identical AI/search calls don't re-hit the network).
-  - `config.json` — your optional Semantic Scholar API key, and a random install id sent to the server so a signed-out install gets its own daily quota. The server URL is compiled into the app, not stored here.
+  - `config.json` — your optional Semantic Scholar and NCBI API keys, and a random install id sent to the server so a signed-out install gets its own daily quota. The server URL is compiled into the app, not stored here.
 
 **Settings → Privacy** has two destructive actions:
 - **Clear Analysis History** — deletes past analyses, claims, and the cached request results. Your saved library is kept.
@@ -82,17 +82,18 @@ src/
     tray.ts           System tray icon (keeps the hotkey alive when the main window is closed).
     ipc/              One ipcMain.handle registrar per feature area; validates payloads with zod.
     services/
-      ai/             Server client — claim detection and critique both call the Tracely server
-                       (callServer in client.ts) over HTTPS instead of OpenAI directly, behind an explicit
-                       user action and a SQLite-backed cache. No OpenAI key ever exists in this app.
-      search/         OpenAlex / Crossref / Semantic Scholar / PubMed clients, a parallel aggregator with
+      ai/             Server client — claim detection, critique and grading call the Tracely server
+                       (callServer in client.ts) over HTTPS instead of OpenAI directly, behind a debounce or
+                       an explicit action and a SQLite-backed cache. No OpenAI key ever exists in this app.
+      search/         OpenAlex / Crossref / Semantic Scholar / PubMed / Wikipedia / World Bank clients
+                       (plus a capped, paid web-search fallback), a parallel aggregator with
                        DOI-based dedup, and a deterministic (non-AI) evidence-strength scoring function.
       citations/       Pure APA/MLA/Chicago formatters from source metadata — no AI call.
       storage/         sql.js-backed SQLite access: schema, one repo module per table, request cache,
-                       and the app-data config.json (Semantic Scholar key only).
+                       and the app-data config.json (optional API keys and the install id).
   preload/            contextBridge surface exposed to the renderer as `window.tracely`.
-  renderer/           React UI — two entry points (main window `index.html`, floating window `floating.html`)
-                       sharing the same components (ClaimCard, EvidenceCard, CitationBlock, etc.).
+  renderer/           React UI — three entry points (main window `index.html`, floating window `floating.html`,
+                       Screen Watch overlay `overlay.html`) sharing the same components (ClaimCard, EvidenceCard, CitationBlock, etc.).
 ```
 
 ### IPC channels
@@ -111,8 +112,8 @@ src/
 
 ### Cost control
 
-- AI is only called on an explicit user action (Analyze, Find Evidence's critique step, or Critique) — never on keystrokes.
-- Every AI call runs on the model the account's plan allows: Free gets `gpt-5.6-luna`, Student up to `gpt-5.6-terra`, Pro up to `gpt-6-astra` (`MODEL_FOR_TIER` in `src/shared/plan.ts`). The app asks for the tier the user picked, and the server clamps that to the plan it reads from the account — a request can lower the model but never raise it. Critique runs only when explicitly requested, and reuses evidence already fetched rather than searching again.
+- AI runs on an explicit action (AI Insights, Find Evidence, Critique) or after a debounced pause: live claim detection (2.5 s idle, at least 80 characters, the text changed by at least 80 characters, at most once per 15 s), up to 6 automatic critiques per analysis while "Fact-check my claims automatically" is on, and Screen Watch detection. Never on every keystroke.
+- Every AI call runs on the model the account's plan allows: Free gets `gpt-5.6-luna`, Student up to `gpt-5.6-terra`, Pro up to `gpt-6-astra` (`MODEL_FOR_TIER` in `src/shared/plan.ts`). The app asks for the tier the user picked, and the server clamps that to the plan it reads from the account — a request can lower the model but never raise it. Critique reuses evidence already fetched rather than searching again; beyond the 6 automatic ones it runs only when requested.
 - Every AI and evidence-search call is cached locally in SQLite keyed by a hash of its normalized input, so repeating the same analysis or evidence lookup costs nothing on subsequent runs (no server/OpenAI call at all). AI cache keys include the model, so an upgrade is not answered from the free tier's cache.
 - Evidence-strength scoring is a deterministic formula (source count, venue quality, recency, relevance) — it does not make an additional AI call.
 - The server itself enforces its own limits — input size, a per-caller rate limit, a daily quota for free accounts and a daily spend ceiling (see `server/shared/guards.js`) — rather than trusting the app to behave, since the app is running on machines you don't control. Set a hard monthly budget limit on your OpenAI account (Billing → Limits) as the real backstop against runaway usage.
@@ -130,5 +131,4 @@ This does **not** affect anything actually needed for the Windows build (icon em
 ### Known MVP simplifications
 
 - Author name formatting in citations truncates to "et al." after 3 authors (not the full APA/MLA rule sets).
-- "Government datasets" mentioned as a possible evidence source is an intentionally unbuilt extension point — no specific API was given for it.
 - PubMed results don't include an abstract (NCBI E-utilities would need a third `efetch` call per result; the other three providers already supply abstracts).

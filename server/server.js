@@ -18,7 +18,7 @@ import { clampModel, ceilingModelFor, currentModelId, planRank, DEFAULT_PLAN, FR
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
-import { isModelFailure, modelFailureLine } from "./lib/failureLog.js";
+import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -878,6 +878,10 @@ const server = http.createServer(async (req, res) => {
         budget: spendSummary({ enforced: entitlementConfigured() }),
         ...(betaOn ? { betaBudget: spendSummary({ enforced: entitlementConfigured(), pool: "beta" }) } : {}),
         paidBudget: spendSummary({ enforced: entitlementConfigured(), pool: "paid" }),
+        // `upstream` (optional) appears only while OpenAI is refusing for lack
+        // of credit (seen in the last 15 minutes) — the one outage the spend
+        // pools above can't show, because it is the account, not our ceiling.
+        ...(upstreamStatus() ? { upstream: upstreamStatus() } : {}),
       }, cors);
       return;
     }
@@ -1461,6 +1465,7 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     // Before the headersSent bail-out, so a failure is logged even when the
     // response can no longer carry it. One line, no user text (failureLog.js).
+    noteUpstreamFailure(err);
     if (MODEL_ROUTES.has(route) && isModelFailure(err)) console.error(modelFailureLine(route, err, trace));
     if (gate?.pool && EXTENSION_MODEL_ROUTES.has(route) && err?.llm?.usage) {
       try {
