@@ -342,6 +342,20 @@ claim it first (see "Claiming work" below). A `Stop` hook auto-commits and
 pushes the current branch at the end of every turn, so work is never left only
 in a working tree.
 
+### Claiming work
+
+- **Claim before starting** any multi-PR or multi-hour work: a GitHub issue
+  assigned to its owner (or a draft PR) titled `Claim: <phase>`, naming the
+  paths or routes in scope and the planned PRs.
+- **Check open claims first**: `gh issue list -s open -S 'in:title "Claim:"'`
+  and `gh pr list -S 'in:title "Claim:"'`. If one overlaps, comment there and
+  wait for its owner; never build a parallel implementation.
+- **One owner per phase.** Claude sessions claim exactly as people do, and the
+  Discord bridge bot's work belongs to whoever asked it — that person owns it.
+- **Link every PR to its claim** (`Part of #N`); the owner closes the claim when
+  the last PR merges or the work is dropped.
+- **A claim with no commits for 3 days lapses**: say so on it, then take it.
+
 - **`main` is the integration branch and the only branch releases are cut
   from.** It advances by deliberate merge. `.claude/hooks/guard-edit.sh` refuses
   edits to `src/`, `scripts/` and the build config while on `main`, because
