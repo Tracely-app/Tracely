@@ -176,7 +176,7 @@ export const NO_EVIDENCE_SUMMARY = "No supporting evidence was found.";
  * @param {{ claimText: string, strengthScore: number|null, evidenceSummary: string, referenceCheck?: string, model?, effort? }} req
  * @returns {{ critique, verdict, suggestedRevision, citationFix, model, usage }}
  */
-export async function critique({ claimText, strengthScore, evidenceSummary, referenceCheck, model, effort }) {
+export async function critique({ claimText, strengthScore, evidenceSummary, referenceCheck, model, effort, maxTokens = undefined }) {
   const claim = String(claimText ?? "").trim().slice(0, LIMITS.claimTextChars);
   if (!claim) throw new CheckError("bad_request", "claimText required");
   if (strengthScore !== null && typeof strengthScore !== "number") {
@@ -201,7 +201,8 @@ export async function critique({ claimText, strengthScore, evidenceSummary, refe
     used = mockModel(model);
   } else {
     const out = await structuredCall({
-      model, effort, maxTokens: MAX_OUTPUT.critique,
+      // `maxTokens`: server.js passes 4,000 on the thorough model (shared/plan.js THOROUGH_MAX_TOKENS).
+      model, effort, maxTokens: maxTokens ?? MAX_OUTPUT.critique,
       system: CRITIQUE_SYSTEM_PROMPT, user,
       schema: CRITIQUE_SCHEMA.schema, name: CRITIQUE_SCHEMA.name,
       what: "critique",

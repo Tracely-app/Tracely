@@ -11,10 +11,14 @@ import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
-         callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens } from "./lib/entitlement.js";
-import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend } from "./lib/spend.js";
+         callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
+         flowQuota, recordFlow, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
+         fairUseState, effectivePlan } from "./lib/entitlement.js";
+import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
-import { clampModel, ceilingModelFor, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
+import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
+         THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
+         dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
@@ -352,16 +356,20 @@ const critiqueCounter = rollingCounter(60);
 // Decided here, once, so every surface prices identically.
 //   economy (default): the FAST tier for everything — a full essay session
 //     lands in single-digit cents. This is the hard cost mandate.
-//   smart: the fast tier for the frequent mechanical passes, the BALANCED tier
-//     for the two judgment calls (critique, grading).
+//   smart: the fast tier everywhere except the two places the THOROUGH tier
+//     measured better — critique and "Explain in depth" (checkDeep). It used
+//     the balanced tier for critique, grading and checks until 2026-09-22;
+//     that tier is gone, and fast was the more accurate model on every task
+//     the eval measured (shared/plan.js THOROUGH_ROUTES).
 //   uniform: the user's chosen model everywhere (they pay for what they pick).
+// LOCAL runs only: a hosted server chooses with shared/plan.js modelForRoute.
 // Read from the tier table rather than written out, so a model rename is one
 // edit in lib/llm.js instead of a hunt through every file that names one.
 const H = MODEL_TIERS.fast;
-const S = MODEL_TIERS.balanced;
+const T = MODEL_TIERS.thorough;
 const TIERS = {
-  economy: { detect: H, structure: H, tracer: H, critique: H, grade: H, sources: H, check: H },
-  smart:   { detect: H, structure: H, tracer: H, critique: S, grade: S, sources: H, check: S },
+  economy: { detect: H, structure: H, tracer: H, critique: H, grade: H, sources: H, check: H, checkDeep: H },
+  smart:   { detect: H, structure: H, tracer: H, critique: T, grade: H, sources: H, check: H, checkDeep: T },
 };
 function pickModel(task) {
   const p = store.prefs.get();
@@ -399,12 +407,12 @@ function servedModel(requested) {
   return ALLOWED_MODELS.has(id) ? id : MODEL_TIERS.fast;
 }
 
-/* /api/check runs each tier at the ONE effort the eval measured it at,
- * whatever the client sent (eval/models/FINDINGS.md):
+/* LOCAL /api/check runs each tier at the ONE effort the eval measured it at,
+ * whatever the client sent (eval/models/FINDINGS.md) — a hosted server takes
+ * the effort from shared/plan.js modelForRoute, the same numbers:
  *   fast      gpt-5.6-luna   medium — 100% vs 90% at low (0 vs 5 harmful
  *                                     verdicts); builds <= 2.19.2 send "low"
  *                                     from their Fast stop
- *   balanced  gpt-5.6-terra  low
  *   thorough  gpt-6-astra    low    — builds <= 2.19.2 send "medium" from
  *                                     their Thorough stop, a config nobody
  *                                     measured; before 2026-09-21 hosted
@@ -416,7 +424,6 @@ function servedModel(requested) {
  * measured, so everything else keeps the client's effort or the default. */
 const CHECK_EFFORT = {
   [MODEL_TIERS.fast]: "medium",
-  [MODEL_TIERS.balanced]: "low",
   [MODEL_TIERS.thorough]: "low",
 };
 function checkEffort(model, level) {
