@@ -532,85 +532,90 @@ async function sent(fn) {
   return { r, calls: openaiLog().slice(n) };
 }
 
-test("/api/flow passes the client's effort through, normalised, at the clamped model", async () => {
+test("/api/flow runs luna at low for everyone, whatever model and effort the client sends", async () => {
+  // Pinned by the server since the 2026-09-21 plan policy (flow.test.js has
+  // the rest): the client's effort was passed straight through, "high" included.
   const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
   let { r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: "d-flow-beta" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "high" }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
 
   ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "medium" }, install: "d-flow-free" })));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }], "clamped model, the client's effort");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
   assert.equal(r.body.modelUsed, "gpt-5.6-luna");
 
   ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, effort: "turbo" }, install: "d-flow-junk" })));
   assert.equal(calls[0].effort, "low", "junk becomes the default, never OpenAI's own");
 });
 
-test("/api/sources sends the client's effort when it sends one, and otherwise none — as before", async () => {
+test("/api/sources runs luna and sends no effort, whatever the client sends — as every search was measured", async () => {
   // The store build sends no effort here, and every one of its source
-  // searches has always run at the vendor's default. That must not move
-  // without a measurement; a client that picks a level gets that level.
+  // searches has always run at the vendor's default. The server now holds
+  // every caller to that, so a client's "high" can no longer buy a dearer search.
   let { r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra" }, { install: "d-src-free" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5.6-luna", effort: null, webSearch: true }]);
 
-  ({ r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
+  ({ r, calls } = await sent(() => sources(D, { model: "gpt-6-astra", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "high" }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: null }]);
 
   ({ calls } = await sent(() => sources(D, { effort: "turbo" }, { install: "d-src-junk" })));
-  assert.equal(calls[0].effort, "low", "a junk level is normalised, never passed through");
+  assert.equal(calls[0].effort, null, "a junk level is not passed through either");
 });
 
-test("/api/check sends the requested model to the provider, not just in modelUsed", async () => {
-  const { r, calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "low" }, { token: "tok-pro", install: "d-check-pro" }));
+test("/api/check sends the model it reports to the provider, not just in modelUsed", async () => {
+  let { r, calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "low" }, { token: "tok-pro", install: "d-check-pro" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "low" }]);
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }]);
+  // Pro's "Explain in depth", within the allowance: astra at low, and the same id in modelUsed.
+  ({ r, calls } = await sent(() => check(D, { deep: true }, { token: "tok-pro", install: "d-check-deep" })));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "low" }]);
 });
 
-test("/api/check runs every tier at its measured effort, whatever the client sends; other routes keep the client's", async () => {
+test("/api/check runs luna at its measured effort, whatever model and effort the client sends", async () => {
   // eval/models/FINDINGS.md: gpt-5.6-luna checks at 100% at medium and 90% at
-  // low; terra and astra were measured at low only. Builds up to 2.19.2 send
-  // "low" from their Fast stop and "medium" from their Thorough stop.
-  const measured = { "gpt-5.6-luna": "medium", "gpt-5.6-terra": "low", "gpt-6-astra": "low" };
-  const tiers = [["gpt-5-nano", "gpt-5.6-luna", {}], ["gpt-5.6-terra", "gpt-5.6-terra", { token: "tok-pro" }], ["gpt-6-astra", "gpt-6-astra", { headers: BETA }]];
-  for (const [model, ran, who] of tiers) {
+  // low. Builds up to 2.19.5 send "low" from their Fast stop and "medium" from
+  // their Thorough stop, with whichever id that stop names.
+  const who = [["gpt-5-nano", {}], ["gpt-5.6-terra", { token: "tok-pro" }], ["gpt-6-astra", { headers: BETA }]];
+  for (const [model, caller] of who) {
     for (const asked of ["low", undefined, "minimal", "turbo", "medium", "high"]) {
       const body = asked === undefined ? { model } : { model, effort: asked };
-      const { r, calls } = await sent(() => check(D, body, { install: `d-eff-${model}-${asked}`, ...who }));
+      const { r, calls } = await sent(() => check(D, body, { install: `d-eff-${model}-${asked}`, ...caller }));
       assert.equal(r.status, 200, JSON.stringify(r.body));
-      assert.equal(r.body.modelUsed, ran);
-      assert.deepEqual(calls.map(({ model: m, effort }) => ({ model: m, effort })), [{ model: ran, effort: measured[ran] }], `${model} asked at ${asked}`);
+      assert.equal(r.body.modelUsed, "gpt-5.6-luna");
+      assert.deepEqual(calls.map(({ model: m, effort }) => ({ model: m, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }], `${model} asked at ${asked}`);
     }
   }
-  // The store build's Thorough stop, exactly as 2.19.2 sends it: astra at medium, never measured.
+  // The store build's Thorough stop, exactly as 2.19.2 sends it: astra at medium. A typing check is never astra.
   let { calls } = await sent(() => check(D, { model: "gpt-6-astra", effort: "medium" }, { token: "tok-pro", install: "d-eff-store-thorough" }));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "low" }]);
-
-  // A paid caller clamped to fast by plan gets fast's effort — it is the model, not the plan.
-  ({ calls } = await sent(() => check(D, { model: "gpt-6-astra", effort: "low" }, { token: "tok-free", install: "d-eff-clamped" })));
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }]);
 
-  // Not the other routes: a fast /api/flow at low stays low.
+  // Not the other routes: /api/flow runs at its own pinned low.
   const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
-  ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.6-luna", effort: "low" }, install: "d-floor-flow" })));
+  ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.6-luna", effort: "medium" }, install: "d-floor-flow" })));
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
 });
 
-test("a retired id reaches the provider as its tier's current model — on /api/check and /api/flow", async () => {
+test("a retired id reaches the provider as its tier's current model (fast) — on /api/check and /api/flow", async () => {
   let { r, calls } = await sent(() => check(D, { model: "gpt-5.4", effort: "low" }, { token: "tok-student", install: "d-legacy-check" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-terra"]);
-  assert.equal(r.body.modelUsed, "gpt-5.6-terra");
+  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-luna"]);
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
 
   const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
-  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.4", effort: "low" }, token: "tok-pro", install: "d-legacy-flow" })));
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "low" }]);
-  assert.equal(r.body.modelUsed, "gpt-5.6-terra");
-
-  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5-nano", effort: "low" }, token: "tok-pro", install: "d-legacy-flow-fast" })));
-  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-luna"]);
+  // One caller per id: /api/flow admits one call per caller per 120 s, and a
+  // signed-in caller is one caller whatever install id it sends.
+  const callers = { "gpt-5.4": { token: "tok-pro" }, "gpt-5.6-terra": { headers: BETA }, "gpt-5-nano": {} };
+  for (const [legacy, who] of Object.entries(callers)) {
+    ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: legacy, effort: "high" }, ...who, install: `d-legacy-flow-${legacy}` })));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }], legacy);
+    assert.equal(r.body.modelUsed, "gpt-5.6-luna");
+  }
 });
 
 async function logLine(srv, needle) {
