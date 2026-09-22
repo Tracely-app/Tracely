@@ -12,7 +12,8 @@
  *   - a bot wall or an HTTP error is a clear error, never a citation;
  *   - authors, dates, publisher, journal fields are read in a fixed order of
  *     trust: citation_* tags (what scholarly indexes read) > Open Graph and
- *     article:* > JSON-LD > the first <time> > a visible "Published:" label;
+ *     article:* > JSON-LD > the first trusted <time> > a visible "Published:"
+ *     label;
  *   - a date is taken as the page WROTE it (never through new Date(), which
  *     shifts a timestamp's calendar day into the server's timezone), a
  *     modified date is never taken for a published one, and a date that
@@ -260,12 +261,28 @@ function tagAttrs(tag) {
   return out;
 }
 
+/* A <time> is a publication date only when the page says so, or it sits
+ * where a byline does. The first <time> anywhere was often a masthead's
+ * "today" or a sidebar's date, which cited an undated page as published
+ * today. Trusted: marked as published (itemprop, the old pubdate attribute,
+ * a class or id naming it or the title bar), inside an <article>, or within
+ * 2,000 characters after the first headline. Never one marked as an update. */
+const TIME_MODIFIED = /modif|updat|edited|revis/i;
+const TIME_PUBLISHED = /publish|pub-?date|posted|dateline|byline|title|entry-date|article-date|post-date|story-date/i;
+function timeTrusted(a, inArticle, afterHeadline) {
+  const marks = `${a.class ?? ""} ${a.id ?? ""}`;
+  if (/dateModified/i.test(a.itemprop ?? "") || TIME_MODIFIED.test(marks)) return false;
+  if (/datePublished|dateCreated/i.test(a.itemprop ?? "") || "pubdate" in a || TIME_PUBLISHED.test(marks)) return true;
+  return inArticle || afterHeadline;
+}
+
 /**
  * The parts of a page citation fields come from, in one linear pass:
  * every <meta>'s attributes, the first <title>'s text, each JSON-LD block's
- * source, each <time datetime> in page order, and the visible text (tags
- * replaced by spaces, script and style bodies dropped) for the "Published:"
- * label. Markup inside comments and scripts is not markup and is skipped.
+ * source, each <time datetime> in page order (with whether it can be trusted
+ * as the publication date — timeTrusted), and the visible text (tags replaced
+ * by spaces, script and style bodies dropped) for the "Published:" label.
+ * Markup inside comments and scripts is not markup and is skipped.
  */
 export function scanHtml(input) {
   const html = String(input ?? "").slice(0, MAX_HTML_CHARS);
@@ -280,6 +297,8 @@ export function scanHtml(input) {
   };
   const n = html.length;
   let pos = 0;
+  let articleDepth = 0;
+  let h1End = -1; // just past the first </h1>: a byline's date follows the headline
   while (pos < n) {
     const lt = html.indexOf("<", pos);
     if (lt < 0) { addText(html.slice(pos)); break; }
@@ -301,12 +320,18 @@ export function scanHtml(input) {
     pos = gt + 1;
     addText(" ");
     const m = /^<(\/?)([a-z][a-z0-9:-]*)/.exec(lower.slice(lt, Math.min(gt, lt + 64)));
-    if (!m || m[1]) continue; // a closing tag, <!doctype>, <?xml?>
+    if (!m) continue; // <!doctype>, <?xml?>
     const name = m[2];
-    if (name === "meta") page.metas.push(tagAttrs(html.slice(lt, gt + 1)));
+    if (m[1]) {
+      if (name === "article" && articleDepth > 0) articleDepth--;
+      else if (name === "h1" && h1End < 0) h1End = pos;
+      continue;
+    }
+    if (name === "article") articleDepth++;
+    else if (name === "meta") page.metas.push(tagAttrs(html.slice(lt, gt + 1)));
     else if (name === "time") {
       const a = tagAttrs(html.slice(lt, gt + 1));
-      if (a.datetime) page.times.push(a.datetime);
+      if (a.datetime) page.times.push({ value: a.datetime, trusted: timeTrusted(a, articleDepth > 0, h1End >= 0 && lt - h1End <= 2000) });
     } else if (RAW_TEXT.has(name)) {
       const end = lower.indexOf(`</${name}`, pos);
       if (end < 0) break; // everything after is this element's text
@@ -436,7 +461,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
   // Dates. Never a modified stamp; never one the title contradicts.
   const modified = new Set([one("article:modified_time"), one("og:updated_time"), clean(String(main?.dateModified ?? ""))]
     .map((s) => isoOf(parseDate(s, now)) ?? "").filter(Boolean));
-  const firstTime = page.times.slice(0, 1);
+  const firstTime = page.times.filter((t) => t.trusted).slice(0, 1).map((t) => t.value);
   const candidates = [
     ...all(...EXPLICIT_DATE_KEYS).map((v) => [v, true]),
     ...all(...GENERIC_DATE_KEYS).map((v) => [v, false]),

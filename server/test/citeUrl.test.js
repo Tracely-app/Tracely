@@ -254,6 +254,25 @@ test("more than 30 authors keeps the last one, whom APA names after the ellipsis
   assert.equal(authors.at(-1), "Author40, A.", "the 40th author, not the 30th");
 });
 
+test("a <time> is a publication date only where the page marks it or a byline sits", () => {
+  const at = (body) => extractCitationMeta(`<title>Evergreen guide</title>${body}`, "https://example.com/guide", NOW).date;
+  const filler = "<p>" + "x".repeat(3000) + "</p>";
+  // What this replaced took the first <time> anywhere.
+  assert.equal(at(`<header class="masthead"><time datetime="2026-09-21">Monday</time></header><h1>Evergreen guide</h1><p>Text.</p>`), undefined, "a masthead's today");
+  assert.equal(at(`<h1>Evergreen guide</h1>${filler}<aside><time datetime="2026-09-19">Sep 19</time></aside>`), undefined, "a sidebar far from the headline");
+  // Trusted.
+  assert.equal(at(`<header><time datetime="2026-09-21">Monday</time></header><article><h1>Evergreen guide</h1><p>By Jane</p><time datetime="2023-03-02">March 2</time></article>`), "2023-03-02", "inside the article");
+  assert.equal(at(`<h1>Evergreen guide</h1><p class="byline">By Jane · <time datetime="2023-03-02">March 2</time></p>`), "2023-03-02", "right after the headline");
+  assert.equal(at(`${filler}<span><time itemprop="datePublished" datetime="2023-03-02">x</time></span>`), "2023-03-02");
+  assert.equal(at(`<time pubdate datetime="2023-03-02">x</time>`), "2023-03-02");
+  assert.equal(at(`<div class="post-meta"><time class="entry-date published" datetime="2023-03-02">x</time></div>`), "2023-03-02");
+  // Never an update, even in the article.
+  assert.equal(at(`<article><h1>Evergreen guide</h1><time class="updated" datetime="2025-01-05">x</time></article>`), undefined);
+  assert.equal(at(`<article><time itemprop="dateModified" datetime="2025-01-05">x</time><time datetime="2023-03-02">y</time></article>`), "2023-03-02");
+  // An </article> closes the trusted region.
+  assert.equal(at(`<article><p>card</p></article>${filler}<time datetime="2026-09-20">x</time>`), undefined);
+});
+
 // ── the route's function ───────────────────────────────────────────────
 
 test("fetchUrlMetadata: the IOM page cites with its year, old fields first and unchanged in kind", async () => {
@@ -386,7 +405,7 @@ test("scanHtml: markup inside comments and scripts is not markup; 'a < b' is tex
     <p>3 < 4 and published: May 7, 2024</p><time datetime="2024-05-07">May 7</time>`);
   assert.equal(page.title, "Real &amp; true");
   assert.deepEqual(page.metas.map((a) => [a.name, a.content]), [["Author", "Jane Doe"], ["keywords", "unquoted"]]);
-  assert.deepEqual(page.times, ["2024-05-07"]);
+  assert.deepEqual(page.times.map((t) => t.value), ["2024-05-07"]);
   assert.match(page.text.replace(/\s+/g, " "), /3 < 4 and published: May 7, 2024/);
   assert.doesNotMatch(page.text, /var s/);
 });
