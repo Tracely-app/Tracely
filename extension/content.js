@@ -888,6 +888,14 @@
     .autosrc { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8e8e93; cursor: pointer; user-select: none; font-weight: 600; }
     .autosrc input { accent-color: #ff7f00; }
     .foot { padding: 8px 16px; background: #fff; border-top: 1px solid rgba(20,16,10,0.05); font-size: 10.5px; color: #a7a7ac; display: flex; justify-content: space-between; font-weight: 500; }
+    /* The panel eases up out of the pill when it opens (re-renders while it
+       stays open don't replay it). Reduced motion: it just appears. */
+    .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
+    @keyframes tracely-panel-in {
+      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .panel.opening { animation: none; } }
     .card.flash { animation: tracely-flash 1.2s ease-out; }
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px rgba(255,127,0,0.4); }
@@ -1085,6 +1093,7 @@
     let statusKind = "idle"; // idle | checking | error | offline
     let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
+    let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
     let bridgeReady = false;  // Docs bridge configured server-side (developer builds) → in-doc edit buttons
@@ -1934,9 +1943,54 @@
       document.head.appendChild(st);
     }
 
-    function hideDocsPopover() {
+    /* Motion. The card eases out of its underline (fade + a few px of slide
+       + a hair of scale) instead of popping in, and fades out instead of
+       vanishing. Only opacity and transform are animated, on the card itself:
+       placeDocsPopover and the follow loop position it with left/top, so the
+       two never fight. Moving straight from one underline to the next swaps
+       cards with a short fade and no slide, so two cards never stack up. With
+       prefers-reduced-motion the card simply appears and disappears. */
+    let popClosing = null; // the previous card, fading out — not the live one
+    const reducedMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+    const POP_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+    function dropClosingPopover() {
+      if (popClosing) { popClosing.remove(); popClosing = null; }
+    }
+    function animatePopoverIn(el, switching) {
+      if (reducedMotion() || typeof el.animate !== "function") return;
+      const arrow = el.querySelector("[data-pop-arrow]");
+      const ax = arrow ? (parseFloat(arrow.style.left) || 20) + 6 : 26;
+      el.style.transformOrigin = `${ax}px 0px`; // grow out of the caret, i.e. the underline
+      el.animate(
+        switching
+          ? [{ opacity: 0 }, { opacity: 1 }]
+          : [{ opacity: 0, transform: "translateY(-6px) scale(0.98)" }, { opacity: 1, transform: "none" }],
+        { duration: switching ? 90 : 160, easing: POP_EASE },
+      );
+    }
+    function animatePopoverOut(el) {
+      dropClosingPopover();
+      if (reducedMotion() || typeof el.animate !== "function") { el.remove(); return; }
+      // No longer the live card: nothing may click it or find it while it fades.
+      el.style.pointerEvents = "none";
+      el.removeAttribute("data-tracely-docs-popover");
+      popClosing = el;
+      let gone = false;
+      const done = () => { if (gone) return; gone = true; el.remove(); if (popClosing === el) popClosing = null; };
+      try {
+        el.animate(
+          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-4px)" }],
+          { duration: 110, easing: "ease-in", fill: "forwards" },
+        ).finished.then(done, done);
+      } catch { done(); return; }
+      setTimeout(done, 400); // belt and braces: never leave an invisible card behind
+    }
+
+    // `instant`: the caller is about to open another card in its place.
+    function hideDocsPopover({ instant = false } = {}) {
       if (popEl) console.debug("[tracely] popover hide");
-      if (popEl) popEl.remove();
+      if (popEl) { if (instant) { dropClosingPopover(); popEl.remove(); } else animatePopoverOut(popEl); }
+      else if (instant) dropClosingPopover();
       popEl = null;
       popHash = null;
       popAnchor = null;
@@ -2072,7 +2126,8 @@
       const issue = bar.flow;
       console.debug("[tracely] flow popover open", bar.hash);
       popFont();
-      hideDocsPopover();
+      const switching = Boolean(popEl);
+      hideDocsPopover({ instant: true });
       popHash = bar.hash;
       popEl = document.createElement("div");
       popEl.setAttribute("data-tracely-docs-popover", "");
@@ -2159,6 +2214,7 @@
       document.documentElement.appendChild(popEl);
       placeDocsPopover(rect);
       popEl.style.visibility = "visible";
+      animatePopoverIn(popEl, switching);
       popAnchor = anchorBar ?? null;
       popLastTop = rect.top;
       popLostAt = 0;
@@ -2170,7 +2226,8 @@
       const f = cache.get(hash);
       if (!f) { console.debug("[tracely] popover abort: no finding"); return; }
       popFont();
-      hideDocsPopover();
+      const switching = Boolean(popEl);
+      hideDocsPopover({ instant: true });
       popHash = hash;
       const color = MARK_COLORS[f.verdict] ?? "#8e8e93";
       popEl = document.createElement("div");
@@ -2281,6 +2338,7 @@
       document.documentElement.appendChild(popEl);
       placeDocsPopover(rect);
       popEl.style.visibility = "visible";
+      animatePopoverIn(popEl, switching);
       popAnchor = anchorBar ?? null;
       popLastTop = rect.top;
       popLostAt = 0;
@@ -3253,6 +3311,8 @@
       const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
+      const panelOpening = expanded && !panelWasOpen;
+      panelWasOpen = expanded;
       let panelHtml = "";
       if (expanded) {
         undoShown = false;
@@ -3331,7 +3391,7 @@
           ? `<div class="undo-strip"><span>${esc(lastDocEdit.label.charAt(0).toUpperCase() + lastDocEdit.label.slice(1))}</span><button class="act" data-doc-undo="1"${docBusy ? " disabled" : ""}>Undo</button></div>`
           : "";
         panelHtml = `
-        <div class="panel">
+        <div class="panel${panelOpening ? " opening" : ""}">
           <div class="head" id="dragHead">
             <span class="plane">${PLANE_SVG}</span>
             <span class="name">Tracely</span>
@@ -3535,6 +3595,7 @@
     let statusKind = "idle"; // idle | checking | error | offline
     let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
+    let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let fieldText = "";
     let copiedFixHash = null;
     const fieldFixed = new Set();
@@ -4072,6 +4133,8 @@
       const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
+      const panelOpening = expanded && !panelWasOpen;
+      panelWasOpen = expanded;
       let panelHtml = "";
       if (expanded) {
         const cards = issues.map(({ seg, f }) => {
@@ -4125,7 +4188,7 @@
             : "Nothing sent yet. “Check once” reviews this field — or turn on auto-check for this site.";
 
         panelHtml = `
-        <div class="panel">
+        <div class="panel${panelOpening ? " opening" : ""}">
           <div class="head" id="dragHead">
             <span class="plane">${PLANE_SVG}</span>
             <span class="name">Tracely</span>
