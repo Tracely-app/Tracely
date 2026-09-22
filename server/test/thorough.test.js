@@ -192,3 +192,52 @@ test("Explain in depth takes exactly one sentence; `deep` other than true is an 
   assert.equal(truthy.status, 200, "only the boolean true asks for depth — an old build never sends the field");
   assert.equal(truthy.body.modelUsed, LUNA);
 });
+
+// ── Explain in depth: the allowance's edge ───────────────────────────────
+
+test("an explanation runs on astra only while the allowance covers its 15-cent worst case; then the same call runs on luna, never refused", async () => {
+  const seen = [];
+  for (let i = 0; i < 15; i++) {
+    const r = await explain(`drain-${i}`, { token: "tok-pro-drain" });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    seen.push([r.body.modelUsed, r.body.thorough.used]);
+  }
+  assert.deepEqual(seen.slice(0, 14), Array(14).fill([ASTRA, true]), "150 - 10k >= 15 for k = 0..13");
+  assert.deepEqual(seen[14], [LUNA, false], "10 cents left cannot cover a 15-cent worst case");
+  const last = openaiLog("drain-14");
+  assert.deepEqual(last.map((c) => [c.model, c.effort, c.maxTokens]), [[LUNA, "medium", 16000]], "the fallback is an ordinary check");
+  const after = await explain("drain-after", { token: "tok-pro-drain" });
+  assert.deepEqual(after.body.thorough, { used: false, remainingPct: 6, resetsOn: nextMonthStart() },
+    "a luna fallback is not charged to the allowance");
+});
+
+test("no overshoot under concurrency: a burst of 18 explanations admits exactly 10 (150 / 15), and every hold is released after", async () => {
+  const burst = await Promise.all(Array.from({ length: 18 }, (_, i) => explain(`burst-${i}`, { token: "tok-pro-burst" }, { extra: "TRIGGER-SLOW" })));
+  for (const r of burst) assert.equal(r.status, 200, JSON.stringify(r.body));
+  const ran = burst.filter((r) => r.body.thorough.used);
+  assert.equal(ran.length, 10);
+  assert.ok(ran.every((r) => r.body.modelUsed === ASTRA));
+  const astraCalls = Array.from({ length: 18 }, (_, i) => openaiLog(`burst-${i}`)).flat().filter((c) => c.model === ASTRA);
+  assert.equal(astraCalls.length, 10, "what was sent to the provider, not just what was reported");
+  // 100 of 150 cents spent and nothing still held: 50 cents covers another.
+  const next = await explain("burst-next", { token: "tok-pro-burst" });
+  assert.equal(next.body.thorough.used, true, "holds from the burst were released");
+  assert.equal(next.body.thorough.remainingPct, 26, "110 of 150 cents spent");
+});
+
+test("a thorough call that fails after being billed is charged to the allowance, and no failure leaks a hold", async () => {
+  const token = "tok-pro-fail";
+  const cut = await explain("fail-truncate", { token }, { extra: "TRIGGER-TRUNCATE" });
+  assert.notEqual(cut.status, 200);
+  assert.equal(openaiLog("fail-truncate")[0].model, ASTRA);
+  const e = await call("GET", "/api/entitlement", { token });
+  assert.equal(e.body.thorough.remainingPct, 46, "the truncated call's 81 cents (1k in, 16k out on astra) reached the allowance");
+  // 12 failed calls would hold 180 cents if a failure leaked its hold.
+  for (let i = 0; i < 12; i++) {
+    const g = await explain(`fail-garbage-${i}`, { token }, { extra: "TRIGGER-GARBAGE TRIGGER-USAGE-1-1" });
+    assert.notEqual(g.status, 200);
+  }
+  const ok = await explain("fail-after", { token });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.thorough.used, true, "the allowance is not stuck behind released holds");
+});
