@@ -28,7 +28,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { nextMonthStart } from "../shared/plan.js";
+import { nextMonthStart, nextUsageDay } from "../shared/plan.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.join(HERE, "..", "server.js");
@@ -240,4 +240,49 @@ test("a thorough call that fails after being billed is charged to the allowance,
   const ok = await explain("fail-after", { token });
   assert.equal(ok.status, 200);
   assert.equal(ok.body.thorough.used, true, "the allowance is not stuck behind released holds");
+});
+
+// ── beta testers and the fair-use limit ──────────────────────────────────
+
+test("a beta tester gets Explain in depth on an allowance keyed on their install id, paid for by the beta pool", async () => {
+  const BETA = { "X-Tracely-Beta": "right-token" };
+  const before = (await call("GET", "/api/status")).body.betaBudget.spentUsd;
+  const first = await explain("beta-1", { install: "beta-install-a", headers: BETA });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.deepEqual([first.body.modelUsed, first.body.thorough.remainingPct], [ASTRA, 93]);
+  const again = await explain("beta-2", { install: "beta-install-a", headers: BETA });
+  assert.equal(again.body.thorough.remainingPct, 86, "the same install, the same allowance");
+  const e = await call("GET", "/api/entitlement", { install: "beta-install-a", headers: BETA });
+  assert.equal(e.body.thorough.remainingPct, 86);
+  assert.ok(!("fairUse" in e.body), "beta testers have no fair-use limit");
+  const after = (await call("GET", "/api/status")).body.betaBudget.spentUsd;
+  assert.equal(Number((after - before).toFixed(4)), 0.2, "two 10-cent astra calls on the beta pool");
+  const without = await explain("beta-no-header", { install: "beta-install-a" });
+  assert.equal(without.status, 403, "the same install without the token is a free caller");
+});
+
+test("fair use: a Pro account past $2 today runs at Starter limits — Explain in depth falls back to luna, and /api/entitlement says why", async () => {
+  const token = "tok-pro-fair";
+  const text = "Water boils at 100 degrees Celsius. TAG-fair-big TRIGGER-USAGE-10000000-0";
+  const big = await call("POST", "/api/check", { token, body: { text, sentences: [{ id: "s1", text }] } });
+  assert.equal(big.status, 200, JSON.stringify(big.body));
+  const e = await call("GET", "/api/entitlement", { token });
+  assert.equal(e.body.plan, "pro", "the plan itself is untouched");
+  assert.deepEqual(e.body.fairUse, { state: "day", resetsOn: nextUsageDay() });
+  assert.equal(e.body.thorough.suspended, true);
+  assert.deepEqual(e.body.limits, { checksPerDay: 400, aiActionsPerDay: 150, flowPerDay: 40, sources: { day: 5, month: 40 } });
+  const deep = await explain("fair-deep", { token });
+  assert.equal(deep.status, 200, "never a 403: the account still holds Pro");
+  assert.deepEqual([deep.body.modelUsed, deep.body.thorough.used], [LUNA, false]);
+});
+
+test("/api/entitlement: a Pro account sees its limits, source usage and Thorough allowance; a free one no allowance", async () => {
+  const pro = await call("GET", "/api/entitlement", { token: "tok-pro-ent" });
+  assert.deepEqual(pro.body.limits, { checksPerDay: null, aiActionsPerDay: null, flowPerDay: 150, sources: { day: 40, month: 250 } });
+  assert.deepEqual(pro.body.usage, { sources: { today: 0, month: 0 } });
+  assert.deepEqual(pro.body.thorough, { remainingPct: 100, resetsOn: nextMonthStart() });
+  assert.deepEqual(pro.body.fairUse, { state: "ok", resetsOn: null });
+  const free = await call("GET", "/api/entitlement", { token: "tok-free-ent" });
+  assert.equal(free.body.limits.checksPerDay, 400);
+  assert.ok(!("thorough" in free.body) && !("fairUse" in free.body));
 });
