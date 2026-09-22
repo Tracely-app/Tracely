@@ -7,8 +7,11 @@ excludes it from every zip, and no manifest entry loads it.
   `extension/docs-hook.js`; this file is kept as the record of what the harness proved.
 - `bridge-notes.md` — how content.js was wired to it.
 - `unit.mjs` — the planner tests (ported to `server/test/ext-docs-edit.test.js`).
+- `hook-trial.mjs` — drives the SHIPPED `extension/docs-hook.js` in a real Doc over content.js's
+  exact protocol; always severs the network before anything but a ping (15/15 on 2026-09-21,
+  live Doc verified unchanged afterwards).
 - `harness.mjs`, `edit-trial.mjs`, `verify.mjs` (+ `lib.js`, `keys.js`, `mouse.js`, `t.js`,
-  `trials/`) — real-browser drivers. Configure with `TRACELY_PLAYWRIGHT` / `TRACELY_CHROME` (see `pw.mjs`).
+  `trials/`) — the spike's real-browser drivers. Configure with `TRACELY_PLAYWRIGHT` / `TRACELY_CHROME` (see `pw.mjs`).
 
 ## The one rule
 
