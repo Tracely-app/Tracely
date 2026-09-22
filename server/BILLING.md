@@ -39,15 +39,41 @@ checkout should set them.
 
 ## The plans
 
-| Plan | Model ceiling | Source searches |
-| --- | --- | --- |
-| `free` | `gpt-5.6-luna` (Fast) | 5 per calendar day, per account |
-| `student` | `gpt-5.6-terra` (Balanced) | unlimited |
-| `pro` | `gpt-6-astra` (Thorough) | unlimited |
+The plan policy of 2026-09-21 (`shared/plan.js`; the decision is summarised
+in `eval/models/FINDINGS.md`, "Plan policy"). **Every plan checks with the same
+model**, `gpt-5.6-luna` — the most accurate and the cheapest the eval measured.
+The server picks the model and effort per route (`modelForRoute`); the
+client's model and effort are ignored everywhere except Pro's two thorough
+routes, where they only choose Thorough over Standard.
 
-The ids come from `lib/llm.js`'s `MODEL_TIERS` and are mirrored in
-`shared/plan.js` and three extension files; `test/models.test.js` fails the
-build if any copy drifts.
+| Plan | Checks | AI actions (desktop) | Source searches (extension + desktop, one count) | Thorough model | Fair-use limit |
+| --- | --- | --- | --- | --- | --- |
+| `free` | 400 a day | 150 a day | 5 a day, 40 a month | — | — (it has quotas) |
+| `student` | no daily limit | no daily limit | 20 a day, 100 a month | — | $1 a day, $4 a month |
+| `pro` | no daily limit | no daily limit | 40 a day, 250 a month | $1.50/month allowance | $2 a day, $8 a month (includes the allowance) |
+
+- **Thorough** (`gpt-6-astra` at low) runs only on Pro's "Explain in depth"
+  (`/api/check` with `deep: true`, one sentence, 2,000-token ceiling) and on
+  desktop critiques when the desktop tier is Thorough (4,000-token ceiling),
+  each only while the monthly allowance covers its reserved worst case (15 /
+  35 cents). Otherwise the same call runs on luna — never refused. Free and
+  Student get 403 `plan_required` for `deep: true`.
+- **Fair use** is all model spend by one signed-in paid account. Over its day
+  or month limit the account runs at Free's limits (and without the Thorough
+  allowance) until midnight or the 1st; the plan and billing are unchanged.
+- **Beta testers** are Pro on the extension's routes, with the allowance and
+  Pro's search limits keyed on `user:<id>` or `install:<hash>`, and no
+  fair-use limit (the beta pool bounds them).
+- `/api/flow` has its own quota (40 a day on Free, 150 on Student and Pro) and
+  admits one call per caller per 120 s.
+- Monthly counters live in `entitlement_usage` under a `YYYY-MM` day key (UTC)
+  and reset on the 1st; daily ones reset at local midnight.
+
+The tier ids come from `lib/llm.js`'s `MODEL_TIERS` (`fast`, `thorough`) and
+are mirrored in `shared/plan.js`; `test/models.test.js` fails the build if they
+drift. `gpt-5.6-terra` (the old Balanced) is retired: builds already shipped
+still send it, and `gpt-5.4`/`gpt-5-nano`, and the server reads all three as
+fast (`LEGACY_MODEL_TIER`). Its price row stays so old usage still prices.
 
 `free` is the answer to every question the server cannot answer — no token, an
 expired token, Supabase unreachable, metadata holding something unexpected. It
@@ -73,22 +99,25 @@ source consulted for exactly the users who have not paid.
 
 Resolutions are cached in memory for 60 seconds, keyed on a hash of the token.
 
-## The model clamp
+## The model choice
 
 Every AI endpoint (the extension's `/api/check`, `/api/flow` and
 `/api/sources`, and the desktop's app routes) accepts an optional
-`Authorization: Bearer <supabase access token>` header. Whatever model the
-client asks for is a **request, never a grant**: on a hosted (enforced) server
-the requested model runs, clamped to the plan's ceiling (`appModelFor` in
-`server.js`); the prefs-row cost tiering (`pickModel`) applies only on a local
-server. Responses carry `plan` and `modelUsed` so the client can say what
-actually ran.
+`Authorization: Bearer <supabase access token>` header. On a hosted (enforced)
+server **the server decides** the model, effort and output ceiling per route
+(`modelForRoute` in `shared/plan.js`, via `hostedChoice` in `server.js`): luna
+everywhere, at medium on `/api/check`, with no effort sent on `/api/sources`,
+and at low elsewhere. The client's model id is read only on Pro's thorough
+routes, where it can only choose Thorough over Standard; the client's effort
+is never read. The prefs-row cost tiering (`pickModel`) applies only on a
+local server. Responses carry `plan` and `modelUsed` so the client can say
+what actually ran; `/api/check` adds an optional `thorough` object on
+`deep: true`.
 
-An unrecognised or absent model request resolves *down* to the fast model, not
-up to the plan's ceiling — "the client sent nothing" must not become a
-`gpt-6-astra` bill, and the cheap default was the pre-entitlement behaviour of every route.
+An unrecognised or absent model request resolves *down* to the fast model —
+"the client sent nothing" must not become a `gpt-6-astra` bill.
 
-## Free-tier metering
+## Metering
 
 Counted server-side in SQLite (`entitlement_usage`, one row per caller per
 calendar day), so a restart does not hand the quota back. The day boundary is
@@ -237,16 +266,21 @@ tier (`eval/models/FINDINGS.md`); dropping it buys that much runway for the
 feature people actually notice missing. Below 20% remaining, `/api/sources`
 answers 503 and checking continues. At 0%, everything answers 503.
 
-**2. Per-caller daily quotas.** Free callers get `FREE_DAILY_CHECKS` (400) and
-`FREE_DAILY_SOURCE_SEARCHES` (5) a day on the extension's routes, and
-`FREE_DAILY_AI_CALLS` (150) on the desktop's. 400 checks is about an hour of
-continuous typing and costs at most ~34 cents; far less in practice, because
-the server caches on a hash of the input, so re-checking unchanged text is
-free. Paid plans are not quota-metered — they are bounded by the global budget.
+**2. Per-caller quotas.** Free callers get `FREE_DAILY_CHECKS` (400) a day on
+the extension's routes and `FREE_DAILY_AI_CALLS` (150) on the desktop's. 400
+checks is about an hour of continuous typing and costs at most ~35 cents
+cold. Source searches are metered on EVERY plan, per day and per month
+(`SOURCE_LIMITS`: 5/40 Free, 20/100 Student, 40/250 Pro), one count shared by
+`/api/sources` and `/api/find-sources`; flow checks per day (`DAILY_FLOW`).
+Paid plans have no daily check or AI-action limit; they are bounded by their
+per-account fair-use limit (`FAIR_USE`, above) and by the pools.
 
 **3. Per-caller rate limits.** 20 checks and 4 source searches a minute, in
 memory. The client fires at most 6 checks a minute, so this never throttles
-honest use; it exists to stop a burst.
+honest use; it exists to stop a burst. `/api/flow` admits one call per caller
+per 120 s (429 `flow_rate`, which shipped extensions swallow silently), and
+an identified caller's source searches have their own hourly window; the
+shared global search counter now applies only to address-only callers.
 
 ### What identity a quota counts against
 
