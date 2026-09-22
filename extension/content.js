@@ -852,7 +852,10 @@
     .fix { background: #fdfbf9; border: 1px solid rgba(20,16,10,0.06); border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; }
     .fix-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #1f9d55; margin-bottom: 4px; }
     .fix-text { font-size: 12.5px; margin-bottom: 7px; line-height: 1.5; }
-    .row { display: flex; gap: 7px; }
+    .row { display: flex; gap: 7px; flex-wrap: wrap; }
+    .edit-note { font-size: 11px; color: #8e8e93; margin-top: 6px; font-weight: 500; }
+    .undo-strip { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; font-weight: 600; color: #1f9d55; background: #eefaf3; border-radius: 10px; padding: 6px 8px 6px 11px; margin-bottom: 8px; }
+    .undo-strip button.act { padding: 4px 11px; font-size: 11px; }
     button.act {
       border: 1px solid rgba(20,16,10,0.1); background: #fff; color: #0e0e10; border-radius: 9px;
       padding: 6px 12px; font-size: 11.5px; cursor: pointer; font-weight: 700; font-family: ${JAKARTA};
@@ -1084,9 +1087,19 @@
     let expanded = false;
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
-    let bridgeReady = false;  // Docs bridge configured server-side → in-doc edit buttons
-    let docBusy = false;
-    const docFixed = new Set();
+    let bridgeReady = false;  // Docs bridge configured server-side (developer builds) → in-doc edit buttons
+    let docBusy = false;      // one document edit at a time, across every button
+    // The in-editor engine's last ping (docs-hook.js). editable = its text API
+    // is there and the editor doesn't look view-only; the read-back after each
+    // edit is the real test.
+    let inDoc = { api: false, editable: false };
+    let lastPingAt = 0;
+    // Per-button edit state, keyed "fix:<hash>" / "cite:<hash>:<url>" / "flow:<hash>":
+    // { state: "applying" | "applied" | "undoing" | "failed", copied?, note? }
+    const docEditState = new Map();
+    let lastDocEdit = null;   // { key, tokens, onUndone, label } — the one edit the Undo button reverses
+    const editedHashes = new Map(); // sentence hash → when we rewrote it (export lags; don't re-check the old text)
+    const popEditSyncs = new Set(); // popover edit buttons re-sync on every state change
     let autoSourceTimes = []; // rolling-hour guard on automatic source lookups
 
     // ── doc reading ──
@@ -1106,7 +1119,7 @@
       for (const seg of segments) {
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
-        if (cache.has(seg.hash)) continue;
+        if (cache.has(seg.hash) || editedHashes.has(seg.hash)) continue;
         out.push(seg);
       }
       return out;
@@ -1118,6 +1131,10 @@
       try {
         docText = await getDocText();
         segments = segmentText(docText);
+        // A sentence we rewrote stays hidden until the export stops showing it
+        // (the edit has propagated) — or for 30s, if it never does (undone by hand).
+        const liveHashes = new Set(segments.map((sg) => sg.hash));
+        for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         if (todo.length > 0) {
           statusKind = "checking";
@@ -1164,7 +1181,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !ISSUE_VERDICTS.includes(f.verdict)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !ISSUE_VERDICTS.includes(f.verdict)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -1870,7 +1887,9 @@
       const flows = activeFlowIssues();
       if (issues.length === 0 && flows.length === 0) {
         clearDocsMarks();
-        hideDocsPopover();
+        // A card that just fixed the last issue stays up to show "Applied ✓ ·
+        // Undo"; the pointer leaving it closes it as usual.
+        if (!popPinned) hideDocsPopover();
         // Empty ping still prunes the fallback hook's ledgers. id 0 never
         // matches locateSeq, so its reply can never wipe drawn bars.
         window.postMessage({ type: "tracely-docs-locate", id: -1, wants: [] }, "*");
@@ -1903,6 +1922,7 @@
     // (verdict labels/washes/colors are the shared top-level maps)
     let popEl = null, popHash = null, popHideTimer = null, popFontIn = false;
     let popAnchor = null, popLastTop = 0, popFollowRaf = 0, popLostAt = 0;
+    let popPinned = false; // an edit from this card may remove the underline it follows — stay put
 
     function popFont() {
       if (popFontIn || !FONT_URL) return;
@@ -1919,6 +1939,8 @@
       popHash = null;
       popAnchor = null;
       popLostAt = 0;
+      popPinned = false;
+      popEditSyncs.clear();
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
     }
 
@@ -1989,7 +2011,7 @@
           placed = true;
         }
       }
-      if (!placed) {
+      if (!placed && !popPinned) {
         if (!popLostAt) popLostAt = performance.now();
         else if (performance.now() - popLostAt > 400) { hideDocsPopover(); return; }
       }
@@ -2007,6 +2029,38 @@
         fontWeight: "700", cursor: "pointer", fontFamily: "inherit",
       });
       return b;
+    }
+
+    /* Popover twin of editBtnHtml: a button whose label follows docEditState,
+       an Undo beside it while this is the last edit, and the reason line under
+       the row (returned — the caller places it). Popovers are built once, so
+       each registers a sync that every state change re-runs (hideDocsPopover
+       drops them all; a detached one only updates nodes nobody sees). */
+    function popEditBtn(row, key, idle, run, { primary = true, style } = {}) {
+      const btn = popBtn(idle, primary);
+      if (style) Object.assign(btn.style, style);
+      const undo = popBtn("Undo", false);
+      if (style) Object.assign(undo.style, style);
+      const note = document.createElement("div");
+      Object.assign(note.style, { fontSize: "11px", color: "#8e8e93", marginTop: "6px", fontWeight: "500" });
+      const sync = () => {
+        const v = editView(key, idle);
+        btn.textContent = v.label;
+        btn.disabled = !!v.disabled;
+        undo.style.display = v.undo ? "" : "none";
+        undo.disabled = docBusy;
+        note.textContent = v.note || "";
+        note.style.display = v.note ? "" : "none";
+      };
+      btn.addEventListener("click", () => {
+        popPinned = true;
+        try { Promise.resolve(run()).catch(() => {}); } catch { /* the widget still shows the state */ }
+      });
+      undo.addEventListener("click", () => { undoLastDocEdit().catch(() => {}); });
+      row.append(btn, undo);
+      popEditSyncs.add(sync);
+      sync();
+      return note;
     }
 
     /* Flow callout — the card from the Figma flow frame: purple dot + title,
@@ -2064,25 +2118,24 @@
 
       const row = document.createElement("div");
       Object.assign(row.style, { display: "flex", alignItems: "center", gap: "12px" });
-      const act = document.createElement("button");
-      act.textContent = canEditDoc() ? "Add transition →" : "Copy transition →";
-      Object.assign(act.style, {
+      const linkStyle = {
         border: "none", background: "none", padding: "0", cursor: "pointer",
         color: FLOW_ACCENT, fontWeight: "700", fontSize: "13px", fontFamily: "inherit",
-      });
-      act.addEventListener("click", async () => {
-        if (!issue.transition) return;
-        if (!canEditDoc()) {
+      };
+      let flowNote = null;
+      if (canEditDoc() && issue.transition) {
+        flowNote = popEditBtn(row, `flow:${bar.hash}`, "Add transition →", () => addTransition(bar.hash, issue), { primary: false, style: linkStyle });
+      } else {
+        const act = document.createElement("button");
+        act.textContent = "Copy transition →";
+        Object.assign(act.style, linkStyle);
+        act.addEventListener("click", async () => {
+          if (!issue.transition) return;
           try { await navigator.clipboard.writeText(issue.transition); } catch { /* denied */ }
           act.textContent = "Copied ✓";
-          return;
-        }
-        act.textContent = "Adding…";
-        act.disabled = true;
-        await addTransition(bar.hash, issue);
-        hideDocsPopover();
-      });
-      row.appendChild(act);
+        });
+        row.appendChild(act);
+      }
       const dis = document.createElement("button");
       dis.textContent = "Dismiss";
       Object.assign(dis.style, {
@@ -2098,6 +2151,7 @@
       });
       row.appendChild(dis);
       popEl.appendChild(row);
+      if (flowNote) popEl.appendChild(flowNote);
 
       popEl.style.visibility = "hidden";
       document.documentElement.appendChild(popEl);
@@ -2107,34 +2161,6 @@
       popLastTop = rect.top;
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
-    }
-
-    // Insert the suggested transition as its own sentence ahead of the
-    // flagged passage, then let the next structural pass re-judge the flow.
-    async function addTransition(hash, issue) {
-      if (docBusy) return;
-      docBusy = true;
-      render();
-      try {
-        const line = docText.split(/\n+/).find((p) => p.includes(issue.passage));
-        if (!line) throw new Error("that passage moved — re-checking");
-        const bridge = issue.transition.trim().replace(/\s+/g, " ");
-        const replacement = line.replace(issue.passage, `${bridge} ${issue.passage}`);
-        await docApply({ action: "replace", find: line, replacement });
-        flowDismissed.add(hash);          // resolved — clears immediately
-        flowSig = "";                     // structure changed: re-run flow next cycle
-        persistFlow();
-        statusKind = "idle";
-        statusMsg = "transition added";
-        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
-        requestDocsMarks();
-      } catch (e) {
-        statusKind = "error";
-        statusMsg = e?.message ?? "couldn't add that transition";
-      } finally {
-        docBusy = false;
-        render();
-      }
     }
 
     function showDocsPopover(hash, rect, anchorBar) {
@@ -2181,20 +2207,14 @@
         popEl.appendChild(fix);
       }
       const row = document.createElement("div");
-      Object.assign(row.style, { display: "flex", gap: "7px" });
+      Object.assign(row.style, { display: "flex", gap: "7px", flexWrap: "wrap" });
+      let fixNote = null;
       if (f.revision) {
         if (canEditDoc()) {
-          // The bridge can rewrite the sentence in the document itself — that
-          // beats a clipboard round-trip, so it takes the primary slot.
-          const fix = popBtn("Fix in doc", true);
-          fix.addEventListener("click", async () => {
-            fix.textContent = "Fixing…";
-            fix.disabled = true;
-            await docFix(hash);
-            hideDocsPopover();
-            requestDocsMarks(); // the fixed sentence's mark clears right away
-          });
-          row.appendChild(fix);
+          // Rewriting the sentence in the document itself beats a clipboard
+          // round-trip, so it takes the primary slot. Copy stays one click away
+          // in the widget, and is what any failure falls back to.
+          fixNote = popEditBtn(row, `fix:${hash}`, "Fix in doc", () => docFix(hash));
         } else {
           const copy = popBtn("Copy fix", true);
           copy.addEventListener("click", () => {
@@ -2240,6 +2260,7 @@
       });
       row.appendChild(dis);
       popEl.appendChild(row);
+      if (fixNote) popEl.appendChild(fixNote);
       if (haveSources) renderPopSources(hash); // cached or in-flight — zero new API work
       // Stubby caret aimed at the underline — a rotated square whose opaque
       // face covers the card border where it meets the top edge (the card
@@ -2383,17 +2404,11 @@
         Object.assign(marker.style, { fontSize: "9.5px", color: "#a7a7ac", marginTop: "3px", fontWeight: "600" });
         refBox.appendChild(marker);
         const btns = document.createElement("div");
-        Object.assign(btns.style, { display: "flex", gap: "6px" });
+        Object.assign(btns.style, { display: "flex", gap: "6px", flexWrap: "wrap" });
+        let citeNote = null;
         if (canEditDoc()) {
-          const cite = popBtn("Cite in doc", true);
-          cite.style.padding = "4px 10px";
-          cite.addEventListener("click", async () => {
-            cite.textContent = "Citing…";
-            cite.disabled = true;
-            await docCite(hash, i);
-            cite.textContent = "Cited ✓";
-          });
-          btns.appendChild(cite);
+          const idle = st.citedUrl === srcItem.url ? "Cited ✓" : "Cite in doc";
+          citeNote = popEditBtn(btns, `cite:${hash}:${srcItem.url}`, idle, () => docCite(hash, i), { style: { padding: "4px 10px" } });
         }
         const copy = popBtn("Copy cite", !canEditDoc());
         copy.style.padding = "4px 10px";
@@ -2413,6 +2428,7 @@
         row.appendChild(meta);
         if (snip) row.appendChild(snip);
         row.append(refBox, btns);
+        if (citeNote) row.appendChild(citeNote);
         box.appendChild(row);
       });
     }
@@ -2742,8 +2758,64 @@
       render();
     }
 
-    // ── in-doc editing via the local server's Docs bridge ──
-    const canEditDoc = () => bridgeReady && !harness;
+    /* ── editing the document ─────────────────────────────────────────────
+       "Fix in doc", "Cite in doc" and "Add transition" reach the document by
+       whichever path is live, best first:
+         1. the in-editor engine in docs-hook.js (MAIN world): the user's own
+            editor makes the edit, reads it back, and can take it back;
+         2. the local server's Apps Script bridge (developer builds only —
+            bridgeReady comes from /api/status);
+         3. Copy — always offered, and where every failure lands.
+       Edits happen only on an explicit click. The only thing on a timer is
+       the read-only ping. */
+    const DOCS_EDIT_TIMEOUT_MS = 6000;
+    let docsEditSeq = 0;
+
+    // One request to the engine. Resolves its reply, or {ok:false, reason:"timeout"};
+    // never rejects. onLate(reply): an answer that arrives AFTER the timeout —
+    // an ok one means the document DID change.
+    function docsEdit(op, args = {}, { timeoutMs = DOCS_EDIT_TIMEOUT_MS, onLate } = {}) {
+      return new Promise((resolve) => {
+        const id = `te${++docsEditSeq}-${Date.now()}`;
+        let settled = false;
+        let timer = 0;
+        const onMsg = (ev) => {
+          const d = ev.data;
+          if (ev.source !== window || ev.origin !== location.origin || !d || d.source !== "tracely-hook"
+            || d.type !== "tracely-docs-edit-result" || d.id !== id) return;
+          window.removeEventListener("message", onMsg);
+          if (settled) { try { onLate?.(d); } catch { /* ignore */ } return; }
+          settled = true;
+          clearTimeout(timer);
+          resolve(d);
+        };
+        window.addEventListener("message", onMsg);
+        timer = setTimeout(() => {
+          settled = true;
+          resolve({ ok: false, reason: "timeout" });
+          setTimeout(() => window.removeEventListener("message", onMsg), 15_000); // a late reply still counts
+        }, timeoutMs);
+        try {
+          window.postMessage({ ...args, source: "tracely", type: "tracely-docs-edit", id, op }, location.origin);
+        } catch {
+          settled = true;
+          clearTimeout(timer);
+          window.removeEventListener("message", onMsg);
+          resolve({ ok: false, reason: "error" });
+        }
+      });
+    }
+
+    async function probeInDoc() {
+      if (orphaned || harness || !IS_DOCS || document.hidden) return;
+      lastPingAt = Date.now();
+      const r = await docsEdit("ping", {}, { timeoutMs: 3000 });
+      const was = canEditDoc();
+      inDoc = { api: !!(r.ok && r.api), editable: !!(r.ok && r.api && r.editable) };
+      if (canEditDoc() !== was) render();
+    }
+
+    const canEditDoc = () => !harness && (inDoc.editable || bridgeReady);
 
     async function fetchServerStatus() {
       if (orphaned) return;
@@ -2753,75 +2825,294 @@
       } catch { bridgeReady = false; }
     }
 
-    function docApply(payload) {
-      return api("/api/docs/apply", { docId: DOC_ID, ...payload });
+    // A reply that came back after we had already reported failure and copied
+    // instead: the document changed behind the UI's back, so take it back.
+    function lateEdit(r) {
+      if (!r?.ok || !r.undoToken) return;
+      docsEdit("undo", { undoToken: r.undoToken }).then((u) => {
+        if (u.ok) return;
+        statusKind = "error";
+        statusMsg = "An edit landed late — check the doc (⌘Z / Ctrl+Z undoes it)";
+        render();
+      });
+    }
+
+    // The best live path right now. A group of edits picks it ONCE, so a ping
+    // landing mid-group can never split one group across two paths.
+    const editPath = () => (harness ? "none" : inDoc.editable ? "hook" : bridgeReady ? "bridge" : "none");
+
+    // One edit by the given path. Resolves {ok, reason?, undoToken?, via};
+    // never throws.
+    async function docApply(payload, hint, path = editPath()) {
+      const { action, ...args } = payload;
+      if (path === "hook") {
+        const r = await docsEdit(action, hint ? { ...args, hint } : args, { onLate: lateEdit });
+        return { ...r, via: "hook" };
+      }
+      if (path === "bridge") {
+        try {
+          await api("/api/docs/apply", { docId: DOC_ID, ...payload });
+          return { ok: true, via: "bridge" };
+        } catch (e) {
+          return { ok: false, reason: "bridge", detail: e?.message, via: "bridge" };
+        }
+      }
+      return { ok: false, reason: "no-editor", via: "none" };
+    }
+
+    // Which copy of a repeated sentence is meant: its index among the export's
+    // copies, and where its underline is on screen (the engine clicks one to
+    // read the caret offset). Only used when the sentence is not unique, and
+    // it never overrides the engine's text check.
+    function segHint(seg) {
+      const occ = (hay, needle) => { let n = 0, i = -1; while ((i = hay.indexOf(needle, i + 1)) >= 0) n++; return n; };
+      const hint = { occurrence: occ(docText.slice(0, seg.start), seg.text), occurrences: occ(docText, seg.text) };
+      const rects = [];
+      for (const b of docsBars) {
+        if (b.hash !== seg.hash || !b.el?.isConnected) continue;
+        const r = barTextRect(b);
+        if (r && r.width > 0 && r.left >= 0 && r.top >= 0 && r.left + r.width <= innerWidth && r.top + r.height <= innerHeight) rects.push(r);
+      }
+      if (rects.length) hint.rects = rects.slice(0, 8);
+      return hint;
+    }
+    function barTextRect(b) {
+      try {
+        if (b.node && Number.isFinite(b.f0) && Number.isFinite(b.f1)) {
+          // SVG mode: Docs' annotation rect IS the painted run; f0/f1 are the sentence's share of it.
+          const r = b.node.getBoundingClientRect();
+          return { left: r.left + b.f0 * r.width, top: r.top, width: (b.f1 - b.f0) * r.width, height: r.height };
+        }
+        // Canvas fallback: the bar sits on the baseline, the text is `size` above it.
+        const r = b.el.getBoundingClientRect();
+        return { left: r.left, top: r.top - (b.size || 18), width: r.width, height: b.size || 18 };
+      } catch {
+        return null;
+      }
+    }
+
+    // A sentence we just rewrote: its underline drops now, and the old text is
+    // not re-checked while the export (a few seconds behind) still shows it.
+    function markEdited(hash) { editedHashes.set(hash, Date.now()); }
+
+    function editReasonText(r) {
+      switch (r?.reason) {
+        case "not-found": return "that sentence changed since the last check";
+        case "ambiguous": return "that sentence appears more than once";
+        case "view-only":
+        case "not-applied": return "this doc isn't editable right now";
+        case "mismatch": return "the edit didn't land as expected, so it was taken back";
+        case "timeout": return "the editor didn't answer";
+        case "bridge": return String(r.detail || "the Docs bridge refused the edit").slice(0, 120);
+        default: return "the editor couldn't make that edit";
+      }
+    }
+
+    async function copyFallback(text) {
+      if (!text) return false;
+      try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+    }
+
+    function refreshEditViews() {
+      render();
+      for (const sync of popEditSyncs) sync();
+    }
+    function setEditState(key, state) {
+      if (state) docEditState.set(key, state);
+      else docEditState.delete(key);
+      refreshEditViews();
+    }
+
+    // What an edit button shows, from its state.
+    function editView(key, idle) {
+      const s = docEditState.get(key);
+      switch (s?.state) {
+        case "applying": return { label: "Applying…", disabled: true, note: "" };
+        case "undoing": return { label: "Undoing…", disabled: true, note: "" };
+        case "applied": return { label: "Applied ✓", disabled: true, undo: lastDocEdit?.key === key, note: s.note || "" };
+        case "failed": return { label: s.copied ? "Couldn't apply — copied instead" : "Couldn't apply", disabled: docBusy, note: s.note || "" };
+        default: return { label: idle, disabled: docBusy, note: "" };
+      }
+    }
+    let undoShown = false; // set while render() builds cards: did a card carry the Undo?
+    function editBtnHtml(key, idle, attrs) {
+      const v = editView(key, idle);
+      if (v.undo) undoShown = true;
+      return `<button class="act primary" ${attrs}${v.disabled ? " disabled" : ""}>${esc(v.label)}</button>`
+        + (v.undo ? `<button class="act" data-doc-undo="1"${docBusy ? " disabled" : ""}>Undo</button>` : "");
+    }
+    function editNoteHtml(key) {
+      const { note } = editView(key, "");
+      return note ? `<div class="edit-note">${esc(note)}</div>` : "";
+    }
+
+    /* Run one edit — or a GROUP of edits that must land together — and settle
+       the button. A group that fails part-way is taken back, newest first, so
+       the doc is exactly as it was; then the text is copied instead. */
+    async function runDocEdit(key, job) {
+      if (docBusy) return false;
+      docBusy = true;
+      setEditState(key, { state: "applying" });
+      const path = editPath();
+      const tokens = []; // newest first
+      let untracked = 0; // steps that landed with no way to take them back (the bridge)
+      let fail = null;
+      try {
+        for (const step of job.steps) {
+          const { hint, ...payload } = step;
+          const r = await docApply(payload, hint, path);
+          if (r.undoToken) tokens.unshift(r.undoToken);
+          else if (r.ok && !r.noop) untracked++;
+          if (!r.ok) { fail = r; break; }
+        }
+        if (fail && tokens.length) {
+          const u = await docsEdit("undo", { undoToken: tokens });
+          if (!u.ok) fail = { ...fail, stuck: true };
+        }
+        if (fail && untracked) fail = { ...fail, stuck: true };
+      } catch {
+        fail = fail || { ok: false, reason: "error" }; // docApply never throws; belt and braces
+      } finally {
+        docBusy = false;
+      }
+      if (!fail) {
+        lastDocEdit = tokens.length ? { key, tokens, onUndone: job.onUndone, label: String(job.doneMsg || "edited in doc") } : null;
+        try { job.onApplied?.(); } catch { /* bookkeeping only */ }
+        statusKind = "idle";
+        statusMsg = job.doneMsg;
+        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000; // re-read soon (export lags slightly)
+        setEditState(key, { state: "applied" });
+        requestDocsMarks(); // the edited sentence's underline drops right away
+        return true;
+      }
+      const copied = await copyFallback(job.copy);
+      const note = fail.stuck
+        ? "Part of it landed and couldn't be undone automatically — press ⌘Z / Ctrl+Z"
+        : editReasonText(fail);
+      statusKind = fail.stuck ? "error" : "idle";
+      statusMsg = `${copied ? "Couldn't apply — copied instead" : "Couldn't apply"} (${note})`;
+      setEditState(key, { state: "failed", copied, note });
+      if (!fail.stuck) {
+        setTimeout(() => { if (docEditState.get(key)?.state === "failed" && !docBusy) setEditState(key, null); }, 4000);
+      }
+      return false;
+    }
+
+    async function undoLastDocEdit() {
+      const e = lastDocEdit;
+      if (!e || docBusy) return false;
+      docBusy = true;
+      setEditState(e.key, { state: "undoing" });
+      let r = { ok: false };
+      try { r = await docsEdit("undo", { undoToken: e.tokens }); } finally { docBusy = false; }
+      lastDocEdit = null;
+      if (r.ok) {
+        try { e.onUndone?.(); } catch { /* bookkeeping only */ }
+        statusKind = "idle";
+        statusMsg = "undone";
+        setEditState(e.key, null);
+      } else {
+        statusKind = "error";
+        statusMsg = "Couldn't undo automatically — press ⌘Z / Ctrl+Z";
+        setEditState(e.key, { state: "applied", note: statusMsg });
+      }
+      lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
+      requestDocsMarks();
+      return !!r.ok;
     }
 
     async function docFix(hash) {
       const seg = segments.find((s) => s.hash === hash);
       const f = cache.get(hash);
-      if (!seg || !f?.revision || docBusy) return;
-      docBusy = true;
-      render();
-      try {
-        await docApply({ action: "replace", find: seg.text, replacement: withMarkers(seg.text, f.revision) });
-        docFixed.add(hash);
-        cache.delete(hash); // the rewritten sentence gets re-verified on the next read
-        persistCaches();
-        statusKind = "idle";
-        statusMsg = "fixed in doc";
-        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000; // re-read soon (export lags slightly)
-      } catch (e) {
-        statusKind = "error";
-        statusMsg = e?.message ?? "doc edit failed";
-      } finally {
-        docBusy = false;
-        render();
-      }
+      if (!seg || !f?.revision || docBusy) return false;
+      return runDocEdit(`fix:${hash}`, {
+        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, f.revision), hint: segHint(seg) }],
+        copy: f.revision,
+        doneMsg: "fixed in doc",
+        onApplied: () => {
+          cache.delete(hash); // the rewritten sentence gets re-verified on the next read
+          markEdited(hash);
+          persistCaches();
+        },
+        onUndone: () => {
+          if (!cache.has(hash)) cache.set(hash, f); // the original is back — and already checked
+          editedHashes.delete(hash);
+          persistCaches();
+        },
+      });
     }
 
+    // In-text marker + the Sources entry (and the heading, the first time),
+    // as ONE group: all of it lands, or none of it stays.
     async function docCite(hash, i) {
       const seg = segments.find((s) => s.hash === hash);
       const st = sourcesMap.get(hash);
       const src = st?.list?.[Number(i)];
-      if (!seg || !src || docBusy) return;
-      docBusy = true;
-      render();
-      try {
-        const block = sourcesBlock(docText);
-        let num;
-        const existing = block?.entries.find((e) => e.url === src.url);
-        if (existing) {
-          num = existing.num;
-        } else {
-          num = (block?.entries.length ?? 0) + 1;
-          if (!block) await docApply({ action: "appendLine", line: "Sources:" });
-          // Styled reference + " — url" tail: the url tail is what sourcesBlock
-          // parses for numbering/dedupe, so it must survive every style.
-          const styled = formatCitation(src, settings.citationStyle || "apa").doc;
-          await docApply({ action: "appendLine", line: `${num}. ${styled} — ${src.url}` });
-        }
-        if (!seg.text.includes(`[${num}]`)) {
-          const punct = seg.text.match(/[.!?]+["')\]]*$/);
-          const at = punct ? seg.text.length - punct[0].length : seg.text.length;
-          const replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` [${num}]` + seg.text.slice(at);
-          await docApply({ action: "replace", find: seg.text, replacement });
-          const newHash = hashText(replacement);
-          if (cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
-          if (sourcesMap.has(hash) && !sourcesMap.has(newHash)) sourcesMap.set(newHash, sourcesMap.get(hash));
-        }
-        st.citedUrl = src.url;
-        persistCaches();
-        statusKind = "idle";
-        statusMsg = `cited [${num}] in doc`;
-        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
-      } catch (e) {
-        statusKind = "error";
-        statusMsg = e?.message ?? "cite failed";
-      } finally {
-        docBusy = false;
-        render();
+      if (!seg || !src || docBusy) return false;
+      const block = sourcesBlock(docText);
+      const existing = block?.entries.find((e) => e.url === src.url);
+      const num = existing ? existing.num : (block?.entries.length ?? 0) + 1;
+      const styled = formatCitation(src, settings.citationStyle || "apa");
+      const steps = [];
+      let replacement = null;
+      // The marker first: it is the step most likely to be refused (the
+      // sentence changed), and refusing before anything landed needs no rollback.
+      if (!seg.text.includes(`[${num}]`)) {
+        const punct = seg.text.match(/[.!?]+["')\]]*$/);
+        const at = punct ? seg.text.length - punct[0].length : seg.text.length;
+        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` [${num}]` + seg.text.slice(at);
+        steps.push({ action: "replace", find: seg.text, replacement, hint: segHint(seg) });
       }
+      if (!existing) {
+        if (!block) steps.push({ action: "appendLine", line: "Sources:" });
+        // Styled reference + " — url" tail: the url tail is what sourcesBlock
+        // parses for numbering/dedupe, so it must survive every style.
+        steps.push({ action: "appendLine", line: `${num}. ${styled.doc} — ${src.url}` });
+      }
+      const prevCited = st.citedUrl ?? null;
+      return runDocEdit(`cite:${hash}:${src.url}`, {
+        steps,
+        copy: styled.ref,
+        doneMsg: `cited [${num}] in doc`,
+        onApplied: () => {
+          if (replacement) {
+            const newHash = hashText(replacement);
+            if (cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
+            if (sourcesMap.has(hash) && !sourcesMap.has(newHash)) sourcesMap.set(newHash, sourcesMap.get(hash));
+            markEdited(hash);
+          }
+          st.citedUrl = src.url;
+          persistCaches();
+        },
+        onUndone: () => {
+          editedHashes.delete(hash);
+          st.citedUrl = prevCited;
+          persistCaches();
+        },
+      });
+    }
+
+    // The suggested transition goes in as its own sentence ahead of the
+    // flagged passage (the minimal diff pastes only the bridge), then the next
+    // structural pass re-judges the flow.
+    async function addTransition(hash, issue) {
+      if (docBusy || !issue?.transition) return false;
+      const bridge = issue.transition.trim().replace(/\s+/g, " ");
+      const passage = String(issue.passage ?? "").trim();
+      return runDocEdit(`flow:${hash}`, {
+        steps: [{ action: "replace", find: passage, replacement: `${bridge} ${passage}` }],
+        copy: issue.transition,
+        doneMsg: "transition added",
+        onApplied: () => {
+          flowDismissed.add(hash); // resolved — clears immediately
+          flowSig = "";            // structure changed: re-run flow next cycle
+          persistFlow();
+        },
+        onUndone: () => {
+          flowDismissed.delete(hash);
+          persistFlow();
+        },
+      });
     }
 
     // (the bridge "highlight in doc" feature was removed — real overlay
@@ -2848,13 +3139,16 @@
 
       let panelHtml = "";
       if (expanded) {
+        undoShown = false;
         /* Flow issues live in the PANEL, not only in the document. The
            in-document bracket is off by default (FLOW_IN_DOC) after repeated
            mis-positioning, so this is where the feature actually reads — and
            it needs no position to be useful. */
         const flowCards = activeFlowIssues().map((fi) => {
           const h = flowHashOf(fi);
-          const act = canEditDoc() ? "Add transition" : "Copy transition";
+          const flowBtn = canEditDoc()
+            ? editBtnHtml(`flow:${h}`, "Add transition", `data-flow-go="${esc(h)}"`)
+            : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
             <div class="card c-flow">
               <div class="top"><span class="badge badge-flow">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
@@ -2863,7 +3157,7 @@
                 <div class="fix-label">Why it jumps</div>
                 <div class="fix-text">${esc(fi.explanation)}</div>
                 ${fi.transition ? `<div class="fix-label" style="margin-top:8px">Suggested bridge</div><div class="fix-text">${esc(fi.transition)}</div>` : ""}
-                ${fi.transition ? `<div class="row"><button class="act primary" data-flow-go="${esc(h)}">${act}</button></div>` : ""}
+                ${fi.transition ? `<div class="row">${flowBtn}</div>${editNoteHtml(`flow:${h}`)}` : ""}
               </div>
             </div>`;
         }).join("");
@@ -2884,9 +3178,10 @@
                     <div class="src-meta">${esc(src.publisher)}</div>
                     ${src.snippet ? `<div class="src-snip">${esc(src.snippet)}</div>` : ""}
                     <div class="src-actions">
-                      ${canEditDoc() ? `<button class="act primary" data-doc-cite="${seg.hash}" data-i="${i}"${docBusy ? " disabled" : ""}>${st.citedUrl === src.url ? "Cited ✓" : "Cite in doc"}</button>` : ""}
+                      ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
                     </div>
+                    ${editNoteHtml(`cite:${seg.hash}:${src.url}`)}
                   </div>
                 </div>`).join("") + `</div>`;
           }
@@ -2903,16 +3198,22 @@
               <div class="fix-label">Suggested revision</div>
               <div class="fix-text">${esc(f.revision)}</div>
               <div class="row">
-                ${canEditDoc() ? `<button class="act primary" data-doc-fix="${seg.hash}"${docBusy ? " disabled" : ""}>${docFixed.has(seg.hash) ? "Fixed ✓" : "Fix in doc"}</button>` : ""}
+                ${canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Fix in doc", `data-doc-fix="${seg.hash}"`) : ""}
                 <button class="act${canEditDoc() ? "" : " primary"}" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
                 <button class="act" data-sources="${seg.hash}">Find sources</button>
               </div>
+              ${editNoteHtml(`fix:${seg.hash}`)}
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
           </div>`;
         }).join("");
 
+        // The last edit's Undo outlives its card: a fixed sentence's card goes
+        // as soon as the sentence is re-read, so the Undo moves up here.
+        const undoStrip = lastDocEdit && !undoShown
+          ? `<div class="undo-strip"><span>${esc(lastDocEdit.label.charAt(0).toUpperCase() + lastDocEdit.label.slice(1))}</span><button class="act" data-doc-undo="1"${docBusy ? " disabled" : ""}>Undo</button></div>`
+          : "";
         panelHtml = `
         <div class="panel">
           <div class="head" id="dragHead">
@@ -2922,7 +3223,7 @@
           </div>
           ${speedbarHtml(speedPos(settings.model))}
           <div class="list">
-            ${flowCards}${cards || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
+            ${undoStrip}${flowCards}${cards || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -2975,8 +3276,6 @@
               btn.textContent = "Copied \u2713";
               return;
             }
-            btn.textContent = "Adding\u2026";
-            btn.disabled = true;
             await addTransition(btn.dataset.flowGo, fi);
           });
         }
@@ -3000,6 +3299,9 @@
         }
         for (const btn of shadow.querySelectorAll("[data-doc-cite]")) {
           btn.addEventListener("click", () => docCite(btn.dataset.docCite, btn.dataset.i));
+        }
+        for (const btn of shadow.querySelectorAll("[data-doc-undo]")) {
+          btn.addEventListener("click", () => undoLastDocEdit());
         }
         shadow.getElementById("autoSrcTgl")?.addEventListener("change", (e) => {
           settings.autoSources = e.target.checked;
@@ -3037,6 +3339,12 @@
     }, 1000);
     fetchServerStatus();
     setInterval(fetchServerStatus, 30_000);
+    // The in-editor engine: pinged at start, every 5s until it answers
+    // editable (kix may still be booting), then every 30s, and on focus.
+    // Read-only — a ping never edits.
+    probeInDoc();
+    setInterval(() => { if (!inDoc.editable || Date.now() - lastPingAt >= 30_000) probeInDoc(); }, 5_000);
+    window.addEventListener("focus", () => { probeInDoc(); });
     cycle();
   }
 
