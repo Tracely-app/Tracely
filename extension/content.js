@@ -3022,6 +3022,7 @@
         statusKind = "idle";
         statusMsg = `${shown.copied ? "Couldn't apply — copied instead" : "Couldn't apply"} (${note})`;
         setEditState(key, { state: "failed", copied: shown.copied, note });
+        setTimeout(() => { if (docEditState.get(key)?.state === "failed" && !docBusy) setEditState(key, null); }, 4000);
       };
       try {
         for (const step of job.steps) {
