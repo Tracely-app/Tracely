@@ -210,3 +210,36 @@ test("the day's limit follows the plan: Student 20, Pro 40", async () => {
     assert.equal(r.body.error.message, `You've used today's ${day} source searches. They reset at midnight.`);
   }
 });
+
+test("an identified caller has its own 25-an-hour window, shared by /api/sources and /api/find-sources", async () => {
+  const token = "tok-pro-window";
+  for (let i = 0; i < 25; i++) {
+    const r = await findSources(`window-${i}`, { token });
+    assert.equal(r.status, 200, `search ${i + 1}: ${JSON.stringify(r.body)}`);
+  }
+  for (const r of [await findSources("window-over-app", { token }), await sources("window-over-ext", { token })]) {
+    assert.equal(r.status, 429);
+    assert.equal(r.body.error.kind, "rate_limit");
+  }
+  assert.equal(openaiLog("window-over-app").length + openaiLog("window-over-ext").length, 0);
+  assert.equal((await sources("window-other", { token: "tok-pro-window-other" })).status, 200, "another account's hour is its own");
+});
+
+/* Last: it is the only test that searches as an address-only caller, and the
+ * 15-an-hour counter it fills is process-wide. */
+test("the process-wide 15-an-hour counter holds only callers with nothing to key on — identified callers never touch it", async () => {
+  for (let i = 0; i < 16; i++) {
+    const r = await sources(`ident-${i}`, { install: `ident-install-${i}` });
+    assert.equal(r.status, 200, `identified search ${i + 1} is not on the shared hour`);
+  }
+  for (let i = 0; i < 15; i++) {
+    const r = await sources(`addr-${i}`, { headers: { "X-Forwarded-For": `10.0.0.${i + 1}` } });
+    assert.equal(r.status, 200, `address-only search ${i + 1}: ${JSON.stringify(r.body)}`);
+  }
+  const capped = await sources("addr-16", { headers: { "X-Forwarded-For": "10.0.0.99" } });
+  assert.equal(capped.status, 429);
+  assert.equal(capped.body.error.kind, "rate_limit");
+  assert.match(capped.body.error.message, /hourly cap/);
+  assert.equal((await sources("ident-after", { install: "ident-install-after" })).status, 200,
+    "the shared hour being spent does not stop an identified caller");
+});
