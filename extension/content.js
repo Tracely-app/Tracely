@@ -437,24 +437,59 @@
   const citeEndDot = (s) => (/[.?!]$/.test(s) ? s : `${s}.`);
   const citeQuote = (t) => `“${citeEndDot(t)}”`; // terminal punctuation inside the quotes
 
+  // Generational suffixes, kept and printed where each style puts them.
+  const CITE_SUFFIX = /^(?:(jr|sr|jnr|snr)\.?|(II|III|IV))$/i;
+  // Degrees and honorifics, dropped: no style cites "Dr." or "PhD". Case-
+  // sensitive, so a surname such as "Ma" or "Do" is never taken for one.
+  const CITE_DEGREE = /^(?:Ph\.?\s?D\.?|D\.?Phil\.?|Ed\.?D\.?|Psy\.?D\.?|Dr\.?P\.?H\.?|Pharm\.?D\.?|M\.D\.|MD|MPH|M\.P\.H\.|DNP|RN|FACP|FRCP|FRCS|Esq\.?)$/;
+  const CITE_HONORIFIC = /^(?:dr|prof|professor|mr|mrs|ms|mx|sir|dame|rev)\.?$/i;
+  const citeSuffix = (t) => { const m = t.match(CITE_SUFFIX); return m[2] ? m[2].toUpperCase() : `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()}.`; };
+
+  /* A name as a page or the model wrote it → { family, given, suffix }.
+     "Family, Given" and "Given Family" both arrive (citation_author tags are
+     the first, the model's "full names as written" usually the second), with
+     suffixes ("Martin Luther King Jr.", "King, Martin Luther, Jr."), degrees
+     ("Jane Doe, PhD"), honorifics ("Dr. Jane Doe") and particles, which stay
+     with the family name ("Ludwig van Beethoven" → "van Beethoven, L."). */
   function citeParseName(raw) {
-    const s = citeStr(raw);
+    const s = citeStr(raw).replace(/^by\s+/i, "");
     if (!s) return null;
-    const c = s.indexOf(",");
-    if (c > 0) return { family: s.slice(0, c).trim(), given: s.slice(c + 1).trim() };
-    const w = s.split(" ");
+    let suffix = "";
+    const segs = s.split(",").map((t) => t.trim()).filter(Boolean);
+    // Trailing ", Jr." / ", PhD" / ", MD, MPH" segments. An all-capitals
+    // segment is a degree only after a full name: "Jane Doe, MD" is a degree,
+    // "Smith, JD" is a family name and initials.
+    while (segs.length > 1) {
+      const last = segs[segs.length - 1];
+      if (CITE_SUFFIX.test(last)) { if (!suffix) suffix = citeSuffix(last); segs.pop(); }
+      else if (CITE_DEGREE.test(last) && (!/^[A-Z]{2,4}$/.test(last) || segs[0].includes(" "))) segs.pop();
+      else break;
+    }
+    if (segs.length >= 2) {
+      const g = segs.slice(1).join(" ").split(" ");
+      while (g.length > 1 && CITE_HONORIFIC.test(g[0])) g.shift(); // "Doe, Dr. Jane"
+      return { family: segs[0], given: g.join(" "), suffix };
+    }
+    const w = segs[0].split(" ");
+    while (w.length > 2 && CITE_HONORIFIC.test(w[0])) w.shift();
+    while (w.length > 2 && CITE_DEGREE.test(w[w.length - 1])) w.pop();
+    if (w.length > 1 && CITE_SUFFIX.test(w[w.length - 1])) { if (!suffix) suffix = citeSuffix(w[w.length - 1]); w.pop(); }
     let i = w.length - 1;
     while (i > 1 && CITE_PARTICLE.test(w[i - 1])) i--;
-    return i === 0 ? { family: s, given: "" } : { family: w.slice(i).join(" "), given: w.slice(0, i).join(" ") };
+    return i === 0 ? { family: w.join(" "), given: "", suffix } : { family: w.slice(i).join(" "), given: w.slice(0, i).join(" "), suffix };
   }
   const citeInitials = (given) => given.split(/\s+/).filter(Boolean)
     .map((p) => p.split("-").map((h) => h.replace(/\./g, "")).filter(Boolean)
       .map((h) => (h.length > 1 && h === h.toUpperCase() ? h.split("").map((x) => `${x}.`).join(" ") : `${h[0].toUpperCase()}.`)).join("-"))
     .join(" ");
-  const citeApaName = (a) => (a.given ? `${a.family}, ${citeInitials(a.given)}` : a.family);
-  const citeInv = (a) => (a.given ? `${a.family}, ${a.given}` : a.family);
-  const citeNat = (a) => (a.given ? `${a.given} ${a.family}` : a.family);
-  const citeEdNat = (a) => (a.given ? `${citeInitials(a.given)} ${a.family}` : a.family); // APA editors: "M. McAuliffe"
+  // Inverted, a suffix follows the given names after a comma ("King, M. L.,
+  // Jr." in APA; "King, Martin Luther, Jr." in MLA and Chicago); in natural
+  // order it follows the family name with no comma ("Martin Luther King Jr.").
+  const citeSfx = (a, sep) => (a.suffix ? `${sep}${a.suffix}` : "");
+  const citeApaName = (a) => (a.given ? `${a.family}, ${citeInitials(a.given)}` : a.family) + citeSfx(a, ", ");
+  const citeInv = (a) => (a.given ? `${a.family}, ${a.given}` : a.family) + citeSfx(a, ", ");
+  const citeNat = (a) => (a.given ? `${a.given} ${a.family}` : a.family) + citeSfx(a, " ");
+  const citeEdNat = (a) => (a.given ? `${citeInitials(a.given)} ${a.family}` : a.family) + citeSfx(a, " "); // APA editors: "M. McAuliffe"
 
   /** Two names for the same organisation: equal, or one is the other's
    *  acronym ("IOM" / "International Organization for Migration"). */
@@ -565,7 +600,10 @@
       const ySeg = citeEndDot(String(y)); // "n.d." already ends in its period
       const parts = head ? [citeEndDot(head), ySeg, t] : [t, ySeg];
       if (isJournal) {
-        parts.push(citeEndDot(`${container || site}${vol ? ` ${vol}` : ""}${iss ? ` (${iss})` : ""}${pages ? `: ${pages}` : ""}`));
+        // Nothing to name (no journal, a hostname publisher) → no element, never a stray "."
+        const j = `${container || site}${vol ? ` ${vol}` : ""}${iss ? ` (${iss})` : ""}`.trim();
+        const jEl = pages ? (j ? `${j}: ${pages}` : pages) : j;
+        if (jEl) parts.push(citeEndDot(jEl));
       } else if (isChapter) {
         parts.push(citeEndDot(`In ${container}${editors.length ? `, edited by ${edList(citeNat, "and")}` : ""}`));
         if (site) parts.push(citeEndDot(site));
@@ -596,7 +634,8 @@
     const when = year == null ? "n.d." : hasDay ? `${year}, ${CITE_MONTHS[month]} ${day}` : String(year);
     const parts = author ? [citeEndDot(author), `(${when}).`, citeEndDot(title)] : [citeEndDot(title), `(${when}).`];
     if (isJournal) {
-      parts.push(citeEndDot(`${container || site}${vol ? `, ${vol}` : ""}${iss ? `(${iss})` : ""}${pages ? `, ${pages}` : ""}`));
+      const jEl = [container || site, `${vol}${iss ? `(${iss})` : ""}`, pages].filter(Boolean).join(", ");
+      if (jEl) parts.push(citeEndDot(jEl)); // never a stray "." when there is nothing to name
     } else if (isChapter) {
       const eds = editors.length ? `${edList(citeEdNat, "&")} (${editors.length === 1 ? "Ed." : "Eds."}), ` : "";
       parts.push(citeEndDot(`In ${eds}${container}`));

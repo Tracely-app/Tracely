@@ -390,3 +390,57 @@ test("an organisation's report leads with the organisation even when no group au
   // A kind this build does not know reads as "other" — an organisation's own page.
   assert.ok(formatCitation({ ...report, kind: "dataset" }, "apa").ref.startsWith(`${IOM}. (2024, May 7).`));
 });
+
+test("names: particles stay with the family name, suffixes are kept in place, degrees and titles dropped", () => {
+  const { formatCitation } = loadCitations();
+  const cite = (authors, style) => formatCitation({ title: "T", url: "https://x.test/", authors, year: 2020, kind: "news" }, style);
+  const apa = (name) => cite([name], "apa").ref.split(" (2020)")[0];
+  const want = {
+    "Ludwig van Beethoven": "van Beethoven, L.",
+    "Leonardo da Vinci": "da Vinci, L.",
+    "Ursula K. Le Guin": "Le Guin, U. K.",
+    "Juan de la Cruz": "de la Cruz, J.",
+    "Martin Luther King Jr.": "King, M. L., Jr.",
+    "Martin Luther King, Jr.": "King, M. L., Jr.",
+    "King, Martin Luther, Jr.": "King, M. L., Jr.",
+    "John Smith III": "Smith, J., III.",
+    "Smith, John": "Smith, J.",
+    "van der Walt, Stéfan J.": "van der Walt, S. J.",
+    "Jane Doe, PhD": "Doe, J.",
+    "Jane Doe, MD, MPH": "Doe, J.",
+    "Dr. Jane Doe": "Doe, J.",
+    "Prof. John A. Smith Sr.": "Smith, J. A., Sr.",
+    "Doe, Dr. Jane": "Doe, J.",
+    "Smith, JD": "Smith, J. D.", // a family name and initials, not a degree
+    "Yo-Yo Ma": "Ma, Y.-Y.", // "Ma" is a surname, not an M.A.
+    "Hon Kit Chan": "Chan, H. K.",
+    "Madonna": "Madonna.",
+  };
+  for (const [name, ref] of Object.entries(want)) assert.equal(apa(name), ref, name);
+  // Markers use the family name alone.
+  assert.equal(cite(["Martin Luther King Jr."], "apa").marker, "(King, 2020)");
+  assert.equal(cite(["Ludwig van Beethoven"], "mla").marker, "(van Beethoven)");
+  // MLA and Chicago invert the first author (suffix after a comma) and keep
+  // the rest in natural order (suffix with no comma).
+  assert.ok(cite(["Martin Luther King Jr.", "Jane Roe"], "mla").ref.startsWith("King, Martin Luther, Jr., and Jane Roe."));
+  assert.ok(cite(["Jane Roe", "Martin Luther King Jr."], "mla").ref.startsWith("Roe, Jane, and Martin Luther King Jr."));
+  assert.ok(cite(["Jane Roe", "Martin Luther King, Jr.", "Max Poe"], "chicago").ref.startsWith("Roe, Jane, Martin Luther King Jr., and Max Poe. 2020."));
+  // APA editors are in natural order, initials first.
+  const ch = formatCitation({ title: "Ch", url: "https://x.test/", authors: ["Jane Roe"], year: 2020, kind: "book", container: "Book", editors: ["Martin Luther King Jr."] }, "apa");
+  assert.match(ch.ref, /In M\. L\. King Jr\. \(Ed\.\), Book\./);
+});
+
+test("a journal source with nothing to name after the title gets no stray period", () => {
+  const { formatCitation } = loadCitations();
+  const bare = { title: "Findings", url: "https://j.example/a", publisher: "j.example", kind: "journal", authors: ["Jane Doe"], year: 2021 };
+  assert.equal(formatCitation(bare, "apa").ref, "Doe, J. (2021). Findings. https://j.example/a");
+  assert.equal(formatCitation(bare, "chicago").ref, "Doe, Jane. 2021. “Findings.” https://j.example/a.");
+  assert.equal(formatCitation(bare, "mla").ref, "Doe, Jane. “Findings.” 2021, j.example/a.");
+  for (const style of STYLES) {
+    const c = formatCitation(bare, style);
+    for (const v of Object.values(c)) assert.ok(!/\s\.(\s|$)|\.\s*\./.test(v.replace(/https?:\S+/g, "")), `${style}: ${v}`);
+  }
+  // Volume and pages without a journal name still read cleanly.
+  assert.equal(formatCitation({ ...bare, volume: "12", issue: "3", pages: "4–9" }, "apa").ref, "Doe, J. (2021). Findings. 12(3), 4–9. https://j.example/a");
+  assert.equal(formatCitation({ ...bare, volume: "12", issue: "3", pages: "4–9" }, "chicago").ref, "Doe, Jane. 2021. “Findings.” 12 (3): 4–9. https://j.example/a.");
+});
