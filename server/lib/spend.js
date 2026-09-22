@@ -130,8 +130,8 @@ export function spendState({ enforced = true, at = Date.now(), env = process.env
  * could be holding. */
 const held = new Map(); // key -> micro-cents reserved by calls in flight
 
-/* Pools are held under their own name; an ACCOUNT's holds (the fair-use limit
- * and the Thorough allowance, lib/entitlement.js) under "account:<key>". The
+/* Pools are held under their own name; an ACCOUNT's holds (the Thorough
+ * allowance, lib/entitlement.js reserveThorough) under "account:<key>". The
  * pool names are fixed words, so the two can never collide. */
 const accountHoldKey = (key) => `account:${key}`;
 
@@ -185,9 +185,10 @@ export function reserveSpend(pool, microCents) {
 
 /**
  * The same hold, against ONE ACCOUNT rather than a pool: `key` is the
- * account's own id for what is being held ("fair:user:<id>", "thorough:
- * install:<hash>"). The caller decides admission (lib/entitlement.js compares
- * spend plus reservedAccountMicroCents with the account's limit) — a hold only
+ * account's own id for what is being held ("thorough:user:<id>", "thorough:
+ * install:<hash>"). The caller decides admission (lib/entitlement.js
+ * reserveThorough compares spend plus reservedAccountMicroCents with the
+ * allowance) — a hold only
  * makes calls already admitted visible to the next admission, so a burst
  * cannot all be admitted against the same unspent money.
  */

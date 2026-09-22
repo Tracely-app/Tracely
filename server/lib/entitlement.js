@@ -472,3 +472,72 @@ export function effectivePlan(ent, id, at = Date.now()) {
   const { state } = fairUseState(ent, id, at);
   return state === "day" || state === "month" ? DEFAULT_PLAN : plan;
 }
+
+// ── Pro's Thorough allowance ───────────────────────────────────────────
+/* A MONTHLY allowance of thorough-model spend at API cost
+ * (THOROUGH_MONTHLY_USD), keyed on the caller id — `user:<id>`, or
+ * `install:<hash>` for an anonymous beta tester, whose grant is Pro — on a
+ * "YYYY-MM" month row. It resets on the 1st (usageMonth, UTC). Calls in flight
+ * hold their worst case (THOROUGH_RESERVE_USD) under "thorough:<id>" in
+ * lib/spend.js, so a burst cannot all be admitted against the same unspent
+ * allowance. */
+const thoroughHoldKey = (id) => `thorough:${id}`;
+
+/**
+ * `{ allowanceMicroCents, usedMicroCents, reservedMicroCents, remainingPct,
+ * resetsOn, suspended }` for one caller this month.
+ *
+ * `allowanceMicroCents` is 0 for a plan without one (free, student) and for a
+ * caller no allowance can be keyed on (an address, or nobody). `remainingPct`
+ * is a whole percent, 0-100, of the allowance not yet SPENT (floored, so 100
+ * means untouched) — what the meter shows; it ignores holds, which last one
+ * request. `suspended` is true while the account is over its fair-use limit,
+ * when the allowance is off (effectivePlan). `resetsOn` is "YYYY-MM-DD".
+ */
+export function thoroughState(ent, id, at = Date.now()) {
+  const resetsOn = nextMonthStart(at);
+  const keyed = isDailyQuotaKey(id);
+  const allowanceMicroCents = keyed ? Math.round(thoroughMonthlyUsd(ent?.plan) * MICRO_CENTS_PER_USD) : 0;
+  const usedMicroCents = keyed && ent?.enforced ? usageCount(id, usageMonth(at), THOROUGH_KIND) : 0;
+  const reservedMicroCents = keyed ? reservedAccountMicroCents(thoroughHoldKey(id)) : 0;
+  const remainingPct = allowanceMicroCents > 0
+    ? Math.max(0, Math.min(100, Math.floor((100 * (allowanceMicroCents - usedMicroCents)) / allowanceMicroCents)))
+    : 0;
+  const suspended = allowanceMicroCents > 0 && effectivePlan(ent, id, at) !== (ent?.plan ?? DEFAULT_PLAN);
+  return { allowanceMicroCents, usedMicroCents, reservedMicroCents, remainingPct, resetsOn, suspended };
+}
+
+/** Charges one thorough call's cost (recordSpend's return) to the caller's month row; returns the new month total. */
+export function recordThorough(id, microCents, at = Date.now()) {
+  const month = usageMonth(at);
+  if (!isDailyQuotaKey(id) || !(Number(microCents) > 0)) return isDailyQuotaKey(id) ? usageCount(id, month, THOROUGH_KIND) : 0;
+  return usageAdd(id, month, THOROUGH_KIND, microCents);
+}
+
+/**
+ * Admission to the thorough model for ONE call: a hold on the allowance
+ * (lib/spend.js reserveAccount — `release()` it in a `finally`, after
+ * recordThorough), or null, meaning run the same call on the fast model.
+ * Never a refusal.
+ *
+ * Admitted only when all of these hold:
+ *  - the server is enforced and the caller has a key (an unenforced local run
+ *    chooses its model with pickModel and never asks);
+ *  - `route` is a thorough route, the EFFECTIVE plan reaches thorough (so an
+ *    account over its fair-use limit gets fast), and `requested` asks for the
+ *    thorough tier (wantsThorough);
+ *  - the allowance minus what is spent minus every hold in flight still
+ *    covers this route's worst case (THOROUGH_RESERVE_USD) — so the allowance
+ *    cannot be overshot by calls that stay inside their maxTokens.
+ * Check-and-hold is synchronous, so two requests cannot both be admitted
+ * against the same remainder.
+ */
+export function reserveThorough(ent, id, route, { requested, at = Date.now() } = {}) {
+  if (!metered(ent, id)) return null;
+  if (!wantsThorough(route, effectivePlan(ent, id, at), requested)) return null;
+  const worst = Math.round((THOROUGH_RESERVE_USD[route] ?? 0) * MICRO_CENTS_PER_USD);
+  if (!(worst > 0)) return null;
+  const s = thoroughState(ent, id, at);
+  if (s.allowanceMicroCents - s.usedMicroCents - s.reservedMicroCents < worst) return null;
+  return reserveAccount(thoroughHoldKey(id), worst);
+}
