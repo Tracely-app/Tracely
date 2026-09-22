@@ -1296,7 +1296,13 @@
       const { n: N, map } = normMap(T);
       const probe = rec.ctxB + rec.newN + rec.ctxA;
       const hits = findAll(N, map, probe, true);
-      if (hits.length !== 1) return { ok: false, reason: hits.length ? "ambiguous" : "not-found" };
+      if (hits.length !== 1) {
+        // Our words are gone and the old ones are back in their place (the
+        // user's own Cmd+Z, or they retyped them): nothing is left to undo —
+        // and telling them to press Cmd+Z would undo THEIR work instead.
+        if (!hits.length && findAll(N, map, rec.ctxB + rec.oldN + rec.ctxA, true).length === 1) return { ok: true, method: "already-undone" };
+        return { ok: false, reason: hits.length ? "ambiguous" : "not-found" };
+      }
       const base = hits[0] + rec.ctxB.length;
       const a = base + rec.na, b = base + rec.nb;
       const s = b > a ? map[a] : (a > 0 ? map[a - 1] + 1 : map[base]);
@@ -1334,12 +1340,14 @@
         redoKey();
         if (t != null) {
           await waitText(at, (x) => x === rec.T2, UNDO_WAIT_MS);
-          if (at.getText() !== rec.T2) return { ok: false, reason: "undo-overshoot" };
+          if (at.getText() !== rec.T2) return { ok: false, reason: "undo-overshoot", newest: false };
         }
       }
       const r = await reverseEdit(at, rec);
       if (r.ok) history.splice(i, 1);
-      return r;
+      // newest: the doc reads exactly as this edit left it, so the user's own
+      // Cmd+Z would take it back. Only then may content.js suggest one.
+      return r.ok ? r : { ...r, newest: at.getText() === rec.T2 };
     }
 
     async function doUndo(op) {
@@ -1376,7 +1384,9 @@
       }
       restoreUser(at, saved, null, scroll); // offsets may shift a little; good enough for a caret
       const ok = steps.length === tokens.length && steps.every((r) => r.ok);
-      return ok ? { ok: true, steps } : { ok: false, reason: steps[steps.length - 1]?.reason || "error", steps };
+      if (ok) return { ok: true, steps, ...(steps.every((r) => r.method === "already-undone") ? { already: true } : {}) };
+      const last = steps[steps.length - 1];
+      return { ok: false, reason: last?.reason || "error", newest: last?.newest === true, steps };
     }
 
     /* ── append a line at the end of the document ───────────────────────── */

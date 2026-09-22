@@ -553,6 +553,41 @@ test("engine: undo when the user's last step changed no text (bold, a heading st
   assert.deepEqual([u2.ok, u2.steps[0].method, d2.body()], [true, "undo-key", body]);
 });
 
+test("engine: undo tells 'already undone' apart from 'can't', and says when Cmd+Z would still be ours", async () => {
+  const MID = "The rest of this document is long enough to sit well clear of the edit's context.";
+  const body = `The story is really good. ${MID} The end.`;
+  const find = "The story is really good.", replacement = "The story is good.";
+
+  // The user pressed Cmd+Z in Docs themselves: the old words are back.
+  const d1 = new FakeDocs(body);
+  const h1 = loadHook({ docs: d1 });
+  const r1 = await h1.call("replace", { find, replacement });
+  d1.undo();
+  const u1 = await h1.call("undo", { undoToken: r1.undoToken });
+  assert.deepEqual([u1.ok, u1.already, u1.steps[0].method], [true, true, "already-undone"]);
+  assert.equal(d1.body(), body, "nothing more was undone");
+  assert.equal(d1.pastes.length, 1, "and nothing was pasted");
+
+  // The user rewrote the spot: neither our words nor the old ones are there.
+  const d2 = new FakeDocs(body);
+  const h2 = loadHook({ docs: d2 });
+  const r2 = await h2.call("replace", { find, replacement });
+  const at = d2.T.indexOf("The story is good.");
+  d2.sel = [{ start: at, end: at + "The story is good.".length }];
+  d2.apply("The plot is fine.");
+  const u2 = await h2.call("undo", { undoToken: r2.undoToken });
+  assert.deepEqual([u2.ok, u2.reason, u2.newest], [false, "not-found", false], "Cmd+Z now would undo THEIR edit");
+
+  // The editor locked after our edit: the doc still reads as we left it, so
+  // the user's own Cmd+Z is still ours.
+  const d3 = new FakeDocs(body);
+  const h3 = loadHook({ docs: d3 });
+  const r3 = await h3.call("replace", { find, replacement });
+  d3.locked = true;
+  const u3 = await h3.call("undo", { undoToken: r3.undoToken });
+  assert.deepEqual([u3.ok, u3.newest], [false, true]);
+});
+
 test("engine: a locked editor ignores the paste, and that is reported — never assumed", async () => {
   const docs = new FakeDocs("The film stars Tom Cruise.", { locked: true });
   const h = loadHook({ docs });
@@ -924,18 +959,43 @@ test("content.js: Cite in doc is ONE group — marker, heading, entry — and a 
   assert.equal(w.editView(`cite:${h}:https://example.com/wall`, "Cite in doc").label, "Couldn't apply — copied instead");
 });
 
-test("content.js: a group whose rollback also fails says so, and points at ⌘Z", async () => {
-  let n = 0;
-  const { w, h } = citeSetup((m) => {
-    if (m.op === "ping") return okPing(m);
-    if (m.op === "undo") return { ok: false, reason: "not-found" };
-    n++;
-    return n < 2 ? { ok: true, undoToken: `t${n}` } : { ok: false, reason: "not-applied" };
-  });
-  await w.probeInDoc();
-  await w.docCite(h, 0);
-  assert.equal(w.state().statusKind, "error");
-  assert.match(w.editView(`cite:${h}:https://example.com/wall`, "Cite in doc").note, /⌘Z \/ Ctrl\+Z/);
+test("content.js: a group whose rollback also fails says so — and points at ⌘Z only while ⌘Z would undo OUR edit", async () => {
+  for (const [newest, advice] of [[true, /press ⌘Z \/ Ctrl\+Z$/], [false, /check the doc$/]]) {
+    let n = 0;
+    const { w, h } = citeSetup((m) => {
+      if (m.op === "ping") return okPing(m);
+      if (m.op === "undo") return { ok: false, reason: "not-found", newest };
+      n++;
+      return n < 2 ? { ok: true, undoToken: `t${n}` } : { ok: false, reason: "not-applied" };
+    });
+    await w.probeInDoc();
+    await w.docCite(h, 0);
+    assert.equal(w.state().statusKind, "error");
+    const note = w.editView(`cite:${h}:https://example.com/wall`, "Cite in doc").note;
+    assert.match(note, /^Part of it landed/);
+    assert.match(note, advice, String(newest));
+  }
+});
+
+test("content.js: Undo after the user already undid it says so; a failed Undo suggests ⌘Z only when it is still ours", async () => {
+  const S = "Einstein was a basketball player.";
+  for (const [reply, msg] of [
+    [{ ok: true, already: true }, "already undone in the doc"],
+    [{ ok: false, reason: "not-found", newest: false }, "Couldn't undo automatically — check the doc"],
+    [{ ok: false, reason: "not-applied", newest: true }, "Couldn't undo automatically — press ⌘Z / Ctrl+Z"],
+    [undefined, "Couldn't undo automatically — check the doc"], // no answer at all
+  ]) {
+    const { w } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "u1" } : m.op === "undo" ? reply : undefined), body: S });
+    await w.probeInDoc();
+    const h = w.hashText(S);
+    w.setDoc(S, [{ ...seg(S), hash: h }]);
+    const finding = { verdict: "false", revision: "Einstein was a physicist." };
+    w.cache.set(h, finding);
+    await w.docFix(h);
+    await w.undoLastDocEdit();
+    assert.equal(w.state().statusMsg, msg);
+    if (reply?.ok) assert.equal(w.cache.get(h), finding, "the original is back either way");
+  }
 });
 
 test("content.js: a cite that lands keeps its verdict on the marked sentence, and Undo takes all three back", async () => {

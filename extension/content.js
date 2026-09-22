@@ -2832,10 +2832,18 @@
       docsEdit("undo", { undoToken: r.undoToken }).then((u) => {
         if (u.ok) return;
         statusKind = "error";
-        statusMsg = "An edit landed late — check the doc (⌘Z / Ctrl+Z undoes it)";
+        statusMsg = u.newest
+          ? "An edit landed late — ⌘Z / Ctrl+Z in the doc undoes it"
+          : "An edit landed late and couldn't be taken back — check the doc";
         render();
       });
     }
+
+    // What to tell the user when the hook could not take an edit back. ⌘Z is
+    // the right advice only while the doc reads exactly as our edit left it
+    // (the hook says newest); after they typed, or undid it themselves, ⌘Z
+    // would take back THEIR work.
+    const undoAdvice = (u) => (u?.newest ? "press ⌘Z / Ctrl+Z" : "check the doc");
 
     // The best live path right now. A group of edits picks it ONCE, so a ping
     // landing mid-group can never split one group across two paths.
@@ -2988,9 +2996,10 @@
           // rollback: this is the immediate take-back, the one time the hook
           // may undo a blind step with Cmd/Ctrl+Z.
           const u = await docsEdit("undo", { undoToken: tokens, rollback: true });
-          if (!u.ok) fail = { ...fail, stuck: true };
+          if (!u.ok) fail = { ...fail, stuck: undoAdvice(u) };
         }
-        if (fail && untracked) fail = { ...fail, stuck: true };
+        // (a bridge edit is made by Apps Script, not in the user's undo stack)
+        if (fail && untracked) fail = { ...fail, stuck: "check the doc" };
       } catch {
         fail = fail || { ok: false, reason: "error" }; // docApply never throws; belt and braces
       } finally {
@@ -3008,7 +3017,7 @@
       }
       const copied = await copyFallback(job.copy);
       const note = fail.stuck
-        ? "Part of it landed and couldn't be undone automatically — press ⌘Z / Ctrl+Z"
+        ? `Part of it landed and couldn't be undone automatically — ${fail.stuck}`
         : job.notes?.[fail.reason] ?? editReasonText(fail);
       statusKind = fail.stuck ? "error" : "idle";
       statusMsg = `${copied ? "Couldn't apply — copied instead" : "Couldn't apply"} (${note})`;
@@ -3030,11 +3039,11 @@
       if (r.ok) {
         try { e.onUndone?.(); } catch { /* bookkeeping only */ }
         statusKind = "idle";
-        statusMsg = "undone";
+        statusMsg = r.already ? "already undone in the doc" : "undone";
         setEditState(e.key, null);
       } else {
         statusKind = "error";
-        statusMsg = "Couldn't undo automatically — press ⌘Z / Ctrl+Z";
+        statusMsg = `Couldn't undo automatically — ${undoAdvice(r)}`;
         setEditState(e.key, { state: "applied", note: statusMsg });
       }
       lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
