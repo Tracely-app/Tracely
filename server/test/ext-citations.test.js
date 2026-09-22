@@ -59,7 +59,22 @@ test("the account prefix is read off /document/u/<n>/d/ URLs", () => {
   assert.equal(docAccountPrefix("http://[bad"), "", "an unparseable URL is skipped, never thrown");
 });
 
-test("the committed navigation URL wins, location.pathname is the fallback", () => {
+test("?authuser=<n> is an account slot too; the /u/<n>/ path wins over it", () => {
+  const { docAccountPrefix } = loadExportHelpers();
+  const ID = "abc123";
+  assert.equal(docAccountPrefix(`https://docs.google.com/document/d/${ID}/edit?authuser=1`), "/u/1");
+  assert.equal(docAccountPrefix(`https://docs.google.com/document/d/${ID}/edit?usp=sharing&authuser=3#heading=h.x`), "/u/3");
+  assert.equal(docAccountPrefix(`https://docs.google.com/document/u/2/d/${ID}/edit?authuser=1`), "/u/2");
+  assert.equal(docAccountPrefix(`https://docs.google.com/document/d/${ID}/edit?authuser=jane%40school.edu`), "", "an email slot is not a number");
+  assert.equal(docAccountPrefix(`https://docs.google.com/document/d/${ID}/edit?authuser=`), "");
+  assert.equal(docAccountPrefix(`https://docs.google.com/spreadsheets/d/${ID}/edit?authuser=1`), "", "not a Doc");
+  // The navigation URL had no slot; the address bar's ?authuser= decides.
+  assert.equal(docAccountPrefix(`https://docs.google.com/document/d/${ID}/edit`, `https://docs.google.com/document/d/${ID}/edit?authuser=1`), "/u/1");
+  // ...and docsMode hands it the full address, query included.
+  assert.match(read("content.js"), /const ACCOUNT_PREFIX = harness \? "" : docAccountPrefix\([\s\S]{0,200}?\n\s*location\.href,\n\s*\);/);
+});
+
+test("the committed navigation URL wins, the address bar is the fallback", () => {
   const { docAccountPrefix } = loadExportHelpers();
   const ID = "abc123";
   // No Navigation Timing entry: the address bar decides.
@@ -87,14 +102,15 @@ test("getDocText exports through the account prefix docsMode derived", () => {
 const ORPHAN_HELPER = () => contentSlice("  const ORPHAN_PILL_TEXT", "// jointracely.com's own font");
 const STALE_PILL = '<div class="pill" id="pill"><span class="plane"></span>Tracely<span class="count">2</span></div>';
 
-test("the orphan pill names the update and the fix, and carries no count", () => {
+test("the orphan pill names what happened and the fix, and carries no count", () => {
   const { text, html } = vm.runInContext(`${ORPHAN_HELPER()};({ text: ORPHAN_PILL_TEXT, html: orphanPillHtml() })`,
     vm.createContext({ PLANE_SVG: "<svg></svg>" }));
-  assert.equal(text, "Tracely was updated — reload this tab");
+  assert.equal(text, "Tracely was updated or turned off — reload this tab");
   assert.ok(html.includes(text), html);
   assert.match(html, /class="pill quiet orphan" id="pill"/, "quiet styling: nothing is wrong with the user's writing");
   assert.ok(!/class="count/.test(html), "a count on an orphaned tab is exactly the stale claim being fixed");
   assert.ok(!/error|failed|invalid/i.test(text), "not alarming");
+  assert.match(text, /turned off/, "Chrome orphans the script on disable/uninstall too: 'was updated' alone is untrue there");
 });
 
 test("docs mode: standing down replaces the counting pill, marks and all", () => {
@@ -121,10 +137,10 @@ test("docs mode: standing down replaces the counting pill, marks and all", () =>
   d.standDown("extension reloaded");
   assert.deepEqual(plain(d.state()), { orphaned: true, expanded: false });
   assert.ok(log.includes("marks") && log.includes("clear:7") && log.includes("popover"), JSON.stringify(log));
-  assert.ok(d.root.innerHTML.includes("Tracely was updated — reload this tab"), d.root.innerHTML);
+  assert.ok(d.root.innerHTML.includes("Tracely was updated or turned off — reload this tab"), d.root.innerHTML);
   assert.ok(!d.root.innerHTML.includes('class="count'), "the stale count survived the stand-down");
   d.render(); // any later render (a check that was in flight, a tier change) keeps it
-  assert.ok(d.root.innerHTML.includes("Tracely was updated — reload this tab"));
+  assert.ok(d.root.innerHTML.includes("Tracely was updated or turned off — reload this tab"));
 });
 
 test("docs mode: an orphaned instance stops checking and stops drawing", () => {

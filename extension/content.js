@@ -359,18 +359,23 @@
 
   /* A Doc opened from a second signed-in Google account is served at
      /document/u/<n>/d/<id>/... — every student with a school and a personal
-     account. The export must go to that same account slot: /document/d/<id>/
-     export answers as the DEFAULT account, which may not be able to read the
-     doc at all. The committed navigation URL is asked first (it is what the
-     page was served as, whatever Docs later does to the address bar), then
-     location.pathname for when the Navigation Timing entry is unavailable. */
+     account — or at /document/d/<id>/...?authuser=<n> (links out of Gmail
+     and Drive). The export must go to that same account slot:
+     /document/d/<id>/export answers as the DEFAULT account, which may not be
+     able to read the doc at all. The committed navigation URL is asked first
+     (it is what the page was served as, whatever Docs later does to the
+     address bar), then location.href for when the Navigation Timing entry is
+     unavailable. In each, the /u/<n>/ path wins over ?authuser=. Only a slot
+     NUMBER is honoured; an ?authuser=<email> falls back to the default. */
   function docAccountPrefix(...urls) {
     for (const u of urls) {
       if (!u) continue;
-      let p;
-      try { p = new URL(u, "https://docs.google.com").pathname; } catch { continue; }
-      const m = p.match(/^\/document\/u\/(\d+)\/d\//);
+      let url;
+      try { url = new URL(u, "https://docs.google.com"); } catch { continue; }
+      const m = url.pathname.match(/^\/document\/u\/(\d+)\/d\//);
       if (m) return `/u/${m[1]}`;
+      const slot = url.pathname.startsWith("/document/d/") ? url.searchParams.get("authuser") : null;
+      if (slot && /^\d{1,3}$/.test(slot)) return `/u/${slot}`;
     }
     return "";
   }
@@ -745,14 +750,18 @@
 
   const PLANE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>`;
 
-  /* What an ORPHANED tab's pill says — the extension was reloaded or updated
-     while this page kept running. That script can no longer reach the
-     server, and its findings predate the update, so a count in the pill is a
-     stale claim (it used to stay up after the underlines had been cleared).
-     Say what happened and the one thing that fixes it, in the quiet style:
-     nothing is wrong with the user's writing. No click-to-reload — on a
-     field-mode site that could throw away what they were typing. */
-  const ORPHAN_PILL_TEXT = "Tracely was updated — reload this tab";
+  /* What an ORPHANED tab's pill says — the extension was reloaded, updated,
+     disabled or uninstalled while this page kept running (Chrome orphans the
+     content script in every one of those cases, and the script cannot tell
+     which). That script can no longer reach the server, and its findings
+     predate the change, so a count in the pill is a stale claim (it used to
+     stay up after the underlines had been cleared). Say what happened
+     without claiming an update the user may not have had, and the one thing
+     that fixes it either way — a reload reconnects, or clears the pill of an
+     extension that is off — in the quiet style: nothing is wrong with the
+     user's writing. No click-to-reload — on a field-mode site that could
+     throw away what they were typing. */
+  const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
   function orphanPillHtml() {
     return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
   }
@@ -935,7 +944,7 @@
     if (!DOC_ID) return;
     const ACCOUNT_PREFIX = harness ? "" : docAccountPrefix(
       (() => { try { return performance.getEntriesByType("navigation")[0]?.name; } catch { return ""; } })(),
-      location.pathname,
+      location.href,
     );
 
     const SETTINGS_KEY = "tracely.widget.settings";
