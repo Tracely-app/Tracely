@@ -24,9 +24,9 @@
    test pages fetch the server directly.
 
    Field mode also draws Grammarly-style overlay underlines: flagged
-   sentences get a wavy underline (no highlight wash) in their verdict's
+   sentences get a 3px solid underline (no highlight wash) in their verdict's
    colour from MARK_COLORS below (false, questionable, incoherent,
-   needs_citation each distinct); grey dotted while pending; clicking one
+   needs_citation each distinct); 2px grey dotted while pending; clicking one
    opens the panel and flashes that verdict's card. */
 "use strict";
 
