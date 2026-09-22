@@ -21,7 +21,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -1322,8 +1324,23 @@ test("pack-extension.sh leaves extension/dev/ out of every zip, and checks the z
   const sh = readFileSync(path.join(HERE, "..", "scripts", "pack-extension.sh"), "utf8");
   const rsync = sh.split("\n").find((l) => l.startsWith("rsync "));
   assert.ok(rsync && rsync.includes("--exclude '/dev/'"), rsync);
-  assert.match(sh, /HAS_DEV=\$\(unzip -Z1 "\$ZIP" \| grep -c "\^\$NAME\/dev\/"/);
-  assert.match(sh, /if \[ "\$HAS_DEV" -gt 0 \]; then\s+rm -f "\$ZIP"/);
+  assert.match(sh, /count '\(\^\|\/\)dev\/'\)" = 0 \] \|\| fail/, "the zip itself is checked for dev/ entries, in either layout");
+  // And behaviourally: build both zips from the real extension/ (which HAS a
+  // dev/ folder) and look inside them.
+  const out = mkdtempSync(path.join(tmpdir(), "tracely-pack-"));
+  try {
+    const script = path.join(HERE, "..", "scripts", "pack-extension.sh");
+    execFileSync("bash", [script, out], { stdio: "pipe" });
+    execFileSync("bash", [script, "--beta", out], { stdio: "pipe", env: { ...process.env, TRACELY_BETA_TOKEN: "dummy-token-for-test" } });
+    const zips = readdirSync(out).filter((f) => f.endsWith(".zip"));
+    assert.equal(zips.length, 2, zips.join(","));
+    for (const z of zips) {
+      const entries = execFileSync("unzip", ["-Z1", path.join(out, z)], { encoding: "utf8" }).split("\n");
+      assert.ok(!entries.some((e) => /(^|\/)dev\//.test(e)), `${z} carries extension/dev/`);
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
 
 /* ── the dev drivers (never shipped, but committed to a public repo) ────── */
