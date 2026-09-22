@@ -16,6 +16,7 @@
  *   - a failed call that was billed is charged to the allowance, and every
  *     hold is released however the request ended.
  * A marker in the input steers the stub: TRIGGER-SLOW waits 300 ms,
+ * TRIGGER-DATED answers with a dated snapshot id ("gpt-6-astra-2026-08-01"),
  * TRIGGER-TRUNCATE / TRIGGER-GARBAGE fail, TRIGGER-USAGE-<in>-<out> overrides
  * the token counts. Each test uses its own account so no count is shared.
  */
@@ -80,7 +81,8 @@ globalThis.fetch = async (url, init = {}) => {
   else if (input.includes("TRIGGER-GARBAGE")) reply = { output_text: "this is not json {" };
   else if (body.tools) reply = { output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }) };
   else reply = { output_text: JSON.stringify(emptyFor(body.text?.format?.schema)) };
-  return new Response(JSON.stringify({ status: "completed", model: body.model, usage, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const model = input.includes("TRIGGER-DATED") ? body.model + "-2026-08-01" : body.model;
+  return new Response(JSON.stringify({ status: "completed", model, usage, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
 `);
 const openaiLog = (tag) => readFileSync(OPENAI_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((c) => c.tag === tag);
@@ -329,4 +331,15 @@ test("critique and Explain in depth draw on ONE allowance per account", async ()
   await critique("shared-crit", token, ASTRA);
   const r = await explain("shared-deep", { token });
   assert.equal(r.body.thorough.remainingPct, 86, "10 cents from the critique, 10 from the explanation");
+});
+
+test("a thorough call answered under a dated snapshot id is still charged to the allowance", async () => {
+  const token = "tok-pro-dated";
+  const first = await explain("dated-1", { token }, { extra: "TRIGGER-DATED" });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.model, `${ASTRA}-2026-08-01`, "what the vendor said it ran");
+  assert.equal(first.body.thorough.remainingPct, 93, "charged as the thorough model it is");
+  await critique("dated-crit", token, ASTRA, "TRIGGER-DATED");
+  const e = await call("GET", "/api/entitlement", { token });
+  assert.equal(e.body.thorough.remainingPct, 86);
 });

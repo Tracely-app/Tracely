@@ -748,7 +748,12 @@ function admitThorough(gate, route, requested) {
 function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
   const cost = recordSpend({ model, usage, webSearchCalls, enforced: gate.ent.enforced, pool });
   recordAccountSpend(gate.callerId, cost);
-  if (model === MODEL_TIERS.thorough) recordThorough(gate.callerId, cost);
+  // A request holding a thorough admission makes exactly one call, on the
+  // thorough model. The id is checked too, with a dated snapshot suffix
+  // stripped: the vendor may answer "gpt-6-astra-2026-08-01", and an
+  // exact-match test would let every such call skip the allowance.
+  const base = String(model ?? "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  if (gate.thoroughHold || base === MODEL_TIERS.thorough) recordThorough(gate.callerId, cost);
   return cost;
 }
 
