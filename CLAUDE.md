@@ -252,6 +252,40 @@ its lines.
   is the only thing that ever fires in a hidden window. Measured in the
   harness: 0 marks before, 4 after, with the hover popover opening on them.
 
+## UI decisions (ratified 2026-09-22)
+
+Decided from an audit of main at 67120d1. **Implementation is pending**: the
+desktop half ships with a normal desktop release, and the extension half
+(colours, CSS and a comment in `extension/content.js`, nothing else) waits
+until the current Web Store review clears. Add no new mark or grade UI that
+contradicts these in the meantime.
+
+- **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`
+  in `src/renderer/src/components/problemCopy.ts`, mirrored by `COLORS` and
+  the kinds table in `server/shared/marks.js`: red `#d93636` = wrong or
+  invented (contradicted fact, fabricated source); orange `#ff5900` = thin
+  evidence or an unverified figure; amber `#ffb800` = add or fix the
+  attribution; blue `#2563eb` = grammar only (`PROSE_ERROR`,
+  `DocumentMarkLayer.tsx`); grey dotted `#9a9ba1` = still checking. The
+  extension maps onto it — false and incoherent → red, questionable → orange,
+  needs_citation → amber — where today its `MARK_COLORS` uses amber, violet
+  and blue for the last three.
+- **Colour only ever means a finding.** Colour that encodes anything else
+  becomes neutral with a text label: the overlay's claim-type dots
+  (`BUCKET_COLOR`, `OverlayApp.tsx`), the orange "Searching for a source" dot,
+  the extension's violet flow bracket and its red "any issues" pill.
+- **Never colour alone** (accessibility). Every finding also gets a
+  non-colour cue and there is one legend; amber `#ffb800` is 1.73:1 on white,
+  below WCAG's 3:1 for graphics, and red vs orange is close under
+  tritanopia. Style suggestions (`PROSE_STYLE` `#9aa1ad`, grey dotted) must
+  stop looking like "checking" once reduced motion stops the pulse.
+- **One grader: the server's `/api/grade`** (`src/main/services/ai/gradeDraft.ts`,
+  rubric prompt `server/lib/prompts/grade.js`), which the editor's AI Insights
+  already uses. Screen Watch's local keyword scorer
+  (`screenWatch/watchOutline.ts` → `structure/analyzeStructure.ts` /
+  `scoreDraft.ts`) must not show a number or a letter; it may list structure
+  findings, with a user-triggered "Grade this draft" that calls `/api/grade`.
+
 ## Commands
 
 ```bash
