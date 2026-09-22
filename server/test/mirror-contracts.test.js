@@ -89,26 +89,15 @@ test("desktop and server word a reset date the same way (the Thorough meter's re
 test("the extension's plan copies agree with the plan", () => {
   const bg = read("extension", "background.js");
   assert.match(bg, /const PLANS = \["free", "student", "pro"\];/);
-  // content.js has no plan ladder since 2.20.0 (models.test.js pins its
-  // CHECK_MODEL); the options page keeps its slider until the same release.
-  for (const f of ["options.js"]) {
-    const src = read("extension", f);
-    const m = src.match(/const PLAN_MAX_STOP = \{\s*free:\s*(\d),\s*student:\s*(\d),\s*pro:\s*(\d)\s*\}/);
-    assert.ok(m, `${f}: PLAN_MAX_STOP not found`);
-    const stops = { free: +m[1], student: +m[2], pro: +m[3] };
-    // The extension still has its THREE-stop ladder (terra on the middle stop)
-    // until 2.20.0 replaces the slider, so a stop index no longer equals a
-    // server tier index. What must hold: the model at each plan's top stop is
-    // one the server maps to that plan's ceiling tier (Student's Balanced stop
-    // sends terra, which the server now reads as fast). 2.20.0 realigns them.
-    const src2 = read("extension", f);
-    const ladder = f === "options.js"
-      ? [...src2.match(/const MODELS = \[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map((x) => x[1])
-      : [...src2.match(/const SPEED_STOPS = \[([\s\S]*?)\];/)[1].matchAll(/model: "([^"]+)"/g)].map((x) => x[1]);
-    const tierOf = (id) => srvPlan.TIER_FOR_MODEL[id] ?? srvPlan.LEGACY_MODEL_TIER[id] ?? null;
-    for (const plan of srvPlan.PLANS) {
-      assert.equal(tierOf(ladder[stops[plan]]), srvPlan.PLAN_MODEL_CEILING[plan], `${f}: ${plan}'s top stop maps to the wrong tier`);
-    }
+  // 2.20.0 has no stop ladder in either file (the server picks the model per
+  // route). What content.js and options.js still copy from the plan is which
+  // plans get a Thorough allowance — the gate on "Explain in depth".
+  const thorough = srvPlan.PLANS.filter((p) => srvPlan.thoroughMonthlyUsd(p) > 0);
+  assert.ok(thorough.length > 0);
+  for (const f of ["options.js", "content.js"]) {
+    const m = read("extension", f).match(/const DEEP_PLANS = \[([^\]]*)\]/);
+    assert.ok(m, `${f}: DEEP_PLANS not found`);
+    assert.deepEqual([...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]), thorough, `${f}: DEEP_PLANS`);
   }
 });
 

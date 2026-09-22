@@ -109,49 +109,25 @@ test("content.js CHECK_MODEL is the server's fast model", () => {
   assert.ok(ALLOWED_MODELS.has(m[1]));
 });
 
-test("options.js MODELS: every stop maps to a server tier, cheapest first", () => {
-  const src = read("options.js");
-  const block = src.match(/const MODELS = \[([\s\S]*?)\];/);
+test("options.js names exactly the two models the server serves", () => {
+  // 2.20.0 dropped the slider: the page states what the server runs, it no
+  // longer chooses. The ids are still spelled out because this page is what a
+  // reader checks to see what they are buying.
+  const block = read("options.js").match(/const MODELS = \{([\s\S]*?)\};/);
   assert.ok(block, "MODELS not found in options.js");
-  const ids = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, EXT_LADDER, "2.20.0 replaces the slider; until then it is the three-stop ladder");
-  assertMapsSensibly(ids, "options.js MODELS");
+  const ids = Object.fromEntries([...block[1].matchAll(/(\w+): "([^"]+)"/g)].map((m) => [m[1], m[2]]));
+  assert.deepEqual(ids, MODEL_TIERS, "the options page's ids are not the server's tiers");
 });
 
-/* Retired ids earlier extension builds saved (a site's stop, the options
- * default) are read back as a stop by content.js and options.js, and sent
- * ones are translated by the server's LEGACY_MODEL_TIER. A third copy, so it
- * is pinned like the others: each retired id must name the same stop as the
- * tier the server maps it to. */
-test("the extension's retired-id maps agree with the server's LEGACY_MODEL_TIER", () => {
-  const parse = (src, name) => {
-    const m = src.match(new RegExp(`const ${name} = \\{([^}]*)\\}`));
-    assert.ok(m, `${name} not found`);
-    return Object.fromEntries([...m[1].matchAll(/"([^"]+)":\s*(\d+)/g)].map((x) => [x[1], Number(x[2])]));
-  };
-  // The extension maps a retired id to a STOP on its three-stop ladder; the
-  // server maps the same id to a TIER. They agree when the stop's model is one
-  // the server maps to that same tier (gpt-5.4 -> the Balanced stop, whose
-  // terra id the server now also reads as fast). 2.20.0 realigns the maps.
-  for (const [file, name] of [["options.js", "RETIRED_MODELS"]]) {
-    for (const [id, stop] of Object.entries(parse(read(file), name))) {
-      assert.ok(Object.hasOwn(LEGACY_MODEL_TIER, id), `${file} ${name}: ${id} is not a retired id the server maps`);
-      assert.equal(serverTierOf(EXT_LADDER[stop]), LEGACY_MODEL_TIER[id], `${file} ${name}: ${id} -> stop ${stop}`);
-    }
-  }
+/* The ids the server retired (LEGACY_MODEL_TIER) must each still translate
+ * to a model it serves, so usage a shipped build recorded under one prices
+ * and reads correctly. The extension's own retired-id maps went with the
+ * slider in 2.20.0; step 5 pins that no extension file names one. */
+test("every id the server retired translates to a model it still serves", () => {
   for (const id of Object.keys(LEGACY_MODEL_TIER)) {
     assert.ok(!ALLOWED_MODELS.has(id), `${id} is retired but still a tier`);
     assert.ok(ALLOWED_MODELS.has(currentModelId(id)), `${id} must translate to a model the server serves`);
   }
-});
-
-test("the slider ladder and the plan ceilings are the same length", () => {
-  // options.js indexes PLAN_MAX_STOP into MODELS positionally; a fourth tier
-  // added to one and not the other would open or hide a stop silently.
-  const stops = [...read("options.js").matchAll(/const PLAN_MAX_STOP = \{([^}]*)\}/g)];
-  assert.equal(stops.length, 1);
-  const maxStop = Math.max(...[...stops[0][1].matchAll(/:\s*(\d+)/g)].map((m) => Number(m[1])));
-  assert.equal(maxStop, EXT_LADDER.length - 1);
 });
 
 /* ── the Docs annotation requester ────────────────────────────────────────
@@ -285,24 +261,16 @@ test("the match-pattern helper agrees with Chrome on the edge cases the hook dep
  * outdated version. The build was current; two pieces of its UI were not.
  */
 
-test("the model slider names tiers, never models", () => {
-  // The ticks read Haiku / Sonnet / Opus for a fortnight after the move to
-  // OpenAI. The MODELS array in options.js was migrated and the labels under
-  // the slider were not, so the only screen that tells a user what they are
-  // buying named three Anthropic models the extension could no longer call.
-  // Nothing in the code has to touch those labels, which is exactly why a
-  // provider swap does not reach them — so this test does instead.
-  const ticks = [...read("options.html").matchAll(/<span class="tick" data-i="\d+">([^<]+)<\/span>/g)].map((m) => m[1]);
-  // One tick per stop of the extension's own ladder (three until 2.20.0
-  // replaces the slider, though the server now has two tiers).
-  assert.equal(ticks.length, EXT_LADDER.length, "one tick per stop");
-  for (const tick of ticks) {
-    for (const model of new Set([...Object.values(MODEL_TIERS), ...EXT_LADDER])) {
-      assert.ok(!tick.toLowerCase().includes(model.toLowerCase()), `tick "${tick}" names a model id`);
-    }
-    for (const vendor of ["haiku", "sonnet", "opus", "gpt", "claude", "gemini"]) {
-      assert.ok(!tick.toLowerCase().includes(vendor), `tick "${tick}" names a vendor's model`);
-    }
+test("the options page names tiers, never models", () => {
+  // The slider's ticks read Haiku / Sonnet / Opus for a fortnight after the
+  // move to OpenAI: the ids in options.js were migrated and the words a user
+  // reads were not. Nothing in the code has to touch that copy, which is
+  // exactly why a provider swap does not reach it — so this test does.
+  const html = read("options.html").replace(/<!--[\s\S]*?-->/g, "");
+  const section = html.slice(html.indexOf("<h2>Checking model</h2>"), html.indexOf("<h2>Sites with auto-check on</h2>"));
+  assert.ok(section.length > 200, "the Checking model section is missing");
+  for (const bad of [...Object.values(MODEL_TIERS), "haiku", "sonnet", "opus", "gpt-", "claude", "gemini"]) {
+    assert.ok(!section.toLowerCase().includes(bad.toLowerCase()), `the checking-model copy names ${bad}`);
   }
 });
 

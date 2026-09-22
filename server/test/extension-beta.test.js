@@ -515,7 +515,7 @@ async function renderOptions(answer, { stored = {} } = {}) {
     return els.get(id);
   };
   // What options.html starts with: both account blocks and the beta badges hidden.
-  for (const id of ["signedIn", "signedOut", "betaPlanOut", "acctBeta", "modelLocked"]) el(id).hidden = true;
+  for (const id of ["signedIn", "signedOut", "betaPlanOut", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
   const chrome = {
     runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? answer : { ok: true }) },
     storage: {
@@ -542,7 +542,8 @@ test("options: a signed-out beta tester sees Pro (beta) and no way to pay", asyn
   assert.equal($("betaPlanOut").hidden, false);
   assert.equal($("betaPlanLabel").textContent, "Pro");
   assert.equal($("seePlans").hidden, true, "See plans is a pay link");
-  assert.equal($("modelLocked").hidden, true, "every stop is open, so no upgrade note");
+  assert.equal($("thoroughLocked").hidden, true, "a beta tester has Thorough, so no upgrade note");
+  assert.equal($("thoroughPro").hidden, false);
   assert.match($("acctHint").textContent, /test build/);
 });
 
@@ -563,7 +564,8 @@ test("options: nothing changes for a user who is not on the test build", async (
   const out = await renderOptions({ ...BASE, signedIn: false, plan: "free" });
   assert.equal(out("betaPlanOut").hidden, true);
   assert.equal(out("seePlans").hidden, false);
-  assert.equal(out("modelLocked").hidden, false);
+  assert.equal(out("thoroughLocked").hidden, false);
+  assert.equal(out("thoroughPro").hidden, true);
 
   const free = await renderOptions({ ...BASE, signedIn: true, email: "f@example.com", userId: "u-1", plan: "free" });
   assert.equal(free("manageLink").hidden, false);
@@ -576,41 +578,28 @@ test("options: nothing changes for a user who is not on the test build", async (
   assert.equal(pro("manageLink").textContent, "Manage subscription");
 });
 
-test("options: a provisional free answer never overwrites the saved stop; a real one still clamps it", async () => {
-  const guess = await renderOptions({ ...BASE, signedIn: false, plan: "free", provisional: true }, { stored: { model: "gpt-6-astra" } });
-  assert.deepEqual(guess.sets.filter((o) => "model" in o), [], "an outage rewrote the tester's stop to Fast");
-  const real = await renderOptions({ ...BASE, signedIn: false, plan: "free" }, { stored: { model: "gpt-6-astra" } });
-  const writes = plain(real.sets.filter((o) => "model" in o));
-  assert.ok(writes.length > 0 && writes.every((o) => o.model === "gpt-5.6-luna"), `a real downgrade still clamps: ${JSON.stringify(writes)}`);
-});
-
-test("options: a default saved as a retired id keeps its stop, and is rewritten to the current id", async () => {
-  const pro = await renderOptions({ ...BASE, signedIn: true, email: "p@example.com", plan: "pro" }, { stored: { model: "gpt-5.4" } });
-  assert.equal(pro("modelSlider").value, "1", "Balanced stays Balanced");
-  // (The page renders the plan more than once and this stub storage never
-  // applies a write, so the same migration may be written again.)
-  const migrated = plain(pro.sets.filter((o) => "model" in o));
-  assert.ok(migrated.length > 0 && migrated.every((o) => o.model === "gpt-5.6-terra"), JSON.stringify(migrated));
-
-  const guess = await renderOptions({ ...BASE, signedIn: false, plan: "free", provisional: true }, { stored: { model: "gpt-5.4" } });
-  assert.deepEqual(guess.sets.filter((o) => "model" in o), [], "a provisional answer rewrites nothing, retired id or not");
-
-  const fast = await renderOptions({ ...BASE, signedIn: false, plan: "free" }, { stored: { model: "gpt-5-nano" } });
-  assert.equal(fast("modelSlider").value, "0");
-  const toFast = plain(fast.sets.filter((o) => "model" in o));
-  assert.ok(toFast.length > 0 && toFast.every((o) => o.model === "gpt-5.6-luna"), JSON.stringify(toFast));
-});
-
-test("options: the stop notes claim only what the model eval measured", () => {
-  // eval/models/FINDINGS.md: Balanced was not more accurate than Fast, so no
-  // note may sell it as sharper, better on subtle claims, or more accurate.
+test("options: the page no longer stores a model, and drops the retired one", async () => {
+  // The Faster↔Smarter default stop lived in chrome.storage `model`. Nothing
+  // reads it since 2.20.0, so the page must neither write it nor leave it.
   const src = read("options.js");
-  const notes = src.match(/const MODEL_NOTES = \[([\s\S]*?)\];/)[1];
-  for (const claim of [/subtle/i, /sharpest/i, /noticeably better/i, /more accurate than Fast(?!\.)/, /catches subtler/i]) {
-    assert.ok(!claim.test(notes), `MODEL_NOTES claims ${claim}`);
+  assert.match(src, /chrome\.storage\.local\.remove\("model"\);/);
+  assert.ok(!/storage\.local\.set\(\{ model/.test(src), "the page still writes a model stop");
+  for (const answer of [
+    { ...BASE, signedIn: false, plan: "free", provisional: true },
+    { ...BASE, signedIn: true, email: "p@example.com", plan: "pro" },
+  ]) {
+    const $ = await renderOptions(answer, { stored: { model: "gpt-6-astra" } });
+    assert.deepEqual($.sets.filter((o) => "model" in o), [], JSON.stringify(answer));
   }
-  assert.ok(!/catches subtler|smarter models/i.test(read("options.html") + src), "the hint copy still sells Smarter as catching more");
-  assert.ok(!/smarter models?/i.test(read("content.js")), "the widget's locked-slider hint still sells a smarter model");
+});
+
+test("options: no copy sells a smarter model any more", () => {
+  // eval/models/FINDINGS.md: the bigger models were not more accurate. The
+  // page may sell Thorough as fuller EXPLANATIONS, never as better verdicts.
+  const copy = read("options.js") + read("options.html");
+  for (const claim of [/smarter model/i, /catches subtler/i, /more accurate than/i, /sharpest/i, /noticeably better/i]) {
+    assert.ok(!claim.test(copy), `the options page claims ${claim}`);
+  }
 });
 
 test("options.html lets `hidden` beat the link and badge display rules", () => {
@@ -618,7 +607,7 @@ test("options.html lets `hidden` beat the link and badge display rules", () => {
   // Upgrade link would stay visible with hidden = true.
   const html = read("options.html");
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
-  for (const id of ["betaPlanOut", "betaPlanLabel", "acctBeta", "seePlans", "manageLink"]) {
+  for (const id of ["betaPlanOut", "betaPlanLabel", "acctBeta", "seePlans", "manageLink", "thoroughPro", "thoroughLocked"]) {
     assert.match(html, new RegExp(`id="${id}"`), `options.html is missing #${id}`);
   }
 });

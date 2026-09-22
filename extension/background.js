@@ -257,13 +257,49 @@ async function cachedEntitlement() {
 //
 // `beta` records that the server granted the test build's Pro plan, so the
 // options page can say "Pro (beta)" and not offer to sell it.
-async function storeEntitlement(plan, email, enforced, { userId = null, beta = false } = {}) {
+/* The OPTIONAL fields a 2026-09-21-or-later server adds to /api/entitlement:
+   the limits this caller is metered at, the source searches used today and
+   this month, Pro's Thorough allowance as a whole percent, and the fair-use
+   state. The options page draws its meters from them and the widgets ignore
+   them; every one is optional, so an older server (or a local one, which
+   meters nothing) simply leaves them out and the page says nothing.
+
+   Everything is re-validated here rather than passed through: this is the
+   one place a server answer becomes state the pages render. */
+function entitlementExtras(data) {
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+  const day = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  const out = {};
+  const l = data?.limits;
+  if (l && typeof l === "object") {
+    out.limits = {
+      checksPerDay: num(l.checksPerDay),
+      aiActionsPerDay: num(l.aiActionsPerDay),
+      flowPerDay: num(l.flowPerDay),
+      sources: { day: num(l.sources?.day), month: num(l.sources?.month) },
+    };
+  }
+  const s = data?.usage?.sources;
+  if (s && typeof s === "object") out.usage = { sources: { today: num(s.today) ?? 0, month: num(s.month) ?? 0 } };
+  const t = data?.thorough;
+  if (t && typeof t === "object" && num(t.remainingPct) !== null) {
+    out.thorough = { remainingPct: Math.max(0, Math.min(100, Math.round(t.remainingPct))), resetsOn: day(t.resetsOn), suspended: t.suspended === true };
+  }
+  const f = data?.fairUse;
+  if (f && typeof f === "object" && ["ok", "day", "month"].includes(f.state)) {
+    out.fairUse = { state: f.state, resetsOn: day(f.resetsOn) };
+  }
+  return out;
+}
+
+async function storeEntitlement(plan, email, enforced, { userId = null, beta = false, extras = null } = {}) {
   const entitlement = {
     plan: normalizePlan(plan),
     email: email ?? null,
     userId: typeof userId === "string" && userId ? userId : null,
     enforced: enforced !== false,
     beta: beta === true,
+    ...(extras ?? {}),
     fetchedAt: Date.now(),
   };
   await chrome.storage.local.set({ entitlement });
@@ -357,7 +393,7 @@ async function fetchEntitlement({ force = false } = {}) {
       // plan, which it says with `beta: true`. Only that flag lifts the plan
       // here; a bare `plan` in a signed-out answer is still ignored.
       const beta = data?.beta === true;
-      return storeEntitlement(beta ? data?.plan : DEFAULT_PLAN, null, data?.enforced, { beta });
+      return storeEntitlement(beta ? data?.plan : DEFAULT_PLAN, null, data?.enforced, { beta, extras: entitlementExtras(data) });
     } catch {
       return unknown();
     }
@@ -386,6 +422,7 @@ async function fetchEntitlement({ force = false } = {}) {
     return storeEntitlement(data?.plan, typeof data?.email === "string" ? data.email : null, data?.enforced, {
       userId: data?.userId,
       beta: data?.beta === true,
+      extras: entitlementExtras(data),
     });
   } catch {
     return { ...FREE_ENTITLEMENT, fetchedAt: 0 };
@@ -559,6 +596,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // The server granted this test build's Pro plan (X-Tracely-Beta).
           // The options page shows "Pro (beta)" and hides the ways to buy.
           beta: ent?.beta === true,
+          // The metering the server reported for this caller (entitlementExtras).
+          // Absent from an older or local server's answer, and from a guess.
+          limits: ent?.limits ?? null,
+          usage: ent?.usage ?? null,
+          thorough: ent?.thorough ?? null,
+          fairUse: ent?.fairUse ?? null,
           // No real answer behind this (server unreachable or erroring, never
           // cached): show it, but do not SAVE anything because of it — a
           // widget or the options page writing a clamp to the free stop here
@@ -568,7 +611,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (err) {
         // Fail closed, but still answer: an unanswered probe would leave the
         // widget with no tier at all.
-        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, provisional: true, message: err?.message });
+        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, limits: null, usage: null, thorough: null, fairUse: null, provisional: true, message: err?.message });
       }
     })();
     return true; // async sendResponse
