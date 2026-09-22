@@ -5,7 +5,9 @@ excludes it from every zip, and no manifest entry loads it.
 
 - `engine.js` — the prototype in-editor edit engine. The shipped copy lives in
   `extension/docs-hook.js`; this file is kept as the record of what the harness proved.
-- `bridge-notes.md` — how content.js was wired to it.
+- `bridge-notes.md` — the spike's wiring plan. As shipped, the protocol adds the
+  `source: "tracely"` / `"tracely-hook"` tags and a same-origin check, `probe` became `ping`,
+  `undo` takes `undoToken` (one or an array, newest first), and hints travel as `hint: {…}`.
 - `unit.mjs` — the planner tests (ported to `server/test/ext-docs-edit.test.js`).
 - `hook-trial.mjs` — drives the SHIPPED `extension/docs-hook.js` in a real Doc over content.js's
   exact protocol; always severs the network before anything but a ping (15/15 on 2026-09-21,
