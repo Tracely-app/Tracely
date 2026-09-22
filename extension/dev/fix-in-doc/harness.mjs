@@ -562,8 +562,11 @@ try {
       try { await fetch("https://docs.google.com/favicon.ico?c=" + Math.random(), { mode: "no-cors", cache: "no-store", signal: ac.signal }); return "REACHED"; }
       catch (e) { return "blocked: " + String(e).slice(0, 60); } finally { clearTimeout(t); }
     });
-    const safe = canary !== "REACHED" && tunnels.size === 0 && proxyStats.severed;
-    check("network severed: canary fetch cannot reach Google, 0 upstream sockets", safe, { canary, upstreamOpen: tunnels.size });
+    // proxyStats.tunnels > 0: the Doc really loaded THROUGH the proxy (a
+    // browser that ignored --proxy-server shows zero tunnels, and severing the
+    // proxy would not cut it off).
+    const safe = canary !== "REACHED" && tunnels.size === 0 && proxyStats.severed && proxyStats.tunnels > 0;
+    check("network severed: canary fetch cannot reach Google, 0 upstream sockets, traffic was proxied", safe, { canary, upstreamOpen: tunnels.size, tunnelsBefore: proxyStats.tunnels });
     if (!safe) throw new Error("ABORT: network not provably severed — no edits attempted");
     await d.page.evaluate(() => { window.__tracelyEditConfig.allowEdits = true; });
     await phaseEdits(d.page, C, T0);

@@ -1,8 +1,13 @@
 // Self-contained, network-severed edit trial.
 // 1) in-process CONNECT proxy carries all browser traffic while the Doc loads;
 // 2) sever(): destroys every tunnel and refuses all new ones (irreversible);
-// 3) only THEN are edit events dispatched, so no mutation can leave the machine;
-// 4) browser closed and profile deleted, so queued edits die with it.
+// 3) the cut is PROVED before any trial code runs: canary fetches to Google
+//    must fail, zero upstream sockets may remain open, and the page must have
+//    loaded THROUGH the proxy (a browser that ignored --proxy-server, e.g.
+//    under a managed ProxyMode policy, shows zero tunnels and would edit the
+//    live Doc) — otherwise the run aborts before the trial source is loaded;
+// 4) only THEN are edit events dispatched, so no mutation can leave the machine;
+// 5) browser closed and profile deleted, so queued edits die with it.
 import { chromium, EXE } from "./pw.mjs";
 import http from 'node:http';
 import net from 'node:net';
@@ -14,7 +19,7 @@ const DOC = 'https://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-R
 const TRIAL = process.argv[2] || 'keys';
 const PPORT = 9800 + Math.floor(Math.random() * 150);
 
-let blocked = false; const socks = new Set(); let afterBlock = 0;
+let blocked = false; let afterBlock = 0; let proxied = 0;
 const proxy = http.createServer((q, r) => { r.writeHead(502); r.end(); });
 const tunnels = new Set(); let swallowed = 0;
 proxy.on('connect', (req, cs, head) => {
@@ -22,6 +27,7 @@ proxy.on('connect', (req, cs, head) => {
     // black-hole: pretend the tunnel is up, never connect upstream, discard everything
     afterBlock++; cs.write('HTTP/1.1 200 Connection Established\r\n\r\n'); cs.on('data', d => { swallowed += d.length; }); cs.on('error', () => {}); held.add(cs); return;
   }
+  proxied++;
   const [h, p] = req.url.split(':');
   const us = net.connect(Number(p) || 443, h, () => { if (blocked) return us.destroy(); cs.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (head?.length) us.write(head); us.pipe(cs); cs.pipe(us); });
   const k = () => { if (!blocked) { cs.destroy(); us.destroy(); } }; us.on('error', k); cs.on('error', () => {});
@@ -53,7 +59,20 @@ try {
   out.modeBefore = await page.evaluate(() => document.getElementById('docs-toolbar-mode-switcher')?.getAttribute('aria-label'));
   // ---- SEVER NETWORK. Nothing below can reach Google. ----
   sever();
-  out.severed = { upstreamOpen: tunnels.size, blocked };
+  const canary = await page.evaluate(async () => {
+    const probe = async (url) => {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 4000);
+      try { await fetch(url + '?c=' + Math.random(), { mode: 'no-cors', cache: 'no-store', signal: ac.signal }); return 'REACHED'; }
+      catch (e) { return 'blocked: ' + String(e).slice(0, 40); } finally { clearTimeout(t); }
+    };
+    return [await probe('https://docs.google.com/favicon.ico'), await probe('https://www.google.com/generate_204')];
+  });
+  // proxied > 0: the page really loaded THROUGH the proxy, so severing it cut
+  // the browser off; tunnels.size === 0: no upstream socket survived the cut.
+  const safe = blocked && canary.every((c) => c !== 'REACHED') && tunnels.size === 0 && proxied > 0;
+  out.severed = { safe, canary, upstreamOpen: tunnels.size, tunnelsBefore: proxied, blocked };
+  if (!safe) throw new Error('ABORT: network not provably severed — no trial code was run');
   const trialSrc = fs.readFileSync(path.join(DIR, 'trials', TRIAL + '.js'), 'utf8');
   out.result = await page.evaluate(async (src) => {
     const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -76,4 +95,4 @@ finally {
   out.profileDeleted = !fs.existsSync(profile);
 }
 console.log(JSON.stringify(out, null, 1));
-process.exit(0);
+process.exit(out.err ? 1 : 0);

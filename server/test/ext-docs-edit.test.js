@@ -950,3 +950,26 @@ test("pack-extension.sh leaves extension/dev/ out of every zip, and checks the z
   assert.match(sh, /HAS_DEV=\$\(unzip -Z1 "\$ZIP" \| grep -c "\^\$NAME\/dev\/"/);
   assert.match(sh, /if \[ "\$HAS_DEV" -gt 0 \]; then\s+rm -f "\$ZIP"/);
 });
+
+/* ── the dev drivers (never shipped, but committed to a public repo) ────── */
+
+test("dev drivers that edit a real Doc prove the network is cut — canary, 0 upstream sockets, traffic proxied — before the first edit", () => {
+  // [file, the first line that can put an edit event into the public Doc,
+  //  where its public-Doc path starts (harness.mjs edits a Doc you own,
+  //  TRACELY_EDIT_DOC_URL, without severing — that branch comes first)]
+  for (const [file, firstEdit, from = ""] of [
+    ["edit-trial.mjs", "const trialSrc = "],
+    ["hook-trial.mjs", "window.__tracelyEditConfig.allowEdits = true"],
+    ["harness.mjs", "window.__tracelyEditConfig.allowEdits = true", 'cur = "B-severed"'],
+  ]) {
+    const src = read(path.join("dev", "fix-in-doc", file));
+    const edit = src.indexOf(firstEdit, Math.max(0, src.indexOf(from)));
+    const cut = src.lastIndexOf("sever();", edit);
+    assert.ok(cut > 0 && edit > cut, `${file}: sever() must come before the first edit`);
+    const gate = src.slice(cut, edit);
+    assert.match(gate, /"REACHED"|'REACHED'/, `${file}: a canary request to Google must be made and must fail`);
+    assert.match(gate, /tunnels\.size === 0/, `${file}: no upstream socket may survive the cut`);
+    assert.match(gate, /(?:tunnels|proxied) > 0/, `${file}: the page must have loaded through the proxy at all`);
+    assert.match(gate, /throw new Error\(["']ABORT/, `${file}: a failed check aborts the run`);
+  }
+});

@@ -20,9 +20,10 @@ excludes it from every zip, and no manifest entry loads it.
 The default test Doc (`1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo`) is **someone else's public
 Doc, editable by anyone**. No edit may ever reach Google:
 
-- A run that edits must first sever the network the way `edit-trial.mjs` / `harness.mjs` do
-  (in-script proxy, upstream sockets destroyed, a canary request to Google must fail, zero
-  upstream connections open) before the first edit event is dispatched.
+- A run that edits must first sever the network the way `hook-trial.mjs`, `harness.mjs` and
+  `edit-trial.mjs` do (in-script proxy, upstream sockets destroyed, canary requests to Google
+  must fail, zero upstream connections open, and the page must have loaded through the proxy
+  at all), and abort before the first edit event is dispatched if any check fails.
 - Afterwards, `node verify.mjs` must show the live Doc unchanged (1021 chars, hash 1843506686).
 - Read-only loads are fine without severing.
 - Set `TRACELY_EDIT_DOC_URL` to a Doc you own to test real, saved edits.
