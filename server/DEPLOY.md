@@ -214,7 +214,7 @@ deletes it, exiting non-zero, if the layout is wrong: the store zip must have
 `manifest.json` at the root and no `beta.json` anywhere; the beta zip must have
 `Tracely-<version>-beta/manifest.json` and exactly one `beta.json`, at
 `Tracely-<version>-beta/beta.json`, holding the token, with nothing outside
-that folder. Until 2026-09-21 the plain build produced `Tracely-<version>.zip`
+that folder. Before #256 the plain build produced `Tracely-<version>.zip`
 with the same folder wrapper as the beta, which is not a valid store upload;
 do not upload a zip with that name.
 
