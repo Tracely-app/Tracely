@@ -89,7 +89,9 @@ test("desktop and server word a reset date the same way (the Thorough meter's re
 test("the extension's plan copies agree with the plan", () => {
   const bg = read("extension", "background.js");
   assert.match(bg, /const PLANS = \["free", "student", "pro"\];/);
-  for (const f of ["options.js", "content.js"]) {
+  // content.js has no plan ladder since 2.20.0 (models.test.js pins its
+  // CHECK_MODEL); the options page keeps its slider until the same release.
+  for (const f of ["options.js"]) {
     const src = read("extension", f);
     const m = src.match(/const PLAN_MAX_STOP = \{\s*free:\s*(\d),\s*student:\s*(\d),\s*pro:\s*(\d)\s*\}/);
     assert.ok(m, `${f}: PLAN_MAX_STOP not found`);

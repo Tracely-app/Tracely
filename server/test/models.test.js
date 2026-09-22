@@ -100,13 +100,13 @@ test("background.js ALLOWED_MODELS: every id maps to a server tier, and every se
   for (const model of ALLOWED_MODELS) assert.ok(ext.has(model), `background.js would drop ${model}, which the server serves`);
 });
 
-test("content.js SPEED_STOPS: every stop maps to a server tier, cheapest first", () => {
-  const src = read("content.js");
-  const block = src.match(/const SPEED_STOPS = \[([\s\S]*?)\];/);
-  assert.ok(block, "SPEED_STOPS not found in content.js");
-  const ids = [...block[1].matchAll(/model: "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, EXT_LADDER, "2.20.0 replaces the slider; until then it is the three-stop ladder");
-  assertMapsSensibly(ids, "content.js SPEED_STOPS");
+test("content.js CHECK_MODEL is the server's fast model", () => {
+  // 2.20.0 has no slider: every request names the fast model and sends no
+  // effort, and the server picks the model per route regardless.
+  const m = read("content.js").match(/const CHECK_MODEL = "([^"]+)";/);
+  assert.ok(m, "CHECK_MODEL not found in content.js");
+  assert.equal(m[1], MODEL_TIERS.fast);
+  assert.ok(ALLOWED_MODELS.has(m[1]));
 });
 
 test("options.js MODELS: every stop maps to a server tier, cheapest first", () => {
@@ -116,15 +116,6 @@ test("options.js MODELS: every stop maps to a server tier, cheapest first", () =
   const ids = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(ids, EXT_LADDER, "2.20.0 replaces the slider; until then it is the three-stop ladder");
   assertMapsSensibly(ids, "options.js MODELS");
-});
-
-test("content.js SPEED_STOPS carry the efforts the model eval measured", () => {
-  // eval/models/FINDINGS.md: the fast model checks at 100% at medium and 90%
-  // at low; balanced and thorough were only measured at low (the old
-  // thorough stop sent medium, which was never measured).
-  const block = read("content.js").match(/const SPEED_STOPS = \[([\s\S]*?)\];/);
-  const efforts = [...block[1].matchAll(/effort: "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(efforts, ["medium", "low", "low"]);
 });
 
 /* Retired ids earlier extension builds saved (a site's stop, the options
@@ -142,7 +133,7 @@ test("the extension's retired-id maps agree with the server's LEGACY_MODEL_TIER"
   // server maps the same id to a TIER. They agree when the stop's model is one
   // the server maps to that same tier (gpt-5.4 -> the Balanced stop, whose
   // terra id the server now also reads as fast). 2.20.0 realigns the maps.
-  for (const [file, name] of [["content.js", "RETIRED_STOP"], ["options.js", "RETIRED_MODELS"]]) {
+  for (const [file, name] of [["options.js", "RETIRED_MODELS"]]) {
     for (const [id, stop] of Object.entries(parse(read(file), name))) {
       assert.ok(Object.hasOwn(LEGACY_MODEL_TIER, id), `${file} ${name}: ${id} is not a retired id the server maps`);
       assert.equal(serverTierOf(EXT_LADDER[stop]), LEGACY_MODEL_TIER[id], `${file} ${name}: ${id} -> stop ${stop}`);

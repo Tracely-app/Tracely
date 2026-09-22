@@ -13,7 +13,8 @@
  *     `beta: true`; signed in, it keeps userId (it used to drop it).
  *   - content.js's storage wrappers call chrome.storage, not themselves, and
  *     still latch on a genuinely dead context.
- *   - The options-page slider is the widgets' default stop, capped by plan.
+ *   - Widget settings an earlier build saved (a slider stop) load cleanly and
+ *     are dropped on the next save; every model route names the fast model.
  *   - The options page shows a beta tester their plan and nothing to buy,
  *     but keeps the way to manage a real subscription.
  */
@@ -289,7 +290,7 @@ test("content.js never builds a uid into a link on the host page", () => {
   const src = read("content.js");
   assert.ok(!/uid=/.test(src), "content.js builds a ?uid= link");
   assert.ok(!/userId/.test(src), "content.js handles the account id at all");
-  assert.match(src, /class="sb-pro" href="\$\{ORDER_URL\}"/, "the bare page is the no-worker fallback");
+  assert.match(src, /if \(!r\?\.ok\) window\.open\(ORDER_URL, "_blank", "noopener,noreferrer"\);/, "the bare page is the no-worker fallback");
 });
 
 test("relay carries X-Tracely-Beta on POSTs and GETs; a store build's requests are unchanged", async () => {
@@ -379,183 +380,66 @@ test("content.js wrappers still latch on a genuinely invalidated context", async
   assert.equal(t.dead(), true);
 });
 
-/* ── content.js: the options-page slider as the default stop ───────────── */
+/* ── content.js: settings saved by earlier builds (2.20.0) ─────────────── */
 
-function loadStops({ useRelay = true, stored = null, optionsModel = "" } = {}) {
-  let reads = 0;
-  const ls = { value: stored }; // the site's localStorage entry for the settings key
+// Builds up to 2.19.x saved a slider stop ({model, effort}) beside the
+// citation style. 2.20.0 has no slider: those keys are ignored and dropped.
+function loadSettingsApi(stored) {
+  const ls = { value: stored };
   const writes = [];
   const ctx = vm.createContext({
-    useRelay,
     lsGet: () => ls.value,
     lsSet: (_key, value) => { ls.value = value; writes.push(JSON.parse(value)); return true; },
     jsonParse: (raw, fallback) => { try { return JSON.parse(raw); } catch { return fallback; } },
-    storageGet: (defaults, cb) => { reads++; setTimeout(() => cb({ ...defaults, model: optionsModel }), 0); },
-    encodeURIComponent,
   });
   const api = vm.runInContext(
-    contentSlice("const SPEED_STOPS", "let tierTimer")
-      + `;({ followDefaultStop, syncStopToTier, persistSettings, pinSiteStop, effModel, effEffort,
-            setTier(plan, resolved, provisional = false) { tier = { ...tier, plan, provisional }; tierResolved = resolved; } })`,
+    contentSlice("  const RETIRED_SETTINGS", "\n  /* ── plan gate")
+      + contentSlice("  function loadSettings(key) {", "  let tierTimer")
+      + ";({ loadSettings, persistSettings })",
     ctx,
   );
-  return { api, reads: () => reads, ls, writes };
+  return { api, ls, writes };
 }
 
 const KEY = "tracely.widget.settings";
-const stopOf = (settings) => ({ model: settings.model, effort: settings.effort });
 
-async function defaultFor(opts, plan, resolved) {
-  const loaded = loadStops(opts);
-  loaded.api.setTier(plan, resolved);
-  const settings = { model: "gpt-5.6-luna", effort: "medium", citationStyle: "apa" };
-  let applied = 0;
-  loaded.api.followDefaultStop(settings, KEY, () => { applied++; });
-  await tick();
-  return { ...loaded, settings: stopOf(settings), live: settings, applied, reads: loaded.reads() };
-}
-
-test("the options-page stop is the default where a site has no setting of its own", async () => {
-  const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
-  assert.deepEqual(r.settings, { model: "gpt-6-astra", effort: "low" });
-  assert.equal(r.applied, 1);
-});
-
-test("the default is capped by plan: clamped once the tier is known, capped at send time before", async () => {
-  const known = await defaultFor({ optionsModel: "gpt-6-astra" }, "free", true);
-  assert.deepEqual(known.settings, { model: "gpt-5.6-luna", effort: "medium" });
-
-  const early = await defaultFor({ optionsModel: "gpt-6-astra" }, "free", false);
-  // Not clamped yet (the tier listener does that when it arrives)...
-  assert.equal(early.settings.model, "gpt-6-astra");
-  // ...but nothing above the plan can be requested meanwhile.
-  assert.equal(early.api.effModel(early.live), "gpt-5.6-luna");
-  assert.equal(early.api.effEffort(early.live), "medium");
-
-  const student = await defaultFor({ optionsModel: "gpt-6-astra" }, "student", true);
-  assert.deepEqual(student.settings, { model: "gpt-5.6-terra", effort: "low" });
-});
-
-test("a per-site choice wins, and junk or harness pages change nothing", async () => {
-  const own = await defaultFor({ optionsModel: "gpt-6-astra", stored: JSON.stringify({ model: "gpt-5.6-luna", effort: "medium" }) }, "pro", true);
-  assert.deepEqual(own.settings, { model: "gpt-5.6-luna", effort: "medium" });
-  assert.equal(own.reads, 0, "must not even ask when the site has its own stop");
-
-  for (const opts of [{ optionsModel: "junk" }, { optionsModel: "" }, { optionsModel: "gpt-6-astra", useRelay: false }]) {
-    const r = await defaultFor(opts, "pro", true);
-    assert.deepEqual(r.settings, { model: "gpt-5.6-luna", effort: "medium" }, JSON.stringify(opts));
-    assert.equal(r.applied, 0);
+test("old widget settings load without breaking anything, minus the slider stop", () => {
+  const old = JSON.stringify({ model: "gpt-5-nano", effort: "low", citationStyle: "mla", autoSources: true });
+  assert.deepEqual(plain(loadSettingsApi(old).api.loadSettings(KEY)), { citationStyle: "mla", autoSources: true });
+  for (const junk of [null, "not json", "null", "42", '"apa"', "[1,2]", "true"]) {
+    assert.deepEqual(plain(loadSettingsApi(junk).api.loadSettings(KEY)), { citationStyle: "apa" }, String(junk));
   }
 });
 
-test("saving any other setting never pins a site to the default stop", async () => {
-  // Toggling auto-sources or the citation style used to write the whole
-  // settings object, default stop included, and the site stopped following
-  // the options page for good.
-  const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
-  r.live.autoSources = true;
-  r.api.persistSettings(r.live, KEY);
-  assert.deepEqual(r.writes.at(-1), { citationStyle: "apa", autoSources: true }, "the stop was saved with it");
-  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "low" }, "and it is still in effect");
-
-  // Moving the widget's own slider is what gives the site a stop.
-  r.live.model = "gpt-5.6-terra"; r.live.effort = "low";
-  r.api.pinSiteStop(r.live);
-  r.api.persistSettings(r.live, KEY);
-  assert.deepEqual(r.writes.at(-1), { model: "gpt-5.6-terra", effort: "low", citationStyle: "apa", autoSources: true });
+test("saving a setting drops the retired slider keys and keeps the rest", () => {
+  const r = loadSettingsApi(JSON.stringify({ model: "gpt-6-astra", effort: "medium", citationStyle: "chicago" }));
+  const settings = r.api.loadSettings(KEY);
+  settings.autoSources = true;
+  settings.model = "gpt-6-astra"; // even if something put one back in memory
+  r.api.persistSettings(settings, KEY);
+  assert.deepEqual(r.writes.at(-1), { citationStyle: "chicago", autoSources: true });
+  assert.equal(settings.model, "gpt-6-astra", "the live object is not mutated by a save");
 });
 
-test("a transient free answer clamps the default in memory and the real plan restores it", async () => {
-  const r = await defaultFor({ optionsModel: "gpt-6-astra" }, "pro", true);
-  r.api.setTier("free", true, true); // provisional: the server did not answer
-  r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(stopOf(r.live), { model: "gpt-5.6-luna", effort: "medium" });
-  r.api.setTier("pro", true, false);
-  r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "low" }, "stuck on Fast until reload");
-  assert.equal(r.writes.length, 0, "the default is never written");
-});
-
-test("a site's own stop: a provisional clamp is not saved and is undone; a real one is saved", async () => {
-  const own = JSON.stringify({ model: "gpt-6-astra", effort: "low", citationStyle: "mla" });
-  const r = await defaultFor({ stored: own }, "pro", true);
-  Object.assign(r.live, JSON.parse(own)); // what the widget loaded from the site
-
-  r.api.setTier("free", true, true);
-  r.api.syncStopToTier(r.live, KEY);
-  assert.equal(r.live.model, "gpt-5.6-luna", "clamped in memory");
-  assert.equal(r.ls.value, own, "an outage rewrote the saved stop");
-
-  r.api.setTier("pro", true, false);
-  r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(stopOf(r.live), { model: "gpt-6-astra", effort: "low" }, "the saved choice comes back with the plan");
-
-  r.api.setTier("free", true, false); // a real downgrade
-  r.api.syncStopToTier(r.live, KEY);
-  assert.deepEqual(JSON.parse(r.ls.value), { model: "gpt-5.6-luna", effort: "medium", citationStyle: "mla" });
-});
-
-/* Earlier builds saved "gpt-5-nano" (Fast) and "gpt-5.4" (Balanced) as a
- * site's own stop and as the options-page default, with each stop's effort
- * beside it (Fast at low, Thorough at medium). After the remap those saves
- * must keep meaning their stop, and the effort sent is the CURRENT stop's. */
-test("a stop saved by an earlier build still means that stop, at the current stop's effort", async () => {
-  const saved = [
-    [{ model: "gpt-5-nano", effort: "low" }, { model: "gpt-5.6-luna", effort: "medium" }],
-    [{ model: "gpt-5.4", effort: "low" }, { model: "gpt-5.6-terra", effort: "low" }],
-    [{ model: "gpt-6-astra", effort: "medium" }, { model: "gpt-6-astra", effort: "low" }],
-  ];
-  for (const [stored, sent] of saved) {
-    const r = await defaultFor({ stored: JSON.stringify(stored) }, "pro", true);
-    Object.assign(r.live, stored); // what the widget loaded from the site
-    r.api.syncStopToTier(r.live, KEY);
-    assert.deepEqual({ model: r.api.effModel(r.live), effort: r.api.effEffort(r.live) }, sent, `saved ${JSON.stringify(stored)}`);
-    assert.equal(r.ls.value, JSON.stringify(stored), "a stop the plan allows is not rewritten");
-  }
-
-  // Above the plan, a saved retired id clamps like any other stop.
-  const free = await defaultFor({ stored: JSON.stringify({ model: "gpt-5.4", effort: "low" }) }, "pro", true);
-  Object.assign(free.live, { model: "gpt-5.4", effort: "low" });
-  free.api.setTier("free", true, false);
-  free.api.syncStopToTier(free.live, KEY);
-  assert.deepEqual(stopOf(free.live), { model: "gpt-5.6-luna", effort: "medium" });
-  assert.equal(free.api.effModel(free.live), "gpt-5.6-luna");
-});
-
-test("an options-page default saved as a retired id is followed as its stop", async () => {
-  const pro = await defaultFor({ optionsModel: "gpt-5.4" }, "pro", true);
-  assert.deepEqual(pro.settings, { model: "gpt-5.6-terra", effort: "low" });
-  const fast = await defaultFor({ optionsModel: "gpt-5-nano" }, "pro", true);
-  assert.deepEqual(fast.settings, { model: "gpt-5.6-luna", effort: "medium" });
-  // Lookalikes and inherited names are not stops.
-  for (const optionsModel of ["gpt-5.4-mini", "toString", "constructor"]) {
-    const r = await defaultFor({ optionsModel }, "pro", true);
-    assert.deepEqual(r.settings, { model: "gpt-5.6-luna", effort: "medium" }, optionsModel);
-  }
-});
-
-test("every settings write in both widgets goes through persistSettings", () => {
+test("every settings read and write in both widgets goes through the helpers", () => {
   const src = read("content.js");
-  assert.deepEqual([...src.matchAll(/lsSet\(SETTINGS_KEY/g)], [], "a raw settings write bypasses the default-stop rule");
+  assert.deepEqual([...src.matchAll(/lsSet\(SETTINGS_KEY/g)], [], "a raw settings write bypasses persistSettings");
   assert.equal([...src.matchAll(/persistSettings\(settings, SETTINGS_KEY\)/g)].length, 3, "two saveSettings + the citation pill");
-  assert.equal([...src.matchAll(/syncStopToTier\(settings, SETTINGS_KEY\)/g)].length, 2, "the docs and field tier listeners");
-  assert.equal([...src.matchAll(/followDefaultStop\(settings, SETTINGS_KEY/g)].length, 2, "both widgets use the default stop");
-  assert.match(src, /pinSiteStop\(settings\);[^\n]*\n\s*saveSettings\(\);/, "the slider's snap pins the site's stop");
+  assert.equal([...src.matchAll(/let settings = loadSettings\(SETTINGS_KEY\);/g)].length, 2, "the docs and field widgets");
+  for (const gone of ["SPEED_STOPS", "PLAN_MAX_STOP", "effModel", "effEffort", "followsDefault", "followDefaultStop", "syncStopToTier", "pinSiteStop", "RETIRED_STOP"]) {
+    assert.ok(!src.includes(gone), `content.js still has ${gone}`);
+  }
 });
 
-test("every model route carries the stop's model; only /api/check carries its effort", () => {
-  // The stops' efforts are the ones the eval measured on the CHECK (Fast at
-  // medium). Sent on /api/flow they ran a flow check at an effort nobody
-  // measured (it had always run at the server's default, low), and on
-  // /api/sources they replaced the vendor default every search has run at.
+test("every model route names the fast model and sends no effort — the server decides", () => {
   const src = read("content.js");
+  assert.match(src, /const CHECK_MODEL = "gpt-5\.6-luna";/);
   const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)"/g)];
   assert.equal(sites.length, 5, "docs + field /api/check, docs /api/flow, docs + field /api/sources");
   for (const m of sites) {
     const body = src.slice(m.index, src.indexOf("});", m.index));
-    assert.match(body, /model: effModel\(settings\)/, `${m[1]} at ${m.index}`);
-    if (m[1] === "check") assert.match(body, /effort: effEffort\(settings\)/, `check at ${m.index} sends no effort`);
-    else assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);
+    assert.match(body, /model: CHECK_MODEL/, `${m[1]} at ${m.index}`);
+    assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);
   }
 });
 
