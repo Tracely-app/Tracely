@@ -1029,7 +1029,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { text, sentences, model, effort } = (await parseJsonBody(req)) ?? {};
+      const { text, sentences, model, effort, deep: deepFlag } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || text.length > 30_000) {
         throw new CheckError("bad_request", "text must be a string of at most 30,000 characters");
       }
@@ -1042,33 +1042,60 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      /* "Explain in depth" (extension 2.20.0): `deep: true` on ONE sentence.
+       * Pro's (and a beta tester's) — judged on the plan the caller HOLDS
+       * (gate.holder), so a spent pool or a fair-use period runs it on the
+       * fast model rather than refusing it. Only `true` counts: an old build
+       * never sends the field. */
+      const deep = deepFlag === true;
+      if (deep && sentences.length !== 1) {
+        throw new CheckError("bad_request", "deep needs exactly one sentence");
+      }
+      if (deep && gate.ent.enforced && planRank(gate.holder.plan) < planRank("pro")) {
+        throw new CheckError("plan_required", "Explain in depth comes with Pro.", { status: 403 });
+      }
+
       const started = Date.now();
-      // Hosted (enforced): the widget's slider owns the model — what the
-      // client asked for if it is a model we serve (a retired id an old
-      // build sends counts as its tier, servedModel), else the fast tier — and
-      // the plan (Pro for a beta caller, see spendGate) owns the ceiling; a
-      // paid caller whose pool is spent runs the fast tier (extensionModel).
-      // Local (unenforced): server-side tiering (pickModel) still decides,
-      // exactly as before. appModelFor holds both rules.
+      // Hosted (enforced): the SERVER decides (modelForRoute) — the fast
+      // model at medium for every check, whatever the client's slider sent;
+      // for "Explain in depth", the thorough model at low under a 2,000-token
+      // ceiling while the caller's Thorough allowance covers its 15-cent
+      // worst case (admitThorough), else the fast model at medium. Never
+      // refused for the allowance. Local (unenforced): server-side tiering
+      // (pickModel) and the measured effort per tier, exactly as before.
       const { ent, callerId: who } = gate;
       const quota = checkQuota(ent, who);
-      if (!quota.allowed) {
-        throw new CheckError(
-          "plan_limit",
-          `Free accounts get ${quota.limit} checks a day, and today's are used. It resets at midnight — or upgrade for unlimited checking.`,
-          { status: 429 },
-        );
-      }
+      if (!quota.allowed) throw quotaRefusal(ent, who, checkLimitMessage(quota));
       recordCheck(ent, who); // before the call, not after
-      const modelUsed = extensionModel(gate, "/api/check", appModelFor("check", ent, model));
-      const level = checkEffort(modelUsed, normalizeEffort(effort));
+      let modelUsed, level, maxTokens;
+      if (ent.enforced) {
+        const hold = deep ? admitThorough(gate, "checkDeep", MODEL_TIERS.thorough) : null;
+        if (hold) gate.thoroughHold = hold;
+        const choice = hostedChoice(deep ? "checkDeep" : "check", ent, who, { requested: MODEL_TIERS.thorough, thoroughAvailable: Boolean(hold) });
+        // extensionModel shrinks the pool hold to the model chosen — never on
+        // a thorough call, whose hold admitThorough has just grown.
+        modelUsed = hold ? choice.model : extensionModel(gate, "/api/check", choice.model);
+        ({ effort: level, maxTokens } = choice);
+      } else {
+        modelUsed = extensionModel(gate, "/api/check", appModelFor(deep ? "checkDeep" : "check", ent, model));
+        level = checkEffort(modelUsed, normalizeEffort(effort));
+        maxTokens = deep && modelUsed === MODEL_TIERS.thorough ? THOROUGH_MAX_TOKENS.checkDeep : undefined;
+      }
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFactCheck({
-        text, sentences, model: modelUsed, effort: level, mock: MOCK,
+        text, sentences, model: modelUsed, effort: level, mock: MOCK, maxTokens,
         admitSplit: () => admitSplitCalls(gate, "/api/check", modelUsed),
       });
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
-      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
+      // `thorough` (optional, deep only, hosted): whether this answer came from
+      // the thorough model, and the allowance left — a whole percent, never
+      // dollars — as the meter shows it.
+      let thorough;
+      if (deep && ent.enforced) {
+        const t = thoroughState(gate.holder, who);
+        thorough = { used: modelUsed === MODEL_TIERS.thorough, remainingPct: t.remainingPct, resetsOn: t.resetsOn };
+      }
+      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
       return;
     }
 
