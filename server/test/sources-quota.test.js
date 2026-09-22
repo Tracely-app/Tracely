@@ -183,3 +183,30 @@ test("the extension and the desktop share ONE daily source count: Free's 5 acros
   }
   assert.equal(openaiLog("shared-app-over").length + openaiLog("shared-ext-over").length, 0);
 });
+
+test("the monthly limit: refused with the month's copy even with searches left today, on both routes", async () => {
+  const cases = [["free", 40], ["student", 100], ["pro", 250]];
+  for (const [plan, monthLimit] of cases) {
+    seed(`user:u-${plan}-month`, usageMonth(), monthLimit);
+    const message = `You've used this month's ${monthLimit} source searches. They reset on ${monthDayLabel(nextMonthStart())}. Checking still works.`;
+    for (const r of [await sources(`month-ext-${plan}`, { token: `tok-${plan}-month` }), await findSources(`month-app-${plan}`, { token: `tok-${plan}-month` })]) {
+      assert.equal(r.status, 429, plan);
+      assert.equal(r.body.error.kind, "plan_limit");
+      assert.equal(r.body.error.message, message);
+    }
+    seed(`user:u-${plan}-monthleft`, usageMonth(), monthLimit - 1);
+    assert.equal((await sources(`monthleft-1-${plan}`, { token: `tok-${plan}-monthleft` })).status, 200, `${plan}: the last of the month runs`);
+    const over = await findSources(`monthleft-2-${plan}`, { token: `tok-${plan}-monthleft` });
+    assert.equal(over.status, 429, `${plan}: and the desktop sees the same month`);
+    assert.match(over.body.error.message, /this month's/);
+  }
+});
+
+test("the day's limit follows the plan: Student 20, Pro 40", async () => {
+  for (const [plan, day] of [["student", 20], ["pro", 40]]) {
+    seed(`user:u-${plan}-day`, usageDay(), day);
+    const r = await sources(`day-${plan}`, { token: `tok-${plan}-day` });
+    assert.equal(r.status, 429);
+    assert.equal(r.body.error.message, `You've used today's ${day} source searches. They reset at midnight.`);
+  }
+});
