@@ -1133,11 +1133,19 @@ const server = http.createServer(async (req, res) => {
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       // `thorough` (optional, deep only, hosted): whether this answer came from
       // the thorough model, and the allowance left — a whole percent, never
-      // dollars — as the meter shows it.
+      // dollars — as the meter shows it. `suspended` (only when true, as on
+      // /api/entitlement) says the allowance is OFF for fair use rather than
+      // spent: without it a client cannot tell the two apart, and tells a
+      // paying account its allowance is used up while most of it remains.
       let thorough;
       if (deep && ent.enforced) {
         const t = thoroughState(gate.holder, who);
-        thorough = { used: modelUsed === MODEL_TIERS.thorough, remainingPct: t.remainingPct, resetsOn: t.resetsOn };
+        thorough = {
+          used: modelUsed === MODEL_TIERS.thorough,
+          remainingPct: t.remainingPct,
+          resetsOn: t.resetsOn,
+          ...(t.suspended ? { suspended: true } : {}),
+        };
       }
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
       return;

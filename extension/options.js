@@ -54,56 +54,42 @@ function orderUrl(userId) {
 }
 
 
-/* ── Faster ↔ Smarter slider ↔ model mapping ─────────────────────────────── */
+/* ── what the server runs ────────────────────────────────────────────────
+   The two model ids the server serves (lib/llm.js MODEL_TIERS: fast and
+   thorough), pinned to it by test/models.test.js. Nothing on this page
+   CHOOSES one any more — the Faster↔Smarter slider is gone, and the server
+   picks the model and effort per route (shared/plan.js modelForRoute): the
+   fast model for every check, detection, flow and source search on every
+   plan, the thorough one for Pro's "Explain in depth" and desktop critiques
+   while the monthly allowance lasts.
 
-/* Mirrors lib/llm.js MODEL_TIERS and extension/background.js. The notes are
-   written around what the stop DOES rather than which model is behind it, so
-   the next model rename is one line here and no copy edits.
+   They are still named here because this page is what a reader checks to see
+   what they are buying, and a rename that misses this file is exactly how
+   the slider ended up naming three Anthropic models the extension could no
+   longer call. */
+const MODELS = { fast: "gpt-5.6-luna", thorough: "gpt-6-astra" };
+// Plans with a Thorough allowance (shared/plan.js THOROUGH_MONTHLY_USD).
+const DEEP_PLANS = ["pro"];
 
-   The notes say only what was measured (eval/models/FINDINGS.md, a blind-
-   judged eval on the real check and critique paths). Fast was the most
-   accurate fact check measured; Balanced was NOT more accurate than Fast;
-   Thorough wrote the most thorough explanations and never changed a verdict
-   between runs. Balanced used to promise it was "noticeably better on subtle
-   claims", which the data never showed. */
-const MODELS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra"];
-// Ids an earlier build saved as the default stop, and the stop each meant.
-const RETIRED_MODELS = { "gpt-5-nano": 0, "gpt-5.4": 1 };
-function stopOf(model) {
-  const i = MODELS.indexOf(model);
-  if (i !== -1) return i;
-  return typeof model === "string" && Object.hasOwn(RETIRED_MODELS, model) ? RETIRED_MODELS[model] : 0;
-}
-const MODEL_NOTES = [
-  "Fast — quick and cheap, and in our tests as accurate a fact-checker as any stop.",
-  "Balanced — a larger model. In our tests it was not more accurate than Fast.",
-  "Thorough — the most thorough explanations and the steadiest verdicts in our tests. A little slower.",
-];
-
-function paintSlider(pos) {
-  const slider = $("modelSlider");
-  // orange fill up to the thumb, faint track after — matches jointracely.com
-  const pct = (pos / (MODELS.length - 1)) * 100;
-  slider.style.setProperty(
-    "--range-fill",
-    `linear-gradient(90deg, var(--orange) 0%, var(--orange-2) ${pct}%, rgba(20,16,10,0.08) ${pct}%, rgba(20,16,10,0.08) 100%)`
-  );
-  document.querySelectorAll(".tick").forEach((t) => t.classList.toggle("active", Number(t.dataset.i) === pos));
-  $("labFaster").classList.toggle("active", pos === 0);
-  $("labSmarter").classList.toggle("active", pos === MODELS.length - 1);
-  $("modelNote").textContent = MODEL_NOTES[pos] ?? "";
+// "2026-10-01" -> "Oct 1" (shared/plan.js monthDayLabel, mirrored).
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function monthDayLabel(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? ""));
+  if (!m) return "the 1st";
+  return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}`;
 }
 
 /* ── the account, and what it unlocks ────────────────────────────────────────
    The plan comes from the signed-in account and is resolved by the SERVER
    (GET /api/entitlement) — this page renders that answer, it does not decide
-   it. Clamping the slider here is presentation: the server re-clamps the model
-   on every call against the token it was sent.
+   it. Every number below is the server's own metering, relayed by the
+   background worker (entitlementExtras): this page states allowances, it
+   never computes one.
 
-   One flag opens every stop: `unenforced` — the server reported
-   `enforced: false`, meaning no Supabase project is configured and it clamps
-   nothing. Showing an upgrade prompt against a server that will serve the top
-   model on request would be a lie.
+   One flag turns the gating off: `unenforced` — the server reported
+   `enforced: false`, meaning no Supabase project is configured and it meters
+   nothing. Showing an upgrade prompt against a server that will answer
+   anything would be a lie.
 
    There was a second, `byoKey`, for the bring-your-own-OpenAI-key mode. That
    mode is gone: it was a way to use every model without ever having a plan,
@@ -111,43 +97,102 @@ function paintSlider(pos) {
    second implementation of the checking pipeline to keep in step with the
    first. */
 
-const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
 const PLAN_LABEL = { free: "Free", student: "Student", pro: "Pro" };
 
-let account = { configured: false, signedIn: false, plan: "free", email: null, userId: null, unenforced: false, beta: false, provisional: true };
+let account = {
+  configured: false, signedIn: false, plan: "free", email: null, userId: null,
+  unenforced: false, beta: false, provisional: true,
+  limits: null, usage: null, thorough: null, fairUse: null,
+};
 
-function maxStop() {
-  if (account.unenforced) return MODELS.length - 1;
-  return PLAN_MAX_STOP[account.plan] ?? 0; // unknown plan is free, always
+// Whether this account is offered Thorough explanations at all.
+function hasThorough() {
+  return account.unenforced || account.beta === true || DEEP_PLANS.includes(account.plan);
 }
 
-function sliderHint() {
-  if (account.unenforced) return "This local server has no accounts configured, so every stop is open.";
-  if (maxStop() === MODELS.length - 1) return "Which model checks your writing. Faster is quick and was as accurate as any stop in our tests; Smarter explains its verdicts more thoroughly.";
-  if (account.plan === "student") return "Student reaches Balanced. Thorough comes with Pro.";
-  return "Free runs on Faster — quick and accurate for everyday checking.";
+/* The "Checking model" section: one hint everybody gets, then either the Pro
+   Thorough block with its meter or the locked line, then the source-search
+   and fair-use lines. Anything the server did not report stays hidden —
+   a local server meters nothing and must not be made to look as if it does. */
+function renderPlanState() {
+  const pro = hasThorough();
+  $("thoroughPro").hidden = !pro;
+  $("thoroughLocked").hidden = pro;
+  renderThoroughMeter();
+  renderSourcesLine();
+  renderFairUseLine();
 }
 
-function applyPlanState() {
-  const slider = $("modelSlider");
-  const ceiling = maxStop();
-  slider.disabled = ceiling === 0; // one stop: nothing to drag
-  $("sliderHint").textContent = sliderHint();
-  $("modelLocked").hidden = ceiling === MODELS.length - 1;
-  document.querySelectorAll(".tick").forEach((t) => t.classList.toggle("locked", Number(t.dataset.i) > ceiling));
+function renderThoroughMeter() {
+  const t = account.thorough;
+  const meter = $("thoroughMeter");
+  const text = $("thoroughMeterText");
+  if (!hasThorough() || !t) {
+    meter.hidden = true;
+    text.hidden = true;
+    return;
+  }
+  const left = Math.max(0, Math.min(100, Math.round(t.remainingPct)));
+  const on = monthDayLabel(t.resetsOn);
+  meter.hidden = false;
+  $("thoroughFill").style.width = `${left}%`;
+  text.hidden = false;
+  /* A fair-use suspension turns the allowance OFF without spending it, so the
+     percentage alone would read as a promise the account is not getting: the
+     meter is the only thing on this page that speaks about Thorough, and the
+     fair-use line below covers checks and sources, not this. Say it is paused,
+     and say how much is waiting on the other side of the reset. */
+  if (t.suspended === true) {
+    text.textContent = `Thorough is paused while this account is over its fair-use limit — explanations use the standard model until ${pausedUntil(on)}. ${left}% of this month's allowance is still unused.`;
+    return;
+  }
+  text.textContent = left > 0
+    ? `${left}% of this month's Thorough allowance left · resets ${on}`
+    : `This month's Thorough allowance is used up. Explanations use the standard model until ${on}.`;
+}
 
-  chrome.storage.local.get({ model: MODELS[0] }, (cfg) => {
-    // An id an earlier build saved still means its stop (stopOf), and is
-    // rewritten to the current id below on the first real answer.
-    const pos = Math.min(stopOf(cfg.model), ceiling);
-    slider.value = String(pos);
-    paintSlider(pos);
-    // A stale paid choice must not sit in storage looking active after a
-    // downgrade — the widgets read this same value. Only on a REAL answer: a
-    // provisional free (server unreachable, worker restarting) must not
-    // overwrite the stop a tester or subscriber actually chose.
-    if (MODELS[pos] !== cfg.model && !account.provisional) chrome.storage.local.set({ model: MODELS[pos] });
-  });
+/* When the pause lifts. A daily fair-use trip clears at midnight; a monthly
+   one on the date the fair-use line names. Only if the server sent neither do
+   we fall back to the allowance's own reset. */
+function pausedUntil(allowanceResetsOn) {
+  const f = account.fairUse;
+  if (f?.state === "day") return "midnight";
+  if (f?.state === "month" && f.resetsOn) return monthDayLabel(f.resetsOn);
+  return allowanceResetsOn;
+}
+
+function renderSourcesLine() {
+  const line = $("sourcesLine");
+  const limits = account.limits?.sources;
+  const used = account.usage?.sources;
+  if (!limits || !used || (limits.day === null && limits.month === null)) {
+    line.hidden = true;
+    return;
+  }
+  line.hidden = false;
+  // Free (and any account metered at Free's numbers under fair use) has a
+  // daily allowance; a paid one is sold by the month, with the day as a burst.
+  const metered = account.limits?.checksPerDay !== null || account.plan === "free";
+  const leftToday = limits.day === null ? null : Math.max(0, limits.day - used.today);
+  if (limits.month === null) {
+    line.textContent = `Source searches: ${used.today} of ${limits.day} today.`;
+    return;
+  }
+  line.textContent = metered && limits.day !== null
+    ? `Source searches: ${used.today} of ${limits.day} today · ${used.month} of ${limits.month} this month.`
+    : `Source searches: ${used.month} of ${limits.month} this month${leftToday === null ? "" : ` (${leftToday} left today)`}.`;
+}
+
+function renderFairUseLine() {
+  const line = $("fairUseLine");
+  const state = account.fairUse?.state;
+  if (state !== "day" && state !== "month") {
+    line.hidden = true;
+    return;
+  }
+  const until = state === "month" ? monthDayLabel(account.fairUse.resetsOn) : "midnight";
+  line.hidden = false;
+  line.textContent = `You've reached ${state === "month" ? "this month's" : "today's"} fair-use limit, so Tracely is running at Starter limits until ${until}. Your plan and billing are unchanged.`;
 }
 
 function renderAccount() {
@@ -207,7 +252,7 @@ function renderAccount() {
     $("acctHint").textContent = beta
       ? "This is a Tracely test build, so you're on Pro while the beta lasts. If you also pay for a plan, Manage subscription still reaches it."
       : account.plan === "free"
-        ? "You're signed in on the free plan. Upgrading unlocks the Balanced and Thorough models everywhere Tracely runs."
+        ? "You're on Starter. Student removes the daily check limit and adds 100 source searches a month and auto-sources; Pro adds Thorough explanations."
         : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
   } else if (beta) {
     $("acctHint").textContent = "This is a Tracely test build, so every check runs on Pro while the beta lasts — no account and nothing to buy. Signing in is optional.";
@@ -229,10 +274,18 @@ function acctStatus(text, warn) {
 async function refreshAccount(force) {
   try {
     const r = await chrome.runtime.sendMessage({ type: "tracely-entitlement", force: force === true });
-    if (r?.ok) account = { configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free", email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
+    if (r?.ok) {
+      account = {
+        configured: Boolean(r.configured), signedIn: Boolean(r.signedIn), plan: r.plan ?? "free",
+        email: r.email ?? null, userId: r.userId ?? null, unenforced: Boolean(r.unenforced),
+        beta: r.beta === true, provisional: r.provisional === true,
+        // The server's own metering, or null where it reported none.
+        limits: r.limits ?? null, usage: r.usage ?? null, thorough: r.thorough ?? null, fairUse: r.fairUse ?? null,
+      };
+    }
   } catch { /* worker restarting — keep the last answer */ }
   renderAccount();
-  applyPlanState();
+  renderPlanState();
 }
 
 $("signIn").addEventListener("click", async () => {
@@ -261,7 +314,7 @@ $("signOut").addEventListener("click", async () => {
 
 function load() {
   chrome.storage.local.get({ enabledSites: [] }, (cfg) => renderSites(cfg.enabledSites));
-  refreshAccount(); // sets the slider position too, once the ceiling is known
+  refreshAccount(); // fills the plan meters too, once the server has answered
 }
 
 /* Any key a previous build stored is removed on load rather than left sitting
@@ -269,14 +322,6 @@ function load() {
    OpenAI credential living on in every existing install with no screen that
    can show or clear it. */
 chrome.storage.local.remove("apiKey");
-
-$("modelSlider").addEventListener("input", () => {
-  const ceiling = maxStop();
-  const pos = Math.min(Number($("modelSlider").value), ceiling);
-  if (Number($("modelSlider").value) > ceiling) $("modelSlider").value = String(ceiling);
-  paintSlider(pos);
-  chrome.storage.local.set({ model: MODELS[pos] ?? MODELS[0] });
-});
 
 /* ── per-site auto-check list ────────────────────────────────────────────── */
 

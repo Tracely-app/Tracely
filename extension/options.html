@@ -107,35 +107,14 @@
   .plan.paid { background: linear-gradient(150deg, var(--orange), var(--orange-2)); border-color: transparent; color: #fff; }
   .beta-tag { font-size: 11px; font-weight: 700; color: var(--gray); }
 
-  /* Faster ↔ Smarter slider */
-  .slider-labels { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 12px; }
-  .slider-labels .l { color: var(--gray); }
-  .slider-labels .l.active { color: var(--ink); }
-  .track-wrap { position: relative; padding: 4px 0 2px; }
-  input[type="range"] {
-    -webkit-appearance: none; appearance: none; width: 100%; height: 14px;
-    border-radius: 999px; outline: none; cursor: pointer; margin: 0;
-    background: transparent;
-  }
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 14px; border-radius: 999px;
-    background: var(--range-fill, linear-gradient(90deg, var(--orange), var(--orange-2)));
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 26px; height: 26px; border-radius: 50%; background: #fff;
-    border: 1px solid rgba(20,16,10,0.10);
-    box-shadow: 0 3px 10px rgba(180,120,60,0.35);
-    margin-top: -6px; cursor: grab;
-  }
-  input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
-  .ticks { display: flex; justify-content: space-between; padding: 0 11px; margin-top: 10px; }
-  .tick { font-size: 12px; font-weight: 600; color: var(--gray); text-align: center; flex: 1; }
-  .tick.active { color: var(--orange); }
-  .tick.locked { color: var(--gray-soft); opacity: .55; }
+  /* plan meters */
+  h3.sub { font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em; margin: 18px 0 6px; }
+  .meter { display: block; height: 8px; border-radius: 999px; background: rgba(20,16,10,0.08); overflow: hidden; }
+  .meter-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--orange), var(--orange-2)); }
   .upgrade-link { font-size: 12px; font-weight: 700; color: var(--orange); text-decoration: none; }
   .upgrade-link:hover { text-decoration: underline; }
-  .model-note { font-size: 12px; color: var(--gray-soft); margin-top: 12px; font-weight: 500; }
+  .model-note { font-size: 12px; color: var(--gray-soft); margin-top: 10px; font-weight: 500; line-height: 1.5; }
+  .model-note.warn { color: var(--orange); }
 
   ul { list-style: none; }
   li {
@@ -187,29 +166,23 @@
     </section>
 
     <section>
-      <h2>Speed vs. depth</h2>
-      <p class="hint" id="sliderHint">Which model checks your writing. Faster is quick and was as accurate as any stop in our tests; Smarter explains its verdicts more thoroughly.</p>
-      <div class="slider-labels"><span class="l" id="labFaster">Faster</span><span class="l" id="labSmarter">Smarter</span></div>
-      <div class="track-wrap">
-        <input type="range" id="modelSlider" min="0" max="2" step="1" value="0">
+      <h2>Checking model</h2>
+      <!-- Tier names, never model names. This page read "Haiku / Sonnet /
+           Opus" for a fortnight after the move to OpenAI, because the model
+           ids in options.js were updated and the words here were not. It is
+           the part of the screen someone reads to find out what they are
+           buying, and it is the part a provider swap cannot reach. -->
+      <p class="hint" id="modelHint">Every plan checks with the same model — the most accurate fact-checker in our blind tests. Bigger models weren’t better at catching false or uncited claims; they wrote longer explanations.</p>
+
+      <div id="thoroughPro" hidden>
+        <h3 class="sub">Thorough explanations (Pro)</h3>
+        <p class="hint" style="margin-bottom:12px">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
+        <span class="meter" id="thoroughMeter" hidden><span class="meter-fill" id="thoroughFill"></span></span>
+        <p class="model-note" id="thoroughMeterText" hidden></p>
       </div>
-      <div class="ticks">
-        <!-- Tier names, never model names. These read "Haiku / Sonnet / Opus"
-             for a fortnight after the move to OpenAI: the MODELS array in
-             options.js was updated and the labels under the slider were not,
-             so this page named three Anthropic models the extension had
-             stopped being able to call. It is the part of the screen someone
-             reads to find out what they are buying, and it is the part a
-             provider swap cannot reach, because no code has to touch it.
-             Naming the STOP rather than the model keeps the next swap a
-             one-line change in options.js — these three words are the first
-             word of each MODEL_NOTES entry. -->
-        <span class="tick" data-i="0">Fast</span>
-        <span class="tick" data-i="1">Balanced</span>
-        <span class="tick" data-i="2">Thorough</span>
-      </div>
-      <p class="model-note" id="modelNote"></p>
-      <p class="model-note" id="modelLocked" hidden>Balanced and Thorough come with a paid plan. <a class="upgrade-link" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
+      <p class="model-note" id="thoroughLocked" hidden>Thorough explanations come with Pro. <a class="upgrade-link" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
+      <p class="model-note" id="sourcesLine" hidden></p>
+      <p class="model-note warn" id="fairUseLine" hidden></p>
     </section>
 
     <section>

@@ -46,15 +46,16 @@ const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/sourc
 const PROBE_INTERVAL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1500;
 
-/* A hand copy of lib/llm.js's MODEL_TIERS. An MV3 worker cannot import from
-   the server tree, and the extension ships without a build step, so this is
-   the one unavoidable duplicate of those ids — test/models.test.js fails if
-   it stops matching. */
+/* A hand copy of lib/llm.js's MODEL_TIERS — the two ids the server serves.
+   An MV3 worker cannot import from the server tree, and the extension ships
+   without a build step, so this is the one unavoidable duplicate of those
+   ids; test/models.test.js fails if it stops matching. Since the 2026-09-21
+   plan policy the SERVER picks which of them runs, per route and per plan:
+   the fast one for every check, flow and source search, the thorough one for
+   Pro's "Explain in depth" while the monthly allowance lasts. */
 const FAST_MODEL = "gpt-5.6-luna";
-const ALLOWED_MODELS = new Set([FAST_MODEL, "gpt-5.6-terra", "gpt-6-astra"]);
-const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
-const DEFAULT_MODEL = FAST_MODEL; // cost mandate: cheap unless explicitly chosen
-const VERDICTS = ["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"];
+const THOROUGH_MODEL = "gpt-6-astra";
+const ALLOWED_MODELS = new Set([FAST_MODEL, THOROUGH_MODEL]);
 
 /* ── server probe ────────────────────────────────────────────────────────── */
 
@@ -87,15 +88,19 @@ async function serverReachable() {
 probeServer(); // top level runs on every worker wake — this IS the startup probe
 setInterval(probeServer, PROBE_INTERVAL_MS); // ticks while the worker stays alive
 
-function getConfig() {
-  return chrome.storage.local.get({ model: DEFAULT_MODEL, enabledSites: [] });
-}
-
 /* Any key stored by a build that still had the standalone engine is dropped
    here, on every worker wake. Nothing reads it now, so leaving it would mean
    an OpenAI credential sitting in chrome.storage on every existing install
    with no screen left that can show or clear it. */
 chrome.storage.local.remove("apiKey");
+
+/* Likewise the retired Faster↔Smarter stop. Nothing has read it since 2.20.0
+   — the server picks the model per route — and what it holds may be an id
+   (`gpt-5.6-terra`) the server no longer serves. Dropping it here, beside the
+   key, is what actually reaches every install: the options page is a screen
+   most people never open, so a cleanup that only runs there leaves the value
+   sitting in storage on almost every 2.19.x upgrade. */
+chrome.storage.local.remove("model");
 
 /* ── accounts (Supabase) ─────────────────────────────────────────────────── */
 
@@ -257,13 +262,49 @@ async function cachedEntitlement() {
 //
 // `beta` records that the server granted the test build's Pro plan, so the
 // options page can say "Pro (beta)" and not offer to sell it.
-async function storeEntitlement(plan, email, enforced, { userId = null, beta = false } = {}) {
+/* The OPTIONAL fields a 2026-09-21-or-later server adds to /api/entitlement:
+   the limits this caller is metered at, the source searches used today and
+   this month, Pro's Thorough allowance as a whole percent, and the fair-use
+   state. The options page draws its meters from them and the widgets ignore
+   them; every one is optional, so an older server (or a local one, which
+   meters nothing) simply leaves them out and the page says nothing.
+
+   Everything is re-validated here rather than passed through: this is the
+   one place a server answer becomes state the pages render. */
+function entitlementExtras(data) {
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+  const day = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  const out = {};
+  const l = data?.limits;
+  if (l && typeof l === "object") {
+    out.limits = {
+      checksPerDay: num(l.checksPerDay),
+      aiActionsPerDay: num(l.aiActionsPerDay),
+      flowPerDay: num(l.flowPerDay),
+      sources: { day: num(l.sources?.day), month: num(l.sources?.month) },
+    };
+  }
+  const s = data?.usage?.sources;
+  if (s && typeof s === "object") out.usage = { sources: { today: num(s.today) ?? 0, month: num(s.month) ?? 0 } };
+  const t = data?.thorough;
+  if (t && typeof t === "object" && num(t.remainingPct) !== null) {
+    out.thorough = { remainingPct: Math.max(0, Math.min(100, Math.round(t.remainingPct))), resetsOn: day(t.resetsOn), suspended: t.suspended === true };
+  }
+  const f = data?.fairUse;
+  if (f && typeof f === "object" && ["ok", "day", "month"].includes(f.state)) {
+    out.fairUse = { state: f.state, resetsOn: day(f.resetsOn) };
+  }
+  return out;
+}
+
+async function storeEntitlement(plan, email, enforced, { userId = null, beta = false, extras = null } = {}) {
   const entitlement = {
     plan: normalizePlan(plan),
     email: email ?? null,
     userId: typeof userId === "string" && userId ? userId : null,
     enforced: enforced !== false,
     beta: beta === true,
+    ...(extras ?? {}),
     fetchedAt: Date.now(),
   };
   await chrome.storage.local.set({ entitlement });
@@ -311,10 +352,17 @@ function betaToken() {
   return betaTokenPromise;
 }
 
-// Adds X-Tracely-Beta to a headers object when this is the test build.
+/* Adds X-Tracely-Beta (test build) and X-Tracely-Install to a headers object.
+   The install id belongs on /api/entitlement as much as on a relayed call:
+   the server reports per-CALLER metering there — the Thorough allowance, the
+   fair-use state, the searches used — and without a caller id it has nobody
+   to report about. A signed-out Pro tester was told nothing about the
+   allowance the page has a meter for. */
 async function withBeta(headers = {}) {
   const token = await betaToken();
   if (token) headers["X-Tracely-Beta"] = token;
+  const install = await installId();
+  if (install) headers["X-Tracely-Install"] = install;
   return headers;
 }
 
@@ -357,7 +405,7 @@ async function fetchEntitlement({ force = false } = {}) {
       // plan, which it says with `beta: true`. Only that flag lifts the plan
       // here; a bare `plan` in a signed-out answer is still ignored.
       const beta = data?.beta === true;
-      return storeEntitlement(beta ? data?.plan : DEFAULT_PLAN, null, data?.enforced, { beta });
+      return storeEntitlement(beta ? data?.plan : DEFAULT_PLAN, null, data?.enforced, { beta, extras: entitlementExtras(data) });
     } catch {
       return unknown();
     }
@@ -386,6 +434,7 @@ async function fetchEntitlement({ force = false } = {}) {
     return storeEntitlement(data?.plan, typeof data?.email === "string" ? data.email : null, data?.enforced, {
       userId: data?.userId,
       beta: data?.beta === true,
+      extras: entitlementExtras(data),
     });
   } catch {
     return { ...FREE_ENTITLEMENT, fetchedAt: 0 };
@@ -559,6 +608,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // The server granted this test build's Pro plan (X-Tracely-Beta).
           // The options page shows "Pro (beta)" and hides the ways to buy.
           beta: ent?.beta === true,
+          // The metering the server reported for this caller (entitlementExtras).
+          // Absent from an older or local server's answer, and from a guess.
+          limits: ent?.limits ?? null,
+          usage: ent?.usage ?? null,
+          thorough: ent?.thorough ?? null,
+          fairUse: ent?.fairUse ?? null,
           // No real answer behind this (server unreachable or erroring, never
           // cached): show it, but do not SAVE anything because of it — a
           // widget or the options page writing a clamp to the free stop here
@@ -568,7 +623,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (err) {
         // Fail closed, but still answer: an unanswered probe would leave the
         // widget with no tier at all.
-        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, provisional: true, message: err?.message });
+        sendResponse({ ok: true, configured: authConfigured(), signedIn: false, plan: DEFAULT_PLAN, email: null, userId: null, unenforced: false, beta: false, limits: null, usage: null, thorough: null, fairUse: null, provisional: true, message: err?.message });
       }
     })();
     return true; // async sendResponse

@@ -103,160 +103,81 @@
   const FLOW_COLOR = "#7344f1";
   const FLOW_ACCENT = "#7b44d4";
 
-  // The Faster↔Smarter slider — one control replacing the model + effort
-  // dropdowns on both widget surfaces. Three stops; effort rides along.
-  // Chosen by a measured eval (eval/models/FINDINGS.md): the fast model
-  // checks at 100% at medium effort and 90% at low; the other two were only
-  // measured at low.
-  const SPEED_STOPS = [
-    { model: "gpt-5.6-luna", effort: "medium" },
-    { model: "gpt-5.6-terra", effort: "low" },
-    { model: "gpt-6-astra", effort: "low" },
-  ];
-  // Model ids earlier builds saved — a site's own stop in localStorage, the
-  // options-page default in chrome.storage — before the 2026-09-21 remap.
-  // Each still means the stop it named, not "unknown, so Fast".
-  const RETIRED_STOP = { "gpt-5-nano": 0, "gpt-5.4": 1 };
-  function speedPos(model) {
-    const i = SPEED_STOPS.findIndex((s) => s.model === model);
-    if (i !== -1) return i;
-    return typeof model === "string" && Object.hasOwn(RETIRED_STOP, model) ? RETIRED_STOP[model] : 0;
-  }
+  /* The model. Since 2.20.0 there is no Faster↔Smarter slider: the SERVER
+     picks the model and effort for every route (shared/plan.js
+     modelForRoute) — the fast model at medium for every check, on every
+     plan, because it was the most accurate fact-checker in the blind eval
+     (eval/models/FINDINGS.md). Requests still name it, and send no effort.
+     Pinned to lib/llm.js MODEL_TIERS.fast by test/models.test.js.
+
+     Settings an earlier build saved in tracely.widget.settings — `model`
+     and `effort`, a slider stop, possibly a retired id like gpt-5-nano —
+     are ignored, and dropped the next time the widget saves (persistSettings).
+     The options page's old default stop (chrome.storage `model`) is no
+     longer read at all. */
+  const CHECK_MODEL = "gpt-5.6-luna";
+  const RETIRED_SETTINGS = ["model", "effort"];
 
   /* ── plan gate ───────────────────────────────────────────────────────────
-     Which stops of the Faster↔Smarter slider this account can reach: free
-     stops at Fast, student at Balanced, pro at Thorough. The plan comes from the
+     Whether this account is offered "Explain in depth" (Pro's Thorough
+     allowance; a beta tester is served as Pro). The plan comes from the
      signed-in Supabase account, resolved by the SERVER (GET /api/entitlement)
      and relayed here by the background worker.
 
-     THIS GATE IS COSMETIC. It exists so the slider tells the truth about what
-     the account will actually get, and so a stale paid setting does not sit in
-     localStorage looking active. It prevents nothing: the model in a request
-     body is a request, and the server clamps it to the plan on the token it
-     received. Anyone editing this file can move the slider; they still get the
-     model their account pays for.
+     THIS GATE IS COSMETIC. It exists so the button tells the truth about what
+     the account will get. It prevents nothing: the server answers a deep
+     check from any other plan with 403 plan_required, whatever this file says.
 
-     One exception opens every stop, and it is not a loophole — the server has
+     One exception opens it, and it is not a loophole — the server has
      already decided there is no plan to apply: `unenforced`, meaning it
      reported `enforced: false` because it has no Supabase project configured
-     and clamps NOTHING. Locking the slider there would show an upgrade prompt
-     for a server that will serve the top model on request — a lie in the one
-     mode a plain `node server.js` runs in.
+     and gates NOTHING. Locking the button there would show an upgrade prompt
+     for a server that will answer — a lie in the one mode a plain
+     `node server.js` runs in.
 
      There was a second, `byoKey`, for the bring-your-own-key standalone
      engine. That engine is gone; see the note in background.js. */
-  /* The widget's PRO link is the bare order page, never one carrying a uid.
-     The widget draws into an OPEN shadow root on the host page, so a uid in
-     that link would hand every site's scripts a stable, cross-site account id
-     (it doubles as the Stripe client_reference_id). The worker does not send
-     this script the id at all. A click asks the worker instead
+  /* The widget's upgrade link is the bare order page, never one carrying a
+     uid. The widget draws into an OPEN shadow root on the host page, so a uid
+     in that link would hand every site's scripts a stable, cross-site account
+     id (it doubles as the Stripe client_reference_id). The worker does not
+     send this script the id at all. A click asks the worker instead
      (tracely-open-order), which opens the order page WITH the id in a new tab,
-     so the checkout still maps to the account; the plain href is the fallback
+     so the checkout still maps to the account; the plain page is the fallback
      when the worker cannot answer. */
   const ORDER_URL = "https://jointracely.com/order";
+  function openOrderPage() {
+    Promise.resolve(sendMsg({ type: "tracely-open-order" })).catch(() => null).then((r) => {
+      if (!r?.ok) window.open(ORDER_URL, "_blank", "noopener,noreferrer");
+    });
+  }
 
-  const PLAN_MAX_STOP = { free: 0, student: 1, pro: 2 };
   // `provisional`: the worker had no real answer (server unreachable or
-  // erroring on the test build) — shown, never persisted as a clamp.
-  let tier = { plan: "free", byoKey: false, unenforced: false, provisional: false };
+  // erroring on the test build) — shown, never acted on as a downgrade.
+  let tier = { plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false };
   const tierListeners = []; // widget re-renders to run when the tier resolves
-
-  // The highest slider stop this account may use. Unknown plan → free, always.
-  function maxStop() {
-    if (tier.byoKey || tier.unenforced) return SPEED_STOPS.length - 1;
-    return PLAN_MAX_STOP[tier.plan] ?? 0;
-  }
-  function effModel(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].model; }
-  // The effort is always the effective STOP's, never a saved one: the only
-  // control that sets effort is the slider, which sets the stop's, so a saved
-  // effort can only differ when an earlier build's stops saved it (Fast at
-  // "low", Thorough at "medium") — and sending that would undo the stop.
-  // It is sent on /api/check ONLY, the route the eval measured each stop's
-  // effort on; /api/flow and /api/sources send the model alone.
-  function effEffort(settings) { return SPEED_STOPS[Math.min(speedPos(settings.model), maxStop())].effort; }
-  // Pull a stored preference down to what the plan reaches. Returns whether it
-  // moved, so the caller knows to persist.
-  function clampSettingsToPlan(settings) {
-    if (speedPos(settings.model) <= maxStop()) return false;
-    const stop = SPEED_STOPS[maxStop()];
-    settings.model = stop.model;
-    settings.effort = stop.effort;
-    return true;
-  }
   function tierChanged() {
+    forgetDeepLocks();
     for (const fn of tierListeners) { try { fn(); } catch { /* widget torn down */ } }
   }
   let tierResolved = false;
 
-  /* The options page's Faster↔Smarter slider writes chrome.storage.local
-     `model`, and nothing used to read it — the widgets only knew their own
-     setting in the page's localStorage, so moving it did nothing anywhere.
-     It is now the DEFAULT stop: what a site with no widget setting of its own
-     starts on. A per-site choice still wins, and the plan still caps it.
-
-     A widget on such a site FOLLOWS the default: its settings object is in
-     `followsDefault`, and while it is
-       - persistSettings saves everything EXCEPT model/effort, so toggling
-         auto-sources or the citation style cannot pin the site to whatever
-         stop the default was at that moment (possibly a transient clamp) and
-         cut it off from later options-page changes;
-       - every tier change re-derives the stop from the default and clamps it
-         (syncStopToTier), so a provisional free answer followed by the real
-         Pro one puts the stop back instead of leaving it on Fast.
-     Moving the widget's own slider (pinSiteStop) is the only thing that gives
-     a site a stop of its own. */
-  const followsDefault = new WeakSet();
-  let defaultStopModel = ""; // the options-page value, once read
-  function storedSettings(key) { return jsonParse(lsGet(key) ?? "null", null); }
-  function hasOwnStop(key) { return typeof storedSettings(key)?.model === "string"; }
-  function defaultStop() { return SPEED_STOPS[speedPos(defaultStopModel)]; }
+  /* A widget's settings (citation style, auto-sources) in the page's
+     localStorage. Whatever an earlier build left there must not break a
+     widget: anything but a plain object reads as no settings, and the
+     retired slider keys are dropped on the next write. */
+  function loadSettings(key) {
+    const saved = jsonParse(lsGet(key) ?? "null", null);
+    const obj = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    const settings = { citationStyle: "apa", ...obj };
+    for (const k of RETIRED_SETTINGS) delete settings[k];
+    return settings;
+  }
   // Every write of a widget's settings goes through here.
   function persistSettings(settings, key) {
-    if (!followsDefault.has(settings)) return lsSet(key, JSON.stringify(settings));
-    const { model, effort, ...rest } = settings;
-    return lsSet(key, JSON.stringify(rest));
-  }
-  // The user moved this widget's slider: from now on the site has its own stop.
-  function pinSiteStop(settings) { followsDefault.delete(settings); }
-
-  function followDefaultStop(settings, key, onApplied) {
-    if (!useRelay) return; // harness and plain pages: no extension storage
-    if (hasOwnStop(key)) return;
-    followsDefault.add(settings);
-    storageGet({ model: "" }, (cfg) => {
-      if (!followsDefault.has(settings)) return; // the user picked a stop while this was in flight
-      defaultStopModel = typeof cfg?.model === "string" ? cfg.model : "";
-      const before = settings.model;
-      const stop = defaultStop();
-      settings.model = stop.model;
-      settings.effort = stop.effort;
-      if (tierResolved) clampSettingsToPlan(settings);
-      if (settings.model !== before) onApplied();
-    });
-  }
-
-  /* A widget's tier listener: bring the in-memory stop in line with the new
-     tier. Following the default, it is re-derived and clamped, never saved.
-     With a stop of its own, the STORED choice is re-read and clamped — so a
-     momentary downgrade is undone when the plan comes back — and the clamp is
-     written back only when it moved the stored choice on a REAL answer (a
-     provisional free, e.g. the server unreachable, must not outlive itself).
-     The request path clamps again regardless (effModel/effEffort), and so
-     does the server. */
-  function syncStopToTier(settings, key) {
-    if (followsDefault.has(settings)) {
-      const stop = defaultStop();
-      settings.model = stop.model;
-      settings.effort = stop.effort;
-      clampSettingsToPlan(settings);
-      return;
-    }
-    const stored = storedSettings(key);
-    if (typeof stored?.model === "string") {
-      settings.model = stored.model;
-      if (typeof stored.effort === "string") settings.effort = stored.effort;
-    }
-    if (clampSettingsToPlan(settings) && lsGet(key) !== null && !tier.provisional) persistSettings(settings, key);
+    const out = { ...settings };
+    for (const k of RETIRED_SETTINGS) delete out[k];
+    return lsSet(key, JSON.stringify(out));
   }
   let tierTimer = 0;
   function refreshTier() {
@@ -277,12 +198,12 @@
     }
     pending.then((r) => {
       if (!r?.ok) return;
-      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), provisional: r.provisional === true };
-      if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey
+      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
+      if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey && next.beta === tier.beta
           && next.unenforced === tier.unenforced && next.provisional === tier.provisional) return;
       tier = next;
       tierResolved = true;
-      tierChanged(); // first resolve fires too: free-tier listeners clamp stale paid settings
+      tierChanged(); // first resolve fires too: the widgets repaint the Explain in depth button
     }).catch(() => { /* worker asleep or extension reloaded — stays free */ });
   }
   // Called once `useRelay` is known (below) — refreshTier depends on it.
@@ -300,59 +221,169 @@
       tierTimer = setInterval(refreshTier, 5 * 60_000); // matches the worker's entitlement TTL
     } catch { /* harness page: no chrome.* — stays free tier */ }
   }
-  function sbFill(pos) {
-    const pct = (pos / (SPEED_STOPS.length - 1)) * 100;
-    return `linear-gradient(90deg, #ff7f00 0%, #f9a35a ${pct}%, rgba(20,16,10,0.08) ${pct}%, rgba(20,16,10,0.08) 100%)`;
+
+  /* ── "Explain in depth" (2.20.0) ─────────────────────────────────────────
+     Pro's Thorough allowance, one flagged sentence at a time: /api/check with
+     deep:true and exactly that sentence runs our largest model while this
+     month's allowance lasts, and the standard model after it — the answer's
+     `thorough.used` says which. Free and Student see the button locked; the
+     server answers them 403 plan_required regardless of what this file shows.
+
+     One answer per sentence per page session: results are cached by the
+     sentence's hash, so re-hovering a card or re-rendering the panel never
+     spends the allowance twice. A failure is not kept, so a retry can run. */
+  const DEEP_PLANS = ["pro"]; // plans with a Thorough allowance (shared/plan.js THOROUGH_MONTHLY_USD)
+  const THOROUGH_MODEL = "gpt-6-astra"; // lib/llm.js MODEL_TIERS.thorough
+  const DEEP_COPY = {
+    button: "Explain in depth",
+    locked: "Thorough explanations come with Pro",
+    seePlans: "See plans →",
+    loading: "Writing a fuller explanation…",
+    label: "In depth",
+    differs: "Our largest model reads this differently:",
+    fallback: "This month's Thorough allowance is used up — this explanation is from the standard model.",
+    // The allowance is not spent, so saying it is would contradict the meter.
+    paused: "Thorough explanations are paused while this account is over its fair-use limit — this explanation is from the standard model.",
+    short: "Not enough of this month's Thorough allowance was left for this one — this explanation is from the standard model.",
+    failed: "Couldn't get a deeper explanation — try again.",
+  };
+  const DEEP_VERDICT_LABEL = { ...VERDICT_LABEL, accurate: "Looks accurate", no_claim: "No claim to check" };
+  // sentence hash → { state: "loading" | "done" | "locked" | "error", ... }
+  const deepCache = new Map();
+
+  function canDeep() {
+    return tier.unenforced || tier.beta || DEEP_PLANS.includes(tier.plan);
   }
-  function speedbarHtml(pos) {
-    const ceiling = maxStop();
-    const locked = ceiling < SPEED_STOPS.length - 1; // some stops are above this plan
-    const p = Math.min(pos, ceiling);
-    const title = locked ? ' title="Balanced and Thorough come with a paid Tracely plan"' : "";
-    return `<div class="speedbar${locked ? " locked" : ""}"${title}>
-      <span class="sb-lab${p === 0 ? " on" : ""}" data-sb-lab="0">Faster</span>
-      <div class="sb-track">
-        <input type="range" class="speed" id="speedSel" min="0" max="${SPEED_STOPS.length - 1}" step="0.01" value="${p}" style="--sb-fill:${sbFill(p)}"${ceiling === 0 ? " disabled" : ""}>
-        <span class="sb-dots">${SPEED_STOPS.map((_, i) => `<i${i > ceiling ? ' class="off"' : ""}></i>`).join("")}</span>
-      </div>
-      <span class="sb-lab${p === SPEED_STOPS.length - 1 ? " on" : ""}" data-sb-lab="max">Smarter${locked ? `<a class="sb-pro" href="${ORDER_URL}" target="_blank" rel="noopener noreferrer">PRO</a>` : ""}</span>
+  // A lock shown after a click or a 403 belongs to the plan it was shown on.
+  function forgetDeepLocks() {
+    for (const [h, e] of deepCache) if (e.state === "locked") deepCache.delete(h);
+  }
+
+  /* What a card shows for one sentence, as data both renderers draw from:
+     the widget's HTML cards (deepHtml) and the Docs hover card (DOM). */
+  function deepView(hash, verdict) {
+    const e = deepCache.get(hash);
+    if (e?.state === "loading") return { kind: "loading", text: DEEP_COPY.loading };
+    if (e?.state === "done") {
+      const differs = e.verdict !== verdict;
+      const note = e.fallback ?? "";
+      /* A verdict that contradicts the card's own badge is only shown when
+         the card can also say WHERE it came from: the largest model's
+         reading (prefix), or the standard model's after a fallback (note).
+         A server that reports neither — a local `node server.js`, or one
+         older than the plan policy — used to leave Tracely flatly
+         disagreeing with itself, with nothing to tell the two readings
+         apart. There the fuller explanation stands on its own. */
+      const introduced = differs && Boolean(e.fromLargest || note);
+      return {
+        kind: "result",
+        label: DEEP_COPY.label,
+        prefix: differs && e.fromLargest ? DEEP_COPY.differs : "",
+        verdict: introduced ? e.verdict : "",
+        verdictLabel: introduced ? DEEP_VERDICT_LABEL[e.verdict] ?? String(e.verdict) : "",
+        text: e.explanation,
+        note,
+      };
+    }
+    if (e?.state === "locked" || !canDeep()) {
+      return { kind: "locked", label: DEEP_COPY.button, title: DEEP_COPY.locked, note: e?.state === "locked" ? DEEP_COPY.locked : "" };
+    }
+    return { kind: "button", label: DEEP_COPY.button, error: e?.state === "error" ? DEEP_COPY.failed : "" };
+  }
+
+  /* Why a deep answer came back on the standard model, or "" when it did not.
+     Three different things make the server fall back, and only one of them is
+     "you've spent the allowance": it is also OFF for a month while a paid
+     account is over its fair-use limit (`suspended`, with most of the
+     allowance still showing on the meter), and it declines a call whose worst
+     case no longer fits in what is left. Reading `used === false` alone told
+     all three the allowance was used up — flatly contradicting the meter and
+     the fair-use promise that the plan is unchanged. A server too old to send
+     `remainingPct` says nothing rather than guessing. */
+  function fallbackNote(t) {
+    if (!t || t.used !== false) return "";
+    if (t.suspended === true) return DEEP_COPY.paused;
+    if (typeof t.remainingPct !== "number") return "";
+    return t.remainingPct <= 0 ? DEEP_COPY.fallback : DEEP_COPY.short;
+  }
+
+  // A click on the locked button: say why, and never call the server.
+  function lockDeep(hash) { deepCache.set(hash, { state: "locked" }); }
+
+  /* One deep check. `context` is the document or field text (the same
+     context a normal check sends); `verdict` is the card's current verdict.
+     `onChange` repaints whatever shows this sentence — it runs when the
+     loading state starts and again when the answer (or failure) lands. */
+  async function explainInDepth(hash, sentence, context, verdict, onChange) {
+    const cur = deepCache.get(hash);
+    if (cur && cur.state !== "error" && cur.state !== "locked") { onChange(); return; } // cached or in flight
+    if (!canDeep()) { lockDeep(hash); onChange(); return; }
+    deepCache.set(hash, { state: "loading" });
+    onChange();
+    let next;
+    try {
+      const data = await api("/api/check", {
+        text: String(context ?? "").slice(0, MAX_INPUT_CHARS),
+        sentences: [{ id: hash, text: sentence }],
+        deep: true,
+      });
+      const f = (data?.findings ?? []).find((x) => x?.id === hash) ?? data?.findings?.[0];
+      if (!f || typeof f.explanation !== "string" || !f.explanation) throw new Error("no explanation");
+      // `thorough` is the hosted server's; a local one reports modelUsed only.
+      const fromLargest = data.thorough
+        ? data.thorough.used === true
+        : String(data.modelUsed ?? THOROUGH_MODEL).startsWith(THOROUGH_MODEL);
+      next = {
+        state: "done",
+        verdict: typeof f.verdict === "string" ? f.verdict : verdict,
+        explanation: f.explanation,
+        fromLargest,
+        fallback: fallbackNote(data.thorough),
+      };
+    } catch (err) {
+      next = err?.kind === "plan_required" ? { state: "locked" } : { state: "error" };
+    }
+    deepCache.set(hash, next);
+    onChange();
+  }
+
+  // A verdict's card/badge class suffix (the widget CSS's .c-* / .badge-*).
+  function verdictKind(v) {
+    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" ? "cite" : v === "incoherent" ? "inco" : "ok";
+  }
+
+  // The widget cards' block (docs panel and field mode), from deepView.
+  function deepHtml(hash, verdict) {
+    const v = deepView(hash, verdict);
+    const h = esc(hash);
+    if (v.kind === "loading") {
+      return `<div class="deep deep-loading" data-deep-box="${h}"><span class="deep-spin"></span>${esc(v.text)}</div>`;
+    }
+    if (v.kind === "result") {
+      const kind = v.verdict ? verdictKind(v.verdict) : "";
+      return `<div class="deep" data-deep-box="${h}">
+        <div class="deep-label">${esc(v.label)}</div>
+        ${v.prefix ? `<div class="deep-prefix">${esc(v.prefix)}</div>` : ""}
+        ${v.verdictLabel ? `<span class="badge badge-${kind}">${esc(v.verdictLabel)}</span>` : ""}
+        <div class="deep-text">${esc(v.text)}</div>
+        ${v.note ? `<div class="deep-note">${esc(v.note)}</div>` : ""}
+      </div>`;
+    }
+    if (v.kind === "locked") {
+      return `<div class="deep-row" data-deep-box="${h}">
+        <button class="deep-btn locked" data-deep-locked="${h}" title="${esc(v.title)}" aria-disabled="true">${esc(v.label)}<span class="deep-pro">PRO</span></button>
+        ${v.note ? `<div class="deep-note">${esc(v.note)}. <a href="${ORDER_URL}" target="_blank" rel="noopener noreferrer" data-deep-plans="1">${esc(DEEP_COPY.seePlans)}</a></div>` : ""}
+      </div>`;
+    }
+    return `<div class="deep-row" data-deep-box="${h}">
+      <button class="deep-btn" data-deep="${h}">${esc(v.label)}</button>
+      ${v.error ? `<div class="deep-note err">${esc(v.error)}</div>` : ""}
     </div>`;
   }
-  // Wire the slider without re-rendering: a full render mid-drag drops the
-  // thumb. The drag is SMOOTH (step 0.01, fill follows the finger); on
-  // release it snaps to the nearest stop, and only the snap saves settings.
-  // The drag stops dead at the plan's ceiling so the thumb never sits over a
-  // stop the account would not actually be served.
-  function wireSpeedbar(shadow, settings, saveSettings) {
-    // Wired before the early return below: the PRO link shows exactly when
-    // the slider is locked, which on the free tier means disabled.
-    shadow.querySelector(".sb-pro")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      Promise.resolve(sendMsg({ type: "tracely-open-order" })).catch(() => null).then((r) => {
-        if (!r?.ok) window.open(ORDER_URL, "_blank", "noopener,noreferrer");
-      });
-    });
-    const el = shadow.getElementById("speedSel");
-    if (!el || el.disabled) return; // free tier has a single stop: nothing to drag
-    const ceiling = maxStop();
-    el.addEventListener("input", () => {
-      if (Number(el.value) > ceiling) el.value = String(ceiling);
-      el.style.setProperty("--sb-fill", sbFill(Number(el.value)));
-    });
-    const snap = () => {
-      const pos = Math.max(0, Math.min(ceiling, Math.round(Number(el.value))));
-      el.value = String(pos);
-      const stop = SPEED_STOPS[pos];
-      settings.model = stop.model;
-      settings.effort = stop.effort;
-      pinSiteStop(settings); // a choice made here belongs to this site
-      saveSettings();
-      el.style.setProperty("--sb-fill", sbFill(pos));
-      shadow.querySelector('[data-sb-lab="0"]')?.classList.toggle("on", pos === 0);
-      shadow.querySelector('[data-sb-lab="max"]')?.classList.toggle("on", pos === SPEED_STOPS.length - 1);
-    };
-    el.addEventListener("change", snap); // fires on release for range inputs
-    el.addEventListener("keyup", snap); // arrow-key users snap too
+  function wireDeep(scope, run, repaint) {
+    for (const b of scope.querySelectorAll("[data-deep]")) b.addEventListener("click", () => run(b.dataset.deep));
+    for (const b of scope.querySelectorAll("[data-deep-locked]")) b.addEventListener("click", () => { lockDeep(b.dataset.deepLocked); repaint(); });
+    for (const a of scope.querySelectorAll("[data-deep-plans]")) a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
   }
 
   /* ── shared helpers (mirror public/app.js) ─────────────────────────────── */
@@ -823,19 +854,6 @@
     .status { margin-left: auto; font-size: 11px; color: #a7a7ac; max-width: 170px; text-align: right; font-weight: 500; }
     .status.error { color: #d93636; }
     .selects { display: flex; gap: 6px; padding: 9px 16px; background: #fff; border-bottom: 1px solid rgba(20,16,10,0.05); align-items: center; }
-    .speedbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid rgba(20,16,10,0.05); }
-    .speedbar.locked .sb-track { opacity: .5; }
-    .speedbar.locked input[disabled] { cursor: not-allowed; }
-    .sb-pro { display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 8px; background: linear-gradient(150deg, #ff7f00, #f9a35a); color: #fff; font-size: 8px; font-weight: 800; letter-spacing: .6px; vertical-align: 1px; text-decoration: none; cursor: pointer; }
-    .sb-dots i.off { background: rgba(20,16,10,0.18); box-shadow: none; }
-    .sb-lab { font-size: 12px; font-weight: 700; color: #8e8e93; flex-shrink: 0; }
-    .sb-lab.on { color: #0e0e10; }
-    .sb-track { position: relative; flex: 1; display: flex; align-items: center; }
-    input[type="range"].speed { -webkit-appearance: none; appearance: none; width: 100%; height: 12px; border-radius: 999px; background: transparent; outline: none; cursor: pointer; margin: 0; }
-    input[type="range"].speed::-webkit-slider-runnable-track { height: 12px; border-radius: 999px; background: var(--sb-fill, linear-gradient(90deg, #ff7f00, #f9a35a)); }
-    input[type="range"].speed::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 1px solid rgba(20,16,10,0.12); box-shadow: 0 2px 8px rgba(180,120,60,0.38); margin-top: -6px; cursor: grab; }
-    .sb-dots { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; pointer-events: none; }
-    .sb-dots i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.9); box-shadow: 0 0 0 1px rgba(20,16,10,0.05); }
     .foot .act { padding: 4px 11px; font-size: 11px; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
     select { font-size: 12px; border: 1px solid rgba(20,16,10,0.1); border-radius: 8px; padding: 4px 8px; background: #fff; color: #0e0e10; outline: none; font-weight: 600; }
@@ -856,6 +874,25 @@
     .x:hover { color: #0e0e10; }
     .quote { font-style: italic; font-size: 12.5px; color: #8e8e93; border-left: 2px solid rgba(20,16,10,0.1); padding-left: 9px; margin-bottom: 7px; font-weight: 500; }
     .expl { font-size: 12.5px; color: #0e0e10; margin-bottom: 9px; line-height: 1.5; font-weight: 500; }
+    .badge-ok { background: #e7f6ee; color: #1f9d55; }
+    .deep-row { margin: -3px 0 9px; }
+    .deep-btn { background: none; border: none; padding: 0; font-family: ${JAKARTA}; font-size: 11.5px; font-weight: 700; color: #ff7f00; cursor: pointer; }
+    .deep-btn:hover { text-decoration: underline; }
+    .deep-btn.locked { color: #a7a7ac; cursor: not-allowed; }
+    .deep-btn.locked:hover { text-decoration: none; }
+    .deep-pro { display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 8px; background: linear-gradient(150deg, #ff7f00, #f9a35a); color: #fff; font-size: 8px; font-weight: 800; letter-spacing: .6px; vertical-align: 1px; }
+    .deep { background: #fffaf4; border: 1px solid rgba(255,127,0,0.16); border-radius: 12px; padding: 9px 11px; margin-bottom: 9px; }
+    .deep .badge { display: inline-block; margin-bottom: 5px; }
+    .deep-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #ff7f00; margin-bottom: 4px; }
+    .deep-prefix { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+    .deep-text { font-size: 12.5px; line-height: 1.5; font-weight: 500; white-space: pre-line; }
+    .deep-note { font-size: 11px; color: #8e8e93; margin-top: 6px; font-weight: 500; }
+    .deep-note.err { color: #d93636; }
+    .deep-note a { color: #ff7f00; font-weight: 700; text-decoration: none; }
+    .deep-loading { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #8e8e93; font-weight: 600; }
+    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,127,0,0.25); border-top-color: #ff7f00; animation: deepspin .8s linear infinite; flex-shrink: 0; }
+    @keyframes deepspin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     .fix { background: #fdfbf9; border: 1px solid rgba(20,16,10,0.06); border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; }
     .fix-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #1f9d55; margin-bottom: 4px; }
     .fix-text { font-size: 12.5px; margin-bottom: 7px; line-height: 1.5; }
@@ -994,16 +1031,34 @@
     const FLOW_MIN_CHARS = harness ? 0 : 400; // below this there's no structure to judge
     // Opt-in escape hatch, read once. See the comment at the draw site.
     const FLOW_IN_DOC = lsGet("tracely.flowInDoc") === "1";
-    const FLOW_MIN_INTERVAL = 45_000; // never more than one flow call per 45s
+    /* Never more than one flow call per 125 s. The server's floor is 120 s
+       (shared/plan.js FLOW_MIN_INTERVAL_MS answers faster callers 429), and
+       the 5 s is margin: this clock starts when the request is SENT and the
+       server's starts when it ARRIVES, so two sends exactly 120 s apart land
+       under the floor whenever the second call's latency is lower than the
+       first's. The 429 is swallowed, so the cost of being a hair early is
+       that a structural change waits another whole interval. */
+    const FLOW_MIN_INTERVAL = 125_000;
 
     // Signature of the document's SHAPE: paragraph count plus each one's
     // opening and closing words. Editing inside a sentence doesn't move it;
     // adding, cutting, or reordering a paragraph does.
+    // The LAST paragraph contributes its opening words and a COARSE length
+    // bucket instead of its closing words: that is where the writer is
+    // typing, and every keystroke at the end of the document used to count
+    // as a new shape and re-run flow. The bucket keeps single keystrokes
+    // silent while still moving once a whole block of prose has landed.
+    // Without it, a draft written as ONE paragraph — the shape that most
+    // needs flow feedback — has a signature nothing can ever change, so flow
+    // runs once on its first 400 characters and never again (flowSig is
+    // persisted, so that stays true across reloads).
+    const FLOW_TAIL_WORDS = 50; // words the last paragraph must gain to count as a new shape
     function flowSignature(text) {
       const paras = text.split(/\n{1,}/).map((p) => p.trim()).filter((p) => p.split(/\s+/).length >= 12);
-      return paras.length + "|" + paras.map((p) => {
+      return paras.length + "|" + paras.map((p, i) => {
         const w = p.split(/\s+/);
-        return w.slice(0, 4).join(" ") + "…" + w.slice(-3).join(" ");
+        const close = i === paras.length - 1 ? "~" + Math.floor(w.length / FLOW_TAIL_WORDS) : w.slice(-3).join(" ");
+        return w.slice(0, 4).join(" ") + "…" + close;
       }).join("¶");
     }
 
@@ -1030,10 +1085,9 @@
       flowInflight = true;
       flowAt = Date.now();
       try {
-        // The stop's MODEL only. Its effort is the /api/check effort the eval
-        // measured (Fast at medium); a flow check was never measured at
-        // medium, so it runs at the server's default (low) — as it always has.
-        const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: effModel(settings) });
+        // The model and no effort: the server pins flow to the fast model at
+        // low whatever a request says (shared/plan.js modelForRoute).
+        const data = await api("/api/flow", { text: text.slice(0, MAX_INPUT_CHARS), model: CHECK_MODEL });
         flowIssues = Array.isArray(data.issues) ? data.issues : [];
         flowSig = sig;
         persistFlow();
@@ -1041,7 +1095,10 @@
         scheduleDocsMarks();
       } catch {
         // Flow is an enhancement — a failure must never disturb the checker's
-        // status line. Retry naturally on the next structural change.
+        // status line. That includes the server's 429 "flow_rate" (another
+        // tab or an old build asked within 120 s) and the daily flow quota:
+        // silent, and since flowSig was not advanced, retried one interval
+        // later (flowAt was stamped before the call) if the shape still differs.
       } finally {
         flowInflight = false;
       }
@@ -1091,7 +1148,7 @@
       }
       lsSet(REG_KEY, JSON.stringify(reg));
     }
-    let settings = { model: SPEED_STOPS[0].model, effort: SPEED_STOPS[0].effort, citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -1161,8 +1218,7 @@
           const data = await api("/api/check", {
             text: docText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
-            model: effModel(settings),
-            effort: effEffort(settings),
+            model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
           });
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: f.revision, confidence: f.confidence });
@@ -2228,6 +2284,120 @@
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
 
+    /* The hover card's "Explain in depth" block — the popover twin of
+       deepHtml, inline styles only (it lives in the page DOM). Refilled in
+       place when the answer lands, so the card is never rebuilt. */
+    function renderPopDeep(hash) {
+      if (!popEl || popHash !== hash) return;
+      const box = popEl.querySelector("[data-pop-deep]");
+      const f = cache.get(hash);
+      if (box && f) fillPopDeep(box, hash, f);
+    }
+    function popDeepNote(text, color = "#8e8e93") {
+      const n = document.createElement("div");
+      n.textContent = text;
+      Object.assign(n.style, { fontSize: "11px", color, marginTop: "5px", fontWeight: "500" });
+      return n;
+    }
+    function fillPopDeep(box, hash, f) {
+      const v = deepView(hash, f.verdict);
+      box.textContent = "";
+      box.removeAttribute("style");
+      if (v.kind === "button" || v.kind === "locked") {
+        const locked = v.kind === "locked";
+        const b = document.createElement("button");
+        b.textContent = v.label;
+        Object.assign(b.style, {
+          background: "none", border: "none", padding: "0", fontFamily: "inherit",
+          fontSize: "11.5px", fontWeight: "700", color: locked ? "#a7a7ac" : "#ff7f00",
+          cursor: locked ? "not-allowed" : "pointer",
+        });
+        if (locked) {
+          b.title = v.title;
+          b.setAttribute("aria-disabled", "true");
+          const pro = document.createElement("span");
+          pro.textContent = "PRO";
+          Object.assign(pro.style, {
+            display: "inline-block", marginLeft: "5px", padding: "1px 6px", borderRadius: "8px",
+            background: "linear-gradient(150deg, #ff7f00, #f9a35a)", color: "#fff",
+            fontSize: "8px", fontWeight: "800", letterSpacing: ".6px", verticalAlign: "1px",
+          });
+          b.appendChild(pro);
+          b.addEventListener("click", () => { lockDeep(hash); renderPopDeep(hash); render(); });
+        } else {
+          b.addEventListener("click", () => explainSentence(hash));
+        }
+        box.style.margin = "-3px 0 9px";
+        box.appendChild(b);
+        if (locked && v.note) {
+          const n = popDeepNote(`${v.note}. `);
+          const a = document.createElement("a");
+          a.href = ORDER_URL;
+          a.textContent = DEEP_COPY.seePlans;
+          Object.assign(a.style, { color: "#ff7f00", fontWeight: "700", textDecoration: "none" });
+          a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
+          n.appendChild(a);
+          box.appendChild(n);
+        } else if (v.error) {
+          box.appendChild(popDeepNote(v.error, "#d93636"));
+        }
+        return;
+      }
+      fillPopDeepAnswer(box, v);
+    }
+    // The loading state and the answer, in the same box.
+    function fillPopDeepAnswer(box, v) {
+      if (v.kind === "loading") {
+        Object.assign(box.style, {
+          display: "flex", alignItems: "center", gap: "8px", margin: "-3px 0 9px",
+          fontSize: "11.5px", color: "#8e8e93", fontWeight: "600",
+        });
+        const spin = document.createElement("span");
+        Object.assign(spin.style, {
+          width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0",
+          border: "2px solid rgba(255,127,0,0.25)", borderTopColor: "#ff7f00",
+        });
+        box.appendChild(spin);
+        if (!reducedMotion() && typeof spin.animate === "function") {
+          spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
+        }
+        box.appendChild(document.createTextNode(v.text));
+        return;
+      }
+      Object.assign(box.style, {
+        background: "#fffaf4", border: "1px solid rgba(255,127,0,0.16)",
+        borderRadius: "10px", padding: "8px 10px", marginBottom: "9px",
+      });
+      const label = document.createElement("div");
+      label.textContent = v.label;
+      Object.assign(label.style, {
+        fontSize: "9px", fontWeight: "700", textTransform: "uppercase",
+        letterSpacing: ".8px", color: "#ff7f00", marginBottom: "4px",
+      });
+      box.appendChild(label);
+      if (v.prefix) {
+        const p = document.createElement("div");
+        p.textContent = v.prefix;
+        Object.assign(p.style, { fontSize: "12px", fontWeight: "700", marginBottom: "4px" });
+        box.appendChild(p);
+      }
+      if (v.verdictLabel) {
+        const chip = document.createElement("span");
+        chip.textContent = v.verdictLabel;
+        Object.assign(chip.style, {
+          display: "inline-block", fontSize: "9px", fontWeight: "700", letterSpacing: ".8px",
+          textTransform: "uppercase", padding: "3px 8px", borderRadius: "20px", marginBottom: "5px",
+          background: VERDICT_WASH[v.verdict] ?? "#e7f6ee", color: VERDICT_TEXT[v.verdict] ?? "#1f9d55",
+        });
+        box.appendChild(chip);
+      }
+      const text = document.createElement("div");
+      text.textContent = v.text;
+      Object.assign(text.style, { fontWeight: "500", whiteSpace: "pre-line" });
+      box.appendChild(text);
+      if (v.note) box.appendChild(popDeepNote(v.note));
+    }
+
     function showDocsPopover(hash, rect, anchorBar) {
       console.debug("[tracely] popover open", hash);
       const f = cache.get(hash);
@@ -2263,6 +2433,11 @@
         ex.style.fontWeight = "500";
         popEl.appendChild(ex);
       }
+      // "Explain in depth": filled from deepView now, refilled in place later.
+      const deepBox = document.createElement("div");
+      deepBox.setAttribute("data-pop-deep", "");
+      popEl.appendChild(deepBox);
+      fillPopDeep(deepBox, hash, f);
       if (f.revision) {
         const fix = document.createElement("div");
         Object.assign(fix.style, {
@@ -2769,9 +2944,9 @@
           claim: seg.text,
           correction: f?.revision || undefined,
           context: docText.slice(0, 6000),
-          // The stop's model and no effort — the vendor's default, as every
-          // source search has run (the stop's effort is /api/check's).
-          model: effModel(settings),
+          // The model and no effort — the server ignores a client's effort
+          // on searches and runs the vendor's default.
+          model: CHECK_MODEL,
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
         persistCaches();
@@ -3314,15 +3489,8 @@
 
     // ── widget UI ──
     const { shadow, root } = makeWidget();
-    tierListeners.push(() => {
-      // On downgrade, clamp the STORED choice too — a stale top-tier setting
-      // must not sit in localStorage looking active (API calls already clamp,
-      // and the server clamps again regardless of what we send). The default
-      // stop is re-derived instead, and never saved (syncStopToTier).
-      syncStopToTier(settings, SETTINGS_KEY);
-      render();
-    });
-    followDefaultStop(settings, SETTINGS_KEY, () => render());
+    // The plan decides whether "Explain in depth" is offered or locked.
+    tierListeners.push(() => render());
 
     function render() {
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
@@ -3389,6 +3557,7 @@
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
+            ${deepHtml(seg.hash, f.verdict)}
             ${f.revision ? `
             <div class="fix">
               <div class="fix-label">Suggested revision</div>
@@ -3417,7 +3586,6 @@
             <span class="name">Tracely</span>
             <span class="status ${statusKind === "error" || statusKind === "offline" ? "error" : ""}">${esc(statusMsg)}</span>
           </div>
-          ${speedbarHtml(speedPos(settings.model))}
           <div class="list">
             ${undoStrip}${flowCards}${cards || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
           </div>
@@ -3445,8 +3613,8 @@
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       if (expanded) {
-        wireSpeedbar(shadow, settings, saveSettings);
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        wireDeep(shadow, explainSentence, render);
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -3515,6 +3683,16 @@
           });
         }
       }
+    }
+
+    // "Explain in depth" on one sentence. Repaints the panel, and any open
+    // hover card for it IN PLACE (renderPopDeep) — the card is never rebuilt,
+    // so it neither re-animates nor loses its position.
+    function explainSentence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const f = cache.get(hash);
+      if (!seg || !f) return;
+      explainInDepth(hash, seg.text, docText, f.verdict, () => { render(); renderPopDeep(hash); });
     }
 
     function saveSettings() {
@@ -3606,7 +3784,7 @@
     const cache = new Map();
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
-    let settings = { model: SPEED_STOPS[0].model, effort: SPEED_STOPS[0].effort, citationStyle: "apa", ...jsonParse(lsGet(SETTINGS_KEY) ?? "{}", {}) };
+    let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
     let inflight = false;
     let sourcesInflight = false;
@@ -3628,12 +3806,8 @@
       if (!widget) widget = makeWidget();
       return widget;
     }
-    tierListeners.push(() => {
-      // Same as docs mode; only repaint if the panel exists.
-      syncStopToTier(settings, SETTINGS_KEY);
-      if (widget) render();
-    });
-    followDefaultStop(settings, SETTINGS_KEY, () => { if (widget) render(); });
+    // Same as docs mode; only repaint if the panel exists.
+    tierListeners.push(() => { if (widget) render(); });
 
     /* ── editable tracking ── */
 
@@ -3941,8 +4115,7 @@
           const data = await api("/api/check", {
             text: fieldText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
-            model: effModel(settings),
-            effort: effEffort(settings),
+            model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
           });
           checkedOnce = true;
           for (const f of data.findings ?? []) {
@@ -3984,9 +4157,9 @@
           claim: seg.text,
           correction: f?.revision || undefined,
           context: fieldText.slice(0, 6000),
-          // The stop's model and no effort — the vendor's default, as every
-          // source search has run (the stop's effort is /api/check's).
-          model: effModel(settings),
+          // The model and no effort — the server ignores a client's effort
+          // on searches and runs the vendor's default.
+          model: CHECK_MODEL,
         });
         sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
       } catch (err) {
@@ -4186,6 +4359,7 @@
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
+            ${deepHtml(seg.hash, f.verdict)}
             ${f.revision ? `
             <div class="fix">
               <div class="fix-label">Suggested revision</div>
@@ -4215,7 +4389,6 @@
             <label class="autosrc" title="Run automatic checks on this site every 10s. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
             <span class="status ${statusKind === "error" || statusKind === "offline" ? "error" : ""}">${esc(statusMsg)}</span>
           </div>
-          ${speedbarHtml(speedPos(settings.model))}
           <div class="list">
             ${cards || `<div class="empty">${emptyMsg}</div>`}
           </div>
@@ -4244,8 +4417,8 @@
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       if (expanded) {
         shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
-        wireSpeedbar(shadow, settings, saveSettings);
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        wireDeep(shadow, explainSentence, render);
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -4288,6 +4461,14 @@
           });
         }
       }
+    }
+
+    // "Explain in depth" on one sentence (render bails while there is no widget).
+    function explainSentence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const f = cache.get(hash);
+      if (!seg || !f) return;
+      explainInDepth(hash, seg.text, fieldText, f.verdict, render);
     }
 
     function saveSettings() {
