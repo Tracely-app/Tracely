@@ -20,7 +20,9 @@ import {
   extractCitationMeta,
   fetchUrlMetadata,
   looksBlocked,
+  MAX_HTML_CHARS,
   parseDate,
+  scanHtml,
 } from "../lib/citeMeta.js";
 
 const NOW = new Date("2026-09-21T12:00:00Z");
@@ -271,4 +273,77 @@ test("fetchUrlMetadata: a PDF is cited by its URL and host, never by its bytes",
   assert.equal(src.title, "https://www.who.int/docs/report.pdf");
   assert.equal(src.publisher, "who.int");
   assert.equal(src.authors, undefined);
+});
+
+// ── hostile pages ──────────────────────────────────────────────────────
+
+/* The regexes the scanner replaced restarted at every "<" and ran to the end
+ * of the page when nothing closed: 40 KB of "<" took over a second, so the
+ * 500 KB a fetch reads would have held the server's one thread for minutes.
+ * Every page here is the full read size. The bound is generous for a slow CI
+ * box; the scanner takes a few milliseconds on each. */
+test("hostile markup is read in linear time, never quadratic", () => {
+  const N = MAX_HTML_CHARS;
+  const fill = (unit) => unit.repeat(Math.ceil(N / unit.length)).slice(0, N);
+  const pages = {
+    "unclosed <": fill("<"),
+    "< then one > at the end": fill("< ") + ">",
+    "<a <a ... >": fill("<a ") + ">",
+    "closed tags": fill("<a>"),
+    "unclosed <meta": fill("<meta "),
+    "closed metas": fill('<meta name="author" content="Jane Doe">'),
+    "attribute soup in one tag": "<meta " + fill('a="b=') + ">",
+    "one huge attribute": '<meta name="author" content="' + fill("x") + '">',
+    "unclosed <time": fill("<time "),
+    "closed times": fill('<time datetime="2020-01-01">'),
+    "unclosed <script": fill("<script "),
+    "unclosed <title": fill("<title>"),
+    "unclosed comments": fill("<!-- "),
+    "many JSON-LD blocks": fill('<script type="application/ld+json">{"@type":"Article","author":{"name":"A B"}}</script>'),
+    "JSON-LD nested past the stack": '<script type="application/ld+json">' + "[".repeat(N / 2) + "</script>",
+    "published, over and over": fill("published "),
+    "entities": fill("&amp;&#x41;&#65;&eacute;"),
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    const t0 = performance.now();
+    const m = extractCitationMeta(html, "https://example.org/x", NOW);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 1500, `${name}: ${Math.round(ms)} ms`);
+    assert.equal(typeof m.title, "string", name);
+    assert.equal(m.publisher, "example.org", name);
+  }
+});
+
+test("only the first MAX_HTML_CHARS of a page are read", () => {
+  const late = `<title>T</title>${" ".repeat(MAX_HTML_CHARS)}<meta name="citation_author" content="Doe, Jane">`;
+  assert.equal(extractCitationMeta(late, "https://example.org/x", NOW).authors, undefined);
+  const early = `<title>T</title><meta name="citation_author" content="Doe, Jane">${" ".repeat(MAX_HTML_CHARS)}`;
+  assert.deepEqual(extractCitationMeta(early, "https://example.org/x", NOW).authors, ["Doe, Jane"]);
+});
+
+test("scanHtml: markup inside comments and scripts is not markup; 'a < b' is text", () => {
+  const page = scanHtml(`<!-- <meta name="author" content="Ghost"> --><title>Real &amp; true</title>
+    <script>var s = "<meta name='author' content='Script'>"; var t = "<title>no</title>";</script>
+    <META NAME="Author" CONTENT="Jane Doe"><meta content=unquoted name=keywords>
+    <p>3 < 4 and published: May 7, 2024</p><time datetime="2024-05-07">May 7</time>`);
+  assert.equal(page.title, "Real &amp; true");
+  assert.deepEqual(page.metas.map((a) => [a.name, a.content]), [["Author", "Jane Doe"], ["keywords", "unquoted"]]);
+  assert.deepEqual(page.times, ["2024-05-07"]);
+  assert.match(page.text.replace(/\s+/g, " "), /3 < 4 and published: May 7, 2024/);
+  assert.doesNotMatch(page.text, /var s/);
+});
+
+test("fetchUrlMetadata reads a bounded prefix of the body, even one that never ends", async () => {
+  let pulled = 0;
+  const endless = new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode('<title>Endless</title><meta name="citation_author" content="Doe, Jane">')); },
+    pull(c) { pulled++; c.enqueue(new TextEncoder().encode("x".repeat(64 * 1024))); },
+  });
+  globalThis.fetch = async () => new Response(endless, { status: 200, headers: { "Content-Type": "text/html" } });
+  const t0 = performance.now();
+  const src = await fetchUrlMetadata("https://example.org/endless", { now: NOW });
+  assert.ok(performance.now() - t0 < 3000);
+  assert.equal(src.title, "Endless");
+  assert.deepEqual(src.authors, ["Doe, Jane"]);
+  assert.ok(pulled * 64 * 1024 <= MAX_HTML_CHARS * 2 + 3 * 64 * 1024, `read ${pulled} chunks`);
 });

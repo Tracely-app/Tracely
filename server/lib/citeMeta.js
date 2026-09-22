@@ -141,18 +141,127 @@ export function looksBlocked(status, html, rawTitle) {
 }
 
 // ── page parsing ───────────────────────────────────────────────────────
+//
+// One pass over the page, never a regex over all of it. What this replaced
+// (/<[^>]+>/g for the visible text, /<meta\s[^>]*>/gi, /<time[^>]*…/gi, the
+// lazy <script>…</script> and <title>…</title> scans) restarted at every "<"
+// and ran to the end of the page whenever nothing closed, so a pasted URL
+// serving half a megabyte of unclosed "<" held the server's one thread for
+// minutes. Here every search starts where the previous one ended; a tag with
+// no ">" after it, or a <script>/<style>/<title> that never closes, ends the
+// scan, because nothing after it can be read as markup either.
 
+/** At most this much of a page is read. <head> and the top of <body> are
+ *  where every field lives; the rest is never looked at. */
+export const MAX_HTML_CHARS = 500_000;
+const MAX_TEXT_CHARS = 200_000; // visible text kept for the "Published:" label
+const RAW_TEXT = new Set(["script", "style", "title"]);
+const isSpace = (c) => c === " " || c === "\n" || c === "\t" || c === "\r" || c === "\f";
+
+/** A tag's attributes by lowercased name, the first occurrence winning (as
+ *  in a browser). Linear: a quoted value ends at its quote, found by indexOf. */
 function tagAttrs(tag) {
-  const out = {};
-  for (const m of tag.matchAll(/([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) out[m[1].toLowerCase()] = m[2] ?? m[3] ?? "";
+  const out = Object.create(null);
+  const n = tag.endsWith(">") ? tag.length - 1 : tag.length;
+  let i = 1;
+  while (i < n && !isSpace(tag[i]) && tag[i] !== "/") i++; // the tag's own name
+  while (i < n) {
+    while (i < n && (isSpace(tag[i]) || tag[i] === "/")) i++;
+    if (i >= n) break;
+    const s = i;
+    while (i < n && !isSpace(tag[i]) && tag[i] !== "/" && tag[i] !== "=") i++;
+    const name = tag.slice(s, i).toLowerCase();
+    while (i < n && isSpace(tag[i])) i++;
+    let value = "";
+    if (tag[i] === "=") {
+      i++;
+      while (i < n && isSpace(tag[i])) i++;
+      if (tag[i] === '"' || tag[i] === "'") {
+        const end = tag.indexOf(tag[i], i + 1);
+        const stop = end < 0 || end > n ? n : end;
+        value = tag.slice(i + 1, stop);
+        i = stop + 1;
+      } else {
+        const v = i;
+        while (i < n && !isSpace(tag[i])) i++;
+        value = tag.slice(v, i);
+      }
+    }
+    if (name && !(name in out)) out[name] = value;
+  }
   return out;
 }
 
+/**
+ * The parts of a page citation fields come from, in one linear pass:
+ * every <meta>'s attributes, the first <title>'s text, each JSON-LD block's
+ * source, each <time datetime> in page order, and the visible text (tags
+ * replaced by spaces, script and style bodies dropped) for the "Published:"
+ * label. Markup inside comments and scripts is not markup and is skipped.
+ */
+export function scanHtml(input) {
+  const html = String(input ?? "").slice(0, MAX_HTML_CHARS);
+  // ASCII-only lowercasing keeps every index aligned with `html`; full
+  // Unicode lowercasing can change a string's length ("İ" becomes two units).
+  const lower = html.replace(/[A-Z]+/g, (s) => s.toLowerCase());
+  const page = { html, metas: [], title: null, ld: [], times: [], text: "" };
+  const text = [];
+  let textLen = 0;
+  const addText = (s) => {
+    if (s && textLen < MAX_TEXT_CHARS) { text.push(s); textLen += s.length; }
+  };
+  const n = html.length;
+  let pos = 0;
+  while (pos < n) {
+    const lt = html.indexOf("<", pos);
+    if (lt < 0) { addText(html.slice(pos)); break; }
+    addText(html.slice(pos, lt));
+    if (lower.startsWith("<!--", lt)) {
+      const end = html.indexOf("-->", lt + 4);
+      if (end < 0) break;
+      pos = end + 3;
+      continue;
+    }
+    const next = lower[lt + 1] ?? "";
+    if (!((next >= "a" && next <= "z") || next === "/" || next === "!" || next === "?")) {
+      addText("<"); // "a < b" is text, and no ">" search is spent on it
+      pos = lt + 1;
+      continue;
+    }
+    const gt = html.indexOf(">", lt + 1);
+    if (gt < 0) break;
+    pos = gt + 1;
+    addText(" ");
+    const m = /^<(\/?)([a-z][a-z0-9:-]*)/.exec(lower.slice(lt, Math.min(gt, lt + 64)));
+    if (!m || m[1]) continue; // a closing tag, <!doctype>, <?xml?>
+    const name = m[2];
+    if (name === "meta") page.metas.push(tagAttrs(html.slice(lt, gt + 1)));
+    else if (name === "time") {
+      const a = tagAttrs(html.slice(lt, gt + 1));
+      if (a.datetime) page.times.push(a.datetime);
+    } else if (RAW_TEXT.has(name)) {
+      const end = lower.indexOf(`</${name}`, pos);
+      if (end < 0) break; // everything after is this element's text
+      const body = html.slice(pos, end);
+      if (name === "title") {
+        if (page.title == null) page.title = body;
+        addText(body);
+      } else if (name === "script" && lower.slice(lt, gt).includes("application/ld+json")) {
+        page.ld.push(body);
+      }
+      const close = html.indexOf(">", end);
+      pos = close < 0 ? n : close + 1;
+      addText(" ");
+    }
+  }
+  page.text = text.join("");
+  return page;
+}
+
 /** Every <meta>, keyed by lowercased name/property/itemprop, values in page order. */
-function collectMeta(html) {
+function collectMeta(page) {
   const map = new Map();
-  for (const t of html.match(/<meta\s[^>]*>/gi) ?? []) {
-    const a = tagAttrs(t);
+  for (const a of page.metas) {
     const key = (a.name || a.property || a.itemprop || "").toLowerCase();
     if (!key || a.content == null) continue;
     const v = clean(a.content.slice(0, 2000));
@@ -163,7 +272,7 @@ function collectMeta(html) {
   return map;
 }
 
-function collectJsonLd(html) {
+function collectJsonLd(page) {
   const items = [];
   const walk = (x) => {
     if (Array.isArray(x)) return x.forEach(walk);
@@ -171,8 +280,8 @@ function collectJsonLd(html) {
     if (Array.isArray(x["@graph"])) walk(x["@graph"]);
     if (x["@type"]) items.push(x);
   };
-  for (const m of html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
-    try { walk(JSON.parse(m[1].trim())); } catch { /* a malformed block: ignore it */ }
+  for (const block of page.ld) {
+    try { walk(JSON.parse(block.trim())); } catch { /* malformed, or nested past the stack: ignore it */ }
   }
   return items;
 }
@@ -203,20 +312,20 @@ const LATE_GENERIC_DATE_KEYS = ["dc.date", "dcterms.date", "dcterms.created"];
  * `publisher` are always present (the URL and hostname at worst — as before);
  * `kind` is always present; every other field only when the page states it.
  */
-export function extractCitationMeta(html, pageUrl, now = new Date()) {
-  html = String(html ?? "");
+export function extractCitationMeta(html, pageUrl, now = new Date(), page = scanHtml(html)) {
+  html = page.html;
   const u = new URL(pageUrl);
   const host = u.hostname.replace(/^www\./, "");
-  const meta = collectMeta(html);
+  const meta = collectMeta(page);
   const one = (...keys) => { for (const k of keys) { const v = meta.get(k)?.[0]; if (v) return v; } return ""; };
   const all = (...keys) => keys.flatMap((k) => meta.get(k) ?? []);
-  const ld = collectJsonLd(html);
+  const ld = collectJsonLd(page);
   const main = ld.find((it) => typesOf(it).some((t) => ARTICLE_T.test(t))) ?? ld.find((it) => typesOf(it).some((t) => /WebPage$/.test(t)));
   const ldName = (x) => (typeof x === "string" ? x : x?.name ? String(x.name) : "");
   const ldPublisher = clean(ldName(main?.publisher) || ldName(ld.find((it) => typesOf(it).includes("WebSite"))) || "");
   const isWiki = /(^|\.)wikipedia\.org$/.test(host);
 
-  const rawTitle = clean((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").slice(0, 2000));
+  const rawTitle = clean((page.title ?? "").slice(0, 2000));
   let publisher = one("og:site_name") || one("citation_journal_title", "prism.publicationname") || ldPublisher || one("citation_publisher", "dc.publisher", "dcterms.publisher") || host;
   if (isWiki) publisher = "Wikipedia";
   // "Page | Section | CDC": og:site_name named the SECTION; the last segment is the site.
@@ -224,7 +333,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date()) {
   if (segs.length >= 3 && loose(segs.at(-2)) === loose(publisher)) publisher = segs.at(-1);
 
   const ogTitle = one("og:title", "twitter:title");
-  const headline = clean(String(main?.headline ?? ""));
+  const headline = clean(String(main?.headline ?? "").slice(0, 2000));
   const names = [publisher, one("og:site_name"), ldPublisher, hostLabel(host), host];
   const title = one("citation_title", "dc.title", "dcterms.title")
     || (headline && ogTitle && ogTitle !== headline && ogTitle.startsWith(headline) ? headline : "")
@@ -254,7 +363,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date()) {
   // Dates. Never a modified stamp; never one the title contradicts.
   const modified = new Set([one("article:modified_time"), one("og:updated_time"), clean(String(main?.dateModified ?? ""))]
     .map((s) => isoOf(parseDate(s, now)) ?? "").filter(Boolean));
-  const firstTime = [...html.matchAll(/<time[^>]*\bdatetime=["']([^"']+)["']/gi)].slice(0, 1).map((m) => m[1]);
+  const firstTime = page.times.slice(0, 1);
   const candidates = [
     ...all(...EXPLICIT_DATE_KEYS).map((v) => [v, true]),
     ...all(...GENERIC_DATE_KEYS).map((v) => [v, false]),
@@ -272,7 +381,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date()) {
   }
   if (!pub) {
     // A visible label: "Year of Publication 2024", "Published: May 7, 2024".
-    const text = decodeEntities(html.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ");
+    const text = decodeEntities(page.text).replace(/\s+/g, " ");
     const m = text.match(/\b(?:year of publication|publication year|publication date|date published|published(?: on)?)\s*:?\s*((?:[A-Z][a-z]+\.? \d{1,2}, \d{4})|(?:\d{1,2} [A-Z][a-z]+\.? \d{4})|(?:\d{4}(?:-\d{2}-\d{2})?))/i);
     const d = m && parseDate(m[1], now);
     if (d && !contradictsTitle(d.year, title, now)) pub = d;
@@ -306,10 +415,10 @@ export function extractCitationMeta(html, pageUrl, now = new Date()) {
   if (isWiki) {
     // The revision the student read: APA cites Wikipedia by permalink and revision date.
     const rev = html.match(/"wgRevisionId":(\d+)/)?.[1];
-    const page = html.match(/"wgPageName":"([^"]+)"/)?.[1];
+    const pageName = html.match(/"wgPageName":"([^"]+)"/)?.[1];
     const d = parseDate(main?.dateModified, now);
-    if (rev && page && d?.day) {
-      out.permalink = `https://${u.hostname}/w/index.php?title=${encodeURIComponent(page)}&oldid=${rev}`;
+    if (rev && pageName && d?.day) {
+      out.permalink = `https://${u.hostname}/w/index.php?title=${encodeURIComponent(pageName)}&oldid=${rev}`;
       out.year = d.year;
       out.date = isoOf(d);
     } else {
@@ -324,9 +433,38 @@ export function extractCitationMeta(html, pageUrl, now = new Date()) {
 
 const PRIVATE_HOST = /^(localhost$|.*\.local$|127\.|10\.|192\.168\.|169\.254\.|0\.|\[::1\]$|172\.(1[6-9]|2\d|3[01])\.)/i;
 
-function descriptionOf(html) {
-  const meta = collectMeta(html);
+function descriptionOf(page) {
+  const meta = collectMeta(page);
   return meta.get("description")?.[0] || meta.get("og:description")?.[0] || "";
+}
+
+/** The body's first `maxBytes` bytes as UTF-8 text (what res.text() decodes
+ *  as), then the stream is cancelled: a page that never ends, or a 2 GB file
+ *  behind an HTML content type, is never held in memory whole. */
+async function readCapped(res, maxBytes) {
+  if (!res.body?.getReader) return (await res.text()).slice(0, MAX_HTML_CHARS);
+  const reader = res.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (size < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  const buf = new Uint8Array(Math.min(size, maxBytes));
+  let at = 0;
+  for (const c of chunks) {
+    const take = Math.min(c.byteLength, buf.length - at);
+    buf.set(c.subarray(0, take), at);
+    at += take;
+    if (at >= buf.length) break;
+  }
+  return new TextDecoder().decode(buf).slice(0, MAX_HTML_CHARS);
 }
 
 /**
@@ -360,14 +498,15 @@ export async function fetchUrlMetadata(raw, { now = new Date() } = {}) {
   }
   let html = "";
   try {
-    html = (await res.text()).slice(0, 500_000);
+    html = await readCapped(res, MAX_HTML_CHARS * 2);
   } catch { /* binary or unreadable body — fall through to URL-derived metadata */ }
   // A PDF or an image has no <title> or <meta> to read, only bytes that can
   // look like tags.
   const type = String(res.headers?.get?.("content-type") ?? "");
   if (type && !/html|xml/i.test(type)) html = "";
 
-  const rawTitle = clean((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").slice(0, 2000));
+  const page = scanHtml(html);
+  const rawTitle = clean((page.title ?? "").slice(0, 2000));
   if (looksBlocked(res.status, html, rawTitle)) {
     const why = BLOCK_STATUS.has(res.status) ? `HTTP ${res.status}` : "it answered with a bot check";
     throw new CheckError("server", `That site won't let Tracely read the page (${why}), so there is nothing reliable to cite from it — copy the details by hand, or pick another source.`, { status: 502 });
@@ -376,12 +515,12 @@ export async function fetchUrlMetadata(raw, { now = new Date() } = {}) {
     throw new CheckError("server", `That page returns ${res.status} — Tracely couldn't read it. Try again later, or copy the details by hand.`, { status: 502 });
   }
 
-  const { title, publisher, ...optional } = extractCitationMeta(html, u.href, now);
+  const { title, publisher, ...optional } = extractCitationMeta(html, u.href, now, page);
   return {
     title: title.trim().slice(0, 200),
     url: u.href.slice(0, 600),
     publisher: publisher.trim().slice(0, 100),
-    snippet: descriptionOf(html).slice(0, 300),
+    snippet: descriptionOf(page).slice(0, 300),
     stance: "manual",
     ...optional,
   };
