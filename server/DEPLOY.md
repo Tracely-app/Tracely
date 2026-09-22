@@ -192,20 +192,42 @@ What a matching token does, and does not:
 - The widgets default to the options-page slider (Fast until a tester moves
   it); the beta grant raises the ceiling, not the default stop.
 
-Build the zip from a checkout (never commit `extension/beta.json`; the repo is
-public and `.gitignore` covers it) — and only once the server from the same
-change is deployed (see "The model tiers" below):
+Build both zips from a checkout (never commit `extension/beta.json`; the repo
+is public and `.gitignore` covers it) — and only once the server from the same
+change is deployed (see "The model tiers" below). The two zips have different
+layouts, because their consumers disagree about where `manifest.json` goes:
 
 ```sh
+server/scripts/pack-extension.sh ~/Desktop
+# -> ~/Desktop/Tracely-<version>-store.zip: the Web Store upload.
+#    manifest.json at the ZIP ROOT (the store rejects a foldered zip), no beta.json.
+
 TRACELY_BETA_TOKEN='<one of TRACELY_BETA_TOKENS>' server/scripts/pack-extension.sh --beta ~/Desktop
-# -> ~/Desktop/Tracely-<version>-beta.zip, with beta.json in the staged copy only
+# -> ~/Desktop/Tracely-<version>-beta.zip: for testers. Everything inside a
+#    Tracely-<version>-beta/ folder, because Load unpacked installs a folder;
+#    beta.json is written into the staged copy only.
 ```
 
-A plain `pack-extension.sh [OUT_DIR]` excludes `beta.json` even if one is
-lying in `extension/`. The token must be 1-200 characters of
-`A-Z a-z 0-9 . _ ~ + / = -` (no commas: the server's list is comma-separated);
-the script refuses anything else rather than build a zip that is silently free.
-Generate one with `openssl rand -base64 24 | tr -d '\n'`.
+`OUT_DIR` defaults to `~/Desktop`. The store build excludes `beta.json` even if
+one is lying in `extension/`. Each build then checks the zip it produced and
+deletes it, exiting non-zero, if the layout is wrong: the store zip must have
+`manifest.json` at the root and no `beta.json` anywhere; the beta zip must have
+`Tracely-<version>-beta/manifest.json` and exactly one `beta.json`, at
+`Tracely-<version>-beta/beta.json`, holding the token, with nothing outside
+that folder. Until 2026-09-21 the plain build produced `Tracely-<version>.zip`
+with the same folder wrapper as the beta, which is not a valid store upload;
+do not upload a zip with that name.
+
+The manifest's `key` ships unchanged in both zips: it is the store item's
+public key and pins the id for unpacked builds (`TRACELY_EXTENSION_ID`, see
+"Still outstanding" below). Verify it on the first store upload of a
+root-layout zip. If the store rejects the zip over `key`, strip it from the
+script's STAGED store copy, never from `extension/`.
+
+The token must be 1-200 characters of `A-Z a-z 0-9 . _ ~ + / = -` (no commas:
+the server's list is comma-separated); the script refuses anything else rather
+than build a zip that is silently free. Generate one with
+`openssl rand -base64 24 | tr -d '\n'`.
 
 ## The model tiers (remapped 2026-09-21)
 

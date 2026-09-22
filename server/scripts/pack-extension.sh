@@ -8,9 +8,9 @@
 #
 # The plain build is the CHROME WEB STORE upload: manifest.json sits at the ZIP
 # ROOT, as the store requires ("place the manifest file in the root directory,
-# not in a folder"), and it never contains beta.json. Up to 2.19.4 this build
-# wrapped everything in a Tracely-<version>/ folder like the beta one, which
-# the store does not accept.
+# not in a folder"), and it never contains beta.json. Until 2026-09-21 this
+# build wrote Tracely-<version>.zip with everything inside a Tracely-<version>/
+# folder like the beta one, which the store does not accept.
 #
 # The --beta build is for testers, who install with Load unpacked. Chrome
 # installs a FOLDER, so that zip keeps its Tracely-<version>-beta/ wrapper: a
