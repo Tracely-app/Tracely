@@ -1,6 +1,6 @@
 # Tracely ✈️
 
-Live fact-checking as you write. Every 10 seconds, Tracely checks the facts you've typed with the OpenAI API — false claims, shaky claims, and sentences that don't make sense get wavy underlines, suggested fixes, and web sources you can cite. The only key you need is an OpenAI API key.
+The Tracely server runs every AI call for the desktop app, the Chrome extension and the web app, over the OpenAI API. It is hosted at `https://api.jointracely.com` (see [DEPLOY.md](DEPLOY.md)); run locally, the only key you need is an OpenAI API key.
 
 ## Setup (once)
 
@@ -17,18 +17,14 @@ Live fact-checking as you write. Every 10 seconds, Tracely checks the facts you'
 
 3. Open **http://localhost:4477** and start typing.
 
-## The editor
+## The web app
 
-- **Wavy underlines** while you type: red = false, amber = questionable, purple = doesn't make sense, thin green = verified.
-- Hover an underline for the explanation; click it to jump to its finding card.
-- **Apply fix** rewrites the sentence with the model's correction; **Fix all** applies every suggestion at once.
-- **Find sources** pulls up 3–5 real sources for a claim (via OpenAI's built-in web search — no extra API key). Pick one and Tracely inserts a `[n]` citation after the sentence and maintains a `Sources:` list at the end of the document. Verified claims can be cited too, via the *cite* button.
-- Model (Opus 5 / Sonnet 5 / Haiku 4.5) and depth (Fast / Balanced / Thorough) are switchable in the header.
+`/` serves the built desktop renderer (`../dist-web`, from `web.vite.config.mts`) when it exists, and otherwise the vanilla app in `public/app/` (Home, Documents, Analyze, Library, Watch, Settings), which `/classic/` always serves. The model is picked in Settings by tier — Fast `gpt-5.6-luna`, Balanced `gpt-5.6-terra`, Thorough `gpt-6-astra` — and that choice applies only on a local server: the hosted server refuses the web app's browser origin and answers `PUT /api/prefs` with 403.
 
 ## Google Docs widget
 
 1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the `extension/` folder.
-2. Keep the Tracely server running (`node server.js`).
+2. Run the Tracely server (`node server.js`) if you want the extension to use it: it prefers `localhost:4477` when that answers and otherwise uses `https://api.jointracely.com`.
 3. Open any Google Doc — the orange paper-plane pill appears bottom-right. It checks the doc every 10 seconds and lists findings with copyable fixes and citations.
 
 It reads the doc through your existing Google session (no Google API keys, no OAuth). Out of the box, fixes and citations are one-click **copy**.
@@ -38,9 +34,9 @@ It reads the doc through your existing Google session (no Google API keys, no OA
 With the bridge set up, the widget gains **Fix in doc**, **Cite in doc**, **Highlight issues in doc** (red / amber / orange tints per finding), and **Clear highlights** — real edits applied straight into the doc. Google requires an authorization step for anything that modifies your documents; this is the lightest one that exists (no Google Cloud project, no OAuth client):
 
 1. Open **script.google.com** → **New project**.
-2. Replace the default `Code.gs` with the contents of `~/tracely/docs-bridge/Code.gs` (`open -e ~/tracely/docs-bridge/Code.gs`). The secret token inside already matches your `.env`.
+2. Replace the default `Code.gs` with the contents of `server/docs-bridge/Code.gs`, and set the same random token in it and in `server/.env` as `TRACELY_BRIDGE_TOKEN`. **As of 67120d1 that file is a one-line placeholder** (added in #199), not the bridge script, so this setup cannot be completed from the repo until the real script is restored.
 3. **Deploy → New deployment → Web app** — *Execute as:* **Me**, *Who has access:* **Anyone** — then **Deploy** and approve the authorization prompt (it's your own script touching your own Docs).
-4. Copy the Web app URL (ends in `/exec`) and paste it into `~/tracely/.env`:
+4. Copy the Web app URL (ends in `/exec`) and paste it into `server/.env`:
    ```
    GOOGLE_DOCS_BRIDGE_URL=https://script.google.com/macros/s/…/exec
    ```
@@ -51,7 +47,8 @@ With the bridge set up, the widget gains **Fix in doc**, **Cite in doc**, **High
 ## Accounts and plans (optional)
 
 The server can enforce paid plans — clamping the model a call may use and
-metering the free tier's 5 daily source searches — and accept Stripe webhooks
+metering the free tier (5 source searches and 400 extension checks a day,
+150 desktop AI calls a day) — and accept Stripe webhooks
 that set a plan on the account. It needs `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STUDENT`
 and `STRIPE_PRICE_PRO` in `.env`. **Set none of them and nothing changes** —
