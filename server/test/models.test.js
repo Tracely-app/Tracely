@@ -20,6 +20,8 @@ test("shared/plan.js mirrors lib/llm.js exactly", () => {
 
 test("every tier name is spelled the same on both sides", () => {
   assert.deepEqual([...TIER_NAMES].sort(), Object.keys(MODEL_TIERS).sort());
+  // Two tiers since the 2026-09-21 plan policy: balanced (terra) is retired.
+  assert.deepEqual([...TIER_NAMES], ["fast", "thorough"]);
 });
 
 test("TIER_FOR_MODEL is the exact inverse of MODEL_FOR_TIER", () => {
@@ -62,9 +64,28 @@ const read = (f) => {
   assert.ok(EXT, "could not locate extension/ from " + HERE);
   return readFileSync(path.join(EXT, f), "utf8");
 };
-const ORDERED = [MODEL_TIERS.fast, MODEL_TIERS.balanced, MODEL_TIERS.thorough];
+/* The extension still ships the THREE-stop ladder (Fast / Balanced /
+ * Thorough, with gpt-5.6-terra on the middle stop) until 2.20.0 replaces the
+ * slider. Since the 2026-09-21 plan policy the server has two tiers and
+ * ignores the client's model on every volume route, so these tests no longer
+ * pin the extension's ids to the server's tier list one for one. They pin
+ * what still matters for builds in people's hands: every id the extension can
+ * send is one the server MAPS to a tier (a current id via TIER_FOR_MODEL, or a
+ * retired one via LEGACY_MODEL_TIER), in the right order, and nothing the
+ * server serves is dropped by the extension first. 2.20.0 realigns them. */
+const serverTierOf = (id) => (Object.hasOwn(TIER_FOR_MODEL, id) ? TIER_FOR_MODEL[id]
+  : Object.hasOwn(LEGACY_MODEL_TIER, id) ? LEGACY_MODEL_TIER[id] : null);
+const EXT_LADDER = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra"];
 
-test("background.js ALLOWED_MODELS matches the server's tiers", () => {
+function assertMapsSensibly(ids, where) {
+  for (const id of ids) assert.ok(serverTierOf(id), `${where}: ${id} is neither a tier nor a retired id the server maps`);
+  const ranks = ids.map((id) => TIER_NAMES.indexOf(serverTierOf(id)));
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), `${where}: the ladder is no longer cheapest first`);
+  assert.equal(serverTierOf(ids[0]), "fast", `${where}: the first stop must be the fast tier`);
+  assert.equal(serverTierOf(ids.at(-1)), "thorough", `${where}: the last stop must be the thorough tier`);
+}
+
+test("background.js ALLOWED_MODELS: every id maps to a server tier, and every served model passes", () => {
   const src = read("background.js");
   const fast = src.match(/const FAST_MODEL = "([^"]+)"/);
   assert.ok(fast, "FAST_MODEL not found in background.js");
@@ -74,23 +95,27 @@ test("background.js ALLOWED_MODELS matches the server's tiers", () => {
   assert.ok(set, "ALLOWED_MODELS not found in background.js");
   const ids = [...set[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   // FAST_MODEL is referenced by name in that literal, so it is one short.
-  assert.deepEqual(new Set([MODEL_TIERS.fast, ...ids]), ALLOWED_MODELS);
+  const ext = new Set([MODEL_TIERS.fast, ...ids]);
+  assertMapsSensibly([...ext].sort((a, b) => TIER_NAMES.indexOf(serverTierOf(a)) - TIER_NAMES.indexOf(serverTierOf(b))), "background.js");
+  for (const model of ALLOWED_MODELS) assert.ok(ext.has(model), `background.js would drop ${model}, which the server serves`);
 });
 
-test("content.js SPEED_STOPS is the tier ladder, cheapest first", () => {
+test("content.js SPEED_STOPS: every stop maps to a server tier, cheapest first", () => {
   const src = read("content.js");
   const block = src.match(/const SPEED_STOPS = \[([\s\S]*?)\];/);
   assert.ok(block, "SPEED_STOPS not found in content.js");
   const ids = [...block[1].matchAll(/model: "([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ORDERED);
+  assert.deepEqual(ids, EXT_LADDER, "2.20.0 replaces the slider; until then it is the three-stop ladder");
+  assertMapsSensibly(ids, "content.js SPEED_STOPS");
 });
 
-test("options.js MODELS is the tier ladder, cheapest first", () => {
+test("options.js MODELS: every stop maps to a server tier, cheapest first", () => {
   const src = read("options.js");
   const block = src.match(/const MODELS = \[([\s\S]*?)\];/);
   assert.ok(block, "MODELS not found in options.js");
   const ids = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ORDERED);
+  assert.deepEqual(ids, EXT_LADDER, "2.20.0 replaces the slider; until then it is the three-stop ladder");
+  assertMapsSensibly(ids, "options.js MODELS");
 });
 
 test("content.js SPEED_STOPS carry the efforts the model eval measured", () => {
@@ -113,9 +138,16 @@ test("the extension's retired-id maps agree with the server's LEGACY_MODEL_TIER"
     assert.ok(m, `${name} not found`);
     return Object.fromEntries([...m[1].matchAll(/"([^"]+)":\s*(\d+)/g)].map((x) => [x[1], Number(x[2])]));
   };
-  const expected = Object.fromEntries(Object.entries(LEGACY_MODEL_TIER).map(([id, tier]) => [id, TIER_NAMES.indexOf(tier)]));
-  assert.deepEqual(parse(read("content.js"), "RETIRED_STOP"), expected, "content.js RETIRED_STOP");
-  assert.deepEqual(parse(read("options.js"), "RETIRED_MODELS"), expected, "options.js RETIRED_MODELS");
+  // The extension maps a retired id to a STOP on its three-stop ladder; the
+  // server maps the same id to a TIER. They agree when the stop's model is one
+  // the server maps to that same tier (gpt-5.4 -> the Balanced stop, whose
+  // terra id the server now also reads as fast). 2.20.0 realigns the maps.
+  for (const [file, name] of [["content.js", "RETIRED_STOP"], ["options.js", "RETIRED_MODELS"]]) {
+    for (const [id, stop] of Object.entries(parse(read(file), name))) {
+      assert.ok(Object.hasOwn(LEGACY_MODEL_TIER, id), `${file} ${name}: ${id} is not a retired id the server maps`);
+      assert.equal(serverTierOf(EXT_LADDER[stop]), LEGACY_MODEL_TIER[id], `${file} ${name}: ${id} -> stop ${stop}`);
+    }
+  }
   for (const id of Object.keys(LEGACY_MODEL_TIER)) {
     assert.ok(!ALLOWED_MODELS.has(id), `${id} is retired but still a tier`);
     assert.ok(ALLOWED_MODELS.has(currentModelId(id)), `${id} must translate to a model the server serves`);
@@ -128,7 +160,7 @@ test("the slider ladder and the plan ceilings are the same length", () => {
   const stops = [...read("options.js").matchAll(/const PLAN_MAX_STOP = \{([^}]*)\}/g)];
   assert.equal(stops.length, 1);
   const maxStop = Math.max(...[...stops[0][1].matchAll(/:\s*(\d+)/g)].map((m) => Number(m[1])));
-  assert.equal(maxStop, ORDERED.length - 1);
+  assert.equal(maxStop, EXT_LADDER.length - 1);
 });
 
 /* ── the Docs annotation requester ────────────────────────────────────────
@@ -270,9 +302,11 @@ test("the model slider names tiers, never models", () => {
   // Nothing in the code has to touch those labels, which is exactly why a
   // provider swap does not reach them — so this test does instead.
   const ticks = [...read("options.html").matchAll(/<span class="tick" data-i="\d+">([^<]+)<\/span>/g)].map((m) => m[1]);
-  assert.equal(ticks.length, Object.keys(MODEL_TIERS).length, "one tick per tier");
+  // One tick per stop of the extension's own ladder (three until 2.20.0
+  // replaces the slider, though the server now has two tiers).
+  assert.equal(ticks.length, EXT_LADDER.length, "one tick per stop");
   for (const tick of ticks) {
-    for (const model of Object.values(MODEL_TIERS)) {
+    for (const model of new Set([...Object.values(MODEL_TIERS), ...EXT_LADDER])) {
       assert.ok(!tick.toLowerCase().includes(model.toLowerCase()), `tick "${tick}" names a model id`);
     }
     for (const vendor of ["haiku", "sonnet", "opus", "gpt", "claude", "gemini"]) {
@@ -327,7 +361,16 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s
 
 test("there is exactly one price table, and it prices every tier", () => {
   assert.equal(LLM_PRICES, SHARED_PRICES, "lib/llm.js must re-export shared/prices.js, not keep its own copy");
-  assert.deepEqual(Object.keys(SHARED_PRICES).sort(), Object.values(MODEL_TIERS).sort());
+  // A superset of the tiers: a retired model keeps its row (gpt-5.6-terra, the
+  // old balanced) so usage recorded before the 2026-09-21 plan policy still
+  // prices. Any row beyond the tiers must be such a retired id, never a model
+  // the server could be talked into running.
+  for (const id of Object.values(MODEL_TIERS)) assert.ok(Object.hasOwn(SHARED_PRICES, id), `${id} is unpriced`);
+  for (const id of Object.keys(SHARED_PRICES)) {
+    assert.ok(ALLOWED_MODELS.has(id) || Object.hasOwn(LEGACY_MODEL_TIER, id), `${id} is priced but is neither a tier nor retired`);
+  }
+  assert.ok(Object.hasOwn(SHARED_PRICES, "gpt-5.6-terra"), "terra's row stays so historical usage prices");
+  assert.ok(!ALLOWED_MODELS.has("gpt-5.6-terra"), "terra is retired: priced, never served");
   // The API echoes dated snapshots back as `model`; the meter must still price them.
   assert.ok(priceFor(`${MODEL_TIERS.fast}-2025-08-07`), "a dated snapshot id must resolve to its family's price");
   assert.equal(priceFor("claude-opus-5"), null, "an unknown model is unpriced, never priced as something else");
