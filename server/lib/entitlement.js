@@ -19,15 +19,25 @@
  * did before any of this existed. That is what `enforced` carries.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { usageCount, usageBump } from "./db.js";
+import { usageCount, usageBump, usageAdd } from "./db.js";
+import { MICRO_CENTS_PER_USD, reserveAccount, reservedAccountMicroCents } from "./spend.js";
 import {
   DEFAULT_PLAN,
   planRank,
   planFromMetadata,
   usageDay,
+  usageMonth,
+  nextUsageDay,
+  nextMonthStart,
   dailySourceSearchLimit,
+  monthlySourceSearchLimit,
   dailyCheckLimit,
   dailyAiLimit,
+  dailyFlowLimit,
+  fairUseLimits,
+  thoroughMonthlyUsd,
+  wantsThorough,
+  THOROUGH_RESERVE_USD,
   withinDailyLimit,
 } from "../shared/plan.js";
 
@@ -184,6 +194,23 @@ export function withBetaGrant(ent, req, env = process.env) {
 const SOURCE_SEARCH_KIND = "source_search";
 const CHECK_KIND = "check";
 const AI_KIND = "ai"; // the desktop's app routes — never shares a count with "check"
+const FLOW_KIND = "flow";
+/* Micro-cent totals, not call counts (usageAdd). Kinds of their own so an
+ * operator summing a pool's "spend_ucents" (lib/spend.js) never adds an
+ * account's spend in twice: the pools are "__global*__" accounts, these are
+ * "user:" / "install:" ones. */
+const ACCOUNT_SPEND_KIND = "account_ucents";
+const THOROUGH_KIND = "thorough_ucents";
+
+/* ── day rows and month rows ──────────────────────────────────────────────
+ * Monthly counters live in the same entitlement_usage table as the daily
+ * ones, under day = "YYYY-MM" (usageMonth) instead of "YYYY-MM-DD" (usageDay).
+ * The column is TEXT and the two shapes can never be equal, so no migration
+ * and no collision. Every reader matches the key EXACTLY (db.js usageCount;
+ * spend.js reads its pools by usageDay) — nothing sums or prunes a range of
+ * days — so a month row is invisible to every daily reader, and vice versa.
+ * Keep it that way: a reader that ever does `day LIKE '2026-09%'` must
+ * exclude the 7-character month keys. */
 
 /**
  * The identity a quota counts against, as a namespaced string.
@@ -269,21 +296,27 @@ function shortHash(v) {
   return createHash("sha256").update(String(v)).digest("hex").slice(0, 32);
 }
 
+/** Whether this caller is metered at all: an enforced server and a key that can carry a quota. */
+function metered(ent, id) {
+  // Unenforced (no Supabase configured) is the local run: meter nothing, the
+  // same answer this server gave before entitlement existed. No key, or an
+  // address-only key: nothing that can carry a quota without locking out a
+  // shared school address — the global budget in lib/spend.js bounds those.
+  return Boolean(ent?.enforced) && isDailyQuotaKey(id);
+}
+
 /**
- * Where an account stands against its daily source-search quota.
- * `limit: null` means unmetered — a paid plan, an anonymous caller, or a
- * server with no Supabase configured.
+ * Where an account stands against one daily quota.
+ * `limit: null` means unmetered — a plan with no limit for this kind, an
+ * anonymous caller, or a server with no Supabase configured.
+ *
+ * The limit is the EFFECTIVE plan's (effectivePlan): a paid account over its
+ * fair-use limit is metered at Free's numbers until the limit resets.
  */
 function dailyQuota(ent, id, kind, limitFor, at) {
   const day = usageDay(at);
-  // Unenforced (no Supabase configured) is the local run: meter nothing, the
-  // same answer this server gave before entitlement existed.
-  if (!ent?.enforced) return { limit: null, used: 0, allowed: true, day };
-  // No key, or an address-only key: nothing that can carry a daily quota
-  // without locking out a shared school address. The global budget in
-  // lib/spend.js is what bounds these callers.
-  if (!id || !isDailyQuotaKey(id)) return { limit: null, used: 0, allowed: true, day };
-  const limit = limitFor(ent.plan);
+  if (!metered(ent, id)) return { limit: null, used: 0, allowed: true, day };
+  const limit = limitFor(effectivePlan(ent, id, at));
   if (limit === null) return { limit: null, used: 0, allowed: true, day };
   const used = usageCount(id, day, kind);
   return { limit, used, allowed: withinDailyLimit(used, limit), day };
@@ -297,14 +330,35 @@ function dailyQuota(ent, id, kind, limitFor, at) {
  * sign-in, anonymous is the DEFAULT path, so on a hosted server that meant
  * unlimited 1-cent web searches to anyone with curl.
  */
+/*
+ * Source searches are limited per day AND per month (SOURCE_LIMITS), and the
+ * extension's /api/sources and the desktop's /api/find-sources draw on this
+ * one count. `limit` / `used` stay the DAY's numbers (the shape every caller
+ * already reads); `monthLimit` / `monthUsed` are the month row's (usageMonth).
+ * `allowed` needs both. `blockedBy` says which ran out — "month" wins when
+ * both have, since it resets later — and `resetsOn` ("YYYY-MM-DD") when.
+ */
 export function sourceSearchQuota(ent, id, at = Date.now()) {
-  return dailyQuota(ent, id, SOURCE_SEARCH_KIND, dailySourceSearchLimit, at);
+  const day = usageDay(at);
+  const month = usageMonth(at);
+  if (!metered(ent, id)) {
+    return { limit: null, used: 0, allowed: true, day, month, monthLimit: null, monthUsed: 0, blockedBy: null, resetsOn: null };
+  }
+  const plan = effectivePlan(ent, id, at);
+  const limit = dailySourceSearchLimit(plan);
+  const monthLimit = monthlySourceSearchLimit(plan);
+  const used = usageCount(id, day, SOURCE_SEARCH_KIND);
+  const monthUsed = usageCount(id, month, SOURCE_SEARCH_KIND);
+  const blockedBy = !withinDailyLimit(monthUsed, monthLimit) ? "month" : !withinDailyLimit(used, limit) ? "day" : null;
+  const resetsOn = blockedBy === "month" ? nextMonthStart(at) : blockedBy === "day" ? nextUsageDay(at) : null;
+  return { limit, used, allowed: blockedBy === null, day, month, monthLimit, monthUsed, blockedBy, resetsOn };
 }
 
-/** Stamped BEFORE the search, like every other counter in this codebase. */
+/** Stamped BEFORE the search, like every other counter here: bumps the day row and the month row, returns the new DAY count. */
 export function recordSourceSearch(ent, id, at = Date.now()) {
   const q = sourceSearchQuota(ent, id, at);
   if (q.limit === null) return 0;
+  usageBump(id, q.month, SOURCE_SEARCH_KIND);
   return usageBump(id, q.day, SOURCE_SEARCH_KIND);
 }
 
@@ -330,4 +384,91 @@ export function recordAi(ent, id, at = Date.now()) {
   const q = aiQuota(ent, id, at);
   if (q.limit === null) return 0;
   return usageBump(id, q.day, AI_KIND);
+}
+
+/* Flow checks (/api/flow), a usage kind of their own (DAILY_FLOW). Metered on
+ * every plan, keyed and gated like checks. The 120 s per-caller floor
+ * (FLOW_MIN_INTERVAL_MS) is a rate limiter in server.js, not a counter here. */
+export function flowQuota(ent, id, at = Date.now()) {
+  return dailyQuota(ent, id, FLOW_KIND, dailyFlowLimit, at);
+}
+
+export function recordFlow(ent, id, at = Date.now()) {
+  const q = flowQuota(ent, id, at);
+  if (q.limit === null) return 0;
+  return usageBump(id, q.day, FLOW_KIND);
+}
+
+// ── per-account spend and the fair-use limit ───────────────────────────
+/* What one caller's model calls cost, in micro-cents, on its day row and its
+ * month row: the input to the fair-use limit (FAIR_USE) and the evidence when
+ * someone asks why their account dropped to Free limits. server.js charges
+ * every call here with the cost recordSpend returned, whichever pool paid.
+ *
+ * Recorded for every key that can carry a quota ("user:" and "install:"), so
+ * the operator can compare real per-account spend with the usage model; the
+ * LIMIT applies only to signed-in paid accounts (effectivePlan). Address keys
+ * and null are not recorded, for the reason they carry no quota. */
+export function accountSpend(id, at = Date.now()) {
+  if (!isDailyQuotaKey(id)) return { dayMicroCents: 0, monthMicroCents: 0, day: usageDay(at), month: usageMonth(at) };
+  const day = usageDay(at);
+  const month = usageMonth(at);
+  return {
+    dayMicroCents: usageCount(id, day, ACCOUNT_SPEND_KIND),
+    monthMicroCents: usageCount(id, month, ACCOUNT_SPEND_KIND),
+    day,
+    month,
+  };
+}
+
+/** Adds one call's cost to the caller's day and month rows; returns the new totals. Nothing is written for a zero cost (an unenforced server's recordSpend returns 0). */
+export function recordAccountSpend(id, microCents, at = Date.now()) {
+  if (!isDailyQuotaKey(id) || !(Number(microCents) > 0)) return accountSpend(id, at);
+  const day = usageDay(at);
+  const month = usageMonth(at);
+  return {
+    dayMicroCents: usageAdd(id, day, ACCOUNT_SPEND_KIND, microCents),
+    monthMicroCents: usageAdd(id, month, ACCOUNT_SPEND_KIND, microCents),
+    day,
+    month,
+  };
+}
+
+/**
+ * Where a caller stands against its fair-use limit:
+ * `{ state, resetsOn, limits, dayMicroCents, monthMicroCents }`.
+ *
+ * `state` is null when no limit applies — an unenforced server, a free plan
+ * (it has quotas instead), a beta tester (the beta pool and
+ * betaWebSearchesPerHour bound them), or a key that carries no quota. Else
+ * "ok", "day" (over today's limit: resets at local midnight) or "month" (over
+ * this month's: resets on the 1st). Month wins when both are over, since it
+ * resets later. `limits` are in micro-cents.
+ */
+export function fairUseState(ent, id, at = Date.now()) {
+  const none = { state: null, resetsOn: null, limits: null, dayMicroCents: 0, monthMicroCents: 0 };
+  if (!metered(ent, id) || ent.beta) return none;
+  const usd = fairUseLimits(ent.plan);
+  if (!usd) return none;
+  const limits = { day: Math.round(usd.day * MICRO_CENTS_PER_USD), month: Math.round(usd.month * MICRO_CENTS_PER_USD) };
+  const { dayMicroCents, monthMicroCents } = accountSpend(id, at);
+  const state = monthMicroCents >= limits.month ? "month" : dayMicroCents >= limits.day ? "day" : "ok";
+  const resetsOn = state === "month" ? nextMonthStart(at) : state === "day" ? nextUsageDay(at) : null;
+  return { state, resetsOn, limits, dayMicroCents, monthMicroCents };
+}
+
+/**
+ * The plan a caller is METERED and ROUTED at right now: `ent.plan`, except
+ * that a paid, non-beta account over its fair-use limit acts as "free" until
+ * the limit resets (midnight for the day's, the 1st for the month's).
+ *
+ * Never a refusal beyond what Free gets, and never a change to the plan
+ * itself — billing, /api/entitlement's `plan` and the account are untouched;
+ * the quotas (checkQuota, sourceSearchQuota, ...) and modelForRoute read this
+ * instead, so Pro's Thorough allowance is off for the same period.
+ */
+export function effectivePlan(ent, id, at = Date.now()) {
+  const plan = ent?.plan ?? DEFAULT_PLAN;
+  const { state } = fairUseState(ent, id, at);
+  return state === "day" || state === "month" ? DEFAULT_PLAN : plan;
 }

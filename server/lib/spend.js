@@ -38,7 +38,7 @@ import { usageDay } from "../shared/plan.js";
 import { SPEND, dailyBudgetUsd } from "../shared/guards.js";
 
 const KIND = "spend_ucents";
-const MICRO_CENTS_PER_USD = 100 * 1e6;
+export const MICRO_CENTS_PER_USD = 100 * 1e6;
 
 /* Four pools, each its own ceiling and its own running total.
  *
