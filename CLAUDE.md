@@ -178,7 +178,9 @@ Read it with the Figma MCP (`get_metadata` on `0:1` to list frames, then
 `#ffb800` for a missing citation, `#d93636` for weak reasoning — read off the
 marks in those frames, with the popover's dot always matching the mark that
 opened it. `PROBLEM_COLOR` in `components/problemCopy.ts` (shared by the
-editor and the overlay, and mirrored in `server/shared/marks.js`) groups all
+editor and the overlay, and mirrored in `server/shared/marks.js` for every
+kind except the desktop-only `off-topic`, which
+`server/test/mirror-contracts.test.js` pins) groups all
 thirteen problem kinds onto those three, plus grey `#9a9ba1` for `searching`,
 because inventing a fourth hue is what produced a purple statistic underline
 and an orange "missing citation" one — the design's two colours, swapped.
@@ -262,10 +264,12 @@ contradicts these in the meantime.
 
 - **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`
   in `src/renderer/src/components/problemCopy.ts`, mirrored by `COLORS` and
-  the kinds table in `server/shared/marks.js`: red `#d93636` = wrong or
+  the kinds table in `server/shared/marks.js` (every kind but the desktop-only
+  `off-topic`): red `#d93636` = wrong or
   invented (contradicted fact, fabricated source); orange `#ff5900` = thin
   evidence or an unverified figure; amber `#ffb800` = add or fix the
-  attribution; blue `#2563eb` = grammar only (`PROSE_ERROR`,
+  attribution (`PROBLEM_COLOR` also draws `overstated-claim` and `off-topic`
+  amber today); blue `#2563eb` = grammar only (`PROSE_ERROR`,
   `DocumentMarkLayer.tsx`); grey dotted `#9a9ba1` = still checking. The
   extension maps onto it — false and incoherent → red, questionable → orange,
   needs_citation → amber — where today its `MARK_COLORS` uses amber, violet
@@ -1156,9 +1160,11 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
     end, once.
   - **The four scholarly indexes were never the wait.** Measured 2026-08-20,
     all four answer one claim in ~700ms because they fan out in parallel. What
-    costs seconds is `findWebSources`, which `aggregator.ts` **awaits inside**
-    the fan-out for any `general`-routed claim — a server call running several
-    site-restricted web searches. Eight of those one after another is where the
+    cost seconds was `findWebSources`, which `aggregator.ts` then **awaited
+    inside** the fan-out for any `general`-routed claim — a server call running
+    several site-restricted web searches. (It has since moved out of the
+    fan-out: it is now a capped fallback that runs only when nothing citable
+    came back — see "Web search is a FALLBACK".) Eight of those one after another is where the
     delay came from, so the fix is concurrency across CLAIMS, not tuning
     providers.
   - Verified in the preview harness with 300ms injected per search: three
