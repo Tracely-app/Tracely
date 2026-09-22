@@ -1031,9 +1031,14 @@
     const FLOW_MIN_CHARS = harness ? 0 : 400; // below this there's no structure to judge
     // Opt-in escape hatch, read once. See the comment at the draw site.
     const FLOW_IN_DOC = lsGet("tracely.flowInDoc") === "1";
-    // Never more than one flow call per 120 s — the server's own floor
-    // (shared/plan.js FLOW_MIN_INTERVAL_MS answers faster callers 429).
-    const FLOW_MIN_INTERVAL = 120_000;
+    /* Never more than one flow call per 125 s. The server's floor is 120 s
+       (shared/plan.js FLOW_MIN_INTERVAL_MS answers faster callers 429), and
+       the 5 s is margin: this clock starts when the request is SENT and the
+       server's starts when it ARRIVES, so two sends exactly 120 s apart land
+       under the floor whenever the second call's latency is lower than the
+       first's. The 429 is swallowed, so the cost of being a hair early is
+       that a structural change waits another whole interval. */
+    const FLOW_MIN_INTERVAL = 125_000;
 
     // Signature of the document's SHAPE: paragraph count plus each one's
     // opening and closing words. Editing inside a sentence doesn't move it;

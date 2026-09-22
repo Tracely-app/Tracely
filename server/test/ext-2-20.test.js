@@ -441,9 +441,9 @@ test("a paragraph added, cut or reordered does change it", () => {
   assert.notEqual(api.flowSignature([paras[0] + " tail end.", paras[1], paras[2]].join("\n\n")), base);
 });
 
-test("the flow floor is the server's 120 s, and the call names the fast model", async () => {
+test("the flow floor clears the server's 120 s, and the call names the fast model", async () => {
   const f = loadFlow({ issues: [{ passage: "p", explanation: "e" }] });
-  assert.equal(f.api.FLOW_MIN_INTERVAL, 120_000, "the server answers a faster caller 429 flow_rate");
+  assert.ok(f.api.FLOW_MIN_INTERVAL > 120_000, "no margin over the server floor: a jittery second call is answered 429 flow_rate");
   f.api.setDoc(DOC);
   await f.api.requestFlow();
   assert.equal(f.calls.length, 1);
@@ -456,7 +456,7 @@ test("the flow floor is the server's 120 s, and the call names the fast model", 
   f.api.setDoc(DOC + "\n\n" + PARA("Delta arrives late"));
   await f.api.requestFlow();
   assert.equal(f.calls.length, 1, "a flow call went out inside the 120 s floor");
-  f.api.setFlowAt(Date.now() - 121_000);
+  f.api.setFlowAt(Date.now() - 126_000);
   await f.api.requestFlow();
   assert.equal(f.calls.length, 2);
   await f.api.requestFlow();
@@ -472,7 +472,7 @@ test("a 429 flow_rate is silent, and the shape is retried an interval later", as
   assert.equal(f.state.statusMsg, "all clear");
   assert.equal(f.state.renders, 0, "a refused flow call repainted the widget");
   assert.equal(f.api.state().flowSig, "", "the shape must stay unanswered so it is retried");
-  f.api.setFlowAt(Date.now() - 121_000);
+  f.api.setFlowAt(Date.now() - 126_000);
   await f.api.requestFlow();
   assert.equal(f.calls.length, 2);
 });
