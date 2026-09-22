@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { usageDay, FLOW_MIN_INTERVAL_MS } from "../shared/plan.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -183,4 +184,43 @@ test("a malformed flow request does not use up the caller's interval", async () 
   const bad = await call("POST", "/api/flow", { install: "floor-bad", body: { text: "" } });
   assert.equal(bad.status, 400);
   assert.equal((await flow("floor-bad-then-good", { install: "floor-bad" })).status, 200);
+});
+
+test("the daily flow quota: Free stops at 40, Student and Pro at 150 — a 429 plan_limit that never reaches the model", async () => {
+  const cases = [["free", 40], ["student", 150], ["pro", 150]];
+  for (const [plan, limit] of cases) {
+    seedToday(`user:u-${plan}-fq-under`, "flow", limit - 1);
+    const under = await flow(`fq-${plan}-under`, { token: `tok-${plan}-fq-under` });
+    assert.equal(under.status, 200, `${plan}: the ${limit}th of the day runs`);
+
+    seedToday(`user:u-${plan}-fq-over`, "flow", limit);
+    const over = await flow(`fq-${plan}-over`, { token: `tok-${plan}-fq-over` });
+    assert.equal(over.status, 429, `${plan}: the ${limit + 1}th is refused`);
+    assert.equal(over.body.error.kind, "plan_limit");
+    assert.equal(over.body.error.message, `You've used today's ${limit} flow checks. They reset at midnight.`);
+    assert.equal(openaiLog(`fq-${plan}-over`).length, 0);
+  }
+});
+
+test("a quota refusal does not use up the interval, and an anonymous install is metered like an account", async () => {
+  const install = "fq-install";
+  const account = `install:${createHash("sha256").update(install).digest("hex").slice(0, 32)}`;
+  seedToday(account, "flow", 40);
+  const refused = await flow("fq-anon-over", { install });
+  assert.equal(refused.body.error?.kind, "plan_limit");
+  seedToday(account, "flow", 39);
+  const next = await flow("fq-anon-next", { install });
+  assert.equal(next.status, 200, "refused by the quota, so the floor was never stamped");
+});
+
+test("flow spend is charged to the caller's fair-use total like every other call", async () => {
+  const token = "tok-pro-flowspend";
+  assert.equal((await flow("spend-flow", { token }, {})).status, 200);
+  const db = new DatabaseSync(path.join(S.dataDir, "tracely.db"));
+  try {
+    const row = db.prepare("SELECT count FROM entitlement_usage WHERE account_id = ? AND day = ? AND kind = 'account_ucents'").get("user:u-pro-flowspend", usageDay());
+    assert.equal(row?.count, 220_000, "5,000 in + 1,000 out on luna = 0.22 cents");
+  } finally {
+    db.close();
+  }
 });
