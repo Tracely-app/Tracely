@@ -2532,6 +2532,19 @@
             popHideTimer = null;
             return;
           }
+          // Straight onto ANOTHER underline: swap to its card now (a short
+          // fade, no slide) instead of waiting out the close timer — which
+          // left a dead gap, and no card at all until the pointer moved again.
+          // Not while pinned: an edit from this card is still settling.
+          const other = popPinned ? null : docsBars.find((b) => b.hash !== popHash && hitOf(b));
+          if (other) {
+            clearTimeout(popHideTimer);
+            popHideTimer = null;
+            const hit = hitOf(other);
+            if (other.flow) showFlowPopover(other, hit, other);
+            else showDocsPopover(other.hash, hit, other);
+            return;
+          }
           if (!popHideTimer) popHideTimer = setTimeout(() => { popHideTimer = null; hideDocsPopover(); }, 250);
           return;
         }
