@@ -1,4 +1,10 @@
 // Self-contained, network-severed edit trial.
+//
+//   node edit-trial.mjs <trial> --doc <url> [--severed]
+//   (or TRACELY_EDIT_DOC_URL=<url>; there is no default Doc — see target.mjs.
+//    The public test Doc is refused unless --severed is passed.)
+//
+// ALWAYS severed, whatever the Doc:
 // 1) in-process CONNECT proxy carries all browser traffic while the Doc loads;
 // 2) sever(): destroys every tunnel and refuses all new ones (irreversible);
 // 3) the cut is PROVED before any trial code runs: canary fetches to Google
@@ -8,15 +14,23 @@
 //    live Doc) — otherwise the run aborts before the trial source is loaded;
 // 4) only THEN are edit events dispatched, so no mutation can leave the machine;
 // 5) browser closed and profile deleted, so queued edits die with it.
-import { chromium, EXE } from "./pw.mjs";
+import { requireEditTarget } from "./target.mjs";
 import http from 'node:http';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Decided before Playwright loads or a browser starts: no Doc, or the public
+// Doc without --severed, exits here.
+const TARGET = requireEditTarget('edit-trial.mjs');
+const { chromium, EXE } = await import('./pw.mjs');
 const DIR = path.dirname(new URL(import.meta.url).pathname);
-const DOC = 'https://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit';
-const TRIAL = process.argv[2] || 'keys';
+const DOC = TARGET.url;
+const TRIAL = TARGET.rest[0] || 'keys';
+if (!/^[a-z0-9]+$/i.test(TRIAL) || !fs.existsSync(path.join(DIR, 'trials', TRIAL + '.js'))) {
+  console.error(`edit-trial.mjs: no trial "${TRIAL}" in trials/`);
+  process.exit(2);
+}
 const PPORT = 9800 + Math.floor(Math.random() * 150);
 
 let blocked = false; let afterBlock = 0; let proxied = 0;

@@ -1,6 +1,7 @@
 // harness.mjs — drive engine.js inside a real Google Doc.
 //
-//   node harness.mjs [docUrl]            (default: $TRACELY_EDIT_DOC_URL, else the public test Doc)
+//   node harness.mjs --doc <url> [--severed]   (or TRACELY_EDIT_DOC_URL; no default — see
+//   target.mjs. The public test Doc is refused unless --severed is passed.)
 //
 // Two modes, chosen by whether the URL is the one YOU provided as editable:
 //
@@ -21,7 +22,11 @@
 //                to what phase A first saw.
 //
 // Screenshots + results.json land in ./out/. Profiles are deleted on exit.
-import { chromium, EXE } from "./pw.mjs";
+import { requireEditTarget, PUBLIC_DOC_URL } from "./target.mjs";
+
+// Decided before Playwright loads or a browser starts.
+const TARGET = requireEditTarget("harness.mjs");
+const { chromium, EXE } = await import("./pw.mjs");
 import http from "node:http";
 import net from "node:net";
 import fs from "node:fs";
@@ -31,10 +36,11 @@ const DIR = path.dirname(new URL(import.meta.url).pathname);
 const OUT = path.join(DIR, "out");
 const SHOTS = path.join(OUT, "shots");
 fs.mkdirSync(SHOTS, { recursive: true });
-const PUBLIC_DOC = "https://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit";
+const PUBLIC_DOC = PUBLIC_DOC_URL;
 const EDIT_ENV = process.env.TRACELY_EDIT_DOC_URL || "";
-const URL_ = process.argv[2] || EDIT_ENV || PUBLIC_DOC;
-const EDITABLE = !!EDIT_ENV && URL_ === EDIT_ENV;
+const URL_ = TARGET.url;
+// Live edits only on a Doc you own, never on one that must be severed.
+const EDITABLE = !TARGET.severed && !TARGET.isPublic;
 const ENGINE = fs.readFileSync(path.join(DIR, "engine.js"), "utf8");
 const MARK = "Zq"; // every test string carries it; phase D asserts none survived
 

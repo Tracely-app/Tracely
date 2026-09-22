@@ -1,7 +1,8 @@
 // hook-trial.mjs — drive the SHIPPED extension/docs-hook.js inside a real Doc,
 // over the exact postMessage protocol content.js uses.
 //
-//   node hook-trial.mjs [docUrl]      (default: the public test Doc)
+//   node hook-trial.mjs --doc <url> [--severed]   (or TRACELY_EDIT_DOC_URL; no default —
+//   see target.mjs. The public test Doc is refused unless --severed is passed.)
 //
 // ALWAYS network-severed before anything but a ping, whatever the URL:
 //   1. docs-hook.js is injected at document_start (as the MAIN-world content
@@ -14,14 +15,18 @@
 //   4. only then is the guard lifted and edits/undos are sent;
 //   5. the browser is closed and its profile deleted, so queued edits die.
 // Afterwards run `node verify.mjs`: the live Doc must be unchanged.
-import { chromium, EXE } from "./pw.mjs";
+import { requireEditTarget } from "./target.mjs";
+
+// Decided before Playwright loads or a browser starts.
+const TARGET = requireEditTarget("hook-trial.mjs");
+const { chromium, EXE } = await import("./pw.mjs");
 import http from "node:http";
 import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 
 const DIR = path.dirname(new URL(import.meta.url).pathname);
-const URL_ = process.argv[2] || "https://docs.google.com/document/d/1J6UBuUcjzmmFmtMhmScUGc4iTRkKv-RFAXGy2U6tWfo/edit";
+const URL_ = TARGET.url;
 const HOOK = fs.readFileSync(path.join(DIR, "..", "..", "docs-hook.js"), "utf8");
 const MARK = "Zq"; // every test string carries it
 
