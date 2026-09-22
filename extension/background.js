@@ -94,6 +94,14 @@ setInterval(probeServer, PROBE_INTERVAL_MS); // ticks while the worker stays ali
    with no screen left that can show or clear it. */
 chrome.storage.local.remove("apiKey");
 
+/* Likewise the retired Faster↔Smarter stop. Nothing has read it since 2.20.0
+   — the server picks the model per route — and what it holds may be an id
+   (`gpt-5.6-terra`) the server no longer serves. Dropping it here, beside the
+   key, is what actually reaches every install: the options page is a screen
+   most people never open, so a cleanup that only runs there leaves the value
+   sitting in storage on almost every 2.19.x upgrade. */
+chrome.storage.local.remove("model");
+
 /* ── accounts (Supabase) ─────────────────────────────────────────────────── */
 
 /* The same Supabase project the desktop app signs into, so one account covers

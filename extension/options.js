@@ -304,11 +304,6 @@ function load() {
    can show or clear it. */
 chrome.storage.local.remove("apiKey");
 
-/* The retired Faster↔Smarter default stop. Nothing reads it since 2.20.0 —
-   the server picks the model — so it is dropped rather than left behind in
-   every existing install's storage. */
-chrome.storage.local.remove("model");
-
 /* ── per-site auto-check list ────────────────────────────────────────────── */
 
 function renderSites(sites) {
