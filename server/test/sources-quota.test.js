@@ -225,6 +225,25 @@ test("an identified caller has its own 25-an-hour window, shared by /api/sources
   assert.equal((await sources("window-other", { token: "tok-pro-window-other" })).status, 200, "another account's hour is its own");
 });
 
+test("fair use: a Pro account past its $2 day searches at Free's 5 a day, and the refusal says why", async () => {
+  const token = "tok-pro-fairsrc";
+  const db = new DatabaseSync(path.join(S.dataDir, "tracely.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 5000;");
+    db.prepare("INSERT INTO entitlement_usage (account_id, day, kind, count, updated_at) VALUES (?, ?, 'account_ucents', ?, ?)")
+      .run("user:u-pro-fairsrc", usageDay(), 200_000_000, Date.now());
+  } finally {
+    db.close();
+  }
+  seed("user:u-pro-fairsrc", usageDay(), 5);
+  const r = await sources("fair-src", { token });
+  assert.equal(r.status, 429);
+  assert.equal(r.body.error.kind, "plan_limit");
+  assert.equal(r.body.error.message, "This account has reached its fair-use limit for today, so it's running at Starter limits until midnight.");
+  const e = await call("GET", "/api/entitlement", { token });
+  assert.deepEqual(e.body.limits.sources, { day: 5, month: 40 });
+});
+
 /* Last: it is the only test that searches as an address-only caller, and the
  * 15-an-hour counter it fills is process-wide. */
 test("the process-wide 15-an-hour counter holds only callers with nothing to key on — identified callers never touch it", async () => {
