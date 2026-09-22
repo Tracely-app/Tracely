@@ -3029,7 +3029,10 @@
         docBusy = false;
       }
       if (!fail) {
-        lastDocEdit = tokens.length && !rollbackOnly ? { key, tokens, onUndone: job.onUndone, label: String(job.doneMsg || "edited in doc") } : null;
+        // Only an edit the hook can take back replaces the Undo. One that
+        // changed nothing (a no-op) or went by the bridge keeps the previous
+        // edit's Undo; one verified blind drops it (no later Undo is safe).
+        if (tokens.length) lastDocEdit = rollbackOnly ? null : { key, tokens, onUndone: job.onUndone, label: String(job.doneMsg || "edited in doc") };
         try { job.onApplied?.(); } catch { /* bookkeeping only */ }
         statusKind = "idle";
         statusMsg = job.doneMsg;
@@ -3148,6 +3151,15 @@
         // Styled reference + " — url" tail: the url tail is what sourcesBlock
         // parses for numbering/dedupe, so it must survive every style.
         steps.push({ action: "appendLine", line: `${num}. ${styled.doc} — ${src.url}` });
+      }
+      if (!steps.length) {
+        // Marker and entry are both in the doc already: nothing to change —
+        // so no "Applied ✓", and the last real edit keeps its Undo.
+        if (st.citedUrl !== src.url) { st.citedUrl = src.url; persistCaches(); }
+        statusKind = "idle";
+        statusMsg = `already cited [${num}] in the doc`;
+        refreshEditViews();
+        return true;
       }
       const prevCited = st.citedUrl ?? null;
       return runDocEdit(`cite:${hash}:${src.url}`, {

@@ -1084,6 +1084,36 @@ test("content.js: an existing Sources entry is reused — only the marker is add
   assert.equal(edits[0].replacement, "The Great Wall is visible from space [2].");
 });
 
+test("content.js: a click that changes nothing neither claims an edit nor wipes the last Undo", async () => {
+  const S = "The Great Wall is visible from space [1].";
+  const F = "Einstein was a basketball player.";
+  const body = `${F} ${S}\nSources:\n1. Wall — https://example.com/wall`;
+  let replaceReply = { ok: true, undoToken: "u1" };
+  const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? replaceReply : undefined), body });
+  await w.probeInDoc();
+  const hf = w.hashText(F), hs = w.hashText(S);
+  w.setDoc(body, [{ ...seg(F), hash: hf }, { ...seg(S, F.length + 1), hash: hs }]);
+  w.cache.set(hf, { verdict: "false", revision: "Einstein was a physicist." });
+  w.cache.set(hs, { verdict: "needs_citation" });
+  w.sourcesMap.set(hs, { loading: false, list: [{ title: "Wall", url: "https://example.com/wall" }], citedUrl: "https://example.com/wall" });
+  assert.equal(await w.docFix(hf), true);
+  assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["u1"]);
+
+  // "Cited ✓" clicked again: the marker and the entry are both there.
+  const before = ops().length;
+  assert.equal(await w.docCite(hs, 0), true);
+  assert.equal(ops().length, before, "nothing sent to the doc");
+  assert.equal(w.state().statusMsg, "already cited [1] in the doc");
+  assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["u1"], "the fix keeps its Undo");
+  assert.equal(w.editView(`cite:${hs}:https://example.com/wall`, "Cited ✓").label, "Cited ✓", "no Applied ✓ for nothing");
+
+  // An edit the hook found already made (a no-op) keeps the Undo too.
+  w.cache.set(hf, { verdict: "false", revision: "Einstein was a physicist." });
+  replaceReply = { ok: true, noop: true };
+  await w.docFix(hf);
+  assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["u1"]);
+});
+
 test("content.js: Add transition pastes the bridge ahead of the passage, and is dismissed only once it landed", async () => {
   const passage = "Rome fell in 476. Its fall reshaped Europe.";
   const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "f1" } : { ok: true }), body: passage });
