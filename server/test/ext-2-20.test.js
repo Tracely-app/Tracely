@@ -380,6 +380,21 @@ test("typing at the end of the document does not change the flow signature", () 
   assert.equal(api.flowSignature(DOC.split(" ").slice(0, -2).join(" ")), base);
 });
 
+test("a growing last paragraph still moves the signature", () => {
+  const { api } = loadFlow();
+  // A draft with no paragraph breaks is the shape that most needs flow
+  // feedback. Its signature must not be frozen by the first 400 characters:
+  // the last paragraph's coarse length bucket has to carry the growth.
+  const ONE = PARA("Alpha starts here", 60);
+  assert.equal(api.flowSignature(ONE + " word60 word61"), api.flowSignature(ONE), "a few words typed re-ran flow");
+  const grown = ONE + " " + Array.from({ length: 60 }, (_, i) => `later${i}`).join(" ");
+  assert.notEqual(api.flowSignature(grown), api.flowSignature(ONE), "a single-paragraph draft can never re-run flow");
+  // The same is true of the last paragraph of a many-paragraph document.
+  const paras = DOC.split("\n\n");
+  const longTail = [...paras.slice(0, -1), paras.at(-1) + " " + Array.from({ length: 60 }, (_, i) => `tail${i}`).join(" ")];
+  assert.notEqual(api.flowSignature(longTail.join("\n\n")), api.flowSignature(DOC));
+});
+
 test("a paragraph added, cut or reordered does change it", () => {
   const { api } = loadFlow();
   const base = api.flowSignature(DOC);

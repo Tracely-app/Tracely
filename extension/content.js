@@ -1010,15 +1010,22 @@
     // Signature of the document's SHAPE: paragraph count plus each one's
     // opening and closing words. Editing inside a sentence doesn't move it;
     // adding, cutting, or reordering a paragraph does.
-    // The LAST paragraph contributes its opening words only: its closing
-    // words are where the writer is typing, and every keystroke at the end
-    // of the document used to count as a new shape and re-run flow.
+    // The LAST paragraph contributes its opening words and a COARSE length
+    // bucket instead of its closing words: that is where the writer is
+    // typing, and every keystroke at the end of the document used to count
+    // as a new shape and re-run flow. The bucket keeps single keystrokes
+    // silent while still moving once a whole block of prose has landed.
+    // Without it, a draft written as ONE paragraph — the shape that most
+    // needs flow feedback — has a signature nothing can ever change, so flow
+    // runs once on its first 400 characters and never again (flowSig is
+    // persisted, so that stays true across reloads).
+    const FLOW_TAIL_WORDS = 50; // words the last paragraph must gain to count as a new shape
     function flowSignature(text) {
       const paras = text.split(/\n{1,}/).map((p) => p.trim()).filter((p) => p.split(/\s+/).length >= 12);
       return paras.length + "|" + paras.map((p, i) => {
         const w = p.split(/\s+/);
-        const open = w.slice(0, 4).join(" ");
-        return i === paras.length - 1 ? open : open + "…" + w.slice(-3).join(" ");
+        const close = i === paras.length - 1 ? "~" + Math.floor(w.length / FLOW_TAIL_WORDS) : w.slice(-3).join(" ");
+        return w.slice(0, 4).join(" ") + "…" + close;
       }).join("¶");
     }
 
