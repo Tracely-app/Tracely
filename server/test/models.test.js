@@ -394,6 +394,11 @@ test("the web app's model picker is the server's tier map, not a copy", () => {
   for (const id of Object.values(MODEL_TIERS)) {
     assert.ok(!code.includes(`"${id}"`), `settings.js hard-codes ${id} — import it instead`);
   }
+  // Every tier it names must still exist: MODEL_FOR_TIER.balanced outlived the
+  // balanced tier and put an option with value "undefined" in the picker.
+  for (const [, tier] of code.matchAll(/MODEL_FOR_TIER\.(\w+)/g)) {
+    assert.ok(TIER_NAMES.includes(tier), `settings.js names MODEL_FOR_TIER.${tier}, which is not a tier`);
+  }
 });
 
 test("the web app's spend meter reads the shared price table", () => {

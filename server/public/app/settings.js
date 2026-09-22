@@ -233,9 +233,10 @@ function ensureStyles() {
    model — the same rule the extension's slider follows. A prefs row saved
    before the 2026-09-21 remap can hold a retired id; currentModelId shows it
    as the tier it means, which is also what the server runs (pickModel). */
+// Two tiers since the 2026-09-21 plan policy: the balanced tier is retired
+// and a saved terra row shows (and runs) as Standard.
 const MODELS = [
-  { id: MODEL_FOR_TIER.fast, label: "Fast" },
-  { id: MODEL_FOR_TIER.balanced, label: "Balanced" },
+  { id: MODEL_FOR_TIER.fast, label: "Standard" },
   { id: MODEL_FOR_TIER.thorough, label: "Thorough" },
 ];
 
@@ -263,7 +264,7 @@ const STRATEGIES = [
 ];
 
 const STRATEGY_HINTS = {
-  smart: "The fast model detects claims, maps structure and runs Tracer; the balanced model judges critique &amp; grading — routine passes run on the cheaper model.",
+  smart: "The standard model — the most accurate checker in our tests — runs checks, detection, structure, grading and Tracer; the thorough model writes critiques.",
   uniform: "Every call uses the model above — simplest to reason about, and the priciest option when that model is Thorough.",
 };
 
