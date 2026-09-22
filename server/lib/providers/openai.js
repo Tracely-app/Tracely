@@ -117,6 +117,18 @@ export const openai = {
     const msg = String(json?.error?.message ?? "");
     const code = String(json?.error?.code ?? "");
     if (status === 401) return new CheckError("no_key", "OpenAI rejected the API key.", { status: 503 });
+    // Out of credit is not a rate limit. OpenAI sends it as a 429 too, and it
+    // used to reach users as "try again shortly" — which stays untrue until
+    // someone adds credit, so every retry failed and nothing said why. It is
+    // our spend ceiling, not the caller's: `budget` is the kind both clients
+    // already treat as final (no retry) and show verbatim. `reason` keeps it
+    // apart from our own daily budget in the failure log and /api/status.
+    const type = String(json?.error?.type ?? "");
+    if (code === "insufficient_quota" || type === "insufficient_quota" || code === "billing_hard_limit_reached") {
+      const e = new CheckError("budget", "Tracely's AI checks are paused while we top up our usage allowance. Please try again a little later.", { status: 503 });
+      e.reason = "out_of_credit";
+      return e;
+    }
     if (status === 429) return new CheckError("rate_limit", "OpenAI rate limit or quota reached — try again shortly.", { status: 429, retryAfter: 30 });
     if (code === "model_not_found" || /does not exist|not found/i.test(msg)) {
       // The most likely failure on day one of a migration, so it says exactly
