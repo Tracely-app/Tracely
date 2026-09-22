@@ -157,6 +157,7 @@
   let tier = { plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false };
   const tierListeners = []; // widget re-renders to run when the tier resolves
   function tierChanged() {
+    forgetDeepLocks();
     for (const fn of tierListeners) { try { fn(); } catch { /* widget torn down */ } }
   }
   let tierResolved = false;
@@ -219,6 +220,142 @@
       });
       tierTimer = setInterval(refreshTier, 5 * 60_000); // matches the worker's entitlement TTL
     } catch { /* harness page: no chrome.* — stays free tier */ }
+  }
+
+  /* ── "Explain in depth" (2.20.0) ─────────────────────────────────────────
+     Pro's Thorough allowance, one flagged sentence at a time: /api/check with
+     deep:true and exactly that sentence runs our largest model while this
+     month's allowance lasts, and the standard model after it — the answer's
+     `thorough.used` says which. Free and Student see the button locked; the
+     server answers them 403 plan_required regardless of what this file shows.
+
+     One answer per sentence per page session: results are cached by the
+     sentence's hash, so re-hovering a card or re-rendering the panel never
+     spends the allowance twice. A failure is not kept, so a retry can run. */
+  const DEEP_PLANS = ["pro"]; // plans with a Thorough allowance (shared/plan.js THOROUGH_MONTHLY_USD)
+  const THOROUGH_MODEL = "gpt-6-astra"; // lib/llm.js MODEL_TIERS.thorough
+  const DEEP_COPY = {
+    button: "Explain in depth",
+    locked: "Thorough explanations come with Pro",
+    seePlans: "See plans →",
+    loading: "Writing a fuller explanation…",
+    label: "In depth",
+    differs: "Our largest model reads this differently:",
+    fallback: "This month's Thorough allowance is used up — this explanation is from the standard model.",
+    failed: "Couldn't get a deeper explanation — try again.",
+  };
+  const DEEP_VERDICT_LABEL = { ...VERDICT_LABEL, accurate: "Looks accurate", no_claim: "No claim to check" };
+  // sentence hash → { state: "loading" | "done" | "locked" | "error", ... }
+  const deepCache = new Map();
+
+  function canDeep() {
+    return tier.unenforced || tier.beta || DEEP_PLANS.includes(tier.plan);
+  }
+  // A lock shown after a click or a 403 belongs to the plan it was shown on.
+  function forgetDeepLocks() {
+    for (const [h, e] of deepCache) if (e.state === "locked") deepCache.delete(h);
+  }
+
+  /* What a card shows for one sentence, as data both renderers draw from:
+     the widget's HTML cards (deepHtml) and the Docs hover card (DOM). */
+  function deepView(hash, verdict) {
+    const e = deepCache.get(hash);
+    if (e?.state === "loading") return { kind: "loading", text: DEEP_COPY.loading };
+    if (e?.state === "done") {
+      const differs = e.verdict !== verdict;
+      return {
+        kind: "result",
+        label: DEEP_COPY.label,
+        prefix: differs && e.fromLargest ? DEEP_COPY.differs : "",
+        verdict: differs ? e.verdict : "",
+        verdictLabel: differs ? DEEP_VERDICT_LABEL[e.verdict] ?? String(e.verdict) : "",
+        text: e.explanation,
+        note: e.fallback ? DEEP_COPY.fallback : "",
+      };
+    }
+    if (e?.state === "locked" || !canDeep()) {
+      return { kind: "locked", label: DEEP_COPY.button, title: DEEP_COPY.locked, note: e?.state === "locked" ? DEEP_COPY.locked : "" };
+    }
+    return { kind: "button", label: DEEP_COPY.button, error: e?.state === "error" ? DEEP_COPY.failed : "" };
+  }
+
+  // A click on the locked button: say why, and never call the server.
+  function lockDeep(hash) { deepCache.set(hash, { state: "locked" }); }
+
+  /* One deep check. `context` is the document or field text (the same
+     context a normal check sends); `verdict` is the card's current verdict.
+     `onChange` repaints whatever shows this sentence — it runs when the
+     loading state starts and again when the answer (or failure) lands. */
+  async function explainInDepth(hash, sentence, context, verdict, onChange) {
+    const cur = deepCache.get(hash);
+    if (cur && cur.state !== "error" && cur.state !== "locked") { onChange(); return; } // cached or in flight
+    if (!canDeep()) { lockDeep(hash); onChange(); return; }
+    deepCache.set(hash, { state: "loading" });
+    onChange();
+    let next;
+    try {
+      const data = await api("/api/check", {
+        text: String(context ?? "").slice(0, MAX_INPUT_CHARS),
+        sentences: [{ id: hash, text: sentence }],
+        deep: true,
+      });
+      const f = (data?.findings ?? []).find((x) => x?.id === hash) ?? data?.findings?.[0];
+      if (!f || typeof f.explanation !== "string" || !f.explanation) throw new Error("no explanation");
+      // `thorough` is the hosted server's; a local one reports modelUsed only.
+      const fromLargest = data.thorough
+        ? data.thorough.used === true
+        : String(data.modelUsed ?? THOROUGH_MODEL).startsWith(THOROUGH_MODEL);
+      next = {
+        state: "done",
+        verdict: typeof f.verdict === "string" ? f.verdict : verdict,
+        explanation: f.explanation,
+        fromLargest,
+        fallback: data.thorough?.used === false,
+      };
+    } catch (err) {
+      next = err?.kind === "plan_required" ? { state: "locked" } : { state: "error" };
+    }
+    deepCache.set(hash, next);
+    onChange();
+  }
+
+  // A verdict's card/badge class suffix (the widget CSS's .c-* / .badge-*).
+  function verdictKind(v) {
+    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" ? "cite" : v === "incoherent" ? "inco" : "ok";
+  }
+
+  // The widget cards' block (docs panel and field mode), from deepView.
+  function deepHtml(hash, verdict) {
+    const v = deepView(hash, verdict);
+    const h = esc(hash);
+    if (v.kind === "loading") {
+      return `<div class="deep deep-loading" data-deep-box="${h}"><span class="deep-spin"></span>${esc(v.text)}</div>`;
+    }
+    if (v.kind === "result") {
+      const kind = v.verdict ? verdictKind(v.verdict) : "";
+      return `<div class="deep" data-deep-box="${h}">
+        <div class="deep-label">${esc(v.label)}</div>
+        ${v.prefix ? `<div class="deep-prefix">${esc(v.prefix)}</div>` : ""}
+        ${v.verdictLabel ? `<span class="badge badge-${kind}">${esc(v.verdictLabel)}</span>` : ""}
+        <div class="deep-text">${esc(v.text)}</div>
+        ${v.note ? `<div class="deep-note">${esc(v.note)}</div>` : ""}
+      </div>`;
+    }
+    if (v.kind === "locked") {
+      return `<div class="deep-row" data-deep-box="${h}">
+        <button class="deep-btn locked" data-deep-locked="${h}" title="${esc(v.title)}" aria-disabled="true">${esc(v.label)}<span class="deep-pro">PRO</span></button>
+        ${v.note ? `<div class="deep-note">${esc(v.note)}. <a href="${ORDER_URL}" target="_blank" rel="noopener noreferrer" data-deep-plans="1">${esc(DEEP_COPY.seePlans)}</a></div>` : ""}
+      </div>`;
+    }
+    return `<div class="deep-row" data-deep-box="${h}">
+      <button class="deep-btn" data-deep="${h}">${esc(v.label)}</button>
+      ${v.error ? `<div class="deep-note err">${esc(v.error)}</div>` : ""}
+    </div>`;
+  }
+  function wireDeep(scope, run, repaint) {
+    for (const b of scope.querySelectorAll("[data-deep]")) b.addEventListener("click", () => run(b.dataset.deep));
+    for (const b of scope.querySelectorAll("[data-deep-locked]")) b.addEventListener("click", () => { lockDeep(b.dataset.deepLocked); repaint(); });
+    for (const a of scope.querySelectorAll("[data-deep-plans]")) a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
   }
 
   /* ── shared helpers (mirror public/app.js) ─────────────────────────────── */
@@ -709,6 +846,25 @@
     .x:hover { color: #0e0e10; }
     .quote { font-style: italic; font-size: 12.5px; color: #8e8e93; border-left: 2px solid rgba(20,16,10,0.1); padding-left: 9px; margin-bottom: 7px; font-weight: 500; }
     .expl { font-size: 12.5px; color: #0e0e10; margin-bottom: 9px; line-height: 1.5; font-weight: 500; }
+    .badge-ok { background: #e7f6ee; color: #1f9d55; }
+    .deep-row { margin: -3px 0 9px; }
+    .deep-btn { background: none; border: none; padding: 0; font-family: ${JAKARTA}; font-size: 11.5px; font-weight: 700; color: #ff7f00; cursor: pointer; }
+    .deep-btn:hover { text-decoration: underline; }
+    .deep-btn.locked { color: #a7a7ac; cursor: not-allowed; }
+    .deep-btn.locked:hover { text-decoration: none; }
+    .deep-pro { display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 8px; background: linear-gradient(150deg, #ff7f00, #f9a35a); color: #fff; font-size: 8px; font-weight: 800; letter-spacing: .6px; vertical-align: 1px; }
+    .deep { background: #fffaf4; border: 1px solid rgba(255,127,0,0.16); border-radius: 12px; padding: 9px 11px; margin-bottom: 9px; }
+    .deep .badge { display: inline-block; margin-bottom: 5px; }
+    .deep-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #ff7f00; margin-bottom: 4px; }
+    .deep-prefix { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+    .deep-text { font-size: 12.5px; line-height: 1.5; font-weight: 500; white-space: pre-line; }
+    .deep-note { font-size: 11px; color: #8e8e93; margin-top: 6px; font-weight: 500; }
+    .deep-note.err { color: #d93636; }
+    .deep-note a { color: #ff7f00; font-weight: 700; text-decoration: none; }
+    .deep-loading { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #8e8e93; font-weight: 600; }
+    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,127,0,0.25); border-top-color: #ff7f00; animation: deepspin .8s linear infinite; flex-shrink: 0; }
+    @keyframes deepspin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     .fix { background: #fdfbf9; border: 1px solid rgba(20,16,10,0.06); border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; }
     .fix-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #1f9d55; margin-bottom: 4px; }
     .fix-text { font-size: 12.5px; margin-bottom: 7px; line-height: 1.5; }
@@ -2079,6 +2235,120 @@
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
 
+    /* The hover card's "Explain in depth" block — the popover twin of
+       deepHtml, inline styles only (it lives in the page DOM). Refilled in
+       place when the answer lands, so the card is never rebuilt. */
+    function renderPopDeep(hash) {
+      if (!popEl || popHash !== hash) return;
+      const box = popEl.querySelector("[data-pop-deep]");
+      const f = cache.get(hash);
+      if (box && f) fillPopDeep(box, hash, f);
+    }
+    function popDeepNote(text, color = "#8e8e93") {
+      const n = document.createElement("div");
+      n.textContent = text;
+      Object.assign(n.style, { fontSize: "11px", color, marginTop: "5px", fontWeight: "500" });
+      return n;
+    }
+    function fillPopDeep(box, hash, f) {
+      const v = deepView(hash, f.verdict);
+      box.textContent = "";
+      box.removeAttribute("style");
+      if (v.kind === "button" || v.kind === "locked") {
+        const locked = v.kind === "locked";
+        const b = document.createElement("button");
+        b.textContent = v.label;
+        Object.assign(b.style, {
+          background: "none", border: "none", padding: "0", fontFamily: "inherit",
+          fontSize: "11.5px", fontWeight: "700", color: locked ? "#a7a7ac" : "#ff7f00",
+          cursor: locked ? "not-allowed" : "pointer",
+        });
+        if (locked) {
+          b.title = v.title;
+          b.setAttribute("aria-disabled", "true");
+          const pro = document.createElement("span");
+          pro.textContent = "PRO";
+          Object.assign(pro.style, {
+            display: "inline-block", marginLeft: "5px", padding: "1px 6px", borderRadius: "8px",
+            background: "linear-gradient(150deg, #ff7f00, #f9a35a)", color: "#fff",
+            fontSize: "8px", fontWeight: "800", letterSpacing: ".6px", verticalAlign: "1px",
+          });
+          b.appendChild(pro);
+          b.addEventListener("click", () => { lockDeep(hash); renderPopDeep(hash); render(); });
+        } else {
+          b.addEventListener("click", () => explainSentence(hash));
+        }
+        box.style.margin = "-3px 0 9px";
+        box.appendChild(b);
+        if (locked && v.note) {
+          const n = popDeepNote(`${v.note}. `);
+          const a = document.createElement("a");
+          a.href = ORDER_URL;
+          a.textContent = DEEP_COPY.seePlans;
+          Object.assign(a.style, { color: "#ff7f00", fontWeight: "700", textDecoration: "none" });
+          a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
+          n.appendChild(a);
+          box.appendChild(n);
+        } else if (v.error) {
+          box.appendChild(popDeepNote(v.error, "#d93636"));
+        }
+        return;
+      }
+      fillPopDeepAnswer(box, v);
+    }
+    // The loading state and the answer, in the same box.
+    function fillPopDeepAnswer(box, v) {
+      if (v.kind === "loading") {
+        Object.assign(box.style, {
+          display: "flex", alignItems: "center", gap: "8px", margin: "-3px 0 9px",
+          fontSize: "11.5px", color: "#8e8e93", fontWeight: "600",
+        });
+        const spin = document.createElement("span");
+        Object.assign(spin.style, {
+          width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0",
+          border: "2px solid rgba(255,127,0,0.25)", borderTopColor: "#ff7f00",
+        });
+        box.appendChild(spin);
+        if (!reducedMotion() && typeof spin.animate === "function") {
+          spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
+        }
+        box.appendChild(document.createTextNode(v.text));
+        return;
+      }
+      Object.assign(box.style, {
+        background: "#fffaf4", border: "1px solid rgba(255,127,0,0.16)",
+        borderRadius: "10px", padding: "8px 10px", marginBottom: "9px",
+      });
+      const label = document.createElement("div");
+      label.textContent = v.label;
+      Object.assign(label.style, {
+        fontSize: "9px", fontWeight: "700", textTransform: "uppercase",
+        letterSpacing: ".8px", color: "#ff7f00", marginBottom: "4px",
+      });
+      box.appendChild(label);
+      if (v.prefix) {
+        const p = document.createElement("div");
+        p.textContent = v.prefix;
+        Object.assign(p.style, { fontSize: "12px", fontWeight: "700", marginBottom: "4px" });
+        box.appendChild(p);
+      }
+      if (v.verdictLabel) {
+        const chip = document.createElement("span");
+        chip.textContent = v.verdictLabel;
+        Object.assign(chip.style, {
+          display: "inline-block", fontSize: "9px", fontWeight: "700", letterSpacing: ".8px",
+          textTransform: "uppercase", padding: "3px 8px", borderRadius: "20px", marginBottom: "5px",
+          background: VERDICT_WASH[v.verdict] ?? "#e7f6ee", color: VERDICT_TEXT[v.verdict] ?? "#1f9d55",
+        });
+        box.appendChild(chip);
+      }
+      const text = document.createElement("div");
+      text.textContent = v.text;
+      Object.assign(text.style, { fontWeight: "500", whiteSpace: "pre-line" });
+      box.appendChild(text);
+      if (v.note) box.appendChild(popDeepNote(v.note));
+    }
+
     function showDocsPopover(hash, rect, anchorBar) {
       console.debug("[tracely] popover open", hash);
       const f = cache.get(hash);
@@ -2114,6 +2384,11 @@
         ex.style.fontWeight = "500";
         popEl.appendChild(ex);
       }
+      // "Explain in depth": filled from deepView now, refilled in place later.
+      const deepBox = document.createElement("div");
+      deepBox.setAttribute("data-pop-deep", "");
+      popEl.appendChild(deepBox);
+      fillPopDeep(deepBox, hash, f);
       if (f.revision) {
         const fix = document.createElement("div");
         Object.assign(fix.style, {
@@ -3233,6 +3508,7 @@
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
+            ${deepHtml(seg.hash, f.verdict)}
             ${f.revision ? `
             <div class="fix">
               <div class="fix-label">Suggested revision</div>
@@ -3289,6 +3565,7 @@
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       if (expanded) {
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        wireDeep(shadow, explainSentence, render);
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -3357,6 +3634,16 @@
           });
         }
       }
+    }
+
+    // "Explain in depth" on one sentence. Repaints the panel, and any open
+    // hover card for it IN PLACE (renderPopDeep) — the card is never rebuilt,
+    // so it neither re-animates nor loses its position.
+    function explainSentence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const f = cache.get(hash);
+      if (!seg || !f) return;
+      explainInDepth(hash, seg.text, docText, f.verdict, () => { render(); renderPopDeep(hash); });
     }
 
     function saveSettings() {
@@ -4023,6 +4310,7 @@
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
+            ${deepHtml(seg.hash, f.verdict)}
             ${f.revision ? `
             <div class="fix">
               <div class="fix-label">Suggested revision</div>
@@ -4081,6 +4369,7 @@
       if (expanded) {
         shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        wireDeep(shadow, explainSentence, render);
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -4123,6 +4412,14 @@
           });
         }
       }
+    }
+
+    // "Explain in depth" on one sentence (render bails while there is no widget).
+    function explainSentence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const f = cache.get(hash);
+      if (!seg || !f) return;
+      explainInDepth(hash, seg.text, fieldText, f.verdict, render);
     }
 
     function saveSettings() {

@@ -435,11 +435,14 @@ test("every model route names the fast model and sends no effort — the server 
   const src = read("content.js");
   assert.match(src, /const CHECK_MODEL = "gpt-5\.6-luna";/);
   const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)"/g)];
-  assert.equal(sites.length, 5, "docs + field /api/check, docs /api/flow, docs + field /api/sources");
+  assert.equal(sites.length, 6, "docs + field /api/check, Explain in depth, docs /api/flow, docs + field /api/sources");
   for (const m of sites) {
     const body = src.slice(m.index, src.indexOf("});", m.index));
-    assert.match(body, /model: CHECK_MODEL/, `${m[1]} at ${m.index}`);
     assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);
+    // Explain in depth names no model at all: the server runs the thorough
+    // one while Pro's allowance lasts (ext-2-20.test.js pins its shape).
+    if (/deep: true/.test(body)) { assert.doesNotMatch(body, /\bmodel\s*:/); continue; }
+    assert.match(body, /model: CHECK_MODEL/, `${m[1]} at ${m.index}`);
   }
 });
 
