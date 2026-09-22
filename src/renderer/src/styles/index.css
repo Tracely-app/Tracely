@@ -2330,6 +2330,16 @@ textarea:disabled {
   margin-top: 2px;
 }
 
+/* Pro's Thorough allowance under the critique model: a thin native meter in
+   the theme's accent, full width of its field. */
+.settings-thorough-meter {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
+
 .settings-toggle-row input[type='checkbox'] {
   width: 18px;
   height: 18px;

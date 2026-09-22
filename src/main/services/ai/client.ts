@@ -107,6 +107,27 @@ async function requestHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
+/**
+ * Pro's Thorough allowance, read off GET /api/entitlement with the same
+ * identity headers as every call. A display value for the Settings meter
+ * only — the server alone decides which model a critique runs on — so any
+ * failure (signed out, offline, an older server without the field) is null.
+ */
+export async function fetchThoroughAllowance(): Promise<{ remainingPct: number; resetsOn: string } | null> {
+  if (!__API_URL__) return null
+  try {
+    const headers = await requestHeaders()
+    delete headers['Content-Type']
+    const response = await fetch(`${__API_URL__}/api/entitlement`, { headers, signal: AbortSignal.timeout(8000) })
+    if (!response.ok) return null
+    const t = ((await response.json()) as { thorough?: { remainingPct?: unknown; resetsOn?: unknown } | null })?.thorough
+    if (!t || typeof t.remainingPct !== 'number' || typeof t.resetsOn !== 'string') return null
+    return { remainingPct: t.remainingPct, resetsOn: t.resetsOn }
+  } catch {
+    return null
+  }
+}
+
 // Derived from callServer rather than repeated. The literal union has to stay
 // spelled out in callServer's own signature because scripts/preflight.mjs reads
 // it from the source to decide which routes to verify against production, and

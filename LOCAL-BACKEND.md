@@ -42,10 +42,10 @@ Model strategy `economy` (default) runs everything on the fast tier,
 `gpt-5.6-luna`, with request caching, incremental per-paragraph detection,
 clamped context, and web search strictly opt-in — **fractions of a cent per
 call** (measured in `eval/models/FINDINGS.md`), with a live token/cost meter. `smart` (the
-balanced tier, `gpt-5.6-terra`, for critique, grading and checks) and
-`uniform` (your pick) are one Settings dropdown away. These strategies apply
-only on a local server; a hosted server ignores the prefs row and runs the
-model each client asks for, clamped to its plan.
+thorough tier, `gpt-6-astra`, for critiques) and `uniform` (your pick) are one
+Settings dropdown away. These strategies apply only on a local server; a
+hosted server ignores the prefs row and picks the model per route itself
+(`server/shared/plan.js` `modelForRoute`).
 
 ## Google Docs write-back (optional, per user)
 

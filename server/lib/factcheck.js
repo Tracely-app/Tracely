@@ -69,24 +69,44 @@ function userPrompt(text, sentences) {
   return `DOCUMENT:\n"""\n${text}\n"""\n\nSENTENCES TO EVALUATE:\n${list}\n\nReturn one finding per id.`;
 }
 
+/* COST: never resend a whole long document as context — the sentences carry
+ * their own text, and a short head (title/thesis) covers reference resolution. */
+function checkContext(text) {
+  return text.length > 6000 ? text.slice(0, 2000) + "\n[… document trimmed for cost — judge sentences on their own text …]" : text;
+}
+
+/* The UTF-8 size of everything one check call sends as input — instructions,
+ * document context, sentences and the output schema — for sizing a hold on
+ * it (server.js thoroughWorstMicroCents). Bytes, not characters: a byte-level
+ * BPE token covers at least one byte, so this bounds the input tokens in any
+ * script, where a character count under-counts CJK roughly 3x. */
+export function checkPromptBytes({ text, sentences }) {
+  const t = typeof text === "string" ? text : "";
+  const list = Array.isArray(sentences) ? sentences : [];
+  return Buffer.byteLength(systemPrompt()) + Buffer.byteLength(userPrompt(checkContext(t), list)) +
+    Buffer.byteLength(JSON.stringify(FINDINGS_SCHEMA));
+}
+
 /* `admitSplit`, when given, is asked before a truncated batch is split into
  * two more calls, and the split happens only if it answers true — the route
  * uses it to hold those calls' worst case against a spend pool (server.js
  * /api/check). Refused, the truncation stands: the check fails as it would
  * for a single sentence, and what the truncated call cost is still recorded. */
-export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null }) {
+/* `maxTokens` overrides the route's output ceiling (16,000) — server.js
+ * passes 2,000 for an "Explain in depth" check on the thorough model, which is
+ * what makes that call's worst case (shared/plan.js THOROUGH_RESERVE_USD) a
+ * bound. Absent, the ceiling is unchanged. */
+export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, maxTokens = undefined }) {
   const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
-  // COST: never resend a whole long document as context — the sentences carry
-  // their own text, and a short head (title/thesis) covers reference resolution.
-  const context = text.length > 6000 ? text.slice(0, 2000) + "\n[… document trimmed for cost — judge sentences on their own text …]" : text;
+  const context = checkContext(text);
   // `effort` used to be destructured here and then dropped, so the slider
   // moved the model and nothing else. undefined falls to lib/llm.js's
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
-  return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit });
+  return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, maxTokens });
 }
 
-async function checkBatch({ text, sentences, model, effort, admitSplit }) {
+async function checkBatch({ text, sentences, model, effort, admitSplit, maxTokens }) {
   let result;
   try {
     result = await structuredCall({
@@ -96,7 +116,7 @@ async function checkBatch({ text, sentences, model, effort, admitSplit }) {
       schema: FINDINGS_SCHEMA,
       effort,
       // Room for a revision per sentence, plus slack for long documents.
-      maxTokens: 16_000,
+      maxTokens: maxTokens ?? 16_000,
       what: "fact check",
       name: "findings",
     });
@@ -107,8 +127,8 @@ async function checkBatch({ text, sentences, model, effort, admitSplit }) {
       const mid = Math.ceil(sentences.length / 2);
       let first = null;
       try {
-        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit });
-        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit });
+        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, maxTokens });
+        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, maxTokens });
         // The truncated attempt was billed too — every output token it was
         // allowed — so its usage (lib/llm.js tags it on the error) is part of
         // what this check cost and of what the route records.

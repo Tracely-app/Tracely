@@ -87,6 +87,7 @@ export const IPC = {
   AUTH_UPDATE_USERNAME: 'auth:updateUsername',
   AUTH_DELETE_ACCOUNT: 'auth:deleteAccount',
   AUTH_GET_PLAN: 'auth:getPlan',
+  AUTH_GET_THOROUGH: 'auth:getThorough',
   SOURCES_FAVICONS: 'sources:favicons'
 } as const
 

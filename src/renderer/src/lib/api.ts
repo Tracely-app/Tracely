@@ -94,6 +94,8 @@ export const tracelyApi = {
   getAuthUser: () => call(window.tracely.auth.getUser()),
   /** The account's plan — see lib/plan.tsx, which is what reads it. */
   getPlan: () => call(window.tracely.auth.getPlan()),
+  /** Pro's Thorough allowance (Settings > Preferences meter); `thorough` is null when unknown. */
+  getThorough: () => call(window.tracely.auth.getThorough()),
   onAuthStateChanged: (cb: Parameters<typeof window.tracely.onAuthStateChanged>[0]) =>
     window.tracely.onAuthStateChanged(cb)
 }

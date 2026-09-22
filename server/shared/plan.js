@@ -72,35 +72,41 @@ export function planFromMetadata(appMetadata) {
 // ceiling; test/models.test.js fails the build if they drift. This file stays
 // a leaf (no imports) so the browser and the tests can both load it, which is
 // why the mirror is pinned by a test rather than by an import.
+//
+// TWO tiers since the plan policy of 2026-09-21 (the decision is summarised in
+// eval/models/FINDINGS.md, "Plan policy"). gpt-5.6-luna was both the most
+// accurate model measured and the cheapest, so it runs every high-volume route
+// on every plan. gpt-5.6-terra ("balanced") lost to luna on both measured tasks
+// at ~8-10x the cost and is retired: its id is a LEGACY id below, and its price
+// row stays in shared/prices.js so historical usage still prices. gpt-6-astra
+// is Pro's "thorough" model, but only where it measured better (the desktop
+// critique and a one-sentence "Explain in depth"), and only out of a capped
+// monthly allowance — see modelForRoute.
 
 /** Cheapest first, like PLANS. */
-export const MODEL_TIERS = ["fast", "balanced", "thorough"];
+export const MODEL_TIERS = ["fast", "thorough"];
 
 export const MODEL_FOR_TIER = {
   fast: "gpt-5.6-luna",
-  balanced: "gpt-5.6-terra",
   thorough: "gpt-6-astra",
 };
 
 export const TIER_FOR_MODEL = {
   "gpt-5.6-luna": "fast",
-  "gpt-5.6-terra": "balanced",
   "gpt-6-astra": "thorough",
 };
 
 /**
  * Retired model ids that clients already in people's hands still send, and
- * the tier each one asked for.
+ * the tier each one now means.
  *
- * The tiers were remapped on 2026-09-21 (eval/models/FINDINGS.md): fast moved
- * off gpt-5-nano and balanced off gpt-5.4. Extension builds up to 2.19.2 —
- * testers' copies and the Web Store build under review — send "gpt-5-nano"
- * from the Fast stop and "gpt-5.4" from Balanced, and desktop builds from
- * before the remap send the same ids from their MODEL_FOR_TIER. None of them
- * can be changed by a server deploy. Without this map both ids are
- * unrecognised and resolve DOWN to fast, which quietly takes a Student's
- * Balanced stop away; with it, an old build keeps the tier it asked for and
- * runs that tier's current model. (Thorough was already "gpt-6-astra".)
+ * Extension builds up to 2.19.2 send "gpt-5-nano" from the Fast stop and
+ * "gpt-5.4" from Balanced; 2.19.3-2.19.5 send "gpt-5.6-terra" from Balanced;
+ * desktop builds send the same ids from their MODEL_FOR_TIER. None of them can
+ * be changed by a server deploy. All three mean FAST now: the tier they asked
+ * for (balanced) no longer exists, and fast was the more accurate model on
+ * every task the eval measured, so "the middle stop" becomes the best checker
+ * rather than a dearer one.
  *
  * These ids only. Every other unrecognised id still resolves down to fast
  * (clampModel), and nothing ever RUNS a retired id: it is translated before
@@ -108,7 +114,8 @@ export const TIER_FOR_MODEL = {
  */
 export const LEGACY_MODEL_TIER = {
   "gpt-5-nano": "fast",
-  "gpt-5.4": "balanced",
+  "gpt-5.4": "fast",
+  "gpt-5.6-terra": "fast",
 };
 
 /** A client's model id with a retired one (LEGACY_MODEL_TIER) translated to its tier's current model; anything else unchanged. */
@@ -117,8 +124,8 @@ export function currentModelId(requested) {
   return MODEL_FOR_TIER[LEGACY_MODEL_TIER[requested]];
 }
 
-/** The best tier each plan may reach. Free never leaves `fast`. */
-export const PLAN_MODEL_CEILING = { free: "fast", student: "balanced", pro: "thorough" };
+/** The best tier each plan may reach. Only Pro reaches thorough, and only on THOROUGH_ROUTES. */
+export const PLAN_MODEL_CEILING = { free: "fast", student: "fast", pro: "thorough" };
 
 export function modelTierRank(tier) {
   const i = MODEL_TIERS.indexOf(tier);
@@ -127,6 +134,12 @@ export function modelTierRank(tier) {
 
 export function ceilingModelFor(plan) {
   return MODEL_FOR_TIER[PLAN_MODEL_CEILING[plan] ?? PLAN_MODEL_CEILING[DEFAULT_PLAN]];
+}
+
+/** The tier a client's model id asks for (retired ids translated), or null when it names no tier. Own keys only. */
+export function requestedTier(requested) {
+  const id = currentModelId(requested);
+  return typeof id === "string" && Object.hasOwn(TIER_FOR_MODEL, id) ? TIER_FOR_MODEL[id] : null;
 }
 
 /**
@@ -149,19 +162,161 @@ export function ceilingModelFor(plan) {
  * A retired id an old client still sends is translated to its tier's current
  * model first (currentModelId), so it is clamped as the tier it asked for.
  * The lookup is own-keys only: "toString" or "constructor" is not a model.
+ *
+ * On a hosted server the routes choose with modelForRoute, which is stricter
+ * (the plan ceiling applies on THOROUGH_ROUTES only); clampModel remains the
+ * rule for the paid pool's fallback and for the desktop mirror's contract.
  */
 export function clampModel(requested, plan) {
   const ceiling = PLAN_MODEL_CEILING[plan] ?? PLAN_MODEL_CEILING[DEFAULT_PLAN];
-  const id = currentModelId(requested);
-  const tier = typeof id === "string" && Object.hasOwn(TIER_FOR_MODEL, id) ? TIER_FOR_MODEL[id] : null;
+  const tier = requestedTier(requested);
   if (!tier) return MODEL_FOR_TIER.fast;
-  return modelTierRank(tier) <= modelTierRank(ceiling) ? id : MODEL_FOR_TIER[ceiling];
+  return modelTierRank(tier) <= modelTierRank(ceiling) ? MODEL_FOR_TIER[tier] : MODEL_FOR_TIER[ceiling];
 }
 
-// ── free-tier metering ─────────────────────────────────────────────────
+// ── the model and effort per route ─────────────────────────────────────
+/* THE SERVER DECIDES, per route. The client's model and effort are NOT a
+ * request on any route except the thorough-eligible ones, and there they only
+ * choose between Pro's thorough and fast. Everything else runs the fast model
+ * at the effort that route was measured (or pinned) at, whatever was sent —
+ * so an old extension's slider, a stale desktop setting, or a curl asking for
+ * gpt-6-astra at effort "high" all get the same answer.
+ *
+ * Route names (server.js maps each HTTP route to one):
+ *   check        /api/check — typing pauses and whole documents   luna medium
+ *   checkDeep    /api/check deep:true, exactly one sentence          astra low / luna medium
+ *                ("Explain in depth", extension 2.20.0)
+ *   flow         /api/flow                                          luna low
+ *   sources      /api/sources                                       luna, NO effort sent
+ *                (the vendor default — what every source search was measured at)
+ *   findSources  /api/find-sources                                  luna low
+ *   detect, structure, tracer, correction                           luna low
+ *   critique     /api/critique                                      astra low / luna low
+ *   grade        /api/grade                                         luna low (see GRADE_ON_THOROUGH)
+ *
+ * luna@medium on /api/check measured 100% (0 harmful verdicts) against 90% at
+ * low; nothing else was measured at medium, so everything else is low (the
+ * lib/llm.js default). astra was measured at low only. */
+export const ROUTES = ["check", "checkDeep", "flow", "sources", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"];
 
-/** What the pricing page promises free accounts: "5 source searches a day". */
-export const FREE_DAILY_SOURCE_SEARCHES = 5;
+/* astra grading was never measured. Flip only if the grade eval shows a gain. */
+export const GRADE_ON_THOROUGH = false;
+
+/** The routes where Pro's thorough model may run — the two places astra measured better. */
+export const THOROUGH_ROUTES = new Set(["checkDeep", "critique", ...(GRADE_ON_THOROUGH ? ["grade"] : [])]);
+
+const ROUTE_EFFORT = { check: "medium", checkDeep: "medium", sources: undefined };
+const DEFAULT_ROUTE_EFFORT = "low";
+const THOROUGH_EFFORT = "low";
+
+/* The output ceiling each thorough call runs under. It is what makes its
+ * worst case (THOROUGH_RESERVE_USD) a bound: astra output is $50 per 1M
+ * tokens, and the routes' own ceilings (16,000) would let one call cost 80
+ * cents of output alone. An explanation is a paragraph; a critique a few. */
+export const THOROUGH_MAX_TOKENS = { checkDeep: 2_000, critique: 4_000 };
+
+/* The FLOOR of what each thorough call reserves against the allowance before
+ * it runs. The hold itself is that call's worst case on gpt-6-astra for ITS
+ * prompt (server.js thoroughWorstMicroCents): the prompt's UTF-8 bytes as
+ * input tokens priced cold ($12.50/1M as cache writes) plus the route's
+ * THOROUGH_MAX_TOKENS at $50/1M. A byte count bounds tokens in any script; a
+ * fixed token guess did not (a deep check with 8,000 characters of CJK is
+ * ~27k bytes, ~44 cents against a flat 15). In English a short deep check
+ * holds its 15-cent floor (~24 cents at the route's limits); a critique's
+ * 14k-byte instructions alone put it at ~39 cents (~48 at the limits). A call runs
+ * on astra only while the allowance minus everything already reserved still
+ * covers its hold, so the allowance cannot be overshot by any input the
+ * routes accept. */
+export const THOROUGH_RESERVE_USD = { checkDeep: 0.15, critique: 0.35, grade: 0.9 };
+
+/** Whether this route, on this plan, with this request, asks for the thorough model (before the allowance is consulted). */
+export function wantsThorough(route, plan, requested) {
+  if (!THOROUGH_ROUTES.has(route)) return false;
+  if ((PLAN_MODEL_CEILING[plan] ?? PLAN_MODEL_CEILING[DEFAULT_PLAN]) !== "thorough") return false;
+  return requestedTier(requested) === "thorough";
+}
+
+/**
+ * The model, effort and output ceiling one call runs at, decided by the
+ * server: `{ model, effort, maxTokens, thorough }`.
+ *
+ * `requested` is the client's model id. It is read ONLY on a thorough route
+ * for a plan that reaches thorough, and there it only picks thorough over
+ * fast — the desktop's Thorough setting (its default), or the extension's
+ * "Explain in depth" (server.js passes the thorough id for deep:true).
+ * `thoroughAvailable` is the allowance's answer (server.js reserves first);
+ * absent means NO, so nothing reaches astra without a reservation behind it.
+ * When it is false the same call runs on fast — never refused.
+ *
+ * `effort` undefined means "send none" (sources); `maxTokens` undefined means
+ * the route's own ceiling.
+ */
+export function modelForRoute(route, plan, { requested, thoroughAvailable = false } = {}) {
+  if (thoroughAvailable && wantsThorough(route, plan, requested)) {
+    return { model: MODEL_FOR_TIER.thorough, effort: THOROUGH_EFFORT, maxTokens: THOROUGH_MAX_TOKENS[route], thorough: true };
+  }
+  const effort = Object.hasOwn(ROUTE_EFFORT, route) ? ROUTE_EFFORT[route] : DEFAULT_ROUTE_EFFORT;
+  return { model: MODEL_FOR_TIER.fast, effort, maxTokens: undefined, thorough: false };
+}
+
+// ── the Thorough allowance and the fair-use limit ──────────────────────
+/* Pro's thorough model comes out of a MONTHLY allowance, at API cost, per
+ * account (`user:<id>`, or `install:<hash>` for an anonymous beta tester).
+ * $1.50 buys about 50 explanations or 28-96 critiques. It resets on the 1st
+ * (UTC, usageMonth). When it cannot cover a call's reservation, that call runs
+ * on the fast model. Shown to people as a percentage, never as dollars. */
+export const THOROUGH_MONTHLY_USD = { pro: 1.5 };
+
+export function thoroughMonthlyUsd(plan) {
+  return THOROUGH_MONTHLY_USD[normalizePlan(plan)] ?? 0;
+}
+
+/* The fair-use limit: all model spend by one signed-in PAID account, per day
+ * (local midnight) and per month (the 1st, UTC). Over either, the account runs
+ * at FREE limits until it resets (lib/entitlement.js effectivePlan) — never a
+ * refusal beyond what Free gets, and the plan and billing are unchanged. Pro's
+ * includes its Thorough allowance. Beta testers have none: the beta pool and
+ * betaWebSearchesPerHour bound them. At regular use a Student spends ~4 cents
+ * a day and a Pro ~9, so these trip only far beyond normal writing. */
+export const FAIR_USE = {
+  student: { day: 1, month: 4 },
+  pro: { day: 2, month: 8 },
+};
+
+/** `{ day, month }` in dollars for a paid plan, or null (free has no fair-use limit — it has quotas). */
+export function fairUseLimits(plan) {
+  return FAIR_USE[normalizePlan(plan)] ?? null;
+}
+
+// ── metering ───────────────────────────────────────────────────────────
+
+/* Source searches per plan, per day and per month. The extension's
+ * /api/sources and the desktop's /api/find-sources draw on ONE count. A search
+ * is ~16x a check (OpenAI bills web_search per call on top of tokens), so this
+ * is the one volume allowance every plan has; Student's 100 a month is always
+ * more than Free's 40. Beta testers get Pro's, keyed on their install id. */
+export const SOURCE_LIMITS = {
+  free: { day: 5, month: 40 },
+  student: { day: 20, month: 100 },
+  pro: { day: 40, month: 250 },
+};
+
+/** What the pricing page promises free accounts: "5 source searches a day (40 a month)". */
+export const FREE_DAILY_SOURCE_SEARCHES = SOURCE_LIMITS.free.day;
+export const FREE_MONTHLY_SOURCE_SEARCHES = SOURCE_LIMITS.free.month;
+
+/* Flow checks (/api/flow) per day, a usage kind of their own. The shipped
+ * extension re-ran flow up to ~72 times an hour while someone typed at the end
+ * of a document (its structure signature includes each paragraph's closing
+ * words), on every plan, unmetered. The server now holds every caller to one
+ * flow call per FLOW_MIN_INTERVAL_MS as well — a 429 the shipped
+ * extension's requestFlow swallows silently. */
+export const DAILY_FLOW = { free: 40, student: 150, pro: 150 };
+export const FLOW_MIN_INTERVAL_MS = 120_000;
+
+export function dailyFlowLimit(plan) {
+  return DAILY_FLOW[normalizePlan(plan)];
+}
 
 /**
  * Checks a free caller may run per day.
@@ -208,24 +363,31 @@ export const FREE_DAILY_CHECKS = 400;
  * Counted under its own usage kind ("ai"), never "check": sharing a kind would
  * let desktop use eat a free extension user's 400 checks.
  *
- * Paid plans are unmetered here, as they are for checks and sources, and
- * bounded instead by the app pool's daily budget. That also fixes the relay's
- * accident: it had no "student" key, so Student paid for a plan and got the
- * free 150. */
+ * Paid plans are unmetered here, as they are for checks, and bounded instead
+ * by their fair-use limit (FAIR_USE) and the app pool's daily budget. That
+ * also fixes the relay's accident: it had no "student" key, so Student paid
+ * for a plan and got the free 150. */
 export const FREE_DAILY_AI_CALLS = 150;
 export function dailyAiLimit(plan) {
   return normalizePlan(plan) === "free" ? FREE_DAILY_AI_CALLS : null;
 }
 
-/** null means "not metered" — a paid plan is bounded by the global budget. */
+/** null means "not metered" — a paid plan is bounded by its fair-use limit and the pools. */
 export function dailyCheckLimit(plan) {
   return normalizePlan(plan) === "free" ? FREE_DAILY_CHECKS : null;
 }
 
-/** null means "not metered" — a paid plan is bounded by the rolling cost guards, not by a quota. */
+/** Source searches a plan may run today. Every plan is metered (SOURCE_LIMITS). */
 export function dailySourceSearchLimit(plan) {
-  return normalizePlan(plan) === "free" ? FREE_DAILY_SOURCE_SEARCHES : null;
+  return SOURCE_LIMITS[normalizePlan(plan)].day;
 }
+
+/** Source searches a plan may run this month (usageMonth). */
+export function monthlySourceSearchLimit(plan) {
+  return SOURCE_LIMITS[normalizePlan(plan)].month;
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
 
 /**
  * The calendar day a usage row belongs to, as `YYYY-MM-DD` in the server's own
@@ -238,8 +400,46 @@ export function dailySourceSearchLimit(plan) {
  */
 export function usageDay(at = Date.now()) {
   const d = new Date(at);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/**
+ * The calendar month a MONTHLY usage row belongs to, as `YYYY-MM` in UTC.
+ *
+ * Monthly counters (source searches, the fair-use limit, the Thorough
+ * allowance) share entitlement_usage with the daily ones: the `day` column is
+ * TEXT, and a `YYYY-MM` key can never equal a `YYYY-MM-DD` one, so no
+ * migration and no collision. Every reader of that table matches the key
+ * exactly (lib/db.js usageCount); nothing sums a range of days.
+ *
+ * UTC, unlike usageDay: a month is a billing-sized period, "resets on the 1st"
+ * is the promise, and hours either side of it change nothing a writer notices.
+ */
+export function usageMonth(at = Date.now()) {
+  const d = new Date(at);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`;
+}
+
+/** The first day of the NEXT usage month, as `YYYY-MM-DD` — when monthly counters reset. */
+export function nextMonthStart(at = Date.now()) {
+  const d = new Date(at);
+  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+  return `${next.getUTCFullYear()}-${pad2(next.getUTCMonth() + 1)}-01`;
+}
+
+/** The NEXT usage day, as `YYYY-MM-DD` — when daily counters reset (local midnight). */
+export function nextUsageDay(at = Date.now()) {
+  const d = new Date(at);
+  return usageDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12).getTime());
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** `YYYY-MM-DD` as people read it in a message: "Oct 1". Anything else is returned as given. */
+export function monthDayLabel(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? ""));
+  if (!m) return String(ymd ?? "");
+  return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}`;
 }
 
 /** Whether one more metered call fits. `limit === null` is unmetered. */

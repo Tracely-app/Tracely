@@ -42,27 +42,34 @@ this section before touching anything that makes a model call.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
   request builders and parsers did not change when it moved.
-- **Models are the server's tier map, gated by plan**: free → `gpt-5.6-luna`,
-  student → `gpt-5.6-terra`, pro → `gpt-6-astra`, chosen by a measured,
-  blind-judged eval (`eval/models/FINDINGS.md`; re-run it before changing a
-  tier or an effort). The ids are copied by hand into
-  `server/shared/plan.js`, `src/shared/plan.ts` (`MODEL_FOR_TIER`) and three
-  extension files; `server/test/models.test.js` fails if any copy drifts. The
-  desktop resolves the user's chosen tier against their plan and sends that
-  model; the server clamps it (`appModelFor`). The ids the tiers used before
-  2026-09-21 (`gpt-5-nano`, `gpt-5.4`) are still SENT by extension <= 2.19.2
-  and older desktops: `shared/plan.js` `LEGACY_MODEL_TIER` / `currentModelId`
-  translate them to their tier's current model — keep that map until no such
-  build is in use. The reverse skew is NOT handled: a 2.19.3+ extension on a
+- **The server picks the model per route** (plan policy of 2026-09-21,
+  `server/shared/plan.js` `modelForRoute`): `gpt-5.6-luna` on every route and
+  every plan — the most accurate and the cheapest model the blind-judged eval
+  measured (`eval/models/FINDINGS.md`; re-run it before changing a tier or an
+  effort) — and `gpt-6-astra` only for Pro's "Explain in depth" (`/api/check`
+  `deep: true`) and desktop critiques, out of a $1.50/month Thorough allowance
+  reserved per call, falling back to luna, never refused. Two tiers, `fast`
+  and `thorough`; `gpt-5.6-terra` (balanced) is retired. The client's model
+  id is read only on those two routes and only picks thorough over fast; the
+  client's effort is never read on a hosted server (check `medium`, sources
+  none, everything else `low`). A local server keeps `pickModel`. The ids are
+  copied by hand into `server/shared/plan.js` and `src/shared/plan.ts`
+  (`MODEL_FOR_TIER`); `server/test/models.test.js` fails if they drift. The
+  extension still ships its three-stop slider (terra on the middle stop)
+  until 2.20.0; `models.test.js` and `mirror-contracts.test.js` pin its ids
+  to ones the server maps. Retired ids (`gpt-5-nano`, `gpt-5.4`,
+  `gpt-5.6-terra`) are still SENT by shipped extensions and desktops:
+  `LEGACY_MODEL_TIER` reads them all as fast — keep that map until no such
+  build is in use; a desktop settings row holding `'balanced'` reads as fast
+  too. Paid plans have no daily check limit but a per-account fair-use limit
+  (Student $1/day $4/month, Pro $2/$8) that drops them to Free's limits;
+  source searches are metered on every plan (5/40, 20/100, 40/250 a
+  day/month). The reverse skew is NOT handled: a 2.19.3+ extension on a
   pre-2026-09-21 server runs `gpt-5-nano` at the Fast stop's `medium` (the
-  eval's slowest config, 40-60 s a check) and ignores the beta header, so
-  deploy the server before any zip from the same change ships, beta
-  included, and never roll it back to an older `app.bak-*` while 2.19.3+
-  is installed (`server/DEPLOY.md`, "The model tiers"). `/api/check` runs
-  each tier at its measured effort (fast `medium`, balanced and thorough
-  `low`) whatever the client sends (`checkEffort` in server.js) — the one
-  route the eval measured, and the store build's Thorough stop sends an
-  unmeasured `medium`.
+  eval's slowest config) and ignores the beta header, so deploy the server
+  before any zip from the same change ships, beta included, and never roll it
+  back to an older `app.bak-*` while 2.19.3+ is installed
+  (`server/DEPLOY.md`, "The model tiers"; limits in `server/BILLING.md`).
 - **Hand-copied logic is mirror-tested.** `server/shared/*` holds leaf ports of
   desktop modules (the splitters, `gradedDraft`, `normalizeCritique`,
   `narrowing`, the owner's `RUBRIC_TEXT`); `server/test/mirror.test.js` runs
@@ -87,8 +94,9 @@ this section before touching anything that makes a model call.
 - **The desktop's routes have their own guard rails and must never share the
   extension's**: `APP_AI_ROUTES` go through `appGate`/`appCall` — their own
   spend pool (`TRACELY_APP_DAILY_BUDGET_USD`), their own per-caller limiter,
-  their own daily quota kind (`ai`: free 150/day, paid unmetered), their own
-  web-search window. Shared, one busy desktop user on the thorough model could
+  their own daily quota kind (`ai`: free 150/day, paid no daily limit but
+  bounded by fair use), their own web-search window (source searches share
+  one per-plan day/month count with the extension's). Shared, one busy desktop user on the thorough model could
   empty the extension's day and 503 every `/api/check`.
   `server/test/boundary.test.js` drives desktop traffic at a real mock server
   and asserts the extension's routes do not move.
@@ -957,7 +965,7 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
 - **Four of the six components are presence checks, and two now have a quality axis.** Owner, 2026-08-19: *"Can these all be 100%? Besides significance and counterargument, it just doesn't make sense."* They could, and it didn't: `thesis` was 20/20 for a thesis-shaped paragraph in the first third, `conclusion` 10/10 for a last paragraph labelled one. `topic-not-thesis` now halves the first (an opening that announces a subject has oriented the reader and claimed nothing) and `restated-conclusion` halves the second, each compounding with the existing positional halving. `summary-without-point` vetoes `statesClaim`, so a paragraph that only relays sources stops counting toward `governingClaims`.
   - **This narrows the saturation; it does not remove it.** The remaining cause is that `warrant` and `governingClaims` are computed from the role vector, and the vector is only as good as whatever produced it. In the editor that is the model's graded read (`/api/grade`, whose paragraph roles replaced the deleted classifier — see below); in Screen Watch it is `roles.ts`, hand-written patterns, where a draft can max `warrant` by writing "therefore" once per paragraph. The lever is the grading PROMPT (`server/lib/prompts/grade.js`), not its existence.
 - **`new-claim-in-conclusion` is gated on `conclusionDrawsOnBody`, and was wrong without it.** It fired on ANY detected claim in the closing paragraph, which is the move a conclusion exists to make: owner, 2026-08-19, *"obviously by the end, it is completely supported by everything above. It is simply creating a claim using the evidence from everything preceding it."* Correct. The finding is only about a claim made of material the draft never introduced, measured as vocabulary overlap with everything above it, at a deliberately low bar (half) — a false positive here tells a student to delete the best sentence in their essay.
-- **Where a critique's money actually goes**, measured 2026-08-19 on the retired relay, from the caps in `costGuard.ts` and its price table (gpt-4.1, $2/$0.50-cached/$8 per 1M; the desktop now runs luna/terra/astra, priced in `server/shared/prices.js`, so re-measure before quoting these shares): system prompt 32% (3,213 tokens, identical every call, so it prefix-caches at a quarter price), **evidence summary 40%**, completion 26%, claim and score 2%. A warm call is ~$0.004; six are ~2.9c.
+- **Where a critique's money actually goes**, measured 2026-08-19 on the retired relay, from the caps in `costGuard.ts` and its price table (gpt-4.1, $2/$0.50-cached/$8 per 1M; the desktop now runs luna, with astra for Pro critiques, priced in `server/shared/prices.js`, so re-measure before quoting these shares): system prompt 32% (3,213 tokens, identical every call, so it prefix-caches at a quarter price), **evidence summary 40%**, completion 26%, claim and score 2%. A warm call is ~$0.004; six are ~2.9c.
   - **The evidence summary is the lever, not the system prompt.** The prompt is the bigger token count and the smaller bill, because it is cached; the evidence is fresh every call.
   - **`searchedSlots` takes `citedHasAbstract` for that reason.** Pass 2.5 tells the model to STOP at slot 1 when the cited source answers — "do not read the other items" — and we were sending three of them anyway at ~225 tokens each. When the resolved work came back with an abstract the client knows the model can answer from it, so one fallback goes instead of three; with no abstract, Pass 2.5's own fall-through condition is already met and the full set goes. ~20% off a cited claim's call, and the request now agrees with the prompt instead of contradicting it. An UNCITED claim is untouched: that list is not a fallback, it is the evidence.
   - **Anything changing what is SENT must change the cache key.** `searchedSlots` is exported precisely so `cacheKey` and the request derive the cut from one place; the abstract flag is now in both.

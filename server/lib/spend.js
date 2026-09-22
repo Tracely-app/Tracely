@@ -38,7 +38,7 @@ import { usageDay } from "../shared/plan.js";
 import { SPEND, dailyBudgetUsd } from "../shared/guards.js";
 
 const KIND = "spend_ucents";
-const MICRO_CENTS_PER_USD = 100 * 1e6;
+export const MICRO_CENTS_PER_USD = 100 * 1e6;
 
 /* Four pools, each its own ceiling and its own running total.
  *
@@ -128,7 +128,42 @@ export function spendState({ enforced = true, at = Date.now(), env = process.env
  * — however many requests arrive at once. In memory on purpose: a
  * reservation lives for one request, and a restart ends every request it
  * could be holding. */
-const held = new Map(); // pool -> micro-cents reserved by calls in flight
+const held = new Map(); // key -> micro-cents reserved by calls in flight
+
+/* Pools are held under their own name; an ACCOUNT's holds (the Thorough
+ * allowance, lib/entitlement.js reserveThorough) under "account:<key>". The
+ * pool names are fixed words, so the two can never collide. */
+const accountHoldKey = (key) => `account:${key}`;
+
+/* One hold against `key`. `room` is asked by `extend` before it grows the
+ * hold (a pool's poolRoom); null means an extension is always taken. */
+function hold(key, microCents, room) {
+  let amount = Math.max(0, Math.round(Number(microCents) || 0));
+  held.set(key, (held.get(key) ?? 0) + amount);
+  let open = true;
+  return {
+    get amount() { return amount; },
+    resize(next) {
+      if (!open) return;
+      const n = Math.max(0, Math.min(amount, Math.round(Number(next) || 0)));
+      held.set(key, Math.max(0, (held.get(key) ?? 0) - amount + n));
+      amount = n;
+    },
+    extend(more, opts = {}) {
+      if (!open || (room && !room(opts))) return false;
+      const n = Math.max(0, Math.round(Number(more) || 0));
+      held.set(key, (held.get(key) ?? 0) + n);
+      amount += n;
+      return true;
+    },
+    release() {
+      if (!open) return;
+      open = false;
+      held.set(key, Math.max(0, (held.get(key) ?? 0) - amount));
+      amount = 0;
+    },
+  };
+}
 
 /** Micro-cents currently reserved by in-flight calls on `pool`. */
 export function reservedMicroCents(pool = "extension") {
@@ -145,31 +180,25 @@ export function reservedMicroCents(pool = "extension") {
  */
 export function reserveSpend(pool, microCents) {
   poolOf(pool);
-  let amount = Math.max(0, Math.round(Number(microCents) || 0));
-  held.set(pool, reservedMicroCents(pool) + amount);
-  let open = true;
-  return {
-    get amount() { return amount; },
-    resize(next) {
-      if (!open) return;
-      const n = Math.max(0, Math.min(amount, Math.round(Number(next) || 0)));
-      held.set(pool, Math.max(0, reservedMicroCents(pool) - amount + n));
-      amount = n;
-    },
-    extend(more, { at = Date.now(), env = process.env } = {}) {
-      if (!open || !poolRoom({ pool, at, env }).room) return false;
-      const n = Math.max(0, Math.round(Number(more) || 0));
-      held.set(pool, reservedMicroCents(pool) + n);
-      amount += n;
-      return true;
-    },
-    release() {
-      if (!open) return;
-      open = false;
-      held.set(pool, Math.max(0, reservedMicroCents(pool) - amount));
-      amount = 0;
-    },
-  };
+  return hold(pool, microCents, ({ at = Date.now(), env = process.env } = {}) => poolRoom({ pool, at, env }).room);
+}
+
+/**
+ * The same hold, against ONE ACCOUNT rather than a pool: `key` is the
+ * account's own id for what is being held ("thorough:user:<id>", "thorough:
+ * install:<hash>"). The caller decides admission (lib/entitlement.js
+ * reserveThorough compares spend plus reservedAccountMicroCents with the
+ * allowance) — a hold only
+ * makes calls already admitted visible to the next admission, so a burst
+ * cannot all be admitted against the same unspent money.
+ */
+export function reserveAccount(key, microCents) {
+  return hold(accountHoldKey(key), microCents, null);
+}
+
+/** Micro-cents currently reserved against one account key (reserveAccount). */
+export function reservedAccountMicroCents(key) {
+  return held.get(accountHoldKey(key)) ?? 0;
 }
 
 /**
@@ -186,12 +215,17 @@ export function poolRoom({ enforced = true, at = Date.now(), env = process.env, 
   return { budget, room: budget.remaining - reservedMicroCents(pool) > 0 };
 }
 
-/** Record what a completed model call cost. Returns the new day total. */
+/**
+ * Record what a completed model call cost into `pool`. Returns THAT CALL'S
+ * cost in micro-cents (0 when unenforced), so the caller can charge the same
+ * amount to the account's fair-use total and its Thorough allowance without
+ * pricing the call twice (server.js recordCall).
+ */
 export function recordSpend({ model, usage, webSearchCalls = 0, enforced = true, at = Date.now(), pool = "extension" }) {
   if (!enforced) return 0;
   const cost = costMicroCents(model, usage, { webSearchCalls });
-  if (cost <= 0) return spentTodayMicroCents(at, pool);
-  return usageAdd(poolOf(pool).account, usageDay(at), KIND, cost);
+  if (cost > 0) usageAdd(poolOf(pool).account, usageDay(at), KIND, cost);
+  return cost;
 }
 
 /** For /api/status and the operator, in human units. */

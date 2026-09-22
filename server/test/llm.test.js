@@ -40,16 +40,16 @@ test.beforeEach(() => {
 
 test("structuredCall sends the Responses API strict json_schema body", async () => {
   const llm = await fresh();
-  const calls = stub(ok({ model: "gpt-5.6-terra", output_text: '{"a":"x"}', usage: { input_tokens: 5, output_tokens: 7, input_tokens_details: { cached_tokens: 2 } } }));
-  const r = await llm.structuredCall({ model: "gpt-5.6-terra", system: "S", user: "U", schema: SCHEMA, maxTokens: 99, what: "w", name: "nm" });
+  const calls = stub(ok({ model: "gpt-6-astra", output_text: '{"a":"x"}', usage: { input_tokens: 5, output_tokens: 7, input_tokens_details: { cached_tokens: 2 } } }));
+  const r = await llm.structuredCall({ model: "gpt-6-astra", system: "S", user: "U", schema: SCHEMA, maxTokens: 99, what: "w", name: "nm" });
   assert.equal(calls[0].url, "https://api.openai.com/v1/responses");
   assert.equal(calls[0].headers.Authorization, "Bearer sk-test");
   assert.deepEqual(calls[0].body, {
-    model: "gpt-5.6-terra", instructions: "S", input: "U", max_output_tokens: 99,
+    model: "gpt-6-astra", instructions: "S", input: "U", max_output_tokens: 99,
     text: { format: { type: "json_schema", name: "nm", schema: SCHEMA, strict: true } },
     reasoning: { effort: "low" },
   });
-  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-5.6-terra", usage: { input: 5, output: 7, cached: 2, cacheWrite: 0 } });
+  assert.deepEqual(r, { parsed: { a: "x" }, model: "gpt-6-astra", usage: { input: 5, output: 7, cached: 2, cacheWrite: 0 } });
 });
 
 test("usage reads cache writes from input_tokens_details.cache_write_tokens, apart from cache reads", async () => {
@@ -124,7 +124,7 @@ test("webSearchCall passes a caller's effort through, normalises junk, and never
   for (const [given, sent] of [["high", "high"], ["medium", "medium"], ["low", "low"], ["turbo", "low"], ["minimal", "low"], [null, undefined], [undefined, undefined]]) {
     const llm = await fresh();
     const calls = stub(ok({ output_text: "t" }));
-    await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 5, what: "s", effort: given });
+    await llm.webSearchCall({ model: "gpt-6-astra", system: "S", user: "q", maxTokens: 5, what: "s", effort: given });
     assert.deepEqual(calls[0].body.reasoning, sent === undefined ? undefined : { effort: sent }, `effort ${JSON.stringify(given)}`);
   }
 });
@@ -151,8 +151,8 @@ test("a web search reports every web_search_call it made — the tool bills per 
   // A failed answer that searched carries the count with its usage.
   llm = await fresh();
   stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: searched("search", "search"), usage: { input_tokens: 10, output_tokens: 6000 } }));
-  const err = await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
-  assert.deepEqual(err.llm, { model: "gpt-5.6-terra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 }, webSearchCalls: 2 });
+  const err = await llm.webSearchCall({ model: "gpt-6-astra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
+  assert.deepEqual(err.llm, { model: "gpt-6-astra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 }, webSearchCalls: 2 });
 });
 
 test("a web search that rejects effort does not switch effort off for that model's structured calls", async () => {
@@ -178,9 +178,9 @@ test("a failure leaving the facade carries the model and effort it was sent at, 
   // the failure: a truncation spends every output token it was allowed.
   let llm = await fresh();
   stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 900, output_tokens: 16000 } }));
-  const truncated = await llm.structuredCall({ model: "gpt-5.6-terra", schema: SCHEMA, what: "w", effort: "high" }).catch((e) => e);
+  const truncated = await llm.structuredCall({ model: "gpt-6-astra", schema: SCHEMA, what: "w", effort: "high" }).catch((e) => e);
   assert.equal(truncated.kind, "truncated");
-  assert.deepEqual(truncated.llm, { model: "gpt-5.6-terra", effort: "high", usage: { input: 900, output: 16000, cached: 0, cacheWrite: 0 } });
+  assert.deepEqual(truncated.llm, { model: "gpt-6-astra", effort: "high", usage: { input: 900, output: 16000, cached: 0, cacheWrite: 0 } });
   assert.ok(!Object.keys(truncated).includes("llm"), "the tag must not be enumerable");
 
   llm = await fresh();
@@ -199,8 +199,8 @@ test("a failure leaving the facade carries the model and effort it was sent at, 
 
   llm = await fresh();
   stub(ok({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 10, output_tokens: 6000 } }));
-  const webTrunc = await llm.webSearchCall({ model: "gpt-5.6-terra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
-  assert.deepEqual(webTrunc.llm, { model: "gpt-5.6-terra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 } });
+  const webTrunc = await llm.webSearchCall({ model: "gpt-6-astra", system: "S", user: "q", maxTokens: 6000, what: "s" }).catch((e) => e);
+  assert.deepEqual(webTrunc.llm, { model: "gpt-6-astra", effort: null, usage: { input: 10, output: 6000, cached: 0, cacheWrite: 0 } });
 
   llm = await fresh();
   stub(new TypeError("fetch failed"));
@@ -323,9 +323,9 @@ test("a model that rejects effort does not switch it off for other models", asyn
     ok({ output_text: '{"a":"2"}' }),
     ok({ output_text: '{"a":"3"}' }),
   );
-  await llm.structuredCall({ model: "gpt-5.6-terra", schema: SCHEMA, what: "w" });      // rejects, retries without
+  await llm.structuredCall({ model: "gpt-6-astra", schema: SCHEMA, what: "w" });      // rejects, retries without
   await llm.structuredCall({ model: "gpt-5.6-luna", schema: SCHEMA, what: "w" });   // different model: effort still sent
-  await llm.structuredCall({ model: "gpt-5.6-terra", schema: SCHEMA, what: "w" });      // the model that rejected: stays off
+  await llm.structuredCall({ model: "gpt-6-astra", schema: SCHEMA, what: "w" });      // the model that rejected: stays off
   assert.equal(calls[1].body.reasoning, undefined);
   assert.deepEqual(calls[2].body.reasoning, { effort: "low" });
   assert.equal(calls[3].body.reasoning, undefined);

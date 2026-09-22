@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import type { Claim, CritiqueVerdict, EvidenceItem } from '@shared/types'
-import type { ServerModel } from '@shared/plan'
+import { servedModel, type ServerModel } from '@shared/plan'
 import { getCached, setCached } from '../storage/cacheRepo'
 import { callServer } from './client'
 import { modelForCall } from './modelTier'
@@ -224,7 +224,7 @@ export async function generateCritique(
     { maxItems: MAX_CRITIQUE_EVIDENCE_ITEMS, maxAbstractChars: MAX_CRITIQUE_ABSTRACT_CHARS }
   )
 
-  const raw = await callServer<CritiqueResult>(
+  const raw = await callServer<CritiqueResult & { model?: unknown }>(
     'critique',
     {
       claimText: claim.text,
@@ -247,6 +247,11 @@ export async function generateCritique(
   const result = normalizeCritique(raw, claim.text, {
     referenceLookupRan: referenceCheck !== null
   })
-  setCached(key, 'ai:critique', result)
+  // Stored under the model the server actually RAN, which on Pro is the fast
+  // one once the month's Thorough allowance is spent. Keyed on the request, a
+  // fast fallback would be served from this cache as a Thorough critique for
+  // its whole lifetime, including after the allowance resets on the 1st.
+  const served = servedModel(raw?.model)
+  setCached(served === model ? key : cacheKey(claim, evidence, referenceCheck, citedWork, served), 'ai:critique', result)
   return { ...result, citedWorkRead: citedWork !== null }
 }

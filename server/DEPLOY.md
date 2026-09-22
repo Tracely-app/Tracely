@@ -121,10 +121,11 @@ them to "simplify" the config.
 it off; an empty value does **not** (it falls back to the built-in default).
 
 **The extension's routes spend three pools, not one.** Hosted `/api/check`,
-`/api/flow` and `/api/sources` run the model the widget's slider asks for,
-clamped to the plan — up to `gpt-6-astra`, 40-50x the fast model per token.
-One Pro user on "Smarter" could empty a shared $10 day in minutes and 503
-every free user, so:
+`/api/flow` and `/api/sources` run luna on every plan (the server decides;
+the widget's slider is ignored), except Pro's "Explain in depth", which may
+run `gpt-6-astra` — 40-50x the fast model per token — out of the account's
+monthly Thorough allowance. Paid and beta spend must still never 503 every
+free user, so:
 
 | pool | who | ceiling | when it is spent |
 |---|---|---|---|
@@ -135,16 +136,18 @@ every free user, so:
 All three follow the same parsing (empty or junk = default, explicit `0` =
 no ceiling). The paid and beta pools admit a call only while their spend
 PLUS the worst case of every call still in flight leaves room: the worst
-case is the route's output ceiling plus its largest input at the plan's top
-model (~$1.10 for a thorough check, every input token priced as a cache
-write, `WORST_CALL` in server.js), shrunk to the
-model actually chosen once the body is read. A check that truncates splits
+case is the route's output ceiling plus its largest input on the fast model
+(~2.5 cents for a check, every input token priced as a cache write,
+`WORST_CALL` in server.js); an "Explain in depth" admitted to the thorough
+model holds its own worst case on top (`admitThorough`: its prompt's bytes
+plus 2,000 output tokens on astra, at least 15 cents), which is
+what bounds a beta tester who rotates install ids to get fresh allowances. A check that truncates splits
 into two more calls, recursively; each split is admitted the same way (two
 more worst cases held, or no split and a `truncated` error). So a burst —
 including one with a rotating install id per request — overshoots by at most
 the last admission (one call, or a split's two), and the number of thorough
-calls those pools run AT ONCE is about the remaining budget ÷ $1.10. Raise
-the ceiling for a bigger team, not the reservation. A call that fails after
+calls those pools run AT ONCE is about the remaining budget ÷ 17.5 cents.
+Raise the ceiling for a bigger team, not the reservation. A call that fails after
 OpenAI billed it (truncated, refused, unparseable) is recorded into its pool
 too, including every call of a split that failed part-way. A source search
 records the web_search fee once per `web_search_call` its answer carried
@@ -253,11 +256,16 @@ the server's list is comma-separated); the script refuses anything else rather
 than build a zip that is silently free. Generate one with
 `openssl rand -base64 24 | tr -d '\n'`.
 
-## The model tiers (remapped 2026-09-21)
+## The model tiers (remapped 2026-09-21, two tiers since the plan policy)
 
-fast `gpt-5.6-luna`, balanced `gpt-5.6-terra`, thorough `gpt-6-astra`
-(`lib/llm.js` MODEL_TIERS), chosen by the eval in `eval/models/FINDINGS.md`.
-Before a deploy that changes a tier, know four things:
+fast `gpt-5.6-luna`, thorough `gpt-6-astra` (`lib/llm.js` MODEL_TIERS),
+chosen by the eval in `eval/models/FINDINGS.md`. The old balanced tier
+(`gpt-5.6-terra`) is retired: it lost to luna on both measured tasks at ~8-10x
+the cost. On a hosted server the SERVER picks model, effort and output ceiling
+per route (`shared/plan.js` `modelForRoute`) — luna on every route and plan,
+astra only for Pro's "Explain in depth" (`/api/check` `deep: true`) and
+desktop critiques, out of a $1.50 monthly allowance. BILLING.md "The plans"
+has the limits. Before a deploy that changes a tier, know these things:
 
 - **Deploy this server BEFORE any extension zip from the same change reaches
   a user**, beta or store, and never roll the server back to a snapshot from
@@ -277,19 +285,28 @@ Before a deploy that changes a tier, know four things:
 
 - **Old clients keep sending the old ids.** Extension <= 2.19.2 (the Web
   Store build under review included) sends `gpt-5-nano` from Fast and
-  `gpt-5.4` from Balanced; older desktops send the same. The server
-  translates them to their tier's current model (`shared/plan.js`
-  `currentModelId`), so a deploy needs no extension release. Nothing runs,
-  prices or logs a retired id.
-- **`/api/check` runs each tier at the one effort the eval measured it at** —
-  fast `medium`, balanced `low`, thorough `low` — whatever the client sends
-  (`checkEffort` in server.js). Extension <= 2.19.2 sends `low` from Fast
-  and `medium` from Thorough; astra at medium was never measured, and before
-  2026-09-21 it never ran (hosted `/api/check` ignored the client's model).
-  Every other route keeps the client's effort or the default (`low`) — and
-  the widgets send an effort on `/api/check` only, so in practice `/api/flow`
-  runs at `low` and `/api/sources` at the vendor's default (medium, as
-  gpt-5.6-luna echoed it in the 2026-09-21 smoke run).
+  `gpt-5.4` from Balanced, 2.19.3-2.19.5 send `gpt-5.6-terra` from Balanced;
+  older desktops send the same. The server reads all three as fast
+  (`shared/plan.js` `LEGACY_MODEL_TIER`), so a deploy needs no extension
+  release, and their Balanced/Thorough stops are cosmetic until 2.20.0.
+  Nothing runs, or logs a retired id; terra keeps its price row only so old
+  usage still prices.
+- **The client's effort is never read on a hosted server.** `/api/check` runs
+  luna at `medium` (100% in the eval, against 90% at low), `/api/sources`
+  sends no effort (the vendor default every search was measured at), and
+  every other route runs at `low`; astra runs at `low`, its only measured
+  level. Shipped extensions sent `medium` or `high`, and on flow, critique,
+  correction, structure and find-sources that used to pass straight through.
+  A local server (unenforced) keeps `pickModel` and `checkEffort` as before.
+- **Shipped extensions re-run flow up to ~72 times an hour** while someone
+  types at the end of a document. The server holds every caller to one
+  `/api/flow` call per 120 s (a 429 their `requestFlow` swallows silently)
+  and a daily flow quota; 2.20.0 fixes the client.
+- **Scale the paid and app pools with subscribers.** A regular Pro user
+  spends about 9 cents a day and a regular Student about 4, so set
+  `TRACELY_PAID_DAILY_BUDGET_USD` and `TRACELY_APP_DAILY_BUDGET_USD` to
+  max(10, 0.15 x paying subscribers); at the defaults they become the binding
+  limit at roughly 110-240 active regular users a day.
 - **Every tier id must be in `shared/prices.js` before it serves traffic**,
   with its `cacheWrite` rate. An unpriced id is billed as the thorough model
   (40-50x luna per token), which would trip the spend cap early; a missing

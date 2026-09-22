@@ -21,14 +21,19 @@ import {
   LEGACY_MODEL_TIER,
   currentModelId,
   dailySourceSearchLimit,
+  monthlySourceSearchLimit,
+  modelForRoute,
+  ROUTES,
   withinDailyLimit,
   usageDay,
   FREE_DAILY_SOURCE_SEARCHES,
 } from "../shared/plan.js";
 
 const HAIKU = MODEL_FOR_TIER.fast;
-const SONNET = MODEL_FOR_TIER.balanced;
 const OPUS = MODEL_FOR_TIER.thorough;
+// The retired balanced tier's id. Clients already in people's hands still send
+// it; since the 2026-09-21 plan policy it means fast (LEGACY_MODEL_TIER).
+const TERRA = "gpt-5.6-terra";
 
 test("normalizePlan: anything unrecognised is free", () => {
   assert.equal(normalizePlan("pro"), "pro");
@@ -76,14 +81,14 @@ test("planFromMetadata: no metadata at all is free", () => {
 
 test("clampModel: a plan never reaches above its ceiling", () => {
   assert.equal(clampModel(OPUS, "free"), HAIKU);
-  assert.equal(clampModel(SONNET, "free"), HAIKU);
-  assert.equal(clampModel(OPUS, "student"), SONNET);
+  assert.equal(clampModel(TERRA, "free"), HAIKU);
+  assert.equal(clampModel(OPUS, "student"), HAIKU, "Student's ceiling is fast since the plan policy");
   assert.equal(clampModel(OPUS, "pro"), OPUS);
 });
 
 test("clampModel: a request below the ceiling is honoured, never upgraded", () => {
   assert.equal(clampModel(HAIKU, "pro"), HAIKU);
-  assert.equal(clampModel(SONNET, "pro"), SONNET);
+  assert.equal(clampModel(TERRA, "pro"), HAIKU, "the retired balanced id is fast, never an upgrade");
   assert.equal(clampModel(HAIKU, "student"), HAIKU);
 });
 
@@ -117,7 +122,9 @@ test("clampModel: every plan's ceiling model is one the clamp round-trips", () =
 
 test("currentModelId: a retired id becomes its tier's CURRENT model", () => {
   assert.equal(currentModelId("gpt-5-nano"), MODEL_FOR_TIER.fast);
-  assert.equal(currentModelId("gpt-5.4"), MODEL_FOR_TIER.balanced);
+  // The balanced tier is retired: both of its old ids now mean fast.
+  assert.equal(currentModelId("gpt-5.4"), MODEL_FOR_TIER.fast);
+  assert.equal(currentModelId(TERRA), MODEL_FOR_TIER.fast);
 });
 
 test("currentModelId: every other value passes through untouched — it grants nothing", () => {
@@ -132,13 +139,16 @@ test("LEGACY_MODEL_TIER: only retired ids, each naming a real tier", () => {
     assert.ok(!(id in TIER_FOR_MODEL), `${id} is a current id, not a retired one`);
     assert.ok(MODEL_FOR_TIER[tier], `${id} names ${tier}, which is not a tier`);
   }
-  assert.deepEqual(Object.keys(LEGACY_MODEL_TIER).sort(), ["gpt-5-nano", "gpt-5.4"]);
+  assert.deepEqual(Object.keys(LEGACY_MODEL_TIER).sort(), ["gpt-5-nano", "gpt-5.4", "gpt-5.6-terra"]);
+  assert.ok(Object.values(LEGACY_MODEL_TIER).every((t) => t === "fast"), "every retired id means fast");
 });
 
 test("clampModel: a retired id is clamped as the tier it asked for", () => {
-  assert.equal(clampModel("gpt-5.4", "pro"), SONNET, "an old Balanced stop keeps balanced");
-  assert.equal(clampModel("gpt-5.4", "student"), SONNET);
-  assert.equal(clampModel("gpt-5.4", "free"), HAIKU, "and never climbs above the plan");
+  // Balanced is retired, so an old Balanced stop (gpt-5.4 or terra) is fast on every plan.
+  for (const plan of PLANS) {
+    assert.equal(clampModel("gpt-5.4", plan), HAIKU, `gpt-5.4 on ${plan}`);
+    assert.equal(clampModel(TERRA, plan), HAIKU, `terra on ${plan}`);
+  }
   assert.equal(clampModel("gpt-5-nano", "pro"), HAIKU, "an old Fast stop stays fast");
   assert.equal(clampModel("gpt-5-nano", "free"), HAIKU);
 });
@@ -151,11 +161,48 @@ test("clampModel: an inherited property name is not a model", () => {
   }
 });
 
-test("dailySourceSearchLimit: only free is metered", () => {
+test("source search limits: every plan is metered, per day and per month", () => {
   assert.equal(dailySourceSearchLimit("free"), FREE_DAILY_SOURCE_SEARCHES);
-  assert.equal(dailySourceSearchLimit("student"), null);
-  assert.equal(dailySourceSearchLimit("pro"), null);
+  assert.equal(dailySourceSearchLimit("free"), 5);
+  assert.equal(dailySourceSearchLimit("student"), 20);
+  assert.equal(dailySourceSearchLimit("pro"), 40);
   assert.equal(dailySourceSearchLimit("nonsense"), FREE_DAILY_SOURCE_SEARCHES); // unknown ⇒ free ⇒ metered
+  assert.equal(monthlySourceSearchLimit("free"), 40);
+  assert.equal(monthlySourceSearchLimit("student"), 100);
+  assert.equal(monthlySourceSearchLimit("pro"), 250);
+  assert.equal(monthlySourceSearchLimit(undefined), 40);
+});
+
+test("modelForRoute: luna everywhere, except Pro's thorough routes when asked for and the allowance admits", () => {
+  // The whole route x plan x requested-id grid. The client's id is read on a
+  // thorough route for Pro only, and only picks thorough over fast.
+  const ids = [HAIKU, TERRA, OPUS, "gpt-5-nano", "gpt-5.4", "junk", undefined];
+  for (const route of ROUTES) {
+    for (const plan of [...PLANS, "nonsense"]) {
+      for (const requested of ids) {
+        for (const thoroughAvailable of [false, true]) {
+          const got = modelForRoute(route, plan, { requested, thoroughAvailable });
+          const astra = plan === "pro" && requested === OPUS && thoroughAvailable && (route === "checkDeep" || route === "critique");
+          const where = `${route}/${plan}/${requested}/${thoroughAvailable}`;
+          assert.equal(got.model, astra ? OPUS : HAIKU, where);
+          assert.equal(got.thorough, astra, where);
+        }
+      }
+    }
+  }
+});
+
+test("modelForRoute: effort and output ceiling per route — the client's effort is never an input", () => {
+  assert.deepEqual(modelForRoute("check", "pro"), { model: HAIKU, effort: "medium", maxTokens: undefined, thorough: false });
+  assert.equal(modelForRoute("checkDeep", "student", { requested: OPUS, thoroughAvailable: true }).effort, "medium");
+  assert.equal(modelForRoute("sources", "pro").effort, undefined, "sources sends no effort, as measured");
+  for (const route of ["flow", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"]) {
+    assert.equal(modelForRoute(route, "pro").effort, "low", route);
+  }
+  assert.deepEqual(modelForRoute("checkDeep", "pro", { requested: OPUS, thoroughAvailable: true }),
+    { model: OPUS, effort: "low", maxTokens: 2000, thorough: true });
+  assert.equal(modelForRoute("critique", "pro", { requested: OPUS, thoroughAvailable: true }).maxTokens, 4000);
+  assert.equal(modelForRoute("critique", "pro", { requested: OPUS }).model, HAIKU, "no reservation, no astra");
 });
 
 test("withinDailyLimit: the limit is a ceiling on the count taken BEFORE the call", () => {

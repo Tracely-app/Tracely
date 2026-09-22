@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { IPC } from '@shared/ipc-channels'
 import { REFERENCE_LEVEL, isGradeLevel } from '@shared/gradeLevel'
-import { MODEL_TIERS, isModelTier } from '@shared/plan'
+import { MODEL_TIERS, isModelTier, normalizeModelTier } from '@shared/plan'
 import type { SettingsScanInstalledAppsResponse, SettingsSetResponse } from '@shared/ipc-contract'
 import type { AccentColor, AppSettings, CitationStyle, Density, FontSize, Theme } from '@shared/types'
 import { scanInstalledApps } from '../services/appScan'
@@ -48,9 +48,16 @@ function buildSettings(): AppSettings {
     // The stored REQUEST, not the tier a call ends up running at — that is
     // resolved against the plan in services/ai/modelTier.ts. Guarded on the way
     // out the same way gradingLevel is, so a row from a future build cannot
-    // reach the renderer as a tier it has no label for.
-    modelTier: isModelTier(raw.modelTier) ? raw.modelTier : 'thorough'
+    // reach the renderer as a tier it has no label for. A row an earlier build
+    // wrote as 'balanced' (the retired middle tier) reads as 'fast', the tier
+    // it now means — not as the 'thorough' default.
+    modelTier: storedModelTier(raw.modelTier)
   }
+}
+
+function storedModelTier(raw: unknown): AppSettings['modelTier'] {
+  const tier = normalizeModelTier(raw)
+  return isModelTier(tier) ? tier : 'thorough'
 }
 
 export function registerSettingsHandlers(): void {

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
-import type { AuthGetPlanResponse, AuthGetUserResponse } from '@shared/ipc-contract'
+import type { AuthGetPlanResponse, AuthGetThoroughResponse, AuthGetUserResponse } from '@shared/ipc-contract'
+import { fetchThoroughAllowance } from '../services/ai/client'
 import { getCurrentUser, isAuthConfigured } from '../services/auth/client'
 import { getCurrentPlan } from '../services/auth/plan'
 
@@ -33,5 +34,10 @@ export function registerAuthHandlers(): void {
   // assumed `free` itself would be a second answer able to disagree with it.
   ipcMain.handle(IPC.AUTH_GET_PLAN, async (): Promise<AuthGetPlanResponse> => {
     return { plan: await getCurrentPlan() }
+  })
+
+  // The Settings meter's numbers (Pro's Thorough allowance). Display only.
+  ipcMain.handle(IPC.AUTH_GET_THOROUGH, async (): Promise<AuthGetThoroughResponse> => {
+    return { thorough: await fetchThoroughAllowance() }
   })
 }

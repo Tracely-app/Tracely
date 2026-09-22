@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runFactCheck, findSources, runFlowCheck, hasApiKey, CheckError } from "./lib/factcheck.js";
+import { runFactCheck, findSources, runFlowCheck, hasApiKey, CheckError, checkPromptBytes } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
 import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
@@ -11,10 +11,14 @@ import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
-         callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens } from "./lib/entitlement.js";
-import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend } from "./lib/spend.js";
+         callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
+         flowQuota, recordFlow, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
+         fairUseState, effectivePlan } from "./lib/entitlement.js";
+import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
-import { clampModel, ceilingModelFor, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS } from "./shared/plan.js";
+import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
+         THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
+         dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
@@ -189,10 +193,13 @@ const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources", "/api/w
  * app routes keep their own accounting (appCall), untouched. */
 const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources"]);
 
-// The desktop's source searches: their own rolling window, per caller. The
-// extension's /api/sources has a process-wide 15/hour counter; sharing it
-// would let desktop traffic 429 every extension user's source search.
-const appSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
+// Source searches by one IDENTIFIED caller ("user:" / "install:") on a hosted
+// server: a rolling hourly window per caller, shared by the desktop's
+// /api/find-sources and the extension's /api/sources — one person, one hour.
+// It sits on top of the pool's global window (webSearchCounter for the
+// extension pool, whatever the caller id, since an install id rotates freely);
+// only the paid pool, which reserves every call, has no global window.
+const callerSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
 const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
   if (!origin || SELF_ORIGINS.has(origin)) return true;
@@ -352,16 +359,23 @@ const critiqueCounter = rollingCounter(60);
 // Decided here, once, so every surface prices identically.
 //   economy (default): the FAST tier for everything — a full essay session
 //     lands in single-digit cents. This is the hard cost mandate.
-//   smart: the fast tier for the frequent mechanical passes, the BALANCED tier
-//     for the two judgment calls (critique, grading).
+//   smart: the fast tier everywhere except the two places the THOROUGH tier
+//     measured better — critique and "Explain in depth" (checkDeep). It used
+//     the balanced tier for critique, grading and checks until 2026-09-22;
+//     that tier is gone, and fast was the more accurate model on every task
+//     the eval measured (shared/plan.js THOROUGH_ROUTES). A correction is
+//     its own task, on fast, as it is hosted — it used to share critique's.
+//     A thorough critique runs under THOROUGH_MAX_TOKENS here too (appCall,
+//     lib/watch.js), so smart's cost profile matches the hosted one.
 //   uniform: the user's chosen model everywhere (they pay for what they pick).
+// LOCAL runs only: a hosted server chooses with shared/plan.js modelForRoute.
 // Read from the tier table rather than written out, so a model rename is one
 // edit in lib/llm.js instead of a hunt through every file that names one.
 const H = MODEL_TIERS.fast;
-const S = MODEL_TIERS.balanced;
+const T = MODEL_TIERS.thorough;
 const TIERS = {
-  economy: { detect: H, structure: H, tracer: H, critique: H, grade: H, sources: H, check: H },
-  smart:   { detect: H, structure: H, tracer: H, critique: S, grade: S, sources: H, check: S },
+  economy: { detect: H, structure: H, tracer: H, critique: H, correction: H, grade: H, sources: H, check: H, checkDeep: H },
+  smart:   { detect: H, structure: H, tracer: H, critique: T, correction: H, grade: H, sources: H, check: H, checkDeep: T },
 };
 function pickModel(task) {
   const p = store.prefs.get();
@@ -399,12 +413,12 @@ function servedModel(requested) {
   return ALLOWED_MODELS.has(id) ? id : MODEL_TIERS.fast;
 }
 
-/* /api/check runs each tier at the ONE effort the eval measured it at,
- * whatever the client sent (eval/models/FINDINGS.md):
+/* LOCAL /api/check runs each tier at the ONE effort the eval measured it at,
+ * whatever the client sent (eval/models/FINDINGS.md) — a hosted server takes
+ * the effort from shared/plan.js modelForRoute, the same numbers:
  *   fast      gpt-5.6-luna   medium — 100% vs 90% at low (0 vs 5 harmful
  *                                     verdicts); builds <= 2.19.2 send "low"
  *                                     from their Fast stop
- *   balanced  gpt-5.6-terra  low
  *   thorough  gpt-6-astra    low    — builds <= 2.19.2 send "medium" from
  *                                     their Thorough stop, a config nobody
  *                                     measured; before 2026-09-21 hosted
@@ -416,7 +430,6 @@ function servedModel(requested) {
  * measured, so everything else keeps the client's effort or the default. */
 const CHECK_EFFORT = {
   [MODEL_TIERS.fast]: "medium",
-  [MODEL_TIERS.balanced]: "low",
   [MODEL_TIERS.thorough]: "low",
 };
 function checkEffort(model, level) {
@@ -548,6 +561,8 @@ const checkRate = keyedRateLimiter(SPEND.callerChecksPerMinute);
 const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
 // The app routes' own limiter — see APP_AI_ROUTES for why it is not checkRate.
 const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
+// One /api/flow call per caller per FLOW_MIN_INTERVAL_MS, on a hosted server.
+const flowRate = keyedRateLimiter(1, FLOW_MIN_INTERVAL_MS);
 
 function stampCallerRate(ent, id, kind) {
   if (!ent.enforced || !id) return;
@@ -642,8 +657,11 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
 
   let pick = null;
   let modelCeiling = null;
+  // The plan the caller HOLDS on this route (Pro for a beta tester), whichever
+  // pool ends up paying: what a plan-only feature ("Explain in depth") is
+  // judged on, so a spent pool degrades it to the fast model, never a 403.
+  const granted = extension ? withBetaGrant(ent, req) : ent;
   if (extension) {
-    const granted = withBetaGrant(ent, req);
     const beta = granted.beta ? poolRoom({ enforced: ent.enforced, pool: "beta" }) : null;
     if (beta?.room) {
       pick = { ent: granted, pool: "beta", budget: beta.budget };
@@ -669,10 +687,15 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
 
   stampCallerRate(pick.ent, id, kind);
 
+  /* The FAST model's worst case, whatever the plan: every extension route
+   * runs it on a hosted server (modelForRoute), and the one call that may run
+   * the thorough model — "Explain in depth" — holds its own worst case on top
+   * before it runs (admitThorough). This used to reserve the plan's ceiling,
+   * ~$1.10 per Pro check, which ran a paid pool dry on reservations alone. */
   const reservation = pick.pool !== "extension" && pick.budget.enforced
-    ? reserveSpend(pick.pool, worstCallMicroCents(route, ceilingModelFor(pick.ent.plan)))
+    ? reserveSpend(pick.pool, worstCallMicroCents(route, MODEL_TIERS.fast))
     : null;
-  return { ent: pick.ent, callerId: id, budget: pick.budget, pool: pick.pool, reservation, modelCeiling };
+  return { ent: pick.ent, holder: granted, callerId: id, budget: pick.budget, pool: pick.pool, reservation, modelCeiling };
 }
 
 /* The model an extension model route runs at: appModelFor's rule (the client's
@@ -684,6 +707,70 @@ function extensionModel(gate, route, model) {
   const chosen = gate.modelCeiling ? clampModel(model, gate.modelCeiling) : model;
   gate.reservation?.resize(worstCallMicroCents(route, chosen));
   return chosen;
+}
+
+/* ── the hosted model policy (shared/plan.js modelForRoute) ─────────────
+ * On a hosted server the SERVER picks model, effort and output ceiling per
+ * route; the client's model id only chooses Pro's thorough model over fast on
+ * a thorough route, and its effort is never read. `plan` is the EFFECTIVE
+ * plan (lib/entitlement.js effectivePlan): an account over its fair-use limit
+ * runs at Free's, so its Thorough allowance is off too. */
+function hostedChoice(route, ent, id, { requested, thoroughAvailable = false } = {}) {
+  return modelForRoute(route, effectivePlan(ent, id), { requested, thoroughAvailable });
+}
+
+/* What one thorough call holds, in micro-cents, against the account's
+ * allowance and, on the beta and paid pools, against the pool as well: its
+ * worst case on the thorough model FOR THIS PROMPT. The input side is the
+ * prompt's UTF-8 size (lib/factcheck.js checkPromptBytes, lib/reasoning.js
+ * critiquePromptBytes) — a byte-level BPE token covers at least one byte, so
+ * B bytes are at most B tokens in any script, where a fixed token guess is
+ * blown ~3x by CJK text — plus a little message framing, priced cold as cache
+ * writes; the output side is the route's ceiling (THOROUGH_MAX_TOKENS, which
+ * counts reasoning tokens too). Never below the route's fixed floor
+ * (THOROUGH_RESERVE_USD), which is all a route without a ceiling holds. */
+const THOROUGH_FRAMING_TOKENS = 256;
+function thoroughWorstMicroCents(route, promptBytes = 0) {
+  const floor = Math.round((THOROUGH_RESERVE_USD[route] ?? 0) * MICRO_CENTS_PER_USD);
+  const maxOut = THOROUGH_MAX_TOKENS[route];
+  if (!maxOut) return floor;
+  const input = Math.max(0, Number(promptBytes) || 0) + THOROUGH_FRAMING_TOKENS;
+  return Math.max(floor, costMicroCents(MODEL_TIERS.thorough, { input, cacheWrite: input, output: maxOut }));
+}
+
+/* Admission to the thorough model for one call: the account's allowance
+ * (reserveThorough), then — when the gate holds a pool reservation — room in
+ * that pool for the thorough worst case too. A beta tester's allowance is
+ * keyed on an install id they can rotate, so the POOL is what bounds a
+ * rotating tester, exactly as it bounds their checks. Not while a paid
+ * caller's pool is spent (modelCeiling: that caller runs fast). Returns the
+ * allowance hold (release it after recording) or null: run on fast. */
+function admitThorough(gate, route, requested, promptBytes = 0) {
+  if (!gate.ent.enforced || gate.modelCeiling) return null;
+  const worst = thoroughWorstMicroCents(route, promptBytes);
+  const hold = reserveThorough(gate.ent, gate.callerId, route, { requested, worstMicroCents: worst });
+  if (!hold) return null;
+  if (gate.reservation && !gate.reservation.extend(worst)) {
+    hold.release();
+    return null;
+  }
+  return hold;
+}
+
+/* Every model call's cost, charged ONCE (recordSpend prices it) to the pool
+ * that paid, the caller's fair-use total, and — on the thorough model — its
+ * Thorough allowance. The failed-but-billed path in the central handler uses
+ * it too, so a call that truncated still counts against both. */
+function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
+  const cost = recordSpend({ model, usage, webSearchCalls, enforced: gate.ent.enforced, pool });
+  recordAccountSpend(gate.callerId, cost);
+  // A request holding a thorough admission makes exactly one call, on the
+  // thorough model. The id is checked too, with a dated snapshot suffix
+  // stripped: the vendor may answer "gpt-6-astra-2026-08-01", and an
+  // exact-match test would let every such call skip the allowance.
+  const base = String(model ?? "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  if (gate.thoroughHold || base === MODEL_TIERS.thorough) recordThorough(gate.callerId, cost);
+  return cost;
 }
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
@@ -701,33 +788,21 @@ async function appGate(req) {
     }
     appRate.stamp(id);
   }
-  return { ent, callerId: id, budget };
+  return { ent, callerId: id, budget, pool: "app" };
 }
 
 /**
- * Which model an app-route call — and, since the beta change, an extension
- * /api/check or /api/sources call — runs at.
+ * The model a call runs at WITHOUT the hosted policy — in practice, a LOCAL
+ * (unenforced) server: pickModel, the server-side tiering over the one prefs
+ * row, exactly as before. Every hosted route chooses with hostedChoice
+ * (shared/plan.js modelForRoute) instead.
  *
- * On a hosted server (enforced) it is what the CLIENT asked for, clamped to
- * the caller's plan: the desktop resolves the user's chosen tier against their
- * plan and sends that model, so a Pro user who picked "fast" gets fast, and
- * nobody gets above their ceiling. A retired id a shipped build still sends
- * is its tier's current model (servedModel); any other unrecognised request
- * resolves DOWN to the fast model, never up (clampModel's rule).
- *
- * It deliberately does NOT read pickModel on a hosted server. pickModel reads
- * ONE global prefs row, which `PUT /api/prefs` lets any caller rewrite with no
- * authentication — and before this, an anonymous caller could set
+ * It never reads pickModel on a hosted server: that row is writable by
+ * `PUT /api/prefs`, and before 2026-09-21 an anonymous caller could set
  * {modelStrategy:"uniform", model:"gpt-6-astra"} and every app route, for
- * everyone, ran the thorough model. Locally (not enforced) there is one user
- * and that row is theirs, so local runs keep pickModel exactly as before.
- *
- * The extension's /api/check and /api/sources used pickModel + allowedModel
- * until 2026-09-21, which on a hosted server meant the global prefs row
- * (economy → the fast model) for everyone: a Pro subscriber's slider changed
- * nothing, and anyone with curl could change the model every extension user
- * got. They now share this rule. /api/flow always honoured the client's model
- * and keeps allowedModel over it (the same clamp when enforced).
+ * everyone, ran the thorough model. The enforced branch below (the client's
+ * request clamped to the plan) is the pre-policy rule, kept as the fallback
+ * for any caller that is not routed through hostedChoice.
  */
 function appModelFor(task, ent, requested) {
   if (!ent.enforced) return pickModel(task);
@@ -744,44 +819,108 @@ function appModelFor(task, ent, requested) {
  * `cache` is { kind, key(model), maxAgeMs, version } or null; the key is built
  * from the RESOLVED model so a Free answer is never served to a Pro request.
  */
+/* ── refusal copy (decision document §7, "Server messages") ─────────────
+ * Every quota refusal keeps kind "plan_limit" and status 429, which shipped
+ * clients already handle; only the words changed. An account over its
+ * fair-use limit is metered at Free's numbers (effectivePlan), so its refusal
+ * says THAT instead of quoting Starter's allowance at a paying user. */
+function fairUseMessage(fu) {
+  const month = fu.state === "month";
+  const until = month ? monthDayLabel(fu.resetsOn) : "midnight";
+  return `This account has reached its fair-use limit for ${month ? "this month" : "today"}, so it's running at Starter limits until ${until}.`;
+}
+function quotaRefusal(ent, id, message) {
+  const fu = fairUseState(ent, id);
+  const text = fu.state === "day" || fu.state === "month" ? fairUseMessage(fu) : message;
+  return new CheckError("plan_limit", text, { status: 429 });
+}
+const checkLimitMessage = (q) =>
+  `Starter includes ${q.limit} checks a day, and today's are used. They reset at midnight — Student and Pro have no daily check limit.`;
+const aiLimitMessage = (q) =>
+  `Starter includes ${q.limit ?? FREE_DAILY_AI_CALLS} AI actions a day, and today's are used. They reset at midnight — Student and Pro have no daily limit.`;
+const flowLimitMessage = (q) => `You've used today's ${q.limit} flow checks. They reset at midnight.`;
+function sourceLimitMessage(q) {
+  if (q.blockedBy === "month") {
+    return `You've used this month's ${q.monthLimit} source searches. They reset on ${monthDayLabel(q.resetsOn)}. Checking still works.`;
+  }
+  return `You've used today's ${q.limit} source searches. They reset at midnight.`;
+}
+
 const AI_QUOTA = {
   check: aiQuota,
   record: recordAi,
-  refused: () => new CheckError(
-    "plan_limit",
-    `Free accounts get ${FREE_DAILY_AI_CALLS} AI checks a day, and today's ${FREE_DAILY_AI_CALLS} are used. It resets at midnight — or upgrade for unlimited checks.`,
-    { status: 429 },
-  ),
+  refused: (q, ent, id) => quotaRefusal(ent, id, aiLimitMessage(q)),
 };
-// find-sources draws on the SAME daily source allowance as the extension's
-// /api/sources: one plan, one allowance, whichever surface spends it.
+// find-sources draws on the SAME source allowance (day AND month) as the
+// extension's /api/sources: one plan, one allowance, whichever surface spends it.
 const SOURCE_QUOTA = {
   check: sourceSearchQuota,
   record: recordSourceSearch,
-  refused: (q) => new CheckError(
-    "plan_limit",
-    `Free accounts get ${q.limit} source searches a day, and today's ${q.limit} are used. It resets at midnight — or upgrade for unlimited searches.`,
-    { status: 429 },
-  ),
+  refused: (q, ent, id) => quotaRefusal(ent, id, sourceLimitMessage(q)),
 };
 
 /* `webSearchCalls` is a count, or a function of the result for a route whose
- * answer says how many searches it made (find-sources, searchFee). */
-async function appCall(gate, { task, requested, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, run }) {
-  const model = appModelFor(task, gate.ent, requested);
-  const key = cache ? cache.key(model) : null;
+ * answer says how many searches it made (find-sources, searchFee).
+ *
+ * `route` is the policy route a HOSTED server chooses on (shared/plan.js
+ * ROUTES, via hostedChoice); `task` is the local tiering's (pickModel), and
+ * `effort` the client's, read on a LOCAL server only — hosted, the server
+ * decides both model and effort. `run(model, effort, maxTokens)`; the cache
+ * key is `key(model, effort)`, so an answer is never served across either.
+ *
+ * On a thorough route (critique) the allowance is reserved BEFORE the cache is
+ * read, because the key is the model that would run. The hold rides on the
+ * gate and the central handler releases it in its `finally`, after a failed
+ * call's billed cost is charged — so no admission can see the allowance with
+ * that cost neither held nor spent. */
+async function appCall(gate, { task, route = task, requested, effort = undefined, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, promptBytes = 0, run }) {
+  const hosted = gate.ent.enforced;
+  const hold = hosted ? admitThorough(gate, route, requested, promptBytes) : null;
+  if (hold) gate.thoroughHold = hold;
+  // Local: pickModel, the client's effort, and — on the thorough model, on a
+  // route that has one — the same output ceiling as hosted (a 16,000-token
+  // astra critique is 80 cents of output on the user's own key).
+  const localModel = hosted ? null : appModelFor(task, gate.ent, requested);
+  const choice = hosted
+    ? hostedChoice(route, gate.ent, gate.callerId, { requested, thoroughAvailable: Boolean(hold) })
+    : { model: localModel, effort, maxTokens: localModel === MODEL_TIERS.thorough ? THOROUGH_MAX_TOKENS[route] : undefined };
+  const { model } = choice;
+  const key = cache ? cache.key(model, choice.effort) : null;
   if (cache && !MOCK) {
     const hit = cacheGet(cache.kind, key, { maxAgeMs: cache.maxAgeMs, version: cache.version ?? 1 });
     if (hit) return hit;
   }
   const quota = meter.check(gate.ent, gate.callerId);
-  if (!quota.allowed) throw meter.refused(quota);
+  if (!quota.allowed) throw meter.refused(quota, gate.ent, gate.callerId);
   meter.record(gate.ent, gate.callerId);
-  const result = await run(model);
+  const result = await run(model, choice.effort, choice.maxTokens);
   const searches = typeof webSearchCalls === "function" ? webSearchCalls(result) : webSearchCalls;
-  recordSpend({ model: result?.model ?? model, usage: result?.usage, webSearchCalls: searches, enforced: gate.ent.enforced, pool: "app" });
+  chargeCall(gate, { model: result?.model ?? model, usage: result?.usage, webSearchCalls: searches, pool: "app" });
   if (cache && !MOCK) cacheSet(cache.kind, key, result, { version: cache.version ?? 1 });
   return result;
+}
+
+/* /api/entitlement's OPTIONAL fields (hosted only — a local server meters
+ * nothing, so it reports none): the limits the caller is metered at right now
+ * (the EFFECTIVE plan's; null = no daily limit), today's and this month's
+ * source searches, Pro's Thorough allowance as a whole percent (never
+ * dollars), and the fair-use state when one applies. Old clients ignore them. */
+function entitlementDetails(ent, id) {
+  const plan = effectivePlan(ent, id);
+  const q = sourceSearchQuota(ent, id);
+  const t = thoroughState(ent, id);
+  const fu = fairUseState(ent, id);
+  return {
+    limits: {
+      checksPerDay: dailyCheckLimit(plan),
+      aiActionsPerDay: dailyAiLimit(plan),
+      flowPerDay: dailyFlowLimit(plan),
+      sources: { day: dailySourceSearchLimit(plan), month: monthlySourceSearchLimit(plan) },
+    },
+    usage: { sources: { today: q.used, month: q.monthUsed } },
+    ...(t.allowanceMicroCents > 0 ? { thorough: { remainingPct: t.remainingPct, resetsOn: t.resetsOn, ...(t.suspended ? { suspended: true } : {}) } } : {}),
+    ...(fu.state ? { fairUse: { state: fu.state, resetsOn: fu.resetsOn } } : {}),
+  };
 }
 
 function requireKey() {
@@ -903,7 +1042,10 @@ const server = http.createServer(async (req, res) => {
       // to an account by EMAIL, which is wrong exactly when it matters most:
       // a student paying with a parent's card. Not a disclosure — the caller
       // presented that user's own token, and the id is inside it.
-      json(res, 200, { plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}) }, cors);
+      json(res, 200, {
+        plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}),
+        ...(ent.enforced ? entitlementDetails(ent, callerId(req, ent)) : {}),
+      }, cors);
       return;
     }
 
@@ -931,7 +1073,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { text, sentences, model, effort } = (await parseJsonBody(req)) ?? {};
+      const { text, sentences, model, effort, deep: deepFlag } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || text.length > 30_000) {
         throw new CheckError("bad_request", "text must be a string of at most 30,000 characters");
       }
@@ -944,33 +1086,60 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      /* "Explain in depth" (extension 2.20.0): `deep: true` on ONE sentence.
+       * Pro's (and a beta tester's) — judged on the plan the caller HOLDS
+       * (gate.holder), so a spent pool or a fair-use period runs it on the
+       * fast model rather than refusing it. Only `true` counts: an old build
+       * never sends the field. */
+      const deep = deepFlag === true;
+      if (deep && sentences.length !== 1) {
+        throw new CheckError("bad_request", "deep needs exactly one sentence");
+      }
+      if (deep && gate.ent.enforced && planRank(gate.holder.plan) < planRank("pro")) {
+        throw new CheckError("plan_required", "Explain in depth comes with Pro.", { status: 403 });
+      }
+
       const started = Date.now();
-      // Hosted (enforced): the widget's slider owns the model — what the
-      // client asked for if it is a model we serve (a retired id an old
-      // build sends counts as its tier, servedModel), else the fast tier — and
-      // the plan (Pro for a beta caller, see spendGate) owns the ceiling; a
-      // paid caller whose pool is spent runs the fast tier (extensionModel).
-      // Local (unenforced): server-side tiering (pickModel) still decides,
-      // exactly as before. appModelFor holds both rules.
+      // Hosted (enforced): the SERVER decides (modelForRoute) — the fast
+      // model at medium for every check, whatever the client's slider sent;
+      // for "Explain in depth", the thorough model at low under a 2,000-token
+      // ceiling while the caller's Thorough allowance covers its 15-cent
+      // worst case (admitThorough), else the fast model at medium. Never
+      // refused for the allowance. Local (unenforced): server-side tiering
+      // (pickModel) and the measured effort per tier, exactly as before.
       const { ent, callerId: who } = gate;
       const quota = checkQuota(ent, who);
-      if (!quota.allowed) {
-        throw new CheckError(
-          "plan_limit",
-          `Free accounts get ${quota.limit} checks a day, and today's are used. It resets at midnight — or upgrade for unlimited checking.`,
-          { status: 429 },
-        );
-      }
+      if (!quota.allowed) throw quotaRefusal(ent, who, checkLimitMessage(quota));
       recordCheck(ent, who); // before the call, not after
-      const modelUsed = extensionModel(gate, "/api/check", appModelFor("check", ent, model));
-      const level = checkEffort(modelUsed, normalizeEffort(effort));
+      let modelUsed, level, maxTokens;
+      if (ent.enforced) {
+        const hold = deep ? admitThorough(gate, "checkDeep", MODEL_TIERS.thorough, checkPromptBytes({ text, sentences })) : null;
+        if (hold) gate.thoroughHold = hold;
+        const choice = hostedChoice(deep ? "checkDeep" : "check", ent, who, { requested: MODEL_TIERS.thorough, thoroughAvailable: Boolean(hold) });
+        // extensionModel shrinks the pool hold to the model chosen — never on
+        // a thorough call, whose hold admitThorough has just grown.
+        modelUsed = hold ? choice.model : extensionModel(gate, "/api/check", choice.model);
+        ({ effort: level, maxTokens } = choice);
+      } else {
+        modelUsed = extensionModel(gate, "/api/check", appModelFor(deep ? "checkDeep" : "check", ent, model));
+        level = checkEffort(modelUsed, normalizeEffort(effort));
+        maxTokens = deep && modelUsed === MODEL_TIERS.thorough ? THOROUGH_MAX_TOKENS.checkDeep : undefined;
+      }
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFactCheck({
-        text, sentences, model: modelUsed, effort: level, mock: MOCK,
+        text, sentences, model: modelUsed, effort: level, mock: MOCK, maxTokens,
         admitSplit: () => admitSplitCalls(gate, "/api/check", modelUsed),
       });
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
-      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
+      // `thorough` (optional, deep only, hosted): whether this answer came from
+      // the thorough model, and the allowance left — a whole percent, never
+      // dollars — as the meter shows it.
+      let thorough;
+      if (deep && ent.enforced) {
+        const t = thoroughState(gate.holder, who);
+        thorough = { used: modelUsed === MODEL_TIERS.thorough, remainingPct: t.remainingPct, resetsOn: t.resetsOn };
+      }
+      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
       return;
     }
 
@@ -992,45 +1161,52 @@ const server = http.createServer(async (req, res) => {
         throw new CheckError("bad_request", "context must be a string of at most 6000 characters");
       }
 
-      // The beta pool's searches count against a window of their own, so a
-      // tester can never take the hour store users share (and store traffic
-      // never takes the testers').
-      const searchCounter = gate.pool === "beta" ? betaWebSearchCounter : webSearchCounter;
-      if (!searchCounter.ok()) {
+      /* Hourly windows, before the quota. An IDENTIFIED caller on a hosted
+       * server ("user:" / "install:") gets a window of its own
+       * (callerSearchRate, shared with the desktop's /api/find-sources), ON
+       * TOP of a global window for the pool that pays:
+       *   - extension pool: the process-wide 15/hour counter, for EVERY
+       *     caller. An install id is the client's to rotate, and this pool
+       *     holds no reservation (spendState sees only spend already on
+       *     disk), so this counter is the only bound on a burst of fresh ids;
+       *   - beta pool: its own global window, for the same reason;
+       *   - paid pool: none — every call reserves its worst case first, so
+       *     the pool itself is the bound, and its callers are paying accounts.
+       * A local server keeps the global counter, as before. */
+      const { ent, callerId: who } = gate;
+      const perCaller = ent.enforced && isDailyQuotaKey(who);
+      const globalCounter = gate.pool === "beta" ? betaWebSearchCounter : gate.pool === "paid" ? null : webSearchCounter;
+      if (globalCounter && !globalCounter.ok()) {
         throw new CheckError("rate_limit", "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       }
-
-      // The free tier's daily quota, on top of the cost guard above and the
-      // global budget in spendGate. Keyed on callerId rather than ent.userId,
-      // which is what used to leave every anonymous caller unmetered — and
-      // anonymous is the DEFAULT, since the extension needs no sign-in.
-      const { ent, callerId: who } = gate;
-      const quota = sourceSearchQuota(ent, who);
-      if (!quota.allowed) {
-        throw new CheckError(
-          "plan_limit",
-          `Free accounts get ${quota.limit} source searches a day, and today's ${quota.limit} are used. It resets at midnight — or upgrade for unlimited searches.`,
-          { status: 429 },
-        );
+      if (perCaller && !callerSearchRate.ok(who)) {
+        throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
       }
+
+      // The day AND month source quota (SOURCE_LIMITS, at the effective
+      // plan), one count with the desktop's /api/find-sources. Keyed on
+      // callerId, so an anonymous extension user is metered too.
+      const quota = sourceSearchQuota(ent, who);
+      if (!quota.allowed) throw quotaRefusal(ent, who, sourceLimitMessage(quota));
       recordSourceSearch(ent, who); // before the call, not after
 
-      searchCounter.stamp(); // before the call, not after
+      globalCounter?.stamp(); // before the call, not after
+      if (perCaller) callerSearchRate.stamp(who);
       const started = Date.now();
-      // Same model rule as /api/check (appModelFor). The effort is the
-      // client's when it sent one (normalised), and otherwise NONE — the
-      // vendor's default, which is what every source search ran at before and
-      // what the store build, which sends no effort here, still gets. Lowering
-      // that default wants a measurement on this prompt first (lib/llm.js).
-      const modelUsed = extensionModel(gate, "/api/sources", appModelFor("sources", ent, model));
-      const level = effort == null ? undefined : normalizeEffort(effort);
+      // Hosted: the fast model with NO effort sent (modelForRoute "sources") —
+      // the vendor default every source search was measured at; the client's
+      // model and effort are not read. Local: pickModel, and the client's
+      // effort when it sent one (normalised), as before.
+      const choice = ent.enforced ? hostedChoice("sources", ent, who) : null;
+      const modelUsed = extensionModel(gate, "/api/sources", choice ? choice.model : appModelFor("sources", ent, model));
+      const level = choice ? choice.effort : effort == null ? undefined : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const { webSearchCalls, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
       // search more than once per answer, so the calls are counted.
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), enforced: ent.enforced, pool: gate.pool });
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -1046,19 +1222,33 @@ const server = http.createServer(async (req, res) => {
       const { text, model, effort } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
       if (text.length > GUARDS.maxInputChars) throw new CheckError("bad_request", "text too long");
+      /* Hosted: at most ONE flow call per caller per FLOW_MIN_INTERVAL_MS
+       * (120 s) — a 429 "flow_rate" that shipped extensions (which re-ran flow
+       * every 45 s while someone typed at the end of a document) swallow in
+       * requestFlow's empty catch — and the daily flow quota (DAILY_FLOW, at
+       * the effective plan). Stamped after the body is valid, before the call.
+       * Every key counts, address keys included: this is a rate limit, not a
+       * daily quota, and the extension always sends its install id. */
+      const { ent, callerId: who } = gate;
+      if (ent.enforced && who) {
+        if (!flowRate.ok(who)) {
+          throw new CheckError("flow_rate", "Flow feedback refreshes every couple of minutes — try again shortly.", { status: 429, retryAfter: Math.ceil(FLOW_MIN_INTERVAL_MS / 1000) });
+        }
+        const quota = flowQuota(ent, who);
+        if (!quota.allowed) throw quotaRefusal(ent, who, flowLimitMessage(quota));
+        flowRate.stamp(who);
+        recordFlow(ent, who); // before the call, not after
+      }
       const started = Date.now();
-      // The only route that ever honoured the client's model directly, which
-      // makes it the one the clamp matters most on. An unrecognised model is
-      // resolved to the fast tier HERE rather than inside runFlowCheck, so
-      // `modelUsed` reports what actually ran instead of echoing the request
-      // back on a local server. Its effort used to be dropped here, so a flow
-      // check ran at the default whatever the slider said.
-      const { ent } = gate;
-      const modelUsed = extensionModel(gate, "/api/flow", allowedModel(ent, servedModel(model)));
-      const level = normalizeEffort(effort);
+      // Hosted: the fast model at low, PINNED (modelForRoute "flow") — the
+      // client's model and effort are not read. Local: the client's model as
+      // one this server serves (servedModel) and its effort, as before.
+      const choice = ent.enforced ? hostedChoice("flow", ent, who) : null;
+      const modelUsed = extensionModel(gate, "/api/flow", choice ? choice.model : allowedModel(ent, servedModel(model)));
+      const level = choice ? choice.effort : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFlowCheck({ text, model: modelUsed, effort: level, mock: MOCK });
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
@@ -1084,11 +1274,12 @@ const server = http.createServer(async (req, res) => {
       const result = await appCall(gate, {
         task: "detect",
         requested,
+        effort,
         cache: {
           kind: "detect", version: 2, maxAgeMs: 24 * 3600_000,
-          key: (model) => hashKey(`${raw !== null ? "draft" : "text"}|${model}|${effort ?? ""}|${raw ?? numbered}`),
+          key: (model, level) => hashKey(`${raw !== null ? "draft" : "text"}|${model}|${level ?? ""}|${raw ?? numbered}`),
         },
-        run: async (model) => {
+        run: async (model, effort) => {
           if (numbered !== null) return reasoning.detectClaims({ text: numbered, model, effort });
           const r = await reasoning.detectClaimsInDraft({ draft: raw, model, effort });
           // The web app keys dismissal and merge state on an id salted with the
@@ -1155,13 +1346,16 @@ const server = http.createServer(async (req, res) => {
       const result = await appCall(gate, {
         task: "critique",
         requested: body.model,
+        effort: body.effort,
+        // What the thorough hold is sized from (thoroughWorstMicroCents).
+        promptBytes: reasoning.critiquePromptBytes(input),
         cache: {
           kind: "critique", version: 2, maxAgeMs: 7 * 24 * 3600_000,
           key: (model) => hashKey(["crit2", model, input.claimText, input.strengthScore ?? "null", input.evidenceSummary ?? "", input.referenceCheck ?? "none"].join("|")),
         },
-        run: (model) => {
+        run: (model, effort, maxTokens) => {
           if (!hosted) critiqueCounter.stamp(); // before the call
-          return reasoning.critique({ ...input, model, effort: body.effort });
+          return reasoning.critique({ ...input, model, effort, maxTokens });
         },
       });
       json(res, 200, result, cors);
@@ -1175,13 +1369,15 @@ const server = http.createServer(async (req, res) => {
       const body = (await parseJsonBody(req)) ?? {};
       const passages = Array.isArray(body.contradictingPassages) ? body.contradictingPassages : [];
       const result = await appCall(gate, {
-        task: "critique",
+        task: "correction",
+        route: "correction",
         requested: body.model,
+        effort: body.effort,
         cache: {
           kind: "correction", maxAgeMs: 7 * 24 * 3600_000,
           key: (model) => hashKey(["corr", model, String(body.claimText ?? ""), ...passages.map(String)].join("|")),
         },
-        run: (model) => reasoning.correction({ claimText: body.claimText, contradictingPassages: passages, model, effort: body.effort }),
+        run: (model, effort) => reasoning.correction({ claimText: body.claimText, contradictingPassages: passages, model, effort }),
       });
       json(res, 200, result, cors);
       return;
@@ -1219,8 +1415,9 @@ const server = http.createServer(async (req, res) => {
       const result = await appCall(gate, {
         task: "grade",
         requested,
+        effort,
         cache: { kind: "grade", version: 2, maxAgeMs: 7 * 24 * 3600_000, key: (model) => hashKey(`grade2|${model}|${prompt}`) },
-        run: (model) => reasoning.gradeDraft({ text: prompt, model, effort }),
+        run: (model, effort) => reasoning.gradeDraft({ text: prompt, model, effort }),
       });
       json(res, 200, fromDraft ? { ...result, paragraphTexts: fromDraft.paragraphTexts } : result, cors);
       return;
@@ -1236,8 +1433,9 @@ const server = http.createServer(async (req, res) => {
       const result = await appCall(gate, {
         task: "structure",
         requested: body.model,
+        effort: body.effort,
         cache: { kind: "structure", version: 2, maxAgeMs: 24 * 3600_000, key: (model) => hashKey(`struct2|${model}|${prompt}`) },
-        run: (model) => reasoning.classifyStructure({ text: prompt, model, effort: body.effort }),
+        run: (model, effort) => reasoning.classifyStructure({ text: prompt, model, effort }),
       });
       json(res, 200, result, cors);
       return;
@@ -1256,7 +1454,8 @@ const server = http.createServer(async (req, res) => {
         const out = await appCall(gate, {
           task: "tracer",
           requested,
-          run: (model) => reasoning.tracerReply({ message, history: body.history, context: body.context, model, effort }),
+          effort,
+          run: (model, effort) => reasoning.tracerReply({ message, history: body.history, context: body.context, model, effort }),
         });
         json(res, 200, out, cors);
         return;
@@ -1274,7 +1473,8 @@ const server = http.createServer(async (req, res) => {
       const out = await appCall(gate, {
         task: "tracer",
         requested,
-        run: (model) => reasoning.tracerReply({
+        effort,
+        run: (model, effort) => reasoning.tracerReply({
           message,
           history: stored.map((m) => ({ role: m.role === "user" ? "user" : "tracer", content: m.content })),
           context: typeof body.draft === "string" ? body.draft : "",
@@ -1294,22 +1494,26 @@ const server = http.createServer(async (req, res) => {
     }
 
     // The desktop's web search for sources, forced and schema-checked as the
-    // relay ran it. Separate from the extension's /api/sources on purpose: its
-    // own prompt, its own per-caller hourly window, the app spend pool.
+    // relay ran it. Separate from the extension's /api/sources on purpose (its
+    // own prompt, the app spend pool), but ONE allowance with it: the day and
+    // month source quota (SOURCE_QUOTA) and the per-caller hourly window
+    // (callerSearchRate). Hosted, it runs the fast model at low.
     if (req.method === "POST" && url.pathname === "/api/find-sources") {
       loadEnvFile();
       requireKey();
       const body = (await parseJsonBody(req)) ?? {};
       if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
       if (gate.ent.enforced && gate.callerId) {
-        if (!appSearchRate.ok(gate.callerId)) {
+        if (!callerSearchRate.ok(gate.callerId)) {
           throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
         }
-        appSearchRate.stamp(gate.callerId); // before the call
+        callerSearchRate.stamp(gate.callerId); // before the call
       }
       const result = await appCall(gate, {
         task: "sources",
+        route: "findSources",
         requested: body.model,
+        effort: body.effort,
         quota: SOURCE_QUOTA,
         // The web_search tool fee is most of this route's cost and is invisible
         // in the token usage; a forced search can make more than one call.
@@ -1318,7 +1522,7 @@ const server = http.createServer(async (req, res) => {
           kind: "find-sources", maxAgeMs: 7 * 24 * 3600_000,
           key: (model) => hashKey(["src", model, body.claim, body.context ?? ""].join("|")),
         },
-        run: (model) => reasoning.findSources({ claim: body.claim, context: body.context, model, effort: body.effort }),
+        run: (model, effort) => reasoning.findSources({ claim: body.claim, context: body.context, model, effort }),
       });
       json(res, 200, result, cors);
       return;
@@ -1467,9 +1671,17 @@ const server = http.createServer(async (req, res) => {
     // response can no longer carry it. One line, no user text (failureLog.js).
     noteUpstreamFailure(err);
     if (MODEL_ROUTES.has(route) && isModelFailure(err)) console.error(modelFailureLine(route, err, trace));
-    if (gate?.pool && EXTENSION_MODEL_ROUTES.has(route) && err?.llm?.usage) {
+    /* A call that failed AFTER the vendor answered was billed. Charged like
+     * any other call (chargeCall): the pool that paid, the caller's fair-use
+     * total, and the Thorough allowance when it ran the thorough model — all
+     * before the `finally` below lets go of what was held for it. The app
+     * routes (pool "app") are charged here too: before the Thorough allowance
+     * a failed desktop call went unrecorded, and an astra critique that
+     * truncated would have been free against the allowance. */
+    if (gate?.pool && (EXTENSION_MODEL_ROUTES.has(route) || APP_AI_ROUTES.has(route)) && err?.llm?.usage) {
       try {
-        recordSpend({ model: err.llm.model, usage: err.llm.usage, webSearchCalls: SOURCE_ROUTES.has(route) ? searchFee(err.llm.webSearchCalls) : 0, enforced: gate.ent.enforced, pool: gate.pool });
+        const searched = SOURCE_ROUTES.has(route) || route === "/api/find-sources";
+        chargeCall(gate, { model: err.llm.model, usage: err.llm.usage, webSearchCalls: searched ? searchFee(err.llm.webSearchCalls) : 0, pool: gate.pool });
       } catch (e) {
         console.error("[tracely] could not record a failed call's spend:", e?.message);
       }
@@ -1483,8 +1695,10 @@ const server = http.createServer(async (req, res) => {
     }
   } finally {
     // The route has recorded its real cost (or failed) by now; what the gate
-    // held for it goes back to the pool.
+    // held for it goes back to the pool, and a thorough call's hold to the
+    // account's allowance.
     gate?.reservation?.release();
+    gate?.thoroughHold?.release();
   }
 });
 

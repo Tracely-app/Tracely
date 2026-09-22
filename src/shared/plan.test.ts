@@ -8,9 +8,11 @@ import {
   isModelTier,
   isPlan,
   modelTierUnlocked,
+  normalizeModelTier,
   normalizePlan,
   planFromMetadata,
-  resolveModelTier
+  resolveModelTier,
+  servedModel
 } from './plan.ts'
 
 describe('normalizePlan', () => {
@@ -69,7 +71,7 @@ describe('planFromMetadata', () => {
 describe('resolveModelTier', () => {
   it('gives each plan its ceiling when nothing is preferred', () => {
     strictEqual(resolveModelTier(undefined, 'free'), 'fast')
-    strictEqual(resolveModelTier(undefined, 'student'), 'balanced')
+    strictEqual(resolveModelTier(undefined, 'student'), 'fast')
     strictEqual(resolveModelTier(undefined, 'pro'), 'thorough')
   })
 
@@ -80,14 +82,23 @@ describe('resolveModelTier', () => {
     strictEqual(resolveModelTier('balanced', 'free'), 'fast')
   })
 
-  it('clamps a student to the mid tier', () => {
-    strictEqual(resolveModelTier('thorough', 'student'), 'balanced')
-    strictEqual(resolveModelTier('balanced', 'student'), 'balanced')
+  it('clamps a student to the fast tier (only Pro reaches thorough)', () => {
+    strictEqual(resolveModelTier('thorough', 'student'), 'fast')
+    strictEqual(resolveModelTier('fast', 'student'), 'fast')
+  })
+
+  it("reads a stored 'balanced' (the retired middle tier) as fast on every plan", () => {
+    // Not as an unreadable value, which would resolve UP to the ceiling and
+    // hand a Pro user who picked the middle stop the Thorough allowance.
+    for (const plan of ['free', 'student', 'pro'] as const) strictEqual(resolveModelTier('balanced', plan), 'fast')
+    strictEqual(normalizeModelTier('balanced'), 'fast')
+    strictEqual(normalizeModelTier('thorough'), 'thorough')
+    strictEqual(normalizeModelTier('toString'), 'toString')
+    strictEqual(isModelTier('balanced'), false)
   })
 
   it('honours a preference at or below the ceiling', () => {
     strictEqual(resolveModelTier('fast', 'pro'), 'fast')
-    strictEqual(resolveModelTier('balanced', 'pro'), 'balanced')
     strictEqual(resolveModelTier('thorough', 'pro'), 'thorough')
   })
 
@@ -115,11 +126,11 @@ describe('modelTierUnlocked', () => {
     )
     deepStrictEqual(
       MODEL_TIERS.filter((t) => modelTierUnlocked(t, 'student')),
-      ['fast', 'balanced']
+      ['fast']
     )
     deepStrictEqual(
       MODEL_TIERS.filter((t) => modelTierUnlocked(t, 'pro')),
-      ['fast', 'balanced', 'thorough']
+      ['fast', 'thorough']
     )
     strictEqual(PLAN_MODEL_CEILING.free, 'fast')
   })
@@ -137,7 +148,7 @@ describe('MODEL_FOR_TIER', () => {
   })
 
   it('names the model a tier costs, cheapest first', () => {
-    deepStrictEqual(MODEL_FOR_TIER, { fast: 'gpt-5.6-luna', balanced: 'gpt-5.6-terra', thorough: 'gpt-6-astra' })
+    deepStrictEqual(MODEL_FOR_TIER, { fast: 'gpt-5.6-luna', thorough: 'gpt-6-astra' })
   })
 
   it("matches the server's copy exactly", async () => {
@@ -154,10 +165,25 @@ describe('MODEL_FOR_TIER', () => {
     // And the property the desktop relies on: whatever it resolves for a plan,
     // the server lets through unchanged rather than lowering it further.
     for (const plan of ['free', 'student', 'pro'] as const) {
-      for (const preferred of [...MODEL_TIERS, 'junk', null]) {
+      for (const preferred of [...MODEL_TIERS, 'balanced', 'junk', null]) {
         const model = MODEL_FOR_TIER[resolveModelTier(preferred, plan)]
         strictEqual(server.clampModel(model, plan), model)
       }
+    }
+  })
+})
+
+describe('servedModel', () => {
+  it('keys a cached answer on the model the server ran, dated snapshots included', () => {
+    strictEqual(servedModel('gpt-6-astra'), 'gpt-6-astra')
+    strictEqual(servedModel('gpt-6-astra-2026-08-01'), 'gpt-6-astra')
+    strictEqual(servedModel('gpt-5.6-luna'), 'gpt-5.6-luna')
+    strictEqual(servedModel('gpt-5.6-luna-2026-07-15'), 'gpt-5.6-luna')
+  })
+
+  it('reads anything unrecognised as fast, so it can never sit under the thorough key', () => {
+    for (const v of [undefined, null, '', 'gpt-5.6-terra', 'gpt-6-astral', 'mock', 7, {}]) {
+      strictEqual(servedModel(v), MODEL_FOR_TIER.fast, JSON.stringify(v))
     }
   })
 })

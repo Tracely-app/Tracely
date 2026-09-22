@@ -81,13 +81,37 @@ function readPlanField(metadata: unknown): unknown {
  * meaning fast. The UI, the settings row and the plan ceiling all speak tiers;
  * only the request body names a model — see MODEL_FOR_TIER.
  */
-export type ModelTier = 'fast' | 'balanced' | 'thorough'
+export type ModelTier = 'fast' | 'thorough'
 
-/** Cheapest first, like PLANS. */
-export const MODEL_TIERS = ['fast', 'balanced', 'thorough'] as const
+/**
+ * Cheapest first, like PLANS.
+ *
+ * TWO tiers since the plan policy of 2026-09-21, mirroring the server. The
+ * fast model (gpt-5.6-luna) was both the most accurate and the cheapest the
+ * eval measured, so every check, detection, grade and source search runs on
+ * it, on every plan. The old middle tier, `balanced` (gpt-5.6-terra), lost to
+ * it on both measured tasks at ~8-10x the cost and is retired — see
+ * LEGACY_MODEL_TIER. `thorough` is Pro's largest model, used for critiques
+ * while the monthly allowance lasts (the server decides; see
+ * server/shared/plan.js modelForRoute).
+ */
+export const MODEL_TIERS = ['fast', 'thorough'] as const
 
 export function isModelTier(value: unknown): value is ModelTier {
   return typeof value === 'string' && (MODEL_TIERS as readonly string[]).includes(value)
+}
+
+/**
+ * Tier NAMES an earlier build stored in the settings row that no longer
+ * exist, and the tier each one means now. A stored `'balanced'` becomes
+ * `'fast'`: the tier it asked for is gone, and fast was the more accurate
+ * model on every task measured. Own keys only.
+ */
+export const LEGACY_MODEL_TIER: Readonly<Record<string, ModelTier>> = { balanced: 'fast' }
+
+/** A stored tier with a retired name translated (`'balanced'` → `'fast'`); anything else unchanged. */
+export function normalizeModelTier(value: unknown): unknown {
+  return typeof value === 'string' && Object.hasOwn(LEGACY_MODEL_TIER, value) ? LEGACY_MODEL_TIER[value] : value
 }
 
 /**
@@ -111,17 +135,39 @@ export function isModelTier(value: unknown): value is ModelTier {
  */
 export const MODEL_FOR_TIER = {
   fast: 'gpt-5.6-luna',
-  balanced: 'gpt-5.6-terra',
   thorough: 'gpt-6-astra'
 } as const satisfies Record<ModelTier, string>
 
 /** A model id this app may put in a request body. */
 export type ServerModel = (typeof MODEL_FOR_TIER)[ModelTier]
 
-/** The best tier each plan may reach. Free never leaves `fast`. */
+/**
+ * The model the server says it ACTUALLY ran, as one of MODEL_FOR_TIER's ids —
+ * what a cached answer must be keyed on, rather than the id the call asked for.
+ *
+ * Since the 2026-09-21 plan policy the server answers a Pro critique on the
+ * thorough model only while the monthly allowance lasts, then on the fast
+ * one, so the id requested and the id served can differ. Keyed on the request,
+ * a fast fallback would sit in the local cache under the thorough key for its
+ * whole lifetime and be shown as a Thorough critique after the allowance
+ * resets. The API echoes dated snapshots ("gpt-6-astra-2026-08-01"), so a
+ * family prefix matches. Anything unrecognised — no model field, a mock, a
+ * provider rename — is treated as fast: it can then never be served under the
+ * thorough key.
+ */
+export function servedModel(served: unknown): ServerModel {
+  if (typeof served === 'string') {
+    for (const id of Object.values(MODEL_FOR_TIER)) {
+      if (served === id || served.startsWith(`${id}-`)) return id
+    }
+  }
+  return MODEL_FOR_TIER.fast
+}
+
+/** The best tier each plan may reach. Only Pro reaches `thorough`, and the server uses it for critiques only. */
 export const PLAN_MODEL_CEILING: Record<Plan, ModelTier> = {
   free: 'fast',
-  student: 'balanced',
+  student: 'fast',
   pro: 'thorough'
 }
 
@@ -150,12 +196,14 @@ export function modelTierUnlocked(tier: ModelTier, plan: Plan): boolean {
  *
  * An unreadable preference resolves to the plan's ceiling rather than to
  * `fast`: the result can never exceed the ceiling, so the safe answer and the
- * useful one are the same value.
+ * useful one are the same value. A retired tier name (a stored `'balanced'`)
+ * is translated first, so it resolves to `fast` — not to the ceiling.
  */
 export function resolveModelTier(preferred: unknown, plan: Plan): ModelTier {
   const ceiling = PLAN_MODEL_CEILING[plan] ?? PLAN_MODEL_CEILING[DEFAULT_PLAN]
-  if (!isModelTier(preferred)) return ceiling
-  return modelTierRank(preferred) <= modelTierRank(ceiling) ? preferred : ceiling
+  const tier = normalizeModelTier(preferred)
+  if (!isModelTier(tier)) return ceiling
+  return modelTierRank(tier) <= modelTierRank(ceiling) ? tier : ceiling
 }
 
 export const PLAN_LABEL: Record<Plan, string> = {
@@ -173,34 +221,50 @@ export const PLAN_PRICE: Record<Plan, string> = {
 /** What each plan gets, in the order the pricing page lists it.
  *
  * Every model claim here is one the model eval measured
- * (eval/models/FINDINGS.md), and matches the extension's options page
- * (extension/options.js MODEL_NOTES) — one account covers both. The balanced
- * tier was NOT more accurate than fast on the check or the critique, so
- * Student is sold on its allowance, not on a "smarter" model. */
+ * (eval/models/FINDINGS.md): every plan checks with the same model, the most
+ * accurate one tested, so plans are sold on their allowances and on Pro's
+ * Thorough allowance — never on a "smarter" checker. The numbers are the ones
+ * the server meters (server/shared/plan.js SOURCE_LIMITS, FREE_DAILY_CHECKS,
+ * FREE_DAILY_AI_CALLS), pinned by server/test/mirror-contracts.test.js. */
 export const PLAN_INCLUDES: Record<Plan, readonly string[]> = {
-  free: ['The fast model', '5 source searches a day'],
-  student: ['Unlimited checks and sources', 'The Balanced model'],
-  pro: ['Everything in Student', 'The most thorough model']
+  free: ['The most accurate checker in our tests', '400 checks and 150 AI actions a day', '5 source searches a day (40 a month)'],
+  student: ['Everything in Free', 'No daily check or AI-action limit (fair use)', '100 source searches a month'],
+  pro: [
+    'Everything in Student',
+    'Thorough critiques and explanations from our largest model (monthly allowance)',
+    '250 source searches a month'
+  ]
 }
 
 export const MODEL_TIER_LABEL: Record<ModelTier, string> = {
-  fast: 'Fast',
-  balanced: 'Balanced',
-  thorough: 'Most thorough'
+  fast: 'Standard',
+  thorough: 'Thorough'
 }
 
 export const MODEL_TIER_DESCRIPTION: Record<ModelTier, string> = {
-  fast: 'Quickest answers, on every plan.',
-  balanced: 'A larger model, though in our tests no more accurate than Fast.',
-  thorough: 'The most careful read Tracely can give a draft.'
+  fast: 'The most accurate fact-checker in our tests. Every check, detection, grade and source search runs on it, on every plan.',
+  thorough:
+    "Pro: critiques of your cited sources come from our largest model while this month's allowance lasts, then Standard. More thorough explanations, not more accurate verdicts."
 }
 
 /** The plan each tier first becomes available on — what an upgrade prompt names. */
 export const MODEL_TIER_REQUIRES: Record<ModelTier, Plan> = {
   fast: 'free',
-  balanced: 'student',
   thorough: 'pro'
 }
 
 /** Opened in the user's own browser, never in a window of ours. */
 export const UPGRADE_URL = 'https://jointracely.com/order'
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * `YYYY-MM-DD` as people read it in a message: "Oct 1". Anything else is
+ * returned as given. Mirrors server/shared/plan.js monthDayLabel, which words
+ * the server's own copy of the same dates (a Thorough allowance's `resetsOn`).
+ */
+export function monthDayLabel(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? ''))
+  if (!m) return String(ymd ?? '')
+  return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}`
+}

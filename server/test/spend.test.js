@@ -298,10 +298,14 @@ test("the check quota actually runs out, and counts before the call", () => {
   assert.equal(q.allowed, false);
 });
 
-test("a paid plan is not check-metered — it is bounded by the global budget", () => {
+test("a paid plan is not check-metered, but its source searches are (its own day and month limits)", () => {
+  // Since the 2026-09-21 plan policy every plan meters source searches
+  // (SOURCE_LIMITS); checks stay unmetered on paid plans, bounded by fair use.
   const at = nextAt();
   assert.equal(checkQuota(PAID, "user:u-paid", at).limit, null);
-  assert.equal(sourceSearchQuota(PAID, "user:u-paid", at).limit, null);
+  const q = sourceSearchQuota(PAID, "user:u-paid", at);
+  assert.equal(q.limit, 40);
+  assert.equal(q.monthLimit, 250);
 });
 
 test("anonymous source searches are now metered at the free limit", () => {

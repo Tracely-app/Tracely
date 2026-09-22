@@ -13,9 +13,11 @@
  *   E  hosted (enforced), mock model, a 1-cent PAID pool and a 1.2-cent beta
  *      pool — where the pools' edges are
  *   G  hosted (enforced), the stubbed path again, but every call is slow and
- *      costs real money at thorough-model prices — a concurrent burst
- *   H  hosted (enforced), the stubbed path with a $1 beta pool — too small
- *      for a thorough check's split to be admitted
+ *      costs real money at thorough-model prices — a concurrent burst of
+ *      "Explain in depth" checks
+ *   H  hosted (enforced), the stubbed path with a 2-cent beta pool — smaller
+ *      than one check's worst case (~2.5 cents on luna), so a check is
+ *      admitted but its split is not
  *
  * "Enforced" needs a Supabase project, so a mock one runs here and answers
  * /auth/v1/user for three canned tokens (free, student, pro). No real network
@@ -27,8 +29,10 @@
  *   - Beta spend lands in its own pool, and when that runs dry the tester
  *     drops to their own plan on the extension pool — never a 503, and never
  *     the extension pool while the beta pool can pay.
- *   - Hosted /api/check and /api/sources run the model the client asked for,
- *     clamped to the plan, instead of one global prefs row for everybody.
+ *   - Hosted /api/check and /api/sources run the model the SERVER chooses per
+ *     route (shared/plan.js modelForRoute: luna on every plan since the
+ *     2026-09-21 plan policy), whatever the client asks for — never one
+ *     global prefs row for everybody, and never the client's slider.
  *   - PUT /api/prefs, which rewrote that row with no authentication, is
  *     refused on a hosted server and unchanged on a local one.
  *   - A failed model call leaves one log line naming route, kind, model and
@@ -110,9 +114,9 @@ test("withBetaGrant: Pro for a match, a NEW object, and the entitlement it was g
 test("the failure line names route, kind, model and effort — never the message or anything unlisted", () => {
   const leak = "My essay says the Treaty of Paris was 1783 — student@example.test";
   const tagged = new CheckError("bad_request", leak, { status: 502 });
-  Object.defineProperty(tagged, "llm", { value: { model: "gpt-5.6-terra", effort: "medium" }, enumerable: false });
-  const line = modelFailureLine("/api/check", tagged, { model: "gpt-6-astra", effort: "high" });
-  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-5.6-terra effort=medium",
+  Object.defineProperty(tagged, "llm", { value: { model: "gpt-6-astra", effort: "medium" }, enumerable: false });
+  const line = modelFailureLine("/api/check", tagged, { model: "gpt-5.6-luna", effort: "high" });
+  assert.equal(line, "[tracely] model call failed route=/api/check kind=bad_request status=502 model=gpt-6-astra effort=medium",
     "the facade's tag wins over the route's trace: it is what was actually sent");
   assert.ok(!line.includes("Treaty") && !line.includes("student@"), "the message never reaches the log");
 
@@ -262,9 +266,9 @@ test.before(async () => {
     boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.012", TRACELY_PAID_DAILY_BUDGET_USD: "0.01" }),
     boot({
       ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1",
-      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "20000,6000",
+      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "4000,2000",
     }, { preload: STUB }),
-    boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
+    boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.02", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
   ]).catch((err) => {
     for (const child of booted) child.kill(); // or the run never exits
     throw err;
@@ -310,13 +314,16 @@ test("beta off (no TRACELY_BETA_TOKENS): the header grants nothing, and /api/sta
   assert.ok(!("betaBudget" in (await status(A))), "no beta, no betaBudget");
 });
 
-test("hosted /api/check runs the model the client asked for, clamped to the plan", async () => {
+test("hosted /api/check runs luna on every plan, whatever the client asks for", async () => {
+  // The server decides per route (modelForRoute). A shipped extension's
+  // Balanced or Thorough stop is cosmetic until 2.20.0; Pro's thorough model
+  // is reached only through deep:true ("Explain in depth", thorough.test.js).
   const cases = [
-    [{ token: "tok-pro" }, "gpt-5.6-terra", "gpt-5.6-terra"],          // a Pro user who picked balanced gets balanced
-    [{ token: "tok-pro" }, "gpt-6-astra", "gpt-6-astra"],
-    [{ token: "tok-pro" }, undefined, "gpt-5.6-luna"],        // nothing asked: the fast tier, not a guess upward
-    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5.6-luna"], // unknown: DOWN to fast
-    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.6-terra"],   // clamped to the student ceiling
+    [{ token: "tok-pro" }, "gpt-5.6-terra", "gpt-5.6-luna"],   // the retired balanced id is fast
+    [{ token: "tok-pro" }, "gpt-6-astra", "gpt-5.6-luna"],     // a typing check is never astra
+    [{ token: "tok-pro" }, undefined, "gpt-5.6-luna"],
+    [{ token: "tok-pro" }, "gpt-99-imaginary", "gpt-5.6-luna"],
+    [{ token: "tok-student" }, "gpt-6-astra", "gpt-5.6-luna"],
     [{ token: "tok-free" }, "gpt-5.6-terra", "gpt-5.6-luna"],
     [{}, "gpt-6-astra", "gpt-5.6-luna"],                      // anonymous is free
   ];
@@ -327,10 +334,12 @@ test("hosted /api/check runs the model the client asked for, clamped to the plan
   }
 });
 
-test("hosted /api/sources follows the same rule", async () => {
+test("hosted /api/sources follows the same rule: luna for everyone", async () => {
+  // (A caller may run 4 searches a minute; the retired-id test below spends
+  // the rest of tok-pro's, terra included.)
   const cases = [
-    ["tok-pro", "gpt-5.6-terra", "gpt-5.6-terra"],
-    ["tok-student", "gpt-6-astra", "gpt-5.6-terra"],
+    ["tok-pro", "gpt-6-astra", "gpt-5.6-luna"],
+    ["tok-student", "gpt-6-astra", "gpt-5.6-luna"],
     ["tok-free", "gpt-6-astra", "gpt-5.6-luna"],
     ["tok-pro", "nonsense", "gpt-5.6-luna"],
   ];
@@ -342,14 +351,16 @@ test("hosted /api/sources follows the same rule", async () => {
 });
 
 /* Extension <= 2.19.2 — testers' copies and the Web Store build under review
- * — sends "gpt-5-nano" from its Fast stop and "gpt-5.4" from Balanced, and a
- * pre-remap desktop sends the same ids. Coerced to fast as unknown ids, a
- * Student's Balanced stop would silently stop meaning anything. */
-test("a retired id from a shipped build keeps its tier on /api/check and /api/sources", async () => {
+ * — sends "gpt-5-nano" from its Fast stop and "gpt-5.4" from Balanced, 2.19.3+
+ * sends "gpt-5.6-terra" from Balanced, and a pre-remap desktop sends the same
+ * ids. Since the 2026-09-21 plan policy every one of them means fast (the
+ * balanced tier is retired), and they must still be answered, never refused. */
+test("a retired id from a shipped build is answered on fast on /api/check and /api/sources", async () => {
   const checks = [
-    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.6-terra"],
-    [{ token: "tok-student" }, "gpt-5.4", "gpt-5.6-terra"],
-    [{ token: "tok-free" }, "gpt-5.4", "gpt-5.6-luna"],     // never above the plan
+    [{ token: "tok-pro" }, "gpt-5.4", "gpt-5.6-luna"],
+    [{ token: "tok-student" }, "gpt-5.4", "gpt-5.6-luna"],
+    [{ token: "tok-student" }, "gpt-5.6-terra", "gpt-5.6-luna"],
+    [{ token: "tok-free" }, "gpt-5.4", "gpt-5.6-luna"],
     [{ token: "tok-pro" }, "gpt-5-nano", "gpt-5.6-luna"],
     [{}, "gpt-5-nano", "gpt-5.6-luna"],
     [{ token: "tok-pro" }, "gpt-5.4-mini", "gpt-5.6-luna"], // a lookalike is not an alias: DOWN to fast
@@ -360,7 +371,7 @@ test("a retired id from a shipped build keeps its tier on /api/check and /api/so
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.modelUsed, expected, `${who.token ?? "anonymous"} asking /api/check for ${asked}`);
   }
-  const searches = [["tok-student", "gpt-5.4", "gpt-5.6-terra"], ["tok-pro", "gpt-5-nano", "gpt-5.6-luna"], ["tok-free", "gpt-5.4", "gpt-5.6-luna"]];
+  const searches = [["tok-student", "gpt-5.4", "gpt-5.6-luna"], ["tok-pro", "gpt-5.6-terra", "gpt-5.6-luna"], ["tok-pro", "gpt-5-nano", "gpt-5.6-luna"], ["tok-free", "gpt-5.4", "gpt-5.6-luna"]];
   for (const [token, asked, expected] of searches) {
     const r = await sources(A, { model: asked }, { token, install: `a-legacy-src-${token}-${asked}` });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -368,10 +379,13 @@ test("a retired id from a shipped build keeps its tier on /api/check and /api/so
   }
 });
 
-test("a pre-remap desktop's retired id keeps its tier on the app routes", async () => {
+test("a pre-remap desktop's retired id is answered on fast on the app routes", async () => {
   const r = await call(A, "POST", "/api/structure", { body: { text: DRAFT, model: "gpt-5.4" }, token: "tok-student", install: "a-legacy-desktop" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.match(r.body.model, /^gpt-5\.6-terra/, `a Student's old balanced request ran ${r.body.model}`);
+  assert.match(r.body.model, /^gpt-5\.6-luna/, `a Student's old balanced request ran ${r.body.model}`);
+  const terra = await call(A, "POST", "/api/structure", { body: { text: DRAFT + " terra", model: "gpt-5.6-terra" }, token: "tok-pro", install: "a-legacy-desktop-pro" });
+  assert.equal(terra.status, 200, JSON.stringify(terra.body));
+  assert.match(terra.body.model, /^gpt-5\.6-luna/, `a Pro desktop's old balanced request ran ${terra.body.model}`);
   const free = await call(A, "POST", "/api/structure", { body: { text: DRAFT + " free", model: "gpt-5.4" }, token: "tok-free", install: "a-legacy-desktop-free" });
   assert.match(free.body.model, /^gpt-5\.6-luna/, "and never above the plan");
 });
@@ -424,15 +438,27 @@ test("a signed-in free user with the token is Pro, and the grant never sticks to
 });
 
 test("a beta caller runs /api/check at Pro, signed in or out; the same caller without the header does not", async () => {
+  // Every check runs luna since the 2026-09-21 plan policy, Pro's included.
+  // What Pro adds on /api/check is "Explain in depth" (deep:true), which a
+  // free caller is refused — so that is what tells the grant apart here.
+  // (Whether it then runs on astra is thorough.test.js's; B's 1-cent beta
+  // pool cannot hold astra's worst case, so here it answers on luna.)
   const out = await check(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
   assert.equal(out.status, 200, JSON.stringify(out.body));
-  assert.equal(out.body.modelUsed, "gpt-6-astra");
+  assert.equal(out.body.modelUsed, "gpt-5.6-luna");
   assert.equal(out.body.plan, "pro");
-  const signedIn = await check(B, { model: "gpt-6-astra" }, { token: "tok-free", headers: BETA, install: "beta-tester-2" });
-  assert.equal(signedIn.body.modelUsed, "gpt-6-astra");
+  const deep = await check(B, { deep: true }, { headers: BETA, install: "beta-tester-1" });
+  assert.equal(deep.status, 200, JSON.stringify(deep.body));
+  assert.equal(deep.body.plan, "pro");
+  const signedIn = await check(B, { deep: true }, { token: "tok-free", headers: BETA, install: "beta-tester-2" });
+  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+  assert.equal(signedIn.body.plan, "pro");
   const plain = await check(B, { model: "gpt-6-astra" }, { install: "beta-tester-1" });
   assert.equal(plain.body.modelUsed, "gpt-5.6-luna");
   assert.equal(plain.body.plan, "free");
+  const plainDeep = await check(B, { deep: true }, { install: "beta-tester-1" });
+  assert.equal(plainDeep.status, 403, JSON.stringify(plainDeep.body));
+  assert.equal(plainDeep.body.error.kind, "plan_required");
 });
 
 test("the desktop's app routes ignore the beta header entirely", async () => {
@@ -450,7 +476,7 @@ test("beta spend lands in the beta pool; the extension pool is untouched", async
   // mock model, which makes it the one call whose spend is visible here.
   const r = await sources(B, { model: "gpt-6-astra" }, { headers: BETA, install: "beta-tester-1" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna", "every source search runs luna, the client's id ignored");
   assert.equal(r.body.plan, "pro");
 
   const after = await status(B);
@@ -482,14 +508,17 @@ test("an exhausted beta pool drops the tester to their own plan on the extension
 // ── C: local, unenforced ─────────────────────────────────────────────────
 
 test("a local server keeps server-side tiering (pickModel) and a writable prefs row", async () => {
-  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.6-terra" } });
+  const put = await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-6-astra" } });
   assert.equal(put.status, 200, JSON.stringify(put.body));
-  assert.equal((await check(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra", "uniform: the prefs row decides");
-  assert.equal((await sources(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-5.6-terra");
+  assert.equal((await check(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-6-astra", "uniform: the prefs row decides");
+  assert.equal((await sources(C, { model: "gpt-5.6-luna" })).body.modelUsed, "gpt-6-astra");
 
-  // A prefs row saved before the remap names a retired id: it means its tier.
-  assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-5.4" } })).status, 200);
-  assert.equal((await check(C, {})).body.modelUsed, "gpt-5.6-terra", "a legacy prefs row keeps its tier");
+  // A prefs row saved before the remap names a retired id: it means its tier,
+  // which for both old balanced ids is fast since the 2026-09-21 plan policy.
+  for (const legacy of ["gpt-5.4", "gpt-5.6-terra"]) {
+    assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: legacy } })).status, 200);
+    assert.equal((await check(C, {})).body.modelUsed, "gpt-5.6-luna", `a legacy ${legacy} prefs row means fast`);
+  }
 
   assert.equal((await call(C, "PUT", "/api/prefs", { body: { modelStrategy: "economy" } })).status, 200);
   assert.equal((await check(C, { model: "gpt-6-astra" })).body.modelUsed, "gpt-5.6-luna", "economy: the fast tier, whatever was asked");
@@ -506,85 +535,90 @@ async function sent(fn) {
   return { r, calls: openaiLog().slice(n) };
 }
 
-test("/api/flow passes the client's effort through, normalised, at the clamped model", async () => {
+test("/api/flow runs luna at low for everyone, whatever model and effort the client sends", async () => {
+  // Pinned by the server since the 2026-09-21 plan policy (flow.test.js has
+  // the rest): the client's effort was passed straight through, "high" included.
   const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
   let { r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: "d-flow-beta" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "high" }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
 
   ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-6-astra", effort: "medium" }, install: "d-flow-free" })));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }], "clamped model, the client's effort");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
   assert.equal(r.body.modelUsed, "gpt-5.6-luna");
 
   ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, effort: "turbo" }, install: "d-flow-junk" })));
   assert.equal(calls[0].effort, "low", "junk becomes the default, never OpenAI's own");
 });
 
-test("/api/sources sends the client's effort when it sends one, and otherwise none — as before", async () => {
+test("/api/sources runs luna and sends no effort, whatever the client sends — as every search was measured", async () => {
   // The store build sends no effort here, and every one of its source
-  // searches has always run at the vendor's default. That must not move
-  // without a measurement; a client that picks a level gets that level.
+  // searches has always run at the vendor's default. The server now holds
+  // every caller to that, so a client's "high" can no longer buy a dearer search.
   let { r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra" }, { install: "d-src-free" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5.6-luna", effort: null, webSearch: true }]);
 
-  ({ r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
+  ({ r, calls } = await sent(() => sources(D, { model: "gpt-6-astra", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "high" }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: null }]);
 
   ({ calls } = await sent(() => sources(D, { effort: "turbo" }, { install: "d-src-junk" })));
-  assert.equal(calls[0].effort, "low", "a junk level is normalised, never passed through");
+  assert.equal(calls[0].effort, null, "a junk level is not passed through either");
 });
 
-test("/api/check sends the requested model to the provider, not just in modelUsed", async () => {
-  const { r, calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "low" }, { token: "tok-pro", install: "d-check-pro" }));
+test("/api/check sends the model it reports to the provider, not just in modelUsed", async () => {
+  let { r, calls } = await sent(() => check(D, { model: "gpt-5.6-terra", effort: "low" }, { token: "tok-pro", install: "d-check-pro" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "low" }]);
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }]);
+  // Pro's "Explain in depth", within the allowance: astra at low, and the same id in modelUsed.
+  ({ r, calls } = await sent(() => check(D, { deep: true }, { token: "tok-pro", install: "d-check-deep" })));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "low" }]);
 });
 
-test("/api/check runs every tier at its measured effort, whatever the client sends; other routes keep the client's", async () => {
+test("/api/check runs luna at its measured effort, whatever model and effort the client sends", async () => {
   // eval/models/FINDINGS.md: gpt-5.6-luna checks at 100% at medium and 90% at
-  // low; terra and astra were measured at low only. Builds up to 2.19.2 send
-  // "low" from their Fast stop and "medium" from their Thorough stop.
-  const measured = { "gpt-5.6-luna": "medium", "gpt-5.6-terra": "low", "gpt-6-astra": "low" };
-  const tiers = [["gpt-5-nano", "gpt-5.6-luna", {}], ["gpt-5.6-terra", "gpt-5.6-terra", { token: "tok-pro" }], ["gpt-6-astra", "gpt-6-astra", { headers: BETA }]];
-  for (const [model, ran, who] of tiers) {
+  // low. Builds up to 2.19.5 send "low" from their Fast stop and "medium" from
+  // their Thorough stop, with whichever id that stop names.
+  const who = [["gpt-5-nano", {}], ["gpt-5.6-terra", { token: "tok-pro" }], ["gpt-6-astra", { headers: BETA }]];
+  for (const [model, caller] of who) {
     for (const asked of ["low", undefined, "minimal", "turbo", "medium", "high"]) {
       const body = asked === undefined ? { model } : { model, effort: asked };
-      const { r, calls } = await sent(() => check(D, body, { install: `d-eff-${model}-${asked}`, ...who }));
+      const { r, calls } = await sent(() => check(D, body, { install: `d-eff-${model}-${asked}`, ...caller }));
       assert.equal(r.status, 200, JSON.stringify(r.body));
-      assert.equal(r.body.modelUsed, ran);
-      assert.deepEqual(calls.map(({ model: m, effort }) => ({ model: m, effort })), [{ model: ran, effort: measured[ran] }], `${model} asked at ${asked}`);
+      assert.equal(r.body.modelUsed, "gpt-5.6-luna");
+      assert.deepEqual(calls.map(({ model: m, effort }) => ({ model: m, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }], `${model} asked at ${asked}`);
     }
   }
-  // The store build's Thorough stop, exactly as 2.19.2 sends it: astra at medium, never measured.
+  // The store build's Thorough stop, exactly as 2.19.2 sends it: astra at medium. A typing check is never astra.
   let { calls } = await sent(() => check(D, { model: "gpt-6-astra", effort: "medium" }, { token: "tok-pro", install: "d-eff-store-thorough" }));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-6-astra", effort: "low" }]);
-
-  // A paid caller clamped to fast by plan gets fast's effort — it is the model, not the plan.
-  ({ calls } = await sent(() => check(D, { model: "gpt-6-astra", effort: "low" }, { token: "tok-free", install: "d-eff-clamped" })));
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "medium" }]);
 
-  // Not the other routes: a fast /api/flow at low stays low.
+  // Not the other routes: /api/flow runs at its own pinned low.
   const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
-  ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.6-luna", effort: "low" }, install: "d-floor-flow" })));
+  ({ calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.6-luna", effort: "medium" }, install: "d-floor-flow" })));
   assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
 });
 
-test("a retired id reaches the provider as its tier's current model — on /api/check and /api/flow", async () => {
+test("a retired id reaches the provider as its tier's current model (fast) — on /api/check and /api/flow", async () => {
   let { r, calls } = await sent(() => check(D, { model: "gpt-5.4", effort: "low" }, { token: "tok-student", install: "d-legacy-check" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-terra"]);
-  assert.equal(r.body.modelUsed, "gpt-5.6-terra");
+  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-luna"]);
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
 
   const text = "Social media harms teenagers. Studies since 2012 show a rise in anxiety among heavy users.";
-  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5.4", effort: "low" }, token: "tok-pro", install: "d-legacy-flow" })));
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-terra", effort: "low" }]);
-  assert.equal(r.body.modelUsed, "gpt-5.6-terra");
-
-  ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: "gpt-5-nano", effort: "low" }, token: "tok-pro", install: "d-legacy-flow-fast" })));
-  assert.deepEqual(calls.map(({ model }) => model), ["gpt-5.6-luna"]);
+  // One caller per id: /api/flow admits one call per caller per 120 s, and a
+  // signed-in caller is one caller whatever install id it sends.
+  const callers = { "gpt-5.4": { token: "tok-pro" }, "gpt-5.6-terra": { headers: BETA }, "gpt-5-nano": {} };
+  for (const [legacy, who] of Object.entries(callers)) {
+    ({ r, calls } = await sent(() => call(D, "POST", "/api/flow", { body: { text, model: legacy, effort: "high" }, ...who, install: `d-legacy-flow-${legacy}` })));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }], legacy);
+    assert.equal(r.body.modelUsed, "gpt-5.6-luna");
+  }
 });
 
 async function logLine(srv, needle) {
@@ -609,7 +643,8 @@ test("a failed model call logs route, kind, model and effort — and none of the
 
   const garbage = await call(D, "POST", "/api/flow", { body: { text: `TRIGGER-GARBAGE ${secret}`, model: "gpt-6-astra", effort: "high" }, headers: BETA, install });
   assert.equal(garbage.status, 502);
-  assert.equal(await logLine(D, "route=/api/flow"), "[tracely] model call failed route=/api/flow kind=unparseable status=502 model=gpt-6-astra effort=high");
+  // The model and effort the server pinned for /api/flow, not the ones asked for.
+  assert.equal(await logLine(D, "route=/api/flow"), "[tracely] model call failed route=/api/flow kind=unparseable status=502 model=gpt-5.6-luna effort=low");
 
   // A desktop route passes the same handler.
   const refused = await call(D, "POST", "/api/structure", { body: { text: `${DRAFT} TRIGGER-REFUSE ${secret}` }, install });
@@ -636,9 +671,18 @@ test("a truncated call's billed cost reaches the pool that admitted it", async (
   const text = "TRIGGER-TRUNCATE the pool must see this";
   const r = await call(D, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], model: "gpt-6-astra" }, headers: BETA, install: "d-trunc-beta" });
   assert.equal(r.status, 502);
-  const after = await status(D);
+  let after = await status(D);
+  // 1,000 in + 16,000 out on gpt-5.6-luna (every check's model) = $0.0194
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.0194);
+  assert.equal(after.budget.spentUsd, before.budget.spentUsd, "and only there");
+
+  // "Explain in depth" on the thorough model: the same, at astra's price.
+  const mid = after;
+  const deep = await call(D, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], deep: true }, headers: BETA, install: "d-trunc-deep" });
+  assert.equal(deep.status, 502);
+  after = await status(D);
   // 1,000 in + 16,000 out on gpt-6-astra = $0.81
-  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.81);
+  assert.equal(Number((after.betaBudget.spentUsd - mid.betaBudget.spentUsd).toFixed(4)), 0.81);
   assert.equal(after.budget.spentUsd, before.budget.spentUsd, "and only there");
 });
 
@@ -652,8 +696,8 @@ test("a split check that fails in a half still records the truncated call and th
   assert.equal(r.body.error.kind, "truncated");
   assert.equal(calls.length, 3);
   const after = await status(D);
-  // 2 x (1,000 in + 16,000 out) on gpt-6-astra = $1.62, plus the tiny half.
-  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 1.62);
+  // 2 x (1,000 in + 16,000 out) on gpt-5.6-luna = $0.0388, plus the tiny half.
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.0388);
 });
 
 test("a source search records every web_search_call its answer made, and keeps the count off the wire", async () => {
@@ -683,21 +727,23 @@ test("a source search records every web_search_call its answer made, and keeps t
 // A split: the whole batch truncates, each half answers.
 const SPLIT = { text: "TRIGGER-SPLIT essay.", sentences: [{ id: "s1", text: "One." }, { id: "s2", text: "Two." }] };
 
-test("a truncated thorough check splits when the pool has room for the halves", async () => {
+test("a truncated check splits when the pool has room for the halves", async () => {
   const before = await status(D);
   const { r, calls } = await sent(() => call(D, "POST", "/api/check", { body: { ...SPLIT, model: "gpt-6-astra" }, headers: BETA, install: "d-split-ok" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(calls.length, 3, "the truncated call and two halves");
   const after = await status(D);
-  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(2)), 0.81, "the truncated call is paid for too");
+  // 1,000 in + 16,000 out on gpt-5.6-luna = $0.0194, plus two tiny halves.
+  assert.equal(Number((after.betaBudget.spentUsd - before.betaBudget.spentUsd).toFixed(4)), 0.0194, "the truncated call is paid for too");
 });
 
 // ── H: a beta pool too small for a split ─────────────────────────────────
 
 test("a split is admitted against the pool like a call: no room, no halves, the check fails as truncated", async () => {
-  // A $1 pool admits one thorough check (its worst case, ~$1.10, is held).
-  // The halves would be two more worst cases; the reservation covered one
-  // call, and a split used to run on money nobody had held.
+  // A 2-cent pool admits one check (a pool admits while anything is left
+  // unheld) and then holds its worst case on luna, ~2.5 cents. The halves
+  // would be two more worst cases, and nothing is left unheld; a split used
+  // to run on money nobody had held.
   const hLog = () => readFileSync(H_LOG, "utf8").split("\n").filter(Boolean);
   let n = hLog().length;
   const r = await call(H, "POST", "/api/check", { body: { ...SPLIT, model: "gpt-6-astra" }, headers: BETA, install: "h-split-beta" });
@@ -705,7 +751,7 @@ test("a split is admitted against the pool like a call: no room, no halves, the 
   assert.equal(r.body.error.kind, "truncated", "the wire error a truncated single sentence gives");
   assert.equal(hLog().length - n, 1, "no halves were sent");
   const st = await status(H);
-  assert.equal(st.betaBudget.spentUsd, 0.81, "the truncated call is recorded");
+  assert.equal(st.betaBudget.spentUsd, 0.0194, "the truncated call is recorded");
 
   // The extension pool reserves nothing, so a fast check still splits there.
   n = hLog().length;
@@ -719,14 +765,15 @@ test("a split is admitted against the pool like a call: no room, no halves, the 
 
 test("a beta source search stays on the beta pool below its 20% line, until the pool is actually spent", async () => {
   const s1 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
-  assert.equal(s1.body.modelUsed, "gpt-6-astra");
+  assert.equal(s1.body.modelUsed, "gpt-5.6-luna");
+  assert.equal(s1.body.plan, "pro");
   let st = await status(E);
   assert.equal(st.betaBudget.spentUsd, 0.01);
   assert.ok(st.betaBudget.remainingPct < 0.2, "below the extension pool's shed line");
 
   const s2 = await sources(E, { model: "gpt-6-astra" }, { headers: BETA, install: "e-beta-src" });
   assert.equal(s2.status, 200, JSON.stringify(s2.body));
-  assert.equal(s2.body.modelUsed, "gpt-6-astra", "the beta pool still had money, so it still paid");
+  assert.equal(s2.body.modelUsed, "gpt-5.6-luna");
   assert.equal(s2.body.plan, "pro");
   st = await status(E);
   assert.equal(st.betaBudget.spentUsd, 0.02, "at most one call over the ceiling");
@@ -740,7 +787,7 @@ test("a beta source search stays on the beta pool below its 20% line, until the 
 test("Student and Pro calls on the extension's routes spend the paid pool, never the free users' day", async () => {
   const r = await sources(E, { model: "gpt-6-astra" }, { token: "tok-pro", install: "e-pro" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.modelUsed, "gpt-6-astra");
+  assert.equal(r.body.modelUsed, "gpt-5.6-luna");
   const st = await status(E);
   assert.equal(st.paidBudget.spentUsd, 0.01, "the paid pool paid");
   assert.equal(st.budget.spentUsd, 0.01, "the extension pool only has the beta fallback search from before");
@@ -778,17 +825,22 @@ test("beta source searches have their own hourly window, apart from the one stor
 // ── G: a concurrent burst against the beta pool ──────────────────────────
 
 test("a burst of beta checks with rotating install ids cannot overspend the beta pool", async () => {
-  // Reproduces the review's case: $1 pool, calls slow and priced at 20k in /
-  // 6k out ($0.50 on gpt-6-astra), a fresh install id per request. Before,
-  // all forty were admitted while `remaining > 0` and the pool spent $20.
+  // The review's case, on the only check that still reaches the thorough
+  // model: "Explain in depth" (deep:true). $1 pool, calls slow and priced at
+  // 4k in / 2k out ($0.14 on gpt-6-astra, inside its 15-cent reservation), a
+  // fresh install id — so a fresh Thorough allowance — per request. The
+  // allowance cannot bound a tester who rotates ids; the POOL must: each
+  // astra admission holds luna's check worst case (~2.5 cents) plus astra's
+  // 15 cents: five fit in $1, and a pool admits while anything is left
+  // unheld, so at most six at once.
   const text = "Water boils at 100 degrees Celsius at sea level.";
   const burst = await Promise.all(Array.from({ length: 40 }, (_, i) =>
-    call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` })));
+    call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], deep: true, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` })));
   assert.ok(burst.every((r) => r.status === 200), "beta never refuses: the overflow falls back");
   const astra = burst.filter((r) => r.body.modelUsed === "gpt-6-astra").length;
   assert.ok(astra >= 1, "the pool still served someone");
-  assert.ok(astra <= 2, `${astra} thorough calls admitted against a $1 pool at once`);
+  assert.ok(astra <= 6, `${astra} thorough calls admitted against a $1 pool at once`);
   const st = await status(G);
-  // At most the pool plus the one call admitted last (worst case ~$1.10).
-  assert.ok(st.betaBudget.spentUsd <= 1 + 1.10, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
+  // At most the pool plus the one call admitted last (its worst case, 15 cents).
+  assert.ok(st.betaBudget.spentUsd <= 1 + 0.15, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
 });
