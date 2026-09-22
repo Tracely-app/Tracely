@@ -64,40 +64,41 @@ const read = (f) => {
   assert.ok(EXT, "could not locate extension/ from " + HERE);
   return readFileSync(path.join(EXT, f), "utf8");
 };
-/* The extension still ships the THREE-stop ladder (Fast / Balanced /
- * Thorough, with gpt-5.6-terra on the middle stop) until 2.20.0 replaces the
- * slider. Since the 2026-09-21 plan policy the server has two tiers and
- * ignores the client's model on every volume route, so these tests no longer
- * pin the extension's ids to the server's tier list one for one. They pin
- * what still matters for builds in people's hands: every id the extension can
- * send is one the server MAPS to a tier (a current id via TIER_FOR_MODEL, or a
- * retired one via LEGACY_MODEL_TIER), in the right order, and nothing the
- * server serves is dropped by the extension first. 2.20.0 realigns them. */
-const serverTierOf = (id) => (Object.hasOwn(TIER_FOR_MODEL, id) ? TIER_FOR_MODEL[id]
-  : Object.hasOwn(LEGACY_MODEL_TIER, id) ? LEGACY_MODEL_TIER[id] : null);
-const EXT_LADDER = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra"];
-
-function assertMapsSensibly(ids, where) {
-  for (const id of ids) assert.ok(serverTierOf(id), `${where}: ${id} is neither a tier nor a retired id the server maps`);
-  const ranks = ids.map((id) => TIER_NAMES.indexOf(serverTierOf(id)));
-  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), `${where}: the ladder is no longer cheapest first`);
-  assert.equal(serverTierOf(ids[0]), "fast", `${where}: the first stop must be the fast tier`);
-  assert.equal(serverTierOf(ids.at(-1)), "thorough", `${where}: the last stop must be the thorough tier`);
-}
-
-test("background.js ALLOWED_MODELS: every id maps to a server tier, and every served model passes", () => {
+/* Since 2.20.0 the extension has no model ladder of its own: the server
+ * picks the model per route and per plan, and the extension names ids only
+ * so a request says which model it means (a local server honours it) and so
+ * the options page can say what the plans run. These pin the three copies to
+ * the server's two tiers EXACTLY — the tolerance for the slider builds'
+ * retired ids is gone with the slider. */
+test("background.js names exactly the models the server serves", () => {
   const src = read("background.js");
   const fast = src.match(/const FAST_MODEL = "([^"]+)"/);
-  assert.ok(fast, "FAST_MODEL not found in background.js");
+  const thorough = src.match(/const THOROUGH_MODEL = "([^"]+)"/);
+  assert.ok(fast && thorough, "FAST_MODEL / THOROUGH_MODEL not found in background.js");
   assert.equal(fast[1], MODEL_TIERS.fast);
+  assert.equal(thorough[1], MODEL_TIERS.thorough);
 
   const set = src.match(/const ALLOWED_MODELS = new Set\(\[([\s\S]*?)\]\)/);
   assert.ok(set, "ALLOWED_MODELS not found in background.js");
-  const ids = [...set[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  // FAST_MODEL is referenced by name in that literal, so it is one short.
-  const ext = new Set([MODEL_TIERS.fast, ...ids]);
-  assertMapsSensibly([...ext].sort((a, b) => TIER_NAMES.indexOf(serverTierOf(a)) - TIER_NAMES.indexOf(serverTierOf(b))), "background.js");
-  for (const model of ALLOWED_MODELS) assert.ok(ext.has(model), `background.js would drop ${model}, which the server serves`);
+  // Both ids are referenced by name in that literal, not spelled out again.
+  const ids = [...set[1].matchAll(/\b([A-Z_]+_MODEL)\b/g)].map((m) => (m[1] === "FAST_MODEL" ? fast[1] : thorough[1]));
+  assert.deepEqual(new Set(ids), new Set(ALLOWED_MODELS), "background.js and the server disagree about the models served");
+});
+
+test("no extension file still names a retired model id", () => {
+  // content.js and options.js each carried a retired-id -> slider stop map
+  // while the slider existed. Nothing reads those ids now, and a leftover
+  // would be a silent request for a model the server no longer serves. Only
+  // ids in the CODE count: the history behind a cache generation or a stored
+  // setting is worth writing down in a comment.
+  for (const f of ["background.js", "content.js", "options.js"]) {
+    const src = read(f);
+    for (const id of Object.keys(LEGACY_MODEL_TIER)) {
+      for (const quoted of [`"${id}"`, `'${id}'`, `\`${id}\``]) {
+        assert.ok(!src.includes(quoted), `${f} still names the retired ${id}`);
+      }
+    }
+  }
 });
 
 test("content.js CHECK_MODEL is the server's fast model", () => {
@@ -121,8 +122,7 @@ test("options.js names exactly the two models the server serves", () => {
 
 /* The ids the server retired (LEGACY_MODEL_TIER) must each still translate
  * to a model it serves, so usage a shipped build recorded under one prices
- * and reads correctly. The extension's own retired-id maps went with the
- * slider in 2.20.0; step 5 pins that no extension file names one. */
+ * and reads correctly. */
 test("every id the server retired translates to a model it still serves", () => {
   for (const id of Object.keys(LEGACY_MODEL_TIER)) {
     assert.ok(!ALLOWED_MODELS.has(id), `${id} is retired but still a tier`);

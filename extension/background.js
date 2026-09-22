@@ -46,15 +46,16 @@ const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/sourc
 const PROBE_INTERVAL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1500;
 
-/* A hand copy of lib/llm.js's MODEL_TIERS. An MV3 worker cannot import from
-   the server tree, and the extension ships without a build step, so this is
-   the one unavoidable duplicate of those ids — test/models.test.js fails if
-   it stops matching. */
+/* A hand copy of lib/llm.js's MODEL_TIERS — the two ids the server serves.
+   An MV3 worker cannot import from the server tree, and the extension ships
+   without a build step, so this is the one unavoidable duplicate of those
+   ids; test/models.test.js fails if it stops matching. Since the 2026-09-21
+   plan policy the SERVER picks which of them runs, per route and per plan:
+   the fast one for every check, flow and source search, the thorough one for
+   Pro's "Explain in depth" while the monthly allowance lasts. */
 const FAST_MODEL = "gpt-5.6-luna";
-const ALLOWED_MODELS = new Set([FAST_MODEL, "gpt-5.6-terra", "gpt-6-astra"]);
-const ALLOWED_EFFORT = new Set(["low", "medium", "high"]);
-const DEFAULT_MODEL = FAST_MODEL; // cost mandate: cheap unless explicitly chosen
-const VERDICTS = ["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"];
+const THOROUGH_MODEL = "gpt-6-astra";
+const ALLOWED_MODELS = new Set([FAST_MODEL, THOROUGH_MODEL]);
 
 /* ── server probe ────────────────────────────────────────────────────────── */
 
@@ -86,10 +87,6 @@ async function serverReachable() {
 
 probeServer(); // top level runs on every worker wake — this IS the startup probe
 setInterval(probeServer, PROBE_INTERVAL_MS); // ticks while the worker stays alive
-
-function getConfig() {
-  return chrome.storage.local.get({ model: DEFAULT_MODEL, enabledSites: [] });
-}
 
 /* Any key stored by a build that still had the standalone engine is dropped
    here, on every worker wake. Nothing reads it now, so leaving it would mean
