@@ -215,14 +215,18 @@ const THOROUGH_EFFORT = "low";
  * cents of output alone. An explanation is a paragraph; a critique a few. */
 export const THOROUGH_MAX_TOKENS = { checkDeep: 2_000, critique: 4_000 };
 
-/* What each thorough call RESERVES against the allowance before it runs: its
- * worst case on gpt-6-astra, priced cold ($12.50/1M input as cache writes,
- * $50/1M output). checkDeep: ~4k input (one sentence + a context capped at
- * 6,000 characters + the prompt) + 2,000 out = 5 + 10 cents. critique: ~12k
- * input (claim + four abstracts + the relay prompt) + 4,000 out = 15 + 20
- * cents. A call runs on astra only while the allowance minus everything
- * already reserved still covers this, so the allowance cannot be overshot by
- * calls that stay within these bounds. */
+/* The FLOOR of what each thorough call reserves against the allowance before
+ * it runs. The hold itself is that call's worst case on gpt-6-astra for ITS
+ * prompt (server.js thoroughWorstMicroCents): the prompt's UTF-8 bytes as
+ * input tokens priced cold ($12.50/1M as cache writes) plus the route's
+ * THOROUGH_MAX_TOKENS at $50/1M. A byte count bounds tokens in any script; a
+ * fixed token guess did not (a deep check with 8,000 characters of CJK is
+ * ~27k bytes, ~44 cents against a flat 15). In English a short deep check
+ * holds its 15-cent floor (~24 cents at the route's limits); a critique's
+ * 14k-byte instructions alone put it at ~39 cents (~48 at the limits). A call runs
+ * on astra only while the allowance minus everything already reserved still
+ * covers its hold, so the allowance cannot be overshot by any input the
+ * routes accept. */
 export const THOROUGH_RESERVE_USD = { checkDeep: 0.15, critique: 0.35, grade: 0.9 };
 
 /** Whether this route, on this plan, with this request, asks for the thorough model (before the allowance is consulted). */

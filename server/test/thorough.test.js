@@ -227,6 +227,33 @@ test("no overshoot under concurrency: a burst of 18 explanations admits exactly 
   assert.equal(next.body.thorough.remainingPct, 26, "110 of 150 cents spent");
 });
 
+test("the hold is sized from the prompt's bytes, not a flat guess: a burst of CJK explanations (~27k bytes, ~44 cents each) admits 3, not 10", async () => {
+  // 6,000 characters of context and a 2,000-character sentence, both accepted
+  // by the route: ~8k characters, but ~27k UTF-8 bytes, which bound its tokens.
+  const cjk = (tag) => {
+    const sentence = `TAG-${tag} TRIGGER-SLOW ${"文".repeat(1970)}`;
+    const text = "中".repeat(6000);
+    return call("POST", "/api/check", { token: "tok-pro-cjk", body: { text, sentences: [{ id: "s1", text: sentence }], deep: true } });
+  };
+  const burst = await Promise.all(Array.from({ length: 6 }, (_, i) => cjk(`cjk-${i}`)));
+  for (const r of burst) assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(burst.filter((r) => r.body.thorough.used).length, 3, "3 x ~44 cents fit in 150; a flat 15-cent hold admitted 10");
+  const astraCalls = Array.from({ length: 6 }, (_, i) => openaiLog(`cjk-${i}`)).flat().filter((c) => c.model === ASTRA);
+  assert.equal(astraCalls.length, 3);
+  assert.ok(astraCalls.every((c) => c.maxTokens === 2000));
+});
+
+test("a critique's hold is sized from its prompt too: a burst of CJK critiques at the route's limits (~65 cents each) admits 2", async () => {
+  const body = (tag) => ({
+    claimText: `TAG-${tag} ${"文".repeat(1980)}`, strengthScore: 0.4,
+    evidenceSummary: `TRIGGER-SLOW ${"中".repeat(3980)}`, referenceCheck: "字".repeat(1200), model: ASTRA,
+  });
+  const burst = await Promise.all(Array.from({ length: 4 }, (_, i) => call("POST", "/api/critique", { token: "tok-pro-cjkcrit", body: body(`cjkcrit-${i}`) })));
+  for (const r of burst) assert.equal(r.status, 200, JSON.stringify(r.body));
+  const models = Array.from({ length: 4 }, (_, i) => openaiLog(`cjkcrit-${i}`)[0]?.model);
+  assert.equal(models.filter((m) => m === ASTRA).length, 2, `3 x ~65 cents would overshoot 150: ${models}`);
+});
+
 test("a thorough call that fails after being billed is charged to the allowance, and no failure leaks a hold", async () => {
   const token = "tok-pro-fail";
   const cut = await explain("fail-truncate", { token }, { extra: "TRIGGER-TRUNCATE" });
@@ -314,14 +341,14 @@ test("critique: Pro on Thorough gets astra at low under 4,000 tokens; Pro on Fas
   }
 });
 
-test("critique allowance: astra while it covers the 35-cent worst case (12 at 10 cents), then luna — never refused", async () => {
+test("critique allowance: astra while it covers its hold (~39 cents: the prompt bytes plus 4,000 out; 12 at 10 cents), then luna — never refused", async () => {
   const models = [];
   for (let i = 0; i < 13; i++) {
     const r = await critique(`crit-drain-${i}`, "tok-pro-critdrain", ASTRA);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     models.push(openaiLog(`crit-drain-${i}`)[0].model);
   }
-  assert.deepEqual(models, [...Array(12).fill(ASTRA), LUNA], "150 - 10k >= 35 for k = 0..11");
+  assert.deepEqual(models, [...Array(12).fill(ASTRA), LUNA], "150 - 10k >= ~39 for k = 0..11");
   const e = await call("GET", "/api/entitlement", { token: "tok-pro-critdrain" });
   assert.equal(e.body.thorough.remainingPct, 20);
 });

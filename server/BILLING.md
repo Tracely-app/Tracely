@@ -55,8 +55,11 @@ routes, where they only choose Thorough over Standard.
 - **Thorough** (`gpt-6-astra` at low) runs only on Pro's "Explain in depth"
   (`/api/check` with `deep: true`, one sentence, 2,000-token ceiling) and on
   desktop critiques when the desktop tier is Thorough (4,000-token ceiling),
-  each only while the monthly allowance covers its reserved worst case (15 /
-  35 cents). Otherwise the same call runs on luna — never refused. Free and
+  each only while the monthly allowance covers its reserved worst case: the
+  prompt's UTF-8 bytes as input tokens plus the output ceiling, priced on
+  astra (at least 15 / 35 cents; ~39 for any critique, ~44 for a deep check
+  of CJK text at the route's limits). Otherwise the same call runs on luna —
+  never refused. Free and
   Student get 403 `plan_required` for `deep: true`.
 - **Fair use** is all model spend by one signed-in paid account. Over its day
   or month limit the account runs at Free's limits (and without the Thorough

@@ -176,6 +176,24 @@ export const NO_EVIDENCE_SUMMARY = "No supporting evidence was found.";
  * @param {{ claimText: string, strengthScore: number|null, evidenceSummary: string, referenceCheck?: string, model?, effort? }} req
  * @returns {{ critique, verdict, suggestedRevision, citationFix, model, usage }}
  */
+function critiqueUser(claim, strengthScore, summary, referenceCheck) {
+  return `Claim: "${claim}"\nEvidence strength score: ${strengthScore ?? "not yet computed"}/100\n\nTop evidence:\n${summary}` +
+    (referenceCheck ? `\n\nReference lookup:\n${referenceCheck}` : "");
+}
+
+/* The UTF-8 size of everything one critique call sends as input — the
+ * instructions, the user message critique() builds (same clamps) and the
+ * output schema — for sizing the thorough hold before the call
+ * (server.js thoroughWorstMicroCents). Bytes bound tokens in any script.
+ * Runs before critique() validates, so it only coerces. */
+export function critiquePromptBytes({ claimText, strengthScore, evidenceSummary, referenceCheck } = {}) {
+  const claim = String(claimText ?? "").trim().slice(0, LIMITS.claimTextChars);
+  const summary = String(evidenceSummary ?? "").slice(0, LIMITS.evidenceSummaryChars);
+  const ref = typeof referenceCheck === "string" ? referenceCheck.slice(0, LIMITS.referenceCheckChars) : "";
+  return Buffer.byteLength(CRITIQUE_SYSTEM_PROMPT) + Buffer.byteLength(critiqueUser(claim, strengthScore, summary, ref)) +
+    Buffer.byteLength(JSON.stringify(CRITIQUE_SCHEMA.schema));
+}
+
 export async function critique({ claimText, strengthScore, evidenceSummary, referenceCheck, model, effort, maxTokens = undefined }) {
   const claim = String(claimText ?? "").trim().slice(0, LIMITS.claimTextChars);
   if (!claim) throw new CheckError("bad_request", "claimText required");
@@ -191,9 +209,7 @@ export async function critique({ claimText, strengthScore, evidenceSummary, refe
   // "Reference lookup" heading is load-bearing: Pass 2(c) may only return
   // "fabricated" when it is PRESENT, so it is omitted — never sent empty —
   // when no lookup ran.
-  const user =
-    `Claim: "${claim}"\nEvidence strength score: ${strengthScore ?? "not yet computed"}/100\n\nTop evidence:\n${summary}` +
-    (referenceCheck ? `\n\nReference lookup:\n${referenceCheck}` : "");
+  const user = critiqueUser(claim, strengthScore, summary, referenceCheck);
 
   let raw, used = model, usage = zeroUsage();
   if (isMock()) {

@@ -69,6 +69,24 @@ function userPrompt(text, sentences) {
   return `DOCUMENT:\n"""\n${text}\n"""\n\nSENTENCES TO EVALUATE:\n${list}\n\nReturn one finding per id.`;
 }
 
+/* COST: never resend a whole long document as context — the sentences carry
+ * their own text, and a short head (title/thesis) covers reference resolution. */
+function checkContext(text) {
+  return text.length > 6000 ? text.slice(0, 2000) + "\n[… document trimmed for cost — judge sentences on their own text …]" : text;
+}
+
+/* The UTF-8 size of everything one check call sends as input — instructions,
+ * document context, sentences and the output schema — for sizing a hold on
+ * it (server.js thoroughWorstMicroCents). Bytes, not characters: a byte-level
+ * BPE token covers at least one byte, so this bounds the input tokens in any
+ * script, where a character count under-counts CJK roughly 3x. */
+export function checkPromptBytes({ text, sentences }) {
+  const t = typeof text === "string" ? text : "";
+  const list = Array.isArray(sentences) ? sentences : [];
+  return Buffer.byteLength(systemPrompt()) + Buffer.byteLength(userPrompt(checkContext(t), list)) +
+    Buffer.byteLength(JSON.stringify(FINDINGS_SCHEMA));
+}
+
 /* `admitSplit`, when given, is asked before a truncated batch is split into
  * two more calls, and the split happens only if it answers true — the route
  * uses it to hold those calls' worst case against a spend pool (server.js
@@ -81,9 +99,7 @@ function userPrompt(text, sentences) {
 export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, maxTokens = undefined }) {
   const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
-  // COST: never resend a whole long document as context — the sentences carry
-  // their own text, and a short head (title/thesis) covers reference resolution.
-  const context = text.length > 6000 ? text.slice(0, 2000) + "\n[… document trimmed for cost — judge sentences on their own text …]" : text;
+  const context = checkContext(text);
   // `effort` used to be destructured here and then dropped, so the slider
   // moved the model and nothing else. undefined falls to lib/llm.js's
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.

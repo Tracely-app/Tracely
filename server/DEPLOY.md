@@ -139,7 +139,8 @@ PLUS the worst case of every call still in flight leaves room: the worst
 case is the route's output ceiling plus its largest input on the fast model
 (~2.5 cents for a check, every input token priced as a cache write,
 `WORST_CALL` in server.js); an "Explain in depth" admitted to the thorough
-model holds its own 15-cent worst case on top (`admitThorough`), which is
+model holds its own worst case on top (`admitThorough`: its prompt's bytes
+plus 2,000 output tokens on astra, at least 15 cents), which is
 what bounds a beta tester who rotates install ids to get fresh allowances. A check that truncates splits
 into two more calls, recursively; each split is admitted the same way (two
 more worst cases held, or no split and a `truncated` error). So a burst —

@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runFactCheck, findSources, runFlowCheck, hasApiKey, CheckError } from "./lib/factcheck.js";
+import { runFactCheck, findSources, runFlowCheck, hasApiKey, CheckError, checkPromptBytes } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
 import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
@@ -716,11 +716,23 @@ function hostedChoice(route, ent, id, { requested, thoroughAvailable = false } =
   return modelForRoute(route, effectivePlan(ent, id), { requested, thoroughAvailable });
 }
 
-/* What one thorough call holds, in micro-cents: its worst case on the
- * thorough model (THOROUGH_RESERVE_USD), against the account's allowance and,
- * on the beta and paid pools, against the pool as well. */
-function thoroughWorstMicroCents(route) {
-  return Math.round((THOROUGH_RESERVE_USD[route] ?? 0) * MICRO_CENTS_PER_USD);
+/* What one thorough call holds, in micro-cents, against the account's
+ * allowance and, on the beta and paid pools, against the pool as well: its
+ * worst case on the thorough model FOR THIS PROMPT. The input side is the
+ * prompt's UTF-8 size (lib/factcheck.js checkPromptBytes, lib/reasoning.js
+ * critiquePromptBytes) — a byte-level BPE token covers at least one byte, so
+ * B bytes are at most B tokens in any script, where a fixed token guess is
+ * blown ~3x by CJK text — plus a little message framing, priced cold as cache
+ * writes; the output side is the route's ceiling (THOROUGH_MAX_TOKENS, which
+ * counts reasoning tokens too). Never below the route's fixed floor
+ * (THOROUGH_RESERVE_USD), which is all a route without a ceiling holds. */
+const THOROUGH_FRAMING_TOKENS = 256;
+function thoroughWorstMicroCents(route, promptBytes = 0) {
+  const floor = Math.round((THOROUGH_RESERVE_USD[route] ?? 0) * MICRO_CENTS_PER_USD);
+  const maxOut = THOROUGH_MAX_TOKENS[route];
+  if (!maxOut) return floor;
+  const input = Math.max(0, Number(promptBytes) || 0) + THOROUGH_FRAMING_TOKENS;
+  return Math.max(floor, costMicroCents(MODEL_TIERS.thorough, { input, cacheWrite: input, output: maxOut }));
 }
 
 /* Admission to the thorough model for one call: the account's allowance
@@ -730,11 +742,12 @@ function thoroughWorstMicroCents(route) {
  * rotating tester, exactly as it bounds their checks. Not while a paid
  * caller's pool is spent (modelCeiling: that caller runs fast). Returns the
  * allowance hold (release it after recording) or null: run on fast. */
-function admitThorough(gate, route, requested) {
+function admitThorough(gate, route, requested, promptBytes = 0) {
   if (!gate.ent.enforced || gate.modelCeiling) return null;
-  const hold = reserveThorough(gate.ent, gate.callerId, route, { requested });
+  const worst = thoroughWorstMicroCents(route, promptBytes);
+  const hold = reserveThorough(gate.ent, gate.callerId, route, { requested, worstMicroCents: worst });
   if (!hold) return null;
-  if (gate.reservation && !gate.reservation.extend(thoroughWorstMicroCents(route))) {
+  if (gate.reservation && !gate.reservation.extend(worst)) {
     hold.release();
     return null;
   }
@@ -857,9 +870,9 @@ const SOURCE_QUOTA = {
  * gate and the central handler releases it in its `finally`, after a failed
  * call's billed cost is charged — so no admission can see the allowance with
  * that cost neither held nor spent. */
-async function appCall(gate, { task, route = task, requested, effort = undefined, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, run }) {
+async function appCall(gate, { task, route = task, requested, effort = undefined, cache = null, webSearchCalls = 0, quota: meter = AI_QUOTA, promptBytes = 0, run }) {
   const hosted = gate.ent.enforced;
-  const hold = hosted ? admitThorough(gate, route, requested) : null;
+  const hold = hosted ? admitThorough(gate, route, requested, promptBytes) : null;
   if (hold) gate.thoroughHold = hold;
   const choice = hosted
     ? hostedChoice(route, gate.ent, gate.callerId, { requested, thoroughAvailable: Boolean(hold) })
@@ -1093,7 +1106,7 @@ const server = http.createServer(async (req, res) => {
       recordCheck(ent, who); // before the call, not after
       let modelUsed, level, maxTokens;
       if (ent.enforced) {
-        const hold = deep ? admitThorough(gate, "checkDeep", MODEL_TIERS.thorough) : null;
+        const hold = deep ? admitThorough(gate, "checkDeep", MODEL_TIERS.thorough, checkPromptBytes({ text, sentences })) : null;
         if (hold) gate.thoroughHold = hold;
         const choice = hostedChoice(deep ? "checkDeep" : "check", ent, who, { requested: MODEL_TIERS.thorough, thoroughAvailable: Boolean(hold) });
         // extensionModel shrinks the pool hold to the model chosen — never on
@@ -1327,6 +1340,8 @@ const server = http.createServer(async (req, res) => {
         task: "critique",
         requested: body.model,
         effort: body.effort,
+        // What the thorough hold is sized from (thoroughWorstMicroCents).
+        promptBytes: reasoning.critiquePromptBytes(input),
         cache: {
           kind: "critique", version: 2, maxAgeMs: 7 * 24 * 3600_000,
           key: (model) => hashKey(["crit2", model, input.claimText, input.strengthScore ?? "null", input.evidenceSummary ?? "", input.referenceCheck ?? "none"].join("|")),

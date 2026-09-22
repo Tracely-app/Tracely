@@ -478,7 +478,8 @@ export function effectivePlan(ent, id, at = Date.now()) {
  * (THOROUGH_MONTHLY_USD), keyed on the caller id — `user:<id>`, or
  * `install:<hash>` for an anonymous beta tester, whose grant is Pro — on a
  * "YYYY-MM" month row. It resets on the 1st (usageMonth, UTC). Calls in flight
- * hold their worst case (THOROUGH_RESERVE_USD) under "thorough:<id>" in
+ * hold their worst case (sized from the prompt, at least
+ * THOROUGH_RESERVE_USD) under "thorough:<id>" in
  * lib/spend.js, so a burst cannot all be admitted against the same unspent
  * allowance. */
 const thoroughHoldKey = (id) => `thorough:${id}`;
@@ -527,15 +528,19 @@ export function recordThorough(id, microCents, at = Date.now()) {
  *    account over its fair-use limit gets fast), and `requested` asks for the
  *    thorough tier (wantsThorough);
  *  - the allowance minus what is spent minus every hold in flight still
- *    covers this route's worst case (THOROUGH_RESERVE_USD) — so the allowance
- *    cannot be overshot by calls that stay inside their maxTokens.
+ *    covers this call's worst case (`worstMicroCents`, sized from its prompt's
+ *    bytes and its maxTokens; at least THOROUGH_RESERVE_USD) — so the
+ *    allowance cannot be overshot by calls that stay inside their maxTokens.
  * Check-and-hold is synchronous, so two requests cannot both be admitted
  * against the same remainder.
  */
-export function reserveThorough(ent, id, route, { requested, at = Date.now() } = {}) {
+export function reserveThorough(ent, id, route, { requested, worstMicroCents = null, at = Date.now() } = {}) {
   if (!metered(ent, id)) return null;
   if (!wantsThorough(route, effectivePlan(ent, id, at), requested)) return null;
-  const worst = Math.round((THOROUGH_RESERVE_USD[route] ?? 0) * MICRO_CENTS_PER_USD);
+  // `worstMicroCents`: this call's own worst case, sized from its prompt
+  // (server.js thoroughWorstMicroCents); never below the route's fixed floor.
+  const floor = Math.round((THOROUGH_RESERVE_USD[route] ?? 0) * MICRO_CENTS_PER_USD);
+  const worst = Math.max(floor, Number.isFinite(worstMicroCents) ? Math.round(worstMicroCents) : 0);
   if (!(worst > 0)) return null;
   const s = thoroughState(ent, id, at);
   if (s.allowanceMicroCents - s.usedMicroCents - s.reservedMicroCents < worst) return null;
