@@ -118,3 +118,61 @@ test("source searches: a beta tester gets Pro's limits on their install id", () 
   E.recordSourceSearch(ent, id, SEP(15));
   assert.equal(usageCount(id, "2026-09", "source_search"), 1);
 });
+
+// ── flow ───────────────────────────────────────────────────────────────
+
+test("flow: 40 a day on Free, 150 on Student and Pro, counted under its own kind", () => {
+  for (const [plan, limit] of [["free", 40], ["student", 150], ["pro", 150]]) {
+    const { ent, id } = account(plan);
+    assert.equal(E.flowQuota(ent, id, SEP(15)).limit, limit, plan);
+  }
+  const { ent, id } = account("free");
+  for (let i = 0; i < 40; i++) E.recordFlow(ent, id, SEP(15));
+  assert.deepEqual([E.flowQuota(ent, id, SEP(15)).allowed, E.flowQuota(ent, id, SEP(15)).used], [false, 40]);
+  assert.equal(E.flowQuota(ent, id, SEP(16)).allowed, true);
+  assert.equal(E.checkQuota(ent, id, SEP(15)).used, 0, "flow never eats the check allowance");
+});
+
+test("flow: unenforced and address callers are not metered", () => {
+  const local = { plan: "free", userId: null, email: null, enforced: false };
+  assert.equal(E.flowQuota(local, "install:x", SEP(15)).limit, null);
+  assert.equal(E.recordFlow(local, "install:x", SEP(15)), 0);
+  const hosted = { plan: "free", userId: null, email: null, enforced: true };
+  assert.equal(E.flowQuota(hosted, "addr:school", SEP(15)).limit, null);
+});
+
+// ── per-account spend ──────────────────────────────────────────────────
+
+test("account spend accumulates on a day row and a month row", () => {
+  const { id } = account("pro");
+  E.recordAccountSpend(id, 1000, SEP(15));
+  const t = E.recordAccountSpend(id, 500, SEP(15));
+  assert.deepEqual([t.dayMicroCents, t.monthMicroCents, t.month], [1500, 1500, "2026-09"]);
+  const next = E.recordAccountSpend(id, 200, SEP(16));
+  assert.deepEqual([next.dayMicroCents, next.monthMicroCents], [200, 1700]);
+  assert.deepEqual([E.accountSpend(id, OCT(2)).dayMicroCents, E.accountSpend(id, OCT(2)).monthMicroCents], [0, 0]);
+});
+
+test("account spend ignores zero, negative and non-numbers, and address or keyless callers", () => {
+  const { id } = account("student");
+  for (const bad of [0, -5, NaN, undefined, "x"]) E.recordAccountSpend(id, bad, SEP(15));
+  assert.equal(E.accountSpend(id, SEP(15)).monthMicroCents, 0);
+  assert.equal(usageCount(id, "2026-09", "account_ucents"), 0);
+  E.recordAccountSpend("addr:school", 1000, SEP(15));
+  assert.equal(usageCount("addr:school", "2026-09", "account_ucents"), 0);
+  assert.equal(E.recordAccountSpend(null, 1000, SEP(15)).monthMicroCents, 0);
+});
+
+test("account spend never lands in a pool's daily spend", () => {
+  const before = spentTodayMicroCents(SEP(15), "extension");
+  E.recordAccountSpend(account("pro").id, 5 * USD, SEP(15));
+  assert.equal(spentTodayMicroCents(SEP(15), "extension"), before);
+});
+
+test("recordSpend returns the call's cost, and 0 when unenforced", () => {
+  const usage = { input: 1000, output: 100 };
+  const cost = recordSpend({ model: "gpt-5.6-luna", usage, at: SEP(15), pool: "paid" });
+  assert.ok(cost > 0);
+  assert.equal(spentTodayMicroCents(SEP(15), "paid"), cost);
+  assert.equal(recordSpend({ model: "gpt-5.6-luna", usage, enforced: false, at: SEP(15), pool: "paid" }), 0);
+});
