@@ -32,6 +32,7 @@ import { rollingCounter } from "../shared/guards.js";
 import { problemsFor, markFor } from "../shared/marks.js";
 import { CheckError } from "./factcheck.js";
 import { MODEL_TIERS } from "./llm.js";
+import { THOROUGH_MAX_TOKENS } from "../shared/plan.js";
 
 const POLL_MS = 2500;             // ambient cadence — reads are free (local AX)
 const STABLE_POLLS = 2;           // the spec's stable-ms: same text on 2 consecutive polls
@@ -365,9 +366,12 @@ export async function critiqueFinding(key) {
   // The desktop's five-pass critique. No reference lookup runs here, so the
   // "Reference lookup" section is absent and "fabricated" is unreachable —
   // which is right for text read off someone else's screen.
+  // On the thorough model, the hosted critique's output ceiling
+  // (THOROUGH_MAX_TOKENS), not the route's 16,000 — as server.js appCall.
+  const model = deps.pickModel("critique");
   const result = await reasoning.critique({
     ...reasoning.critiqueInputFromSources({ claim: it.claim, sentence: it.sentence, sources: it.sources }),
-    model: deps.pickModel("critique"),
+    model, maxTokens: model === MODEL_TIERS.thorough ? THOROUGH_MAX_TOKENS.critique : undefined,
   });
   it.state.critique = { verdict: result.verdict, citationFix: result.citationFix ?? null };
   const f = it.finding;

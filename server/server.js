@@ -363,7 +363,10 @@ const critiqueCounter = rollingCounter(60);
 //     measured better — critique and "Explain in depth" (checkDeep). It used
 //     the balanced tier for critique, grading and checks until 2026-09-22;
 //     that tier is gone, and fast was the more accurate model on every task
-//     the eval measured (shared/plan.js THOROUGH_ROUTES).
+//     the eval measured (shared/plan.js THOROUGH_ROUTES). A correction is
+//     its own task, on fast, as it is hosted — it used to share critique's.
+//     A thorough critique runs under THOROUGH_MAX_TOKENS here too (appCall,
+//     lib/watch.js), so smart's cost profile matches the hosted one.
 //   uniform: the user's chosen model everywhere (they pay for what they pick).
 // LOCAL runs only: a hosted server chooses with shared/plan.js modelForRoute.
 // Read from the tier table rather than written out, so a model rename is one
@@ -371,8 +374,8 @@ const critiqueCounter = rollingCounter(60);
 const H = MODEL_TIERS.fast;
 const T = MODEL_TIERS.thorough;
 const TIERS = {
-  economy: { detect: H, structure: H, tracer: H, critique: H, grade: H, sources: H, check: H, checkDeep: H },
-  smart:   { detect: H, structure: H, tracer: H, critique: T, grade: H, sources: H, check: H, checkDeep: T },
+  economy: { detect: H, structure: H, tracer: H, critique: H, correction: H, grade: H, sources: H, check: H, checkDeep: H },
+  smart:   { detect: H, structure: H, tracer: H, critique: T, correction: H, grade: H, sources: H, check: H, checkDeep: T },
 };
 function pickModel(task) {
   const p = store.prefs.get();
@@ -874,9 +877,13 @@ async function appCall(gate, { task, route = task, requested, effort = undefined
   const hosted = gate.ent.enforced;
   const hold = hosted ? admitThorough(gate, route, requested, promptBytes) : null;
   if (hold) gate.thoroughHold = hold;
+  // Local: pickModel, the client's effort, and — on the thorough model, on a
+  // route that has one — the same output ceiling as hosted (a 16,000-token
+  // astra critique is 80 cents of output on the user's own key).
+  const localModel = hosted ? null : appModelFor(task, gate.ent, requested);
   const choice = hosted
     ? hostedChoice(route, gate.ent, gate.callerId, { requested, thoroughAvailable: Boolean(hold) })
-    : { model: appModelFor(task, gate.ent, requested), effort, maxTokens: undefined };
+    : { model: localModel, effort, maxTokens: localModel === MODEL_TIERS.thorough ? THOROUGH_MAX_TOKENS[route] : undefined };
   const { model } = choice;
   const key = cache ? cache.key(model, choice.effort) : null;
   if (cache && !MOCK) {
@@ -1362,7 +1369,7 @@ const server = http.createServer(async (req, res) => {
       const body = (await parseJsonBody(req)) ?? {};
       const passages = Array.isArray(body.contradictingPassages) ? body.contradictingPassages : [];
       const result = await appCall(gate, {
-        task: "critique",
+        task: "correction",
         route: "correction",
         requested: body.model,
         effort: body.effort,

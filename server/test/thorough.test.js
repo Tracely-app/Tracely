@@ -370,3 +370,23 @@ test("a thorough call answered under a dated snapshot id is still charged to the
   const e = await call("GET", "/api/entitlement", { token });
   assert.equal(e.body.thorough.remainingPct, 86);
 });
+
+// ── local (unenforced) smart strategy ───────────────────────────────────
+
+test("local smart: a critique runs astra under the hosted 4,000-token ceiling; a correction is its own task, on luna", async () => {
+  const L = await boot({ OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_TEST_OPENAI_LOG: OPENAI_LOG });
+  try {
+    const at = (p, body) => fetch(`${L.base}${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+    const put = await fetch(`${L.base}/api/prefs`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modelStrategy: "smart" }) });
+    assert.equal(put.status, 200);
+    const crit = await at("/api/critique", { claimText: "Screen time causes anxiety. TAG-local-crit", strengthScore: 0.4, evidenceSummary: "two surveys" });
+    assert.equal(crit.status, 200, JSON.stringify(crit.body));
+    assert.deepEqual(openaiLog("local-crit").map((c) => [c.model, c.maxTokens]), [[ASTRA, 4000]], "not the route's 16,000 on astra");
+    const corr = await at("/api/correction", { claimText: "The Treaty of Paris was signed in 1783. TAG-local-corr", contradictingPassages: ["It was signed in 1783."] });
+    assert.equal(corr.status, 200, JSON.stringify(corr.body));
+    assert.deepEqual(openaiLog("local-corr").map((c) => c.model), [LUNA], "a correction never follows critique onto astra");
+  } finally {
+    L.child.kill();
+  }
+});
