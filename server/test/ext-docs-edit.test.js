@@ -763,7 +763,7 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
     ${contentSlice("  function esc(s) {", "  /* ── transport")}
     ${contentSlice("    /* ── editing the document ──", "    // (the bridge \"highlight in doc\" feature was removed")}
     ({
-      docsEdit, probeInDoc, canEditDoc, docApply, docFix, docCite, addTransition, undoLastDocEdit, editView, editBtnHtml, segHint, hashText,
+      docsEdit, probeInDoc, canEditDoc, docApply, docFix, docCite, addTransition, undoLastDocEdit, editView, editBtnHtml, segHint, hashText, settleEditStates,
       setBridge: (v) => { bridgeReady = v; },
       setDoc: (text, segs) => { docText = text; segments = segs; },
       setBars: (b) => { docsBars = b; },
@@ -862,6 +862,43 @@ test("content.js: Fix in doc → Applied ✓ · Undo, the old sentence's underli
   assert.equal(w.state().lastDocEdit, null);
   assert.equal(w.state().statusMsg, "undone");
   assert.equal(w.editView(`fix:${h}`, "Fix in doc").label, "Fix in doc");
+});
+
+test("content.js: 'Applied ✓' lasts until the export shows the edit — then ⌘Z in Docs can't strand the sentence", async () => {
+  const S = "Einstein was a basketball player.";
+  const { w } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "u1" } : undefined), body: S });
+  await w.probeInDoc();
+  const h = w.hashText(S);
+  w.setDoc(S, [{ ...seg(S), hash: h }]);
+  w.cache.set(h, { verdict: "false", revision: "Einstein was a physicist." });
+  const t0 = Date.now();
+  await w.docFix(h);
+  const key = `fix:${h}`;
+  assert.equal(w.editView(key, "Fix in doc").label, "Applied ✓");
+
+  w.settleEditStates(t0 - 1); // a read that started BEFORE the edit proves nothing
+  assert.equal(w.editView(key, "Fix in doc").label, "Applied ✓");
+  w.settleEditStates(Date.now() + 1); // a later read, but the export has not caught up
+  assert.equal(w.editView(key, "Fix in doc").label, "Applied ✓", "a lagging export must not re-offer an edit already made");
+
+  const F = "Einstein was a physicist.";
+  w.setDoc(F, [{ ...seg(F), hash: w.hashText(F) }]); // the export shows the edit
+  w.settleEditStates(Date.now() + 1);
+  const v = w.editView(key, "Fix in doc");
+  assert.deepEqual([v.label, v.disabled, !!v.undo], ["Fix in doc", false, false], "usable again if the sentence comes back (⌘Z in Docs)");
+  assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["u1"], "the Undo stays — in the panel's strip");
+
+  // Never propagated (undone in Docs within seconds): 30 s, then it settles too.
+  const again = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "u2" } : undefined), body: S });
+  await again.w.probeInDoc();
+  again.w.setDoc(S, [{ ...seg(S), hash: h }]);
+  again.w.cache.set(h, { verdict: "false", revision: F });
+  await again.w.docFix(h);
+  again.w.settleEditStates(Date.now() + 29_000);
+  assert.equal(again.w.editView(key, "Fix in doc").label, "Applied ✓");
+  again.w.settleEditStates(Date.now() + 31_000);
+  assert.equal(again.w.editView(key, "Fix in doc").label, "Fix in doc");
+  assert.match(read("content.js"), /docText = await getDocText\(\);[\s\S]{0,600}settleEditStates\(readAt\)/, "every export read settles them");
 });
 
 test("content.js: a refused edit copies the fix instead, with a short reason", async () => {

@@ -1129,12 +1129,14 @@
       if (orphaned || inflight || document.hidden) return;
       inflight = true;
       try {
+        const readAt = Date.now();
         docText = await getDocText();
         segments = segmentText(docText);
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
         for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
+        settleEditStates(readAt);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         if (todo.length > 0) {
           statusKind = "checking";
@@ -2952,6 +2954,22 @@
       else docEditState.delete(key);
       refreshEditViews();
     }
+    // "Applied ✓" answers a click; it is not a lasting fact about the doc.
+    // Once an export read that started after the edit shows the doc changed
+    // (the edit has propagated) — or after 30 s if it never does (undone in
+    // Docs first) — the button goes back to what the doc now says, and the
+    // Undo moves to the panel's strip. Otherwise ⌘Z in Docs, or the sentence
+    // typed back, would leave a flagged sentence whose only button is a
+    // disabled "Applied ✓". Waiting for the export (not a fixed delay) keeps
+    // a lagging export from offering an edit that has already been made.
+    function settleEditStates(readAt) {
+      let changed = false;
+      for (const [key, st] of docEditState) {
+        if (st.state !== "applied" || !(readAt > st.at)) continue;
+        if (docText !== st.base || readAt - st.at > 30_000) { docEditState.delete(key); changed = true; }
+      }
+      if (changed) refreshEditViews();
+    }
 
     // What an edit button shows, from its state.
     function editView(key, idle) {
@@ -3037,7 +3055,7 @@
         statusKind = "idle";
         statusMsg = job.doneMsg;
         lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000; // re-read soon (export lags slightly)
-        setEditState(key, { state: "applied" });
+        setEditState(key, { state: "applied", at: Date.now(), base: docText });
         requestDocsMarks(); // the edited sentence's underline drops right away
         return true;
       }
@@ -3085,7 +3103,7 @@
       } else {
         statusKind = "error";
         statusMsg = `Couldn't undo automatically — ${undoAdvice(r)}`;
-        setEditState(e.key, { state: "applied", note: statusMsg });
+        setEditState(e.key, { state: "applied", note: statusMsg, at: Date.now(), base: docText });
       }
       lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
       requestDocsMarks();
