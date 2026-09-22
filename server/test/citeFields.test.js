@@ -40,8 +40,10 @@ test("a source with none of the fields (a harvested url_citation) gets none", ()
   assert.deepEqual(citeFields("nope"), {});
 });
 
-test("kind is one of the seven, case-folded, else omitted", () => {
-  assert.deepEqual(SOURCE_KINDS, ["institutional", "news", "reference", "journal", "book", "archive", "other"]);
+test("kind is one of the eight, case-folded, else omitted", () => {
+  assert.deepEqual(SOURCE_KINDS, ["institutional", "news", "reference", "journal", "report", "book", "archive", "other"]);
+  assert.equal(f({ kind: "report" }).kind, "report");
+  assert.equal(f({ kind: "book" }).kind, "book", "the old values still pass");
   assert.equal(f({ kind: "Journal" }).kind, "journal");
   assert.equal(f({ kind: "blog" }).kind, undefined);
   assert.equal(f({ kind: 7 }).kind, undefined);

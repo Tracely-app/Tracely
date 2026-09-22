@@ -64,6 +64,8 @@ test("findSources asks for the citation fields in a strict schema, and leaves th
   assert.deepEqual(item.properties.year.type, ["integer", "null"]);
   assert.match(body.instructions, /copy ONLY what the source itself states; never guess/);
   assert.match(body.instructions, /Empty is correct/);
+  assert.match(body.instructions, /report \(a report, working paper, white paper or fact sheet an organization publishes, or a chapter of one\), book \(a book, or a chapter of one\)/,
+    "an organisation's report is not a book: a book with no author leads with its title");
 });
 
 test("findSources validates what the model wrote; harvested citations carry no citation fields", async () => {

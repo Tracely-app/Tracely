@@ -489,6 +489,7 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
   if (one("citation_journal_title", "prism.publicationname") && (one("citation_volume", "prism.volume") || one("citation_doi", "prism.doi"))) kind = "journal";
   else if (isWiki || /(^|\.)britannica\.com$/.test(host)) kind = "reference";
   else if (ld.some((it) => typesOf(it).some((t) => NEWS_T.test(t))) || typesOf(main?.publisher).some((t) => NEWS_T.test(t))) kind = "news";
+  else if (typesOf(main).includes("Report")) kind = "report";
   else if (typesOf(main).includes("Book") || one("og:type") === "book") kind = "book";
   else if (orgs.length || /\.(gov|int|edu|mil)$|\.gov\.[a-z]{2}$|\.org$/.test(host)) kind = "institutional";
 

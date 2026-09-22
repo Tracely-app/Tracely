@@ -273,6 +273,12 @@ test("a <time> is a publication date only where the page marks it or a byline si
   assert.equal(at(`<article><p>card</p></article>${filler}<time datetime="2026-09-20">x</time>`), undefined);
 });
 
+test("a page typed as a JSON-LD Report is a report", () => {
+  const html = `<title>Global Trends</title><script type="application/ld+json">{"@type":"Report","name":"Global Trends","author":{"@type":"Organization","name":"UNHCR"}}</script>`;
+  const m = extractCitationMeta(html, "https://www.unhcr.org/global-trends", NOW);
+  assert.deepEqual([m.kind, m.groupAuthor], ["report", "UNHCR"]);
+});
+
 // ── the route's function ───────────────────────────────────────────────
 
 test("fetchUrlMetadata: the IOM page cites with its year, old fields first and unchanged in kind", async () => {

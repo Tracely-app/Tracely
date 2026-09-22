@@ -201,7 +201,7 @@ Rules:
 Citation fields. A student's reference list is built from these, so copy ONLY what the source itself states; never guess, never infer from the URL, the site or what is typical. Empty is correct: use "", [] or null whenever the source does not say.
 - "title": the work's own title, without the site name.
 - "publisher": the organization that publishes it, by name (e.g. "International Organization for Migration"), never a web address.
-- "kind": institutional (government, intergovernmental, NGO, university or research body), news, reference (encyclopedia, dictionary), journal (journal article), book (book, report or chapter), archive, other.
+- "kind": institutional (a web page of a government, intergovernmental body, NGO, university or research body), news, reference (encyclopedia, dictionary), journal (journal article), report (a report, working paper, white paper or fact sheet an organization publishes, or a chapter of one), book (a book, or a chapter of one), archive, other.
 - "authors": the named PEOPLE credited, full names as written. Never an organization, a website, "Staff" or "Editors".
 - "groupAuthor": the organization credited as author when no person is; otherwise "".
 - "year": the year of publication the source states (integer), else null — not the year it was updated or retrieved.

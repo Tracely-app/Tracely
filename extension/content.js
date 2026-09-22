@@ -424,9 +424,12 @@
     "July", "August", "September", "October", "November", "December"];
   const CITE_MLA_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."];
   const CITE_PARTICLE = /^(van|von|de|del|della|der|den|da|di|du|dos|das|la|le|el|al|bin|ibn|ter|ten|st\.?)$/i;
-  // Kinds where an organisation's page is its own work: the publisher stands
-  // in as the group author when no author is named.
-  const CITE_ORG_KINDS = ["institutional", "archive", "other"];
+  // Kinds where an organisation's page or report is its own work: the
+  // publisher stands in as the group author when no author is named. A
+  // report is an organisation's work even unsigned (APA leads with the
+  // organisation, not the title); an authorless book leads with its title.
+  const CITE_ORG_KINDS = ["institutional", "report", "archive", "other"];
+  const CITE_KINDS = ["institutional", "news", "reference", "journal", "report", "book", "archive", "other"];
 
   const citeStr = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
   const citeLoose = (s) => String(s ?? "").toLowerCase().replace(/^the\s+/, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]/g, "");
@@ -489,18 +492,19 @@
     const title = citeStr(src.title || src.url).replace(/[.]\s*$/, "") || url;
     const publisher = citeStr(src.publisher);
     const site = publisher && !citeIsHost(publisher) ? publisher : ""; // a hostname is never a site name
-    const kind = citeStr(src.kind) || "other"; // an older server sends no kind
+    const kind = CITE_KINDS.includes(src.kind) ? src.kind : "other"; // an older server sends none, a newer one may send one this build does not know
     const people = (Array.isArray(src.authors) ? src.authors : []).map(citeParseName).filter(Boolean);
     let group = citeStr(src.groupAuthor);
     if (!people.length && !group && site && CITE_ORG_KINDS.includes(kind)) group = site;
     const editors = (Array.isArray(src.editors) ? src.editors : []).map(citeParseName).filter(Boolean);
     const container = citeStr(src.container);
     const isJournal = kind === "journal";
-    const isChapter = Boolean(container) && !isJournal && (editors.length > 0 || kind === "book");
+    const isBookLike = kind === "book" || kind === "report";
+    const isChapter = Boolean(container) && !isJournal && (editors.length > 0 || isBookLike);
     const isRef = kind === "reference";
-    const standalone = kind === "book" && !isChapter; // italic in print → no quotes here
+    const standalone = isBookLike && !isChapter; // italic in print → no quotes here
     const { year, month, day } = citeDateParts(src);
-    const hasDay = day != null && !isJournal && kind !== "book" && !isChapter;
+    const hasDay = day != null && !isJournal && !isBookLike && !isChapter; // books and reports cite a year
     const doi = citeStr(src.doi).replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
     const permalink = citeStr(src.permalink);
     const locator = doi ? `https://doi.org/${doi}` : (isRef && permalink && hasDay ? permalink : url);

@@ -367,3 +367,26 @@ test("malformed optional fields degrade instead of printing undefined", () => {
   assert.match(formatCitation(cases[3], "chicago").ref, /edited by A\. One, B\. Two, and C\. Three\./);
   assert.match(formatCitation(cases[3], "mla").ref, /edited by A\. One et al\./);
 });
+
+test("an organisation's report leads with the organisation even when no group author is named", () => {
+  const { formatCitation } = loadCitations();
+  const WMR_URL = "https://publications.iom.int/books/world-migration-report-2024";
+  const report = { title: "World Migration Report 2024", url: WMR_URL, publisher: IOM, kind: "report", authors: [], groupAuthor: "", year: 2024, date: "2024-05-07" };
+  // APA 7 gray literature: the organisation is the author, the publisher is
+  // not repeated, the date is the year, the title stands alone.
+  assert.deepEqual(plain(formatCitation(report, "apa")), {
+    doc: `${IOM}. (2024). World Migration Report 2024.`,
+    ref: `${IOM}. (2024). World Migration Report 2024. ${WMR_URL}`,
+    marker: `(${IOM}, 2024)`,
+  });
+  // MLA 9: author and publisher the same organisation → named once, as publisher.
+  assert.equal(formatCitation(report, "mla").ref, `World Migration Report 2024. ${IOM}, 2024, publications.iom.int/books/world-migration-report-2024.`);
+  assert.equal(formatCitation(report, "chicago").ref, `${IOM}. 2024. World Migration Report 2024. ${WMR_URL}.`);
+  // A chapter of a report is a chapter, as a chapter of a book is.
+  const chapter = { ...TESTER, kind: "report", groupAuthor: "" };
+  for (const style of STYLES) assert.deepEqual(plain(formatCitation(chapter, style)), plain(formatCitation(TESTER, style)), style);
+  // "book" keeps its meaning: an authorless book leads with its title.
+  assert.ok(formatCitation({ ...report, kind: "book" }, "apa").ref.startsWith("World Migration Report 2024. (2024)."));
+  // A kind this build does not know reads as "other" — an organisation's own page.
+  assert.ok(formatCitation({ ...report, kind: "dataset" }, "apa").ref.startsWith(`${IOM}. (2024, May 7).`));
+});

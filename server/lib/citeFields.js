@@ -18,7 +18,12 @@
  */
 import { capAuthors, contradictsTitle, isHostname, looksLikeOrg, PLACEHOLDER_NAME, splitNames } from "./citeMeta.js";
 
-export const SOURCE_KINDS = ["institutional", "news", "reference", "journal", "book", "archive", "other"];
+/* "report" was added after "book" had been defined as "book, report or
+ * chapter": an organisation's report filed as a book with no group author
+ * led its APA entry with the title, where the organisation is the author.
+ * "book" keeps its meaning for books; a client that knows no kind reads it
+ * as "other". */
+export const SOURCE_KINDS = ["institutional", "news", "reference", "journal", "report", "book", "archive", "other"];
 const KINDS = new Set(SOURCE_KINDS);
 
 const loose = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
