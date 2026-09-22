@@ -558,6 +558,8 @@ const checkRate = keyedRateLimiter(SPEND.callerChecksPerMinute);
 const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
 // The app routes' own limiter — see APP_AI_ROUTES for why it is not checkRate.
 const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
+// One /api/flow call per caller per FLOW_MIN_INTERVAL_MS, on a hosted server.
+const flowRate = keyedRateLimiter(1, FLOW_MIN_INTERVAL_MS);
 
 function stampCallerRate(ent, id, kind) {
   if (!ent.enforced || !id) return;
@@ -1177,19 +1179,33 @@ const server = http.createServer(async (req, res) => {
       const { text, model, effort } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
       if (text.length > GUARDS.maxInputChars) throw new CheckError("bad_request", "text too long");
+      /* Hosted: at most ONE flow call per caller per FLOW_MIN_INTERVAL_MS
+       * (120 s) — a 429 "flow_rate" that shipped extensions (which re-ran flow
+       * every 45 s while someone typed at the end of a document) swallow in
+       * requestFlow's empty catch — and the daily flow quota (DAILY_FLOW, at
+       * the effective plan). Stamped after the body is valid, before the call.
+       * Every key counts, address keys included: this is a rate limit, not a
+       * daily quota, and the extension always sends its install id. */
+      const { ent, callerId: who } = gate;
+      if (ent.enforced && who) {
+        if (!flowRate.ok(who)) {
+          throw new CheckError("flow_rate", "Flow feedback refreshes every couple of minutes — try again shortly.", { status: 429, retryAfter: Math.ceil(FLOW_MIN_INTERVAL_MS / 1000) });
+        }
+        const quota = flowQuota(ent, who);
+        if (!quota.allowed) throw quotaRefusal(ent, who, flowLimitMessage(quota));
+        flowRate.stamp(who);
+        recordFlow(ent, who); // before the call, not after
+      }
       const started = Date.now();
-      // The only route that ever honoured the client's model directly, which
-      // makes it the one the clamp matters most on. An unrecognised model is
-      // resolved to the fast tier HERE rather than inside runFlowCheck, so
-      // `modelUsed` reports what actually ran instead of echoing the request
-      // back on a local server. Its effort used to be dropped here, so a flow
-      // check ran at the default whatever the slider said.
-      const { ent } = gate;
-      const modelUsed = extensionModel(gate, "/api/flow", allowedModel(ent, servedModel(model)));
-      const level = normalizeEffort(effort);
+      // Hosted: the fast model at low, PINNED (modelForRoute "flow") — the
+      // client's model and effort are not read. Local: the client's model as
+      // one this server serves (servedModel) and its effort, as before.
+      const choice = ent.enforced ? hostedChoice("flow", ent, who) : null;
+      const modelUsed = extensionModel(gate, "/api/flow", choice ? choice.model : allowedModel(ent, servedModel(model)));
+      const level = choice ? choice.effort : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFlowCheck({ text, model: modelUsed, effort: level, mock: MOCK });
-      recordSpend({ model: result.model ?? modelUsed, usage: result.usage, enforced: ent.enforced, pool: gate.pool });
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
     }
