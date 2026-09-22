@@ -155,6 +155,10 @@ function renderSourcesLine() {
   // daily allowance; a paid one is sold by the month, with the day as a burst.
   const metered = account.limits?.checksPerDay !== null || account.plan === "free";
   const leftToday = limits.day === null ? null : Math.max(0, limits.day - used.today);
+  if (limits.month === null) {
+    line.textContent = `Source searches: ${used.today} of ${limits.day} today.`;
+    return;
+  }
   line.textContent = metered && limits.day !== null
     ? `Source searches: ${used.today} of ${limits.day} today · ${used.month} of ${limits.month} this month.`
     : `Source searches: ${used.month} of ${limits.month} this month${leftToday === null ? "" : ` (${leftToday} left today)`}.`;
