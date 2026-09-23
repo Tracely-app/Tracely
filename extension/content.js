@@ -804,13 +804,51 @@
     return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
   }
 
-  // jointracely.com's own font, bundled in the extension (web_accessible).
-  const FONT_URL = (() => { try { return chrome.runtime.getURL("fonts/PlusJakartaSans.woff2"); } catch { return ""; } })();
-  const JAKARTA = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+  /* ── the app's design tokens ───────────────────────────────────────────
+     The extension is meant to read as the same product as the Tracely app,
+     so every colour, radius and shadow below is the app's own value
+     (src/renderer/src/styles/index.css, and markMotion/problemCopy for the
+     marks). Two copies on purpose: CSS custom properties for the widget's
+     shadow root, and this object for the Docs popovers, which live in the
+     page DOM and cannot see shadow CSS. Dark mode is deliberately absent —
+     the app's dark tokens are --bg #0b0b0d / --surface #17171b / --text
+     #f6f6f8 / --border rgba(255,255,255,.18) for whoever adds it. */
+  const APP = {
+    // The app ships NO webfont: it renders in the reader's system font, so
+    // matching it means using the same stack, not bundling a face. The
+    // extension used to load Plus Jakarta Sans, which is why the same
+    // sentence looked like a different product in Docs.
+    font: `'Instrument Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif`,
+    surface: "#ffffff", bg: "#f0f0f1", surface2: "rgba(0,0,0,.02)",
+    text: "#000000", ink: "#1c1c1c", body: "#737373",
+    muted: "rgba(0,0,0,.6)", label: "rgba(0,0,0,.56)", chipInk: "#55555c",
+    border: "rgba(0,0,0,.18)", borderStrong: "rgba(0,0,0,.26)", hairline: "#d9d9d9",
+    accent: "#f97316", accent2: "#f9a050",
+    accentGradient: "linear-gradient(164deg,#f47b20 0%,#f9a050 100%)",
+    accentWash: "rgba(244,123,32,.07)", accentBorder: "rgba(244,123,32,.18)",
+    ring: "rgba(244,123,32,.25)", danger: "#fb2c36",
+    chipWash: "rgba(0,0,0,.07)",
+    shadowSm: "0 1px 3px rgba(15,15,16,.06)",
+    shadowCard: "0 8px 24px rgba(0,0,0,.18)",
+    shadowLg: "0 20px 40px rgba(15,15,16,.16)",
+    rCard: "16px", rBtn: "8px", rChip: "20px",
+  };
+  const JAKARTA = APP.font; // name kept where it is threaded through inline styles
 
   const WIDGET_CSS = `
-    ${FONT_URL ? `@font-face { font-family: 'Plus Jakarta Sans'; src: url('${FONT_URL}') format('woff2'); font-weight: 200 800; font-display: swap; }` : ""}
-    :host { all: initial; }
+    :host {
+      all: initial;
+      --surface: ${APP.surface}; --bg: ${APP.bg}; --surface-2: ${APP.surface2};
+      --text: ${APP.text}; --ink: ${APP.ink}; --body: ${APP.body};
+      --muted: ${APP.muted}; --label: ${APP.label}; --chip-ink: ${APP.chipInk};
+      --border: ${APP.border}; --border-strong: ${APP.borderStrong}; --hairline: ${APP.hairline};
+      --accent: ${APP.accent}; --accent-2: ${APP.accent2};
+      --accent-gradient: ${APP.accentGradient}; --accent-wash: ${APP.accentWash};
+      --accent-border: ${APP.accentBorder}; --ring: ${APP.ring}; --danger: ${APP.danger};
+      --chip-wash: ${APP.chipWash};
+      --shadow-sm: ${APP.shadowSm}; --shadow-card: ${APP.shadowCard}; --shadow-lg: ${APP.shadowLg};
+      --r-card: ${APP.rCard}; --r-btn: ${APP.rBtn}; --r-chip: ${APP.rChip};
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
     .pill {
@@ -1998,13 +2036,10 @@
     let popAnchor = null, popLastTop = 0, popFollowRaf = 0, popLostAt = 0;
     let popPinned = false; // an edit from this card may remove the underline it follows — stay put
 
-    function popFont() {
-      if (popFontIn || !FONT_URL) return;
-      popFontIn = true;
-      const st = document.createElement("style");
-      st.textContent = `@font-face{font-family:'Plus Jakarta Sans';src:url('${FONT_URL}') format('woff2');font-weight:200 800;font-display:swap;}`;
-      document.head.appendChild(st);
-    }
+    /* Nothing to load any more: the cards use the app's font stack, which is
+       whatever the reader already has. Kept as a no-op so the call sites (and
+       their ordering) stay exactly where they were. */
+    function popFont() { popFontIn = true; }
 
     /* Motion. The card eases out of its underline (fade + a few px of slide
        + a hair of scale) instead of popping in, and fades out instead of

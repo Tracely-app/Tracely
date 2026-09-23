@@ -99,7 +99,7 @@ test("getDocText exports through the account prefix docsMode derived", () => {
 
 /* ── an orphaned tab says so instead of showing a stale count ──────────── */
 
-const ORPHAN_HELPER = () => contentSlice("  const ORPHAN_PILL_TEXT", "// jointracely.com's own font");
+const ORPHAN_HELPER = () => contentSlice("  const ORPHAN_PILL_TEXT", "  /* ── the app's design tokens");
 const STALE_PILL = '<div class="pill" id="pill"><span class="plane"></span>Tracely<span class="count">2</span></div>';
 
 test("the orphan pill names what happened and the fix, and carries no count", () => {
