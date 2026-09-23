@@ -852,6 +852,13 @@
     muted: "rgba(0,0,0,.6)", label: "rgba(0,0,0,.56)", chipInk: "#55555c",
     border: "rgba(0,0,0,.18)", borderStrong: "rgba(0,0,0,.26)", hairline: "#d9d9d9",
     accent: "#f97316", accent2: "#f9a050",
+    /* Accent as TEXT, not as a fill. #f97316 on white is 2.80:1 — under AA for
+       body text, and the accent labels here are 10–12px. Same hue (24.6deg) and
+       saturation, walked down to 4.87:1 on white and 4.55:1 on the accent wash.
+       Fills, borders, dots and gradients keep the undarkened accent, so the two
+       read as one colour. The desktop app sets `color: var(--accent)` directly
+       in several places and has the same gap; it should take this token too. */
+    accentInk: "#bd5005",
     accentGradient: "linear-gradient(164deg,#f47b20 0%,#f9a050 100%)",
     accentWash: "rgba(244,123,32,.07)", accentBorder: "rgba(244,123,32,.18)",
     ring: "rgba(244,123,32,.25)", danger: "#fb2c36",
@@ -870,7 +877,7 @@
       --text: ${APP.text}; --ink: ${APP.ink}; --body: ${APP.body};
       --muted: ${APP.muted}; --label: ${APP.label}; --chip-ink: ${APP.chipInk};
       --border: ${APP.border}; --border-strong: ${APP.borderStrong}; --hairline: ${APP.hairline};
-      --accent: ${APP.accent}; --accent-2: ${APP.accent2};
+      --accent: ${APP.accent}; --accent-2: ${APP.accent2}; --accent-ink: ${APP.accentInk};
       --accent-gradient: ${APP.accentGradient}; --accent-wash: ${APP.accentWash};
       --accent-border: ${APP.accentBorder}; --ring: ${APP.ring}; --danger: ${APP.danger};
       --chip-wash: ${APP.chipWash};
@@ -971,12 +978,12 @@
       padding: 6px 12px; font-family: ${JAKARTA}; font-size: 12px; font-weight: 500;
       color: var(--ink); cursor: pointer;
     }
-    .deep-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .deep-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
     .deep-btn.locked { color: var(--label); cursor: not-allowed; }
     .deep-btn.locked:hover { border-color: var(--hairline); color: var(--label); }
     .deep-pro {
       display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: var(--r-chip);
-      background: var(--accent-wash); color: var(--accent);
+      background: var(--accent-wash); color: var(--accent-ink);
       font-size: 10px; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
     }
     .deep-label, .fix-label, .sources-title {
@@ -988,7 +995,7 @@
     .fix-text { white-space: normal; }
     .deep-note { font-size: 11px; color: var(--label); }
     .deep-note.err { color: var(--danger); }
-    .deep-note a { color: var(--accent); font-weight: 500; text-decoration: none; }
+    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
     .deep-note a:hover { text-decoration: underline; }
     .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--body); }
     .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
@@ -1011,7 +1018,7 @@
       font-size: 12px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
       transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
     }
-    button.act:hover:not([disabled]) { border-color: var(--accent); color: var(--accent); }
+    button.act:hover:not([disabled]) { border-color: var(--accent); color: var(--accent-ink); }
     button.act:active:not([disabled]) { transform: scale(.98); }
     button.act.primary { background: var(--ink); border-color: transparent; color: #fff; }
     button.act.primary:hover:not([disabled]) { color: #fff; border-color: transparent; filter: brightness(1.15); }
@@ -1032,7 +1039,7 @@
     .st-manual { color: #2c6fb8; }
     .src-body { flex: 1; min-width: 0; }
     .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
-    .src a:hover { color: var(--accent); }
+    .src a:hover { color: var(--accent-ink); }
     .src-meta { font-size: 11px; color: var(--label); }
     .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
@@ -2469,7 +2476,7 @@
           pro.textContent = "PRO";
           Object.assign(pro.style, {
             padding: "1px 6px", borderRadius: APP.rChip, background: APP.accentWash,
-            color: APP.accent, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em",
+            color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em",
           });
           b.appendChild(pro);
           b.addEventListener("click", () => { lockDeep(hash); renderPopDeep(hash); render(); });
@@ -2482,7 +2489,7 @@
           const a = document.createElement("a");
           a.href = ORDER_URL;
           a.textContent = DEEP_COPY.seePlans;
-          Object.assign(a.style, { color: APP.accent, fontWeight: "600", textDecoration: "none" });
+          Object.assign(a.style, { color: APP.accentInk, fontWeight: "600", textDecoration: "none" });
           a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
           n.appendChild(a);
           box.appendChild(n);
