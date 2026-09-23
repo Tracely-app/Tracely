@@ -120,7 +120,8 @@ test("a differing verdict is introduced as the largest model's reading", async (
   assert.equal(v.prefix, "Our largest model reads this differently:");
   assert.equal(v.verdictLabel, "Questionable");
   assert.equal(v.note, "");
-  assert.ok(d.api.deepHtml("s1", "false").includes("badge-quest"), "the new verdict is shown as a badge");
+  const deep = d.api.deepHtml("s1", "false");
+  assert.ok(/<span class="badge">Questionable<\/span>/.test(deep), `the new verdict is shown as a chip: ${deep}`);
 });
 
 test("a spent allowance is answered by the standard model, and says so", async () => {
