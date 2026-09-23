@@ -42,7 +42,10 @@
   if (document.getElementById("tracely-host")) return;
 
   const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
-  const VERDICT_LABEL = { false: "False", questionable: "Questionable", incoherent: "Doesn't make sense", needs_citation: "Citation needed" };
+  /* Card titles, in the app's voice: it names the problem in a short sentence
+     (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
+     rather than tagging the sentence with a verdict. Same four verdicts. */
+  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Worth checking", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
   // The mark vocabulary — one DISTINCT colour per verdict, used for the
   // underlines, the card accents and the hover popover:
@@ -2106,7 +2109,7 @@
       // The card DROPS DOWN, always. Near the viewport bottom the scrollable
       // sources list shrinks to fit instead of the card flipping above the
       // line — the caret stays on the top edge, pointing at the underline.
-      let top = (r.bottom ?? r.top + 4) + 8;
+      let top = (r.bottom ?? r.top + 4) + POP_GAP;
       const left = Math.max(12, Math.min(r.left, innerWidth - 360));
       const box = popEl.querySelector("[data-pop-sources]");
       if (box) {
@@ -2125,7 +2128,8 @@
       const arrow = popEl.querySelector("[data-pop-arrow]");
       if (arrow) {
         const cx = r.centerX ?? r.left + 24;
-        arrow.style.left = Math.max(14, Math.min(cx - left - 6, 340 - 26)) + "px";
+        const w = popEl.getBoundingClientRect().width || POP_WIDTH;
+        arrow.style.left = Math.max(14, Math.min(cx - left - 8, w - 30)) + "px";
       }
     }
 
@@ -2172,15 +2176,76 @@
       popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
 
+    /* ── the app's popover recipe (src/renderer .docmark-card) ────────────
+       320px card, white, 2px black edge, 16px corners, 16px padding, 12px
+       between blocks, and the app's own tail. The Docs cards are built in the
+       page DOM with inline styles, so these read from the APP token object
+       rather than the shadow root's custom properties. */
+    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10;
+    function popCardStyle(width = POP_WIDTH) {
+      return {
+        position: "fixed", zIndex: "901", width: `${width}px`,
+        display: "flex", flexDirection: "column", gap: "12px",
+        background: APP.surface, border: "2px solid #000", borderRadius: APP.rCard,
+        padding: "16px", boxShadow: APP.shadowCard,
+        fontFamily: APP.font, color: APP.ink, fontSize: "13px", lineHeight: "1.4",
+        boxSizing: "border-box",
+      };
+    }
+    const popBodyStyle = () => ({ fontSize: "13px", fontWeight: "400", lineHeight: "18.2px", color: APP.body });
+    // dot + title + optional count chip, on one row
+    function popHead(title, color, count) {
+      const head = document.createElement("div");
+      Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px" });
+      const dot = document.createElement("span");
+      Object.assign(dot.style, { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" });
+      const h = document.createElement("span");
+      h.textContent = title;
+      Object.assign(h.style, { fontSize: "14px", fontWeight: "600", color: APP.ink, flex: "1 1 auto" });
+      head.append(dot, h);
+      if (count) {
+        const chip = document.createElement("span");
+        chip.textContent = String(count);
+        Object.assign(chip.style, {
+          fontSize: "10px", fontWeight: "600", color: APP.chipInk, background: APP.chipWash,
+          borderRadius: APP.rChip, padding: "1px 6px", flex: "0 0 auto",
+        });
+        head.appendChild(chip);
+      }
+      return head;
+    }
+    /* The app's tail: a 16x10 SVG with the card's own 2px black edge, so the
+       card reads as one shape. Anchored by the same left offset the old
+       rotated square used (placeDocsPopover sets it). */
+    function popTail() {
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("data-pop-arrow", "");
+      svg.setAttribute("width", "16");
+      svg.setAttribute("height", "10");
+      svg.setAttribute("viewBox", "0 0 13.8564 7.5");
+      svg.setAttribute("aria-hidden", "true");
+      Object.assign(svg.style, { position: "absolute", top: "-9px", left: "20px", overflow: "visible" });
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("d", "M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z");
+      path.setAttribute("fill", "#fff");
+      path.setAttribute("stroke", "#000");
+      path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+      return svg;
+    }
+
     function popBtn(label, primary) {
       const b = document.createElement("button");
       b.textContent = label;
       Object.assign(b.style, {
-        border: primary ? "none" : "1px solid rgba(20,16,10,0.1)",
-        background: primary ? "#0e0e10" : "#fff",
-        color: primary ? "#fff" : "#0e0e10",
-        borderRadius: "9px", padding: "6px 12px", fontSize: "11.5px",
-        fontWeight: "700", cursor: "pointer", fontFamily: "inherit",
+        // .docmark-btn-primary / -secondary, verbatim
+        border: `1px solid ${primary ? APP.ink : APP.hairline}`,
+        background: primary ? APP.ink : APP.surface,
+        color: primary ? APP.surface : APP.ink,
+        borderRadius: APP.rBtn, padding: "8px 14px", fontSize: "13px",
+        fontWeight: primary ? "600" : "400", lineHeight: "1", height: "34px",
+        cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
       });
       return b;
     }
@@ -2229,44 +2294,24 @@
       popHash = bar.hash;
       popEl = document.createElement("div");
       popEl.setAttribute("data-tracely-docs-popover", "");
-      Object.assign(popEl.style, {
-        position: "fixed", zIndex: "901", width: "300px",
-        background: "#fff", borderRadius: "14px", padding: "14px 16px",
-        border: "1px solid rgba(20,16,10,0.06)",
-        boxShadow: "0 16px 44px rgba(88,60,170,0.20)",
-        fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-        color: "#0d0d0f", fontSize: "12.5px", lineHeight: "1.5",
-      });
-      const arrow = document.createElement("div");
-      arrow.setAttribute("data-pop-arrow", "");
-      Object.assign(arrow.style, {
-        position: "absolute", width: "11px", height: "11px", background: "#fff",
-        transform: "rotate(45deg)", border: "solid rgba(20,16,10,0.08)",
-        borderWidth: "1px 0 0 1px", top: "-6.5px", left: "20px", borderRadius: "2px 0 0 0",
-      });
-      popEl.appendChild(arrow);
+      Object.assign(popEl.style, popCardStyle(POP_WIDTH_FLOW));
+      // The app's tail, aimed at the underline (the card always sits below the
+      // line; placeDocsPopover aims its x).
+      popEl.appendChild(popTail());
 
-      const head = document.createElement("div");
-      Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px", marginBottom: "8px" });
-      const dot = document.createElement("span");
-      Object.assign(dot.style, { width: "7px", height: "7px", borderRadius: "50%", background: FLOW_ACCENT, flexShrink: "0" });
-      const title = document.createElement("span");
-      title.textContent = "Flow issue";
-      Object.assign(title.style, { fontWeight: "700", fontSize: "14.5px", letterSpacing: "-0.01em" });
-      head.append(dot, title);
-      popEl.appendChild(head);
+      popEl.appendChild(popHead("Flow issue", FLOW_ACCENT));
 
       const body = document.createElement("div");
       body.textContent = issue.explanation;
-      Object.assign(body.style, { color: "#40454c", fontWeight: "500", marginBottom: "10px" });
+      Object.assign(body.style, popBodyStyle());
       popEl.appendChild(body);
 
       if (issue.transition) {
         const prev = document.createElement("div");
         prev.textContent = `“${issue.transition}”`;
         Object.assign(prev.style, {
-          background: "#f7f4ff", border: "1px solid rgba(115,68,241,0.14)", borderRadius: "10px",
-          padding: "8px 10px", marginBottom: "10px", fontWeight: "500", color: "#3b3550",
+          background: APP.surface2, border: `1px solid ${APP.border}`, borderRadius: APP.rBtn,
+          padding: "10px 12px", fontSize: "13px", lineHeight: "18.2px", color: APP.ink,
         });
         popEl.appendChild(prev);
       }
@@ -2340,36 +2385,30 @@
       box.removeAttribute("style");
       if (v.kind === "button" || v.kind === "locked") {
         const locked = v.kind === "locked";
-        const b = document.createElement("button");
-        b.textContent = v.label;
-        Object.assign(b.style, {
-          background: "none", border: "none", padding: "0", fontFamily: "inherit",
-          fontSize: "11.5px", fontWeight: "700", color: locked ? "#a7a7ac" : "#ff7f00",
-          cursor: locked ? "not-allowed" : "pointer",
-        });
+        const b = popBtn(v.label, false);
+        Object.assign(b.style, { display: "inline-flex", alignItems: "center", gap: "6px", alignSelf: "flex-start" });
         if (locked) {
           b.title = v.title;
           b.setAttribute("aria-disabled", "true");
+          Object.assign(b.style, { color: APP.body, cursor: "not-allowed" });
           const pro = document.createElement("span");
           pro.textContent = "PRO";
           Object.assign(pro.style, {
-            display: "inline-block", marginLeft: "5px", padding: "1px 6px", borderRadius: "8px",
-            background: "linear-gradient(150deg, #ff7f00, #f9a35a)", color: "#fff",
-            fontSize: "8px", fontWeight: "800", letterSpacing: ".6px", verticalAlign: "1px",
+            padding: "1px 6px", borderRadius: APP.rChip, background: APP.accentWash,
+            color: APP.accent, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em",
           });
           b.appendChild(pro);
           b.addEventListener("click", () => { lockDeep(hash); renderPopDeep(hash); render(); });
         } else {
           b.addEventListener("click", () => explainSentence(hash));
         }
-        box.style.margin = "-3px 0 9px";
         box.appendChild(b);
         if (locked && v.note) {
           const n = popDeepNote(`${v.note}. `);
           const a = document.createElement("a");
           a.href = ORDER_URL;
           a.textContent = DEEP_COPY.seePlans;
-          Object.assign(a.style, { color: "#ff7f00", fontWeight: "700", textDecoration: "none" });
+          Object.assign(a.style, { color: APP.accent, fontWeight: "600", textDecoration: "none" });
           a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
           n.appendChild(a);
           box.appendChild(n);
@@ -2384,8 +2423,8 @@
     function fillPopDeepAnswer(box, v) {
       if (v.kind === "loading") {
         Object.assign(box.style, {
-          display: "flex", alignItems: "center", gap: "8px", margin: "-3px 0 9px",
-          fontSize: "11.5px", color: "#8e8e93", fontWeight: "600",
+          display: "flex", alignItems: "center", gap: "8px",
+          fontSize: "13px", color: APP.body, fontWeight: "400",
         });
         const spin = document.createElement("span");
         Object.assign(spin.style, {
@@ -2400,35 +2439,39 @@
         return;
       }
       Object.assign(box.style, {
-        background: "#fffaf4", border: "1px solid rgba(255,127,0,0.16)",
-        borderRadius: "10px", padding: "8px 10px", marginBottom: "9px",
+        display: "flex", flexDirection: "column", gap: "6px",
+        background: APP.surface2, border: `1px solid ${APP.border}`,
+        borderRadius: APP.rBtn, padding: "10px 12px",
       });
       const label = document.createElement("div");
       label.textContent = v.label;
       Object.assign(label.style, {
-        fontSize: "9px", fontWeight: "700", textTransform: "uppercase",
-        letterSpacing: ".8px", color: "#ff7f00", marginBottom: "4px",
+        fontSize: "11px", fontWeight: "600", letterSpacing: ".04em",
+        textTransform: "uppercase", color: APP.label,
       });
       box.appendChild(label);
       if (v.prefix) {
         const p = document.createElement("div");
         p.textContent = v.prefix;
-        Object.assign(p.style, { fontSize: "12px", fontWeight: "700", marginBottom: "4px" });
+        Object.assign(p.style, { fontSize: "13px", fontWeight: "600", color: APP.ink });
         box.appendChild(p);
       }
       if (v.verdictLabel) {
         const chip = document.createElement("span");
         chip.textContent = v.verdictLabel;
         Object.assign(chip.style, {
-          display: "inline-block", fontSize: "9px", fontWeight: "700", letterSpacing: ".8px",
-          textTransform: "uppercase", padding: "3px 8px", borderRadius: "20px", marginBottom: "5px",
-          background: VERDICT_WASH[v.verdict] ?? "#e7f6ee", color: VERDICT_TEXT[v.verdict] ?? "#1f9d55",
+          display: "inline-flex", alignItems: "center", gap: "6px", alignSelf: "flex-start",
+          fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: APP.rChip,
+          background: APP.chipWash, color: APP.chipInk,
         });
+        const d = document.createElement("span");
+        Object.assign(d.style, { width: "6px", height: "6px", borderRadius: "50%", background: MARK_COLORS[v.verdict] ?? APP.body });
+        chip.prepend(d);
         box.appendChild(chip);
       }
       const text = document.createElement("div");
       text.textContent = v.text;
-      Object.assign(text.style, { fontWeight: "500", whiteSpace: "pre-line" });
+      Object.assign(text.style, { ...popBodyStyle(), whiteSpace: "pre-line" });
       box.appendChild(text);
       if (v.note) box.appendChild(popDeepNote(v.note));
     }
@@ -2444,28 +2487,14 @@
       const color = MARK_COLORS[f.verdict] ?? "#8e8e93";
       popEl = document.createElement("div");
       popEl.setAttribute("data-tracely-docs-popover", "");
-      Object.assign(popEl.style, {
-        position: "fixed", zIndex: "901", width: "340px",
-        background: "#fff", borderRadius: "14px", padding: "12px 14px",
-        border: "1px solid rgba(20,16,10,0.06)", borderLeft: `3px solid ${color}`,
-        boxShadow: "0 16px 44px rgba(180,120,60,0.24)",
-        fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-        color: "#0e0e10", fontSize: "12.5px", lineHeight: "1.5",
-      });
-      const badge = document.createElement("span");
-      badge.textContent = VERDICT_LABEL[f.verdict] ?? f.verdict;
-      Object.assign(badge.style, {
-        display: "inline-block", fontSize: "9px", fontWeight: "700",
-        letterSpacing: ".8px", textTransform: "uppercase", padding: "3px 8px",
-        borderRadius: "20px", background: VERDICT_WASH[f.verdict] ?? "#f2f2f3",
-        color: VERDICT_TEXT[f.verdict] ?? "#8e8e93", marginBottom: "7px",
-      });
-      popEl.appendChild(badge);
+      Object.assign(popEl.style, popCardStyle());
+      // The app's header: a dot in the finding's colour, the finding's own
+      // words as a title, and the count chip — not an uppercase verdict tag.
+      popEl.appendChild(popHead(VERDICT_LABEL[f.verdict] ?? f.verdict, color));
       if (f.explanation) {
         const ex = document.createElement("div");
         ex.textContent = f.explanation;
-        ex.style.marginBottom = "9px";
-        ex.style.fontWeight = "500";
+        Object.assign(ex.style, popBodyStyle());
         popEl.appendChild(ex);
       }
       // "Explain in depth": filled from deepView now, refilled in place later.
@@ -2476,14 +2505,15 @@
       if (f.revision) {
         const fix = document.createElement("div");
         Object.assign(fix.style, {
-          background: "#fdfbf9", border: "1px solid rgba(20,16,10,0.06)",
-          borderRadius: "10px", padding: "8px 10px", marginBottom: "9px", fontWeight: "500",
+          background: APP.surface2, border: `1px solid ${APP.border}`,
+          borderRadius: APP.rBtn, padding: "10px 12px",
+          fontSize: "13px", lineHeight: "18.2px", color: APP.ink,
         });
         fix.textContent = f.revision;
         popEl.appendChild(fix);
       }
       const row = document.createElement("div");
-      Object.assign(row.style, { display: "flex", gap: "7px", flexWrap: "wrap" });
+      Object.assign(row.style, { display: "flex", gap: "8px", flexWrap: "wrap" });
       let fixNote = null;
       if (f.revision) {
         if (canEditDoc()) {
@@ -2538,18 +2568,9 @@
       popEl.appendChild(row);
       if (fixNote) popEl.appendChild(fixNote);
       if (haveSources) renderPopSources(hash); // cached or in-flight — zero new API work
-      // Stubby caret aimed at the underline — a rotated square whose opaque
-      // face covers the card border where it meets the top edge (the card
-      // always sits below the line; placeDocsPopover aims the caret's x).
-      const arrow = document.createElement("div");
-      arrow.setAttribute("data-pop-arrow", "");
-      Object.assign(arrow.style, {
-        position: "absolute", width: "11px", height: "11px",
-        background: "#fff", transform: "rotate(45deg)",
-        border: "solid rgba(20,16,10,0.08)", borderWidth: "1px 0 0 1px",
-        top: "-6.5px", left: "20px", borderRadius: "2px 0 0 0",
-      });
-      popEl.appendChild(arrow);
+      // The app's tail, aimed at the underline (the card always sits below the
+      // line; placeDocsPopover aims its x).
+      popEl.appendChild(popTail());
       // Position against the LIVE bar rect, then keep following it.
       popEl.style.visibility = "hidden";
       document.documentElement.appendChild(popEl);
