@@ -57,6 +57,31 @@
   const VERDICT_TEXT = { false: "#d93636", questionable: "#a67500", incoherent: "#8e4ec6", needs_citation: "#2563eb" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
 
+  /* How a flagged sentence is drawn and how it moves, carried across from the
+     desktop app's src/shared/markMotion.ts rather than re-picked here — the
+     same problem on the same sentence should not look like two products. The
+     band is translucent because it sits over the words it is drawing attention
+     to; 0.30 was measured on the app's overlay (0.16 vanished against white,
+     past ~0.35 it fights the text). The line is 2px resting and 3px hovered,
+     with a 1px radius — a 2px radius on a 2px bar rounds it into a capsule and
+     washes the colour out. */
+  const MARK_BAND_ALPHA = 0.3;
+  const MARK_BAND_SCALE_RESTING = 0.72; // anchored at the bottom: a stroke swelling off the line
+  const MARK_BAND_INSET_TOP = 2;
+  const MARK_BAND_INSET_BOTTOM = 3;
+  const MARK_BAND_RADIUS = 3;
+  const MARK_LINE_HEIGHT = 2;
+  const MARK_LINE_HEIGHT_HOVERED = 3;
+  const MARK_LINE_RADIUS = 1;
+  const MARK_BAND_TRANSITION = "opacity 110ms ease, transform 110ms cubic-bezier(0.22, 1, 0.36, 1), background 110ms ease";
+  const MARK_LINE_TRANSITION = "height 110ms ease";
+  const markReducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /* `#rrggbb` at the given alpha, for the band. */
+  function withAlpha(hex, alpha) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+
   // Read from the manifest so it can never disagree with the shipped version.
   const EXT_VERSION = (() => {
     try { return chrome.runtime.getManifest().version; } catch { return "dev"; }
@@ -4011,6 +4036,8 @@
     let overlayEl = null;
     let mirror = null;
     const markRects = new Map(); // hash → visible rects (issue marks only — used for hit-testing)
+    const markParts = new Map(); // hash → [{band, line, color}] for the hover state
+    let hoveredMark = null;
     let marksRaf = null;
 
     function ensureOverlay() {
@@ -4075,11 +4102,12 @@
     }
 
     function drawMarks() {
-      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); return; }
+      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; }
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
       const layer = ensureOverlay();
       layer.textContent = "";
       markRects.clear();
+      markParts.clear();
       if (!tracked || !tracked.isConnected) return;
       const isTa = tracked instanceof HTMLTextAreaElement;
       let index = null;
@@ -4118,16 +4146,59 @@
             pointerEvents: "none",
           });
           if (pending) {
+            // Provisional: a dotted rule, no band — nothing to point at yet.
             bar.style.borderBottom = `2px dotted ${color}`;
             bar.style.opacity = "0.7";
           } else {
-            // solid underline along the bottom edge, one colour per verdict
-            bar.style.borderBottom = `3px solid ${color}`;
-            bar.style.borderRadius = "2px";
+            // The app's mark (src/shared/markMotion.ts): a highlighter band
+            // under a coloured line, both growing on hover. Two children
+            // rather than a border, so the line paints over the band.
+            const band = document.createElement("div");
+            Object.assign(band.style, {
+              position: "absolute", left: "0", right: "0",
+              top: `-${MARK_BAND_INSET_TOP}px`, bottom: `-${MARK_BAND_INSET_BOTTOM}px`,
+              borderRadius: `${MARK_BAND_RADIUS}px`,
+              background: withAlpha(color, 0),
+              transform: `scaleY(${MARK_BAND_SCALE_RESTING})`, transformOrigin: "bottom",
+              transition: markReducedMotion() ? "none" : MARK_BAND_TRANSITION,
+            });
+            const line = document.createElement("div");
+            Object.assign(line.style, {
+              position: "absolute", left: "0", right: "0", bottom: "0",
+              height: `${MARK_LINE_HEIGHT}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
+              background: color,
+              transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
+            });
+            bar.append(band, line);
+            markParts.set(seg.hash, [...(markParts.get(seg.hash) || []), { band, line, color }]);
           }
           layer.appendChild(bar);
         }
       }
+      // The elements are new on every draw, so re-apply the hover — and let it
+      // go if the sentence it was on has been edited away or dismissed.
+      if (hoveredMark && !markParts.has(hoveredMark)) hoveredMark = null;
+      paintHover();
+    }
+
+    /* The hovered sentence's band fades up and its line thickens — the same
+       gesture the app makes, so a mark behaves the same in both windows.
+       Re-applied after every draw, because drawMarks rebuilds the elements. */
+    function paintHover() {
+      for (const [h, parts] of markParts) {
+        const on = h === hoveredMark;
+        for (const { band, line, color } of parts) {
+          band.style.background = withAlpha(color, on ? MARK_BAND_ALPHA : 0);
+          band.style.transform = `scaleY(${on ? 1 : MARK_BAND_SCALE_RESTING})`;
+          line.style.height = `${on ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT}px`;
+        }
+      }
+    }
+
+    function setHoveredMark(h) {
+      if (h === hoveredMark) return;
+      hoveredMark = h;
+      paintHover();
     }
 
     function hitMark(x, y) {
@@ -4149,6 +4220,12 @@
       clearTimeout(flashTimer);
       flashTimer = setTimeout(() => card.classList.remove("flash"), 1300);
     }
+
+    document.addEventListener("mousemove", (e) => {
+      if (!markParts.size) return;
+      if (widget && e.composedPath().includes(widget.host)) { setHoveredMark(null); return; }
+      setHoveredMark(hitMark(e.clientX, e.clientY));
+    }, true);
 
     // Clicking an underline opens the panel and flashes that verdict's card.
     document.addEventListener("mousedown", (e) => {
