@@ -4228,9 +4228,14 @@
       flashTimer = setTimeout(() => card.classList.remove("flash"), 1300);
     }
 
+    /* Hot path: this fires on every pointer move the page sees. It leaves
+       early when nothing is marked, and identifies "over the widget" with an
+       identity check rather than composedPath() — an event from inside the
+       shadow root is retargeted to the host at this level, and composedPath()
+       allocates the whole path array on every move. */
     document.addEventListener("mousemove", (e) => {
       if (!markParts.size) return;
-      if (widget && e.composedPath().includes(widget.host)) { setHoveredMark(null); return; }
+      if (widget && e.target === widget.host) { setHoveredMark(null); return; }
       setHoveredMark(hitMark(e.clientX, e.clientY));
     }, true);
 
