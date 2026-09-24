@@ -135,3 +135,49 @@ test("db: billing_pending upserts by customer, matches email case-insensitively,
   assert.equal(db.billingPendingByCustomer("cus_db"), null);
   assert.equal(db.billingPendingByEmail("pay@example.com"), null);
 });
+
+test("redactStripeEvent: the payer's name, address and phone come off; the email and customer id stay", async () => {
+  const { redactStripeEvent } = await import("../lib/billing.js");
+  const ev = { id: "evt_r", type: "checkout.session.completed", data: { object: {
+    id: "cs_1", customer: "cus_r", client_reference_id: "user-R", amount_total: 999,
+    customer_details: { email: "Pay@Example.com", name: "Pat Payer", address: { line1: "1 Street", postal_code: "12345" }, phone: "+1555", tax_ids: [] },
+    shipping_details: { name: "Pat", address: {} }, customer_email: "pay@example.com",
+  } } };
+  const r = redactStripeEvent(ev);
+  assert.deepEqual(r.data.object.customer_details, { email: "Pay@Example.com" });
+  assert.equal(r.data.object.shipping_details, undefined);
+  assert.equal(r.data.object.customer, "cus_r");
+  assert.equal(r.data.object.client_reference_id, "user-R");
+  assert.equal(ev.data.object.customer_details.name, "Pat Payer", "the caller's event is untouched");
+  assert.equal(redactStripeEvent(undefined)?.data, undefined);
+});
+
+test("db: accountPurge removes the account's counters, links and unclaimed purchase, and scrubs its billing payloads", () => {
+  db.usageBump("user:U1", "2026-09-24", "check");
+  db.usageBump("user:U2", "2026-09-24", "check");
+  db.billingCustomerLink({ customerId: "cus_p1", userId: "U1", email: "u1@example.com" });
+  db.billingCustomerLink({ customerId: "cus_p2", userId: "U2", email: "u2@example.com" });
+  db.billingPendingPut({ customerId: "cus_p3", email: "U1@Example.com", plan: "pro" });
+  db.billingEventRecord({ id: "evt_p1", type: "checkout.session.completed", userId: "U1", customerId: "cus_p1", plan: "pro", outcome: "applied", payload: { secret: "x" } });
+  db.billingEventRecord({ id: "evt_p2", type: "checkout.session.completed", userId: "U2", customerId: "cus_p2", plan: "pro", outcome: "applied", payload: { keep: "y" } });
+  const out = db.accountPurge({ userId: "U1", email: "u1@example.com" });
+  assert.deepEqual(out, { usage: 1, customers: 1, pending: 1, events: 1 });
+  assert.equal(db.usageCount("user:U1", "2026-09-24", "check"), 0);
+  assert.equal(db.usageCount("user:U2", "2026-09-24", "check"), 1, "another account is untouched");
+  assert.equal(db.billingCustomerLookup("cus_p1"), null);
+  assert.equal(db.billingCustomerLookup("cus_p2").user_id, "U2");
+  assert.equal(db.billingPendingByEmail("u1@example.com"), null);
+  assert.equal(db.billingEventSeen("evt_p1"), true, "the bare payment record stays, so the event is not replayed");
+  assert.deepEqual(db.accountPurge({ userId: "", email: "x" }), { usage: 0, customers: 0, pending: 0, events: 0 });
+});
+
+test("db: usagePurgeBefore drops day and month rows older than the cutoff, and refuses a malformed cutoff", () => {
+  db.usageBump("user:R", "2025-06-15", "check");
+  db.usageBump("user:R", "2025-06", "source_search");
+  db.usageBump("user:R", "2026-09-24", "check");
+  db.usageBump("user:R", "2026-09", "source_search");
+  assert.equal(db.usagePurgeBefore("not-a-day"), 0);
+  assert.equal(db.usagePurgeBefore("2025-08-01"), 2);
+  assert.equal(db.usageCount("user:R", "2026-09-24", "check"), 1);
+  assert.equal(db.usageCount("user:R", "2026-09", "source_search"), 1);
+});

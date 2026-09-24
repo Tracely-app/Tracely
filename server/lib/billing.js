@@ -282,6 +282,46 @@ export async function claimPendingForUser({ userId, email }, deps) {
 }
 
 /**
+ * A Stripe event as it is kept: the payer's name, address, phone and tax ids
+ * are not ours to hold — the account link needs the email and the customer
+ * id, nothing else — so they come off before the event is recorded.
+ */
+export function redactStripeEvent(event) {
+  let copy;
+  try { copy = JSON.parse(JSON.stringify(event)); } catch { return null; }
+  const obj = copy?.data?.object;
+  if (obj && typeof obj === "object") {
+    if (obj.customer_details && typeof obj.customer_details === "object") {
+      obj.customer_details = { email: obj.customer_details.email ?? null };
+    }
+    for (const k of ["shipping_details", "shipping", "billing_details", "customer_name", "customer_address", "customer_phone", "customer_tax_ids"]) delete obj[k];
+  }
+  return copy;
+}
+
+/**
+ * Delete the sign-in account itself, with the service role. The plan lives
+ * in its app_metadata, so this is also what ends the entitlement; the
+ * caller purges what this server keeps first (lib/db.js accountPurge).
+ */
+export async function deleteSupabaseUser(userId) {
+  const base = (process.env.SUPABASE_URL ?? "").replace(/\/+$/, "");
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  if (!base || !key || !userId) return { ok: false, reason: "not_configured" };
+  try {
+    const res = await fetch(`${base}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(ADMIN_TIMEOUT_MS),
+    });
+    if (!res.ok && res.status !== 404) return { ok: false, reason: `http_${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e?.name === "TimeoutError" ? "timeout" : "network" };
+  }
+}
+
+/**
  * Last-resort user lookup by email, for an event that carries no user id and
  * no customer we have seen before (a Dashboard-created subscription, mostly).
  *

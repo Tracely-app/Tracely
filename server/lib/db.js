@@ -272,6 +272,36 @@ export function billingPendingDelete(customerId) {
   db.prepare("DELETE FROM billing_pending WHERE customer_id = ?").run(customerId);
 }
 
+/* Everything this server keeps about one account, gone: the usage counters
+ * under user:<id>, the customer links, any unclaimed purchase under the
+ * email, and the Stripe payloads of that account's billing events (the rows
+ * themselves stay as the bare payment record — id, type, plan, outcome — with
+ * no payer details in them). Returns what was removed, for the reply. */
+export function accountPurge({ userId, email }) {
+  if (!userId) return { usage: 0, customers: 0, pending: 0, events: 0 };
+  const out = {};
+  db.exec("BEGIN");
+  try {
+    out.usage = db.prepare("DELETE FROM entitlement_usage WHERE account_id = ?").run(`user:${userId}`).changes;
+    out.customers = db.prepare("DELETE FROM billing_customers WHERE user_id = ?").run(userId).changes;
+    out.pending = email ? db.prepare("DELETE FROM billing_pending WHERE email = ?").run(String(email).trim().toLowerCase()).changes : 0;
+    out.events = db.prepare("UPDATE billing_events SET payload_json = NULL WHERE user_id = ?").run(userId).changes;
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return out;
+}
+
+/* Retention: usage counters older than the cutoff day ("YYYY-MM-DD") go.
+ * Month rows are "YYYY-MM", which sorts before any day in that month, so a
+ * cutoff on the 1st also drops the month that ended before it. */
+export function usagePurgeBefore(cutoffDay) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(cutoffDay))) return 0;
+  return db.prepare("DELETE FROM entitlement_usage WHERE day < ?").run(cutoffDay).changes;
+}
+
 export function settingsGet() {
   const out = {};
   for (const row of db.prepare("SELECT key, value FROM settings").all()) {

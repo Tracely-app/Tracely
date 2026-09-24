@@ -9,13 +9,13 @@ import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
-         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete } from "./lib/db.js";
+         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
-import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange } from "./lib/billing.js";
+import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
@@ -143,7 +143,7 @@ function originAllowed(origin) {
 // /api/billing/webhook is deliberately NOT here: Stripe calls it server-to-
 // server with no Origin, and listing it would also hand it to every page the
 // extension surface can reach.
-const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement"]);
+const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account"]);
 
 /* Every route that can reach a model, and therefore spend money.
  *
@@ -478,7 +478,7 @@ async function handleStripeWebhook(req, res) {
 
   const change = planChangeForEvent(event);
   if (!change) {
-    billingEventRecord({ id: event.id, type: event.type, outcome: "ignored", payload: event });
+    billingEventRecord({ id: event.id, type: event.type, outcome: "ignored", payload: redactStripeEvent(event) });
     json(res, 200, { received: true, ignored: true });
     return;
   }
@@ -505,7 +505,7 @@ async function handleStripeWebhook(req, res) {
     return;
   }
   if (outcome === "pending") console.log(`[tracely] Stripe event ${event.id} (${event.type}): purchase recorded as unclaimed for customer ${change.customerId} — placed when that customer or email is linked to an account`);
-  billingEventRecord({ id: event.id, type: event.type, userId, customerId: change.customerId, plan: settled.plan, outcome, payload: event });
+  billingEventRecord({ id: event.id, type: event.type, userId, customerId: change.customerId, plan: settled.plan, outcome, payload: redactStripeEvent(event) });
   json(res, 200, { received: true, outcome });
 }
 
@@ -1035,6 +1035,35 @@ const server = http.createServer(async (req, res) => {
         plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}),
         ...(ent.enforced ? entitlementDetails(ent, callerId(req, ent)) : {}),
       }, cors);
+      return;
+    }
+
+    /* DELETE /api/account — the signed-in account and everything kept with
+     * it. Refused while a paid plan is active: the subscription is Stripe's
+     * to end (the customer portal), and deleting the account under it would
+     * keep charging a card for nothing. What goes: usage counters, customer
+     * links, unclaimed purchases under the email, the payer details in the
+     * billing record (the bare record stays), then the sign-in account itself.
+     * The token presented is the only authority — no body, no confirmation
+     * field: the options page asks the person, the server acts. */
+    if (req.method === "DELETE" && url.pathname === "/api/account") {
+      loadEnvFile();
+      const ent = await planForRequest(req);
+      if (!ent.enforced || !ent.userId) {
+        throw new CheckError("unauthorized", "Sign in to delete an account.", { status: 401 });
+      }
+      if (planRank(ent.plan) > planRank("free")) {
+        throw new CheckError("plan_active", "Cancel your subscription first (Manage subscription), then delete the account.", { status: 409 });
+      }
+      const purged = accountPurge({ userId: ent.userId, email: ent.email });
+      const gone = await deleteSupabaseUser(ent.userId);
+      forgetCachedPlans();
+      if (!gone.ok) {
+        console.error(`[tracely] account ${ent.userId}: data purged, sign-in account not deleted (${gone.reason})`);
+        throw new CheckError("server", "Your data was removed, but the sign-in account could not be deleted — try again shortly.", { status: 502 });
+      }
+      console.log(`[tracely] account deleted: ${ent.userId} (usage ${purged.usage}, links ${purged.customers}, pending ${purged.pending}, events scrubbed ${purged.events})`);
+      json(res, 200, { deleted: true, ...purged }, cors);
       return;
     }
 
@@ -1703,6 +1732,14 @@ const server = http.createServer(async (req, res) => {
 process.on("unhandledRejection", (err) => console.error("[tracely] unhandled rejection:", err));
 
 server.listen(PORT, "127.0.0.1", () => {
+  /* Retention: usage counters are kept 13 months — long enough for a month
+   * limit to be argued about, not forever. Swept at boot and once a day. */
+  const sweepUsage = () => {
+    const d = new Date(); d.setUTCMonth(d.getUTCMonth() - 13); d.setUTCDate(1);
+    try { const n = usagePurgeBefore(d.toISOString().slice(0, 10)); if (n) console.log(`[tracely] retention: dropped ${n} usage rows older than 13 months`); } catch (e) { console.error("[tracely] retention sweep failed:", e?.message ?? e); }
+  };
+  sweepUsage();
+  setInterval(sweepUsage, 24 * 3600 * 1000).unref?.();
   console.log(`Tracely running at http://localhost:${PORT}${MOCK ? "  (MOCK MODE — no API calls)" : ""}`);
   if (!hasApiKey() && !MOCK) {
     console.log("No OPENAI_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");
