@@ -794,7 +794,15 @@ test("content.js: canEditDoc follows the hook's ping, the dev bridge, and never 
   reply = { ok: true, api: true, editor: true, editable: false }; // view-only Doc
   await w.probeInDoc();
   assert.equal(w.canEditDoc(), false);
-  reply = { ok: true, api: false, editor: true, editable: true }; // no text API: can't verify, so no
+  // No text API, but an editor that is not view-only: the hook says editable,
+  // and the edit takes its no-API path (mouseReplace), which selects by the
+  // bar's rects and refuses unless a copy read-back proves the selection.
+  // Requiring the API here hid the button on every Doc where the API was slow
+  // to appear or absent while that working path sat unused.
+  reply = { ok: true, api: false, editor: true, editable: true };
+  await w.probeInDoc();
+  assert.equal(w.canEditDoc(), true);
+  reply = { ok: true, api: false, editor: false, editable: false }; // no editor at all
   await w.probeInDoc();
   assert.equal(w.canEditDoc(), false);
   reply = undefined; // hook absent: the ping times out

@@ -1471,7 +1471,13 @@
       const viewOnly = viewOnlyHint();
       return {
         ok: true, version: VERSION, api: !!at, editor, mode: editorMode(), viewOnly,
-        editable: !!at && editor && !viewOnly && cfg().allowEdits !== false,
+        // Editable = there is an editor and it is not view-only. The text
+        // API is preferred (doReplace) but not required: without it the edit
+        // takes the no-API path (mouseReplace), which selects by the bar's
+        // rects and refuses unless a copy read-back proves the selection.
+        // Requiring the API here hid "Fix in doc" on every Doc where the API
+        // was slow to appear or absent, while a working path sat unused.
+        editable: editor && !viewOnly && cfg().allowEdits !== false,
         status: docStatus(), textLen,
       };
     }
