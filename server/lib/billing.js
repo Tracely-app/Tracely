@@ -208,6 +208,80 @@ export async function writePlanToSupabase(userId, plan) {
 }
 
 /**
+ * Turn one plan change into what happens to the account — with every store
+ * and every remote write handed in, so this stays loadable and testable
+ * without a database or a Supabase.
+ *
+ * The order of events is not ours to choose. Stripe routinely delivers
+ * customer.subscription.created (which names the price) BEFORE the
+ * checkout.session.completed that carries the account id, and a checkout
+ * made from the website while signed out never names an account at all.
+ * So a purchase that cannot be placed is not an error and not a retry: it is
+ * recorded as UNCLAIMED, keyed on the Stripe customer, and placed the moment
+ * anything links that customer to a user — a later event, or the payer's
+ * email signing in (claimPendingForUser). Before this, an unplaced event
+ * was answered 500 to buy Stripe's ~3-day retry schedule, and a payer who
+ * signed in on day four had paid and stayed on Free.
+ *
+ * Outcomes:
+ *   applied           the plan is on the account
+ *   pending           recorded against the customer, waiting for its account
+ *   no_plan           the event names no price we know — nothing to write
+ *   unclaimed_ended   a never-claimed subscription ended: the record is dropped
+ *   no_user           no account, no customer, nothing to key on — retryable
+ *   failed:<reason>   the Supabase write failed — retryable
+ */
+export async function settleChange(change, deps) {
+  const { link, lookup, findByEmail, writePlan, pendingGet, pendingPut, pendingDelete, forget = () => {} } = deps;
+  link(change); // learn customer → email/user first: later events carry a customer and nothing else
+  const known = change.customerId ? lookup(change.customerId) : null;
+  let userId = change.userId ?? known?.user_id ?? null;
+  const email = change.email ?? known?.email ?? null;
+  if (!userId && email) userId = await findByEmail(email);
+  // A checkout that names the account but not the price adopts the plan the
+  // subscription event already recorded for this customer.
+  const pending = change.customerId ? pendingGet(change.customerId) : null;
+  const plan = change.plan ?? (userId && pending ? pending.plan : null);
+  if (plan == null) return { outcome: "no_plan", userId, plan: null };
+  if (!userId) {
+    if (!change.customerId) return { outcome: "no_user", userId: null, plan };
+    if (plan === DEFAULT_PLAN) {
+      pendingDelete(change.customerId);
+      return { outcome: "unclaimed_ended", userId: null, plan };
+    }
+    pendingPut({ customerId: change.customerId, email, plan, eventId: change.eventId ?? null });
+    return { outcome: "pending", userId: null, plan };
+  }
+  const written = await writePlan(userId, plan);
+  if (!written.ok) return { outcome: `failed:${written.reason}`, userId, plan };
+  link({ customerId: change.customerId, userId, email });
+  if (change.customerId) pendingDelete(change.customerId);
+  forget(); // an upgrade must not wait out the plan cache
+  return { outcome: "applied", userId, plan };
+}
+
+/**
+ * The other half of an unclaimed purchase: a user has just signed in (or
+ * been resolved) and holds no plan. If the email they signed in with paid
+ * for one, it is theirs — Google verified the address, which is the same
+ * trust findUserIdByEmail already extends the other way round. Returns the
+ * plan written, or null when there was nothing to claim or the write failed
+ * (the record stays; the next resolve tries again).
+ */
+export async function claimPendingForUser({ userId, email }, deps) {
+  const { pendingByEmail, writePlan, link, pendingDelete, forget = () => {} } = deps;
+  if (!userId || !email) return null;
+  const row = pendingByEmail(email);
+  if (!row?.plan || row.plan === DEFAULT_PLAN) return null;
+  const written = await writePlan(userId, row.plan);
+  if (!written.ok) return null;
+  link({ customerId: row.customer_id, userId, email });
+  pendingDelete(row.customer_id);
+  forget();
+  return row.plan;
+}
+
+/**
  * Last-resort user lookup by email, for an event that carries no user id and
  * no customer we have seen before (a Dashboard-created subscription, mostly).
  *

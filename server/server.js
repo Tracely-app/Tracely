@@ -9,13 +9,13 @@ import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
-         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
+         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
-import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
+import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
@@ -483,46 +483,29 @@ async function handleStripeWebhook(req, res) {
     return;
   }
 
-  // Learn the customer → user mapping first: later subscription events carry a
-  // customer and no user id, and this is where that link is available.
-  billingCustomerLink(change);
-
-  let userId = change.userId ?? billingCustomerLookup(change.customerId)?.user_id ?? null;
-  if (!userId && change.email) userId = await findUserIdByEmail(change.email);
-
-  let outcome = "recorded";
-  if (change.plan == null) outcome = "no_plan"; // an unrecognised price is not a downgrade
-  else if (!userId) outcome = "no_user";
-  else {
-    const written = await writePlanToSupabase(userId, change.plan);
-    outcome = written.ok ? "applied" : `failed:${written.reason}`;
-    if (written.ok) {
-      billingCustomerLink({ ...change, userId });
-      forgetCachedPlans(); // an upgrade must not wait out the 60s plan cache
-    }
-  }
+  // Who paid and what for, settled against the stores (lib/billing.js
+  // settleChange): applied to the account, or recorded as an UNCLAIMED
+  // purchase keyed on the Stripe customer until an event or a sign-in names
+  // the account. That record is why `pending` is answered 200 and recorded:
+  // the purchase is safe in our ledger, so Stripe need not keep retrying.
+  const settled = await settleChange({ ...change, eventId: event.id }, {
+    link: billingCustomerLink, lookup: billingCustomerLookup, findByEmail: findUserIdByEmail, writePlan: writePlanToSupabase,
+    pendingGet: billingPendingByCustomer, pendingPut: billingPendingPut, pendingDelete: billingPendingDelete, forget: forgetCachedPlans,
+  });
+  const { outcome, userId } = settled;
 
   // Record only after the write is decided, so the replay guard never marks an
   // event done that never landed — anything unapplied stays retryable.
-  //
-  // `no_user` is retryable and NOT recorded, which is the whole reason it is
-  // grouped with a failed write. Stripe does not guarantee event ordering, and
-  // customer.subscription.created/updated routinely arrives BEFORE the
-  // checkout.session.completed that carries the Supabase user id — so the
-  // event that actually says "this account is Pro" can land while
-  // billing_customers still knows nothing about the customer. Recording it
-  // would 200 the only event that mattered and Stripe would never send it
-  // again: the customer pays and is never upgraded, with `no_user` sitting in
-  // the ledger as the only trace. A 500 buys Stripe's retry schedule (~3 days
-  // of backoff), by which time the checkout event has landed and the lookup
-  // resolves. `no_plan` is different and IS recorded: it is a settled answer,
-  // not a missing prerequisite.
+  // `no_user` (no account, no customer, nothing to key a record on) and a
+  // failed Supabase write are the two that are: a 500 buys Stripe's retry
+  // schedule. Everything else is a settled answer.
   if (outcome.startsWith("failed:") || outcome === "no_user") {
     console.error(`[tracely] Stripe event ${event.id} (${event.type}) not applied: ${outcome} — asking Stripe to retry`);
     json(res, 500, { error: { kind: "billing_retry", message: "Could not apply the plan change yet" } });
     return;
   }
-  billingEventRecord({ id: event.id, type: event.type, userId, customerId: change.customerId, plan: change.plan, outcome, payload: event });
+  if (outcome === "pending") console.log(`[tracely] Stripe event ${event.id} (${event.type}): purchase recorded as unclaimed for customer ${change.customerId} — placed when that customer or email is linked to an account`);
+  billingEventRecord({ id: event.id, type: event.type, userId, customerId: change.customerId, plan: settled.plan, outcome, payload: event });
   json(res, 200, { received: true, outcome });
 }
 

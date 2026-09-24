@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS billing_customers (
 );
 `);
   },
+  // v3 — unclaimed purchases. A customer paid for a plan and no event named
+  // the account (a checkout reached from the website while signed out, or
+  // before the account existed). The purchase waits here, keyed on the Stripe
+  // customer, until an event links that customer to a user or the payer's
+  // email signs in — instead of hanging on Stripe's three-day retry schedule
+  // and then being lost for good (that is how a beta tester paid and stayed
+  // on Free, 2026-09-23).
+  () => {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS billing_pending (
+  customer_id TEXT PRIMARY KEY, email TEXT, plan TEXT NOT NULL, event_id TEXT, received_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS billing_pending_email ON billing_pending (email);
+`);
+  },
 ];
 
 export function migrate() {
@@ -228,6 +243,33 @@ export function billingCustomerLink({ customerId, userId, email }) {
 export function billingCustomerLookup(customerId) {
   if (!customerId) return null;
   return db.prepare("SELECT customer_id, user_id, email FROM billing_customers WHERE customer_id = ?").get(customerId) ?? null;
+}
+
+/* ── unclaimed purchases (billing_pending) ─────────────────────────────
+ * One row per Stripe customer: the plan they paid for and, when known, the
+ * email they paid with (lower-cased, so a sign-in matches however Google
+ * capitalises it). A later event for the same customer replaces the plan;
+ * the row goes when the purchase is claimed or the subscription ends. */
+export function billingPendingPut({ customerId, email, plan, eventId }) {
+  if (!customerId || !plan) return;
+  db.prepare(
+    "INSERT INTO billing_pending (customer_id, email, plan, event_id, received_at) VALUES (?,?,?,?,?) " +
+    "ON CONFLICT(customer_id) DO UPDATE SET " +
+    "email = COALESCE(excluded.email, email), plan = excluded.plan, event_id = excluded.event_id, received_at = excluded.received_at"
+  ).run(customerId, email ? String(email).trim().toLowerCase() : null, plan, eventId ?? null, Date.now());
+}
+export function billingPendingByCustomer(customerId) {
+  if (!customerId) return null;
+  return db.prepare("SELECT customer_id, email, plan, event_id, received_at FROM billing_pending WHERE customer_id = ?").get(customerId) ?? null;
+}
+export function billingPendingByEmail(email) {
+  if (!email) return null;
+  return db.prepare("SELECT customer_id, email, plan, event_id, received_at FROM billing_pending WHERE email = ? ORDER BY received_at DESC LIMIT 1")
+    .get(String(email).trim().toLowerCase()) ?? null;
+}
+export function billingPendingDelete(customerId) {
+  if (!customerId) return;
+  db.prepare("DELETE FROM billing_pending WHERE customer_id = ?").run(customerId);
 }
 
 export function settingsGet() {
