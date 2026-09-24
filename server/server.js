@@ -9,13 +9,13 @@ import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
-         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup } from "./lib/db.js";
+         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
-import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured } from "./lib/billing.js";
+import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
@@ -143,7 +143,7 @@ function originAllowed(origin) {
 // /api/billing/webhook is deliberately NOT here: Stripe calls it server-to-
 // server with no Origin, and listing it would also hand it to every page the
 // extension surface can reach.
-const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement"]);
+const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account"]);
 
 /* Every route that can reach a model, and therefore spend money.
  *
@@ -478,51 +478,34 @@ async function handleStripeWebhook(req, res) {
 
   const change = planChangeForEvent(event);
   if (!change) {
-    billingEventRecord({ id: event.id, type: event.type, outcome: "ignored", payload: event });
+    billingEventRecord({ id: event.id, type: event.type, outcome: "ignored", payload: redactStripeEvent(event) });
     json(res, 200, { received: true, ignored: true });
     return;
   }
 
-  // Learn the customer → user mapping first: later subscription events carry a
-  // customer and no user id, and this is where that link is available.
-  billingCustomerLink(change);
-
-  let userId = change.userId ?? billingCustomerLookup(change.customerId)?.user_id ?? null;
-  if (!userId && change.email) userId = await findUserIdByEmail(change.email);
-
-  let outcome = "recorded";
-  if (change.plan == null) outcome = "no_plan"; // an unrecognised price is not a downgrade
-  else if (!userId) outcome = "no_user";
-  else {
-    const written = await writePlanToSupabase(userId, change.plan);
-    outcome = written.ok ? "applied" : `failed:${written.reason}`;
-    if (written.ok) {
-      billingCustomerLink({ ...change, userId });
-      forgetCachedPlans(); // an upgrade must not wait out the 60s plan cache
-    }
-  }
+  // Who paid and what for, settled against the stores (lib/billing.js
+  // settleChange): applied to the account, or recorded as an UNCLAIMED
+  // purchase keyed on the Stripe customer until an event or a sign-in names
+  // the account. That record is why `pending` is answered 200 and recorded:
+  // the purchase is safe in our ledger, so Stripe need not keep retrying.
+  const settled = await settleChange({ ...change, eventId: event.id }, {
+    link: billingCustomerLink, lookup: billingCustomerLookup, findByEmail: findUserIdByEmail, writePlan: writePlanToSupabase,
+    pendingGet: billingPendingByCustomer, pendingPut: billingPendingPut, pendingDelete: billingPendingDelete, forget: forgetCachedPlans,
+  });
+  const { outcome, userId } = settled;
 
   // Record only after the write is decided, so the replay guard never marks an
   // event done that never landed — anything unapplied stays retryable.
-  //
-  // `no_user` is retryable and NOT recorded, which is the whole reason it is
-  // grouped with a failed write. Stripe does not guarantee event ordering, and
-  // customer.subscription.created/updated routinely arrives BEFORE the
-  // checkout.session.completed that carries the Supabase user id — so the
-  // event that actually says "this account is Pro" can land while
-  // billing_customers still knows nothing about the customer. Recording it
-  // would 200 the only event that mattered and Stripe would never send it
-  // again: the customer pays and is never upgraded, with `no_user` sitting in
-  // the ledger as the only trace. A 500 buys Stripe's retry schedule (~3 days
-  // of backoff), by which time the checkout event has landed and the lookup
-  // resolves. `no_plan` is different and IS recorded: it is a settled answer,
-  // not a missing prerequisite.
+  // `no_user` (no account, no customer, nothing to key a record on) and a
+  // failed Supabase write are the two that are: a 500 buys Stripe's retry
+  // schedule. Everything else is a settled answer.
   if (outcome.startsWith("failed:") || outcome === "no_user") {
     console.error(`[tracely] Stripe event ${event.id} (${event.type}) not applied: ${outcome} — asking Stripe to retry`);
     json(res, 500, { error: { kind: "billing_retry", message: "Could not apply the plan change yet" } });
     return;
   }
-  billingEventRecord({ id: event.id, type: event.type, userId, customerId: change.customerId, plan: change.plan, outcome, payload: event });
+  if (outcome === "pending") console.log(`[tracely] Stripe event ${event.id} (${event.type}): purchase recorded as unclaimed for customer ${change.customerId} — placed when that customer or email is linked to an account`);
+  billingEventRecord({ id: event.id, type: event.type, userId, customerId: change.customerId, plan: settled.plan, outcome, payload: redactStripeEvent(event) });
   json(res, 200, { received: true, outcome });
 }
 
@@ -1052,6 +1035,35 @@ const server = http.createServer(async (req, res) => {
         plan: ent.plan, email: ent.email, userId: ent.userId, enforced: ent.enforced, checkedAt: Date.now(), ...(ent.beta ? { beta: true } : {}),
         ...(ent.enforced ? entitlementDetails(ent, callerId(req, ent)) : {}),
       }, cors);
+      return;
+    }
+
+    /* DELETE /api/account — the signed-in account and everything kept with
+     * it. Refused while a paid plan is active: the subscription is Stripe's
+     * to end (the customer portal), and deleting the account under it would
+     * keep charging a card for nothing. What goes: usage counters, customer
+     * links, unclaimed purchases under the email, the payer details in the
+     * billing record (the bare record stays), then the sign-in account itself.
+     * The token presented is the only authority — no body, no confirmation
+     * field: the options page asks the person, the server acts. */
+    if (req.method === "DELETE" && url.pathname === "/api/account") {
+      loadEnvFile();
+      const ent = await planForRequest(req);
+      if (!ent.enforced || !ent.userId) {
+        throw new CheckError("unauthorized", "Sign in to delete an account.", { status: 401 });
+      }
+      if (planRank(ent.plan) > planRank("free")) {
+        throw new CheckError("plan_active", "Cancel your subscription first (Manage subscription), then delete the account.", { status: 409 });
+      }
+      const purged = accountPurge({ userId: ent.userId, email: ent.email });
+      const gone = await deleteSupabaseUser(ent.userId);
+      forgetCachedPlans();
+      if (!gone.ok) {
+        console.error(`[tracely] account ${ent.userId}: data purged, sign-in account not deleted (${gone.reason})`);
+        throw new CheckError("server", "Your data was removed, but the sign-in account could not be deleted — try again shortly.", { status: 502 });
+      }
+      console.log(`[tracely] account deleted: ${ent.userId} (usage ${purged.usage}, links ${purged.customers}, pending ${purged.pending}, events scrubbed ${purged.events})`);
+      json(res, 200, { deleted: true, ...purged }, cors);
       return;
     }
 
@@ -1720,6 +1732,14 @@ const server = http.createServer(async (req, res) => {
 process.on("unhandledRejection", (err) => console.error("[tracely] unhandled rejection:", err));
 
 server.listen(PORT, "127.0.0.1", () => {
+  /* Retention: usage counters are kept 13 months — long enough for a month
+   * limit to be argued about, not forever. Swept at boot and once a day. */
+  const sweepUsage = () => {
+    const d = new Date(); d.setUTCMonth(d.getUTCMonth() - 13); d.setUTCDate(1);
+    try { const n = usagePurgeBefore(d.toISOString().slice(0, 10)); if (n) console.log(`[tracely] retention: dropped ${n} usage rows older than 13 months`); } catch (e) { console.error("[tracely] retention sweep failed:", e?.message ?? e); }
+  };
+  sweepUsage();
+  setInterval(sweepUsage, 24 * 3600 * 1000).unref?.();
   console.log(`Tracely running at http://localhost:${PORT}${MOCK ? "  (MOCK MODE — no API calls)" : ""}`);
   if (!hasApiKey() && !MOCK) {
     console.log("No OPENAI_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");

@@ -1131,6 +1131,34 @@
     const FCACHE_KEY = `tracely.widget.fcache${CACHE_GEN}.${DOC_ID}`;
     sweepRetiredCaches(); // before anything reads a cache
 
+    /* ── consent: a Doc is checked only after the user turns Docs on ──────
+       Opening a Doc used to start the export-and-check loop on its own —
+       the whole document, to Tracely's server, every ten seconds, with no
+       ask. The Web Store's user-data policy wants a prominent disclosure and
+       consent before content leaves the page, and the listing's own line —
+       "nothing runs on a site until you enable it" — was simply untrue here.
+       So Docs now waits for one answer, given once per browser profile
+       (chrome.storage "docsEnabled") and reversible on the options page,
+       exactly as field mode waits for its per-site switch. Until then the
+       pill offers the switch and nothing is exported, checked or sent. A
+       plain test page has no extension storage and keeps the old behaviour. */
+    const docsStorage = useRelay && typeof chrome !== "undefined" && Boolean(chrome.storage?.local);
+    let docsOn = harness || !docsStorage;
+    if (docsStorage) {
+      storageGet({ docsEnabled: false }, (st) => {
+        docsOn = st.docsEnabled === true;
+        if (widget) render();
+        if (docsOn) cycle();
+      });
+      storageOnChanged((changes, area) => {
+        if (area !== "local" || !changes.docsEnabled) return;
+        docsOn = changes.docsEnabled.newValue === true;
+        if (widget) render();
+        if (docsOn) cycle();
+      });
+    }
+    const DOCS_CONSENT_TEXT = "Tracely sends this document's text to Tracely's server (api.jointracely.com) to check its facts, every few seconds while you write. It is processed there and not stored. This turns on checking for every Google Doc you open; switch it off any time in Tracely's options.";
+
     // ── state ──
     // Verdicts and source lists persist per doc: reopening the tab re-checks
     // NOTHING that hasn't changed (hash-keyed, stale entries just never
@@ -1322,6 +1350,7 @@
 
     async function cycle() {
       if (orphaned || inflight || document.hidden) return;
+      if (!docsOn) return; // nothing leaves the page until Docs is turned on
       inflight = true;
       try {
         const readAt = Date.now();
@@ -2694,12 +2723,18 @@
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(hash, { selected: item.url })));
       scroll.appendChild(rows);
-      put(scroll);
-      put(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      // The style pills and the preview scroll with the list. The app keeps
+      // them outside its scroll region, in an editor tall enough not to
+      // notice; in a browser window the card is often capped to the room
+      // under the line, and with these fixed the list was what collapsed —
+      // to nothing. Its own rule decides it: the header and the buttons
+      // never move, everything between them gives.
+      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
       if (src) {
         const c = formatCitation(src, style);
-        put(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref)));
+        scroll.appendChild(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref)));
       }
+      put(scroll);
       const i = src ? list.indexOf(src) : -1;
       const key = src ? citedKey(src.url) : null;
       const inserting = key ? editState(key) === "applying" : false;
@@ -3593,8 +3628,36 @@
     // The plan decides whether "Explain in depth" is offered or locked.
     tierListeners.push(() => render());
 
+    /* The ask. One card, the app's shape, and the one decision it needs. */
+    function renderDocsConsent() {
+      root.innerHTML = `
+        ${expanded ? `
+        <div class="panel opening">
+          <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+          <div class="list">
+            <div class="card">
+              <div class="top"><span class="dot d-cite"></span><span class="ctitle">Check this document with Tracely?</span></div>
+              <div class="expl">${esc(DOCS_CONSENT_TEXT)}</div>
+              <div class="row">
+                <button class="act primary" id="docsOn">Turn on for Google Docs</button>
+                <button class="act" id="docsNotNow">Not now</button>
+              </div>
+            </div>
+          </div>
+          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
+        </div>` : ""}
+        <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
+      shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
+      shadow.getElementById("docsOn")?.addEventListener("click", () => {
+        expanded = false;
+        storageSet({ docsEnabled: true }); // the storage change turns it on and starts the first check
+      });
+      shadow.getElementById("docsNotNow")?.addEventListener("click", () => { expanded = false; render(); });
+    }
+
     function render() {
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
+      if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
       const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
@@ -4442,6 +4505,12 @@
     /* ── per-site opt-in ── */
 
     function setSiteEnabled(on) {
+      if (!on) {
+        // Off means off: the verdicts and source lists this page's localStorage
+        // holds (readable by the site, and outliving an uninstall) go with it.
+        for (const k of [DISMISS_KEY]) { try { localStorage.removeItem(k); } catch { /* storage denied */ } }
+        cache.clear(); sourcesMap.clear(); dismissed.clear();
+      }
       siteOn = on;
       lsSet(SITE_KEY, on ? "1" : "0");
       if (extStorage) {

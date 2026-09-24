@@ -313,9 +313,26 @@ $("signOut").addEventListener("click", async () => {
 /* ── load + save ─────────────────────────────────────────────────────────── */
 
 function load() {
-  chrome.storage.local.get({ enabledSites: [] }, (cfg) => renderSites(cfg.enabledSites));
+  chrome.storage.local.get({ enabledSites: [], docsEnabled: false }, (cfg) => { renderSites(cfg.enabledSites); $("docsTgl").checked = cfg.docsEnabled === true; });
   refreshAccount(); // fills the plan meters too, once the server has answered
 }
+// The same switch the first Doc asks for (content.js renderDocsConsent).
+$("docsTgl").addEventListener("change", (e) => chrome.storage.local.set({ docsEnabled: e.target.checked === true }));
+
+/* Account deletion: the server purges what it keeps for this account and
+   deletes the sign-in account itself, then the worker forgets the session.
+   Refused while a paid plan is active — cancel it first, or the card keeps
+   being charged for an account that no longer exists. */
+$("deleteAccount").addEventListener("click", async () => {
+  if (!confirm("Delete your Tracely account and everything kept with it (usage counts, payment record, sign-in)? This cannot be undone.")) return;
+  $("deleteAccount").disabled = true;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: "tracely-deleteAccount" });
+    if (r?.ok) { acctStatus("Your account and its data have been deleted."); await refreshAccount(true); }
+    else acctStatus(r?.message || "Could not delete the account — try again.", true);
+  } catch { acctStatus("Could not reach the Tracely worker — try again.", true); }
+  $("deleteAccount").disabled = false;
+});
 
 /* Any key a previous build stored is removed on load rather than left sitting
    in chrome.storage. Nothing reads it now, so keeping it would only mean an

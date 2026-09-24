@@ -396,12 +396,12 @@ test("docs-hook: the Docs flag is still set first, and the engine installs lazil
     .split("\n").map((l) => l.trim()).filter(Boolean);
   assert.deepEqual(code, [
     "(() => {", "\"use strict\";", "if (window.__tracelyDocsHook) return;", "window.__tracelyDocsHook = true;",
-    "const ANNOTATION_REQUESTER = \"tracely\";", "try {",
+    "const ANNOTATION_REQUESTER = \"dffmoeebkkghhgcklkbmaibfhgiegmdm\";", "try {",
   ], "nothing runs before the flag but the re-entry guard");
   const docs = new FakeDocs("Hello there, world.");
   const h = loadHook({ docs });
   assert.equal(h.loadError, null);
-  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "tracely");
+  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "dffmoeebkkghhgcklkbmaibfhgiegmdm", "our own store id — never a third party's");
   assert.equal(docs.requesters.length, 0, "installing the engine must not touch Docs' API");
 });
 
@@ -409,7 +409,7 @@ test("docs-hook: a canvas-hook failure cannot take the edit engine down", async 
   const docs = new FakeDocs("Hello there, world.");
   const h = loadHook({ docs, canvas: false });
   assert.ok(h.loadError, "no CanvasRenderingContext2D → the canvas hook throws (as it would in a broken page)");
-  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "tracely");
+  assert.equal(h.ctx._docs_annotate_canvas_by_ext, "dffmoeebkkghhgcklkbmaibfhgiegmdm", "our own store id — never a third party's");
   const r = await h.call("ping");
   assert.equal(r.ok, true);
   assert.equal(r.editable, true);
@@ -425,7 +425,7 @@ test("protocol: ping reports the text API and whether the editor looks editable"
   assert.equal(r.type, "tracely-docs-edit-result");
   assert.equal(r.op, "ping");
   assert.deepEqual([r.ok, r.api, r.editor, r.editable, r.mode, r.viewOnly], [true, true, true, true, "editing", false]);
-  assert.deepEqual(docs.requesters, ["tracely"], "the requester is our own honest id — never a third party's");
+  assert.deepEqual(docs.requesters, ["dffmoeebkkghhgcklkbmaibfhgiegmdm"], "the requester is our own store id — never a third party's");
   assert.ok(h.posted.every((p) => p.targetOrigin === ORIGIN), "replies go to this origin only, never '*'");
 
   const view = loadHook({ docs: new FakeDocs("Hello there.", { mode: "View only" }) });
@@ -1345,6 +1345,13 @@ test("pack-extension.sh leaves extension/dev/ out of every zip, and checks the z
     for (const z of zips) {
       const entries = execFileSync("unzip", ["-Z1", path.join(out, z)], { encoding: "utf8" }).split("\n");
       assert.ok(!entries.some((e) => /(^|\/)dev\//.test(e)), `${z} carries extension/dev/`);
+      // The store build carries no localhost permission; the beta build keeps it for developers.
+      const manifestEntry = entries.find((e) => /(^|\/)manifest\.json$/.test(e));
+      const m = JSON.parse(execFileSync("unzip", ["-p", path.join(out, z), manifestEntry], { encoding: "utf8" }));
+      const hasLocal = m.host_permissions.some((h) => h.startsWith("http://localhost"));
+      if (/-beta\.zip$/.test(z)) assert.equal(hasLocal, true, `${z}: the beta build keeps the developer's localhost permission`);
+      else assert.equal(hasLocal, false, `${z}: the store build must not ask for localhost`);
+      assert.ok(m.host_permissions.includes("https://api.jointracely.com/*"), `${z}: the hosted server stays`);
     }
   } finally {
     rmSync(out, { recursive: true, force: true });

@@ -19,7 +19,8 @@
  * did before any of this existed. That is what `enforced` carries.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { usageCount, usageBump, usageAdd } from "./db.js";
+import { usageCount, usageBump, usageAdd, billingPendingByEmail, billingPendingDelete, billingCustomerLink } from "./db.js";
+import { claimPendingForUser, writePlanToSupabase } from "./billing.js";
 import { MICRO_CENTS_PER_USD, reserveAccount, reservedAccountMicroCents } from "./spend.js";
 import {
   DEFAULT_PLAN,
@@ -90,13 +91,25 @@ async function resolveToken(token) {
     if (!res.ok) return anonymous();
     const user = await res.json();
     if (!user || typeof user !== "object" || !user.id) return anonymous();
-    return {
+    const value = {
       // app_metadata only — user_metadata is account-holder writable, see shared/plan.js.
       plan: planFromMetadata(user.app_metadata),
       email: typeof user.email === "string" ? user.email : null,
       userId: user.id,
       enforced: true,
     };
+    // A purchase made with this email before the account could be named —
+    // from the website while signed out, or before the first sign-in — is
+    // claimed here, the first time the account is seen without a plan
+    // (lib/billing.js claimPendingForUser). One indexed lookup on the
+    // uncached path; nothing when the account already holds a plan.
+    if (value.plan === DEFAULT_PLAN && value.email) {
+      const claimed = await claimPendingForUser(value, {
+        pendingByEmail: billingPendingByEmail, writePlan: writePlanToSupabase, link: billingCustomerLink, pendingDelete: billingPendingDelete, forget: forgetCachedPlans,
+      });
+      if (claimed) value.plan = claimed;
+    }
+    return value;
   } catch {
     return anonymous();
   }

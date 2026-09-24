@@ -41,6 +41,11 @@ const HOSTED_SERVER = "https://api.jointracely.com";
 let SERVER = LOCAL_SERVER;
 // Mirrors the server's EXTENSION_API set. Docs mode relays through here too,
 // so the Docs bridge endpoint is included (server mode only).
+// The toolbar button opens the options page, where sites are switched on and
+// the account lives. It used to do nothing at all, while the listing said it
+// was how you enabled a site.
+chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
+
 const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement"]);
 
 const PROBE_INTERVAL_MS = 60_000;
@@ -486,7 +491,7 @@ function installId() {
   return installIdPromise;
 }
 
-async function relay(path, body, { token = "", retried = false } = {}) {
+async function relay(path, body, { token = "", retried = false, method = "" } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -497,15 +502,15 @@ async function relay(path, body, { token = "", retried = false } = {}) {
   const beta = await betaToken();
   if (beta) headers["X-Tracely-Beta"] = beta;
   const res = await fetch(`${SERVER}${path}`, body === undefined
-    ? (token || beta ? { headers } : undefined)
-    : { method: "POST", headers, body: JSON.stringify(body) });
+    ? (token || beta || method ? { method: method || "GET", headers } : undefined)
+    : { method: method || "POST", headers, body: JSON.stringify(body) });
 
   // An expired token must cost the user a re-auth at worst, never a broken
   // check: refresh once, and failing that drop to anonymous — which the
   // server serves as a free user.
   if (res.status === 401 && token && !retried) {
     const fresh = await refreshAccessToken();
-    if (fresh) return relay(path, body, { token: fresh, retried: true });
+    if (fresh) return relay(path, body, { token: fresh, retried: true, method });
     await clearAuth();
     return relay(path, body, { token: "", retried: true });
   }
@@ -654,6 +659,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, plan: normalizePlan(ent?.plan), email: ent?.email ?? null });
       } catch (err) {
         sendResponse({ ok: false, message: err?.message ?? String(err) });
+      }
+    })();
+    return true; // async sendResponse
+  }
+
+  if (msg?.type === "tracely-deleteAccount") {
+    (async () => {
+      const { authToken } = await getAuth();
+      if (!authToken) { sendResponse({ ok: false, message: "Sign in first." }); return; }
+      try {
+        const r = await relay("/api/account", undefined, { token: authToken, method: "DELETE" });
+        if (r.ok) await clearAuth(); // the account is gone; so is the session
+        sendResponse(r);
+      } catch (e) {
+        sendResponse({ ok: false, message: String(e?.message ?? e) });
       }
     })();
     return true; // async sendResponse

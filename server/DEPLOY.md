@@ -364,14 +364,35 @@ answer HTTP-01 without going through the app.
    unpacked builds too, so one value covers the team's betas and the published
    extension. Verified live: our origin 204, a foreign extension 403,
    docs.google.com still 204.
-5. **Billing**, when Stripe live setup is done: `STRIPE_WEBHOOK_SECRET`,
-   `STRIPE_PRICE_STUDENT`, `STRIPE_PRICE_PRO`, and
-   `SUPABASE_SERVICE_ROLE_KEY` (the webhook needs it to write plans).
+5. ~~Billing~~ — **done** (checked 2026-09-24): `STRIPE_WEBHOOK_SECRET`,
+   `STRIPE_PRICE_STUDENT`, `STRIPE_PRICE_PRO` and `SUPABASE_SERVICE_ROLE_KEY`
+   are all set and the webhook is verifying and applying events. A purchase
+   that names no account (bought from the website while signed out) is kept
+   in `billing_pending` and placed when that email signs in — see
+   lib/billing.js settleChange.
 6. **Release hosting** (#242, draft): `dl.jointracely.com` on this box is
    blocked on an `A dl 45.56.92.67` record in the zone (Vercel's nameservers;
    `dl` still answers from Vercel), then `certbot --apache -d
    dl.jointracely.com`. Until then desktop updates are served from GitHub
    Releases, so `Tracely-app/Tracely` must stay public.
+
+## Data kept, and for how long
+
+What the privacy policy (PRIVACY.md) promises, and where it is enforced:
+
+- **Usage counters** (`entitlement_usage`): 13 months. `usagePurgeBefore`
+  runs at boot and daily (server.js `sweepUsage`).
+- **Billing events**: the Stripe payload is stored WITHOUT the payer's name,
+  address or phone (lib/billing.js `redactStripeEvent`); the email stays —
+  it is how a purchase finds its account.
+- **Account deletion**: `DELETE /api/account` with the user's token purges
+  their counters, customer links and unclaimed purchases, blanks their
+  billing payloads, and deletes the Supabase user (lib/db.js `accountPurge`,
+  lib/billing.js `deleteSupabaseUser`). Refused (409) while a paid plan is
+  active — the subscription is Stripe's to end. The options page offers it.
+- **Application log** (`/var/log/tracely.log`): route, kind, status, model —
+  never text, emails, tokens or IPs. Rotate it: there is no logrotate entry
+  yet (Apache's own logs rotate daily, 14 kept).
 
 ## Not done, and worth knowing
 
