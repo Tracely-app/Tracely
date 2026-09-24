@@ -1,0 +1,958 @@
+{
+ "name": "checkset-long",
+ "built": "2026-09-21",
+ "source": "Tracely main @2f2ca33: server/lib/factcheck.js FINDINGS_SCHEMA + systemPrompt(); extension/content.js segmentText/hashText/api('/api/check')",
+ "request_shape": "POST /api/check body per essay: { text: essay.text, sentences: essay.sentences.map(s => ({ id: s.hash, text: s.text })), model, effort }. Direct: runFactCheck({ text, sentences, model, effort }) or structuredCall with systemPrompt()/userPrompt(). One essay = one batch (all <= 40 = MAX_SENTENCES_PER_CHECK; all texts < 6000 chars so the server never trims context).",
+ "verdicts": [
+  "accurate",
+  "needs_citation",
+  "false",
+  "questionable",
+  "incoherent",
+  "no_claim"
+ ],
+ "flag_of_verdict": {
+  "false": "false",
+  "needs_citation": "needs_citation",
+  "questionable": "questionable",
+  "incoherent": "incoherent",
+  "accurate": "none",
+  "no_claim": "none"
+ },
+ "scoring": {
+  "correct": "verdict in acceptable (1 point)",
+  "partial": "verdict in partial (0.5 point)",
+  "critical": "verdict in critical: a harmful error (endorsing a falsehood, calling a truth false, or asking a cited sentence for a citation). Report the count separately; it is the number that matters to a student.",
+  "wrong": "any other verdict, or a missing finding for the id (0 points; count missing separately)"
+ },
+ "counts": {
+  "total": 40
+ },
+ "essays": [
+  {
+   "id": "L1",
+   "title": "A long first check",
+   "topic": "40 sentences in one call, the extension's maximum",
+   "text": "A long first check\nThe Soviet Union launched Sputnik, the first artificial satellite, in 1957. A month later, the dog Laika became the first animal to orbit Earth aboard Sputnik 1. Strictly speaking, though, Sputnik was not the first human-made object to reach space, because a German V-2 rocket had already crossed that boundary in 1944.\nThe Soviets struck again in April 1961 when Yuri Gagarin became the first human in space, and weeks later John Glenn answered as the first American in space. In May 1961, President Kennedy told Congress that the nation should commit to landing a man on the Moon before the decade was out (Logsdon, 2010). At its peak in 1966, NASA's budget made up more than four percent of all federal spending. The Apollo program went on to cost roughly 25 billion dollars and employed about 400,000 people at its height.\nOn July 20, 1969, Buzz Aldrin became the first person to walk on the Moon, followed minutes later by Neil Armstrong. According to NASA, the six Apollo landing missions brought back 382 kilograms of lunar rock and soil. The Cold War itself ended when the Soviet Union collapsed in 1991. Looking back, I think the race to the Moon was driven more by national pride than by curiosity, and that is nothing to be ashamed of.\nCarbon dioxide traps heat in the atmosphere, which is why scientists call it a greenhouse gas. Sunlight takes about eight seconds to travel from the Sun to Earth, where it warms the surface and is radiated back toward space as infrared heat. Burning coal, oil, and natural gas releases carbon dioxide that was locked underground for millions of years.\nBefore the Industrial Revolution, the concentration of carbon dioxide in the air was about 280 parts per million. When Charles Keeling began measuring carbon dioxide on Mauna Loa in 1958, the level was about 315 parts per million. In May 2013, the Mauna Loa Observatory recorded a daily average above 400 parts per million for the first time (NOAA, 2013). By the 2010s, the planet's average surface temperature was about one degree Celsius higher than in the late 1800s. In its 2021 assessment, the IPCC stated that it is unequivocal that human influence has warmed the atmosphere, ocean and land.\nMolecule for molecule, methane traps less heat than carbon dioxide, which is why climate scientists pay it little attention. The ocean absorbs roughly a quarter of the carbon dioxide humans emit each year, and seawater has become about 30 percent more acidic since the Industrial Revolution. Given everything we know, delaying serious climate policy any longer would be a failure of basic responsibility.\nPublic health rarely makes headlines, because its greatest successes are the epidemics that never happen. In 1900, the three leading causes of death in the United States were pneumonia, tuberculosis, and diarrheal disease. According to the CDC, average life expectancy in the United States rose by about 30 years over the twentieth century.\nVaccines work by training the immune system to recognize a germ without causing the full disease. In 1796, Edward Jenner showed that material from cowpox sores could protect a young boy from smallpox (Riedel, 2005). In 1955, Jonas Salk's polio vaccine was approved, and millions of children received it as drops on a sugar cube. Thanks to mass vaccination, cases of wild polio worldwide have fallen by more than 99 percent since 1988. Before a measles vaccine became available in 1963, measles killed an estimated 400 to 500 people in the United States every year.\nThe next great leap came when Alexander Fleming discovered penicillin in 1938 (Tan and Tatsumura, 2015). Penicillin and the antibiotics that followed also work against viruses, which is why doctors routinely prescribe them for the flu. It is hard to think of any invention that has done more good for humanity than the humble vaccine.\nInflation is a general rise in prices that reduces the purchasing power of money. In Weimar Germany, prices rose so quickly that by November 1923 a single US dollar was worth more than four trillion marks. Zimbabwe's hyperinflation was so extreme that in 2009 its central bank issued a banknote worth 100 trillion Zimbabwean dollars.\nIn 1930, President Franklin Roosevelt signed the Smoot-Hawley Tariff Act, which raised duties on thousands of imported goods. At the depth of the Great Depression in 1933, roughly a quarter of the American workforce was unemployed. Milton Friedman and Anna Schwartz argued that the Federal Reserve made the Depression far worse by allowing the money supply to shrink by roughly a third (Friedman and Schwartz, 1963).\nTo break the inflation of the 1970s, the Federal Reserve under Paul Volcker pushed its benchmark interest rate close to 20 percent in the early 1980s. When the Federal Reserve raises interest rates, the prices of existing bonds usually rise, since investors rush to lock in the higher yields. According to the Bureau of Labor Statistics, the unemployment rate reached 10 percent in October 2009.",
+   "sentences": [
+    {
+     "id": "L1s01",
+     "hash": "s1url712",
+     "paragraph": 1,
+     "text": "The Soviet Union launched Sputnik, the first artificial satellite, in 1957.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Famous date (4 Oct 1957); the prompt lists famous dates as common knowledge.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s02",
+     "hash": "s1rr2sb6",
+     "paragraph": 1,
+     "text": "A month later, the dog Laika became the first animal to orbit Earth aboard Sputnik 1.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Everything is right except the spacecraft number, which is the kind of detail a weak model reads past.",
+     "difficulty": "subtle",
+     "correct_fact": "Laika flew on Sputnik 2 (launched 3 Nov 1957, a month after Sputnik 1). Sputnik 1 carried no animals.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s03",
+     "hash": "s1tkgsv3",
+     "paragraph": 1,
+     "text": "Strictly speaking, though, Sputnik was not the first human-made object to reach space, because a German V-2 rocket had already crossed that boundary in 1944.",
+     "label": "trap",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds like it contradicts the previous sentence's 'first artificial satellite', but reaching space and orbiting are different things.",
+     "trap_kind": "surprising",
+     "why_true": "V-2 test flight MW 18014 on 20 June 1944 reached an apogee of about 176 km, well above the 100 km Karman line (and the US 80 km line): the first human-made object in space. Sputnik was the first to ORBIT, so the sentence does not contradict e1s01.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s04",
+     "hash": "s11d96xx",
+     "paragraph": 1,
+     "text": "The Soviets struck again in April 1961 when Yuri Gagarin became the first human in space, and weeks later John Glenn answered as the first American in space.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Compound sentence: the Gagarin half is right, the Glenn half is wrong. Glenn is the famous name, so it is a very common student conflation.",
+     "difficulty": "subtle",
+     "correct_fact": "Alan Shepard was the first American in space (Freedom 7, 5 May 1961, suborbital). John Glenn was the first American to ORBIT Earth, on 20 Feb 1962.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s05",
+     "hash": "s1hdm4y3",
+     "paragraph": 1,
+     "text": "In May 1961, President Kennedy told Congress that the nation should commit to landing a man on the Moon before the decade was out (Logsdon, 2010).",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True (special message to Congress, 25 May 1961) and carries an (Author, year) parenthetical: John M. Logsdon, John F. Kennedy and the Race to the Moon (2010).",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s06",
+     "hash": "szbvfxm",
+     "paragraph": 1,
+     "text": "At its peak in 1966, NASA's budget made up more than four percent of all federal spending.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True: NASA's share of federal outlays was 4.31% in 1965 and peaked at 4.41% in 1966 (OMB historical tables, as tabulated in Wikipedia 'Budget of NASA'). A specific statistic with no source; the '(Logsdon, 2010)' in the previous sentence covers only that sentence, so 'accurate' is partial.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s07",
+     "hash": "s16hx28l",
+     "paragraph": 1,
+     "text": "The Apollo program went on to cost roughly 25 billion dollars and employed about 400,000 people at its height.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True: NASA's 1973 figure to Congress was about $25.4 billion; NASA cites roughly 400,000 people at the peak. Two uncited statistics.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s08",
+     "hash": "s943i53",
+     "paragraph": 1,
+     "text": "On July 20, 1969, Buzz Aldrin became the first person to walk on the Moon, followed minutes later by Neil Armstrong.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Plain control: every model should catch the swapped order.",
+     "difficulty": "plain",
+     "correct_fact": "Neil Armstrong stepped onto the Moon first; Buzz Aldrin followed about 19 minutes later.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s09",
+     "hash": "s11u99mn",
+     "paragraph": 1,
+     "text": "According to NASA, the six Apollo landing missions brought back 382 kilograms of lunar rock and soil.",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True (NASA curation: 382 kg / 842 lb from six missions, 1969-1972) with prose attribution ('According to NASA').",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s10",
+     "hash": "s1kz7xfj",
+     "paragraph": 1,
+     "text": "The Cold War itself ended when the Soviet Union collapsed in 1991.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Famous date; common knowledge.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s11",
+     "hash": "s78pigk",
+     "paragraph": 1,
+     "text": "Looking back, I think the race to the Moon was driven more by national pride than by curiosity, and that is nothing to be ashamed of.",
+     "label": "opinion",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Hedged interpretation and a value judgement ('I think', 'nothing to be ashamed of'); no checkable claim.",
+     "essay": "e1"
+    },
+    {
+     "id": "L1s12",
+     "hash": "s1xf0jm8",
+     "paragraph": 1,
+     "text": "Carbon dioxide traps heat in the atmosphere, which is why scientists call it a greenhouse gas.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Basic science; common knowledge.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s13",
+     "hash": "si8p54r",
+     "paragraph": 1,
+     "text": "Sunlight takes about eight seconds to travel from the Sun to Earth, where it warms the surface and is radiated back toward space as infrared heat.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Unit swap buried in an otherwise correct physical description.",
+     "difficulty": "subtle",
+     "correct_fact": "Sunlight takes about 8 minutes 20 seconds (roughly 500 s) to reach Earth.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s14",
+     "hash": "s1hf4249",
+     "paragraph": 1,
+     "text": "Burning coal, oil, and natural gas releases carbon dioxide that was locked underground for millions of years.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Basic science; common knowledge.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s15",
+     "hash": "s1sd2v7u",
+     "paragraph": 1,
+     "text": "Before the Industrial Revolution, the concentration of carbon dioxide in the air was about 280 parts per million.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (ice-core record, about 280 ppm). Specific figure, no source.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s16",
+     "hash": "s1bvk5fv",
+     "paragraph": 1,
+     "text": "When Charles Keeling began measuring carbon dioxide on Mauna Loa in 1958, the level was about 315 parts per million.",
+     "label": "trap",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Dated figure: wrong for today (well over 400 ppm), correct for the date it names.",
+     "trap_kind": "dated",
+     "why_true": "NOAA/Scripps Mauna Loa monthly means for 1958 (Mar-Dec) run 312.4-317.5 ppm, averaging about 315.2 ppm (March 1958: 315.71 ppm; 1959 annual mean 315.98 ppm). The single first reading often quoted is 313 ppm, which 'about 315' still approximates. The sentence is explicitly about 1958, so today's 420+ ppm does not make it false.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s17",
+     "hash": "srcm4cw",
+     "paragraph": 1,
+     "text": "In May 2013, the Mauna Loa Observatory recorded a daily average above 400 parts per million for the first time (NOAA, 2013).",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True (9 May 2013) with an (Organisation, year) parenthetical.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s18",
+     "hash": "sq6iaga",
+     "paragraph": 1,
+     "text": "By the 2010s, the planet's average surface temperature was about one degree Celsius higher than in the late 1800s.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (IPCC AR6: 2011-2020 was about 1.1 C above 1850-1900; 'about one degree' is a reasonable approximation, and it is dated to the 2010s so later years do not make it stale). No source.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s19",
+     "hash": "shd20p4",
+     "paragraph": 1,
+     "text": "In its 2021 assessment, the IPCC stated that it is unequivocal that human influence has warmed the atmosphere, ocean and land.",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True: near-verbatim from IPCC AR6 WG1 Summary for Policymakers, A.1. Prose attribution ('the IPCC stated').",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s20",
+     "hash": "safvdnn",
+     "paragraph": 1,
+     "text": "Molecule for molecule, methane traps less heat than carbon dioxide, which is why climate scientists pay it little attention.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Reversed comparison with a plausible-sounding consequence.",
+     "difficulty": "moderate",
+     "correct_fact": "Methane traps far MORE heat than CO2: per molecule its radiative efficiency is roughly 25-30 times CO2's, and per kilogram its global warming potential is about 80 times CO2's over 20 years and about 28-30 times over 100 years (IPCC AR5/AR6). Cutting methane is a major focus of climate policy (e.g. the 2021 Global Methane Pledge).",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s21",
+     "hash": "s1q5z6nh",
+     "paragraph": 1,
+     "text": "The ocean absorbs roughly a quarter of the carbon dioxide humans emit each year, and seawater has become about 30 percent more acidic since the Industrial Revolution.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True: Global Carbon Project ocean sink about 26% of annual emissions; NOAA: surface-ocean acidity up about 30% (pH down about 0.1). Two uncited statistics.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s22",
+     "hash": "s113ewe7",
+     "paragraph": 1,
+     "text": "Given everything we know, delaying serious climate policy any longer would be a failure of basic responsibility.",
+     "label": "opinion",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Value judgement; no checkable claim.",
+     "essay": "e2"
+    },
+    {
+     "id": "L1s23",
+     "hash": "s1vj2trm",
+     "paragraph": 1,
+     "text": "Public health rarely makes headlines, because its greatest successes are the epidemics that never happen.",
+     "label": "opinion",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Rhetorical argument; no checkable claim.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s24",
+     "hash": "skrxxo9",
+     "paragraph": 1,
+     "text": "In 1900, the three leading causes of death in the United States were pneumonia, tuberculosis, and diarrheal disease.",
+     "label": "trap",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Dated figure: a model anchored on today's list (heart disease, cancer) may call it false.",
+     "trap_kind": "dated",
+     "why_true": "CDC MMWR 1999 (Achievements in Public Health, 1900-1999: Control of Infectious Diseases): in 1900 the three leading causes of death were pneumonia, tuberculosis, and diarrhea and enteritis.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s25",
+     "hash": "s50ok44",
+     "paragraph": 1,
+     "text": "According to the CDC, average life expectancy in the United States rose by about 30 years over the twentieth century.",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True (about 47 in 1900 to about 77 in 2000; CDC MMWR 1999 says the lifespan lengthened by about 30 years) with prose attribution.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s26",
+     "hash": "s46nvm7",
+     "paragraph": 1,
+     "text": "Vaccines work by training the immune system to recognize a germ without causing the full disease.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Basic science; common knowledge.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s27",
+     "hash": "sh5aduq",
+     "paragraph": 1,
+     "text": "In 1796, Edward Jenner showed that material from cowpox sores could protect a young boy from smallpox (Riedel, 2005).",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True (James Phipps, 1796) with an (Author, year) parenthetical: Riedel, Proc (Bayl Univ Med Cent) 2005.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s28",
+     "hash": "s1rlcbw5",
+     "paragraph": 1,
+     "text": "In 1955, Jonas Salk's polio vaccine was approved, and millions of children received it as drops on a sugar cube.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Conflates the two polio vaccines; the year and the name are right.",
+     "difficulty": "subtle",
+     "correct_fact": "Salk's inactivated vaccine (licensed 1955) was given by injection. The oral drops, often on a sugar cube, were Albert Sabin's live vaccine, licensed in the US in 1961-62.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s29",
+     "hash": "skzzfpw",
+     "paragraph": 1,
+     "text": "Thanks to mass vaccination, cases of wild polio worldwide have fallen by more than 99 percent since 1988.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (WHO: from an estimated 350,000 cases in 1988). Specific statistic, no source.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s30",
+     "hash": "sc5qyj2",
+     "paragraph": 1,
+     "text": "Before a measles vaccine became available in 1963, measles killed an estimated 400 to 500 people in the United States every year.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (CDC: in the decade before 1963, an estimated 400-500 deaths per year among reported cases). No source.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s31",
+     "hash": "sfznwaq",
+     "paragraph": 1,
+     "text": "The next great leap came when Alexander Fleming discovered penicillin in 1938 (Tan and Tatsumura, 2015).",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Wrong year behind a real citation (Tan SY, Tatsumura Y, 'Alexander Fleming (1881-1955): Discoverer of penicillin', Singapore Med J 2015;56(7):366-367, which itself gives 1928). Tests that a citation does not lull the checker: the prompt's 'accurate' requires the claims to be correct, so a cited wrong claim is 'false' ('needs_citation' is doubly wrong because the sentence is cited AND wrong).",
+     "difficulty": "subtle",
+     "correct_fact": "Fleming discovered penicillin in 1928.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s32",
+     "hash": "s18ux8wm",
+     "paragraph": 1,
+     "text": "Penicillin and the antibiotics that followed also work against viruses, which is why doctors routinely prescribe them for the flu.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Plain control: a textbook misconception.",
+     "difficulty": "plain",
+     "correct_fact": "Antibiotics act on bacteria, not viruses; they do not treat influenza, and CDC/WHO guidance advises against prescribing them for it. (Inappropriate prescribing for viral illness does happen, but the sentence's premise that antibiotics work against viruses is what makes it false.)",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s33",
+     "hash": "sql1uju",
+     "paragraph": 1,
+     "text": "It is hard to think of any invention that has done more good for humanity than the humble vaccine.",
+     "label": "opinion",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Hedged value judgement; no checkable claim.",
+     "essay": "e3"
+    },
+    {
+     "id": "L1s34",
+     "hash": "s17uupz1",
+     "paragraph": 1,
+     "text": "Inflation is a general rise in prices that reduces the purchasing power of money.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Standard definition; common knowledge.",
+     "essay": "e4"
+    },
+    {
+     "id": "L1s35",
+     "hash": "s14su2uv",
+     "paragraph": 1,
+     "text": "In Weimar Germany, prices rose so quickly that by November 1923 a single US dollar was worth more than four trillion marks.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (about 4.2 trillion marks per dollar in Nov 1923). Specific statistic, no source.",
+     "essay": "e4"
+    },
+    {
+     "id": "L1s36",
+     "hash": "sfxq5lo",
+     "paragraph": 1,
+     "text": "Zimbabwe's hyperinflation was so extreme that in 2009 its central bank issued a banknote worth 100 trillion Zimbabwean dollars.",
+     "label": "trap",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds like hyperbole; it is literally true.",
+     "trap_kind": "surprising",
+     "why_true": "The Reserve Bank of Zimbabwe announced Z$10, 20, 50 and 100 trillion notes on 16 January 2009 (CNN, 16 Jan 2009); the Z$100 trillion note was legal tender January-June 2009. 'Worth' is its face value.",
+     "essay": "e4"
+    },
+    {
+     "id": "L1s37",
+     "hash": "s3z2z8x",
+     "paragraph": 1,
+     "text": "In 1930, President Franklin Roosevelt signed the Smoot-Hawley Tariff Act, which raised duties on thousands of imported goods.",
+     "label": "false",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Wrong president; year and content are right.",
+     "difficulty": "subtle",
+     "correct_fact": "Herbert Hoover signed Smoot-Hawley on 17 June 1930; Roosevelt took office in March 1933.",
+     "essay": "e4"
+    },
+    {
+     "id": "L1s38",
+     "hash": "s1dkhiu2",
+     "paragraph": 1,
+     "text": "At the depth of the Great Depression in 1933, roughly a quarter of the American workforce was unemployed.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (about 24.9% in 1933). Well known enough that 'accurate' is also defensible.",
+     "essay": "e4"
+    },
+    {
+     "id": "L1s39",
+     "hash": "sai1q5l",
+     "paragraph": 1,
+     "text": "Milton Friedman and Anna Schwartz argued that the Federal Reserve made the Depression far worse by allowing the money supply to shrink by roughly a third (Friedman and Schwartz, 1963).",
+     "label": "cited",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True (A Monetary History of the United States, 1963: the money stock fell by about a third, 1929-33), with attribution and an (Author, year) parenthetical.",
+     "essay": "e4"
+    },
+    {
+     "id": "L1s40",
+     "hash": "srpn5a8",
+     "paragraph": 1,
+     "text": "To break the inflation of the 1970s, the Federal Reserve under Paul Volcker pushed its benchmark interest rate close to 20 percent in the early 1980s.",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True (federal funds rate about 19-20% in 1980-81). Specific figure, no source.",
+     "essay": "e4"
+    }
+   ]
+  }
+ ],
+ "audit": {
+  "date": "2026-09-21",
+  "changelog": "LABEL-AUDIT.md",
+  "summary": "55 audited, 2 scoring changes (e4s08 +partial incoherent, e5s09 +partial questionable), 9 ground-truth/rationale corrections, 0 deleted; label counts unchanged."
+ }
+}

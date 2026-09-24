@@ -42,7 +42,10 @@
   if (document.getElementById("tracely-host")) return;
 
   const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
-  const VERDICT_LABEL = { false: "False", questionable: "Questionable", incoherent: "Doesn't make sense", needs_citation: "Citation needed" };
+  /* Card titles, in the app's voice: it names the problem in a short sentence
+     (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
+     rather than tagging the sentence with a verdict. Same four verdicts. */
+  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Worth checking", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
   // The mark vocabulary — one DISTINCT colour per verdict, used for the
   // underlines, the card accents and the hover popover:
@@ -53,6 +56,31 @@
   const VERDICT_WASH = { false: "#fdecec", questionable: "#fff4d6", incoherent: "#f1e6fb", needs_citation: "#e8f0fd" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#a67500", incoherent: "#8e4ec6", needs_citation: "#2563eb" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
+
+  /* How a flagged sentence is drawn and how it moves, carried across from the
+     desktop app's src/shared/markMotion.ts rather than re-picked here — the
+     same problem on the same sentence should not look like two products. The
+     band is translucent because it sits over the words it is drawing attention
+     to; 0.30 was measured on the app's overlay (0.16 vanished against white,
+     past ~0.35 it fights the text). The line is 2px resting and 3px hovered,
+     with a 1px radius — a 2px radius on a 2px bar rounds it into a capsule and
+     washes the colour out. */
+  const MARK_BAND_ALPHA = 0.3;
+  const MARK_BAND_SCALE_RESTING = 0.72; // anchored at the bottom: a stroke swelling off the line
+  const MARK_BAND_INSET_TOP = 2;
+  const MARK_BAND_INSET_BOTTOM = 3;
+  const MARK_BAND_RADIUS = 3;
+  const MARK_LINE_HEIGHT = 2;
+  const MARK_LINE_HEIGHT_HOVERED = 3;
+  const MARK_LINE_RADIUS = 1;
+  const MARK_BAND_TRANSITION = "opacity 110ms ease, transform 110ms cubic-bezier(0.22, 1, 0.36, 1), background 110ms ease";
+  const MARK_LINE_TRANSITION = "height 110ms ease";
+  const markReducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /* `#rrggbb` at the given alpha, for the band. */
+  function withAlpha(hex, alpha) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
 
   // Read from the manifest so it can never disagree with the shipped version.
   const EXT_VERSION = (() => {
@@ -347,7 +375,7 @@
     onChange();
   }
 
-  // A verdict's card/badge class suffix (the widget CSS's .c-* / .badge-*).
+  // A verdict's dot-colour class suffix (the widget CSS's .d-*).
   function verdictKind(v) {
     return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" ? "cite" : v === "incoherent" ? "inco" : "ok";
   }
@@ -364,7 +392,7 @@
       return `<div class="deep" data-deep-box="${h}">
         <div class="deep-label">${esc(v.label)}</div>
         ${v.prefix ? `<div class="deep-prefix">${esc(v.prefix)}</div>` : ""}
-        ${v.verdictLabel ? `<span class="badge badge-${kind}">${esc(v.verdictLabel)}</span>` : ""}
+        ${v.verdictLabel ? `<span class="badge">${esc(v.verdictLabel)}</span>` : ""}
         <div class="deep-text">${esc(v.text)}</div>
         ${v.note ? `<div class="deep-note">${esc(v.note)}</div>` : ""}
       </div>`;
@@ -804,134 +832,228 @@
     return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
   }
 
-  // jointracely.com's own font, bundled in the extension (web_accessible).
-  const FONT_URL = (() => { try { return chrome.runtime.getURL("fonts/PlusJakartaSans.woff2"); } catch { return ""; } })();
-  const JAKARTA = `'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+  /* ── the app's design tokens ───────────────────────────────────────────
+     The extension is meant to read as the same product as the Tracely app,
+     so every colour, radius and shadow below is the app's own value
+     (src/renderer/src/styles/index.css, and markMotion/problemCopy for the
+     marks). Two copies on purpose: CSS custom properties for the widget's
+     shadow root, and this object for the Docs popovers, which live in the
+     page DOM and cannot see shadow CSS. Dark mode is deliberately absent —
+     the app's dark tokens are --bg #0b0b0d / --surface #17171b / --text
+     #f6f6f8 / --border rgba(255,255,255,.18) for whoever adds it. */
+  const APP = {
+    // The app ships NO webfont: it renders in the reader's system font, so
+    // matching it means using the same stack, not bundling a face. The
+    // extension used to load Plus Jakarta Sans, which is why the same
+    // sentence looked like a different product in Docs.
+    font: `'Instrument Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif`,
+    surface: "#ffffff", bg: "#f0f0f1", surface2: "rgba(0,0,0,.02)",
+    text: "#000000", ink: "#1c1c1c", body: "#737373",
+    muted: "rgba(0,0,0,.6)", label: "rgba(0,0,0,.56)", chipInk: "#55555c",
+    border: "rgba(0,0,0,.18)", borderStrong: "rgba(0,0,0,.26)", hairline: "#d9d9d9",
+    accent: "#f97316", accent2: "#f9a050",
+    /* Accent as TEXT, not as a fill. #f97316 on white is 2.80:1 — under AA for
+       body text, and the accent labels here are 10–12px. Same hue (24.6deg) and
+       saturation, walked down to 4.87:1 on white and 4.55:1 on the accent wash.
+       Fills, borders, dots and gradients keep the undarkened accent, so the two
+       read as one colour. The desktop app sets `color: var(--accent)` directly
+       in several places and has the same gap; it should take this token too. */
+    accentInk: "#bd5005",
+    accentGradient: "linear-gradient(164deg,#f47b20 0%,#f9a050 100%)",
+    accentWash: "rgba(244,123,32,.07)", accentBorder: "rgba(244,123,32,.18)",
+    ring: "rgba(244,123,32,.25)", danger: "#fb2c36",
+    chipWash: "rgba(0,0,0,.07)",
+    shadowSm: "0 1px 3px rgba(15,15,16,.06)",
+    shadowCard: "0 8px 24px rgba(0,0,0,.18)",
+    shadowLg: "0 20px 40px rgba(15,15,16,.16)",
+    rCard: "16px", rBtn: "8px", rChip: "20px",
+  };
+  const JAKARTA = APP.font; // name kept where it is threaded through inline styles
 
   const WIDGET_CSS = `
-    ${FONT_URL ? `@font-face { font-family: 'Plus Jakarta Sans'; src: url('${FONT_URL}') format('woff2'); font-weight: 200 800; font-display: swap; }` : ""}
-    :host { all: initial; }
+    :host {
+      all: initial;
+      --surface: ${APP.surface}; --bg: ${APP.bg}; --surface-2: ${APP.surface2};
+      --text: ${APP.text}; --ink: ${APP.ink}; --body: ${APP.body};
+      --muted: ${APP.muted}; --label: ${APP.label}; --chip-ink: ${APP.chipInk};
+      --border: ${APP.border}; --border-strong: ${APP.borderStrong}; --hairline: ${APP.hairline};
+      --accent: ${APP.accent}; --accent-2: ${APP.accent2}; --accent-ink: ${APP.accentInk};
+      --accent-gradient: ${APP.accentGradient}; --accent-wash: ${APP.accentWash};
+      --accent-border: ${APP.accentBorder}; --ring: ${APP.ring}; --danger: ${APP.danger};
+      --chip-wash: ${APP.chipWash};
+      --shadow-sm: ${APP.shadowSm}; --shadow-card: ${APP.shadowCard}; --shadow-lg: ${APP.shadowLg};
+      --r-card: ${APP.rCard}; --r-btn: ${APP.rBtn}; --r-chip: ${APP.rChip};
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
+    /* ── Pill ─────────────────────────────────────────────────────────── */
     .pill {
-      display: flex; align-items: center; gap: 9px;
-      background: #fff; color: #0e0e10;
-      border: 1px solid rgba(20,16,10,0.06); border-radius: 999px;
-      padding: 9px 17px 9px 11px;
-      box-shadow: 0 8px 26px rgba(180,120,60,0.18);
+      display: flex; align-items: center; gap: 8px; height: 40px;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 0 14px 0 8px;
+      box-shadow: var(--shadow-lg);
       cursor: pointer; user-select: none;
-      font-size: 13.5px; font-weight: 700;
+      font-size: 13px; font-weight: 600;
+      transition: transform .1s ease, border-color .15s ease;
     }
-    .pill:hover { transform: translateY(-1px); }
-    .pill.quiet { color: #8e8e93; }
-    .pill.quiet .plane { background: linear-gradient(150deg, #c7c7cc, #a7a7ac); }
-    .pill.orphan { cursor: default; }
-    .pill.orphan:hover { transform: none; }
+    .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+    .pill.quiet { color: var(--label); font-weight: 500; }
+    .pill.quiet .plane { background: #c8c8cc; }
+    .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
+    .pill.orphan:hover { transform: none; border-color: var(--border); }
     .plane {
-      width: 28px; height: 28px; border-radius: 9px;
-      background: linear-gradient(150deg, #ff7f00, #f9a35a);
+      width: 24px; height: 24px; border-radius: 50%;
+      background: var(--accent-gradient);
       display: flex; align-items: center; justify-content: center;
-      color: #fff; flex-shrink: 0; box-shadow: 0 4px 12px rgba(255,127,0,0.30);
+      color: #fff; flex-shrink: 0;
     }
-    .plane svg { width: 15px; height: 15px; }
-    .count { background: #fdecec; color: #d93636; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 700; }
-    .count.ok { background: #e7f6ee; color: #1f9d55; }
-    .count.off { background: #f2f2f3; color: #a7a7ac; }
+    .plane svg { width: 13px; height: 13px; }
+    /* The app's count chip: neutral, so the number carries the meaning. */
+    .count, .badge {
+      background: var(--chip-wash); color: var(--chip-ink);
+      border-radius: var(--r-chip); padding: 1px 6px;
+      font-size: 10px; font-weight: 600; letter-spacing: .01em;
+    }
+    .count.off { color: var(--label); }
+
+    /* ── Panel ────────────────────────────────────────────────────────── */
     .panel {
       position: absolute; right: 0; bottom: 54px;
       width: 384px; max-height: min(560px, 72vh);
-      background: #fdfbf9; border: 1px solid rgba(20,16,10,0.06); border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(180,120,60,0.22);
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
+      box-shadow: var(--shadow-lg);
       display: flex; flex-direction: column; overflow: hidden;
     }
     .head {
       display: flex; align-items: center; gap: 8px;
-      padding: 14px 16px; background: #fff; border-bottom: 1px solid rgba(20,16,10,0.05);
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
       cursor: grab;
     }
-    .head .name { font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+    .head .name { font-weight: 600; font-size: 14px; color: var(--text); }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 11px; color: #a7a7ac; max-width: 170px; text-align: right; font-weight: 500; }
-    .status.error { color: #d93636; }
-    .selects { display: flex; gap: 6px; padding: 9px 16px; background: #fff; border-bottom: 1px solid rgba(20,16,10,0.05); align-items: center; }
-    .foot .act { padding: 4px 11px; font-size: 11px; }
+    .status { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--label); max-width: 170px; text-align: right; }
+    .status.error { color: var(--danger); }
+    .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
+    .foot .act { padding: 5px 10px; font-size: 11px; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
-    select { font-size: 12px; border: 1px solid rgba(20,16,10,0.1); border-radius: 8px; padding: 4px 8px; background: #fff; color: #0e0e10; outline: none; font-weight: 600; }
+    select {
+      font-size: 12px; font-weight: 500; font-family: ${JAKARTA};
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+      padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
+    }
+    select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .list { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-    .empty { text-align: center; color: #a7a7ac; font-size: 13px; padding: 28px 12px; font-weight: 500; }
-    .card { background: #fff; border: 1px solid rgba(20,16,10,0.05); border-left: 3px solid #a7a7ac; border-radius: 14px; padding: 12px 14px; box-shadow: 0 4px 14px rgba(180,120,60,0.07); }
-    .card.c-false { border-left-color: #d93636; }
-    .card.c-quest { border-left-color: #ffb800; }
-    .card.c-inco { border-left-color: #8e4ec6; }
-    .card.c-cite { border-left-color: #2563eb; }
-    .top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-    .badge { font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; }
-    .badge-false { background: #fdecec; color: #d93636; }
-    .badge-quest { background: #fff4d6; color: #a67500; }
-    .badge-inco { background: #f1e6fb; color: #8e4ec6; }
-    .badge-cite { background: #e8f0fd; color: #2563eb; }
-    .x { margin-left: auto; background: none; border: none; color: #a7a7ac; cursor: pointer; font-size: 14px; }
-    .x:hover { color: #0e0e10; }
-    .quote { font-style: italic; font-size: 12.5px; color: #8e8e93; border-left: 2px solid rgba(20,16,10,0.1); padding-left: 9px; margin-bottom: 7px; font-weight: 500; }
-    .expl { font-size: 12.5px; color: #0e0e10; margin-bottom: 9px; line-height: 1.5; font-weight: 500; }
-    .badge-ok { background: #e7f6ee; color: #1f9d55; }
-    .deep-row { margin: -3px 0 9px; }
-    .deep-btn { background: none; border: none; padding: 0; font-family: ${JAKARTA}; font-size: 11.5px; font-weight: 700; color: #ff7f00; cursor: pointer; }
-    .deep-btn:hover { text-decoration: underline; }
-    .deep-btn.locked { color: #a7a7ac; cursor: not-allowed; }
-    .deep-btn.locked:hover { text-decoration: none; }
-    .deep-pro { display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 8px; background: linear-gradient(150deg, #ff7f00, #f9a35a); color: #fff; font-size: 8px; font-weight: 800; letter-spacing: .6px; vertical-align: 1px; }
-    .deep { background: #fffaf4; border: 1px solid rgba(255,127,0,0.16); border-radius: 12px; padding: 9px 11px; margin-bottom: 9px; }
-    .deep .badge { display: inline-block; margin-bottom: 5px; }
-    .deep-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #ff7f00; margin-bottom: 4px; }
-    .deep-prefix { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-    .deep-text { font-size: 12.5px; line-height: 1.5; font-weight: 500; white-space: pre-line; }
-    .deep-note { font-size: 11px; color: #8e8e93; margin-top: 6px; font-weight: 500; }
-    .deep-note.err { color: #d93636; }
-    .deep-note a { color: #ff7f00; font-weight: 700; text-decoration: none; }
-    .deep-loading { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #8e8e93; font-weight: 600; }
-    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,127,0,0.25); border-top-color: #ff7f00; animation: deepspin .8s linear infinite; flex-shrink: 0; }
+    .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
+
+    /* ── Cards ────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .top { display: flex; align-items: center; gap: 8px; }
+    /* The dot replaces the left colour bar; the title beside it says the same
+       thing in words, so colour is never the only carrier. */
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    .d-false { background: #d93636; }
+    .d-quest { background: #ffb800; }
+    .d-inco { background: #8e4ec6; }
+    .d-cite { background: #2563eb; }
+    .d-flow { background: #7344f1; }
+    .ctitle { font-size: 14px; font-weight: 600; color: var(--ink); }
+    .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
+    .x:hover { color: var(--text); }
+    .quote { font-style: italic; font-size: 13px; line-height: 18.2px; color: var(--body); border-left: 2px solid var(--border); padding-left: 10px; }
+    .expl { font-size: 13px; line-height: 18.2px; color: var(--body); }
+
+    /* ── Insets (deep dive, suggested revision) ───────────────────────── */
+    .deep, .fix {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--r-btn); padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .deep-row { margin: -2px 0 0; }
+    .deep-btn {
+      background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
+      padding: 6px 12px; font-family: ${JAKARTA}; font-size: 12px; font-weight: 500;
+      color: var(--ink); cursor: pointer;
+    }
+    .deep-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+    .deep-btn.locked { color: var(--label); cursor: not-allowed; }
+    .deep-btn.locked:hover { border-color: var(--hairline); color: var(--label); }
+    .deep-pro {
+      display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: var(--r-chip);
+      background: var(--accent-wash); color: var(--accent-ink);
+      font-size: 10px; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
+    }
+    .deep-label, .fix-label, .sources-title {
+      font-size: 11px; font-weight: 600; color: var(--label); letter-spacing: .01em;
+    }
+    .deep .badge { align-self: flex-start; }
+    .deep-prefix { font-size: 13px; font-weight: 600; color: var(--ink); }
+    .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
+    .fix-text { white-space: normal; }
+    .deep-note { font-size: 11px; color: var(--label); }
+    .deep-note.err { color: var(--danger); }
+    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
+    .deep-note a:hover { text-decoration: underline; }
+    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--body); }
+    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
-    .fix { background: #fdfbf9; border: 1px solid rgba(20,16,10,0.06); border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; }
-    .fix-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #1f9d55; margin-bottom: 4px; }
-    .fix-text { font-size: 12.5px; margin-bottom: 7px; line-height: 1.5; }
-    .row { display: flex; gap: 7px; flex-wrap: wrap; }
-    .edit-note { font-size: 11px; color: #8e8e93; margin-top: 6px; font-weight: 500; }
-    .undo-strip { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; font-weight: 600; color: #1f9d55; background: #eefaf3; border-radius: 10px; padding: 6px 8px 6px 11px; margin-bottom: 8px; }
-    .undo-strip button.act { padding: 4px 11px; font-size: 11px; }
-    button.act {
-      border: 1px solid rgba(20,16,10,0.1); background: #fff; color: #0e0e10; border-radius: 9px;
-      padding: 6px 12px; font-size: 11.5px; cursor: pointer; font-weight: 700; font-family: ${JAKARTA};
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .edit-note { font-size: 11px; color: var(--label); }
+    .undo-strip {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      font-size: 12px; font-weight: 500; color: var(--ink);
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
     }
-    button.act:hover { border-color: #ff7f00; color: #ff7f00; }
-    button.act.primary { background: #0e0e10; border-color: #0e0e10; color: #fff; }
-    button.act.primary:hover { color: #fff; opacity: .9; }
+    .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
+
+    /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
+    button.act {
+      border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+      border-radius: var(--r-btn); padding: 8px 16px;
+      font-size: 12px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
+      transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+    }
+    button.act:hover:not([disabled]) { border-color: var(--accent); color: var(--accent-ink); }
+    button.act:active:not([disabled]) { transform: scale(.98); }
+    button.act.primary { background: var(--ink); border-color: transparent; color: #fff; }
+    button.act.primary:hover:not([disabled]) { color: #fff; border-color: transparent; filter: brightness(1.15); }
     button.act[disabled] { opacity: .5; cursor: default; }
-    .sources { border-top: 1px solid rgba(20,16,10,0.07); margin-top: 9px; padding-top: 7px; }
-    .sources-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #ff7f00; margin-bottom: 5px; }
-    .src { display: flex; gap: 7px; align-items: flex-start; padding: 6px 7px; border-radius: 9px; }
-    .src:hover { background: #fff6ee; }
-    .stance { font-size: 8px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 8px; margin-top: 2px; flex-shrink: 0; }
-    .st-supports { background: #e7f6ee; color: #1f9d55; }
-    .st-refutes { background: #fdecec; color: #d93636; }
-    .st-context { background: #f2f2f3; color: #8e8e93; }
-    .c-flow { border-left-color: #7344f1; }
-    .badge-flow { background: #f2ecff; color: #7b44d4; }
+
+    /* ── Sources ──────────────────────────────────────────────────────── */
+    .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+    .src { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
+    .src:hover { background: var(--surface-2); }
+    .stance {
+      font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--r-chip);
+      margin-top: 2px; flex-shrink: 0;
+      background: var(--chip-wash); color: var(--chip-ink);
+    }
+    .st-supports { color: #1f7a4d; }
+    .st-refutes { color: #b02a2a; }
+    .st-context { color: var(--chip-ink); }
+    .st-manual { color: #245d99; }
     .src-body { flex: 1; min-width: 0; }
-    .src a { font-size: 11.5px; font-weight: 700; color: #0e0e10; text-decoration: none; display: block; }
-    .src a:hover { color: #ff7f00; }
-    .src-meta { font-size: 10px; color: #a7a7ac; font-weight: 500; }
-    .src-snip { font-size: 10.5px; color: #8e8e93; }
-    .src-actions { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
-    .loading { font-size: 11.5px; color: #a7a7ac; font-style: italic; }
-    .st-manual { background: #eaf1fb; color: #2c6fb8; }
-    .cite-url { display: flex; gap: 6px; margin-top: 8px; }
-    .cite-url input { flex: 1; min-width: 0; border: 1px solid rgba(20,16,10,0.1); border-radius: 9px; padding: 6px 10px; font-size: 11.5px; outline: none; color: #0e0e10; background: #fff; font-family: ${JAKARTA}; }
-    .cite-url input:focus { border-color: #ff7f00; }
-    .autosrc { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8e8e93; cursor: pointer; user-select: none; font-weight: 600; }
-    .autosrc input { accent-color: #ff7f00; }
-    .foot { padding: 8px 16px; background: #fff; border-top: 1px solid rgba(20,16,10,0.05); font-size: 10.5px; color: #a7a7ac; display: flex; justify-content: space-between; font-weight: 500; }
+    .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
+    .src a:hover { color: var(--accent-ink); }
+    .src-meta { font-size: 11px; color: var(--label); }
+    .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
+    .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .loading { font-size: 13px; color: var(--body); }
+    .cite-url { display: flex; gap: 8px; }
+    .cite-url input {
+      flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+      padding: 7px 10px; font-size: 12px; outline: none;
+      color: var(--text); background: var(--surface); font-family: ${JAKARTA};
+    }
+    .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+    .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
+    .autosrc input { accent-color: var(--accent); }
+    .foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
     .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -942,8 +1064,8 @@
     @media (prefers-reduced-motion: reduce) { .panel.opening { animation: none; } }
     .card.flash { animation: tracely-flash 1.2s ease-out; }
     @keyframes tracely-flash {
-      0% { box-shadow: 0 0 0 3px rgba(255,127,0,0.4); }
-      100% { box-shadow: 0 4px 14px rgba(180,120,60,0.07); }
+      0% { box-shadow: 0 0 0 3px var(--ring); }
+      100% { box-shadow: none; }
     }
   `;
 
@@ -1165,7 +1287,7 @@
     // The in-editor engine's last ping (docs-hook.js). editable = its text API
     // is there and the editor doesn't look view-only; the read-back after each
     // edit is the real test.
-    let inDoc = { api: false, editable: false };
+    let inDoc = { api: false, editable: false, editor: false, viewOnly: false, mode: "unknown", ok: false };
     let lastPingAt = 0;
     // Per-button edit state, keyed "fix:<hash>" / "cite:<hash>:<url>" / "flow:<hash>":
     // { state: "applying" | "applied" | "undoing" | "failed", copied?, note? }
@@ -1998,13 +2120,10 @@
     let popAnchor = null, popLastTop = 0, popFollowRaf = 0, popLostAt = 0;
     let popPinned = false; // an edit from this card may remove the underline it follows — stay put
 
-    function popFont() {
-      if (popFontIn || !FONT_URL) return;
-      popFontIn = true;
-      const st = document.createElement("style");
-      st.textContent = `@font-face{font-family:'Plus Jakarta Sans';src:url('${FONT_URL}') format('woff2');font-weight:200 800;font-display:swap;}`;
-      document.head.appendChild(st);
-    }
+    /* Nothing to load any more: the cards use the app's font stack, which is
+       whatever the reader already has. Kept as a no-op so the call sites (and
+       their ordering) stay exactly where they were. */
+    function popFont() { popFontIn = true; }
 
     /* Motion. The card eases out of its underline (fade + a few px of slide
        + a hair of scale) instead of popping in, and fades out instead of
@@ -2063,39 +2182,248 @@
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
     }
 
-    /* Position the popover against its underline's LIVE rect and aim the
-       caret at it. Shared by the open path and the per-frame follow loop, so
-       the card and its arrow stay welded to the bar while the doc scrolls. */
-    function placeDocsPopover(r) {
-      if (!popEl) return;
-      // The card DROPS DOWN, always. Near the viewport bottom the scrollable
-      // sources list shrinks to fit instead of the card flipping above the
-      // line — the caret stays on the top edge, pointing at the underline.
-      let top = (r.bottom ?? r.top + 4) + 8;
-      const left = Math.max(12, Math.min(r.left, innerWidth - 360));
-      const box = popEl.querySelector("[data-pop-sources]");
-      if (box) {
-        const fixedH = popEl.getBoundingClientRect().height - box.getBoundingClientRect().height;
-        const avail = innerHeight - top - fixedH - 14;
-        box.style.maxHeight = Math.max(90, Math.min(250, avail)) + "px";
+    /* ── the app's popover, state for state ───────────────────────────────
+       src/renderer/src/components/DocumentMarkLayer.tsx draws one card over a
+       flagged sentence — the problem (dot, title, count; body; [action]
+       [Dismiss]) — and, behind its primary button, the fix card, the applied
+       card, the error card, and the citation flow's searching / results /
+       no-results / failed / inserted cards. Every state below mirrors that
+       file's JSX button for button, with index.css's .docmark-* values
+       inlined: these cards live in the page DOM, outside the shadow root, so
+       they cannot read its custom properties. Widths, gap and the above/
+       below rule are the app's (POPOVER_WIDTH, POPOVER_GAP,
+       shared/popoverPlacement.ts). What this file adds that the app has not
+       got — "Explain in depth" — sits inside the fix card as one more of its
+       issue blocks, so no action row gains a button the app's lacks. */
+    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10, TAIL_W = 16, TAIL_H = 10, TAIL_NET = TAIL_H - 2;
+    const MIN_CARD = 180; // shared/popoverPlacement.ts MIN_CARD_HEIGHT
+    const DM = { // index.css .docmark-*
+      ink: "#1c1c1c", body: "#737373", hint: "#9a9ba1", green: "#16a34a", red: "#d93636", amber: "#ffb800", orange: "#ff5900",
+      blockBg: "#f8f8f8", rowSel: "#f8f8f8", rowBorder: "#e5e5e5", chipBg: "#f2f2f2", pillBorder: "#e0e0e0",
+      badge: "#1a56db", credBg: "#eef7f0", credOtherBg: "#f2f2f3",
+    };
+    /* The app's copy, verbatim where a state exists there (fixFlowCopy.ts,
+       citationFlowCopy.ts), and in its voice where it does not. */
+    const POP_COPY = {
+      suggestFix: "Suggest fix", findSource: "Find a source", dismiss: "Dismiss", back: "Back", done: "Done", undo: "Undo", undoing: "Undoing…",
+      apply: "Apply revision", applying: "Applying…", copyRevision: "Copy revision", copied: "Copied ✓",
+      revisionLabel: "SUGGESTED REVISION", foundLabel: "What the check found",
+      fixRule: "Same sentence, same voice — only the detail the check found wrong is changed.",
+      fixRuleNarrow: "Same sentence, same claim — only stated as carefully as the record supports.",
+      noEdit: "Paste it over the sentence yourself — this document isn't editable from here.",
+      appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
+      couldNot: "Could not apply",
+      searching: "Searching for a source", searchHint: "Usually 3–5 seconds", cancel: "Cancel",
+      noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
+      insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
+      willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
+      flowTitle: "Flow issue", bridgeLabel: "SUGGESTED BRIDGE", addBridge: "Add transition", copyBridge: "Copy transition",
+      bridgeApplied: "Transition added", bridgeAppliedBody: "The bridge sits just before the passage. Undo — or ⌘Z — takes it out again.",
+      deep: "Explain in depth", deepLabel: "In depth",
+    };
+    const CITE_STYLE_LABEL = { apa: "APA 7", mla: "MLA 9", chicago: "Chicago 17" };
+    const STANCE_LABEL = { supports: "Supports", refutes: "Refutes", context: "Context" };
+    const KIND_LABEL = { journal: "Journal article", institutional: "Institution", reference: "Reference", report: "Report", book: "Book", news: "News", archive: "Archive", other: "Web page" };
+    const TRUSTED_KINDS = new Set(["journal", "institutional", "reference", "report", "book"]);
+
+    function truncateClaim(text, max = 70) {
+      const clean = text.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
+      if (clean.length <= max) return clean;
+      const cut = clean.slice(0, max);
+      const space = cut.lastIndexOf(" ");
+      return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[.,;:]$/, "")}…`;
+    }
+
+    /* ── element recipes ─────────────────────────────────────────────────── */
+    function el(tag, style, text) {
+      const n = document.createElement(tag);
+      if (style) Object.assign(n.style, style);
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function dmHead(color, title, right = null) {
+      const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
+      h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
+      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
+      return h;
+    }
+    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" }, text);
+    const dmHint = (text) => el("span", { fontSize: "12px", color: DM.hint }, text);
+    function dmChip(text) {
+      return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
+    }
+    function dmActions(...kids) {
+      const row = el("div", { display: "flex", gap: "8px", alignItems: "center", flex: "0 0 auto" });
+      for (const k of kids) if (k) row.appendChild(k);
+      return row;
+    }
+    function dmBtn(label, primary, { disabled = false, wide = false, title } = {}) {
+      const b = el("button", {
+        padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
+        fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
+        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
+        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+      }, label);
+      b.type = "button";
+      b.disabled = disabled;
+      if (title) b.title = title;
+      if (!disabled) {
+        b.addEventListener("mouseenter", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
+        b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : "#fff"; });
       }
-      // Clamp so the buttons never land below the fold (a fixed card can't be
-      // scrolled to). At the extreme bottom this overlaps the line — still
-      // never above it.
-      const cardH = popEl.getBoundingClientRect().height;
-      top = Math.max(12, Math.min(top, innerHeight - cardH - 10));
-      const leftPx = left + "px", topPx = top + "px";
+      return b;
+    }
+    /* A hint-styled control for what the app puts beside a button row (the
+       "Usually 3–5 seconds" hint): the one place "Explain in depth" lives. */
+    function dmLink(label) {
+      const b = el("button", { background: "none", border: "none", padding: "0", fontFamily: "inherit", fontSize: "12px", color: DM.hint, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }, label);
+      b.type = "button";
+      b.addEventListener("mouseenter", () => { b.style.textDecoration = "underline"; });
+      b.addEventListener("mouseleave", () => { b.style.textDecoration = "none"; });
+      return b;
+    }
+    function dmBlock(label, ...kids) {
+      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "10px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
+      if (label) b.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.hint, letterSpacing: "0.6px" }, label));
+      for (const k of kids) if (k) b.appendChild(k);
+      return b;
+    }
+    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.45", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
+    const dmBlockMarker = (text) => el("div", { fontSize: "12.5px", fontWeight: "500", color: DM.ink }, text);
+    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.4", color: DM.body }, text);
+    function dmIssue(title, detail) {
+      const w = el("div", { display: "flex", flexDirection: "column", gap: "2px", flex: "0 0 auto" });
+      if (title) w.appendChild(el("div", { fontSize: "13px", fontWeight: "500", color: DM.ink }, title));
+      w.appendChild(dmBody(detail));
+      return w;
+    }
+    function dmProgress() {
+      const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: "#ededed", overflow: "hidden", flex: "0 0 auto" });
+      const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.orange });
+      bar.appendChild(fill);
+      if (!reducedMotion() && typeof fill.animate === "function") {
+        fill.animate([{ transform: "translateX(-100%)" }, { transform: "translateX(250%)" }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
+      }
+      return bar;
+    }
+    function dmSkeletons() {
+      const w = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
+      for (const [wide, narrow] of [[214, 122], [186, 96]]) {
+        const row = el("div", { display: "flex", alignItems: "center", gap: "10px" });
+        row.appendChild(el("span", { display: "block", width: "28px", height: "28px", borderRadius: "8px", background: "#ebebeb", flexShrink: "0" }));
+        const lines = el("span", { display: "flex", flexDirection: "column", gap: "6px" });
+        lines.appendChild(el("span", { display: "block", height: "9px", borderRadius: "999px", background: "#ebebeb", width: `${wide}px` }));
+        lines.appendChild(el("span", { display: "block", height: "8px", borderRadius: "999px", background: "#f4f4f4", width: `${narrow}px` }));
+        row.appendChild(lines);
+        w.appendChild(row);
+        if (!reducedMotion() && typeof row.animate === "function") row.animate([{ opacity: 0.5 }, { opacity: 1 }, { opacity: 0.5 }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
+      }
+      return w;
+    }
+    function initialsOf(src) {
+      const name = String(src.publisher || src.title || "").replace(/^www\./, "").trim();
+      const words = name.split(/[\s.\-_/]+/).filter(Boolean);
+      const s = words.length >= 2 ? words[0][0] + words[1][0] : name.slice(0, 2);
+      return (s || "??").toUpperCase();
+    }
+    function dmRow(src, selected, onSelect) {
+      const row = el("button", {
+        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
+        textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
+      });
+      row.type = "button";
+      row.appendChild(el("span", { width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src)));
+      const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
+      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
+      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
+      sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
+      // The app's match column never shrinks; here it says the source's stance on the claim.
+      const stance = STANCE_LABEL[src.stance] ?? "Context";
+      sub.appendChild(el("span", { color: src.stance === "supports" ? DM.green : src.stance === "refutes" ? DM.red : DM.body, fontWeight: "500", whiteSpace: "nowrap", flexShrink: "0" }, stance));
+      meta.appendChild(sub);
+      const trusted = TRUSTED_KINDS.has(src.kind);
+      meta.appendChild(el("span", { alignSelf: "flex-start", fontSize: "10.5px", fontWeight: "600", letterSpacing: "0.3px", borderRadius: "999px", padding: "2px 7px", marginTop: "3px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      row.appendChild(meta);
+      const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
+      if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
+      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      row.appendChild(radio);
+      row.addEventListener("click", onSelect);
+      return row;
+    }
+    function dmStyles(current, onSet) {
+      const w = el("div", { display: "flex", alignItems: "center", gap: "6px", flex: "0 0 auto" });
+      w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
+      for (const [key] of CITE_STYLES) {
+        const on = key === current;
+        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        p.type = "button";
+        p.addEventListener("click", () => onSet(key));
+        w.appendChild(p);
+      }
+      return w;
+    }
+    function dmTail(pointing, above) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", String(TAIL_W)); svg.setAttribute("height", String(TAIL_H));
+      svg.setAttribute("viewBox", "0 0 13.8564 7.5"); svg.setAttribute("fill", "none"); svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("data-pop-arrow", "");
+      Object.assign(svg.style, { position: "relative", display: "block", left: "12px", flex: "0 0 auto",
+        transform: pointing === "down" ? "scaleY(-1)" : "", ...(above ? { marginTop: "-2px" } : { marginBottom: "-2px" }) });
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z");
+      path.setAttribute("fill", "white"); path.setAttribute("stroke", "black"); path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+      return svg;
+    }
+
+    /* ── state ───────────────────────────────────────────────────────────── */
+    // hash → { step, selected, searched }: which of the app's cards is showing.
+    const popSteps = new Map();
+    const stepOf = (hash) => popSteps.get(hash) ?? { step: "problem", selected: null, searched: false };
+    function setStep(hash, patch) { popSteps.set(hash, { ...stepOf(hash), ...patch }); paintPop(); }
+    let popCard = null, popAbove = false, popWidth = POP_WIDTH;
+
+    function editState(key) { return docEditState.get(key)?.state ?? null; }
+    const fixTitle = (verdict) => verdict === "questionable" ? "Narrow this claim" : verdict === "false" ? "What to check" : "What to change";
+
+    /* ── placement: the app's above/below rule, in viewport space ────────── */
+    function placeDocsPopover(r) {
+      if (!popEl || !popCard) return;
+      const width = popWidth;
+      const cx = r.centerX ?? r.left + 24;
+      const idealLeft = cx - width / 2;
+      const left = Math.max(8, Math.min(idealLeft, innerWidth - width - 8));
+      const markTop = r.top, markH = (r.bottom ?? r.top + 4) - r.top;
+      // The card's own height, tail excluded: what has to fit on one side.
+      const cardH = popCard.offsetHeight;
+      const below = markTop + markH + POP_GAP;
+      const spaceBelow = innerHeight - below - 8;
+      const spaceAbove = markTop - POP_GAP - 8;
+      const above = cardH > 0 && cardH > spaceBelow && cardH <= spaceAbove;
+      if (above !== popAbove) {
+        popAbove = above;
+        const old = popEl.querySelector("[data-pop-arrow]");
+        if (old) old.remove();
+        const tail = dmTail(above ? "down" : "up", above);
+        if (above) popEl.appendChild(tail); else popEl.insertBefore(tail, popEl.firstChild);
+      }
+      // Capped to the room on the side it sits, so the buttons never fall past
+      // the fold; the results list is the part that scrolls (.docmark-scroll).
+      const room = (above ? spaceAbove : spaceBelow) - TAIL_NET;
+      popCard.style.maxHeight = `${Math.max(MIN_CARD, room)}px`;
+      const top = above ? markTop - POP_GAP - popCard.offsetHeight - TAIL_NET : below;
+      const leftPx = `${left}px`, topPx = `${Math.max(4, top)}px`;
       if (popEl.style.left !== leftPx) popEl.style.left = leftPx;
       if (popEl.style.top !== topPx) popEl.style.top = topPx;
-      const arrow = popEl.querySelector("[data-pop-arrow]");
-      if (arrow) {
-        const cx = r.centerX ?? r.left + 24;
-        arrow.style.left = Math.max(14, Math.min(cx - left - 6, 340 - 26)) + "px";
-      }
+      const tail = popEl.querySelector("[data-pop-arrow]");
+      if (tail) tail.style.left = `${Math.max(12, Math.min(cx - left - TAIL_W / 2, width - 28))}px`;
     }
 
     /* Follow loop — only alive while a popover is open. The underlines are
-       compositor-carried now, so a card parked at its open position visibly
+       compositor-carried, so a card parked at its open position visibly
        detaches on the first scroll; this re-pins it every frame. When a
        re-locate rebuilds docsBars, the old anchor element dies — re-bind to
        the same claim's nearest bar. Anchor gone >400ms → the text left the
@@ -2123,10 +2451,7 @@
         if (!clip || (r.bottom >= clip.top + 2 && r.top <= clip.bottom - 2)) {
           popLastTop = r.top;
           popLostAt = 0;
-          placeDocsPopover({
-            left: r.left, top: r.top, bottom: r.bottom,
-            size: popAnchor.size, centerX: r.left + r.width / 2,
-          });
+          placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
           placed = true;
         }
       }
@@ -2137,385 +2462,22 @@
       popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
 
-    function popBtn(label, primary) {
-      const b = document.createElement("button");
-      b.textContent = label;
-      Object.assign(b.style, {
-        border: primary ? "none" : "1px solid rgba(20,16,10,0.1)",
-        background: primary ? "#0e0e10" : "#fff",
-        color: primary ? "#fff" : "#0e0e10",
-        borderRadius: "9px", padding: "6px 12px", fontSize: "11.5px",
-        fontWeight: "700", cursor: "pointer", fontFamily: "inherit",
-      });
-      return b;
-    }
-
-    /* Popover twin of editBtnHtml: a button whose label follows docEditState,
-       an Undo beside it while this is the last edit, and the reason line under
-       the row (returned — the caller places it). Popovers are built once, so
-       each registers a sync that every state change re-runs (hideDocsPopover
-       drops them all; a detached one only updates nodes nobody sees). */
-    function popEditBtn(row, key, idle, run, { primary = true, style } = {}) {
-      const btn = popBtn(idle, primary);
-      if (style) Object.assign(btn.style, style);
-      const undo = popBtn("Undo", false);
-      if (style) Object.assign(undo.style, style);
-      const note = document.createElement("div");
-      Object.assign(note.style, { fontSize: "11px", color: "#8e8e93", marginTop: "6px", fontWeight: "500" });
-      const sync = () => {
-        const v = editView(key, idle);
-        btn.textContent = v.label;
-        btn.disabled = !!v.disabled;
-        undo.style.display = v.undo ? "" : "none";
-        undo.disabled = docBusy;
-        note.textContent = v.note || "";
-        note.style.display = v.note ? "" : "none";
-      };
-      btn.addEventListener("click", () => {
-        popPinned = true;
-        try { Promise.resolve(run()).catch(() => {}); } catch { /* the widget still shows the state */ }
-      });
-      undo.addEventListener("click", () => { undoLastDocEdit().catch(() => {}); });
-      row.append(btn, undo);
-      popEditSyncs.add(sync);
-      sync();
-      return note;
-    }
-
-    /* Flow callout — the card from the Figma flow frame: purple dot + title,
-       the explanation, and one action that writes the suggested transition
-       into the document ahead of the flagged passage. */
-    function showFlowPopover(bar, rect, anchorBar) {
-      const issue = bar.flow;
-      console.debug("[tracely] flow popover open", bar.hash);
-      popFont();
-      const switching = Boolean(popEl);
-      hideDocsPopover({ instant: true });
-      popHash = bar.hash;
-      popEl = document.createElement("div");
-      popEl.setAttribute("data-tracely-docs-popover", "");
-      Object.assign(popEl.style, {
-        position: "fixed", zIndex: "901", width: "300px",
-        background: "#fff", borderRadius: "14px", padding: "14px 16px",
-        border: "1px solid rgba(20,16,10,0.06)",
-        boxShadow: "0 16px 44px rgba(88,60,170,0.20)",
-        fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-        color: "#0d0d0f", fontSize: "12.5px", lineHeight: "1.5",
-      });
-      const arrow = document.createElement("div");
-      arrow.setAttribute("data-pop-arrow", "");
-      Object.assign(arrow.style, {
-        position: "absolute", width: "11px", height: "11px", background: "#fff",
-        transform: "rotate(45deg)", border: "solid rgba(20,16,10,0.08)",
-        borderWidth: "1px 0 0 1px", top: "-6.5px", left: "20px", borderRadius: "2px 0 0 0",
-      });
-      popEl.appendChild(arrow);
-
-      const head = document.createElement("div");
-      Object.assign(head.style, { display: "flex", alignItems: "center", gap: "7px", marginBottom: "8px" });
-      const dot = document.createElement("span");
-      Object.assign(dot.style, { width: "7px", height: "7px", borderRadius: "50%", background: FLOW_ACCENT, flexShrink: "0" });
-      const title = document.createElement("span");
-      title.textContent = "Flow issue";
-      Object.assign(title.style, { fontWeight: "700", fontSize: "14.5px", letterSpacing: "-0.01em" });
-      head.append(dot, title);
-      popEl.appendChild(head);
-
-      const body = document.createElement("div");
-      body.textContent = issue.explanation;
-      Object.assign(body.style, { color: "#40454c", fontWeight: "500", marginBottom: "10px" });
-      popEl.appendChild(body);
-
-      if (issue.transition) {
-        const prev = document.createElement("div");
-        prev.textContent = `“${issue.transition}”`;
-        Object.assign(prev.style, {
-          background: "#f7f4ff", border: "1px solid rgba(115,68,241,0.14)", borderRadius: "10px",
-          padding: "8px 10px", marginBottom: "10px", fontWeight: "500", color: "#3b3550",
-        });
-        popEl.appendChild(prev);
-      }
-
-      const row = document.createElement("div");
-      Object.assign(row.style, { display: "flex", alignItems: "center", gap: "12px" });
-      const linkStyle = {
-        border: "none", background: "none", padding: "0", cursor: "pointer",
-        color: FLOW_ACCENT, fontWeight: "700", fontSize: "13px", fontFamily: "inherit",
-      };
-      let flowNote = null;
-      if (canEditDoc() && issue.transition) {
-        flowNote = popEditBtn(row, `flow:${bar.hash}`, "Add transition →", () => addTransition(bar.hash, issue), { primary: false, style: linkStyle });
-      } else {
-        const act = document.createElement("button");
-        act.textContent = "Copy transition →";
-        Object.assign(act.style, linkStyle);
-        act.addEventListener("click", async () => {
-          if (!issue.transition) return;
-          try { await navigator.clipboard.writeText(issue.transition); } catch { /* denied */ }
-          act.textContent = "Copied ✓";
-        });
-        row.appendChild(act);
-      }
-      const dis = document.createElement("button");
-      dis.textContent = "Dismiss";
-      Object.assign(dis.style, {
-        border: "none", background: "none", padding: "0", cursor: "pointer",
-        color: "#8e8e93", fontWeight: "600", fontSize: "12.5px", fontFamily: "inherit",
-      });
-      dis.addEventListener("click", () => {
-        flowDismissed.add(bar.hash);
-        persistFlow();
-        hideDocsPopover();
-        requestDocsMarks();
-        render();
-      });
-      row.appendChild(dis);
-      popEl.appendChild(row);
-      if (flowNote) popEl.appendChild(flowNote);
-
-      popEl.style.visibility = "hidden";
-      document.documentElement.appendChild(popEl);
-      placeDocsPopover(rect);
-      popEl.style.visibility = "visible";
-      animatePopoverIn(popEl, switching);
-      popAnchor = anchorBar ?? null;
-      popLastTop = rect.top;
-      popLostAt = 0;
-      if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
-    }
-
-    /* The hover card's "Explain in depth" block — the popover twin of
-       deepHtml, inline styles only (it lives in the page DOM). Refilled in
-       place when the answer lands, so the card is never rebuilt. */
-    function renderPopDeep(hash) {
-      if (!popEl || popHash !== hash) return;
-      const box = popEl.querySelector("[data-pop-deep]");
-      const f = cache.get(hash);
-      if (box && f) fillPopDeep(box, hash, f);
-    }
-    function popDeepNote(text, color = "#8e8e93") {
-      const n = document.createElement("div");
-      n.textContent = text;
-      Object.assign(n.style, { fontSize: "11px", color, marginTop: "5px", fontWeight: "500" });
-      return n;
-    }
-    function fillPopDeep(box, hash, f) {
-      const v = deepView(hash, f.verdict);
-      box.textContent = "";
-      box.removeAttribute("style");
-      if (v.kind === "button" || v.kind === "locked") {
-        const locked = v.kind === "locked";
-        const b = document.createElement("button");
-        b.textContent = v.label;
-        Object.assign(b.style, {
-          background: "none", border: "none", padding: "0", fontFamily: "inherit",
-          fontSize: "11.5px", fontWeight: "700", color: locked ? "#a7a7ac" : "#ff7f00",
-          cursor: locked ? "not-allowed" : "pointer",
-        });
-        if (locked) {
-          b.title = v.title;
-          b.setAttribute("aria-disabled", "true");
-          const pro = document.createElement("span");
-          pro.textContent = "PRO";
-          Object.assign(pro.style, {
-            display: "inline-block", marginLeft: "5px", padding: "1px 6px", borderRadius: "8px",
-            background: "linear-gradient(150deg, #ff7f00, #f9a35a)", color: "#fff",
-            fontSize: "8px", fontWeight: "800", letterSpacing: ".6px", verticalAlign: "1px",
-          });
-          b.appendChild(pro);
-          b.addEventListener("click", () => { lockDeep(hash); renderPopDeep(hash); render(); });
-        } else {
-          b.addEventListener("click", () => explainSentence(hash));
-        }
-        box.style.margin = "-3px 0 9px";
-        box.appendChild(b);
-        if (locked && v.note) {
-          const n = popDeepNote(`${v.note}. `);
-          const a = document.createElement("a");
-          a.href = ORDER_URL;
-          a.textContent = DEEP_COPY.seePlans;
-          Object.assign(a.style, { color: "#ff7f00", fontWeight: "700", textDecoration: "none" });
-          a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
-          n.appendChild(a);
-          box.appendChild(n);
-        } else if (v.error) {
-          box.appendChild(popDeepNote(v.error, "#d93636"));
-        }
-        return;
-      }
-      fillPopDeepAnswer(box, v);
-    }
-    // The loading state and the answer, in the same box.
-    function fillPopDeepAnswer(box, v) {
-      if (v.kind === "loading") {
-        Object.assign(box.style, {
-          display: "flex", alignItems: "center", gap: "8px", margin: "-3px 0 9px",
-          fontSize: "11.5px", color: "#8e8e93", fontWeight: "600",
-        });
-        const spin = document.createElement("span");
-        Object.assign(spin.style, {
-          width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0",
-          border: "2px solid rgba(255,127,0,0.25)", borderTopColor: "#ff7f00",
-        });
-        box.appendChild(spin);
-        if (!reducedMotion() && typeof spin.animate === "function") {
-          spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
-        }
-        box.appendChild(document.createTextNode(v.text));
-        return;
-      }
-      Object.assign(box.style, {
-        background: "#fffaf4", border: "1px solid rgba(255,127,0,0.16)",
-        borderRadius: "10px", padding: "8px 10px", marginBottom: "9px",
-      });
-      const label = document.createElement("div");
-      label.textContent = v.label;
-      Object.assign(label.style, {
-        fontSize: "9px", fontWeight: "700", textTransform: "uppercase",
-        letterSpacing: ".8px", color: "#ff7f00", marginBottom: "4px",
-      });
-      box.appendChild(label);
-      if (v.prefix) {
-        const p = document.createElement("div");
-        p.textContent = v.prefix;
-        Object.assign(p.style, { fontSize: "12px", fontWeight: "700", marginBottom: "4px" });
-        box.appendChild(p);
-      }
-      if (v.verdictLabel) {
-        const chip = document.createElement("span");
-        chip.textContent = v.verdictLabel;
-        Object.assign(chip.style, {
-          display: "inline-block", fontSize: "9px", fontWeight: "700", letterSpacing: ".8px",
-          textTransform: "uppercase", padding: "3px 8px", borderRadius: "20px", marginBottom: "5px",
-          background: VERDICT_WASH[v.verdict] ?? "#e7f6ee", color: VERDICT_TEXT[v.verdict] ?? "#1f9d55",
-        });
-        box.appendChild(chip);
-      }
-      const text = document.createElement("div");
-      text.textContent = v.text;
-      Object.assign(text.style, { fontWeight: "500", whiteSpace: "pre-line" });
-      box.appendChild(text);
-      if (v.note) box.appendChild(popDeepNote(v.note));
-    }
-
-    function showDocsPopover(hash, rect, anchorBar) {
-      console.debug("[tracely] popover open", hash);
-      const f = cache.get(hash);
-      if (!f) { console.debug("[tracely] popover abort: no finding"); return; }
+    /* ── open / paint ────────────────────────────────────────────────────── */
+    function openPop(hash, rect, anchorBar, width) {
       popFont();
       const switching = Boolean(popEl);
       hideDocsPopover({ instant: true });
       popHash = hash;
-      const color = MARK_COLORS[f.verdict] ?? "#8e8e93";
-      popEl = document.createElement("div");
+      popWidth = width;
+      popAbove = false;
+      popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
-      Object.assign(popEl.style, {
-        position: "fixed", zIndex: "901", width: "340px",
-        background: "#fff", borderRadius: "14px", padding: "12px 14px",
-        border: "1px solid rgba(20,16,10,0.06)", borderLeft: `3px solid ${color}`,
-        boxShadow: "0 16px 44px rgba(180,120,60,0.24)",
-        fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-        color: "#0e0e10", fontSize: "12.5px", lineHeight: "1.5",
-      });
-      const badge = document.createElement("span");
-      badge.textContent = VERDICT_LABEL[f.verdict] ?? f.verdict;
-      Object.assign(badge.style, {
-        display: "inline-block", fontSize: "9px", fontWeight: "700",
-        letterSpacing: ".8px", textTransform: "uppercase", padding: "3px 8px",
-        borderRadius: "20px", background: VERDICT_WASH[f.verdict] ?? "#f2f2f3",
-        color: VERDICT_TEXT[f.verdict] ?? "#8e8e93", marginBottom: "7px",
-      });
-      popEl.appendChild(badge);
-      if (f.explanation) {
-        const ex = document.createElement("div");
-        ex.textContent = f.explanation;
-        ex.style.marginBottom = "9px";
-        ex.style.fontWeight = "500";
-        popEl.appendChild(ex);
-      }
-      // "Explain in depth": filled from deepView now, refilled in place later.
-      const deepBox = document.createElement("div");
-      deepBox.setAttribute("data-pop-deep", "");
-      popEl.appendChild(deepBox);
-      fillPopDeep(deepBox, hash, f);
-      if (f.revision) {
-        const fix = document.createElement("div");
-        Object.assign(fix.style, {
-          background: "#fdfbf9", border: "1px solid rgba(20,16,10,0.06)",
-          borderRadius: "10px", padding: "8px 10px", marginBottom: "9px", fontWeight: "500",
-        });
-        fix.textContent = f.revision;
-        popEl.appendChild(fix);
-      }
-      const row = document.createElement("div");
-      Object.assign(row.style, { display: "flex", gap: "7px", flexWrap: "wrap" });
-      let fixNote = null;
-      if (f.revision) {
-        if (canEditDoc()) {
-          // Rewriting the sentence in the document itself beats a clipboard
-          // round-trip, so it takes the primary slot. Copy stays one click away
-          // in the widget, and is what any failure falls back to.
-          fixNote = popEditBtn(row, `fix:${hash}`, "Fix in doc", () => docFix(hash, popAnchor));
-        } else {
-          const copy = popBtn("Copy fix", true);
-          copy.addEventListener("click", () => {
-            try { navigator.clipboard.writeText(f.revision); } catch { /* clipboard denied */ }
-            copy.textContent = "Copied ✓";
-          });
-          row.appendChild(copy);
-        }
-      }
-      // With no rewrite on offer (citation-needed), finding the source IS the
-      // fix — it gets the primary button. Sources load INTO the popover, so
-      // picking one never requires a trip to the widget. Already-searched
-      // claims render straight from the cache — closing and reopening the
-      // card never repeats a search.
-      const st0 = sourcesMap.get(hash);
-      const haveSources = !!(st0 && (st0.loading || st0.list?.length));
-      if (!haveSources) {
-        const label = f.verdict === "needs_citation" ? "Find a source" : "Sources";
-        const src = popBtn(label, !f.revision);
-        src.addEventListener("click", async () => {
-          src.textContent = "Searching…";
-          src.disabled = true;
-          let started = true;
-          try { started = await fetchSources(hash); } catch { /* state lands in sourcesMap */ }
-          if (started === false) {
-            // Another claim's search holds the slot — don't fake progress.
-            src.textContent = label;
-            src.disabled = false;
-            return;
-          }
-          src.remove();
-          renderPopSources(hash);
-        });
-        row.appendChild(src);
-      }
-      const dis = popBtn("Dismiss", false);
-      dis.addEventListener("click", () => {
-        dismissed.add(hash);
-        lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
-        hideDocsPopover();
-        requestDocsMarks();
-        render();
-      });
-      row.appendChild(dis);
-      popEl.appendChild(row);
-      if (fixNote) popEl.appendChild(fixNote);
-      if (haveSources) renderPopSources(hash); // cached or in-flight — zero new API work
-      // Stubby caret aimed at the underline — a rotated square whose opaque
-      // face covers the card border where it meets the top edge (the card
-      // always sits below the line; placeDocsPopover aims the caret's x).
-      const arrow = document.createElement("div");
-      arrow.setAttribute("data-pop-arrow", "");
-      Object.assign(arrow.style, {
-        position: "absolute", width: "11px", height: "11px",
-        background: "#fff", transform: "rotate(45deg)",
-        border: "solid rgba(20,16,10,0.08)", borderWidth: "1px 0 0 1px",
-        top: "-6.5px", left: "20px", borderRadius: "2px 0 0 0",
-      });
-      popEl.appendChild(arrow);
-      // Position against the LIVE bar rect, then keep following it.
+      popEl.appendChild(dmTail("up", false));
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard.setAttribute("data-pop-card", "");
+      popEl.appendChild(popCard);
+      popEditSyncs.add(paintPop); // every edit-state change repaints the card
+      paintPop();
       popEl.style.visibility = "hidden";
       document.documentElement.appendChild(popEl);
       placeDocsPopover(rect);
@@ -2526,153 +2488,282 @@
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
+    function showDocsPopover(hash, rect, anchorBar) {
+      if (!cache.get(hash)) return;
+      openPop(hash, rect, anchorBar, POP_WIDTH);
+    }
+    function showFlowPopover(bar, rect, anchorBar) {
+      console.debug("[tracely] flow popover open", bar.hash);
+      popFlowBar = bar;
+      openPop(bar.hash, rect, anchorBar, POP_WIDTH_FLOW);
+    }
+    let popFlowBar = null;
+    // The two entry points other code already calls: repaint if this claim is up.
+    function renderPopSources(hash) { if (popEl && popHash === hash) paintPop(); }
+    function renderPopDeep(hash) { if (popEl && popHash === hash) paintPop(); }
 
-    function renderPopSources(hash) {
-      if (!popEl || popHash !== hash) return;
-      let box = popEl.querySelector("[data-pop-sources]");
-      if (!box) {
-        box = document.createElement("div");
-        box.setAttribute("data-pop-sources", "");
-        Object.assign(box.style, {
-          marginTop: "9px", paddingTop: "8px", maxHeight: "250px", overflowY: "auto",
-          borderTop: "1px solid rgba(20,16,10,0.07)",
-        });
-        popEl.appendChild(box);
+    function paintPop() {
+      if (!popEl || !popCard) return;
+      const hash = popHash;
+      popCard.textContent = "";
+      const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
+      const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
+      if (flow) { paintFlow(hash, flow, put); requestPlace(); return; }
+      const f = cache.get(hash);
+      const seg = segments.find((s) => s.hash === hash);
+      if (!f || !seg) return;
+      const st = stepOf(hash);
+      const color = MARK_COLORS[f.verdict] ?? "#9a9ba1";
+      const hasRevision = Boolean(f.revision) && f.verdict !== "needs_citation";
+      const fixKey = `fix:${hash}`;
+      const fixState = editState(fixKey);
+
+      if (st.step === "sources") { paintSources(hash, seg, f, st, put); requestPlace(); return; }
+
+      if (st.step === "fix" || fixState === "applying" || fixState === "applied" || fixState === "undoing" || fixState === "failed") {
+        if (fixState === "applied" || fixState === "undoing") {
+          put(dmHead(DM.green, POP_COPY.appliedTitle), dmBody(POP_COPY.appliedBody));
+          const done = dmBtn(POP_COPY.done, true);
+          done.addEventListener("click", () => { setEditState(fixKey, null); popSteps.delete(hash); hideDocsPopover(); });
+          const undo = dmBtn(fixState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: fixState === "undoing" || lastDocEdit?.key !== fixKey });
+          undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+          put(dmActions(done, undo));
+          requestPlace(); return;
+        }
+        if (fixState === "failed") {
+          const s = docEditState.get(fixKey);
+          put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${s?.copied ? "Copied instead — " : ""}${s?.note || "the editor couldn't make that edit"}.`));
+          const back = dmBtn(POP_COPY.back, true);
+          back.addEventListener("click", () => { setEditState(fixKey, null); setStep(hash, { step: "fix" }); });
+          put(dmActions(back));
+          requestPlace(); return;
+        }
+        // The fix card: what the check found, the revision, Apply / Back.
+        put(dmHead(color, fixTitle(f.verdict)));
+        put(dmBody(f.verdict === "questionable" ? POP_COPY.fixRuleNarrow : POP_COPY.fixRule));
+        if (f.basis) put(dmIssue(POP_COPY.foundLabel, f.basis));
+        else if (f.explanation) put(dmIssue(POP_COPY.foundLabel, f.explanation));
+        put(paintDeep(hash, f));
+        if (hasRevision) put(dmBlock(POP_COPY.revisionLabel, dmQuote(f.revision)));
+        const applying = fixState === "applying";
+        let primary = null;
+        if (hasRevision && canEditDoc()) {
+          primary = dmBtn(applying ? POP_COPY.applying : POP_COPY.apply, true, { disabled: applying || docBusy });
+          primary.addEventListener("click", () => { popPinned = true; docFix(hash, popAnchor); });
+        } else if (hasRevision) {
+          primary = dmBtn(POP_COPY.copyRevision, true);
+          primary.addEventListener("click", () => { try { navigator.clipboard.writeText(f.revision); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
+        }
+        const back = dmBtn(POP_COPY.back, false);
+        back.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        put(dmActions(primary, back, deepLink(hash, f)));
+        if (hasRevision && !canEditDoc()) put(dmHint(editBlockReason()));
+        requestPlace(); return;
       }
-      box.textContent = "";
-      const st = sourcesMap.get(hash);
-      if (!st || st.loading) {
-        box.textContent = !st && !sourcesInflight
-          ? "Source search failed — close and reopen this card to retry."
-          : "Searching the web for sources…";
-        Object.assign(box.style, { color: "#a7a7ac", fontStyle: "italic", fontSize: "11.5px" });
-        return;
-      }
-      box.style.color = "";
-      box.style.fontStyle = "";
-      if (!st.list || st.list.length === 0) {
-        box.textContent = "No usable sources came back — try again from the widget.";
-        return;
-      }
-      // Header: section label + citation-style pills (persisted, shared with
-      // the widget via the same settings object).
-      const head = document.createElement("div");
-      Object.assign(head.style, {
-        display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px",
+
+      // The problem card — exactly the app's: dot, title; body; [action][Dismiss].
+      put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      put(dmBody(f.explanation || f.basis || seg.text));
+      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : POP_COPY.findSource, true);
+      action.addEventListener("click", () => {
+        if (hasRevision) { setStep(hash, { step: "fix" }); return; }
+        // The search marks itself in flight before its first await, so the
+        // card painted next already reads "searching" rather than "failed".
+        const started = fetchSources(hash);
+        setStep(hash, { step: "sources", searched: true });
+        started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       });
-      const title = document.createElement("div");
-      title.textContent = "Pick one to cite";
-      Object.assign(title.style, {
-        fontSize: "9px", fontWeight: "700", textTransform: "uppercase",
-        letterSpacing: ".8px", color: "#ff7f00",
+      const dis = dmBtn(POP_COPY.dismiss, false);
+      dis.addEventListener("click", () => {
+        dismissed.add(hash);
+        lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        popSteps.delete(hash);
+        hideDocsPopover();
+        requestDocsMarks();
+        render();
       });
-      head.appendChild(title);
-      const pills = document.createElement("div");
-      Object.assign(pills.style, {
-        display: "flex", gap: "2px", background: "#f2f2f3", borderRadius: "8px", padding: "2px",
-      });
-      for (const [key, label] of CITE_STYLES) {
-        const p = document.createElement("button");
-        p.textContent = label;
-        const on = (settings.citationStyle || "apa") === key;
-        Object.assign(p.style, {
-          border: "none", borderRadius: "6px", padding: "3px 8px",
-          fontSize: "9px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit",
-          background: on ? "#fff" : "transparent",
-          color: on ? "#ff7f00" : "#8e8e93",
-          boxShadow: on ? "0 1px 3px rgba(20,16,10,0.10)" : "none",
-        });
-        p.addEventListener("click", () => {
-          settings.citationStyle = key;
-          persistSettings(settings, SETTINGS_KEY);
-          renderPopSources(hash); // repaint rows in the new style
-        });
-        pills.appendChild(p);
+      put(dmActions(action, dis));
+      requestPlace();
+    }
+
+    /* "Explain in depth" inside the fix card: the app's `.docmark-fix-issues`
+       shape (a titled paragraph), and the loading and locked states in it. */
+    function paintDeep(hash, f) {
+      const v = deepView(hash, f.verdict);
+      if (v.kind === "loading") {
+        const w = el("div", { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: DM.body, flex: "0 0 auto" });
+        const spin = el("span", { width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0", border: "2px solid rgba(255,89,0,0.25)", borderTopColor: DM.orange });
+        if (!reducedMotion() && typeof spin.animate === "function") spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
+        w.append(spin, document.createTextNode(v.text));
+        return w;
       }
-      head.appendChild(pills);
-      box.appendChild(head);
+      if (v.kind === "result") {
+        const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
+        const w = dmIssue(title, v.text);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.note) w.appendChild(dmHint(v.note));
+        return w;
+      }
+      return null;
+    }
+    // The link that asks for it — beside the fix card's buttons, as the app
+    // puts its hint beside Cancel. Locked: the PRO chip and a "See plans" note.
+    function deepLink(hash, f) {
+      const v = deepView(hash, f.verdict);
+      if (v.kind === "loading" || v.kind === "result") return null;
+      const link = dmLink(v.label);
+      if (v.kind === "locked") {
+        link.title = v.title;
+        link.appendChild(el("span", { padding: "1px 6px", borderRadius: "20px", background: APP.accentWash, color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em" }, "PRO"));
+        link.addEventListener("click", () => { lockDeep(hash); openOrderPage(); paintPop(); render(); });
+      } else {
+        link.addEventListener("click", () => { explainSentence(hash); paintPop(); });
+      }
+      if (v.error) link.title = v.error;
+      return link;
+    }
+
+    /* ── the citation flow, card for card ───────────────────────────────── */
+    function paintSources(hash, seg, f, st, put) {
+      const s = sourcesMap.get(hash);
       const style = settings.citationStyle || "apa";
-      st.list.forEach((srcItem, i) => {
-        const c = formatCitation(srcItem, style);
-        const row = document.createElement("div");
-        Object.assign(row.style, { padding: "7px 0", borderBottom: "1px solid rgba(20,16,10,0.05)" });
-        const line = document.createElement("div");
-        Object.assign(line.style, { display: "flex", alignItems: "flex-start", gap: "6px" });
-        if (srcItem.stance) {
-          const chip = document.createElement("span");
-          chip.textContent = srcItem.stance;
-          const chipColors = {
-            supports: ["#e7f6ee", "#1f9d55"],
-            refutes: ["#fdecec", "#d93636"],
-          }[srcItem.stance] ?? ["#f2f2f3", "#8e8e93"];
-          Object.assign(chip.style, {
-            fontSize: "8px", fontWeight: "700", textTransform: "uppercase",
-            padding: "2px 6px", borderRadius: "8px", flexShrink: "0", marginTop: "2px",
-            background: chipColors[0], color: chipColors[1],
-          });
-          line.appendChild(chip);
+      const citedKey = (url) => `cite:${hash}:${url}`;
+      // Inserted: the marker is in the sentence, the entry in the Sources list.
+      const citedUrl = s?.citedUrl ?? null;
+      const citedState = citedUrl ? editState(citedKey(citedUrl)) : null;
+      if (citedState === "applied" || citedState === "undoing") {
+        const src = s.list.find((x) => x.url === citedUrl);
+        const c = src ? formatCitation(src, style) : null;
+        put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(`This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
+        if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
+        const left = segments.filter((x) => x.hash !== hash && cache.get(x.hash) && ISSUE_VERDICTS.includes(cache.get(x.hash).verdict) && !dismissed.has(x.hash)).length;
+        const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
+        res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
+        put(res);
+        const done = dmBtn(POP_COPY.done, true);
+        done.addEventListener("click", () => { popSteps.delete(hash); hideDocsPopover(); });
+        const undo = dmBtn(citedState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: citedState === "undoing" || lastDocEdit?.key !== citedKey(citedUrl) });
+        undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+        put(dmActions(done, undo));
+        return;
+      }
+      const failedKey = [...docEditState.keys()].find((k) => k.startsWith(`cite:${hash}:`) && docEditState.get(k)?.state === "failed");
+      if (failedKey) {
+        const fs = docEditState.get(failedKey);
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${fs?.copied ? "Copied instead — " : ""}${fs?.note || "the editor couldn't make that edit"}.`));
+        const back = dmBtn(POP_COPY.back, true);
+        back.addEventListener("click", () => { setEditState(failedKey, null); paintPop(); });
+        put(dmActions(back));
+        return;
+      }
+      // Searching.
+      if (!s || s.loading) {
+        if (!s && !sourcesInflight && st.searched) {
+          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(statusMsg || "The search did not answer — try again."));
+          const again = dmBtn(POP_COPY.searchAgain, true);
+          again.addEventListener("click", () => { const p = fetchSources(hash); setStep(hash, { searched: true }); p.catch(() => {}); });
+          const cancel = dmBtn(POP_COPY.cancel, false);
+          cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
+          put(dmActions(again, cancel));
+          return;
         }
-        const a = document.createElement("a");
-        a.href = srcItem.url;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.textContent = srcItem.title;
-        Object.assign(a.style, { fontSize: "11.5px", fontWeight: "700", color: "#0e0e10", textDecoration: "none", display: "block", minWidth: "0" });
-        line.appendChild(a);
-        const meta = document.createElement("div");
-        meta.textContent = srcItem.publisher || "";
-        Object.assign(meta.style, { fontSize: "10px", color: "#a7a7ac", margin: "1px 0 4px", fontWeight: "500" });
-        // Why this source answers the claim — one clamped line of snippet.
-        let snip = null;
-        if (srcItem.snippet) {
-          snip = document.createElement("div");
-          snip.textContent = srcItem.snippet;
-          Object.assign(snip.style, {
-            fontSize: "10.5px", color: "#5c5c60", fontWeight: "500", marginBottom: "5px",
-            display: "-webkit-box", WebkitLineClamp: "2", WebkitBoxOrient: "vertical", overflow: "hidden",
-          });
-        }
-        // Live formatted reference in the selected style, plus the in-text form.
-        const refBox = document.createElement("div");
-        Object.assign(refBox.style, {
-          background: "#fdfbf9", border: "1px solid rgba(20,16,10,0.06)",
-          borderRadius: "8px", padding: "6px 8px", marginBottom: "6px",
-          fontSize: "10.5px", fontWeight: "500", lineHeight: "1.45",
-          overflowWrap: "anywhere",
-        });
-        refBox.textContent = c.ref;
-        const marker = document.createElement("div");
-        marker.textContent = `In-text: ${c.marker}`;
-        Object.assign(marker.style, { fontSize: "9.5px", color: "#a7a7ac", marginTop: "3px", fontWeight: "600" });
-        refBox.appendChild(marker);
-        const btns = document.createElement("div");
-        Object.assign(btns.style, { display: "flex", gap: "6px", flexWrap: "wrap" });
-        let citeNote = null;
-        if (canEditDoc()) {
-          const idle = st.citedUrl === srcItem.url ? "Cited ✓" : "Cite in doc";
-          citeNote = popEditBtn(btns, `cite:${hash}:${srcItem.url}`, idle, () => docCite(hash, i, popAnchor), { style: { padding: "4px 10px" } });
-        }
-        const copy = popBtn("Copy cite", !canEditDoc());
-        copy.style.padding = "4px 10px";
-        copy.addEventListener("click", () => {
-          try { navigator.clipboard.writeText(c.ref); } catch { /* denied */ }
-          copy.textContent = "Copied ✓";
-        });
-        btns.appendChild(copy);
-        const copyIn = popBtn("Copy in-text", false);
-        copyIn.style.padding = "4px 10px";
-        copyIn.addEventListener("click", () => {
-          try { navigator.clipboard.writeText(c.marker); } catch { /* denied */ }
-          copyIn.textContent = "Copied ✓";
-        });
-        btns.appendChild(copyIn);
-        row.appendChild(line);
-        row.appendChild(meta);
-        if (snip) row.appendChild(snip);
-        row.append(refBox, btns);
-        if (citeNote) row.appendChild(citeNote);
-        box.appendChild(row);
-      });
+        put(dmHead(DM.orange, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
+        const cancel = dmBtn(POP_COPY.cancel, false);
+        cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        put(dmActions(cancel, dmHint(POP_COPY.searchHint)));
+        return;
+      }
+      const list = s.list ?? [];
+      const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(hash, { searched: true, selected: null }); p.catch(() => {}); };
+      if (list.length === 0) {
+        put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
+        const again = dmBtn(POP_COPY.searchAgain, true);
+        again.addEventListener("click", searchAgain);
+        const dis = dmBtn(POP_COPY.dismiss, false);
+        dis.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        put(dmActions(again, dis));
+        return;
+      }
+      // Results.
+      const selected = st.selected ?? list[0]?.url ?? null;
+      const src = list.find((x) => x.url === selected) ?? null;
+      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, dmChip(CITE_STYLE_LABEL[style])));
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      scroll.setAttribute("data-pop-sources", "");
+      scroll.appendChild(dmBody(`Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
+      const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
+      for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(hash, { selected: item.url })));
+      scroll.appendChild(rows);
+      put(scroll);
+      put(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      if (src) {
+        const c = formatCitation(src, style);
+        put(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref)));
+      }
+      const i = src ? list.indexOf(src) : -1;
+      const key = src ? citedKey(src.url) : null;
+      const inserting = key ? editState(key) === "applying" : false;
+      let primary;
+      if (canEditDoc()) {
+        primary = dmBtn(inserting ? POP_COPY.inserting : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
+        primary.addEventListener("click", () => { if (i >= 0) { popPinned = true; docCite(hash, i, popAnchor); } });
+      } else {
+        primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
+        primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
+      }
+      const open = dmBtn(POP_COPY.openArticle, false, { disabled: !src, title: src?.url });
+      open.addEventListener("click", () => { if (src) window.open(src.url, "_blank", "noopener,noreferrer"); });
+      put(dmActions(primary, open));
+      const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
+      again.addEventListener("click", searchAgain);
+      put(again);
+    }
+
+    /* ── the flow card: the same card, over a paragraph that jumps ───────── */
+    function paintFlow(hash, issue, put) {
+      const key = `flow:${hash}`;
+      const state = editState(key);
+      if (state === "applied" || state === "undoing") {
+        put(dmHead(DM.green, POP_COPY.bridgeApplied), dmBody(POP_COPY.bridgeAppliedBody));
+        const done = dmBtn(POP_COPY.done, true);
+        done.addEventListener("click", () => { setEditState(key, null); hideDocsPopover(); });
+        const undo = dmBtn(state === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: state === "undoing" || lastDocEdit?.key !== key });
+        undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+        put(dmActions(done, undo));
+        return;
+      }
+      if (state === "failed") {
+        const s = docEditState.get(key);
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${s?.copied ? "Copied instead — " : ""}${s?.note || "the editor couldn't make that edit"}.`));
+        const back = dmBtn(POP_COPY.back, true);
+        back.addEventListener("click", () => { setEditState(key, null); paintPop(); });
+        put(dmActions(back));
+        return;
+      }
+      put(dmHead(FLOW_ACCENT, POP_COPY.flowTitle), dmBody(issue.explanation));
+      if (issue.transition) put(dmBlock(POP_COPY.bridgeLabel, dmQuote(issue.transition)));
+      let primary = null;
+      if (issue.transition && canEditDoc()) {
+        const applying = state === "applying";
+        primary = dmBtn(applying ? POP_COPY.applying : POP_COPY.addBridge, true, { disabled: applying || docBusy });
+        primary.addEventListener("click", () => { popPinned = true; addTransition(hash, issue); });
+      } else if (issue.transition) {
+        primary = dmBtn(POP_COPY.copyBridge, true);
+        primary.addEventListener("click", () => { try { navigator.clipboard.writeText(issue.transition); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
+      }
+      const dis = dmBtn(POP_COPY.dismiss, false);
+      dis.addEventListener("click", () => { flowDismissed.add(hash); persistFlow(); hideDocsPopover(); requestDocsMarks(); render(); });
+      put(dmActions(primary, dis));
+      if (issue.transition && !canEditDoc()) put(dmHint(editBlockReason()));
+    }
+
+    // A repaint changes the card's height; the next frame re-places it (the
+    // follow loop does this every frame while a card is up, so this is only
+    // for the frame between a paint and the loop).
+    function requestPlace() {
+      if (!popAnchor?.el?.isConnected) return;
+      const r = popAnchor.el.getBoundingClientRect();
+      placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
     }
 
     let hoverRafBusy = false;
@@ -2939,6 +3030,7 @@
       sourcesInflight = true;
       sourcesMap.set(hash, { loading: true, list: null, copiedUrl: null });
       render();
+      renderPopSources(hash); // the hover card shows the search as it runs
       try {
         const data = await api("/api/sources", {
           claim: seg.text,
@@ -3069,11 +3161,20 @@
       lastPingAt = Date.now();
       const r = await docsEdit("ping", {}, { timeoutMs: 3000 });
       const was = canEditDoc();
-      inDoc = { api: !!(r.ok && r.api), editable: !!(r.ok && r.api && r.editable) };
+      inDoc = { api: !!(r.ok && r.api), editable: !!(r.ok && r.editable), editor: !!(r.ok && r.editor), viewOnly: !!(r.ok && r.viewOnly), mode: r.ok ? String(r.mode ?? "unknown") : "unknown", ok: !!r.ok };
       if (canEditDoc() !== was) render();
     }
 
     const canEditDoc = () => !harness && (inDoc.editable || bridgeReady);
+    /* Why the doc cannot be edited from here, in the words the card shows
+       under its Copy button — never a silent swap to Copy. */
+    function editBlockReason() {
+      if (canEditDoc()) return "";
+      if (!inDoc.ok) return "Docs hasn't answered yet — the editor may still be loading. Copy the revision, or try again in a moment.";
+      if (inDoc.viewOnly || inDoc.mode === "viewing") return "This document is view-only for you, so copy the revision and paste it where it belongs.";
+      if (!inDoc.editor) return "Docs' editor isn't ready yet — try again in a moment, or copy the revision.";
+      return "This document isn't editable from here — copy the revision and paste it over the sentence.";
+    }
 
     async function fetchServerStatus() {
       if (orphaned) return;
@@ -3514,8 +3615,8 @@
             ? editBtnHtml(`flow:${h}`, "Add transition", `data-flow-go="${esc(h)}"`)
             : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
-            <div class="card c-flow">
-              <div class="top"><span class="badge badge-flow">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
+            <div class="card">
+              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
               <div class="quote">${esc(fi.passage.slice(0, 160))}</div>
               <div class="fix">
                 <div class="fix-label">Why it jumps</div>
@@ -3550,9 +3651,9 @@
                 </div>`).join("") + `</div>`;
           }
           return `
-          <div class="card c-${kind}">
+          <div class="card">
             <div class="top">
-              <span class="badge badge-${kind}">${VERDICT_LABEL[f.verdict]}</span>
+              <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
@@ -3906,6 +4007,8 @@
     let overlayEl = null;
     let mirror = null;
     const markRects = new Map(); // hash → visible rects (issue marks only — used for hit-testing)
+    const markParts = new Map(); // hash → [{band, line, color}] for the hover state
+    let hoveredMark = null;
     let marksRaf = null;
 
     function ensureOverlay() {
@@ -3970,11 +4073,12 @@
     }
 
     function drawMarks() {
-      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); return; }
+      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; }
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
       const layer = ensureOverlay();
       layer.textContent = "";
       markRects.clear();
+      markParts.clear();
       if (!tracked || !tracked.isConnected) return;
       const isTa = tracked instanceof HTMLTextAreaElement;
       let index = null;
@@ -4013,16 +4117,59 @@
             pointerEvents: "none",
           });
           if (pending) {
+            // Provisional: a dotted rule, no band — nothing to point at yet.
             bar.style.borderBottom = `2px dotted ${color}`;
             bar.style.opacity = "0.7";
           } else {
-            // solid underline along the bottom edge, one colour per verdict
-            bar.style.borderBottom = `3px solid ${color}`;
-            bar.style.borderRadius = "2px";
+            // The app's mark (src/shared/markMotion.ts): a highlighter band
+            // under a coloured line, both growing on hover. Two children
+            // rather than a border, so the line paints over the band.
+            const band = document.createElement("div");
+            Object.assign(band.style, {
+              position: "absolute", left: "0", right: "0",
+              top: `-${MARK_BAND_INSET_TOP}px`, bottom: `-${MARK_BAND_INSET_BOTTOM}px`,
+              borderRadius: `${MARK_BAND_RADIUS}px`,
+              background: withAlpha(color, 0),
+              transform: `scaleY(${MARK_BAND_SCALE_RESTING})`, transformOrigin: "bottom",
+              transition: markReducedMotion() ? "none" : MARK_BAND_TRANSITION,
+            });
+            const line = document.createElement("div");
+            Object.assign(line.style, {
+              position: "absolute", left: "0", right: "0", bottom: "0",
+              height: `${MARK_LINE_HEIGHT}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
+              background: color,
+              transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
+            });
+            bar.append(band, line);
+            markParts.set(seg.hash, [...(markParts.get(seg.hash) || []), { band, line, color }]);
           }
           layer.appendChild(bar);
         }
       }
+      // The elements are new on every draw, so re-apply the hover — and let it
+      // go if the sentence it was on has been edited away or dismissed.
+      if (hoveredMark && !markParts.has(hoveredMark)) hoveredMark = null;
+      paintHover();
+    }
+
+    /* The hovered sentence's band fades up and its line thickens — the same
+       gesture the app makes, so a mark behaves the same in both windows.
+       Re-applied after every draw, because drawMarks rebuilds the elements. */
+    function paintHover() {
+      for (const [h, parts] of markParts) {
+        const on = h === hoveredMark;
+        for (const { band, line, color } of parts) {
+          band.style.background = withAlpha(color, on ? MARK_BAND_ALPHA : 0);
+          band.style.transform = `scaleY(${on ? 1 : MARK_BAND_SCALE_RESTING})`;
+          line.style.height = `${on ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT}px`;
+        }
+      }
+    }
+
+    function setHoveredMark(h) {
+      if (h === hoveredMark) return;
+      hoveredMark = h;
+      paintHover();
     }
 
     function hitMark(x, y) {
@@ -4044,6 +4191,17 @@
       clearTimeout(flashTimer);
       flashTimer = setTimeout(() => card.classList.remove("flash"), 1300);
     }
+
+    /* Hot path: this fires on every pointer move the page sees. It leaves
+       early when nothing is marked, and identifies "over the widget" with an
+       identity check rather than composedPath() — an event from inside the
+       shadow root is retargeted to the host at this level, and composedPath()
+       allocates the whole path array on every move. */
+    document.addEventListener("mousemove", (e) => {
+      if (!markParts.size) return;
+      if (widget && e.target === widget.host) { setHoveredMark(null); return; }
+      setHoveredMark(hitMark(e.clientX, e.clientY));
+    }, true);
 
     // Clicking an underline opens the panel and flashes that verdict's card.
     document.addEventListener("mousedown", (e) => {
@@ -4352,9 +4510,9 @@
                 </div>`).join("") + `</div>`;
           }
           return `
-          <div class="card c-${kind}" data-card="${seg.hash}">
+          <div class="card" data-card="${seg.hash}">
             <div class="top">
-              <span class="badge badge-${kind}">${VERDICT_LABEL[f.verdict]}</span>
+              <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>

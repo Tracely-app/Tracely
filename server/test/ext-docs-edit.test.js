@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.20.0, and not one new permission.
+ *   - the manifest: 2.21.0, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -794,7 +794,15 @@ test("content.js: canEditDoc follows the hook's ping, the dev bridge, and never 
   reply = { ok: true, api: true, editor: true, editable: false }; // view-only Doc
   await w.probeInDoc();
   assert.equal(w.canEditDoc(), false);
-  reply = { ok: true, api: false, editor: true, editable: true }; // no text API: can't verify, so no
+  // No text API, but an editor that is not view-only: the hook says editable,
+  // and the edit takes its no-API path (mouseReplace), which selects by the
+  // bar's rects and refuses unless a copy read-back proves the selection.
+  // Requiring the API here hid the button on every Doc where the API was slow
+  // to appear or absent while that working path sat unused.
+  reply = { ok: true, api: false, editor: true, editable: true };
+  await w.probeInDoc();
+  assert.equal(w.canEditDoc(), true);
+  reply = { ok: true, api: false, editor: false, editable: false }; // no editor at all
   await w.probeInDoc();
   assert.equal(w.canEditDoc(), false);
   reply = undefined; // hook absent: the ping times out
@@ -1303,9 +1311,9 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.20.0, and fixing in the doc asks for no new permission", () => {
+test("manifest: 2.21.0, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.20.0");
+  assert.equal(m.version, "2.21.0");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",

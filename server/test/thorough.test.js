@@ -29,7 +29,9 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { nextMonthStart, nextUsageDay } from "../shared/plan.js";
+import { nextMonthStart, nextUsageDay, THOROUGH_MAX_TOKENS, THOROUGH_RESERVE_USD } from "../shared/plan.js";
+import { checkPromptBytes } from "../lib/factcheck.js";
+import { costMicroCents, MODEL_TIERS } from "../lib/llm.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.join(HERE, "..", "server.js");
@@ -213,18 +215,36 @@ test("an explanation runs on astra only while the allowance covers its 15-cent w
     "a luna fallback is not charged to the allowance");
 });
 
-test("no overshoot under concurrency: a burst of 18 explanations admits exactly 10 (150 / 15), and every hold is released after", async () => {
+/* What one explanation holds against the allowance, computed the way the
+ * route computes it (server.js thoroughWorstMicroCents): the prompt's bytes
+ * plus framing, priced cold on the thorough model, plus the route's output
+ * ceiling — never below the 15-cent floor. Derived rather than written as
+ * "15", because the check's instructions and schema grew (the objective
+ * check, 2026-09-23) and the hold grew past the floor with them; a test that
+ * pinned 10 admissions was pinning the prompt's length. */
+function explainHoldMicroCents(tag, extra = "") {
+  const text = `The Treaty of Paris was signed in 1783. TAG-${tag} ${extra}`.trim();
+  const bytes = checkPromptBytes({ text, sentences: [{ id: "s1", text }] });
+  const input = bytes + 256;
+  const floor = Math.round(THOROUGH_RESERVE_USD.checkDeep * 100 * 1e6);
+  return Math.max(floor, costMicroCents(MODEL_TIERS.thorough, { input, cacheWrite: input, output: THOROUGH_MAX_TOKENS.checkDeep }));
+}
+
+test("no overshoot under concurrency: a burst of 18 explanations admits only what 150 cents of holds cover, and every hold is released after", async () => {
+  const hold = explainHoldMicroCents("burst-0", "TRIGGER-SLOW");
+  const admits = Math.floor(150e6 / hold);
+  assert.ok(admits >= 8 && admits <= 10, `the hold is ${(hold / 1e6).toFixed(2)} cents — not the 15-cent floor's 10 any more, but in its neighbourhood`);
   const burst = await Promise.all(Array.from({ length: 18 }, (_, i) => explain(`burst-${i}`, { token: "tok-pro-burst" }, { extra: "TRIGGER-SLOW" })));
   for (const r of burst) assert.equal(r.status, 200, JSON.stringify(r.body));
   const ran = burst.filter((r) => r.body.thorough.used);
-  assert.equal(ran.length, 10);
+  assert.equal(ran.length, admits);
   assert.ok(ran.every((r) => r.body.modelUsed === ASTRA));
   const astraCalls = Array.from({ length: 18 }, (_, i) => openaiLog(`burst-${i}`)).flat().filter((c) => c.model === ASTRA);
-  assert.equal(astraCalls.length, 10, "what was sent to the provider, not just what was reported");
-  // 100 of 150 cents spent and nothing still held: 50 cents covers another.
+  assert.equal(astraCalls.length, admits, "what was sent to the provider, not just what was reported");
+  // admits x 10 cents spent and nothing still held: what is left covers another.
   const next = await explain("burst-next", { token: "tok-pro-burst" });
   assert.equal(next.body.thorough.used, true, "holds from the burst were released");
-  assert.equal(next.body.thorough.remainingPct, 26, "110 of 150 cents spent");
+  assert.equal(next.body.thorough.remainingPct, Math.floor(((150 - (admits + 1) * 10) / 150) * 100), `${(admits + 1) * 10} of 150 cents spent`);
 });
 
 test("the hold is sized from the prompt's bytes, not a flat guess: a burst of CJK explanations (~27k bytes, ~44 cents each) admits 3, not 10", async () => {

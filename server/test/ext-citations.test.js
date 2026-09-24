@@ -99,7 +99,7 @@ test("getDocText exports through the account prefix docsMode derived", () => {
 
 /* ── an orphaned tab says so instead of showing a stale count ──────────── */
 
-const ORPHAN_HELPER = () => contentSlice("  const ORPHAN_PILL_TEXT", "// jointracely.com's own font");
+const ORPHAN_HELPER = () => contentSlice("  const ORPHAN_PILL_TEXT", "  /* ── the app's design tokens");
 const STALE_PILL = '<div class="pill" id="pill"><span class="plane"></span>Tracely<span class="count">2</span></div>';
 
 test("the orphan pill names what happened and the fix, and carries no count", () => {
@@ -160,12 +160,15 @@ function loadFieldStandDown({ eligible = true } = {}) {
     let tracked = { isConnected: true };
     let overlayEl = { textContent: "<bars>" };
     const markRects = new Map([["h", [{}]]]);
+    const markParts = new Map([["h", []]]);
+    let hoveredMark = "h";
+    function paintHover() {}
     const widget = { shadow: {}, root: { style: { display: "" }, innerHTML: ${JSON.stringify(STALE_PILL)} } };
     ${ORPHAN_HELPER()}
     ${contentSlice("    function drawMarks() {", "    function hitMark(")}
     ${contentSlice("    function render() {\n      scheduleMarks();", "    function saveSettings() {")}
     ${contentSlice("    function standDownField(why) {", "    setInterval(() => {")}
-    ({ standDownField, render, widget, markRects, overlay: () => overlayEl.textContent, state: () => ({ orphaned, expanded, segments: segments.length }) })`;
+    ({ standDownField, render, widget, markRects, markParts, overlay: () => overlayEl.textContent, state: () => ({ orphaned, expanded, segments: segments.length }) })`;
   const ctx = vm.createContext({
     PLANE_SVG: "<svg></svg>", EXT_VERSION: "test",
     scheduleMarks() {},
@@ -181,6 +184,7 @@ test("field mode: standing down clears the underlines and replaces the counting 
   assert.deepEqual(plain(f.state()), { orphaned: true, expanded: false, segments: 0 });
   assert.equal(f.overlay(), "", "the underline bars were left on the page");
   assert.equal(f.markRects.size, 0, "stale hit-test rects would still open cards");
+  assert.equal(f.markParts.size, 0, "stale mark elements would still take a hover");
   assert.equal(f.widget.root.innerHTML, vm.runInContext(`${ORPHAN_HELPER()};orphanPillHtml()`, vm.createContext({ PLANE_SVG: "<svg></svg>" })));
   assert.equal(f.widget.root.style.display, "");
   assert.match(log[0], /stood down \(extension reloaded\)/);

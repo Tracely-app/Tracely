@@ -13,55 +13,95 @@ import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 // CheckError having moved into its own module to break an import cycle.
 export { CheckError, hasApiKey };
 
+/* What the MODEL is asked to return — not what the route returns.
+ *
+ * Two shapes for one finding, chosen by the verdict. A sentence that is fine
+ * ("accurate", "no_claim") is answered with its id and verdict and NOTHING
+ * else; a flagged sentence carries its evidence. Most sentences in a draft are
+ * fine, and the old flat schema made the model spell out an empty explanation,
+ * an empty revision and a confidence for every one of them — output tokens,
+ * which on a reasoning model is where the latency is. Measured on the
+ * checkset before this change: 735-986 output tokens for 11 sentences.
+ *
+ * `basis` is the objectivity check, enforced by SHAPE rather than by
+ * adjectives in the prompt. A "false" verdict must state the correct fact; a
+ * "questionable" one must say exactly what cannot be verified; a
+ * "needs_citation" must name the kind of source. The route demotes a "false"
+ * that arrives with no basis to "questionable" (normalizeFinding): a verdict
+ * the model cannot ground is a hunch, and a hunch is not a contradiction.
+ *
+ * OpenAI strict mode accepts `anyOf` on array items as long as every branch
+ * is itself strict (every property required, additionalProperties false) —
+ * lib/llm.js assertStrictSchema walks the branches. The wire shape the
+ * clients read is unchanged: normalizeFinding flattens both branches to
+ * { id, verdict, explanation, revision, confidence } (+ basis when present). */
+const CLEAN_FINDING = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    verdict: { type: "string", enum: ["accurate", "no_claim"] },
+  },
+  required: ["id", "verdict"],
+  additionalProperties: false,
+};
+const FLAGGED_FINDING = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    verdict: { type: "string", enum: ["false", "questionable", "incoherent", "needs_citation"] },
+    basis: { type: "string" },
+    explanation: { type: "string" },
+    revision: { type: "string" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+  },
+  required: ["id", "verdict", "basis", "explanation", "revision", "confidence"],
+  additionalProperties: false,
+};
 const FINDINGS_SCHEMA = {
   type: "object",
   properties: {
-    findings: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          verdict: { type: "string", enum: ["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"] },
-          explanation: { type: "string" },
-          revision: { type: "string" },
-          confidence: { type: "string", enum: ["high", "medium", "low"] },
-        },
-        required: ["id", "verdict", "explanation", "revision", "confidence"],
-        additionalProperties: false,
-      },
-    },
+    findings: { type: "array", items: { anyOf: [CLEAN_FINDING, FLAGGED_FINDING] } },
   },
   required: ["findings"],
   additionalProperties: false,
 };
 
+const VERDICTS = new Set(["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"]);
+const FLAGGED = new Set(["false", "questionable", "incoherent", "needs_citation"]);
+
+/* The check's instructions. Objective by construction: the model judges only
+ * whether the factual content of a sentence is correct, verifiable and
+ * attributed, and every verdict that flags a sentence has to be grounded in a
+ * stated fact (`basis`). The words "misleading", "disputed" and "clarity
+ * editor" are gone from the verdict definitions on purpose — each was a
+ * judgement call the model was invited to make about the author rather than
+ * a fact it could state about the world. The date goes LAST so the prefix
+ * before it is byte-stable across days for the provider's prompt cache. */
 function systemPrompt() {
   const today = new Date().toISOString().slice(0, 10);
-  return `You are Tracely, a rigorous real-time fact-checker and clarity editor embedded in a writing tool. The author sees your findings as underlines while they type.
+  return `You are Tracely's fact-checker, embedded in a writing tool. The author sees your findings as underlines while they type. You judge one thing: whether the factual content of each sentence is correct, verifiable and attributed. You hold no view on style, tone, politics, or whether a claim is comfortable to read, and you never judge the author.
 
 You receive the full document for context plus a list of sentences to evaluate. Return exactly one finding for EVERY listed sentence id — no more, no fewer.
 
-Verdicts:
-- "false": the sentence contains at least one factual claim that is verifiably wrong.
-- "questionable": claims that are unverifiable, seriously disputed, misleading, or stated with false precision.
-- "incoherent": the sentence does not make sense — internally contradictory, a non-sequitur, garbled to the point of obscuring meaning, or a conclusion that does not follow from its premise.
-- "needs_citation": the claim appears ACCURATE but is the kind of assertion that needs a source — a statistic, study finding, quote, dated event, or specific non-common-knowledge fact — and neither a citation marker nor an attribution appears in or around the sentence.
-- "accurate": contains factual claims and they are correct, and either they are common knowledge or a citation/attribution is present.
-- "no_claim": coherent but contains no checkable factual claim (opinions, greetings, instructions, questions, clearly framed fiction).
+Verdicts, in order of precedence:
+- "false": a specific factual claim in the sentence contradicts an established fact — one you can state precisely (the correct date, number, name, place or mechanism) and that standard references document. Put that correct fact in "basis". If you cannot state the correct fact, the sentence is not "false".
+- "incoherent": the sentence contradicts itself, or its conclusion does not follow from its own premise. "basis" names the contradiction. Long, awkward or unclear writing is NOT incoherent.
+- "questionable": a checkable claim you cannot settle either way — the record is genuinely unsettled, the figure is stated with more precision than any source supports, or it depends on events after your knowledge. "basis" says exactly what cannot be verified. Never use "questionable" as a hedge on a fact you know, and never because a true claim is unpopular, uncomfortable or politically charged.
+- "needs_citation": the claim is accurate, but it is the kind of assertion a reader expects a source for — a statistic, a study finding, a quotation, a dated event, a specific non-common-knowledge fact — and no citation marker, parenthetical or prose attribution appears in or around the sentence. "basis" names the kind of source that would support it.
+- "accurate": the factual claims are correct, and either they are common knowledge or a citation or attribution is present.
+- "no_claim": the sentence contains no checkable factual claim — an opinion, value judgement, prediction, greeting, instruction, question or framed fiction — however forcefully it is stated. "Jazz is the greatest art form America has produced" is no_claim, not false.
 
 Rules:
-- Judge each sentence in the context of the whole document (resolve pronouns and references from surrounding text).
-- explanation: at most 25 words, concrete. For "false", state the correct fact. For "needs_citation", name what kind of source would support it. For "accurate" and "no_claim", use an empty string.
-- revision: a minimal rewrite of the sentence that fixes the problem while preserving the author's voice and intent. Empty string for "accurate", "no_claim", and "needs_citation" (nothing to rewrite — it needs a source, not different words). Never include surrounding sentences.
-- A citation can be a bracketed marker like [1], a parenthetical (Author, year), or prose attribution ("According to…", "X reported…"). Any of these count as cited — never flag them "needs_citation".
+- Judge each sentence in the context of the whole document; resolve pronouns and references from the surrounding text.
+- A citation can be a bracketed marker like [1], a parenthetical (Author, year), or prose attribution ("According to…", "X reported…"). Any of these count as cited — never flag them "needs_citation". Ignore bracketed markers when judging the claim itself.
 - Widely known facts (capitals, famous dates, basic science) are common knowledge: "accurate", not "needs_citation".
-- Precedence: a wrong claim is "false" and an unverifiable one "questionable" even if it also lacks a citation.
-- Ignore bracketed citation markers like [1] when judging a sentence.
-- Do not flag style, tone, or grammar unless it makes the sentence incoherent.
-- Reasonable, widely used approximations are accurate, not questionable.
-- Be decisive: reserve "questionable" for genuine uncertainty, not as a hedge on facts you know.
-- Today's date is ${today}. If a claim depends on events you cannot verify because they postdate your knowledge, mark it "questionable" and say why.`;
+- Reasonable, widely used approximations and rounded figures are accurate.
+- A sentence that is right in every detail but one is "false" — name the one detail.
+- Be consistent: the same sentence always gets the same verdict.
+- "basis": a statement of fact in plain words, at most 30 words — never advice, never a remark about the author.
+- "explanation": shown to the author, at most 25 words, concrete. For "false", state the correct fact. For "needs_citation", name the kind of source. For "questionable", say what cannot be verified. For "incoherent", say where the sentence breaks.
+- "revision": for "false" and "incoherent", the minimal rewrite that makes the sentence correct while keeping the author's voice — never add surrounding sentences. For "questionable", a more careful wording only when one is warranted, else "". Always "" for "needs_citation": it needs a source, not different words.
+- Today's date is ${today}.`;
 }
 
 function userPrompt(text, sentences) {
@@ -87,26 +127,75 @@ export function checkPromptBytes({ text, sentences }) {
     Buffer.byteLength(JSON.stringify(FINDINGS_SCHEMA));
 }
 
+/* Sentences per model call.
+ *
+ * A check is decode-bound: on the reasoning model the wall clock is roughly
+ * the reasoning tokens plus the output per sentence, at a few dozen tokens a
+ * second, so a 40-sentence first pass took 15-20 s and an 11-sentence essay
+ * 9-13 s (measured, eval/models/results-baseline). Splitting the list into
+ * shards that run CONCURRENTLY makes the wall clock the slowest shard's,
+ * not the sum. Each shard repeats the instructions and the (short) document
+ * context — the instructions are a stable prefix the provider caches, and
+ * the context is at most 2,000 characters — so the extra input is a fraction
+ * of a cent on a 40-sentence check. Sharding also caps how much one
+ * truncation can cost: a shard that overruns splits (checkBatch), not the
+ * whole check.
+ *
+ * The route admits the extra calls against its spend hold first (admitCalls,
+ * one more worst case per extra shard); refused, the check runs as one call,
+ * exactly as before. Overridable for the eval harness's sweeps. */
+export const CHECK_SHARD_SENTENCES = Math.max(1, Number(process.env.TRACELY_CHECK_SHARD) || 8);
+
+export function shardSentences(sentences, size = CHECK_SHARD_SENTENCES) {
+  const n = sentences.length;
+  if (n <= size) return [sentences];
+  const k = Math.ceil(n / size);
+  const per = Math.ceil(n / k);
+  const out = [];
+  for (let i = 0; i < n; i += per) out.push(sentences.slice(i, i + per));
+  return out;
+}
+
 /* `admitSplit`, when given, is asked before a truncated batch is split into
  * two more calls, and the split happens only if it answers true — the route
  * uses it to hold those calls' worst case against a spend pool (server.js
  * /api/check). Refused, the truncation stands: the check fails as it would
- * for a single sentence, and what the truncated call cost is still recorded. */
+ * for a single sentence, and what the truncated call cost is still recorded.
+ * `admitCalls(n)`, when given, is asked once before a check is sharded into
+ * n extra concurrent calls; refused, it runs as one call. */
 /* `maxTokens` overrides the route's output ceiling (16,000) — server.js
  * passes 2,000 for an "Explain in depth" check on the thorough model, which is
  * what makes that call's worst case (shared/plan.js THOROUGH_RESERVE_USD) a
  * bound. Absent, the ceiling is unchanged. */
-export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, maxTokens = undefined }) {
+export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, admitCalls = null, maxTokens = undefined }) {
   const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
   const context = checkContext(text);
   // `effort` used to be destructured here and then dropped, so the slider
   // moved the model and nothing else. undefined falls to lib/llm.js's
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
-  return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, maxTokens });
+  const shards = shardSentences(sentences);
+  if (shards.length === 1 || !callsAdmitted(admitCalls, shards.length - 1)) {
+    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, maxTokens });
+  }
+  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, maxTokens })));
+  const done = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
+  const failed = settled.find((r) => r.status === "rejected");
+  if (failed) {
+    // Every shard that answered was billed, and so was whatever the failing
+    // one managed — the route records only what the error it catches carries.
+    const billed = done.reduce((acc, r) => addUsage(acc, r.usage), null);
+    throw withBilledUsage(failed.reason, billed, failed.reason?.llm);
+  }
+  return {
+    findings: done.flatMap((r) => r.findings),
+    model: done[0]?.model ?? chosenModel,
+    usage: done.reduce((acc, r) => addUsage(acc, r.usage), { input: 0, output: 0, cached: 0, cacheWrite: 0 }),
+    shards: shards.length,
+  };
 }
 
-async function checkBatch({ text, sentences, model, effort, admitSplit, maxTokens }) {
+async function checkBatch({ text, sentences, model, effort, admitSplit, maxTokens, retryMissing = true }) {
   let result;
   try {
     result = await structuredCall({
@@ -150,15 +239,51 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, maxToken
   const validIds = new Set(sentences.map((s) => s.id));
   const findings = (Array.isArray(result.parsed.findings) ? result.parsed.findings : [])
     .filter((f) => f && validIds.has(f.id))
-    .map((f) => ({
-      id: f.id,
-      verdict: ["accurate", "needs_citation", "false", "questionable", "incoherent", "no_claim"].includes(f.verdict) ? f.verdict : "no_claim",
-      explanation: String(f.explanation ?? "").slice(0, 400),
-      revision: String(f.revision ?? "").slice(0, 2000),
-      confidence: ["high", "medium", "low"].includes(f.confidence) ? f.confidence : "medium",
-    }));
+    .map(normalizeFinding);
+
+  // One finding per id is the contract, and the model keeps it almost
+  // always — measured once in 165 judgements it left an id out. A sentence
+  // with no finding is a sentence never checked, so the ones it skipped are
+  // asked again, once, on their own; a second miss stands (the client treats
+  // a missing id as unchecked and asks next cycle).
+  const answered = new Set(findings.map((f) => f.id));
+  const missed = sentences.filter((s) => !answered.has(s.id));
+  if (missed.length && missed.length < sentences.length && retryMissing) {
+    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, maxTokens, retryMissing: false });
+    return { findings: [...findings, ...again.findings], model: again.model, usage: addUsage(result.usage, again.usage) };
+  }
 
   return { findings, model: result.model, usage: result.usage };
+}
+
+/* The wire shape every client reads, from either branch of the model schema —
+ * and from the old flat shape, which a mock or an older test still answers
+ * with. A "false" with no stated basis is demoted to "questionable": the
+ * prompt makes the correct fact the price of that verdict, and the schema
+ * makes the field mandatory, so an empty one is the model saying it could not
+ * name what is wrong. That is not a contradiction; it is a doubt. */
+export function normalizeFinding(f) {
+  let verdict = VERDICTS.has(f.verdict) ? f.verdict : "no_claim";
+  const basis = String(f.basis ?? "").trim().slice(0, 300);
+  if (verdict === "false" && basis.length < 8) verdict = "questionable";
+  const flagged = FLAGGED.has(verdict);
+  const explanation = flagged ? (String(f.explanation ?? "").trim().slice(0, 400) || basis) : "";
+  const revision = flagged && verdict !== "needs_citation" ? String(f.revision ?? "").slice(0, 2000) : "";
+  const out = {
+    id: f.id,
+    verdict,
+    explanation,
+    revision,
+    confidence: ["high", "medium", "low"].includes(f.confidence) ? f.confidence : "medium",
+  };
+  if (flagged && basis) out.basis = basis;
+  return out;
+}
+
+// A hook that throws refuses: the shards run as one call.
+function callsAdmitted(admitCalls, extra) {
+  if (!admitCalls) return true;
+  try { return admitCalls(extra) === true; } catch { return false; }
 }
 
 // ---------------------------------------------------------------------------

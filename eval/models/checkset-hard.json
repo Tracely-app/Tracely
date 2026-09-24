@@ -1,0 +1,1730 @@
+{
+ "name": "checkset-hard",
+ "built": "2026-09-24",
+ "source": "eval/models/checkset-hard: six essays written and adversarially label-verified with sources by parallel agents (workflow wf_805e7aa3-718), then filtered to sentences whose label survived and that the extension's splitter would segment as one sentence.",
+ "request_shape": "as checkset.json",
+ "verdicts": [
+  "accurate",
+  "needs_citation",
+  "false",
+  "questionable",
+  "incoherent",
+  "no_claim"
+ ],
+ "flag_of_verdict": {
+  "false": "false",
+  "needs_citation": "needs_citation",
+  "questionable": "questionable",
+  "incoherent": "incoherent",
+  "accurate": "none",
+  "no_claim": "none"
+ },
+ "scoring": {
+  "correct": "verdict in acceptable (1 point)",
+  "partial": "verdict in partial (0.5 point)",
+  "critical": "verdict in critical: a harmful error",
+  "wrong": "any other verdict, or a missing finding"
+ },
+ "counts": {
+  "total": 70,
+  "by_label": {
+   "common_knowledge": 6,
+   "false": 24,
+   "cited": 11,
+   "opinion": 12,
+   "trap": 6,
+   "true_uncited": 11
+  }
+ },
+ "essays": [
+  {
+   "id": "h1",
+   "title": "How the Digital World Was Built",
+   "topic": "hard set 1",
+   "text": "How the Digital World Was Built\nTim Berners-Lee invented the World Wide Web while working at CERN in Switzerland. Before that, the first ARPANET message was sent between UCLA and the Stanford Research Institute in October 1971. According to the ITU, about five point four billion people, or 67 percent of the world population, were using the internet in 2023. Big technology companies now hold far too much power over public life and governments have been cowardly about breaking them up.\nThe very first text message was sent in 1992 and just said Merry Christmas. Apple announced the first iPhone in January 2007 and it went on sale in the US that August. The first phone running Android, the HTC Dream, was released in October 2008. The smartphone is the single most important invention of the twenty-first century.\nThe term artificial intelligence was coined by Alan Turing for a workshop at Dartmouth College in 1956. In 2016 the program AlphaGo beat the Go champion Lee Sedol five games to nothing. A 2019 study by NIST found that many face recognition algorithms produced false matches for Asian and African American faces at rates ten to one hundred times higher than for white faces. More than half of the billion-dollar startups in the US in 2022 had at least one immigrant founder.",
+   "sentences": [
+    {
+     "id": "h1s01",
+     "hash": "smfll0j",
+     "paragraph": 1,
+     "text": "Tim Berners-Lee invented the World Wide Web while working at CERN in Switzerland.",
+     "label": "common_knowledge",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Famous, uncontroversial fact; Berners-Lee proposed the Web at CERN in Geneva in March 1989. Should be accurate, never needs_citation.",
+     "source_url": "https://en.wikipedia.org/wiki/Tim_Berners-Lee"
+    },
+    {
+     "id": "h1s02",
+     "hash": "s1fnu6j6",
+     "paragraph": 1,
+     "text": "Before that, the first ARPANET message was sent between UCLA and the Stanford Research Institute in October 1971.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Right sites, wrong year by two: the first host-to-host ARPANET message went from UCLA to SRI on 29 October 1969, not 1971 (Wikipedia, ARPANET).",
+     "source_url": "https://en.wikipedia.org/wiki/ARPANET"
+    },
+    {
+     "id": "h1s03",
+     "hash": "sl7tknt",
+     "paragraph": 1,
+     "text": "According to the ITU, about five point four billion people, or 67 percent of the world population, were using the internet in 2023.",
+     "label": "cited",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "ITU Facts and Figures 2023 press release: 5.4 billion people, 67 per cent of the world population, use the Internet. The sentence names the source, so it must not be asked for a citation.",
+     "source_url": "https://www.itu.int/en/mediacentre/Pages/PR-2023-11-27-facts-and-figures-measuring-digital-development.aspx"
+    },
+    {
+     "id": "h1s04",
+     "hash": "s1frky2i",
+     "paragraph": 1,
+     "text": "Big technology companies now hold far too much power over public life and governments have been cowardly about breaking them up.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Politically loaded value judgement (too much power, cowardly) with no checkable factual claim; expected no_claim, not false.",
+     "source_url": ""
+    },
+    {
+     "id": "h1s05",
+     "hash": "s1vu5yxg",
+     "paragraph": 2,
+     "text": "The very first text message was sent in 1992 and just said Merry Christmas.",
+     "label": "trap",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds like an urban legend but is true: Neil Papworth sent the first SMS, reading Merry Christmas, on 3 December 1992 over Vodafone's network. Must not be marked false.",
+     "source_url": "https://en.wikipedia.org/wiki/SMS"
+    },
+    {
+     "id": "h1s06",
+     "hash": "s1tec1c0",
+     "paragraph": 2,
+     "text": "Apple announced the first iPhone in January 2007 and it went on sale in the US that August.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Announcement date (9 January 2007) is right but the release month is wrong: the iPhone went on sale in the US on 29 June 2007, not August (Wikipedia, iPhone 1st generation).",
+     "source_url": "https://en.wikipedia.org/wiki/IPhone_(1st_generation)"
+    },
+    {
+     "id": "h1s07",
+     "hash": "s1x2v6k8",
+     "paragraph": 2,
+     "text": "The first phone running Android, the HTC Dream, was released in October 2008.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True: the HTC Dream (T-Mobile G1) was released 20 October 2008 and was the first commercially released Android device. Specific dated fact with no attribution, so needs_citation.",
+     "source_url": "https://en.wikipedia.org/wiki/HTC_Dream"
+    },
+    {
+     "id": "h1s08",
+     "hash": "s13p64fj",
+     "paragraph": 2,
+     "text": "The smartphone is the single most important invention of the twenty-first century.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Assertive superlative written as fact but purely a value judgement; expected no_claim.",
+     "source_url": ""
+    },
+    {
+     "id": "h1s09",
+     "hash": "s1o292gt",
+     "paragraph": 3,
+     "text": "The term artificial intelligence was coined by Alan Turing for a workshop at Dartmouth College in 1956.",
+     "label": "false",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Right event and year, wrong person: John McCarthy coined the term artificial intelligence in the 1955 proposal for the 1956 Dartmouth workshop; Turing died in 1954 and was not involved (Wikipedia, Dartmouth workshop).",
+     "source_url": "https://en.wikipedia.org/wiki/Dartmouth_workshop"
+    },
+    {
+     "id": "h1s10",
+     "hash": "sogrey0",
+     "paragraph": 3,
+     "text": "In 2016 the program AlphaGo beat the Go champion Lee Sedol five games to nothing.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Year, players and winner are right but the score is wrong: AlphaGo won 4 to 1, Lee Sedol won game 4 on 13 March 2016 (Wikipedia, AlphaGo versus Lee Sedol).",
+     "source_url": "https://en.wikipedia.org/wiki/AlphaGo_versus_Lee_Sedol"
+    },
+    {
+     "id": "h1s11",
+     "hash": "s328uu0",
+     "paragraph": 3,
+     "text": "A 2019 study by NIST found that many face recognition algorithms produced false matches for Asian and African American faces at rates ten to one hundred times higher than for white faces.",
+     "label": "cited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True and attributed to NIST: the December 2019 NIST FRVT report found one-to-one false positive rates for Asian and African American faces 10 to 100 times higher than for Caucasians depending on algorithm. Racially charged but true; must be accurate, not questionable.",
+     "source_url": "https://www.nist.gov/news-events/news/2019/12/nist-study-evaluates-effects-race-age-sex-face-recognition-software"
+    },
+    {
+     "id": "h1s12",
+     "hash": "s1iex93l",
+     "paragraph": 3,
+     "text": "More than half of the billion-dollar startups in the US in 2022 had at least one immigrant founder.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True but uncited: NFAP found 319 of 582 US unicorns (55 percent) as of May 2022 had an immigrant founder. Immigration-charged statistic; expected needs_citation, not false or questionable.",
+     "source_url": "https://www.prnewswire.com/news-releases/new-research-immigrants-have-started-more-than-half-of-americas-billion-dollar-startup-companies-301593458.html"
+    }
+   ]
+  },
+  {
+   "id": "h2",
+   "title": "What I Learned About Medical Myths",
+   "topic": "hard set 2",
+   "text": "What I Learned About Medical Myths\nThe human heart has four chambers and pumps blood through the lungs and around the rest of the body. Alexander Fleming noticed penicillin mould killing colonies of Staphylococcus on a plate in his London laboratory in 1926. Long before that, in 1798, Edward Jenner inoculated eight-year-old James Phipps with material from a cowpox sore to protect him against smallpox. The 1954 field trial of Jonas Salk's polio vaccine enrolled roughly 180,000 schoolchildren across 44 states.\nNeuroscientists estimate that a healthy adult uses only about ten percent of the brain at any one time. A meta-analysis by Wolraich and colleagues (1995) pooled 23 trials and found that sugar does not affect the behaviour or cognition of children. Strangely enough, the average adult body contains roughly as many bacterial cells as human cells. Those bacteria are also becoming harder to treat, and bacterial antimicrobial resistance was directly responsible for an estimated 1,270,000 deaths worldwide in 2019.\nThe US confirmed 1,274 measles cases in 2019, the greatest number reported since 1992. According to the CDC, Black women in the US die from pregnancy-related causes at more than two and a half times the rate of white women. Vaccination is the single greatest achievement in the history of medicine. Parents who refuse to vaccinate their children are being selfish and putting everyone else at risk.",
+   "sentences": [
+    {
+     "id": "h2s01",
+     "hash": "s4xkdq8",
+     "paragraph": 1,
+     "text": "The human heart has four chambers and pumps blood through the lungs and around the rest of the body.",
+     "label": "common_knowledge",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Basic anatomy taught in every school biology class; two atria and two ventricles, pulmonary and systemic circulation. Needs no citation.",
+     "source_url": ""
+    },
+    {
+     "id": "h2s02",
+     "hash": "sg5mhbb",
+     "paragraph": 1,
+     "text": "Alexander Fleming noticed penicillin mould killing colonies of Staphylococcus on a plate in his London laboratory in 1926.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Everything is right except the year: Fleming made the observation on 3 September 1928 at St Mary's Hospital, London, not 1926 (Wikipedia, Alexander Fleming).",
+     "source_url": "https://en.wikipedia.org/wiki/Alexander_Fleming"
+    },
+    {
+     "id": "h2s03",
+     "hash": "s16wcd6p",
+     "paragraph": 1,
+     "text": "Long before that, in 1798, Edward Jenner inoculated eight-year-old James Phipps with material from a cowpox sore to protect him against smallpox.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The inoculation of eight-year-old James Phipps took place on 14 May 1796; 1798 is the year Jenner published An Inquiry Into the Causes and Effects of the Variolae Vaccinae. Right person, right child, right age, right material, wrong year.",
+     "source_url": "https://en.wikipedia.org/wiki/Edward_Jenner"
+    },
+    {
+     "id": "h2s04",
+     "hash": "s16ary90",
+     "paragraph": 1,
+     "text": "The 1954 field trial of Jonas Salk's polio vaccine enrolled roughly 180,000 schoolchildren across 44 states.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The 1954 Francis Field Trial involved about 1,800,000 children in 44 states, an order of magnitude more than 180,000 (Wikipedia, Polio vaccine). Year and state count are correct.",
+     "source_url": "https://en.wikipedia.org/wiki/Polio_vaccine"
+    },
+    {
+     "id": "h2s05",
+     "hash": "s1mb1fs1",
+     "paragraph": 2,
+     "text": "Neuroscientists estimate that a healthy adult uses only about ten percent of the brain at any one time.",
+     "label": "false",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The ten percent claim is a well-documented myth; brain imaging shows virtually all regions are active over the course of a day and there is almost no area that can be damaged without loss of function. Neuroscientists reject the figure rather than estimate it.",
+     "source_url": "https://en.wikipedia.org/wiki/Ten_percent_of_the_brain_myth"
+    },
+    {
+     "id": "h2s06",
+     "hash": "s3rl3yl",
+     "paragraph": 2,
+     "text": "A meta-analysis by Wolraich and colleagues (1995) pooled 23 trials and found that sugar does not affect the behaviour or cognition of children.",
+     "label": "cited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "Wolraich, Wilson and White, JAMA 1995, pooled 23 within-subject studies and concluded sugar does not affect the behavior or cognitive performance of children. The author-year attribution is a citation, so the checker should mark it accurate rather than asking for a source.",
+     "source_url": "https://jamanetwork.com/journals/jama/article-abstract/391812"
+    },
+    {
+     "id": "h2s07",
+     "hash": "ssoh8jy",
+     "paragraph": 2,
+     "text": "Strangely enough, the average adult body contains roughly as many bacterial cells as human cells.",
+     "label": "trap",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds wrong because the old 10 to 1 figure is so widely repeated, but Sender, Fuchs and Milo (PLOS Biology 2016) estimate about 38 trillion bacterial cells versus about 30 trillion human cells in a 70 kg reference man, a ratio of roughly 1 to 1. True; acceptable verdicts are needs_citation or accurate, never false.",
+     "source_url": "https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.1002533"
+    },
+    {
+     "id": "h2s08",
+     "hash": "s1fioweo",
+     "paragraph": 2,
+     "text": "Those bacteria are also becoming harder to treat, and bacterial antimicrobial resistance was directly responsible for an estimated 1,270,000 deaths worldwide in 2019.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "The Lancet GRAM study (Murray and colleagues, 2022) estimated AMR was directly responsible for 1,270,000 deaths and associated with 4,950,000 deaths in 2019. True, specific statistic, no attribution in the sentence, so it needs a citation.",
+     "source_url": "https://www.eurekalert.org/news-releases/940530"
+    },
+    {
+     "id": "h2s09",
+     "hash": "s9uz0bu",
+     "paragraph": 3,
+     "text": "The US confirmed 1,274 measles cases in 2019, the greatest number reported since 1992.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "CDC measles data page: from January 1 to December 31, 2019, 1,274 cases were confirmed in 31 states, the greatest number since 1992 (also stated in MMWR 68(40)). Politically charged because most cases were in unvaccinated people, but true; the checker should say needs_citation, not questionable.",
+     "source_url": "https://www.cdc.gov/measles/data-research/index.html"
+    },
+    {
+     "id": "h2s10",
+     "hash": "saovvi8",
+     "paragraph": 3,
+     "text": "According to the CDC, Black women in the US die from pregnancy-related causes at more than two and a half times the rate of white women.",
+     "label": "cited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "CDC NCHS 2021 maternal mortality report: 69.9 deaths per 100,000 live births for non-Hispanic Black women versus 26.6 for non-Hispanic White women, 2.6 times the rate. Attributed to the CDC in the sentence, so it should be marked accurate; charged racial-disparity statistic that must not be softened.",
+     "source_url": "https://www.cdc.gov/nchs/data/hestat/maternal-mortality/2021/maternal-mortality-rates-2021.htm"
+    },
+    {
+     "id": "h2s11",
+     "hash": "s1lx0opy",
+     "paragraph": 3,
+     "text": "Vaccination is the single greatest achievement in the history of medicine.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Written assertively as if it were a fact, but ranking achievements is a value judgement with no checkable claim. Expected no_claim.",
+     "source_url": ""
+    },
+    {
+     "id": "h2s12",
+     "hash": "srz4n0r",
+     "paragraph": 3,
+     "text": "Parents who refuse to vaccinate their children are being selfish and putting everyone else at risk.",
+     "label": "opinion",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Emotionally and politically loaded moral judgement about motives; no verifiable factual claim. Expected no_claim, not false.",
+     "source_url": ""
+    }
+   ]
+  },
+  {
+   "id": "h3",
+   "title": "Reading Frankenstein Two Centuries Later",
+   "topic": "hard set 3",
+   "text": "Reading Frankenstein Two Centuries Later\nFrankenstein is a novel by the English writer Mary Shelley. The book was first published anonymously in London in 1816, in three volumes. The first edition was a run of only 500 copies from the small publisher Lackington, Hughes, Harding, Mavor and Jones. Shelley dedicated that first edition to her husband, the poet Percy Shelley.\nAs the Wikipedia entry on the Villa Diodati notes, the story began in the wet summer of 1816 near Lake Geneva, when Lord Byron proposed that his guests each write a ghost story. Mary Shelley was only eighteen years old when she started writing it. In the novel Victor Frankenstein builds his creature while he is a student at the University of Heidelberg. Later the creature teaches himself about humanity from three books he finds, Paradise Lost, Plutarch's Lives, and Goethe's Faust.\nFrankenstein is the greatest novel ever written in the English language. The creature is the only truly innocent character in the book, and Victor is a coward who deserves every bit of misery he gets. The story is really about how society treats outsiders, and it is worth remembering that immigrants in the US today are about 60 percent less likely to be incarcerated than people born in the country. The novel was also born from a climate disaster, and according to the IPCC the global surface temperature in the decade 2011 to 2020 was just over one degree Celsius above the 1850 to 1900 average.",
+   "sentences": [
+    {
+     "id": "h3s01",
+     "hash": "sl7drgu",
+     "paragraph": 1,
+     "text": "Frankenstein is a novel by the English writer Mary Shelley.",
+     "label": "common_knowledge",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Universally known authorship fact; no citation needed.",
+     "source_url": "https://en.wikipedia.org/wiki/Frankenstein"
+    },
+    {
+     "id": "h3s02",
+     "hash": "s12jxbke",
+     "paragraph": 1,
+     "text": "The book was first published anonymously in London in 1816, in three volumes.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Anonymous, London, three volumes are all correct, but the year is wrong: the first edition appeared on 1 January 1818 (1816 is the summer the story was conceived). Source: Wikipedia Frankenstein article.",
+     "source_url": "https://en.wikipedia.org/wiki/Frankenstein"
+    },
+    {
+     "id": "h3s03",
+     "hash": "s1ystwuy",
+     "paragraph": 1,
+     "text": "The first edition was a run of only 500 copies from the small publisher Lackington, Hughes, Harding, Mavor and Jones.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True specific bibliographic fact (500 copies, Lackington, Hughes, Harding, Mavor & Jones) stated with no citation, so it should be flagged as needing one.",
+     "source_url": "https://en.wikipedia.org/wiki/Frankenstein"
+    },
+    {
+     "id": "h3s04",
+     "hash": "ssqq60a",
+     "paragraph": 1,
+     "text": "Shelley dedicated that first edition to her husband, the poet Percy Shelley.",
+     "label": "false",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The 1818 edition was dedicated to her father, the philosopher William Godwin, not to Percy Shelley (who wrote the preface). Source: Wikipedia Frankenstein article.",
+     "source_url": "https://en.wikipedia.org/wiki/Frankenstein"
+    },
+    {
+     "id": "h3s05",
+     "hash": "s10m1pc5",
+     "paragraph": 2,
+     "text": "Mary Shelley was only eighteen years old when she started writing it.",
+     "label": "trap",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds implausibly young but is true: born 30 August 1797, she began the story in June 1816 at eighteen and finished at nineteen. Must not be marked false.",
+     "source_url": "https://en.wikipedia.org/wiki/Villa_Diodati"
+    },
+    {
+     "id": "h3s06",
+     "hash": "s1wdpsmq",
+     "paragraph": 2,
+     "text": "In the novel Victor Frankenstein builds his creature while he is a student at the University of Heidelberg.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Victor studies at the University of Ingolstadt, not Heidelberg; the Gutenberg text says his parents resolved he should become a student at the university of Ingolstadt.",
+     "source_url": "https://www.gutenberg.org/cache/epub/84/pg84-images.html"
+    },
+    {
+     "id": "h3s07",
+     "hash": "s1ezayho",
+     "paragraph": 2,
+     "text": "Later the creature teaches himself about humanity from three books he finds, Paradise Lost, Plutarch's Lives, and Goethe's Faust.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Two of the three titles are right, but the third book is Goethe's The Sorrows of Young Werther, not Faust. Source: Wikipedia Frankenstein's monster article.",
+     "source_url": "https://en.wikipedia.org/wiki/Frankenstein%27s_monster"
+    },
+    {
+     "id": "h3s08",
+     "hash": "sl880io",
+     "paragraph": 3,
+     "text": "Frankenstein is the greatest novel ever written in the English language.",
+     "label": "opinion",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Value judgement stated assertively as fact; no checkable claim, so no_claim.",
+     "source_url": ""
+    },
+    {
+     "id": "h3s09",
+     "hash": "sd8s86u",
+     "paragraph": 3,
+     "text": "The creature is the only truly innocent character in the book, and Victor is a coward who deserves every bit of misery he gets.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Emotionally loaded moral interpretation of characters; not a factual claim, so no_claim.",
+     "source_url": ""
+    },
+    {
+     "id": "h3s10",
+     "hash": "sm0jjxh",
+     "paragraph": 3,
+     "text": "The story is really about how society treats outsiders, and it is worth remembering that immigrants in the US today are about 60 percent less likely to be incarcerated than people born in the country.",
+     "label": "true_uncited",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Politically charged but true: NBER working paper 31440 (Abramitzky and colleagues) finds immigrants today are 60 percent less likely to be incarcerated than the US-born. No citation in the sentence, so needs_citation, not questionable or false.",
+     "source_url": "https://www.nber.org/papers/w31440"
+    },
+    {
+     "id": "h3s11",
+     "hash": "sjrqp5n",
+     "paragraph": 3,
+     "text": "The novel was also born from a climate disaster, and according to the IPCC the global surface temperature in the decade 2011 to 2020 was just over one degree Celsius above the 1850 to 1900 average.",
+     "label": "cited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "Charged but true and attributed to the IPCC: AR6 states global surface temperature reached 1.1 C above 1850-1900 in 2011-2020. Cited, so must be accurate, not needs_citation.",
+     "source_url": "https://en.wikipedia.org/wiki/IPCC_Sixth_Assessment_Report"
+    }
+   ]
+  },
+  {
+   "id": "h4",
+   "title": "The Space Race Between Two Superpowers",
+   "topic": "hard set 4",
+   "text": "The Space Race Between Two Superpowers\nThe Soviet Union launched Sputnik 1, the first artificial satellite, on October 4, 1957. Sputnik 1 weighed about 184 pounds and took roughly an hour and a half to circle the planet. A month later Sputnik 3 carried a dog named Laika into orbit, making her the first animal to circle the Earth.\nYuri Gagarin became the first human in space on April 12, 1961, and his single orbit aboard Vostok 1 lasted roughly three hours. Less than a month later, John Glenn became the first American in space when he flew a short suborbital hop on May 5, 1961. According to NASA, President Kennedy asked Congress on May 25, 1961 to commit the nation to landing a man on the Moon before the decade was out.\nPolls taken throughout the 1960s consistently found that a majority of Americans did not think the Apollo program was worth its cost. Pouring that kind of money into rockets while so many American cities were struggling with poverty was a moral failure by the government. As the Smithsonian's National Air and Space Museum notes, Wernher von Braun, whose team led the development of the Saturn rockets, had been a Nazi Party member and an SS officer.\nOn July 20, 1969, the lunar module Columbia touched down on the Moon while Michael Collins waited in orbit aboard the command module Eagle. The first woman in space, Valentina Tereshkova, flew in 1963, a full twenty years before the first American woman reached orbit. The Moon landing is the single greatest achievement in all of human history.",
+   "sentences": [
+    {
+     "id": "h4s01",
+     "hash": "s1u1mf7f",
+     "paragraph": 1,
+     "text": "The Soviet Union launched Sputnik 1, the first artificial satellite, on October 4, 1957.",
+     "label": "common_knowledge",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Famous, uncontroversial date; NASA history page confirms October 4, 1957 launch of the first artificial satellite.",
+     "source_url": "https://www.nasa.gov/history/dawn-of-the-space-age/"
+    },
+    {
+     "id": "h4s02",
+     "hash": "sw5gexc",
+     "paragraph": 1,
+     "text": "Sputnik 1 weighed about 184 pounds and took roughly an hour and a half to circle the planet.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True specific statistic with no attribution: NASA gives 83.6 kg / 183.9 pounds and about 98 minutes per orbit (other sources 96 minutes), both roughly an hour and a half. Needs a citation.",
+     "source_url": "https://www.nasa.gov/history/dawn-of-the-space-age/"
+    },
+    {
+     "id": "h4s03",
+     "hash": "swlng5s",
+     "paragraph": 1,
+     "text": "A month later Sputnik 3 carried a dog named Laika into orbit, making her the first animal to circle the Earth.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Wrong spacecraft number: Laika flew on Sputnik 2, launched November 3, 1957, per NASA. Everything else in the sentence is correct.",
+     "source_url": "https://www.nasa.gov/history/60-years-ago-the-first-animal-in-orbit/"
+    },
+    {
+     "id": "h4s04",
+     "hash": "s1h22rkx",
+     "paragraph": 2,
+     "text": "Yuri Gagarin became the first human in space on April 12, 1961, and his single orbit aboard Vostok 1 lasted roughly three hours.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Duration is wrong: the Vostok 1 flight lasted 108 minutes (about one hour forty-eight minutes), not roughly three hours, per NASA and The Planetary Society. Date, name and spacecraft are correct.",
+     "source_url": "https://www.nasa.gov/image-article/april-1961-first-human-entered-space/"
+    },
+    {
+     "id": "h4s05",
+     "hash": "s1snld0e",
+     "paragraph": 2,
+     "text": "Less than a month later, John Glenn became the first American in space when he flew a short suborbital hop on May 5, 1961.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Right achievement, wrong person: Alan B. Shepard was the first American in space on May 5, 1961 aboard Freedom 7 (suborbital), per NASA. John Glenn was the first American to orbit, on February 20, 1962.",
+     "source_url": "https://www.nasa.gov/history/60-years-ago-alan-shepard-becomes-the-first-american-in-space/"
+    },
+    {
+     "id": "h4s06",
+     "hash": "sf6gaja",
+     "paragraph": 2,
+     "text": "According to NASA, President Kennedy asked Congress on May 25, 1961 to commit the nation to landing a man on the Moon before the decade was out.",
+     "label": "cited",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True and attributed (\"According to NASA\"): NASA's history page confirms Kennedy's May 25, 1961 address to Congress proposing the lunar landing goal before the decade is out. Must not be flagged for citation.",
+     "source_url": "https://www.nasa.gov/history/the-decision-to-go-to-the-moon/"
+    },
+    {
+     "id": "h4s07",
+     "hash": "s1auyqrz",
+     "paragraph": 3,
+     "text": "Pouring that kind of money into rockets while so many American cities were struggling with poverty was a moral failure by the government.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Politically loaded value judgement (\"moral failure\") with no checkable fact; expected no_claim.",
+     "source_url": ""
+    },
+    {
+     "id": "h4s08",
+     "hash": "s1b4r8q3",
+     "paragraph": 3,
+     "text": "As the Smithsonian's National Air and Space Museum notes, Wernher von Braun, whose team led the development of the Saturn rockets, had been a Nazi Party member and an SS officer.",
+     "label": "cited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "Charged but true and attributed: the NASM Project Paperclip editorial states von Braun \"had been a party member and SS officer\" and that his group went on to lead development of the Saturn rockets that put Americans on the Moon. Must be accurate, not softened.",
+     "source_url": "https://airandspace.si.edu/stories/editorial/project-paperclip-and-american-rocketry-after-world-war-ii"
+    },
+    {
+     "id": "h4s09",
+     "hash": "sxb0ezd",
+     "paragraph": 4,
+     "text": "On July 20, 1969, the lunar module Columbia touched down on the Moon while Michael Collins waited in orbit aboard the command module Eagle.",
+     "label": "false",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Spacecraft names are swapped: the lunar module was Eagle and the command module was Columbia, per NASA's Apollo 11 mission overview. The date and Collins's role are correct.",
+     "source_url": "https://www.nasa.gov/history/apollo-11-mission-overview/"
+    },
+    {
+     "id": "h4s10",
+     "hash": "s1kj9414",
+     "paragraph": 4,
+     "text": "The first woman in space, Valentina Tereshkova, flew in 1963, a full twenty years before the first American woman reached orbit.",
+     "label": "trap",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds like an exaggeration but is exactly true: Tereshkova flew on Vostok 6 on June 16, 1963, and Sally Ride became the first American woman in space on Challenger in 1983 (June 18, 1983), twenty years later. Expected accurate or needs_citation, never false.",
+     "source_url": "https://www.rmg.co.uk/stories/space-astronomy/who-was-first-woman-space"
+    },
+    {
+     "id": "h4s11",
+     "hash": "sgkvwgx",
+     "paragraph": 4,
+     "text": "The Moon landing is the single greatest achievement in all of human history.",
+     "label": "opinion",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Assertive superlative stated as fact but is a pure value judgement with no checkable claim; expected no_claim.",
+     "source_url": ""
+    }
+   ]
+  },
+  {
+   "id": "h5",
+   "title": "World Cities and Global Sport",
+   "topic": "hard set 5",
+   "text": "World Cities and Global Sport\nTokyo is the capital of Japan and it hosted the Summer Olympics in 1964. The capital of Australia is Sydney, which hosted the Summer Olympics in 2000. London has hosted the Summer Olympics three times, in 1908, 1944 and 2012. Canada did not win a single gold medal at the 1976 Montreal Olympics even though it was the host nation.\nUsain Bolt set his men's 100 metres world record at the World Championships in Berlin in 2011. Brazil has won the World Cup five times, most recently in 2006. Uruguay hosted and won the first World Cup in 1930, and only four European teams made the trip. According to FIFA, the global audience for the 2018 World Cup final peaked at more than one billion people.\nAround four in ten London residents were born outside the UK as of 2021. According to a 2021 Guardian investigation, more than 6,500 migrant workers died in Qatar in the decade after it was awarded the World Cup. Countries with poor human rights records should simply be banned from hosting the World Cup. Football is the greatest sport humanity has ever invented.",
+   "sentences": [
+    {
+     "id": "h5s01",
+     "hash": "si09vn3",
+     "paragraph": 1,
+     "text": "Tokyo is the capital of Japan and it hosted the Summer Olympics in 1964.",
+     "label": "common_knowledge",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Tokyo is Japan's capital and hosted the 1964 Summer Games, the first in Asia; both are widely known facts.",
+     "source_url": "https://en.wikipedia.org/wiki/Tokyo"
+    },
+    {
+     "id": "h5s02",
+     "hash": "s1kkk74e",
+     "paragraph": 1,
+     "text": "The capital of Australia is Sydney, which hosted the Summer Olympics in 2000.",
+     "label": "false",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Sydney did host the 2000 Games, but the capital of Australia is Canberra, founded in 1913 as a compromise between Sydney and Melbourne (Wikipedia, Canberra).",
+     "source_url": "https://en.wikipedia.org/wiki/Canberra"
+    },
+    {
+     "id": "h5s03",
+     "hash": "s1jmu3n3",
+     "paragraph": 1,
+     "text": "London has hosted the Summer Olympics three times, in 1908, 1944 and 2012.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "London did host three times, but the years were 1908, 1948 and 2012; the 1944 Games awarded to London were cancelled because of World War II (Wikipedia list of Olympic host cities).",
+     "source_url": "https://en.wikipedia.org/wiki/List_of_Olympic_Games_host_cities"
+    },
+    {
+     "id": "h5s04",
+     "hash": "scxo4j7",
+     "paragraph": 1,
+     "text": "Canada did not win a single gold medal at the 1976 Montreal Olympics even though it was the host nation.",
+     "label": "trap",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds wrong but is true: Canada won 5 silver and 6 bronze and zero gold in 1976, the only time a Summer Olympics host has failed to win a gold medal.",
+     "source_url": "https://en.wikipedia.org/wiki/Canada_at_the_1976_Summer_Olympics"
+    },
+    {
+     "id": "h5s05",
+     "hash": "s34opi0",
+     "paragraph": 2,
+     "text": "Usain Bolt set his men's 100 metres world record at the World Championships in Berlin in 2011.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Right city, wrong year: Bolt ran 9.58 in Berlin on 16 August 2009, not 2011 (Wikipedia 100 m world record progression).",
+     "source_url": "https://en.wikipedia.org/wiki/Men%27s_100_metres_world_record_progression"
+    },
+    {
+     "id": "h5s06",
+     "hash": "s7ga3tk",
+     "paragraph": 2,
+     "text": "Brazil has won the World Cup five times, most recently in 2006.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "Brazil has five titles (1958, 1962, 1970, 1994, 2002), but the most recent was 2002, when they beat Germany 2-0; Italy won in 2006.",
+     "source_url": "https://en.wikipedia.org/wiki/Brazil_at_the_FIFA_World_Cup"
+    },
+    {
+     "id": "h5s07",
+     "hash": "s1pgqoal",
+     "paragraph": 2,
+     "text": "Uruguay hosted and won the first World Cup in 1930, and only four European teams made the trip.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True, specific and dated but uncited: Uruguay hosted and won in 1930; only Belgium, France, Romania and Yugoslavia travelled from Europe out of 13 teams.",
+     "source_url": "https://en.wikipedia.org/wiki/1930_FIFA_World_Cup"
+    },
+    {
+     "id": "h5s08",
+     "hash": "siij0mk",
+     "paragraph": 2,
+     "text": "According to FIFA, the global audience for the 2018 World Cup final peaked at more than one billion people.",
+     "label": "cited",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "Attributed to FIFA, which reported the final's global audience peaked at 1.12 billion (884 million TV plus 232 million on other platforms).",
+     "source_url": "https://en.wikipedia.org/wiki/2018_FIFA_World_Cup_final"
+    },
+    {
+     "id": "h5s09",
+     "hash": "s1ux5g01",
+     "paragraph": 3,
+     "text": "Around four in ten London residents were born outside the UK as of 2021.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Politically charged but true and uncited: the 2021 Census found 40.6 percent of usual residents in London were non-UK born (ONS). A checker must not soften this to questionable.",
+     "source_url": "https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/internationalmigration/bulletins/internationalmigrationenglandandwales/census2021"
+    },
+    {
+     "id": "h5s10",
+     "hash": "sk0hq8c",
+     "paragraph": 3,
+     "text": "According to a 2021 Guardian investigation, more than 6,500 migrant workers died in Qatar in the decade after it was awarded the World Cup.",
+     "label": "cited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "Charged but true and attributed: the Guardian's February 2021 investigation counted more than 6,500 deaths of migrant workers from India, Pakistan, Nepal, Bangladesh and Sri Lanka since Qatar was awarded the World Cup in December 2010 (VOA summary and search results confirm). Expected accurate, not needs_citation.",
+     "source_url": "https://projects.voanews.com/world-cup/cause-of-death/"
+    },
+    {
+     "id": "h5s11",
+     "hash": "s1s3mtes",
+     "paragraph": 3,
+     "text": "Countries with poor human rights records should simply be banned from hosting the World Cup.",
+     "label": "opinion",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Politically loaded normative claim with no checkable fact; expected no_claim.",
+     "source_url": ""
+    },
+    {
+     "id": "h5s12",
+     "hash": "skvehpw",
+     "paragraph": 3,
+     "text": "Football is the greatest sport humanity has ever invented.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Written assertively as if fact, but a pure value judgement with no checkable claim; expected no_claim, not false.",
+     "source_url": ""
+    }
+   ]
+  },
+  {
+   "id": "h6",
+   "title": "The Minimum Wage and Inflation",
+   "topic": "hard set 6",
+   "text": "The Minimum Wage and Inflation\nInflation means that the same amount of money buys fewer goods and services over time. According to the US Department of Labor, the federal minimum wage has been seven dollars and twenty five cents an hour since July 2009. When the Fair Labor Standards Act took effect in 1938 it set the first federal minimum wage at forty cents an hour. The most recent increase came from the Fair Minimum Wage Act, which Congress passed in 2009 and phased in over three steps.\nAdjusted for inflation, the minimum wage of 1968 was actually worth more than the seven dollars and twenty five cents workers earn under the federal rate today. Inflation as measured by the consumer price index hit nine percent in June 2022, the fastest pace since 1991. Even so, only about one million hourly workers, just over one percent of them, earned at or below the federal minimum in 2022. By 2023 thirty states and the District of Columbia had set their own minimum wages above the federal rate.\nThe Congressional Budget Office estimated in 2019 that a fifteen dollar federal minimum wage would eliminate about thirteen million jobs. As the same CBO report noted, the fifteen dollar wage would also lift about one million three hundred thousand people out of poverty. Raising the minimum wage is the single most effective anti-poverty tool the government has. Politicians who block a higher minimum wage simply do not care about working families.",
+   "sentences": [
+    {
+     "id": "h6s01",
+     "hash": "s1yf0ium",
+     "paragraph": 1,
+     "text": "Inflation means that the same amount of money buys fewer goods and services over time.",
+     "label": "common_knowledge",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Textbook definition of inflation; basic economics that needs no citation.",
+     "source_url": ""
+    },
+    {
+     "id": "h6s02",
+     "hash": "s10ri6v1",
+     "paragraph": 1,
+     "text": "According to the US Department of Labor, the federal minimum wage has been seven dollars and twenty five cents an hour since July 2009.",
+     "label": "cited",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True and attributed to the Department of Labor. The DOL history chart shows $7.25 effective July 24, 2009, and it has not changed since.",
+     "source_url": "https://www.dol.gov/agencies/whd/minimum-wage/history/chart"
+    },
+    {
+     "id": "h6s03",
+     "hash": "szx1xpe",
+     "paragraph": 1,
+     "text": "When the Fair Labor Standards Act took effect in 1938 it set the first federal minimum wage at forty cents an hour.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The first federal minimum wage, effective October 24, 1938, was 25 cents an hour, not 40 cents (40 cents was not reached until 1945). The DOL history chart lists $0.25 for Oct 24, 1938.",
+     "source_url": "https://www.dol.gov/agencies/whd/minimum-wage/history/chart"
+    },
+    {
+     "id": "h6s04",
+     "hash": "s72bmfi",
+     "paragraph": 1,
+     "text": "The most recent increase came from the Fair Minimum Wage Act, which Congress passed in 2009 and phased in over three steps.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The Fair Minimum Wage Act of 2007 was signed into law on May 25, 2007, not 2009; 2009 was only the date of the final step ($7.25 on July 24, 2009). The three-step phase-in (2007, 2008, 2009) is correct; the year of passage is wrong.",
+     "source_url": "https://en.wikipedia.org/wiki/Fair_Minimum_Wage_Act_of_2007"
+    },
+    {
+     "id": "h6s05",
+     "hash": "s14kywnm",
+     "paragraph": 2,
+     "text": "Adjusted for inflation, the minimum wage of 1968 was actually worth more than the seven dollars and twenty five cents workers earn under the federal rate today.",
+     "label": "trap",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation",
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Sounds wrong but is true: the 1968 minimum of $1.60 equals about $11.76 in 2018 dollars, well above $7.25. PolitiFact rated the claim True. Checker must not mark this false.",
+     "source_url": "https://api.politifact.com/factchecks/2018/may/22/tina-smith/minimum-wage-worth-less-now-50-years-ago"
+    },
+    {
+     "id": "h6s06",
+     "hash": "s10ysdah",
+     "paragraph": 2,
+     "text": "Inflation as measured by the consumer price index hit nine percent in June 2022, the fastest pace since 1991.",
+     "label": "false",
+     "difficulty": "subtle",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "The June 2022 CPI increase of 9.1 percent was the largest since the 12 months ending November 1981 (a 40-year high), not since 1991. BLS states this explicitly.",
+     "source_url": "https://www.bls.gov/opub/ted/2022/consumer-prices-up-9-1-percent-over-the-year-ended-june-2022-largest-increase-in-40-years.htm"
+    },
+    {
+     "id": "h6s07",
+     "hash": "s1c1hgst",
+     "paragraph": 2,
+     "text": "Even so, only about one million hourly workers, just over one percent of them, earned at or below the federal minimum in 2022.",
+     "label": "true_uncited",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True but uncited, and politically charged (undercuts the salience of the federal floor). BLS: 1.0 million workers at or below the federal minimum made up 1.3 percent of hourly paid workers in 2022.",
+     "source_url": "https://www.bls.gov/opub/reports/minimum-wage/2022/home.htm"
+    },
+    {
+     "id": "h6s08",
+     "hash": "s14p5u4x",
+     "paragraph": 2,
+     "text": "By 2023 thirty states and the District of Columbia had set their own minimum wages above the federal rate.",
+     "label": "true_uncited",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "True but no attribution. The Congressional Research Service report R43792 states minimum wage rates are above the federal $7.25 in 30 states and DC (2023 and 2024 editions).",
+     "source_url": "https://www.congress.gov/crs_external_products/R/PDF/R43792/R43792.25.pdf"
+    },
+    {
+     "id": "h6s09",
+     "hash": "sabg3gc",
+     "paragraph": 3,
+     "text": "The Congressional Budget Office estimated in 2019 that a fifteen dollar federal minimum wage would eliminate about thirteen million jobs.",
+     "label": "false",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "false",
+      "flag": "false"
+     },
+     "acceptable": [
+      "false"
+     ],
+     "partial": [
+      "questionable"
+     ],
+     "critical": [
+      "accurate",
+      "needs_citation",
+      "no_claim"
+     ],
+     "rationale": "CBO's July 2019 median estimate was 1.3 million jobs lost (range 0 to 3.7 million), not 13 million; the number is off by an order of magnitude.",
+     "source_url": "https://en.wikipedia.org/wiki/Minimum_wage_in_the_United_States"
+    },
+    {
+     "id": "h6s10",
+     "hash": "s13ghvhx",
+     "paragraph": 3,
+     "text": "As the same CBO report noted, the fifteen dollar wage would also lift about one million three hundred thousand people out of poverty.",
+     "label": "cited",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [],
+     "critical": [
+      "needs_citation",
+      "false"
+     ],
+     "rationale": "True and attributed to the CBO report: the 2019 CBO analysis estimated 1.3 million people lifted out of poverty under the $15 option. Politically charged (favourable to wage-increase advocates) but accurate, so it must not be flagged.",
+     "source_url": "https://en.wikipedia.org/wiki/Minimum_wage_in_the_United_States"
+    },
+    {
+     "id": "h6s11",
+     "hash": "s1apjusm",
+     "paragraph": 3,
+     "text": "Raising the minimum wage is the single most effective anti-poverty tool the government has.",
+     "label": "opinion",
+     "difficulty": "moderate",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Written assertively as a fact but it is a value judgement with no checkable measure of 'most effective'; the checker must return no_claim rather than false.",
+     "source_url": ""
+    },
+    {
+     "id": "h6s12",
+     "hash": "s1803dhi",
+     "paragraph": 3,
+     "text": "Politicians who block a higher minimum wage simply do not care about working families.",
+     "label": "opinion",
+     "difficulty": "plain",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Politically loaded attribution of motive; no verifiable fact. Expected no_claim.",
+     "source_url": ""
+    }
+   ]
+  }
+ ]
+}

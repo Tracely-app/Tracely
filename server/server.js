@@ -626,6 +626,12 @@ function searchFee(calls) {
 function admitSplitCalls(gate, route, model) {
   return gate.reservation ? gate.reservation.extend(2 * worstCallMicroCents(route, model)) : true;
 }
+/* A sharded check's extra concurrent calls (lib/factcheck.js runFactCheck),
+ * admitted the same way: one more worst case per extra shard, under the
+ * pool's room test. Refused, the check runs as one call. */
+function admitExtraCalls(gate, route, model, extra) {
+  return gate.reservation ? gate.reservation.extend(extra * worstCallMicroCents(route, model)) : true;
+}
 
 /* `extension` is true only for EXTENSION_API routes, and only those choose
  * between the three pools below; every other paid route is on the extension
@@ -1129,6 +1135,7 @@ const server = http.createServer(async (req, res) => {
       const result = await runFactCheck({
         text, sentences, model: modelUsed, effort: level, mock: MOCK, maxTokens,
         admitSplit: () => admitSplitCalls(gate, "/api/check", modelUsed),
+        admitCalls: (extra) => admitExtraCalls(gate, "/api/check", modelUsed, extra),
       });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       // `thorough` (optional, deep only, hosted): whether this answer came from
