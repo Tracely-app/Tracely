@@ -900,7 +900,7 @@
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
     .pill.quiet { color: var(--label); font-weight: 500; }
     .pill.quiet .plane { background: #c8c8cc; }
-    .pill.orphan { cursor: default; color: var(--label); font-weight: 500; }
+    .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
     .pill.orphan:hover { transform: none; border-color: var(--border); }
     .plane {
       width: 24px; height: 24px; border-radius: 50%;
@@ -1036,7 +1036,7 @@
     .st-supports { color: #1f7a4d; }
     .st-refutes { color: #b02a2a; }
     .st-context { color: var(--chip-ink); }
-    .st-manual { color: #2c6fb8; }
+    .st-manual { color: #245d99; }
     .src-body { flex: 1; min-width: 0; }
     .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
     .src a:hover { color: var(--accent-ink); }
@@ -1287,7 +1287,7 @@
     // The in-editor engine's last ping (docs-hook.js). editable = its text API
     // is there and the editor doesn't look view-only; the read-back after each
     // edit is the real test.
-    let inDoc = { api: false, editable: false };
+    let inDoc = { api: false, editable: false, editor: false, viewOnly: false, mode: "unknown", ok: false };
     let lastPingAt = 0;
     // Per-button edit state, keyed "fix:<hash>" / "cite:<hash>:<url>" / "flow:<hash>":
     // { state: "applying" | "applied" | "undoing" | "failed", copied?, note? }
@@ -2182,40 +2182,248 @@
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
     }
 
-    /* Position the popover against its underline's LIVE rect and aim the
-       caret at it. Shared by the open path and the per-frame follow loop, so
-       the card and its arrow stay welded to the bar while the doc scrolls. */
-    function placeDocsPopover(r) {
-      if (!popEl) return;
-      // The card DROPS DOWN, always. Near the viewport bottom the scrollable
-      // sources list shrinks to fit instead of the card flipping above the
-      // line — the caret stays on the top edge, pointing at the underline.
-      let top = (r.bottom ?? r.top + 4) + POP_GAP;
-      const left = Math.max(12, Math.min(r.left, innerWidth - 360));
-      const box = popEl.querySelector("[data-pop-sources]");
-      if (box) {
-        const fixedH = popEl.getBoundingClientRect().height - box.getBoundingClientRect().height;
-        const avail = innerHeight - top - fixedH - 14;
-        box.style.maxHeight = Math.max(90, Math.min(250, avail)) + "px";
+    /* ── the app's popover, state for state ───────────────────────────────
+       src/renderer/src/components/DocumentMarkLayer.tsx draws one card over a
+       flagged sentence — the problem (dot, title, count; body; [action]
+       [Dismiss]) — and, behind its primary button, the fix card, the applied
+       card, the error card, and the citation flow's searching / results /
+       no-results / failed / inserted cards. Every state below mirrors that
+       file's JSX button for button, with index.css's .docmark-* values
+       inlined: these cards live in the page DOM, outside the shadow root, so
+       they cannot read its custom properties. Widths, gap and the above/
+       below rule are the app's (POPOVER_WIDTH, POPOVER_GAP,
+       shared/popoverPlacement.ts). What this file adds that the app has not
+       got — "Explain in depth" — sits inside the fix card as one more of its
+       issue blocks, so no action row gains a button the app's lacks. */
+    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10, TAIL_W = 16, TAIL_H = 10, TAIL_NET = TAIL_H - 2;
+    const MIN_CARD = 180; // shared/popoverPlacement.ts MIN_CARD_HEIGHT
+    const DM = { // index.css .docmark-*
+      ink: "#1c1c1c", body: "#737373", hint: "#9a9ba1", green: "#16a34a", red: "#d93636", amber: "#ffb800", orange: "#ff5900",
+      blockBg: "#f8f8f8", rowSel: "#f8f8f8", rowBorder: "#e5e5e5", chipBg: "#f2f2f2", pillBorder: "#e0e0e0",
+      badge: "#1a56db", credBg: "#eef7f0", credOtherBg: "#f2f2f3",
+    };
+    /* The app's copy, verbatim where a state exists there (fixFlowCopy.ts,
+       citationFlowCopy.ts), and in its voice where it does not. */
+    const POP_COPY = {
+      suggestFix: "Suggest fix", findSource: "Find a source", dismiss: "Dismiss", back: "Back", done: "Done", undo: "Undo", undoing: "Undoing…",
+      apply: "Apply revision", applying: "Applying…", copyRevision: "Copy revision", copied: "Copied ✓",
+      revisionLabel: "SUGGESTED REVISION", foundLabel: "What the check found",
+      fixRule: "Same sentence, same voice — only the detail the check found wrong is changed.",
+      fixRuleNarrow: "Same sentence, same claim — only stated as carefully as the record supports.",
+      noEdit: "Paste it over the sentence yourself — this document isn't editable from here.",
+      appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
+      couldNot: "Could not apply",
+      searching: "Searching for a source", searchHint: "Usually 3–5 seconds", cancel: "Cancel",
+      noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
+      insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
+      willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
+      flowTitle: "Flow issue", bridgeLabel: "SUGGESTED BRIDGE", addBridge: "Add transition", copyBridge: "Copy transition",
+      bridgeApplied: "Transition added", bridgeAppliedBody: "The bridge sits just before the passage. Undo — or ⌘Z — takes it out again.",
+      deep: "Explain in depth", deepLabel: "In depth",
+    };
+    const CITE_STYLE_LABEL = { apa: "APA 7", mla: "MLA 9", chicago: "Chicago 17" };
+    const STANCE_LABEL = { supports: "Supports", refutes: "Refutes", context: "Context" };
+    const KIND_LABEL = { journal: "Journal article", institutional: "Institution", reference: "Reference", report: "Report", book: "Book", news: "News", archive: "Archive", other: "Web page" };
+    const TRUSTED_KINDS = new Set(["journal", "institutional", "reference", "report", "book"]);
+
+    function truncateClaim(text, max = 70) {
+      const clean = text.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
+      if (clean.length <= max) return clean;
+      const cut = clean.slice(0, max);
+      const space = cut.lastIndexOf(" ");
+      return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[.,;:]$/, "")}…`;
+    }
+
+    /* ── element recipes ─────────────────────────────────────────────────── */
+    function el(tag, style, text) {
+      const n = document.createElement(tag);
+      if (style) Object.assign(n.style, style);
+      if (text != null) n.textContent = text;
+      return n;
+    }
+    function dmHead(color, title, right = null) {
+      const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
+      h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
+      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
+      return h;
+    }
+    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" }, text);
+    const dmHint = (text) => el("span", { fontSize: "12px", color: DM.hint }, text);
+    function dmChip(text) {
+      return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
+    }
+    function dmActions(...kids) {
+      const row = el("div", { display: "flex", gap: "8px", alignItems: "center", flex: "0 0 auto" });
+      for (const k of kids) if (k) row.appendChild(k);
+      return row;
+    }
+    function dmBtn(label, primary, { disabled = false, wide = false, title } = {}) {
+      const b = el("button", {
+        padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
+        fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
+        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
+        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+      }, label);
+      b.type = "button";
+      b.disabled = disabled;
+      if (title) b.title = title;
+      if (!disabled) {
+        b.addEventListener("mouseenter", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
+        b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : "#fff"; });
       }
-      // Clamp so the buttons never land below the fold (a fixed card can't be
-      // scrolled to). At the extreme bottom this overlaps the line — still
-      // never above it.
-      const cardH = popEl.getBoundingClientRect().height;
-      top = Math.max(12, Math.min(top, innerHeight - cardH - 10));
-      const leftPx = left + "px", topPx = top + "px";
+      return b;
+    }
+    /* A hint-styled control for what the app puts beside a button row (the
+       "Usually 3–5 seconds" hint): the one place "Explain in depth" lives. */
+    function dmLink(label) {
+      const b = el("button", { background: "none", border: "none", padding: "0", fontFamily: "inherit", fontSize: "12px", color: DM.hint, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }, label);
+      b.type = "button";
+      b.addEventListener("mouseenter", () => { b.style.textDecoration = "underline"; });
+      b.addEventListener("mouseleave", () => { b.style.textDecoration = "none"; });
+      return b;
+    }
+    function dmBlock(label, ...kids) {
+      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "10px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
+      if (label) b.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.hint, letterSpacing: "0.6px" }, label));
+      for (const k of kids) if (k) b.appendChild(k);
+      return b;
+    }
+    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.45", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
+    const dmBlockMarker = (text) => el("div", { fontSize: "12.5px", fontWeight: "500", color: DM.ink }, text);
+    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.4", color: DM.body }, text);
+    function dmIssue(title, detail) {
+      const w = el("div", { display: "flex", flexDirection: "column", gap: "2px", flex: "0 0 auto" });
+      if (title) w.appendChild(el("div", { fontSize: "13px", fontWeight: "500", color: DM.ink }, title));
+      w.appendChild(dmBody(detail));
+      return w;
+    }
+    function dmProgress() {
+      const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: "#ededed", overflow: "hidden", flex: "0 0 auto" });
+      const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.orange });
+      bar.appendChild(fill);
+      if (!reducedMotion() && typeof fill.animate === "function") {
+        fill.animate([{ transform: "translateX(-100%)" }, { transform: "translateX(250%)" }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
+      }
+      return bar;
+    }
+    function dmSkeletons() {
+      const w = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
+      for (const [wide, narrow] of [[214, 122], [186, 96]]) {
+        const row = el("div", { display: "flex", alignItems: "center", gap: "10px" });
+        row.appendChild(el("span", { display: "block", width: "28px", height: "28px", borderRadius: "8px", background: "#ebebeb", flexShrink: "0" }));
+        const lines = el("span", { display: "flex", flexDirection: "column", gap: "6px" });
+        lines.appendChild(el("span", { display: "block", height: "9px", borderRadius: "999px", background: "#ebebeb", width: `${wide}px` }));
+        lines.appendChild(el("span", { display: "block", height: "8px", borderRadius: "999px", background: "#f4f4f4", width: `${narrow}px` }));
+        row.appendChild(lines);
+        w.appendChild(row);
+        if (!reducedMotion() && typeof row.animate === "function") row.animate([{ opacity: 0.5 }, { opacity: 1 }, { opacity: 0.5 }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
+      }
+      return w;
+    }
+    function initialsOf(src) {
+      const name = String(src.publisher || src.title || "").replace(/^www\./, "").trim();
+      const words = name.split(/[\s.\-_/]+/).filter(Boolean);
+      const s = words.length >= 2 ? words[0][0] + words[1][0] : name.slice(0, 2);
+      return (s || "??").toUpperCase();
+    }
+    function dmRow(src, selected, onSelect) {
+      const row = el("button", {
+        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
+        textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
+      });
+      row.type = "button";
+      row.appendChild(el("span", { width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src)));
+      const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
+      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
+      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
+      sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
+      // The app's match column never shrinks; here it says the source's stance on the claim.
+      const stance = STANCE_LABEL[src.stance] ?? "Context";
+      sub.appendChild(el("span", { color: src.stance === "supports" ? DM.green : src.stance === "refutes" ? DM.red : DM.body, fontWeight: "500", whiteSpace: "nowrap", flexShrink: "0" }, stance));
+      meta.appendChild(sub);
+      const trusted = TRUSTED_KINDS.has(src.kind);
+      meta.appendChild(el("span", { alignSelf: "flex-start", fontSize: "10.5px", fontWeight: "600", letterSpacing: "0.3px", borderRadius: "999px", padding: "2px 7px", marginTop: "3px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      row.appendChild(meta);
+      const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
+      if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
+      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      row.appendChild(radio);
+      row.addEventListener("click", onSelect);
+      return row;
+    }
+    function dmStyles(current, onSet) {
+      const w = el("div", { display: "flex", alignItems: "center", gap: "6px", flex: "0 0 auto" });
+      w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
+      for (const [key] of CITE_STYLES) {
+        const on = key === current;
+        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        p.type = "button";
+        p.addEventListener("click", () => onSet(key));
+        w.appendChild(p);
+      }
+      return w;
+    }
+    function dmTail(pointing, above) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", String(TAIL_W)); svg.setAttribute("height", String(TAIL_H));
+      svg.setAttribute("viewBox", "0 0 13.8564 7.5"); svg.setAttribute("fill", "none"); svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("data-pop-arrow", "");
+      Object.assign(svg.style, { position: "relative", display: "block", left: "12px", flex: "0 0 auto",
+        transform: pointing === "down" ? "scaleY(-1)" : "", ...(above ? { marginTop: "-2px" } : { marginBottom: "-2px" }) });
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z");
+      path.setAttribute("fill", "white"); path.setAttribute("stroke", "black"); path.setAttribute("stroke-width", "2");
+      svg.appendChild(path);
+      return svg;
+    }
+
+    /* ── state ───────────────────────────────────────────────────────────── */
+    // hash → { step, selected, searched }: which of the app's cards is showing.
+    const popSteps = new Map();
+    const stepOf = (hash) => popSteps.get(hash) ?? { step: "problem", selected: null, searched: false };
+    function setStep(hash, patch) { popSteps.set(hash, { ...stepOf(hash), ...patch }); paintPop(); }
+    let popCard = null, popAbove = false, popWidth = POP_WIDTH;
+
+    function editState(key) { return docEditState.get(key)?.state ?? null; }
+    const fixTitle = (verdict) => verdict === "questionable" ? "Narrow this claim" : verdict === "false" ? "What to check" : "What to change";
+
+    /* ── placement: the app's above/below rule, in viewport space ────────── */
+    function placeDocsPopover(r) {
+      if (!popEl || !popCard) return;
+      const width = popWidth;
+      const cx = r.centerX ?? r.left + 24;
+      const idealLeft = cx - width / 2;
+      const left = Math.max(8, Math.min(idealLeft, innerWidth - width - 8));
+      const markTop = r.top, markH = (r.bottom ?? r.top + 4) - r.top;
+      // The card's own height, tail excluded: what has to fit on one side.
+      const cardH = popCard.offsetHeight;
+      const below = markTop + markH + POP_GAP;
+      const spaceBelow = innerHeight - below - 8;
+      const spaceAbove = markTop - POP_GAP - 8;
+      const above = cardH > 0 && cardH > spaceBelow && cardH <= spaceAbove;
+      if (above !== popAbove) {
+        popAbove = above;
+        const old = popEl.querySelector("[data-pop-arrow]");
+        if (old) old.remove();
+        const tail = dmTail(above ? "down" : "up", above);
+        if (above) popEl.appendChild(tail); else popEl.insertBefore(tail, popEl.firstChild);
+      }
+      // Capped to the room on the side it sits, so the buttons never fall past
+      // the fold; the results list is the part that scrolls (.docmark-scroll).
+      const room = (above ? spaceAbove : spaceBelow) - TAIL_NET;
+      popCard.style.maxHeight = `${Math.max(MIN_CARD, room)}px`;
+      const top = above ? markTop - POP_GAP - popCard.offsetHeight - TAIL_NET : below;
+      const leftPx = `${left}px`, topPx = `${Math.max(4, top)}px`;
       if (popEl.style.left !== leftPx) popEl.style.left = leftPx;
       if (popEl.style.top !== topPx) popEl.style.top = topPx;
-      const arrow = popEl.querySelector("[data-pop-arrow]");
-      if (arrow) {
-        const cx = r.centerX ?? r.left + 24;
-        const w = popEl.getBoundingClientRect().width || POP_WIDTH;
-        arrow.style.left = Math.max(14, Math.min(cx - left - 8, w - 30)) + "px";
-      }
+      const tail = popEl.querySelector("[data-pop-arrow]");
+      if (tail) tail.style.left = `${Math.max(12, Math.min(cx - left - TAIL_W / 2, width - 28))}px`;
     }
 
     /* Follow loop — only alive while a popover is open. The underlines are
-       compositor-carried now, so a card parked at its open position visibly
+       compositor-carried, so a card parked at its open position visibly
        detaches on the first scroll; this re-pins it every frame. When a
        re-locate rebuilds docsBars, the old anchor element dies — re-bind to
        the same claim's nearest bar. Anchor gone >400ms → the text left the
@@ -2243,10 +2451,7 @@
         if (!clip || (r.bottom >= clip.top + 2 && r.top <= clip.bottom - 2)) {
           popLastTop = r.top;
           popLostAt = 0;
-          placeDocsPopover({
-            left: r.left, top: r.top, bottom: r.bottom,
-            size: popAnchor.size, centerX: r.left + r.width / 2,
-          });
+          placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
           placed = true;
         }
       }
@@ -2257,402 +2462,22 @@
       popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
 
-    /* ── the app's popover recipe (src/renderer .docmark-card) ────────────
-       320px card, white, 2px black edge, 16px corners, 16px padding, 12px
-       between blocks, and the app's own tail. The Docs cards are built in the
-       page DOM with inline styles, so these read from the APP token object
-       rather than the shadow root's custom properties. */
-    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10;
-    function popCardStyle(width = POP_WIDTH) {
-      return {
-        position: "fixed", zIndex: "901", width: `${width}px`,
-        display: "flex", flexDirection: "column", gap: "12px",
-        background: APP.surface, border: "2px solid #000", borderRadius: APP.rCard,
-        padding: "16px", boxShadow: APP.shadowCard,
-        fontFamily: APP.font, color: APP.ink, fontSize: "13px", lineHeight: "1.4",
-        boxSizing: "border-box",
-      };
-    }
-    const popBodyStyle = () => ({ fontSize: "13px", fontWeight: "400", lineHeight: "18.2px", color: APP.body });
-    // dot + title + optional count chip, on one row
-    function popHead(title, color, count) {
-      const head = document.createElement("div");
-      Object.assign(head.style, { display: "flex", alignItems: "center", gap: "8px" });
-      const dot = document.createElement("span");
-      Object.assign(dot.style, { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" });
-      const h = document.createElement("span");
-      h.textContent = title;
-      Object.assign(h.style, { fontSize: "14px", fontWeight: "600", color: APP.ink, flex: "1 1 auto" });
-      head.append(dot, h);
-      if (count) {
-        const chip = document.createElement("span");
-        chip.textContent = String(count);
-        Object.assign(chip.style, {
-          fontSize: "10px", fontWeight: "600", color: APP.chipInk, background: APP.chipWash,
-          borderRadius: APP.rChip, padding: "1px 6px", flex: "0 0 auto",
-        });
-        head.appendChild(chip);
-      }
-      return head;
-    }
-    /* The app's tail: a 16x10 SVG with the card's own 2px black edge, so the
-       card reads as one shape. Anchored by the same left offset the old
-       rotated square used (placeDocsPopover sets it). */
-    function popTail() {
-      const NS = "http://www.w3.org/2000/svg";
-      const svg = document.createElementNS(NS, "svg");
-      svg.setAttribute("data-pop-arrow", "");
-      svg.setAttribute("width", "16");
-      svg.setAttribute("height", "10");
-      svg.setAttribute("viewBox", "0 0 13.8564 7.5");
-      svg.setAttribute("aria-hidden", "true");
-      Object.assign(svg.style, { position: "absolute", top: "-9px", left: "20px", overflow: "visible" });
-      const path = document.createElementNS(NS, "path");
-      path.setAttribute("d", "M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z");
-      path.setAttribute("fill", "#fff");
-      path.setAttribute("stroke", "#000");
-      path.setAttribute("stroke-width", "2");
-      svg.appendChild(path);
-      return svg;
-    }
-
-    function popBtn(label, primary) {
-      const b = document.createElement("button");
-      b.textContent = label;
-      Object.assign(b.style, {
-        // .docmark-btn-primary / -secondary, verbatim
-        border: `1px solid ${primary ? APP.ink : APP.hairline}`,
-        background: primary ? APP.ink : APP.surface,
-        color: primary ? APP.surface : APP.ink,
-        borderRadius: APP.rBtn, padding: "8px 14px", fontSize: "13px",
-        fontWeight: primary ? "600" : "400", lineHeight: "1", height: "34px",
-        cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
-      });
-      return b;
-    }
-
-    /* Popover twin of editBtnHtml: a button whose label follows docEditState,
-       an Undo beside it while this is the last edit, and the reason line under
-       the row (returned — the caller places it). Popovers are built once, so
-       each registers a sync that every state change re-runs (hideDocsPopover
-       drops them all; a detached one only updates nodes nobody sees). */
-    function popEditBtn(row, key, idle, run, { primary = true, style } = {}) {
-      const btn = popBtn(idle, primary);
-      if (style) Object.assign(btn.style, style);
-      const undo = popBtn("Undo", false);
-      if (style) Object.assign(undo.style, style);
-      const note = document.createElement("div");
-      Object.assign(note.style, { fontSize: "11px", color: "#8e8e93", marginTop: "6px", fontWeight: "500" });
-      const sync = () => {
-        const v = editView(key, idle);
-        btn.textContent = v.label;
-        btn.disabled = !!v.disabled;
-        undo.style.display = v.undo ? "" : "none";
-        undo.disabled = docBusy;
-        note.textContent = v.note || "";
-        note.style.display = v.note ? "" : "none";
-      };
-      btn.addEventListener("click", () => {
-        popPinned = true;
-        try { Promise.resolve(run()).catch(() => {}); } catch { /* the widget still shows the state */ }
-      });
-      undo.addEventListener("click", () => { undoLastDocEdit().catch(() => {}); });
-      row.append(btn, undo);
-      popEditSyncs.add(sync);
-      sync();
-      return note;
-    }
-
-    /* Flow callout — the card from the Figma flow frame: purple dot + title,
-       the explanation, and one action that writes the suggested transition
-       into the document ahead of the flagged passage. */
-    function showFlowPopover(bar, rect, anchorBar) {
-      const issue = bar.flow;
-      console.debug("[tracely] flow popover open", bar.hash);
-      popFont();
-      const switching = Boolean(popEl);
-      hideDocsPopover({ instant: true });
-      popHash = bar.hash;
-      popEl = document.createElement("div");
-      popEl.setAttribute("data-tracely-docs-popover", "");
-      Object.assign(popEl.style, popCardStyle(POP_WIDTH_FLOW));
-      // The app's tail, aimed at the underline (the card always sits below the
-      // line; placeDocsPopover aims its x).
-      popEl.appendChild(popTail());
-
-      popEl.appendChild(popHead("Flow issue", FLOW_ACCENT));
-
-      const body = document.createElement("div");
-      body.textContent = issue.explanation;
-      Object.assign(body.style, popBodyStyle());
-      popEl.appendChild(body);
-
-      if (issue.transition) {
-        const prev = document.createElement("div");
-        prev.textContent = `“${issue.transition}”`;
-        Object.assign(prev.style, {
-          background: APP.surface2, border: `1px solid ${APP.border}`, borderRadius: APP.rBtn,
-          padding: "10px 12px", fontSize: "13px", lineHeight: "18.2px", color: APP.ink,
-        });
-        popEl.appendChild(prev);
-      }
-
-      const row = document.createElement("div");
-      Object.assign(row.style, { display: "flex", alignItems: "center", gap: "12px" });
-      const linkStyle = {
-        border: "none", background: "none", padding: "0", cursor: "pointer",
-        color: FLOW_ACCENT, fontWeight: "700", fontSize: "13px", fontFamily: "inherit",
-      };
-      let flowNote = null;
-      if (canEditDoc() && issue.transition) {
-        flowNote = popEditBtn(row, `flow:${bar.hash}`, "Add transition →", () => addTransition(bar.hash, issue), { primary: false, style: linkStyle });
-      } else {
-        const act = document.createElement("button");
-        act.textContent = "Copy transition →";
-        Object.assign(act.style, linkStyle);
-        act.addEventListener("click", async () => {
-          if (!issue.transition) return;
-          try { await navigator.clipboard.writeText(issue.transition); } catch { /* denied */ }
-          act.textContent = "Copied ✓";
-        });
-        row.appendChild(act);
-      }
-      const dis = document.createElement("button");
-      dis.textContent = "Dismiss";
-      Object.assign(dis.style, {
-        border: "none", background: "none", padding: "0", cursor: "pointer",
-        color: "#8e8e93", fontWeight: "600", fontSize: "12.5px", fontFamily: "inherit",
-      });
-      dis.addEventListener("click", () => {
-        flowDismissed.add(bar.hash);
-        persistFlow();
-        hideDocsPopover();
-        requestDocsMarks();
-        render();
-      });
-      row.appendChild(dis);
-      popEl.appendChild(row);
-      if (flowNote) popEl.appendChild(flowNote);
-
-      popEl.style.visibility = "hidden";
-      document.documentElement.appendChild(popEl);
-      placeDocsPopover(rect);
-      popEl.style.visibility = "visible";
-      animatePopoverIn(popEl, switching);
-      popAnchor = anchorBar ?? null;
-      popLastTop = rect.top;
-      popLostAt = 0;
-      if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
-    }
-
-    /* The hover card's "Explain in depth" block — the popover twin of
-       deepHtml, inline styles only (it lives in the page DOM). Refilled in
-       place when the answer lands, so the card is never rebuilt. */
-    function renderPopDeep(hash) {
-      if (!popEl || popHash !== hash) return;
-      const box = popEl.querySelector("[data-pop-deep]");
-      const f = cache.get(hash);
-      if (box && f) fillPopDeep(box, hash, f);
-    }
-    function popDeepNote(text, color = "#8e8e93") {
-      const n = document.createElement("div");
-      n.textContent = text;
-      Object.assign(n.style, { fontSize: "11px", color, marginTop: "5px", fontWeight: "500" });
-      return n;
-    }
-    function fillPopDeep(box, hash, f) {
-      const v = deepView(hash, f.verdict);
-      box.textContent = "";
-      box.removeAttribute("style");
-      if (v.kind === "button" || v.kind === "locked") {
-        const locked = v.kind === "locked";
-        const b = popBtn(v.label, false);
-        Object.assign(b.style, { display: "inline-flex", alignItems: "center", gap: "6px", alignSelf: "flex-start" });
-        if (locked) {
-          b.title = v.title;
-          b.setAttribute("aria-disabled", "true");
-          Object.assign(b.style, { color: APP.body, cursor: "not-allowed" });
-          const pro = document.createElement("span");
-          pro.textContent = "PRO";
-          Object.assign(pro.style, {
-            padding: "1px 6px", borderRadius: APP.rChip, background: APP.accentWash,
-            color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em",
-          });
-          b.appendChild(pro);
-          b.addEventListener("click", () => { lockDeep(hash); renderPopDeep(hash); render(); });
-        } else {
-          b.addEventListener("click", () => explainSentence(hash));
-        }
-        box.appendChild(b);
-        if (locked && v.note) {
-          const n = popDeepNote(`${v.note}. `);
-          const a = document.createElement("a");
-          a.href = ORDER_URL;
-          a.textContent = DEEP_COPY.seePlans;
-          Object.assign(a.style, { color: APP.accentInk, fontWeight: "600", textDecoration: "none" });
-          a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
-          n.appendChild(a);
-          box.appendChild(n);
-        } else if (v.error) {
-          box.appendChild(popDeepNote(v.error, "#d93636"));
-        }
-        return;
-      }
-      fillPopDeepAnswer(box, v);
-    }
-    // The loading state and the answer, in the same box.
-    function fillPopDeepAnswer(box, v) {
-      if (v.kind === "loading") {
-        Object.assign(box.style, {
-          display: "flex", alignItems: "center", gap: "8px",
-          fontSize: "13px", color: APP.body, fontWeight: "400",
-        });
-        const spin = document.createElement("span");
-        Object.assign(spin.style, {
-          width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0",
-          border: "2px solid rgba(255,127,0,0.25)", borderTopColor: "#ff7f00",
-        });
-        box.appendChild(spin);
-        if (!reducedMotion() && typeof spin.animate === "function") {
-          spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
-        }
-        box.appendChild(document.createTextNode(v.text));
-        return;
-      }
-      Object.assign(box.style, {
-        display: "flex", flexDirection: "column", gap: "6px",
-        background: APP.surface2, border: `1px solid ${APP.border}`,
-        borderRadius: APP.rBtn, padding: "10px 12px",
-      });
-      const label = document.createElement("div");
-      label.textContent = v.label;
-      Object.assign(label.style, {
-        fontSize: "11px", fontWeight: "600", letterSpacing: ".04em",
-        textTransform: "uppercase", color: APP.label,
-      });
-      box.appendChild(label);
-      if (v.prefix) {
-        const p = document.createElement("div");
-        p.textContent = v.prefix;
-        Object.assign(p.style, { fontSize: "13px", fontWeight: "600", color: APP.ink });
-        box.appendChild(p);
-      }
-      if (v.verdictLabel) {
-        const chip = document.createElement("span");
-        chip.textContent = v.verdictLabel;
-        Object.assign(chip.style, {
-          display: "inline-flex", alignItems: "center", gap: "6px", alignSelf: "flex-start",
-          fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: APP.rChip,
-          background: APP.chipWash, color: APP.chipInk,
-        });
-        const d = document.createElement("span");
-        Object.assign(d.style, { width: "6px", height: "6px", borderRadius: "50%", background: MARK_COLORS[v.verdict] ?? APP.body });
-        chip.prepend(d);
-        box.appendChild(chip);
-      }
-      const text = document.createElement("div");
-      text.textContent = v.text;
-      Object.assign(text.style, { ...popBodyStyle(), whiteSpace: "pre-line" });
-      box.appendChild(text);
-      if (v.note) box.appendChild(popDeepNote(v.note));
-    }
-
-    function showDocsPopover(hash, rect, anchorBar) {
-      console.debug("[tracely] popover open", hash);
-      const f = cache.get(hash);
-      if (!f) { console.debug("[tracely] popover abort: no finding"); return; }
+    /* ── open / paint ────────────────────────────────────────────────────── */
+    function openPop(hash, rect, anchorBar, width) {
       popFont();
       const switching = Boolean(popEl);
       hideDocsPopover({ instant: true });
       popHash = hash;
-      const color = MARK_COLORS[f.verdict] ?? "#8e8e93";
-      popEl = document.createElement("div");
+      popWidth = width;
+      popAbove = false;
+      popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
-      Object.assign(popEl.style, popCardStyle());
-      // The app's header: a dot in the finding's colour, the finding's own
-      // words as a title, and the count chip — not an uppercase verdict tag.
-      popEl.appendChild(popHead(VERDICT_LABEL[f.verdict] ?? f.verdict, color));
-      if (f.explanation) {
-        const ex = document.createElement("div");
-        ex.textContent = f.explanation;
-        Object.assign(ex.style, popBodyStyle());
-        popEl.appendChild(ex);
-      }
-      // "Explain in depth": filled from deepView now, refilled in place later.
-      const deepBox = document.createElement("div");
-      deepBox.setAttribute("data-pop-deep", "");
-      popEl.appendChild(deepBox);
-      fillPopDeep(deepBox, hash, f);
-      if (f.revision) {
-        const fix = document.createElement("div");
-        Object.assign(fix.style, {
-          background: APP.surface2, border: `1px solid ${APP.border}`,
-          borderRadius: APP.rBtn, padding: "10px 12px",
-          fontSize: "13px", lineHeight: "18.2px", color: APP.ink,
-        });
-        fix.textContent = f.revision;
-        popEl.appendChild(fix);
-      }
-      const row = document.createElement("div");
-      Object.assign(row.style, { display: "flex", gap: "8px", flexWrap: "wrap" });
-      let fixNote = null;
-      if (f.revision) {
-        if (canEditDoc()) {
-          // Rewriting the sentence in the document itself beats a clipboard
-          // round-trip, so it takes the primary slot. Copy stays one click away
-          // in the widget, and is what any failure falls back to.
-          fixNote = popEditBtn(row, `fix:${hash}`, "Fix in doc", () => docFix(hash, popAnchor));
-        } else {
-          const copy = popBtn("Copy fix", true);
-          copy.addEventListener("click", () => {
-            try { navigator.clipboard.writeText(f.revision); } catch { /* clipboard denied */ }
-            copy.textContent = "Copied ✓";
-          });
-          row.appendChild(copy);
-        }
-      }
-      // With no rewrite on offer (citation-needed), finding the source IS the
-      // fix — it gets the primary button. Sources load INTO the popover, so
-      // picking one never requires a trip to the widget. Already-searched
-      // claims render straight from the cache — closing and reopening the
-      // card never repeats a search.
-      const st0 = sourcesMap.get(hash);
-      const haveSources = !!(st0 && (st0.loading || st0.list?.length));
-      if (!haveSources) {
-        const label = f.verdict === "needs_citation" ? "Find a source" : "Sources";
-        const src = popBtn(label, !f.revision);
-        src.addEventListener("click", async () => {
-          src.textContent = "Searching…";
-          src.disabled = true;
-          let started = true;
-          try { started = await fetchSources(hash); } catch { /* state lands in sourcesMap */ }
-          if (started === false) {
-            // Another claim's search holds the slot — don't fake progress.
-            src.textContent = label;
-            src.disabled = false;
-            return;
-          }
-          src.remove();
-          renderPopSources(hash);
-        });
-        row.appendChild(src);
-      }
-      const dis = popBtn("Dismiss", false);
-      dis.addEventListener("click", () => {
-        dismissed.add(hash);
-        lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
-        hideDocsPopover();
-        requestDocsMarks();
-        render();
-      });
-      row.appendChild(dis);
-      popEl.appendChild(row);
-      if (fixNote) popEl.appendChild(fixNote);
-      if (haveSources) renderPopSources(hash); // cached or in-flight — zero new API work
-      // The app's tail, aimed at the underline (the card always sits below the
-      // line; placeDocsPopover aims its x).
-      popEl.appendChild(popTail());
-      // Position against the LIVE bar rect, then keep following it.
+      popEl.appendChild(dmTail("up", false));
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard.setAttribute("data-pop-card", "");
+      popEl.appendChild(popCard);
+      popEditSyncs.add(paintPop); // every edit-state change repaints the card
+      paintPop();
       popEl.style.visibility = "hidden";
       document.documentElement.appendChild(popEl);
       placeDocsPopover(rect);
@@ -2663,153 +2488,282 @@
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
+    function showDocsPopover(hash, rect, anchorBar) {
+      if (!cache.get(hash)) return;
+      openPop(hash, rect, anchorBar, POP_WIDTH);
+    }
+    function showFlowPopover(bar, rect, anchorBar) {
+      console.debug("[tracely] flow popover open", bar.hash);
+      popFlowBar = bar;
+      openPop(bar.hash, rect, anchorBar, POP_WIDTH_FLOW);
+    }
+    let popFlowBar = null;
+    // The two entry points other code already calls: repaint if this claim is up.
+    function renderPopSources(hash) { if (popEl && popHash === hash) paintPop(); }
+    function renderPopDeep(hash) { if (popEl && popHash === hash) paintPop(); }
 
-    function renderPopSources(hash) {
-      if (!popEl || popHash !== hash) return;
-      let box = popEl.querySelector("[data-pop-sources]");
-      if (!box) {
-        box = document.createElement("div");
-        box.setAttribute("data-pop-sources", "");
-        Object.assign(box.style, {
-          marginTop: "9px", paddingTop: "8px", maxHeight: "250px", overflowY: "auto",
-          borderTop: "1px solid rgba(20,16,10,0.07)",
-        });
-        popEl.appendChild(box);
+    function paintPop() {
+      if (!popEl || !popCard) return;
+      const hash = popHash;
+      popCard.textContent = "";
+      const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
+      const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
+      if (flow) { paintFlow(hash, flow, put); requestPlace(); return; }
+      const f = cache.get(hash);
+      const seg = segments.find((s) => s.hash === hash);
+      if (!f || !seg) return;
+      const st = stepOf(hash);
+      const color = MARK_COLORS[f.verdict] ?? "#9a9ba1";
+      const hasRevision = Boolean(f.revision) && f.verdict !== "needs_citation";
+      const fixKey = `fix:${hash}`;
+      const fixState = editState(fixKey);
+
+      if (st.step === "sources") { paintSources(hash, seg, f, st, put); requestPlace(); return; }
+
+      if (st.step === "fix" || fixState === "applying" || fixState === "applied" || fixState === "undoing" || fixState === "failed") {
+        if (fixState === "applied" || fixState === "undoing") {
+          put(dmHead(DM.green, POP_COPY.appliedTitle), dmBody(POP_COPY.appliedBody));
+          const done = dmBtn(POP_COPY.done, true);
+          done.addEventListener("click", () => { setEditState(fixKey, null); popSteps.delete(hash); hideDocsPopover(); });
+          const undo = dmBtn(fixState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: fixState === "undoing" || lastDocEdit?.key !== fixKey });
+          undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+          put(dmActions(done, undo));
+          requestPlace(); return;
+        }
+        if (fixState === "failed") {
+          const s = docEditState.get(fixKey);
+          put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${s?.copied ? "Copied instead — " : ""}${s?.note || "the editor couldn't make that edit"}.`));
+          const back = dmBtn(POP_COPY.back, true);
+          back.addEventListener("click", () => { setEditState(fixKey, null); setStep(hash, { step: "fix" }); });
+          put(dmActions(back));
+          requestPlace(); return;
+        }
+        // The fix card: what the check found, the revision, Apply / Back.
+        put(dmHead(color, fixTitle(f.verdict)));
+        put(dmBody(f.verdict === "questionable" ? POP_COPY.fixRuleNarrow : POP_COPY.fixRule));
+        if (f.basis) put(dmIssue(POP_COPY.foundLabel, f.basis));
+        else if (f.explanation) put(dmIssue(POP_COPY.foundLabel, f.explanation));
+        put(paintDeep(hash, f));
+        if (hasRevision) put(dmBlock(POP_COPY.revisionLabel, dmQuote(f.revision)));
+        const applying = fixState === "applying";
+        let primary = null;
+        if (hasRevision && canEditDoc()) {
+          primary = dmBtn(applying ? POP_COPY.applying : POP_COPY.apply, true, { disabled: applying || docBusy });
+          primary.addEventListener("click", () => { popPinned = true; docFix(hash, popAnchor); });
+        } else if (hasRevision) {
+          primary = dmBtn(POP_COPY.copyRevision, true);
+          primary.addEventListener("click", () => { try { navigator.clipboard.writeText(f.revision); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
+        }
+        const back = dmBtn(POP_COPY.back, false);
+        back.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        put(dmActions(primary, back, deepLink(hash, f)));
+        if (hasRevision && !canEditDoc()) put(dmHint(editBlockReason()));
+        requestPlace(); return;
       }
-      box.textContent = "";
-      const st = sourcesMap.get(hash);
-      if (!st || st.loading) {
-        box.textContent = !st && !sourcesInflight
-          ? "Source search failed — close and reopen this card to retry."
-          : "Searching the web for sources…";
-        Object.assign(box.style, { color: "#a7a7ac", fontStyle: "italic", fontSize: "11.5px" });
-        return;
-      }
-      box.style.color = "";
-      box.style.fontStyle = "";
-      if (!st.list || st.list.length === 0) {
-        box.textContent = "No usable sources came back — try again from the widget.";
-        return;
-      }
-      // Header: section label + citation-style pills (persisted, shared with
-      // the widget via the same settings object).
-      const head = document.createElement("div");
-      Object.assign(head.style, {
-        display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px",
+
+      // The problem card — exactly the app's: dot, title; body; [action][Dismiss].
+      put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      put(dmBody(f.explanation || f.basis || seg.text));
+      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : POP_COPY.findSource, true);
+      action.addEventListener("click", () => {
+        if (hasRevision) { setStep(hash, { step: "fix" }); return; }
+        // The search marks itself in flight before its first await, so the
+        // card painted next already reads "searching" rather than "failed".
+        const started = fetchSources(hash);
+        setStep(hash, { step: "sources", searched: true });
+        started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       });
-      const title = document.createElement("div");
-      title.textContent = "Pick one to cite";
-      Object.assign(title.style, {
-        fontSize: "9px", fontWeight: "700", textTransform: "uppercase",
-        letterSpacing: ".8px", color: "#ff7f00",
+      const dis = dmBtn(POP_COPY.dismiss, false);
+      dis.addEventListener("click", () => {
+        dismissed.add(hash);
+        lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        popSteps.delete(hash);
+        hideDocsPopover();
+        requestDocsMarks();
+        render();
       });
-      head.appendChild(title);
-      const pills = document.createElement("div");
-      Object.assign(pills.style, {
-        display: "flex", gap: "2px", background: "#f2f2f3", borderRadius: "8px", padding: "2px",
-      });
-      for (const [key, label] of CITE_STYLES) {
-        const p = document.createElement("button");
-        p.textContent = label;
-        const on = (settings.citationStyle || "apa") === key;
-        Object.assign(p.style, {
-          border: "none", borderRadius: "6px", padding: "3px 8px",
-          fontSize: "9px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit",
-          background: on ? "#fff" : "transparent",
-          color: on ? "#ff7f00" : "#8e8e93",
-          boxShadow: on ? "0 1px 3px rgba(20,16,10,0.10)" : "none",
-        });
-        p.addEventListener("click", () => {
-          settings.citationStyle = key;
-          persistSettings(settings, SETTINGS_KEY);
-          renderPopSources(hash); // repaint rows in the new style
-        });
-        pills.appendChild(p);
+      put(dmActions(action, dis));
+      requestPlace();
+    }
+
+    /* "Explain in depth" inside the fix card: the app's `.docmark-fix-issues`
+       shape (a titled paragraph), and the loading and locked states in it. */
+    function paintDeep(hash, f) {
+      const v = deepView(hash, f.verdict);
+      if (v.kind === "loading") {
+        const w = el("div", { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: DM.body, flex: "0 0 auto" });
+        const spin = el("span", { width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0", border: "2px solid rgba(255,89,0,0.25)", borderTopColor: DM.orange });
+        if (!reducedMotion() && typeof spin.animate === "function") spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
+        w.append(spin, document.createTextNode(v.text));
+        return w;
       }
-      head.appendChild(pills);
-      box.appendChild(head);
+      if (v.kind === "result") {
+        const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
+        const w = dmIssue(title, v.text);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.note) w.appendChild(dmHint(v.note));
+        return w;
+      }
+      return null;
+    }
+    // The link that asks for it — beside the fix card's buttons, as the app
+    // puts its hint beside Cancel. Locked: the PRO chip and a "See plans" note.
+    function deepLink(hash, f) {
+      const v = deepView(hash, f.verdict);
+      if (v.kind === "loading" || v.kind === "result") return null;
+      const link = dmLink(v.label);
+      if (v.kind === "locked") {
+        link.title = v.title;
+        link.appendChild(el("span", { padding: "1px 6px", borderRadius: "20px", background: APP.accentWash, color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em" }, "PRO"));
+        link.addEventListener("click", () => { lockDeep(hash); openOrderPage(); paintPop(); render(); });
+      } else {
+        link.addEventListener("click", () => { explainSentence(hash); paintPop(); });
+      }
+      if (v.error) link.title = v.error;
+      return link;
+    }
+
+    /* ── the citation flow, card for card ───────────────────────────────── */
+    function paintSources(hash, seg, f, st, put) {
+      const s = sourcesMap.get(hash);
       const style = settings.citationStyle || "apa";
-      st.list.forEach((srcItem, i) => {
-        const c = formatCitation(srcItem, style);
-        const row = document.createElement("div");
-        Object.assign(row.style, { padding: "7px 0", borderBottom: "1px solid rgba(20,16,10,0.05)" });
-        const line = document.createElement("div");
-        Object.assign(line.style, { display: "flex", alignItems: "flex-start", gap: "6px" });
-        if (srcItem.stance) {
-          const chip = document.createElement("span");
-          chip.textContent = srcItem.stance;
-          const chipColors = {
-            supports: ["#e7f6ee", "#1f9d55"],
-            refutes: ["#fdecec", "#d93636"],
-          }[srcItem.stance] ?? ["#f2f2f3", "#8e8e93"];
-          Object.assign(chip.style, {
-            fontSize: "8px", fontWeight: "700", textTransform: "uppercase",
-            padding: "2px 6px", borderRadius: "8px", flexShrink: "0", marginTop: "2px",
-            background: chipColors[0], color: chipColors[1],
-          });
-          line.appendChild(chip);
+      const citedKey = (url) => `cite:${hash}:${url}`;
+      // Inserted: the marker is in the sentence, the entry in the Sources list.
+      const citedUrl = s?.citedUrl ?? null;
+      const citedState = citedUrl ? editState(citedKey(citedUrl)) : null;
+      if (citedState === "applied" || citedState === "undoing") {
+        const src = s.list.find((x) => x.url === citedUrl);
+        const c = src ? formatCitation(src, style) : null;
+        put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(`This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
+        if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
+        const left = segments.filter((x) => x.hash !== hash && cache.get(x.hash) && ISSUE_VERDICTS.includes(cache.get(x.hash).verdict) && !dismissed.has(x.hash)).length;
+        const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
+        res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
+        put(res);
+        const done = dmBtn(POP_COPY.done, true);
+        done.addEventListener("click", () => { popSteps.delete(hash); hideDocsPopover(); });
+        const undo = dmBtn(citedState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: citedState === "undoing" || lastDocEdit?.key !== citedKey(citedUrl) });
+        undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+        put(dmActions(done, undo));
+        return;
+      }
+      const failedKey = [...docEditState.keys()].find((k) => k.startsWith(`cite:${hash}:`) && docEditState.get(k)?.state === "failed");
+      if (failedKey) {
+        const fs = docEditState.get(failedKey);
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${fs?.copied ? "Copied instead — " : ""}${fs?.note || "the editor couldn't make that edit"}.`));
+        const back = dmBtn(POP_COPY.back, true);
+        back.addEventListener("click", () => { setEditState(failedKey, null); paintPop(); });
+        put(dmActions(back));
+        return;
+      }
+      // Searching.
+      if (!s || s.loading) {
+        if (!s && !sourcesInflight && st.searched) {
+          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(statusMsg || "The search did not answer — try again."));
+          const again = dmBtn(POP_COPY.searchAgain, true);
+          again.addEventListener("click", () => { const p = fetchSources(hash); setStep(hash, { searched: true }); p.catch(() => {}); });
+          const cancel = dmBtn(POP_COPY.cancel, false);
+          cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
+          put(dmActions(again, cancel));
+          return;
         }
-        const a = document.createElement("a");
-        a.href = srcItem.url;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.textContent = srcItem.title;
-        Object.assign(a.style, { fontSize: "11.5px", fontWeight: "700", color: "#0e0e10", textDecoration: "none", display: "block", minWidth: "0" });
-        line.appendChild(a);
-        const meta = document.createElement("div");
-        meta.textContent = srcItem.publisher || "";
-        Object.assign(meta.style, { fontSize: "10px", color: "#a7a7ac", margin: "1px 0 4px", fontWeight: "500" });
-        // Why this source answers the claim — one clamped line of snippet.
-        let snip = null;
-        if (srcItem.snippet) {
-          snip = document.createElement("div");
-          snip.textContent = srcItem.snippet;
-          Object.assign(snip.style, {
-            fontSize: "10.5px", color: "#5c5c60", fontWeight: "500", marginBottom: "5px",
-            display: "-webkit-box", WebkitLineClamp: "2", WebkitBoxOrient: "vertical", overflow: "hidden",
-          });
-        }
-        // Live formatted reference in the selected style, plus the in-text form.
-        const refBox = document.createElement("div");
-        Object.assign(refBox.style, {
-          background: "#fdfbf9", border: "1px solid rgba(20,16,10,0.06)",
-          borderRadius: "8px", padding: "6px 8px", marginBottom: "6px",
-          fontSize: "10.5px", fontWeight: "500", lineHeight: "1.45",
-          overflowWrap: "anywhere",
-        });
-        refBox.textContent = c.ref;
-        const marker = document.createElement("div");
-        marker.textContent = `In-text: ${c.marker}`;
-        Object.assign(marker.style, { fontSize: "9.5px", color: "#a7a7ac", marginTop: "3px", fontWeight: "600" });
-        refBox.appendChild(marker);
-        const btns = document.createElement("div");
-        Object.assign(btns.style, { display: "flex", gap: "6px", flexWrap: "wrap" });
-        let citeNote = null;
-        if (canEditDoc()) {
-          const idle = st.citedUrl === srcItem.url ? "Cited ✓" : "Cite in doc";
-          citeNote = popEditBtn(btns, `cite:${hash}:${srcItem.url}`, idle, () => docCite(hash, i, popAnchor), { style: { padding: "4px 10px" } });
-        }
-        const copy = popBtn("Copy cite", !canEditDoc());
-        copy.style.padding = "4px 10px";
-        copy.addEventListener("click", () => {
-          try { navigator.clipboard.writeText(c.ref); } catch { /* denied */ }
-          copy.textContent = "Copied ✓";
-        });
-        btns.appendChild(copy);
-        const copyIn = popBtn("Copy in-text", false);
-        copyIn.style.padding = "4px 10px";
-        copyIn.addEventListener("click", () => {
-          try { navigator.clipboard.writeText(c.marker); } catch { /* denied */ }
-          copyIn.textContent = "Copied ✓";
-        });
-        btns.appendChild(copyIn);
-        row.appendChild(line);
-        row.appendChild(meta);
-        if (snip) row.appendChild(snip);
-        row.append(refBox, btns);
-        if (citeNote) row.appendChild(citeNote);
-        box.appendChild(row);
-      });
+        put(dmHead(DM.orange, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
+        const cancel = dmBtn(POP_COPY.cancel, false);
+        cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        put(dmActions(cancel, dmHint(POP_COPY.searchHint)));
+        return;
+      }
+      const list = s.list ?? [];
+      const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(hash, { searched: true, selected: null }); p.catch(() => {}); };
+      if (list.length === 0) {
+        put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
+        const again = dmBtn(POP_COPY.searchAgain, true);
+        again.addEventListener("click", searchAgain);
+        const dis = dmBtn(POP_COPY.dismiss, false);
+        dis.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        put(dmActions(again, dis));
+        return;
+      }
+      // Results.
+      const selected = st.selected ?? list[0]?.url ?? null;
+      const src = list.find((x) => x.url === selected) ?? null;
+      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, dmChip(CITE_STYLE_LABEL[style])));
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      scroll.setAttribute("data-pop-sources", "");
+      scroll.appendChild(dmBody(`Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
+      const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
+      for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(hash, { selected: item.url })));
+      scroll.appendChild(rows);
+      put(scroll);
+      put(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      if (src) {
+        const c = formatCitation(src, style);
+        put(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref)));
+      }
+      const i = src ? list.indexOf(src) : -1;
+      const key = src ? citedKey(src.url) : null;
+      const inserting = key ? editState(key) === "applying" : false;
+      let primary;
+      if (canEditDoc()) {
+        primary = dmBtn(inserting ? POP_COPY.inserting : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
+        primary.addEventListener("click", () => { if (i >= 0) { popPinned = true; docCite(hash, i, popAnchor); } });
+      } else {
+        primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
+        primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
+      }
+      const open = dmBtn(POP_COPY.openArticle, false, { disabled: !src, title: src?.url });
+      open.addEventListener("click", () => { if (src) window.open(src.url, "_blank", "noopener,noreferrer"); });
+      put(dmActions(primary, open));
+      const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
+      again.addEventListener("click", searchAgain);
+      put(again);
+    }
+
+    /* ── the flow card: the same card, over a paragraph that jumps ───────── */
+    function paintFlow(hash, issue, put) {
+      const key = `flow:${hash}`;
+      const state = editState(key);
+      if (state === "applied" || state === "undoing") {
+        put(dmHead(DM.green, POP_COPY.bridgeApplied), dmBody(POP_COPY.bridgeAppliedBody));
+        const done = dmBtn(POP_COPY.done, true);
+        done.addEventListener("click", () => { setEditState(key, null); hideDocsPopover(); });
+        const undo = dmBtn(state === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: state === "undoing" || lastDocEdit?.key !== key });
+        undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+        put(dmActions(done, undo));
+        return;
+      }
+      if (state === "failed") {
+        const s = docEditState.get(key);
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${s?.copied ? "Copied instead — " : ""}${s?.note || "the editor couldn't make that edit"}.`));
+        const back = dmBtn(POP_COPY.back, true);
+        back.addEventListener("click", () => { setEditState(key, null); paintPop(); });
+        put(dmActions(back));
+        return;
+      }
+      put(dmHead(FLOW_ACCENT, POP_COPY.flowTitle), dmBody(issue.explanation));
+      if (issue.transition) put(dmBlock(POP_COPY.bridgeLabel, dmQuote(issue.transition)));
+      let primary = null;
+      if (issue.transition && canEditDoc()) {
+        const applying = state === "applying";
+        primary = dmBtn(applying ? POP_COPY.applying : POP_COPY.addBridge, true, { disabled: applying || docBusy });
+        primary.addEventListener("click", () => { popPinned = true; addTransition(hash, issue); });
+      } else if (issue.transition) {
+        primary = dmBtn(POP_COPY.copyBridge, true);
+        primary.addEventListener("click", () => { try { navigator.clipboard.writeText(issue.transition); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
+      }
+      const dis = dmBtn(POP_COPY.dismiss, false);
+      dis.addEventListener("click", () => { flowDismissed.add(hash); persistFlow(); hideDocsPopover(); requestDocsMarks(); render(); });
+      put(dmActions(primary, dis));
+      if (issue.transition && !canEditDoc()) put(dmHint(editBlockReason()));
+    }
+
+    // A repaint changes the card's height; the next frame re-places it (the
+    // follow loop does this every frame while a card is up, so this is only
+    // for the frame between a paint and the loop).
+    function requestPlace() {
+      if (!popAnchor?.el?.isConnected) return;
+      const r = popAnchor.el.getBoundingClientRect();
+      placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
     }
 
     let hoverRafBusy = false;
@@ -3076,6 +3030,7 @@
       sourcesInflight = true;
       sourcesMap.set(hash, { loading: true, list: null, copiedUrl: null });
       render();
+      renderPopSources(hash); // the hover card shows the search as it runs
       try {
         const data = await api("/api/sources", {
           claim: seg.text,
@@ -3206,11 +3161,20 @@
       lastPingAt = Date.now();
       const r = await docsEdit("ping", {}, { timeoutMs: 3000 });
       const was = canEditDoc();
-      inDoc = { api: !!(r.ok && r.api), editable: !!(r.ok && r.api && r.editable) };
+      inDoc = { api: !!(r.ok && r.api), editable: !!(r.ok && r.editable), editor: !!(r.ok && r.editor), viewOnly: !!(r.ok && r.viewOnly), mode: r.ok ? String(r.mode ?? "unknown") : "unknown", ok: !!r.ok };
       if (canEditDoc() !== was) render();
     }
 
     const canEditDoc = () => !harness && (inDoc.editable || bridgeReady);
+    /* Why the doc cannot be edited from here, in the words the card shows
+       under its Copy button — never a silent swap to Copy. */
+    function editBlockReason() {
+      if (canEditDoc()) return "";
+      if (!inDoc.ok) return "Docs hasn't answered yet — the editor may still be loading. Copy the revision, or try again in a moment.";
+      if (inDoc.viewOnly || inDoc.mode === "viewing") return "This document is view-only for you, so copy the revision and paste it where it belongs.";
+      if (!inDoc.editor) return "Docs' editor isn't ready yet — try again in a moment, or copy the revision.";
+      return "This document isn't editable from here — copy the revision and paste it over the sentence.";
+    }
 
     async function fetchServerStatus() {
       if (orphaned) return;

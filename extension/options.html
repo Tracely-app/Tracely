@@ -57,7 +57,9 @@
   }
   .plane svg { width: 19px; height: 19px; }
   h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
-  .tag { color: var(--body); font-size: 13px; line-height: 18.2px; margin: 4px 0 24px; }
+  /* --body (#737373) is 4.16:1 on --bg; this is the one line that sits on the
+     page rather than a card, so it takes a darker grey (5.6:1). */
+  .tag { color: rgba(0,0,0,.66); font-size: 13px; line-height: 18.2px; margin: 4px 0 24px; }
 
   .status {
     display: inline-flex; align-items: center; gap: 8px;
