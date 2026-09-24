@@ -164,6 +164,7 @@
           <button id="signIn">Sign in</button>
           <a class="linkbtn" id="seePlans" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
         </div>
+        <p class="hint" style="margin:10px 0 0">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a class="upgrade-link" href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
       </div>
       <div id="signedIn" hidden>
         <div class="acct">
@@ -175,6 +176,7 @@
           <a class="linkbtn" id="manageLink" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">Upgrade</a>
           <button id="signOut" class="ghost">Sign out</button>
         </div>
+        <p class="hint" style="margin:12px 0 0">Your usage counts and payment record are kept with your account. <button id="deleteAccount" class="ghost" style="padding:5px 10px;font-size:11px">Delete my account and data</button></p>
       </div>
       <p id="acctStatus" class="saved"></p>
     </section>
@@ -197,6 +199,12 @@
       <p class="model-note" id="thoroughLocked" hidden>Thorough explanations come with Pro. <a class="upgrade-link" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
       <p class="model-note" id="sourcesLine" hidden></p>
       <p class="model-note warn" id="fairUseLine" hidden></p>
+    </section>
+
+    <section>
+      <h2>Google Docs</h2>
+      <p class="hint">In Google Docs, Tracely checks the whole document while you write. The first Doc you open asks once; this is the same switch.</p>
+      <label class="autosrc" style="font-size:13px;color:var(--text)"><input type="checkbox" id="docsTgl" /><span>Check Google Docs automatically — sends the document text to Tracely's server</span></label>
     </section>
 
     <section>

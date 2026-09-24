@@ -273,6 +273,7 @@ function renderDocsPanel(tier) {
   const { root, ctx } = widgetContext(tier);
   const code = `
     let orphaned = false, expanded = true, panelWasOpen = false, undoShown = false;
+    let docsOn = true; // the consent gate (content.js docsMode): on, for a panel test
     let inflight = false, lastCheckEnd = 0, statusKind = "idle", statusMsg = "all clear";
     let copiedFixHash = null, docBusy = false, lastDocEdit = null, docText = "a document";
     const DISMISS_KEY = "k";
@@ -320,6 +321,7 @@ test("the Docs panel has no speed bar, and offers Explain in depth", () => {
 function renderFieldPanel(tier) {
   const { root, ctx } = widgetContext(tier);
   const code = `
+
     let orphaned = false, expanded = true, panelWasOpen = false, checkedOnce = true;
     let inflight = false, lastCheckEnd = 0, statusKind = "idle", statusMsg = "all clear";
     let copiedFixHash = null, fieldText = "a field";

@@ -108,6 +108,21 @@ if [ "$BETA" = 1 ]; then
     > "$STAGE/$NAME/beta.json"
 fi
 
+# The store build asks for no permission a store user can use. The localhost
+# host permission exists for a developer's own server on :4477 (the unpacked
+# and beta builds keep it); on a published extension it is a permission with
+# no feature behind it, which is what the store's "narrowest permissions"
+# rule is about. Stripped from the STAGED copy only — the repo manifest is
+# what developers load.
+if [ "$BETA" != 1 ]; then
+  node -e '
+    const fs = require("fs"); const p = process.argv[1];
+    const m = JSON.parse(fs.readFileSync(p, "utf8"));
+    m.host_permissions = (m.host_permissions || []).filter((h) => !/^http:\/\/localhost(:\d+)?\//.test(h));
+    fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+  ' "$STAGE/$NAME/manifest.json"
+fi
+
 mkdir -p "$OUT_DIR"
 ZIP="$(cd "$OUT_DIR" && pwd)/$NAME.zip"
 rm -f "$ZIP"
