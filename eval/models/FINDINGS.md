@@ -53,6 +53,60 @@ on subtle claims; retired ids from old builds are translated to their tier
 (`usage.input_tokens_details.cache_write_tokens`, 1.25x input on all three
 models); the free check cap stays 400.
 
+## 2026-09-23: the objective, sharded check
+
+Re-measured after three changes to `runFactCheck`, all on `gpt-5.6-luna@medium`
+(3 reps unless noted; the baseline is the same code path the day before, run
+in a pinned worktree). Results dirs are gitignored; the sets are committed
+(`checkset.json`, `checkset-hard.json`, `checkset-long.json`).
+
+1. **The prompt judges only facts.** The verdict definitions no longer ask
+   for "misleading" or "seriously disputed" — judgement calls about the
+   author — and say outright that a true claim is never "questionable" for
+   being unpopular or uncomfortable, and that a forceful opinion is
+   `no_claim`, not `false`.
+2. **Evidence by shape.** The model answers two finding shapes: a clean
+   sentence is `{id, verdict}` and nothing else; a flagged one must carry
+   `basis` — the correct fact for `false`, what cannot be verified for
+   `questionable`, the kind of source for `needs_citation`. The route demotes
+   a `false` with no basis to `questionable`. Clean sentences are most of a
+   draft, so this also cuts output tokens, which on a reasoning model is
+   where the time goes.
+3. **Shards.** A list longer than 8 sentences runs as concurrent calls of
+   ≤ 8, each admitted against the spend hold; an id the model leaves out is
+   asked again once.
+
+| set | pipeline | strict | critical | false alarms | p50 | p90 | ¢/call |
+|---|---|---|---|---|---|---|---|
+| checkset (5 × 11 sentences) | before | 95% | 4 | 4/78 | 12.2 s | 17.4 s | 0.128 |
+| | **after** | 96% | 2 | **0/78** | 10.9 s | 12.9 s | 0.169 |
+| | after, effort `low` | 92% | 3 | 1/78 | 5.8 s | 6.7 s | 0.127 |
+| checkset-hard (6 essays, 70 sentences: 24 subtle-false, 12 opinions incl. loaded ones, 6 traps, 11 cited; every label source-verified by an adversarial pass) — 2 reps | before | 94% | 4 | 6/58 | 17.4 s | 21.2 s | 0.178 |
+| | **after** | 94% | 3 | 4/58 | 15.7 s | 19.7 s | 0.215 |
+| checkset-long (one 40-sentence essay: the extension's `MAX_SENTENCES_PER_CHECK`, i.e. the first check of an opened document) | before | 99% | 0 | 0/51 | **35.7 s** | 39.2 s | 0.41 |
+| | **after** | 98% | 2 | 1/51 | **6.3 s** | 10.4 s | 0.60 |
+
+What it means:
+
+- **The first pass over a document is ~5.7x faster** (35.7 s → 6.3 s at p50).
+  That is the case a person feels; a typing-pause check (1-8 sentences) is
+  one shard, so it is unchanged in shape and cost.
+- **False alarms — a flag on a cited, common-knowledge or opinion sentence
+  — fell on every set** (4→0, 6→4, 0→1 of 187 judgements). That is what
+  "objective" buys. The hard set's subtle-false and trap classes held.
+- **Cost per multi-shard check rises 30-45%** (each shard repeats the
+  instructions, which the provider caches, and the short document context,
+  and the model's reasoning has a floor per call). At luna's prices that is
+  +0.2¢ on a 40-sentence first check; the typing-pause checks that make up
+  the volume do not shard. The spend cap holds one extra worst case per shard
+  in flight (server.js `admitExtraCalls`).
+- **Effort `low` is 2x faster again but loses accuracy** (92%, 8/36 uncited
+  statistics passed as accurate), so the check stays at `medium`. It is the
+  obvious lever if a cheaper tier is ever wanted.
+- Two of 120 judgements on the 40-sentence run were critical (vs 0 before);
+  with 3 reps that is within noise, and it is the number to watch on the
+  next re-measure.
+
 ## Method
 
 **Check.** `checkset.json`: 55 labelled sentences in 5 student-style essays

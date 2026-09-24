@@ -156,6 +156,9 @@ export function assertStrictSchema(schema, where = "schema") {
       for (const [k, v] of Object.entries(node.properties ?? {})) walk(v, `${path}.${k}`);
     }
     if (node.type === "array") walk(node.items, `${path}[]`);
+    // A union (the check's two finding shapes): strict mode wants every
+    // branch strict, and a branch this walker skipped would 400 at OpenAI.
+    (node.anyOf ?? []).forEach((b, i) => walk(b, `${path}|${i}`));
   };
   walk(schema, "root");
   return schema;
