@@ -53,6 +53,49 @@ on subtle claims; retired ids from old builds are translated to their tier
 (`usage.input_tokens_details.cache_write_tokens`, 1.25x input on all three
 models); the free check cap stays 400.
 
+## 2026-10-01: what a citation flag is for
+
+A tester's history essay came back with every sentence underlined for a
+citation ("literally every sentence is underlined"), and the check's rule
+said why: "a dated event, a specific non-common-knowledge fact" counted as
+citation-worthy, so every date, rank and posting of a general's life was
+flagged. A new set, `checkset-narrative.json`, is that case: thirteen
+uncited, correct sentences about MacArthur — ten encyclopedic, one bare
+quotation, two opinions. Any flag on an encyclopedic sentence is a false
+alarm (score.mjs's FA).
+
+The rule now names four kinds of statement a reader expects a source for —
+a QUANTITY (any number, percentage, count, amount, rate or price, even about
+the essay's own subject), a DIRECT QUOTATION, a research finding, and a
+genuinely contested claim — and says outright that the dates, names, places
+and sequence of events of a narrative are "accurate" when right, cited or
+not. A first draft without the quantity clause let seven of 24 uncited
+statistics through; this is the second.
+
+`gpt-5.6-luna@medium`, the old rule in a pinned worktree against the new one:
+
+| set | rule | strict | critical | false alarms | NC miss |
+|---|---|---|---|---|---|
+| checkset-narrative (13 × 3 reps) | before | 21% | 1 | **29/36** | 2/3 |
+| | after | **100%** | 0 | **0/36** | 0/3 |
+| checkset (55 × 2) | before | 97% | 2 | 0/52 | 0/24 |
+| | after | 98% | 0 | 1/52 | 1/24 |
+| checkset-hard (70 × 2) | before | 86% | 5 | 6/58 | 3/22 |
+| | after | 96% | 2 | **0/58** | 6/22 |
+
+What is left on the hard set: two sentences the model holds false that are
+true (1,274 measles cases in 2019; a 500-copy first edition — knowledge
+errors, present before), and two it calls accurate where the label wants a
+citation ("only four European teams", the HTC Dream's release month) — a
+count and a date, exactly the judgement the new rule asks the model to make
+toward leniency. Those two are the price of the first row.
+
+Also measured today: the source search (`/api/sources`) at the vendor's
+default effort against `low`, five claims through `findSources` —
+p50 24.4 s → 12.0 s, sources 4.4 → 4.2, years filled 12/22 → 12/21, authors
+17/22 → 20/21, web searches per call 3.6 → 2.4, output tokens −43%. It runs
+at `low` now; the card says "Usually 10–15 seconds" instead of 3–5.
+
 ## 2026-09-23: the objective, sharded check
 
 Re-measured after three changes to `runFactCheck`, all on `gpt-5.6-luna@medium`

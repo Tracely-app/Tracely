@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.21.0, and not one new permission.
+ *   - the manifest: 2.21.1, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -352,7 +352,11 @@ test("planner: a protocol find matches only WHOLE sentences, the way content.js 
   assert.equal(whole(S("Intro.\u00a0\u200b Einstein failed math."), "Einstein failed math."), 1, "after odd whitespace");
   assert.equal(whole(S("He said \"Stop.\" Einstein failed math."), "Einstein failed math."), 1, "after end punctuation + closers");
   assert.equal(whole(S("He said \u201cStop.\u201d Then he left."), "\u201d Then he left."), 1, "a smart closer starts the next segment, as segmentText has it");
-  assert.equal(whole(S("It had 3.5 million people."), "5 million people."), 1, "segmentText splits \"3.5\" too");
+  // segmentText no longer splits "3.5" (it needs whitespace after the period, as
+  // the server's splitter does), so content.js never SENDS "5 million people."
+  // as a find. The hook's start rule stays permissive on purpose: it accepts
+  // any period-then-space, and a stricter rule here would only ever refuse.
+  assert.equal(whole(S("It had 3.5 million people."), "5 million people."), 1, "the hook's start rule is permissive by design");
   assert.equal(whole(S("He waited\u2026 Einstein failed math."), "Einstein failed math."), 0, "\u2026 is not a sentence end to segmentText");
   assert.equal(whole(S("Wait... then go."), "Wait."), 0, "never part of a punctuation run");
   assert.equal(whole(S("Wait. Then go."), "Wait."), 1);
@@ -1311,9 +1315,9 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.21.0, and fixing in the doc asks for no new permission", () => {
+test("manifest: 2.21.1, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.21.0");
+  assert.equal(m.version, "2.21.1");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",

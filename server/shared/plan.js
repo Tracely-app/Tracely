@@ -187,7 +187,7 @@ export function clampModel(requested, plan) {
  *   checkDeep    /api/check deep:true, exactly one sentence          astra low / luna medium
  *                ("Explain in depth", extension 2.20.0)
  *   flow         /api/flow                                          luna low
- *   sources      /api/sources                                       luna, NO effort sent
+ *   sources      /api/sources                                       luna low
  *                (the vendor default — what every source search was measured at)
  *   findSources  /api/find-sources                                  luna low
  *   detect, structure, tracer, correction                           luna low
@@ -205,7 +205,15 @@ export const GRADE_ON_THOROUGH = false;
 /** The routes where Pro's thorough model may run — the two places astra measured better. */
 export const THOROUGH_ROUTES = new Set(["checkDeep", "critique", ...(GRADE_ON_THOROUGH ? ["grade"] : [])]);
 
-const ROUTE_EFFORT = { check: "medium", checkDeep: "medium", sources: undefined };
+/* sources: "low" since 2026-10-01. The route sent no effort — the vendor's
+ * default — and a search took 18-27 s wall clock (a tester: "it takes far too
+ * long to cite sources"). Measured on five claims through findSources: low
+ * halved the median (24.4 s → 12.0 s), returned the same number of sources
+ * (4.2 vs 4.4) with the same citation fields filled (years 12/21 vs 12/22,
+ * authors 20/21 vs 17/22), used fewer web searches per call (2.4 vs 3.6 —
+ * each is a billed call) and 43% fewer output tokens. "minimal" is not an
+ * option: web_search refuses it (lib/llm.js webSearchCall raises it to low). */
+const ROUTE_EFFORT = { check: "medium", checkDeep: "medium", sources: "low" };
 const DEFAULT_ROUTE_EFFORT = "low";
 const THOROUGH_EFFORT = "low";
 

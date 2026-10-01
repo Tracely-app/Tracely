@@ -551,20 +551,20 @@ test("/api/flow runs luna at low for everyone, whatever model and effort the cli
   assert.equal(calls[0].effort, "low", "junk becomes the default, never OpenAI's own");
 });
 
-test("/api/sources runs luna and sends no effort, whatever the client sends — as every search was measured", async () => {
+test("/api/sources runs luna at low, whatever the client sends", async () => {
   // The store build sends no effort here, and every one of its source
   // searches has always run at the vendor's default. The server now holds
   // every caller to that, so a client's "high" can no longer buy a dearer search.
   let { r, calls } = await sent(() => sources(D, { model: "gpt-5.6-terra" }, { install: "d-src-free" }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5.6-luna", effort: null, webSearch: true }]);
+  assert.deepEqual(calls.map(({ model, effort, webSearch }) => ({ model, effort, webSearch })), [{ model: "gpt-5.6-luna", effort: "low", webSearch: true }]);
 
   ({ r, calls } = await sent(() => sources(D, { model: "gpt-6-astra", effort: "high" }, { headers: BETA, install: "d-src-beta" })));
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: null }]);
+  assert.deepEqual(calls.map(({ model, effort }) => ({ model, effort })), [{ model: "gpt-5.6-luna", effort: "low" }]);
 
   ({ calls } = await sent(() => sources(D, { effort: "turbo" }, { install: "d-src-junk" })));
-  assert.equal(calls[0].effort, null, "a junk level is not passed through either");
+  assert.equal(calls[0].effort, "low", "a junk level is not passed through either");
 });
 
 test("/api/check sends the model it reports to the provider, not just in modelUsed", async () => {
