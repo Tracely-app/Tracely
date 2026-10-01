@@ -42,6 +42,13 @@
   if (document.getElementById("tracely-host")) return;
 
   const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
+  /* Whether a finding is shown — underlined, carded, counted. "Citation
+     suggestions" (needs_citation: accurate, but a reader would want a source)
+     can be switched off in the widget; a tester's history essay had every
+     sentence underlined amber and the pill read like an error count. Off hides
+     only that verdict; a false or incoherent sentence always shows. */
+  const flagShown = (f, settings) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
+    && (f.verdict !== "needs_citation" || settings?.citeHints !== false);
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
@@ -197,7 +204,7 @@
   function loadSettings(key) {
     const saved = jsonParse(lsGet(key) ?? "null", null);
     const obj = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
-    const settings = { citationStyle: "apa", ...obj };
+    const settings = { citationStyle: "apa", citeHints: true, ...obj };
     for (const k of RETIRED_SETTINGS) delete settings[k];
     return settings;
   }
@@ -723,6 +730,60 @@
     return { doc, ref, marker };
   }
 
+  /* ── sentence boundaries: the server's rules, inlined ─────────────────
+     This used to split at every ".", "!" or "?" — so "the U.S. Army" became
+     the sentence "…the U." and "Harry S. Truman" ended at "S.", and the
+     checker, asked about a fragment, flagged it "Doesn't make sense" (a
+     tester's screenshots, 2026-09-28: two of those in one paragraph). The
+     desktop and the server already split with server/shared/sentenceSplit.js,
+     whose rules were each written after a real document was cut in the wrong
+     place; they are ported here verbatim rather than imported, because a
+     content script has no modules. test/mirror.test.js runs the two copies
+     over one corpus. The rules lean toward NOT splitting: two sentences
+     merged is one long claim, a sentence split is a fragment flagged as
+     nonsense and a citation severed from the claim it backs. */
+  const SPLIT_ABBREVIATIONS = new Set(["dr", "mr", "mrs", "ms", "prof", "st", "jr", "sr", "vs", "etc", "fig", "no", "pp", "al", "inc", "ltd", "co", "ed", "eds", "vol", "approx", "cf", "med"]);
+  const SPLIT_BRACKET_LOOKAHEAD = 120;
+  function splitInsideBrackets(text, dotIndex, spanStart) {
+    let depth = 0;
+    for (let i = spanStart; i < dotIndex; i++) {
+      const ch = text[i];
+      if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+    }
+    if (depth === 0) return false;
+    const limit = Math.min(text.length, dotIndex + SPLIT_BRACKET_LOOKAHEAD);
+    for (let i = dotIndex + 1; i < limit; i++) {
+      const ch = text[i];
+      if (ch === ")" || ch === "]") return true;
+      if (ch === "(" || ch === "[") return false; // the earlier bracket never closed
+    }
+    return false;
+  }
+  function splitRealBoundary(text, dotIndex, spanStart) {
+    if (splitInsideBrackets(text, dotIndex, spanStart)) return false;
+    if (text[dotIndex] !== ".") return true;
+    let i = dotIndex - 1;
+    while (i >= 0 && /[A-Za-z]/.test(text[i])) i--;
+    const word = text.slice(i + 1, dotIndex);
+    if (word.length === 1) return false; // an initial (R.) or one segment of U.S. / e.g.
+    return !SPLIT_ABBREVIATIONS.has(word.toLowerCase());
+  }
+  // One line's sentences as [start, end) over that line, text trimmed.
+  function splitLineSentences(line) {
+    const spans = [];
+    const boundary = /(?:[.!?]+["'’”)\]¹²³⁰-⁹]*(?:\s+|$))/g;
+    let start = 0, m;
+    while ((m = boundary.exec(line))) {
+      if (!splitRealBoundary(line, m.index, start)) continue;
+      const end = m.index + m[0].length;
+      if (line.slice(start, end).trim()) spans.push([start, end]);
+      start = end;
+    }
+    if (start < line.length && line.slice(start).trim()) spans.push([start, line.length]);
+    return spans;
+  }
+
   function segmentText(text) {
     const segs = [];
     const block = sourcesBlock(text);
@@ -732,14 +793,12 @@
       const line = lm[0];
       const base = lm.index;
       if (block && base >= block.headStart && base < block.end) continue; // skip the bibliography
-      const sentRe = /[^.!?]+(?:[.!?]+["')\]]*|$)/g;
-      let sm;
-      while ((sm = sentRe.exec(line))) {
-        const raw = sm[0];
+      for (const [s0, e0] of splitLineSentences(line)) {
+        const raw = line.slice(s0, e0);
         const lead = raw.match(/^\s*/)[0].length;
         const trimmed = raw.trim();
         if (!trimmed) continue;
-        const start = base + sm.index + lead;
+        const start = base + s0 + lead;
         segs.push({ text: trimmed, start, end: start + trimmed.length, hash: hashText(trimmed) });
       }
     }
@@ -1406,7 +1465,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !ISSUE_VERDICTS.includes(f.verdict)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -2242,7 +2301,7 @@
       noEdit: "Paste it over the sentence yourself — this document isn't editable from here.",
       appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
       couldNot: "Could not apply",
-      searching: "Searching for a source", searchHint: "Usually 3–5 seconds", cancel: "Cancel",
+      searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
       noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
@@ -2665,7 +2724,7 @@
         const c = src ? formatCitation(src, style) : null;
         put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(`This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
         if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && cache.get(x.hash) && ISSUE_VERDICTS.includes(cache.get(x.hash).verdict) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -3756,6 +3815,7 @@
           <div class="foot">
             <span class="foot-left">
               <span id="countdownTxt">${inflight ? "checking…" : `next check in ${countdown}s`}</span>
+              <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
             <button class="act" id="checkNow">Check now</button>
@@ -3834,6 +3894,13 @@
         shadow.getElementById("autoSrcTgl")?.addEventListener("change", (e) => {
           settings.autoSources = e.target.checked;
           saveSettings();
+        });
+        shadow.getElementById("citeTgl")?.addEventListener("change", (e) => {
+          settings.citeHints = e.target.checked;
+          saveSettings();
+          if (typeof requestDocsMarks === "function") requestDocsMarks(); // the underlines follow the switch
+          if (typeof scheduleMarks === "function") scheduleMarks();
+          render();
         });
         for (const btn of shadow.querySelectorAll("[data-url-add]")) {
           btn.addEventListener("click", () => {
@@ -4160,7 +4227,7 @@
         const f = cache.get(seg.hash);
         let color = null;
         let pending = false;
-        if (f && ISSUE_VERDICTS.includes(f.verdict)) {
+        if (flagShown(f, settings)) {
           color = MARK_COLORS[f.verdict];
         } else if (!f && inflight) {
           color = MARK_PENDING; // awaiting a verdict this cycle
@@ -4304,7 +4371,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !ISSUE_VERDICTS.includes(f.verdict)) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -4622,6 +4689,7 @@
           <div class="foot">
             <span class="foot-left">
               <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "auto-check off"}</span>
+              <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
             <button class="act" id="checkNow">${enabled ? "Check now" : "Check once"}</button>
@@ -4675,6 +4743,13 @@
         shadow.getElementById("autoSrcTgl")?.addEventListener("change", (e) => {
           settings.autoSources = e.target.checked;
           saveSettings();
+        });
+        shadow.getElementById("citeTgl")?.addEventListener("change", (e) => {
+          settings.citeHints = e.target.checked;
+          saveSettings();
+          if (typeof requestDocsMarks === "function") requestDocsMarks(); // the underlines follow the switch
+          if (typeof scheduleMarks === "function") scheduleMarks();
+          render();
         });
         for (const btn of shadow.querySelectorAll("[data-url-add]")) {
           btn.addEventListener("click", () => {

@@ -352,7 +352,11 @@ test("planner: a protocol find matches only WHOLE sentences, the way content.js 
   assert.equal(whole(S("Intro.\u00a0\u200b Einstein failed math."), "Einstein failed math."), 1, "after odd whitespace");
   assert.equal(whole(S("He said \"Stop.\" Einstein failed math."), "Einstein failed math."), 1, "after end punctuation + closers");
   assert.equal(whole(S("He said \u201cStop.\u201d Then he left."), "\u201d Then he left."), 1, "a smart closer starts the next segment, as segmentText has it");
-  assert.equal(whole(S("It had 3.5 million people."), "5 million people."), 1, "segmentText splits \"3.5\" too");
+  // segmentText no longer splits "3.5" (it needs whitespace after the period, as
+  // the server's splitter does), so content.js never SENDS "5 million people."
+  // as a find. The hook's start rule stays permissive on purpose: it accepts
+  // any period-then-space, and a stricter rule here would only ever refuse.
+  assert.equal(whole(S("It had 3.5 million people."), "5 million people."), 1, "the hook's start rule is permissive by design");
   assert.equal(whole(S("He waited\u2026 Einstein failed math."), "Einstein failed math."), 0, "\u2026 is not a sentence end to segmentText");
   assert.equal(whole(S("Wait... then go."), "Wait."), 0, "never part of a punctuation run");
   assert.equal(whole(S("Wait. Then go."), "Wait."), 1);
