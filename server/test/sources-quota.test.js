@@ -3,7 +3,7 @@
  *   - the extension's /api/sources and the desktop's /api/find-sources draw on
  *     ONE count, per day and per month (SOURCE_LIMITS: Free 5/40, Student
  *     20/100, Pro 40/250), refused with the §7 copy;
- *   - /api/sources runs the fast model with no effort sent, find-sources the
+ *   - /api/sources and find-sources both run the fast model at low; the
  *     fast model at low, whatever the client asks;
  *   - an IDENTIFIED caller ("user:" / "install:") has a 25-an-hour window of
  *     its own, shared by both routes, on top of the process-wide 15-an-hour
@@ -157,12 +157,12 @@ function seed(account, key, count) {
   }
 }
 
-test("/api/sources runs the fast model with no effort sent, find-sources the fast model at low — whatever the client asks", async () => {
+test("/api/sources and find-sources both run the fast model at low — whatever the client asks", async () => {
   for (const [token, model, effort] of [["tok-pro-model", "gpt-6-astra", "high"], ["tok-free-model", "gpt-5.6-terra", "low"]]) {
     const ext = await sources(`model-ext-${token}`, { token }, { model, effort });
     assert.equal(ext.status, 200, JSON.stringify(ext.body));
     assert.equal(ext.body.modelUsed, LUNA);
-    assert.deepEqual(openaiLog(`model-ext-${token}`).map((c) => [c.model, c.effort, c.webSearch]), [[LUNA, null, true]]);
+    assert.deepEqual(openaiLog(`model-ext-${token}`).map((c) => [c.model, c.effort, c.webSearch]), [[LUNA, "low", true]]);
     const app = await findSources(`model-app-${token}`, { token }, { model, effort });
     assert.equal(app.status, 200, JSON.stringify(app.body));
     assert.deepEqual(openaiLog(`model-app-${token}`).map((c) => [c.model, c.effort]), [[LUNA, "low"]]);

@@ -195,7 +195,7 @@ test("modelForRoute: luna everywhere, except Pro's thorough routes when asked fo
 test("modelForRoute: effort and output ceiling per route — the client's effort is never an input", () => {
   assert.deepEqual(modelForRoute("check", "pro"), { model: HAIKU, effort: "medium", maxTokens: undefined, thorough: false });
   assert.equal(modelForRoute("checkDeep", "student", { requested: OPUS, thoroughAvailable: true }).effort, "medium");
-  assert.equal(modelForRoute("sources", "pro").effort, undefined, "sources sends no effort, as measured");
+  assert.equal(modelForRoute("sources", "pro").effort, "low", "sources: low — half the latency of the vendor default, same sources, fewer billed searches (2026-10-01)");
   for (const route of ["flow", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"]) {
     assert.equal(modelForRoute(route, "pro").effort, "low", route);
   }
