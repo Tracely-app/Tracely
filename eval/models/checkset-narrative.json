@@ -1,0 +1,319 @@
+{
+ "name": "checkset-narrative",
+ "built": "2026-10-01",
+ "source": "A correct, uncited narrative history essay — a tester's report (2026-09-28) that 'literally every sentence is underlined'. Measures over-flagging: any flag on a common_knowledge sentence is a false alarm.",
+ "request_shape": "as checkset.json",
+ "verdicts": [
+  "accurate",
+  "needs_citation",
+  "false",
+  "questionable",
+  "incoherent",
+  "no_claim"
+ ],
+ "flag_of_verdict": {
+  "false": "false",
+  "needs_citation": "needs_citation",
+  "questionable": "questionable",
+  "incoherent": "incoherent",
+  "accurate": "none",
+  "no_claim": "none"
+ },
+ "scoring": {
+  "correct": "verdict in acceptable",
+  "partial": "verdict in partial",
+  "critical": "verdict in critical",
+  "wrong": "anything else"
+ },
+ "counts": {
+  "total": 13,
+  "by_label": {
+   "common_knowledge": 10,
+   "true_uncited": 1,
+   "opinion": 2
+  }
+ },
+ "essays": [
+  {
+   "id": "n1",
+   "title": "A General and His Century",
+   "topic": "uncited narrative history",
+   "text": "A General and His Century\nDouglas MacArthur entered West Point in 1899 and graduated first in his class in 1903. His father, Arthur MacArthur, had received the Medal of Honor for his service in the Civil War. In the First World War he served with the 42nd Division in France and was promoted to brigadier general in 1918. He became Chief of Staff of the United States Army in 1930. During the Second World War he commanded Allied forces in the Southwest Pacific. He accepted the Japanese surrender aboard the USS Missouri in Tokyo Bay in September 1945.\nIn September 1950 he directed the amphibious landing at Inchon, which reversed the opening months of the Korean War. President Truman relieved him of command in April 1951 after a public dispute over how the war should be fought. Days later he addressed a joint session of Congress. One line from that speech is still quoted: “Old soldiers never die; they just fade away.”\nHe remains the most controversial American commander of the twentieth century. Whatever one thinks of the man, the Inchon landing was a brilliant gamble. He died in 1964.",
+   "sentences": [
+    {
+     "id": "n1s01",
+     "hash": "soeqicw",
+     "paragraph": 1,
+     "text": "Douglas MacArthur entered West Point in 1899 and graduated first in his class in 1903.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s02",
+     "hash": "sjmudqm",
+     "paragraph": 1,
+     "text": "His father, Arthur MacArthur, had received the Medal of Honor for his service in the Civil War.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s03",
+     "hash": "sti20yf",
+     "paragraph": 1,
+     "text": "In the First World War he served with the 42nd Division in France and was promoted to brigadier general in 1918.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s04",
+     "hash": "s1xwcs39",
+     "paragraph": 1,
+     "text": "He became Chief of Staff of the United States Army in 1930.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s05",
+     "hash": "s9gq2oa",
+     "paragraph": 1,
+     "text": "During the Second World War he commanded Allied forces in the Southwest Pacific.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s06",
+     "hash": "s19r3ggl",
+     "paragraph": 1,
+     "text": "He accepted the Japanese surrender aboard the USS Missouri in Tokyo Bay in September 1945.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s07",
+     "hash": "sdd0hvh",
+     "paragraph": 2,
+     "text": "In September 1950 he directed the amphibious landing at Inchon, which reversed the opening months of the Korean War.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s08",
+     "hash": "s122pqtd",
+     "paragraph": 2,
+     "text": "President Truman relieved him of command in April 1951 after a public dispute over how the war should be fought.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s09",
+     "hash": "s1o3opy2",
+     "paragraph": 2,
+     "text": "Days later he addressed a joint session of Congress.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    },
+    {
+     "id": "n1s10",
+     "hash": "s3auoxi",
+     "paragraph": 2,
+     "text": "One line from that speech is still quoted: “Old soldiers never die; they just fade away.”",
+     "label": "true_uncited",
+     "expected": {
+      "verdict": "needs_citation",
+      "flag": "needs_citation"
+     },
+     "acceptable": [
+      "needs_citation"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "A direct quotation with no attribution: the one sentence here a reader would want a source for."
+    },
+    {
+     "id": "n1s11",
+     "hash": "slldyuo",
+     "paragraph": 3,
+     "text": "He remains the most controversial American commander of the twentieth century.",
+     "label": "opinion",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "A value judgement, no checkable claim."
+    },
+    {
+     "id": "n1s12",
+     "hash": "s1mo9ss",
+     "paragraph": 3,
+     "text": "Whatever one thinks of the man, the Inchon landing was a brilliant gamble.",
+     "label": "opinion",
+     "expected": {
+      "verdict": "no_claim",
+      "flag": "none"
+     },
+     "acceptable": [
+      "no_claim"
+     ],
+     "partial": [
+      "accurate"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "A value judgement, no checkable claim."
+    },
+    {
+     "id": "n1s13",
+     "hash": "s19xoloh",
+     "paragraph": 3,
+     "text": "He died in 1964.",
+     "label": "common_knowledge",
+     "expected": {
+      "verdict": "accurate",
+      "flag": "none"
+     },
+     "acceptable": [
+      "accurate"
+     ],
+     "partial": [
+      "no_claim"
+     ],
+     "critical": [
+      "false"
+     ],
+     "rationale": "Encyclopedic fact of the essay's own subject, correct as written; a reader does not expect a source for it."
+    }
+   ]
+  }
+ ]
+}
