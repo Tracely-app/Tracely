@@ -24,9 +24,9 @@
    test pages fetch the server directly.
 
    Field mode also draws Grammarly-style overlay underlines: flagged
-   sentences get a 3px solid underline (no highlight wash) in their verdict's
-   colour from MARK_COLORS below (false, questionable, incoherent,
-   needs_citation each distinct); 2px grey dotted while pending; clicking one
+   sentences get a 2px solid underline (3px hovered) in their verdict's
+   colour from MARK_COLORS below (the app's red / orange / amber); 2px grey
+   dotted while pending; clicking one
    opens the panel and flashes that verdict's card. */
 "use strict";
 
@@ -54,14 +54,19 @@
      rather than tagging the sentence with a verdict. Same four verdicts. */
   const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Worth checking", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
-  // The mark vocabulary — one DISTINCT colour per verdict, used for the
-  // underlines, the card accents and the hover popover:
-  //   false → red, questionable → amber, incoherent → violet,
-  //   needs_citation → blue (the product's home turf: the claim looks right,
-  //   it just needs a source behind it).
-  const MARK_COLORS = { false: "#d93636", questionable: "#ffb800", incoherent: "#8e4ec6", needs_citation: "#2563eb" };
-  const VERDICT_WASH = { false: "#fdecec", questionable: "#fff4d6", incoherent: "#f1e6fb", needs_citation: "#e8f0fd" };
-  const VERDICT_TEXT = { false: "#d93636", questionable: "#a67500", incoherent: "#8e4ec6", needs_citation: "#2563eb" };
+  // The mark vocabulary is the desktop app's (PROBLEM_COLOR in
+  // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
+  // CLAUDE.md "UI decisions"), read off the Figma "Inline Detection" frames:
+  //   red #d93636    — wrong or makes no sense (false, incoherent)
+  //   orange #ff5900 — thin evidence, an unverified figure (questionable)
+  //   amber #ffb800  — add the attribution (needs_citation)
+  // Four verdicts on three colours, so the card TITLE is what tells false
+  // from incoherent; colour alone never has to. It used to be a fourth hue
+  // per verdict (amber, violet, blue), which made the same finding a
+  // different colour here than in the app.
+  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800" };
+  const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
+  const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -1014,10 +1019,11 @@
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
-    .d-quest { background: #ffb800; }
-    .d-inco { background: #8e4ec6; }
-    .d-cite { background: #2563eb; }
+    .d-quest { background: #ff5900; }
+    .d-inco { background: #d93636; }
+    .d-cite { background: #ffb800; }
     .d-flow { background: #7344f1; }
     .ctitle { font-size: 14px; font-weight: 600; color: var(--ink); }
     .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
@@ -3695,7 +3701,7 @@
           <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
-              <div class="top"><span class="dot d-cite"></span><span class="ctitle">Check this document with Tracely?</span></div>
+              <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
               <div class="expl">${esc(DOCS_CONSENT_TEXT)}</div>
               <div class="row">
                 <button class="act primary" id="docsOn">Turn on for Google Docs</button>
