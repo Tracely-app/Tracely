@@ -1065,7 +1065,7 @@ test("content.js: a Doc whose end the hook can't place a line at keeps the marke
   assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace"], "the marker only — no append, no rollback");
   const st = w.sourcesMap.get(h);
   assert.equal(st.citedUrl, "https://example.com/wall");
-  assert.match(st.pasteEntry, /^Sources:\n1\. .* — https:\/\/example\.com\/wall$/);
+  assert.equal(st.pasteEntry, "References\nNASA. (n.d.). Can you see the Great Wall? https://example.com/wall", "the style's heading and entry, ready to paste");
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(copied, [st.pasteEntry]);
 });
@@ -1083,9 +1083,9 @@ test("content.js: Cite in doc is ONE group — marker, heading, entry — and a 
   const edits = ops().filter((o) => o.op !== "ping");
   assert.deepEqual(edits.map((o) => o.op), ["replace", "appendLine", "appendLine", "undo"]);
   assert.equal(edits[0].find, S);
-  assert.equal(edits[0].replacement, "The Great Wall is visible from space [1].", "the marker goes before the full stop");
-  assert.equal(edits[1].line, "Sources:");
-  assert.match(edits[2].line, /^1\. .+ — https:\/\/example\.com\/wall$/, "the entry keeps the ' — url' tail sourcesBlock parses");
+  assert.equal(edits[0].replacement, "The Great Wall is visible from space (NASA, n.d.).", "the style's own marker, before the full stop");
+  assert.equal(edits[1].line, "References", "APA's reference-list heading");
+  assert.equal(edits[2].line, "NASA. (n.d.). Can you see the Great Wall? https://example.com/wall", "the full APA entry");
   assert.deepEqual(edits[3].undoToken, ["t2", "t1"], "rolled back newest first");
   assert.equal(copied.length, 1, "then the citation is copied instead");
   assert.equal(w.sourcesMap.get(h).citedUrl, null, "not marked cited");
@@ -1141,10 +1141,10 @@ test("content.js: a cite that lands keeps its verdict on the marked sentence, an
   });
   await w.probeInDoc();
   assert.equal(await w.docCite(h, 0), true);
-  const newHash = w.hashText("The Great Wall is visible from space [1].");
+  const newHash = w.hashText("The Great Wall is visible from space (NASA, n.d.).");
   assert.ok(w.cache.has(newHash), "the marked sentence is not re-checked from scratch");
   assert.equal(w.sourcesMap.get(h).citedUrl, "https://example.com/wall");
-  assert.match(w.state().statusMsg, /cited \[1\] in doc/);
+  assert.equal(w.state().statusMsg, "cited (NASA, n.d.) in doc");
   assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["t3", "t2", "t1"]);
   await w.undoLastDocEdit();
   assert.deepEqual(ops().filter((o) => o.op === "undo").pop().undoToken, ["t3", "t2", "t1"]);
@@ -1167,27 +1167,28 @@ test("content.js: a Doc that does not share its text gets the marker, and the en
   assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace"], "only the marker is sent");
   const st = w.sourcesMap.get(h);
   assert.equal(st.citedUrl, "https://example.com/wall");
-  assert.match(st.pasteEntry, /^Sources:\n1\. .* — https:\/\/example\.com\/wall$/, "the entry, with its heading, ready to paste");
+  assert.equal(st.pasteEntry, "References\nNASA. (n.d.). Can you see the Great Wall? https://example.com/wall", "the entry, with its heading, ready to paste");
   await new Promise((r) => setTimeout(r, 0)); // the copy is fire-and-forget
   assert.deepEqual(copied, [st.pasteEntry]);
-  assert.match(w.state().statusMsg, /cited \[1\] in doc — paste its reference into Sources/);
+  assert.equal(w.state().statusMsg, "cited (NASA, n.d.) in doc — paste its reference into References");
 });
 
-test("content.js: an existing Sources entry is reused — only the marker is added", async () => {
+test("content.js: a source already in the reference list is not added twice — only the marker is added", async () => {
   const { w, ops, S, h } = citeSetup((m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: "t" }));
-  const body = `${S} It is long.\nSources:\n1. Something else — https://other.example\n2. Wall — https://example.com/wall`;
+  // MLA writes the address without its scheme; the match must not need it.
+  const body = `${S} It is long.\nWorks Cited\nOther, A. "Something else." other.example.\nNASA. "Can you see the Great Wall?" example.com/wall.`;
   w.setDoc(body, [{ ...seg(S), hash: h }]);
   await w.probeInDoc();
   await w.docCite(h, 0);
   const edits = ops().filter((o) => o.op !== "ping");
   assert.deepEqual(edits.map((o) => o.op), ["replace"]);
-  assert.equal(edits[0].replacement, "The Great Wall is visible from space [2].");
+  assert.equal(edits[0].replacement, "The Great Wall is visible from space (NASA, n.d.).");
 });
 
 test("content.js: a click that changes nothing neither claims an edit nor wipes the last Undo", async () => {
-  const S = "The Great Wall is visible from space [1].";
+  const S = "The Great Wall is visible from space (Wall, n.d.).";
   const F = "Einstein was a basketball player.";
-  const body = `${F} ${S}\nSources:\n1. Wall — https://example.com/wall`;
+  const body = `${F} ${S}\nReferences\nWall. (n.d.). https://example.com/wall`;
   let replaceReply = { ok: true, undoToken: "u1" };
   const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? replaceReply : undefined), body });
   await w.probeInDoc();
@@ -1203,7 +1204,7 @@ test("content.js: a click that changes nothing neither claims an edit nor wipes 
   const before = ops().length;
   assert.equal(await w.docCite(hs, 0), true);
   assert.equal(ops().length, before, "nothing sent to the doc");
-  assert.equal(w.state().statusMsg, "already cited [1] in the doc");
+  assert.equal(w.state().statusMsg, "already cited (Wall, n.d.) in the doc");
   assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["u1"], "the fix keeps its Undo");
   assert.equal(w.editView(`cite:${hs}:https://example.com/wall`, "Cited ✓").label, "Cited ✓", "no Applied ✓ for nothing");
 

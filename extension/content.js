@@ -224,7 +224,9 @@
   function loadSettings(key) {
     const saved = jsonParse(lsGet(key) ?? "null", null);
     const obj = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
-    const settings = { citationStyle: "apa", citeHints: true, ...obj };
+    // MLA by default (owner, 2026-10-03: research papers and school essays
+    // alike). A style the writer picked is saved and wins.
+    const settings = { citationStyle: "mla", citeHints: true, ...obj };
     for (const k of RETIRED_SETTINGS) delete settings[k];
     return settings;
   }
@@ -494,6 +496,25 @@
       pos = nl === -1 ? text.length : nl + 1;
     }
     return { headStart, end: pos, entries };
+  }
+
+  /* The writer's reference list: the LAST line that is only a reference-list
+     heading — "Works Cited" (MLA), "References" (APA, Chicago author-date),
+     "Bibliography" — and every non-empty line after it. Reference lists sit at
+     the end, so the last heading is the list even when "References" appears
+     as a word earlier. Entries are kept as whole lines: an MLA entry has no
+     number to parse, and deduping only needs to know whether a source's
+     address is already in one. */
+  const REF_HEADINGS = { mla: "Works Cited", apa: "References", chicago: "References" };
+  function worksCitedBlock(text) {
+    const re = /(?:^|\n)[ \t]*(works cited|references|bibliography)[ \t]*:?[ \t]*(?=\n|$)/gi;
+    let m, last = null;
+    while ((m = re.exec(text))) last = m;
+    if (!last) return null;
+    const headStart = last.index + (last[0].startsWith("\n") ? 1 : 0);
+    const bodyStart = last.index + last[0].length;
+    const entries = text.slice(bodyStart).split("\n").map((l) => l.trim()).filter(Boolean);
+    return { heading: last[1], headStart, end: text.length, entries };
   }
 
   // ── citation formatting ──
@@ -807,12 +828,14 @@
   function segmentText(text) {
     const segs = [];
     const block = sourcesBlock(text);
+    const wc = worksCitedBlock(text);
     const lineRe = /[^\n]+/g;
     let lm;
     while ((lm = lineRe.exec(text))) {
       const line = lm[0];
       const base = lm.index;
       if (block && base >= block.headStart && base < block.end) continue; // skip the bibliography
+      if (wc && base >= wc.headStart) continue; // and the writer's Works Cited / References
       for (const [s0, e0] of splitLineSentences(line)) {
         const raw = line.slice(s0, e0);
         const lead = raw.match(/^\s*/)[0].length;
@@ -2454,7 +2477,7 @@
       noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
-      pasteLabel: "ADD THIS TO YOUR SOURCES LIST", copyEntry: "Copy entry",
+      copyEntry: "Copy entry",
       willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
       flowTitle: "Flow issue", bridgeLabel: "SUGGESTED BRIDGE", addBridge: "Add transition", copyBridge: "Copy transition",
       bridgeApplied: "Transition added", bridgeAppliedBody: "The bridge sits just before the passage. Undo — or ⌘Z — takes it out again.",
@@ -2886,7 +2909,7 @@
     /* ── the citation flow, card for card ───────────────────────────────── */
     function paintSources(hash, seg, f, st, put) {
       const s = sourcesMap.get(hash);
-      const style = settings.citationStyle || "apa";
+      const style = settings.citationStyle || "mla";
       const citedKey = (url) => `cite:${hash}:${url}`;
       // Inserted: the marker is in the sentence, the entry in the Sources list.
       const citedUrl = s?.citedUrl ?? null;
@@ -2899,10 +2922,11 @@
         // list nothing was added to.
         const paste = s.pasteEntry || null;
         put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(paste
-          ? "The marker is in your sentence. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document."
+          ? `${c ? c.marker : "The citation"} is in your sentence. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document.`
           : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
-        if (paste) put(dmBlock(POP_COPY.pasteLabel, dmBlockBody(paste)));
-        else if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
+        const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
+        if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
+        else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
         const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
@@ -3808,62 +3832,68 @@
         return false;
       }
       const hint = segHint(seg, anchor);
-      const block = sourcesBlock(docText);
-      console.debug(`[tracely] cite: path ${editPath()} · text API ${inDoc.api ? "yes" : "no"} · Sources block ${block ? "found" : "none"}`);
-      const existing = block?.entries.find((e) => e.url === src.url);
-      const num = existing ? existing.num : (block?.entries.length ?? 0) + 1;
-      const styled = formatCitation(src, settings.citationStyle || "apa");
+      /* The STYLE's citation, not a number. This inserted " [n]" and a
+         numbered "Sources:" list whatever style was picked, while Preview
+         showed the style's real marker — so the card promised "(Ghosh)" and
+         the Doc got "[1]". Now the sentence takes formatCitation's marker
+         and the entry goes under the style's own heading (Works Cited for
+         MLA, References for APA and Chicago), added only when the Doc has no
+         reference list yet. A source already in the list is not added twice. */
+      const style = settings.citationStyle || "mla";
+      const styled = formatCitation(src, style);
+      const marker = styled.marker;
+      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const list = worksCitedBlock(docText);
+      const doi = String(src.doi ?? "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
+      // By address WITHOUT its scheme: MLA prints "example.com/wall", APA
+      // "https://example.com/wall", and the writer may have typed either.
+      const urlKey = String(src.url ?? "").replace(/^https?:\/\/(www\.)?/i, "").replace(/\/+$/, "");
+      const listed = Boolean(list?.entries.some((l) => (urlKey && l.includes(urlKey)) || (doi && l.includes(doi))));
+      const entryLine = listed ? null : styled.ref;
+      console.debug(`[tracely] cite: ${style} · path ${editPath()} · text API ${inDoc.api ? "yes" : "no"} · reference list ${list ? `"${list.heading}"` : "none"}${listed ? " (source already listed)" : ""}`);
       const steps = [];
       let replacement = null;
-      /* The Sources entry needs Docs' text API (docs-hook.js doAppendLine
-         refuses a blind append, as it should: nothing could verify it). The
-         marker does not — doReplace falls back to mouseReplace — so on a Doc
-         that does not share its text the marker goes in and the entry is
-         COPIED, and the card says to paste it. It used to try the append,
-         fail with no-api, roll the marker back and report "the editor
-         couldn't make that edit" for every citation on that Doc. */
-      const entryLine = existing ? null : `${num}. ${styled.doc} — ${src.url}`;
+      /* The entry needs Docs' text API (docs-hook.js doAppendLine refuses a
+         blind append, as it should: nothing could verify it). The marker does
+         not — doReplace falls back to mouseReplace — so on a Doc that does not
+         share its text the marker goes in and the entry is handed over to
+         paste. And a dry run asks first whether the line can be placed at
+         all: on a Doc whose text does not end the way the hook knows ("doc-
+         end-unknown", measured 2026-10-03) the group used to land the marker,
+         fail the append and roll the marker back. */
       let canAppend = editPath() !== "hook" || inDoc.api;
-      /* Ask before committing to the append: a dry run plans the line and
-         touches nothing. On a Doc whose text does not end the way the hook
-         knows (a footer, footnotes, a table at the end — measured 2026-10-03:
-         "doc-end-unknown" on a real Doc), the group used to land the marker,
-         fail the append and roll the marker back — "[1] for a split second,
-         then Could not apply". Now the marker stays and the entry is handed
-         over to paste. */
       if (entryLine && canAppend && editPath() === "hook") {
-        const plan = await docsEdit("appendLine", { line: block ? entryLine : "Sources:", dryRun: true }, { timeoutMs: 3000 });
+        const plan = await docsEdit("appendLine", { line: list ? entryLine : heading, dryRun: true }, { timeoutMs: 3000 });
         if (!plan.ok) {
           canAppend = false;
-          console.debug(`[tracely] cite: Sources line can't be placed here (${plan.reason ?? "?"}${plan.endShape ? ` · ${plan.endShape}` : ""}) — the entry will be handed over to paste`);
+          console.debug(`[tracely] cite: the reference can't be placed here (${plan.reason ?? "?"}${plan.endShape ? ` · ${plan.endShape}` : ""}) — it will be handed over to paste`);
         }
       }
-      const pasteEntry = entryLine && !canAppend ? (block ? entryLine : `Sources:\n${entryLine}`) : null;
+      const pasteEntry = entryLine && !canAppend ? (list ? entryLine : `${heading}\n${entryLine}`) : null;
       // The marker first: it is the step most likely to be refused (the
       // sentence changed), and refusing before anything landed needs no rollback.
-      if (!seg.text.includes(`[${num}]`)) {
-        const punct = seg.text.match(/[.!?]+["')\]]*$/);
+      if (!seg.text.includes(marker)) {
+        const punct = seg.text.match(/[.!?]+["'’”)\]]*$/);
         const at = punct ? seg.text.length - punct[0].length : seg.text.length;
-        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` [${num}]` + seg.text.slice(at);
+        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` ${marker}` + seg.text.slice(at);
         steps.push({ action: "replace", find: seg.text, replacement, hint });
       }
       if (entryLine && canAppend) {
-        if (!block) steps.push({ action: "appendLine", line: "Sources:" });
-        // Styled reference + " — url" tail: the url tail is what sourcesBlock
-        // parses for numbering/dedupe, so it must survive every style.
+        if (!list) steps.push({ action: "appendLine", line: heading });
         steps.push({ action: "appendLine", line: entryLine });
       }
+      const listName = list ? list.heading.replace(/\b\w/g, (c) => c.toUpperCase()) : heading;
       if (!steps.length) {
         // Marker and entry are both in the doc already: nothing to change —
         // so no "Applied ✓", and the last real edit keeps its Undo.
         if (st.citedUrl !== src.url) { st.citedUrl = src.url; persistCaches(); }
         statusKind = "idle";
-        statusMsg = `already cited [${num}] in the doc`;
+        statusMsg = `already cited ${marker} in the doc`;
         if (pasteEntry) {
           // The marker was already there; the entry still is not.
           st.pasteEntry = pasteEntry;
           const copied = await copyFallback(pasteEntry);
-          statusMsg = copied ? `[${num}] is in the doc — its reference is copied, paste it into Sources` : `[${num}] is in the doc — add its reference to Sources`;
+          statusMsg = copied ? `${marker} is in the doc — its reference is copied, paste it into ${listName}` : `${marker} is in the doc — add its reference to ${listName}`;
         }
         refreshEditViews();
         return true;
@@ -3872,7 +3902,7 @@
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
         copy: styled.ref,
-        doneMsg: pasteEntry ? `cited [${num}] in doc — paste its reference into Sources` : `cited [${num}] in doc`,
+        doneMsg: pasteEntry ? `cited ${marker} in doc — paste its reference into ${listName}` : `cited ${marker} in doc`,
         notes: hint.occurrences > 1 && !anchor ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Cite in doc") } : null,
         onApplied: () => {
           if (replacement) {
@@ -3883,6 +3913,7 @@
           }
           st.citedUrl = src.url;
           st.pasteEntry = pasteEntry;
+          st.citedList = listName;
           if (pasteEntry) copyFallback(pasteEntry);
           persistCaches();
         },
@@ -4117,7 +4148,7 @@
           btn.addEventListener("click", () => {
             const st = sourcesMap.get(btn.dataset.copySrc);
             const src = st?.list?.[Number(btn.dataset.i)];
-            if (src) copyText(formatCitation(src, settings.citationStyle || "apa").ref, btn.dataset.copySrc, src.url);
+            if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
           });
         }
         for (const btn of shadow.querySelectorAll("[data-doc-fix]")) {
@@ -4973,7 +5004,7 @@
           btn.addEventListener("click", () => {
             const st = sourcesMap.get(btn.dataset.copySrc);
             const src = st?.list?.[Number(btn.dataset.i)];
-            if (src) copyText(formatCitation(src, settings.citationStyle || "apa").ref, btn.dataset.copySrc, src.url);
+            if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
           });
         }
         shadow.getElementById("autoSrcTgl")?.addEventListener("change", (e) => {
