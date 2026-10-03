@@ -214,9 +214,45 @@ test("field mode: the loop stands down on a lost context, and an orphan never ch
 
 function loadCitations() {
   const code = contentSlice("  // Bibliography block", "  function segmentText(")
-    + ";({ formatCitation, sourcesBlock, CITE_STYLES })";
+    + ";({ formatCitation, sourcesBlock, worksCitedBlock, REF_HEADINGS, CITE_STYLES })";
   return vm.runInContext(code, vm.createContext({}));
 }
+
+test("Cite in doc's marker per style — the owner's own sentence, 2026-10-03", () => {
+  // Wanted "(Ambar Kumar Ghosh, 2025)"; chose MLA once shown that no style
+  // puts a full name in the parentheses. Purdue OWL MLA 9: last name only.
+  const { formatCitation, REF_HEADINGS } = loadCitations();
+  const src = { title: "Youth and Peacebuilding", url: "https://example.org/youth", authors: ["Ambar Kumar Ghosh"], year: 2025, kind: "report" };
+  assert.equal(formatCitation(src, "mla").marker, "(Ghosh)");
+  assert.equal(formatCitation(src, "apa").marker, "(Ghosh, 2025)");
+  assert.equal(formatCitation(src, "chicago").marker, "(Ghosh 2025)");
+  assert.equal(REF_HEADINGS.mla, "Works Cited");
+  assert.equal(REF_HEADINGS.apa, "References");
+});
+
+test("worksCitedBlock finds the LAST reference-list heading and keeps its lines whole", () => {
+  const { worksCitedBlock } = loadCitations();
+  assert.equal(worksCitedBlock("An essay with no list."), null);
+  const t = "The references in this essay matter.\n\nWorks Cited\nGhosh, Ambar Kumar. \"Youth.\" example.org/youth.\n\n  Other, A. \"B.\" c.example.\n";
+  const b = worksCitedBlock(t);
+  assert.equal(b.heading, "Works Cited");
+  assert.equal(t.slice(b.headStart, b.headStart + 11), "Works Cited");
+  assert.deepEqual([...b.entries], ['Ghosh, Ambar Kumar. "Youth." example.org/youth.', 'Other, A. "B." c.example.']);
+  // "References" inside a sentence is not a heading; a heading line with a colon is.
+  assert.equal(worksCitedBlock("Body.\nreferences:\nA.").heading, "references");
+  assert.equal(worksCitedBlock("See the references below for more."), null);
+});
+
+test("a Works Cited section is not fact-checked", () => {
+  const code = contentSlice("  function hashText(s) {", "  /* A Doc opened from a second")
+    + contentSlice("  // Bibliography block", "  /* ── sentence boundaries")
+    + contentSlice("  /* ── sentence boundaries", "  function esc(s) {")
+    + ";({ segmentText })";
+  const { segmentText } = vm.runInContext(code, vm.createContext({}));
+  const segs = segmentText("Renewables supply nearly 30% of global electricity today.\n\nWorks Cited\nGhosh, Ambar Kumar. \"Youth and Peacebuilding.\" 2025, example.org/youth.\n");
+  assert.ok(segs.some((x) => x.text.startsWith("Renewables")), "the body is still checked");
+  assert.ok(!segs.some((x) => x.text.includes("Ghosh")), "the reference entry is not");
+});
 
 const IOM_URL = "https://publications.iom.int/books/world-migration-report-2024-chapter-2";
 const IOM_TITLE = "World Migration Report 2024: Chapter 2 – Migration and migrants: A global overview";

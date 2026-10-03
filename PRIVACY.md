@@ -1,9 +1,12 @@
 # Tracely Privacy Policy
 
-*Effective: 24 September 2026. Replaces the August 2026 policy, which
-described an earlier version of the extension that ran on your own API key
-with no server and no accounts. That is not how Tracely works now, so this
-policy starts from what the current version actually does.*
+*Effective: 3 October 2026. This update adds one item: the site icons shown
+beside sources are loaded from Google's favicon service (see **Google** under
+"Who else processes your data"). The 24 September 2026 version replaced the
+August 2026 policy, which described an earlier version of the extension that
+ran on your own API key with no server and no accounts. That is not how
+Tracely works now, so this policy starts from what the current version
+actually does.*
 
 This policy covers the **Tracely Chrome extension** and the **Tracely
 service** it talks to (`api.jointracely.com`), both operated by Tracely
@@ -122,6 +125,10 @@ removes the rest.
   card details.
 - **Google** — Google Docs is read through your own session; Google sign-in
   through Supabase; Google's own diagnostics may note the extension's presence.
+  When sources are shown, your browser loads each source's small site icon
+  from Google's public favicon service (www.google.com/s2/favicons), which
+  receives that source's domain name — never your text or the sentence being
+  cited.
 - **Linode** — hosts our server.
 
 None of them receives more than the feature needs, and none is permitted to

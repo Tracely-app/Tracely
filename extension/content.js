@@ -24,9 +24,9 @@
    test pages fetch the server directly.
 
    Field mode also draws Grammarly-style overlay underlines: flagged
-   sentences get a 3px solid underline (no highlight wash) in their verdict's
-   colour from MARK_COLORS below (false, questionable, incoherent,
-   needs_citation each distinct); 2px grey dotted while pending; clicking one
+   sentences get a 2px solid underline (3px hovered) in their verdict's
+   colour from MARK_COLORS below (the app's red / orange / amber); 2px grey
+   dotted while pending; clicking one
    opens the panel and flashes that verdict's card. */
 "use strict";
 
@@ -48,21 +48,41 @@
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
   const flagShown = (f, settings) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
-    && (f.verdict !== "needs_citation" || settings?.citeHints !== false);
+    // A hidden switch must not keep acting on a value an earlier build saved.
+    && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false);
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
   const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Worth checking", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
-  // The mark vocabulary — one DISTINCT colour per verdict, used for the
-  // underlines, the card accents and the hover popover:
-  //   false → red, questionable → amber, incoherent → violet,
-  //   needs_citation → blue (the product's home turf: the claim looks right,
-  //   it just needs a source behind it).
-  const MARK_COLORS = { false: "#d93636", questionable: "#ffb800", incoherent: "#8e4ec6", needs_citation: "#2563eb" };
-  const VERDICT_WASH = { false: "#fdecec", questionable: "#fff4d6", incoherent: "#f1e6fb", needs_citation: "#e8f0fd" };
-  const VERDICT_TEXT = { false: "#d93636", questionable: "#a67500", incoherent: "#8e4ec6", needs_citation: "#2563eb" };
+  // The mark vocabulary is the desktop app's (PROBLEM_COLOR in
+  // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
+  // CLAUDE.md "UI decisions"), read off the Figma "Inline Detection" frames:
+  //   red #d93636    — wrong or makes no sense (false, incoherent)
+  //   orange #ff5900 — thin evidence, an unverified figure (questionable)
+  //   amber #ffb800  — add the attribution (needs_citation)
+  // Four verdicts on three colours, so the card TITLE is what tells false
+  // from incoherent; colour alone never has to. It used to be a fourth hue
+  // per verdict (amber, violet, blue), which made the same finding a
+  // different colour here than in the app.
+  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800" };
+  const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
+  const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
+
+  /* The bare-bones build: fact-checking (underline, card, suggested fix) and
+     citations (find a source, cite it), in Docs and in any text field.
+     Everything else is switched off here rather than deleted, so bringing a
+     feature back is one word. Owner, 2026-10-02: "only the basic bare bones
+     features which is citations fact checking … dont add anything else."
+     The switches are read OUTSIDE the regions server/test slices out of this
+     file and runs in isolation, so those tests keep running the real code. */
+  const FEATURES = {
+    flow: false,          // "Flow issue" passage flags (/api/flow) and their margin bracket
+    deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards
+    citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
+    autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
+  };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
      desktop app's src/shared/markMotion.ts rather than re-picked here — the
@@ -204,7 +224,9 @@
   function loadSettings(key) {
     const saved = jsonParse(lsGet(key) ?? "null", null);
     const obj = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
-    const settings = { citationStyle: "apa", citeHints: true, ...obj };
+    // MLA by default (owner, 2026-10-03: research papers and school essays
+    // alike). A style the writer picked is saved and wins.
+    const settings = { citationStyle: "mla", citeHints: true, ...obj };
     for (const k of RETIRED_SETTINGS) delete settings[k];
     return settings;
   }
@@ -474,6 +496,41 @@
       pos = nl === -1 ? text.length : nl + 1;
     }
     return { headStart, end: pos, entries };
+  }
+
+  /* The writer's reference list: the LAST line that is only a reference-list
+     heading — "Works Cited" (MLA), "References" (APA, Chicago author-date),
+     "Bibliography" — and every non-empty line after it. Reference lists sit at
+     the end, so the last heading is the list even when "References" appears
+     as a word earlier. Entries are kept as whole lines: an MLA entry has no
+     number to parse, and deduping only needs to know whether a source's
+     address is already in one. */
+  const REF_HEADINGS = { mla: "Works Cited", apa: "References", chicago: "References" };
+  /* The order a reference list is kept in: by its first word, the way MLA,
+     APA and Chicago all alphabetise — opening quotes and brackets ignored, and
+     a leading "A", "An" or "The" skipped (a title-first entry files under its
+     next word). Letter by letter on what is left, case-insensitively. */
+  function refSortKey(entry) {
+    return String(entry).toLowerCase()
+      .replace(/^[\s"“”‘’'(\[]+/, "")
+      .replace(/^(?:a|an|the)\s+/, "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9 ]+/g, "");
+  }
+  // The entry the new one goes ABOVE, or null when it belongs last.
+  function refInsertBefore(entries, line) {
+    const k = refSortKey(line);
+    return entries.find((e) => refSortKey(e) > k) ?? null;
+  }
+  function worksCitedBlock(text) {
+    const re = /(?:^|\n)[ \t]*(works cited|references|bibliography)[ \t]*:?[ \t]*(?=\n|$)/gi;
+    let m, last = null;
+    while ((m = re.exec(text))) last = m;
+    if (!last) return null;
+    const headStart = last.index + (last[0].startsWith("\n") ? 1 : 0);
+    const bodyStart = last.index + last[0].length;
+    const entries = text.slice(bodyStart).split("\n").map((l) => l.trim()).filter(Boolean);
+    return { heading: last[1], headStart, end: text.length, entries };
   }
 
   // ── citation formatting ──
@@ -787,12 +844,14 @@
   function segmentText(text) {
     const segs = [];
     const block = sourcesBlock(text);
+    const wc = worksCitedBlock(text);
     const lineRe = /[^\n]+/g;
     let lm;
     while ((lm = lineRe.exec(text))) {
       const line = lm[0];
       const base = lm.index;
       if (block && base >= block.headStart && base < block.end) continue; // skip the bibliography
+      if (wc && base >= wc.headStart) continue; // and the writer's Works Cited / References
       for (const [s0, e0] of splitLineSentences(line)) {
         const raw = line.slice(s0, e0);
         const lead = raw.match(/^\s*/)[0].length;
@@ -822,6 +881,76 @@
 
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  /* A source's favicon, from Google's public favicon service — the desktop's
+     choice (src/main/services/search/favicon.ts). It identifies the
+     PUBLICATION, where the two-letter tile only restated its name. It tells
+     Google the source's domain (never the user's text), which PRIVACY.md
+     names. A DOI resolver's host is not the publisher's, so a doi.org link
+     gets no icon: a resolver's mark on someone's paper is worse than the
+     tile. Callers keep the tile underneath and drop the image if it fails,
+     which is also what a page whose policy refuses the image gets. */
+  function faviconUrl(url) {
+    let host = "";
+    try { host = new URL(String(url)).hostname.replace(/^www\./, ""); } catch { return null; }
+    if (!host || /(^|\.)doi\.org$|(^|\.)handle\.net$/.test(host)) return null;
+    return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`;
+  }
+
+  /* ── the widget's chrome, from Figma ──────────────────────────────────
+     "Collapsed Launcher" (267:64): a 56px ink circle carrying the Tracely
+     mark, and a 31px orange count badge overlapping its top-right edge.
+     "Widget over Document" (282:70): a panel headed "N claims flagged" with a
+     round close button, ONE claim at a time and "Show all (N)" under it.
+     Both modes draw these. They live here, beside esc(), because that is the
+     region server/test loads alongside render(): the tests keep running the
+     real markup instead of a stub of it.
+
+     The mark is the desktop launcher's asset (src/renderer/src/assets/
+     figma-logo.png, trimmed to 44px), inlined because a content script's
+     images load under the PAGE's policy and the extension exposes no
+     web_accessible_resources. A page whose policy refuses data: images gets
+     the plane glyph instead (wireChrome), never an empty circle. */
+  const MARK_PNG = "data:image/png;base64,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";
+  let showAllCards = false; // "Show all (N)" — off until asked, per page
+  let focusCard = null;     // the card single view shows: the underline last clicked
+  function launcherHtml(countCls, countTxt, title) {
+    return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
+      <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
+      <span class="count ${countCls}">${esc(countTxt)}</span>
+    </div>`;
+  }
+  // The header: "N claims flagged" and the round close. The status line is
+  // shown only when it says something the title does not — an error, or
+  // "all clear" with nothing flagged — never "3 issues found" under "3 claims
+  // flagged".
+  function panelHeadHtml(n, statusMsg, statusErr, extra = "") {
+    const title = n > 0 ? `${n} claim${n === 1 ? "" : "s"} flagged` : "Tracely";
+    const status = statusErr || n === 0 ? statusMsg : "";
+    return `<div class="head" id="dragHead">
+      <span class="name">${title}</span>
+      ${extra}
+      <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
+      <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
+    </div>`;
+  }
+  // One card, or all of them. `cards` pairs each hash with its HTML.
+  function cardListHtml(cards) {
+    if (showAllCards || cards.length <= 1) {
+      return cards.map((c) => c.html).join("") + (cards.length > 1 ? `<button class="show-all" id="showAll">Show fewer</button>` : "");
+    }
+    const one = cards.find((c) => c.hash === focusCard) ?? cards[0];
+    return one.html + `<button class="show-all" id="showAll">Show all (${cards.length})</button>`;
+  }
+  function wireChrome(shadow, close, rerender) {
+    shadow.getElementById("panelClose")?.addEventListener("click", close);
+    shadow.getElementById("showAll")?.addEventListener("click", () => { showAllCards = !showAllCards; rerender(); });
+    for (const img of shadow.querySelectorAll(".src-ico img")) img.addEventListener("error", () => img.remove(), { once: true });
+    const mark = shadow.querySelector(".launch-mark");
+    mark?.addEventListener("error", () => { mark.outerHTML = `<span class="launch-plane">${PLANE_SVG}</span>`; }, { once: true });
+    const pill = shadow.getElementById("pill");
+    pill?.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pill.click(); } });
   }
 
   // Carry [n] citation markers from the original sentence into a revision that
@@ -976,22 +1105,67 @@
     }
     .count.off { color: var(--label); }
 
+    /* ── Launcher (Figma "Collapsed Launcher" 267:64) ──────────────────────
+       The desktop overlay's launcher, value for value (OverlayApp.tsx): a
+       56px ink circle, the mark turned white, and a 31px count badge 8.5px
+       above the top edge and 3.5px past the right. The badge is orange
+       because it counts findings; while checking it is grey "…", and with
+       nothing flagged there is no badge at all, as in the frame. */
+    .launcher {
+      position: relative; width: 56px; height: 56px; border-radius: 50%;
+      background: var(--ink); cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,.18);
+      transition: box-shadow .12s ease, transform .12s ease;
+      margin-left: auto;
+    }
+    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.06); }
+    .launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    @media (prefers-reduced-motion: reduce) { .launcher, .launcher:hover { transition: none; transform: none; } }
+    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; }
+    .launch-plane { width: 22px; height: 22px; color: #fff; display: flex; }
+    .launch-plane svg { width: 100%; height: 100%; }
+    .launcher .count {
+      position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
+      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
+      font-size: 16px; font-weight: 600; letter-spacing: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .launcher .count.off { background: #9a9ba1; font-size: 12px; }
+    .launcher .count.ok { display: none; }
+
     /* ── Panel ────────────────────────────────────────────────────────── */
+    /* ── Panel (Figma "Widget over Document" 282:70) ─────────────────────
+       480 wide, 1px ink border, 24px radius, 22/24 padding, a hairline under
+       the header inset to the content width. Capped to the viewport: a 480px
+       card does not fit beside a narrow Docs window. */
     .panel {
-      position: absolute; right: 0; bottom: 54px;
-      width: 384px; max-height: min(560px, 72vh);
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
-      box-shadow: var(--shadow-lg);
+      position: absolute; right: 0; bottom: 70px;
+      width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
+      background: var(--surface); border: 1px solid #000; border-radius: 24px;
+      box-shadow: 0 8px 12px rgba(0,0,0,.18);
       display: flex; flex-direction: column; overflow: hidden;
     }
     .head {
-      display: flex; align-items: center; gap: 8px;
-      padding: 14px 16px; border-bottom: 1px solid var(--border);
-      cursor: grab;
+      display: flex; align-items: center; gap: 10px;
+      margin: 0 24px; padding: 22px 0 16px; border-bottom: 1px solid #e7e7e7;
     }
-    .head .name { font-weight: 600; font-size: 14px; color: var(--text); }
+    .head .name { font-weight: 600; font-size: 19px; color: #1a1a1f; white-space: nowrap; }
+    .close {
+      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
+      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .close:hover { background: #e7e7e7; }
+    .show-all {
+      width: 100%; flex-shrink: 0; padding: 12px; border-radius: 999px;
+      border: 1.5px solid #e2e2e2; background: var(--surface); color: #1a1a1f;
+      font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .show-all:hover { border-color: #c9c9c9; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--label); max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
     .foot .act { padding: 5px 10px; font-size: 11px; }
@@ -1002,28 +1176,37 @@
       padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
     .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
+    /* The frame draws the claim on the panel itself, not in a box inside it;
+       under "Show all" a hairline separates one claim from the next. */
     .card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 12px; display: flex; flex-direction: column; gap: 8px;
+      background: var(--surface); border-radius: 12px;
+      display: flex; flex-direction: column; gap: 10px;
     }
+    .card + .card { border-top: 1px solid #e7e7e7; border-top-left-radius: 0; border-top-right-radius: 0; padding-top: 16px; }
     .top { display: flex; align-items: center; gap: 8px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
-    .d-quest { background: #ffb800; }
-    .d-inco { background: #8e4ec6; }
-    .d-cite { background: #2563eb; }
+    .d-quest { background: #ff5900; }
+    .d-inco { background: #d93636; }
+    .d-cite { background: #ffb800; }
     .d-flow { background: #7344f1; }
-    .ctitle { font-size: 14px; font-weight: 600; color: var(--ink); }
+    /* FEATURES: the switched-off controls are drawn and then hidden here, so
+       render() stays the code server/test exercises. */
+    ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
+    ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
+    ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
+    .ctitle { font-size: 15px; font-weight: 700; color: #1a1a1f; }
     .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
     .x:hover { color: var(--text); }
-    .quote { font-style: italic; font-size: 13px; line-height: 18.2px; color: var(--body); border-left: 2px solid var(--border); padding-left: 10px; }
-    .expl { font-size: 13px; line-height: 18.2px; color: var(--body); }
+    .quote { font-size: 14.5px; line-height: 1.4; color: #55565c; }
+    .expl { font-size: 13.5px; line-height: 1.4; color: var(--body); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
@@ -1060,7 +1243,8 @@
     .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > button.act { flex: 1 1 0; min-width: max-content; }
     .edit-note { font-size: 11px; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -1071,16 +1255,17 @@
     .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
+    /* The frame's pills: an ink fill, or a 1.5px ink outline. */
     button.act {
-      border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-      border-radius: var(--r-btn); padding: 8px 16px;
-      font-size: 12px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
+      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
+      border-radius: 999px; padding: 9px 16px;
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
       transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
     }
-    button.act:hover:not([disabled]) { border-color: var(--accent); color: var(--accent-ink); }
+    button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
     button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: var(--ink); border-color: transparent; color: #fff; }
-    button.act.primary:hover:not([disabled]) { color: #fff; border-color: transparent; filter: brightness(1.15); }
+    button.act.primary { background: #111; border-color: #111; color: #fff; }
+    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
     button.act[disabled] { opacity: .5; cursor: default; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
@@ -1096,6 +1281,9 @@
     .st-refutes { color: #b02a2a; }
     .st-context { color: var(--chip-ink); }
     .st-manual { color: #245d99; }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .src-ico:empty { display: none; }
+    .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
     .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
     .src a:hover { color: var(--accent-ink); }
@@ -1112,7 +1300,7 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { accent-color: var(--accent); }
-    .foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; }
+    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
     .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -1232,7 +1420,7 @@
        the sentence checker. One fast-model call per structural change, cached
        across reloads, so the whole feature costs a fraction of a cent. */
     const flowSaved = jsonParse(lsGet(FCACHE_KEY) ?? "null", null);
-    let flowIssues = Array.isArray(flowSaved?.issues) ? flowSaved.issues : [];
+    let flowIssues = FEATURES.flow && Array.isArray(flowSaved?.issues) ? flowSaved.issues : [];
     let flowSig = String(flowSaved?.sig ?? "");
     let flowAt = 0;
     let flowInflight = false;
@@ -1439,7 +1627,7 @@
         statusKind = "idle";
         const n = currentIssues().length + activeFlowIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
-        requestFlow(); // fire-and-forget; gated on structure change + rate floor
+        if (FEATURES.flow) requestFlow(); // fire-and-forget; gated on structure change + rate floor
       } catch (err) {
         if (err?.kind === "no_engine") {
           statusKind = "offline";
@@ -2304,6 +2492,8 @@
       searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
       noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
+      preview: "Preview", hidePreview: "Hide preview",
+      copyEntry: "Copy entry",
       willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
       flowTitle: "Flow issue", bridgeLabel: "SUGGESTED BRIDGE", addBridge: "Add transition", copyBridge: "Copy transition",
       bridgeApplied: "Transition added", bridgeAppliedBody: "The bridge sits just before the passage. Undo — or ⌘Z — takes it out again.",
@@ -2388,7 +2578,9 @@
     }
     function dmProgress() {
       const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: "#ededed", overflow: "hidden", flex: "0 0 auto" });
-      const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.orange });
+      // Ink, not the frame's orange: orange is a finding colour, and a search
+      // in progress is not a finding (CLAUDE.md "UI decisions").
+      const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.ink });
       bar.appendChild(fill);
       if (!reducedMotion() && typeof fill.animate === "function") {
         fill.animate([{ transform: "translateX(-100%)" }, { transform: "translateX(250%)" }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
@@ -2415,6 +2607,23 @@
       const s = words.length >= 2 ? words[0][0] + words[1][0] : name.slice(0, 2);
       return (s || "??").toUpperCase();
     }
+    /* The row's 28px / 8px-radius box: the favicon on white when there is one,
+       the design's two-letter tile underneath it otherwise — and again if the
+       image fails, so a row never shows an empty square. */
+    function dmSourceIcon(src) {
+      const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+      const icon = faviconUrl(src.url);
+      if (!icon) return box;
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const img = el("img", { width: "18px", height: "18px", display: "block" });
+      img.alt = "";
+      img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
+      img.addEventListener("error", () => wrap.remove(), { once: true });
+      img.src = icon;
+      wrap.appendChild(img);
+      box.appendChild(wrap);
+      return box;
+    }
     function dmRow(src, selected, onSelect) {
       const row = el("button", {
         display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
@@ -2422,7 +2631,7 @@
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
-      row.appendChild(el("span", { width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src)));
+      row.appendChild(dmSourceIcon(src));
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
       meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
       const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
@@ -2677,6 +2886,7 @@
     /* "Explain in depth" inside the fix card: the app's `.docmark-fix-issues`
        shape (a titled paragraph), and the loading and locked states in it. */
     function paintDeep(hash, f) {
+      if (!FEATURES.deepDive) return null;
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading") {
         const w = el("div", { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: DM.body, flex: "0 0 auto" });
@@ -2697,6 +2907,7 @@
     // The link that asks for it — beside the fix card's buttons, as the app
     // puts its hint beside Cancel. Locked: the PRO chip and a "See plans" note.
     function deepLink(hash, f) {
+      if (!FEATURES.deepDive) return null;
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading" || v.kind === "result") return null;
       const link = dmLink(v.label);
@@ -2714,7 +2925,7 @@
     /* ── the citation flow, card for card ───────────────────────────────── */
     function paintSources(hash, seg, f, st, put) {
       const s = sourcesMap.get(hash);
-      const style = settings.citationStyle || "apa";
+      const style = settings.citationStyle || "mla";
       const citedKey = (url) => `cite:${hash}:${url}`;
       // Inserted: the marker is in the sentence, the entry in the Sources list.
       const citedUrl = s?.citedUrl ?? null;
@@ -2722,8 +2933,16 @@
       if (citedState === "applied" || citedState === "undoing") {
         const src = s.list.find((x) => x.url === citedUrl);
         const c = src ? formatCitation(src, style) : null;
-        put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(`This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
-        if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
+        // The desktop overlay's rule (CLAUDE.md, "The confirmation says
+        // different things on the two surfaces"): never say ADDED over a
+        // list nothing was added to.
+        const paste = s.pasteEntry || null;
+        put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(paste
+          ? `${c ? c.marker : "The citation"} is in your sentence. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document.`
+          : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
+        const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
+        if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
+        else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
         const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
@@ -2732,7 +2951,12 @@
         done.addEventListener("click", () => { popSteps.delete(hash); hideDocsPopover(); });
         const undo = dmBtn(citedState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: citedState === "undoing" || lastDocEdit?.key !== citedKey(citedUrl) });
         undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
-        put(dmActions(done, undo));
+        let copyEntry = null;
+        if (paste) {
+          copyEntry = dmBtn(POP_COPY.copyEntry, false);
+          copyEntry.addEventListener("click", () => { copyFallback(paste).then((ok) => { copyEntry.textContent = ok ? POP_COPY.copied : POP_COPY.copyEntry; }); });
+        }
+        put(dmActions(done, copyEntry, undo));
         return;
       }
       const failedKey = [...docEditState.keys()].find((k) => k.startsWith(`cite:${hash}:`) && docEditState.get(k)?.state === "failed");
@@ -2755,7 +2979,8 @@
           put(dmActions(again, cancel));
           return;
         }
-        put(dmHead(DM.orange, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
+        // Grey: the colour the marks already use for "still checking".
+        put(dmHead(MARK_PENDING, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
         const cancel = dmBtn(POP_COPY.cancel, false);
         cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
         put(dmActions(cancel, dmHint(POP_COPY.searchHint)));
@@ -2775,7 +3000,9 @@
       // Results.
       const selected = st.selected ?? list[0]?.url ?? null;
       const src = list.find((x) => x.url === selected) ?? null;
-      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, dmChip(CITE_STYLE_LABEL[style])));
+      const styleChip = dmChip(CITE_STYLE_LABEL[style]);
+      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
+      styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
       const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
       scroll.setAttribute("data-pop-sources", "");
       scroll.appendChild(dmBody(`Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
@@ -2789,9 +3016,17 @@
       // to nothing. Its own rule decides it: the header and the buttons
       // never move, everything between them gives.
       scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
-      if (src) {
+      // Behind "Preview", as in Figma "Find a Source (Results)": the card is
+      // usually capped to the room under the line, and the citation is the
+      // part a writer checks once, not on every source they click through.
+      // "Open article" lives in it, so the action row is the frame's two.
+      if (src && st.preview) {
         const c = formatCitation(src, style);
-        scroll.appendChild(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref)));
+        const open = dmLink(POP_COPY.openArticle);
+        Object.assign(open.style, { marginLeft: "0", alignSelf: "flex-start" });
+        open.title = src.url;
+        open.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
+        scroll.appendChild(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref), open));
       }
       put(scroll);
       const i = src ? list.indexOf(src) : -1;
@@ -2805,9 +3040,9 @@
         primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
         primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
       }
-      const open = dmBtn(POP_COPY.openArticle, false, { disabled: !src, title: src?.url });
-      open.addEventListener("click", () => { if (src) window.open(src.url, "_blank", "noopener,noreferrer"); });
-      put(dmActions(primary, open));
+      const preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !src });
+      preview.addEventListener("click", () => setStep(hash, { preview: !st.preview }));
+      put(dmActions(primary, preview));
       const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
       again.addEventListener("click", searchAgain);
       put(again);
@@ -3150,7 +3385,7 @@
 
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
     async function autoFindSources(findings) {
-      if (settings.autoSources !== true) return; // cost: auto web-search is opt-in
+      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
       let started = 0;
       for (const f of findings) {
         if (started >= 3) break;
@@ -3384,7 +3619,14 @@
         case "mismatch": return "the edit didn't land as expected, so it was taken back";
         case "timeout": return "the editor didn't answer";
         case "bridge": return String(r.detail || "the Docs bridge refused the edit").slice(0, 120);
-        default: return "the editor couldn't make that edit";
+        case "no-api": return "Docs isn't sharing this document's text with Tracely, so it can't add to it here";
+        case "no-editor": return "Docs' editor isn't ready — try again in a moment";
+        case "selection-failed":
+        case "selection-mismatch":
+        case "selection-unverifiable": return "Tracely couldn't select that sentence safely, so nothing was changed";
+        case "edits-disabled": return "editing is switched off on this page";
+        // The reason code, so the next report names the cause instead of this sentence.
+        default: return `the editor couldn't make that edit (${r?.reason || "unknown"})`;
       }
     }
 
@@ -3476,10 +3718,14 @@
         for (const step of job.steps) {
           const { hint, ...payload } = step;
           const r = await docApply(payload, hint, path);
+          // One line per step, so "it didn't work" can be read off the console
+          // rather than guessed at. No document text: the action, the path
+          // and the hook's answer only.
+          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
-          if (!r.ok) { fail = reason = r; break; }
+          if (!r.ok) { fail = reason = { ...r, action: payload.action }; break; }
         }
         if (fail && tokens.length) {
           // rollback: this is the immediate take-back, the one time the hook
@@ -3507,6 +3753,16 @@
         setEditState(key, { state: "applied", at: Date.now(), base: docText });
         requestDocsMarks(); // the edited sentence's underline drops right away
         return true;
+      }
+      /* An in-order Works Cited insert that Docs did not take (the read-back
+         did not show the entry as its own paragraph) has been rolled back
+         cleanly: run the group once more with the entry at the END instead.
+         An out-of-order entry beats losing the citation — which is what a
+         group failure means, marker and all. Only when the rollback held
+         (nothing stuck), and only once. */
+      if (job.retry && fail.action === "insertLineBefore" && !fail.stuck) {
+        console.debug(`[tracely] cite: in-order insert refused (${fail.reason ?? "?"}) — appending instead`);
+        return runDocEdit(key, { ...job, steps: job.retry, retry: null });
       }
       const copied = await copyFallback(job.copy);
       const note = fail.stuck
@@ -3597,42 +3853,95 @@
       const seg = segments.find((s) => s.hash === hash);
       const st = sourcesMap.get(hash);
       const src = st?.list?.[Number(i)];
-      if (!seg || !src || docBusy) return false;
+      if (!seg || !src || docBusy) {
+        console.debug(`[tracely] cite skipped: ${!seg ? "sentence no longer in the doc" : !src ? "source not found" : "another edit is running"}`);
+        return false;
+      }
       const hint = segHint(seg, anchor);
-      const block = sourcesBlock(docText);
-      const existing = block?.entries.find((e) => e.url === src.url);
-      const num = existing ? existing.num : (block?.entries.length ?? 0) + 1;
-      const styled = formatCitation(src, settings.citationStyle || "apa");
+      /* The STYLE's citation, not a number. This inserted " [n]" and a
+         numbered "Sources:" list whatever style was picked, while Preview
+         showed the style's real marker — so the card promised "(Ghosh)" and
+         the Doc got "[1]". Now the sentence takes formatCitation's marker
+         and the entry goes under the style's own heading (Works Cited for
+         MLA, References for APA and Chicago), added only when the Doc has no
+         reference list yet. A source already in the list is not added twice. */
+      const style = settings.citationStyle || "mla";
+      const styled = formatCitation(src, style);
+      const marker = styled.marker;
+      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const list = worksCitedBlock(docText);
+      const doi = String(src.doi ?? "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
+      // By address WITHOUT its scheme: MLA prints "example.com/wall", APA
+      // "https://example.com/wall", and the writer may have typed either.
+      const urlKey = String(src.url ?? "").replace(/^https?:\/\/(www\.)?/i, "").replace(/\/+$/, "");
+      const listed = Boolean(list?.entries.some((l) => (urlKey && l.includes(urlKey)) || (doi && l.includes(doi))));
+      const entryLine = listed ? null : styled.ref;
+      console.debug(`[tracely] cite: ${style} · path ${editPath()} · text API ${inDoc.api ? "yes" : "no"} · reference list ${list ? `"${list.heading}"` : "none"}${listed ? " (source already listed)" : ""}`);
       const steps = [];
       let replacement = null;
+      /* The entry needs Docs' text API (docs-hook.js doAppendLine refuses a
+         blind append, as it should: nothing could verify it). The marker does
+         not — doReplace falls back to mouseReplace — so on a Doc that does not
+         share its text the marker goes in and the entry is handed over to
+         paste. And a dry run asks first whether the line can be placed at
+         all: on a Doc whose text does not end the way the hook knows ("doc-
+         end-unknown", measured 2026-10-03) the group used to land the marker,
+         fail the append and roll the marker back. */
+      let canAppend = editPath() !== "hook" || inDoc.api;
+      // Alphabetical: above the first entry that sorts after it — kept only
+      // when that entry is a single paragraph the hook can find (it refuses
+      // otherwise, and the entry then goes last rather than nowhere).
+      let above = list && entryLine ? refInsertBefore(list.entries, entryLine) : null;
+      if (above && editPath() === "hook" && canAppend) {
+        const probe = await docsEdit("insertLineBefore", { line: entryLine, before: above, dryRun: true }, { timeoutMs: 3000 });
+        if (!probe.ok) {
+          console.debug(`[tracely] cite: can't place the entry in order (${probe.reason ?? "?"}) — it will go at the end`);
+          above = null;
+        }
+      } else if (editPath() !== "hook") above = null; // the dev bridge only appends
+      if (entryLine && canAppend && editPath() === "hook" && !above) {
+        const plan = await docsEdit("appendLine", { line: list ? entryLine : heading, dryRun: true }, { timeoutMs: 3000 });
+        if (!plan.ok) {
+          canAppend = false;
+          console.debug(`[tracely] cite: the reference can't be placed here (${plan.reason ?? "?"}${plan.endShape ? ` · ${plan.endShape}` : ""}) — it will be handed over to paste`);
+        }
+      }
+      const pasteEntry = entryLine && !canAppend ? (list ? entryLine : `${heading}\n${entryLine}`) : null;
       // The marker first: it is the step most likely to be refused (the
       // sentence changed), and refusing before anything landed needs no rollback.
-      if (!seg.text.includes(`[${num}]`)) {
-        const punct = seg.text.match(/[.!?]+["')\]]*$/);
+      if (!seg.text.includes(marker)) {
+        const punct = seg.text.match(/[.!?]+["'’”)\]]*$/);
         const at = punct ? seg.text.length - punct[0].length : seg.text.length;
-        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` [${num}]` + seg.text.slice(at);
+        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` ${marker}` + seg.text.slice(at);
         steps.push({ action: "replace", find: seg.text, replacement, hint });
       }
-      if (!existing) {
-        if (!block) steps.push({ action: "appendLine", line: "Sources:" });
-        // Styled reference + " — url" tail: the url tail is what sourcesBlock
-        // parses for numbering/dedupe, so it must survive every style.
-        steps.push({ action: "appendLine", line: `${num}. ${styled.doc} — ${src.url}` });
+      if (entryLine && canAppend) {
+        if (!list) steps.push({ action: "appendLine", line: heading });
+        steps.push(above ? { action: "insertLineBefore", line: entryLine, before: above } : { action: "appendLine", line: entryLine });
       }
+      const listName = list ? list.heading.replace(/\b\w/g, (c) => c.toUpperCase()) : heading;
       if (!steps.length) {
         // Marker and entry are both in the doc already: nothing to change —
         // so no "Applied ✓", and the last real edit keeps its Undo.
         if (st.citedUrl !== src.url) { st.citedUrl = src.url; persistCaches(); }
         statusKind = "idle";
-        statusMsg = `already cited [${num}] in the doc`;
+        statusMsg = `already cited ${marker} in the doc`;
+        if (pasteEntry) {
+          // The marker was already there; the entry still is not.
+          st.pasteEntry = pasteEntry;
+          const copied = await copyFallback(pasteEntry);
+          statusMsg = copied ? `${marker} is in the doc — its reference is copied, paste it into ${listName}` : `${marker} is in the doc — add its reference to ${listName}`;
+        }
         refreshEditViews();
         return true;
       }
       const prevCited = st.citedUrl ?? null;
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
+        // If Docs refuses the in-order insert for real: the same group, the entry last.
+        retry: above ? steps.map((st) => (st.action === "insertLineBefore" ? { action: "appendLine", line: st.line } : st)) : null,
         copy: styled.ref,
-        doneMsg: `cited [${num}] in doc`,
+        doneMsg: pasteEntry ? `cited ${marker} in doc — paste its reference into ${listName}` : `cited ${marker} in doc`,
         notes: hint.occurrences > 1 && !anchor ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Cite in doc") } : null,
         onApplied: () => {
           if (replacement) {
@@ -3642,11 +3951,15 @@
             if (!(hint.occurrences > 1)) markEdited(hash); // another copy keeps its underline
           }
           st.citedUrl = src.url;
+          st.pasteEntry = pasteEntry;
+          st.citedList = listName;
+          if (pasteEntry) copyFallback(pasteEntry);
           persistCaches();
         },
         onUndone: () => {
           editedHashes.delete(hash);
           st.citedUrl = prevCited;
+          st.pasteEntry = null;
           persistCaches();
         },
       });
@@ -3695,7 +4008,7 @@
           <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
-              <div class="top"><span class="dot d-cite"></span><span class="ctitle">Check this document with Tracely?</span></div>
+              <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
               <div class="expl">${esc(DOCS_CONSENT_TEXT)}</div>
               <div class="row">
                 <button class="act primary" id="docsOn">Turn on for Google Docs</button>
@@ -3719,7 +4032,7 @@
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
@@ -3759,6 +4072,7 @@
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
                 <div class="src">
+                  <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
@@ -3772,8 +4086,8 @@
                   </div>
                 </div>`).join("") + `</div>`;
           }
-          return `
-          <div class="card">
+          return { hash: seg.hash, html: `
+          <div class="card" data-card="${seg.hash}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
@@ -3794,8 +4108,9 @@
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
-          </div>`;
-        }).join("");
+          </div>` };
+        });
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
         // as soon as the sentence is re-read, so the Undo moves up here.
@@ -3804,13 +4119,9 @@
           : "";
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          <div class="head" id="dragHead">
-            <span class="plane">${PLANE_SVG}</span>
-            <span class="name">Tracely</span>
-            <span class="status ${statusKind === "error" || statusKind === "offline" ? "error" : ""}">${esc(statusMsg)}</span>
-          </div>
+          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${flowCards}${cards || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
+            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -3826,16 +4137,13 @@
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
       root.innerHTML = `
         ${panelHtml}
-        <div class="pill" id="pill">
-          <span class="plane">${PLANE_SVG}</span>
-          Tracely
-          <span class="count ${countCls}">${countTxt}</span>
-        </div>
+        ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
+      wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
         wireDeep(shadow, explainSentence, render);
@@ -3879,7 +4187,7 @@
           btn.addEventListener("click", () => {
             const st = sourcesMap.get(btn.dataset.copySrc);
             const src = st?.list?.[Number(btn.dataset.i)];
-            if (src) copyText(formatCitation(src, settings.citationStyle || "apa").ref, btn.dataset.copySrc, src.url);
+            if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
           });
         }
         for (const btn of shadow.querySelectorAll("[data-doc-fix]")) {
@@ -4339,6 +4647,7 @@
       const h = hitMark(e.clientX, e.clientY);
       if (!h) return;
       expanded = true;
+      focusCard = h;
       ensureWidget();
       render();
       flashCard(h);
@@ -4463,7 +4772,7 @@
     // Auto-sources — same toggle and rolling-hour guard as docs mode. Only
     // reachable after a check, which on a non-enabled site takes a click.
     async function autoFindSources(findings) {
-      if (settings.autoSources !== true) return; // cost: auto web-search is opt-in
+      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
       let started = 0;
       for (const f of findings) {
         if (started >= 3) break;
@@ -4617,7 +4926,7 @@
       const issues = currentIssues();
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
@@ -4634,6 +4943,7 @@
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
                 <div class="src">
+                  <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
@@ -4645,7 +4955,7 @@
                   </div>
                 </div>`).join("") + `</div>`;
           }
-          return `
+          return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
@@ -4666,8 +4976,9 @@
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
-          </div>`;
-        }).join("");
+          </div>` };
+        });
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
 
         const emptyMsg = statusKind === "offline"
           ? "Tracely could not reach its server. Try again in a moment."
@@ -4677,18 +4988,14 @@
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          <div class="head" id="dragHead">
-            <span class="plane">${PLANE_SVG}</span>
-            <span class="name">Tracely</span>
-            <label class="autosrc" title="Run automatic checks on this site every 10s. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
-            <span class="status ${statusKind === "error" || statusKind === "offline" ? "error" : ""}">${esc(statusMsg)}</span>
-          </div>
+          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${cards || `<div class="empty">${emptyMsg}</div>`}
+            ${cardsHtml || `<div class="empty">${emptyMsg}</div>`}
           </div>
           <div class="foot">
             <span class="foot-left">
               <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "auto-check off"}</span>
+              <label class="autosrc" title="Run automatic checks on this site every 10s. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
@@ -4700,16 +5007,15 @@
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
       root.innerHTML = `
         ${panelHtml}
-        <div class="pill${quiet ? " quiet" : ""}" id="pill">
-          <span class="plane">${PLANE_SVG}</span>
-          ${quiet ? "Check this field" : "Tracely"}
-          ${quiet ? "" : `<span class="count ${countCls}">${countTxt}</span>`}
-        </div>
+        ${quiet
+          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Check this field</div>`
+          : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
+      wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
         shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
@@ -4737,7 +5043,7 @@
           btn.addEventListener("click", () => {
             const st = sourcesMap.get(btn.dataset.copySrc);
             const src = st?.list?.[Number(btn.dataset.i)];
-            if (src) copyText(formatCitation(src, settings.citationStyle || "apa").ref, btn.dataset.copySrc, src.url);
+            if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
           });
         }
         shadow.getElementById("autoSrcTgl")?.addEventListener("change", (e) => {

@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.21.1, and not one new permission.
+ *   - the manifest: 2.21.2, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -520,6 +520,41 @@ test("engine: insertAfter and appendLine land where a person would put them, and
   assert.equal((await h.call("undo", { undoToken: a.undoToken })).reason, "unknown-token", "a token is spent once");
 });
 
+test("engine: insertLineBefore keeps a Works Cited alphabetical, and one undo takes it back exactly", async () => {
+  const docs = new FakeDocs("Peace needs youth (Brown).\nWorks Cited\nAdams, J. \"Peace.\" a.org.\nGhosh, Ambar Kumar. \"Youth.\" x.org.");
+  const before = docs.T;
+  const h = loadHook({ docs });
+  const dry = await h.call("insertLineBefore", { line: "Brown, T. \"B.\" b.org.", before: "Ghosh, Ambar Kumar. \"Youth.\" x.org.", dryRun: true });
+  assert.equal(dry.ok && dry.dryRun, true, JSON.stringify(dry));
+  assert.equal(docs.T, before, "a dry run changes nothing");
+  const r = await h.call("insertLineBefore", { line: "Brown, T. \"B.\" b.org.", before: "Ghosh, Ambar Kumar. \"Youth.\" x.org." });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(docs.body(), "Peace needs youth (Brown).\nWorks Cited\nAdams, J. \"Peace.\" a.org.\nBrown, T. \"B.\" b.org.\nGhosh, Ambar Kumar. \"Youth.\" x.org.", "its own paragraph, between Adams and Ghosh");
+  const u = await h.call("undo", { undoToken: r.undoToken });
+  assert.equal(u.ok, true, JSON.stringify(u));
+  assert.equal(docs.T, before, "exactly as it was");
+});
+
+test("engine: insertLineBefore refuses a target that is missing or not one paragraph", async () => {
+  const docs = new FakeDocs("Works Cited\nAdams, J. a.org.\nAdams, J. a.org.");
+  const before = docs.T;
+  const h = loadHook({ docs });
+  assert.equal((await h.call("insertLineBefore", { line: "B.", before: "Adams, J. a.org." })).reason, "ambiguous");
+  assert.equal((await h.call("insertLineBefore", { line: "B.", before: "Zhou, L. z.org." })).reason, "not-found");
+  assert.equal((await h.call("insertLineBefore", { line: "B.", before: "Adams" })).reason, "not-found", "a PART of a paragraph is not a target");
+  assert.equal((await h.call("insertLineBefore", { line: "", before: "x" })).reason, "bad-request");
+  assert.equal(docs.T, before);
+});
+
+test("planner: insertLineBefore's plan and its read-back check", () => {
+  const T = "\u0003Body.\nWorks Cited\nAdams.\nGhosh.\n\u0003\n";
+  const p = I.planInsertBefore(T, "Ghosh.", "Brown.");
+  assert.equal(T.slice(0, p.c).endsWith("Adams.\n"), true, "at the start of the target paragraph");
+  assert.equal(p.text, "Brown.\n");
+  assert.equal(I.linedAbove("Adams.\nBrown.\nGhosh.", "Brown.", "Ghosh."), true);
+  assert.equal(I.linedAbove("Adams.\nBrown.Ghosh.", "Brown.", "Ghosh."), false, "merged into one paragraph is a mismatch, not a success");
+});
+
 test("engine: undo after someone else typed reverses only our words (semantic undo)", async () => {
   const MID = "The rest of this document is long enough to sit well clear of the edit's context.";
   const docs = new FakeDocs(`The story is really good. ${MID} The end.`);
@@ -923,7 +958,10 @@ test("content.js: a refused edit copies the fix instead, with a short reason", a
     ["ambiguous", "that sentence appears more than once"],
     ["not-applied", "this doc isn't editable right now"],
     ["view-only", "this doc isn't editable right now"],
-    ["selection-mismatch", "the editor couldn't make that edit"],
+    ["selection-mismatch", "Tracely couldn't select that sentence safely, so nothing was changed"],
+    ["no-api", "Docs isn't sharing this document's text with Tracely, so it can't add to it here"],
+    // An unrecognised reason names its code, so a report says what happened.
+    ["something-new", "the editor couldn't make that edit (something-new)"],
   ]) {
     const { w, ops, copied } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: false, reason } : undefined), body: S });
     await w.probeInDoc();
@@ -1032,16 +1070,40 @@ test("content.js: an edit the hook could only verify blind lands without an Undo
   assert.ok(!/Undo/.test(w.editBtnHtml(`fix:${h}`, "Fix in doc", "")));
 });
 
-function citeSetup(respond) {
+// docCite asks the hook to PLAN the Sources line (appendLine, dryRun) before
+// committing to it. That probe changes nothing, so these tests answer it
+// (`dry`, default: the line can be placed) and leave it out of `ops()`, which
+// stays the list of edits actually made.
+function citeSetup(respond, dry = () => ({ ok: true, dryRun: true })) {
   const S = "The Great Wall is visible from space.";
   const body = `${S} It is long.`;
-  const env = loadWiring({ respond, body });
+  const env = loadWiring({ respond: (m) => (m.dryRun ? dry(m) : respond(m)), body });
   const h = env.w.hashText(S);
   env.w.setDoc(body, [{ ...seg(S), hash: h }]);
   env.w.cache.set(h, { verdict: "needs_citation" });
   env.w.sourcesMap.set(h, { loading: false, list: [{ title: "Can you see the Great Wall?", url: "https://example.com/wall", publisher: "NASA" }], citedUrl: null });
-  return { ...env, S, h };
+  const allOps = env.ops;
+  return { ...env, ops: () => allOps().filter((o) => !o.dryRun), S, h };
 }
+
+test("content.js: a Doc whose end the hook can't place a line at keeps the marker and hands over the entry", async () => {
+  // Measured 2026-10-03 on a real Doc: the append was refused as
+  // doc-end-unknown, and the group rolled back the marker that had landed —
+  // "[1] for a split second, then Could not apply".
+  let n = 0;
+  const { w, ops, copied, h } = citeSetup((m) => {
+    if (m.op === "ping") return okPing(m);
+    return { ok: true, undoToken: `t${++n}` };
+  }, () => ({ ok: false, reason: "doc-end-unknown", endShape: "len 99 … ·\\u0003" }));
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace"], "the marker only — no append, no rollback");
+  const st = w.sourcesMap.get(h);
+  assert.equal(st.citedUrl, "https://example.com/wall");
+  assert.equal(st.pasteEntry, "References\nNASA. (n.d.). Can you see the Great Wall? https://example.com/wall", "the style's heading and entry, ready to paste");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(copied, [st.pasteEntry]);
+});
 
 test("content.js: Cite in doc is ONE group — marker, heading, entry — and a failure part-way rolls it all back", async () => {
   let n = 0;
@@ -1056,9 +1118,9 @@ test("content.js: Cite in doc is ONE group — marker, heading, entry — and a 
   const edits = ops().filter((o) => o.op !== "ping");
   assert.deepEqual(edits.map((o) => o.op), ["replace", "appendLine", "appendLine", "undo"]);
   assert.equal(edits[0].find, S);
-  assert.equal(edits[0].replacement, "The Great Wall is visible from space [1].", "the marker goes before the full stop");
-  assert.equal(edits[1].line, "Sources:");
-  assert.match(edits[2].line, /^1\. .+ — https:\/\/example\.com\/wall$/, "the entry keeps the ' — url' tail sourcesBlock parses");
+  assert.equal(edits[0].replacement, "The Great Wall is visible from space (NASA, n.d.).", "the style's own marker, before the full stop");
+  assert.equal(edits[1].line, "References", "APA's reference-list heading");
+  assert.equal(edits[2].line, "NASA. (n.d.). Can you see the Great Wall? https://example.com/wall", "the full APA entry");
   assert.deepEqual(edits[3].undoToken, ["t2", "t1"], "rolled back newest first");
   assert.equal(copied.length, 1, "then the citation is copied instead");
   assert.equal(w.sourcesMap.get(h).citedUrl, null, "not marked cited");
@@ -1114,31 +1176,93 @@ test("content.js: a cite that lands keeps its verdict on the marked sentence, an
   });
   await w.probeInDoc();
   assert.equal(await w.docCite(h, 0), true);
-  const newHash = w.hashText("The Great Wall is visible from space [1].");
+  const newHash = w.hashText("The Great Wall is visible from space (NASA, n.d.).");
   assert.ok(w.cache.has(newHash), "the marked sentence is not re-checked from scratch");
   assert.equal(w.sourcesMap.get(h).citedUrl, "https://example.com/wall");
-  assert.match(w.state().statusMsg, /cited \[1\] in doc/);
+  assert.equal(w.state().statusMsg, "cited (NASA, n.d.) in doc");
   assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["t3", "t2", "t1"]);
   await w.undoLastDocEdit();
   assert.deepEqual(ops().filter((o) => o.op === "undo").pop().undoToken, ["t3", "t2", "t1"]);
   assert.equal(w.sourcesMap.get(h).citedUrl, null);
 });
 
-test("content.js: an existing Sources entry is reused — only the marker is added", async () => {
+test("content.js: a Doc that does not share its text gets the marker, and the entry to paste", async () => {
+  // The hook can place a marker without Docs' text API (mouseReplace) but
+  // refuses a blind append. This used to send the append anyway, fail with
+  // no-api, roll the marker back and report "the editor couldn't make that
+  // edit" for every citation on the Doc.
+  let n = 0;
+  const { w, ops, copied, h } = citeSetup((m) => {
+    if (m.op === "ping") return { ok: true, api: false, editor: true, editable: true };
+    if (m.op === "appendLine") return { ok: false, reason: "no-api" };
+    return { ok: true, undoToken: `t${++n}` };
+  });
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace"], "only the marker is sent");
+  const st = w.sourcesMap.get(h);
+  assert.equal(st.citedUrl, "https://example.com/wall");
+  assert.equal(st.pasteEntry, "References\nNASA. (n.d.). Can you see the Great Wall? https://example.com/wall", "the entry, with its heading, ready to paste");
+  await new Promise((r) => setTimeout(r, 0)); // the copy is fire-and-forget
+  assert.deepEqual(copied, [st.pasteEntry]);
+  assert.equal(w.state().statusMsg, "cited (NASA, n.d.) in doc — paste its reference into References");
+});
+
+test("content.js: a source already in the reference list is not added twice — only the marker is added", async () => {
   const { w, ops, S, h } = citeSetup((m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: "t" }));
-  const body = `${S} It is long.\nSources:\n1. Something else — https://other.example\n2. Wall — https://example.com/wall`;
+  // MLA writes the address without its scheme; the match must not need it.
+  const body = `${S} It is long.\nWorks Cited\nOther, A. "Something else." other.example.\nNASA. "Can you see the Great Wall?" example.com/wall.`;
   w.setDoc(body, [{ ...seg(S), hash: h }]);
   await w.probeInDoc();
   await w.docCite(h, 0);
   const edits = ops().filter((o) => o.op !== "ping");
   assert.deepEqual(edits.map((o) => o.op), ["replace"]);
-  assert.equal(edits[0].replacement, "The Great Wall is visible from space [2].");
+  assert.equal(edits[0].replacement, "The Great Wall is visible from space (NASA, n.d.).");
+});
+
+test("content.js: a new entry goes into the reference list in alphabetical order", async () => {
+  // APA in this wiring: the sample source files under "NASA".
+  let n = 0;
+  const { w, ops, S, h } = citeSetup((m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: `t${++n}` }));
+  const body = `${S} It is long.\nReferences\nAdams, J. (2020). Peace. https://a.org\nZhou, L. (2021). Z. https://z.org`;
+  w.setDoc(body, [{ ...seg(S), hash: h }]);
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  const edits = ops().filter((o) => o.op !== "ping");
+  assert.deepEqual(edits.map((o) => o.op), ["replace", "insertLineBefore"]);
+  assert.equal(edits[1].before, "Zhou, L. (2021). Z. https://z.org", "N files between A and Z");
+  assert.equal(edits[1].line, "NASA. (n.d.). Can you see the Great Wall? https://example.com/wall");
+});
+
+test("content.js: if Docs refuses the in-order insert for real, the citation is retried with the entry last — not lost", async () => {
+  let n = 0;
+  const { w, ops, S, h } = citeSetup((m) => {
+    if (m.op === "ping") return okPing(m);
+    if (m.op === "undo") return { ok: true };
+    if (m.op === "insertLineBefore") return { ok: false, reason: "mismatch", changed: true, undoToken: `t${++n}` };
+    return { ok: true, undoToken: `t${++n}` };
+  });
+  w.setDoc(`${S} It is long.\nReferences\nAdams, J. (2020). Peace. https://a.org\nZhou, L. (2021). Z. https://z.org`, [{ ...seg(S), hash: h }]);
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true, "the citation lands");
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace", "insertLineBefore", "undo", "replace", "appendLine"]);
+  assert.equal(w.sourcesMap.get(h).citedUrl, "https://example.com/wall");
+});
+
+test("content.js: an entry that sorts last, or whose neighbour can't be found, is appended", async () => {
+  let n = 0;
+  const { w, ops, S, h } = citeSetup((m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: `t${++n}` }),
+    (m) => (m.op === "insertLineBefore" ? { ok: false, reason: "not-found" } : { ok: true, dryRun: true }));
+  w.setDoc(`${S} It is long.\nReferences\nZhou, L. (2021). Z. https://z.org`, [{ ...seg(S), hash: h }]);
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace", "appendLine"], "refused in place → at the end, never nowhere");
 });
 
 test("content.js: a click that changes nothing neither claims an edit nor wipes the last Undo", async () => {
-  const S = "The Great Wall is visible from space [1].";
+  const S = "The Great Wall is visible from space (Wall, n.d.).";
   const F = "Einstein was a basketball player.";
-  const body = `${F} ${S}\nSources:\n1. Wall — https://example.com/wall`;
+  const body = `${F} ${S}\nReferences\nWall. (n.d.). https://example.com/wall`;
   let replaceReply = { ok: true, undoToken: "u1" };
   const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? replaceReply : undefined), body });
   await w.probeInDoc();
@@ -1154,7 +1278,7 @@ test("content.js: a click that changes nothing neither claims an edit nor wipes 
   const before = ops().length;
   assert.equal(await w.docCite(hs, 0), true);
   assert.equal(ops().length, before, "nothing sent to the doc");
-  assert.equal(w.state().statusMsg, "already cited [1] in the doc");
+  assert.equal(w.state().statusMsg, "already cited (Wall, n.d.) in the doc");
   assert.deepEqual(plain(w.state().lastDocEdit.tokens), ["u1"], "the fix keeps its Undo");
   assert.equal(w.editView(`cite:${hs}:https://example.com/wall`, "Cited ✓").label, "Cited ✓", "no Applied ✓ for nothing");
 
@@ -1315,9 +1439,9 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.21.1, and fixing in the doc asks for no new permission", () => {
+test("manifest: 2.21.2, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.21.1");
+  assert.equal(m.version, "2.21.2");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",
@@ -1334,8 +1458,10 @@ test("manifest: 2.21.1, and fixing in the doc asks for no new permission", () =>
 
 test("pack-extension.sh leaves extension/dev/ out of every zip, and checks the zip itself", () => {
   const sh = readFileSync(path.join(HERE, "..", "scripts", "pack-extension.sh"), "utf8");
-  const rsync = sh.split("\n").find((l) => l.startsWith("rsync "));
+  const rsync = sh.split("\n").find((l) => l.trim().startsWith("rsync "));
   assert.ok(rsync && rsync.includes("--exclude '/dev/'"), rsync);
+  // The no-rsync fallback (Git Bash on Windows) drops dev/ too.
+  assert.match(sh, /top && \(e\.name === "beta\.json" \|\| e\.name === "dev"\)/, "the node copy fallback excludes dev/ and beta.json");
   assert.match(sh, /count '\(\^\|\/\)dev\/'\)" = 0 \] \|\| fail/, "the zip itself is checked for dev/ entries, in either layout");
   // And behaviourally: build both zips from the real extension/ (which HAS a
   // dev/ folder) and look inside them.

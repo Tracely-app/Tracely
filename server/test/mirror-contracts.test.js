@@ -135,7 +135,10 @@ test("the plans' advertised allowances are the ones the server meters", { skip: 
 /* ── marks ───────────────────────────────────────────────────────────────── */
 
 function deskCopy() {
-  const src = read("src", "renderer", "src", "components", "problemCopy.ts");
+  // CRLF → LF first: a Windows checkout (core.autocrlf) has "\r\n}\r\n", the
+  // block end below never matches, and the label table runs on into every
+  // Record after it (the claim types), failing as "desktop-only kinds changed".
+  const src = read("src", "renderer", "src", "components", "problemCopy.ts").replace(/\r\n/g, "\n");
   const consts = Object.fromEntries([...src.matchAll(/export const (DESIGN_\w+) = '([^']+)'/g)].map((m) => [m[1], m[2]]));
   const block = (name) => src.slice(src.indexOf(`export const ${name}`), src.indexOf("\n}\n", src.indexOf(`export const ${name}`)));
   const labels = Object.fromEntries([...block("PROBLEM_LABEL").matchAll(/^\s*'?([a-z-]+)'?: '([^']+)'/gm)].map((m) => [m[1], m[2]]));
