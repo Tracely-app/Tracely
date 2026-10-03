@@ -602,6 +602,9 @@
        replace     { find, replacement, hint? }
        insertAfter { find, text, html?, hint? }
        appendLine  { line, html? }
+       insertLineBefore { line, before } — a new paragraph directly above the
+                   one paragraph that reads `before` (an alphabetised Works
+                   Cited entry); refused when that paragraph is missing or twice
        undo        { undoToken, rollback? }  (a token, or an array of them, newest first;
                                               rollback = the immediate take-back of a failed group)
      hint = { occurrence?, occurrences?, rects? } picks among repeated copies of
@@ -1390,6 +1393,84 @@
       return { ok: false, reason: last?.reason || "error", newest: last?.newest === true, steps };
     }
 
+    /* ── insert a line above another line ──────────────────────────────────
+       What keeps a Works Cited alphabetical. A replace cannot do it: matching
+       is whitespace-free, so the paragraph break in "new\nold" is invisible to
+       planEdit and the two entries would land as one paragraph. This is
+       appendLine's discipline at a located position: the target must be ONE
+       whole paragraph, the caret is placed at its start and checked, the paste
+       is "line\n" (the new paragraph takes the target entry's style, not the
+       heading's), and success means the read-back has the line as its own
+       paragraph directly above the target. Anything else is a mismatch, which
+       content.js rolls back. */
+    function paragraphsOf(T) {
+      const out = [];
+      let at = 0;
+      for (const p of String(T).split("\n")) { out.push({ start: at, text: p }); at += p.length + 1; }
+      return out;
+    }
+    // Pure: where "line\n" goes so it lands above the paragraph reading `before`.
+    function planInsertBefore(T1, before, line) {
+      const want = nrm(before);
+      if (!want) return { why: "bad-request" };
+      const hits = paragraphsOf(T1).filter((p) => nrm(p.text) === want);
+      if (!hits.length) return { why: "not-found" };
+      if (hits.length > 1) return { why: "ambiguous" };
+      return { c: hits[0].start, text: line + "\n" };
+    }
+    // Pure: does T carry `line` as its own paragraph directly above `before`?
+    function linedAbove(T, line, before) {
+      const ps = paragraphsOf(T), a = nrm(line), b = nrm(before);
+      return ps.some((p, i) => nrm(p.text) === a && i + 1 < ps.length && nrm(ps[i + 1].text) === b);
+    }
+
+    async function doInsertLineBefore(op) {
+      const t0 = now();
+      const rawLine = str(op.line), rawBefore = str(op.before);
+      if (rawLine == null || rawBefore == null) return { ok: false, reason: "bad-request" };
+      const line = rawLine.replace(/[\r\n]+/g, " ").trim();
+      const before = rawBefore.replace(/[\r\n]+/g, " ").trim();
+      if (!line || !before || line.length > MAX_FIND || before.length > MAX_FIND) return { ok: false, reason: "bad-request" };
+      if (!target()) return { ok: false, reason: "no-editor" };
+      const dry = op.dryRun === true;
+      if (!dry && cfg().allowEdits === false) return { ok: false, reason: "edits-disabled" };
+      const mode = editorMode();
+      if (!dry && viewOnlyHint()) return { ok: false, reason: "view-only", mode };
+      const at = await getAT();
+      if (!at) return { ok: false, reason: "no-api" }; // the paragraph check needs the text
+      const ed = editorEl();
+      const scroll = ed ? ed.scrollTop : null;
+      const saved = readSel(at);
+      const T1 = at.getText();
+      const plan = planInsertBefore(T1, before, line);
+      if (plan.why) return { ok: false, reason: plan.why, mode };
+      const { c, text } = plan;
+      at.setSelection(c, c);
+      if (!selIs(at, c, c)) { restoreUser(at, saved, null, scroll); return { ok: false, reason: "selection-failed", mode }; }
+      const planned = { edit: { start: c, end: c, insert: text } };
+      if (dry) {
+        restoreUser(at, saved, null, scroll);
+        return { ok: true, dryRun: true, mode, ...planned, ms: Math.round(now() - t0) };
+      }
+      paste(text, null);
+      const T2 = (await waitText(at, (x) => x !== T1 && linedAbove(x, line, before), APPLY_WAIT_MS)) ?? at.getText();
+      const changed = T2 !== T1;
+      const ok = changed && linedAbove(T2, line, before);
+      const ins = T2.length - T1.length;
+      const restored = restoreUser(at, saved, changed ? { s: c, e: c, ins } : null, scroll);
+      const ms = Math.round(now() - t0);
+      if (!ok && !changed) return { ok: false, reason: "not-applied", mode, status: docStatus(), ms, ...planned };
+      const N1 = nrm(T1);
+      const cN = nrm(T1.slice(0, c)).length;
+      const rec = remember({
+        T1, T2, removedRaw: "",
+        ctxB: N1.slice(Math.max(0, cN - CTX), cN), ctxA: N1.slice(cN, cN + CTX),
+        newN: nrm(line), oldN: "", na: 0, nb: nrm(line).length,
+      });
+      if (!ok) return { ok: false, reason: "mismatch", changed: true, undoToken: rec.token, mode, ms, ...planned };
+      return { ok: true, verified: "exact", undoToken: rec.token, selectionRestored: restored, mode, ms, ...planned };
+    }
+
     /* ── append a line at the end of the document ───────────────────────── */
 
     async function doAppendLine(op) {
@@ -1497,7 +1578,7 @@
 
     // Test hook (unit tests and the dev harness only): pure helpers, no side effects.
     if (window.__tracelyEditExpose) {
-      window.__tracelyEditInternals = { normMap, planDiff, findAll, matchText, planEdit, planAppend, pickHit, pickWhy, hintOf, LIST_MARK };
+      window.__tracelyEditInternals = { normMap, planDiff, findAll, matchText, planEdit, planAppend, planInsertBefore, linedAbove, pickHit, pickWhy, hintOf, LIST_MARK };
     }
 
     /* ── dispatch: one edit at a time ────────────────────────────────────── */
@@ -1512,6 +1593,7 @@
       replace: (m) => doReplace(m, "replace"),
       insertAfter: (m) => doReplace(m, "insertAfter"),
       appendLine: (m) => doAppendLine(m),
+      insertLineBefore: (m) => doInsertLineBefore(m),
       undo: (m) => doUndo(m),
     };
     const hasOp = (op) => typeof op === "string" && Object.prototype.hasOwnProperty.call(OPS, op);

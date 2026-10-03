@@ -506,6 +506,22 @@
      number to parse, and deduping only needs to know whether a source's
      address is already in one. */
   const REF_HEADINGS = { mla: "Works Cited", apa: "References", chicago: "References" };
+  /* The order a reference list is kept in: by its first word, the way MLA,
+     APA and Chicago all alphabetise — opening quotes and brackets ignored, and
+     a leading "A", "An" or "The" skipped (a title-first entry files under its
+     next word). Letter by letter on what is left, case-insensitively. */
+  function refSortKey(entry) {
+    return String(entry).toLowerCase()
+      .replace(/^[\s"“”‘’'(\[]+/, "")
+      .replace(/^(?:a|an|the)\s+/, "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9 ]+/g, "");
+  }
+  // The entry the new one goes ABOVE, or null when it belongs last.
+  function refInsertBefore(entries, line) {
+    const k = refSortKey(line);
+    return entries.find((e) => refSortKey(e) > k) ?? null;
+  }
   function worksCitedBlock(text) {
     const re = /(?:^|\n)[ \t]*(works cited|references|bibliography)[ \t]*:?[ \t]*(?=\n|$)/gi;
     let m, last = null;
@@ -3709,7 +3725,7 @@
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
-          if (!r.ok) { fail = reason = r; break; }
+          if (!r.ok) { fail = reason = { ...r, action: payload.action }; break; }
         }
         if (fail && tokens.length) {
           // rollback: this is the immediate take-back, the one time the hook
@@ -3737,6 +3753,16 @@
         setEditState(key, { state: "applied", at: Date.now(), base: docText });
         requestDocsMarks(); // the edited sentence's underline drops right away
         return true;
+      }
+      /* An in-order Works Cited insert that Docs did not take (the read-back
+         did not show the entry as its own paragraph) has been rolled back
+         cleanly: run the group once more with the entry at the END instead.
+         An out-of-order entry beats losing the citation — which is what a
+         group failure means, marker and all. Only when the rollback held
+         (nothing stuck), and only once. */
+      if (job.retry && fail.action === "insertLineBefore" && !fail.stuck) {
+        console.debug(`[tracely] cite: in-order insert refused (${fail.reason ?? "?"}) — appending instead`);
+        return runDocEdit(key, { ...job, steps: job.retry, retry: null });
       }
       const copied = await copyFallback(job.copy);
       const note = fail.stuck
@@ -3862,7 +3888,18 @@
          end-unknown", measured 2026-10-03) the group used to land the marker,
          fail the append and roll the marker back. */
       let canAppend = editPath() !== "hook" || inDoc.api;
-      if (entryLine && canAppend && editPath() === "hook") {
+      // Alphabetical: above the first entry that sorts after it — kept only
+      // when that entry is a single paragraph the hook can find (it refuses
+      // otherwise, and the entry then goes last rather than nowhere).
+      let above = list && entryLine ? refInsertBefore(list.entries, entryLine) : null;
+      if (above && editPath() === "hook" && canAppend) {
+        const probe = await docsEdit("insertLineBefore", { line: entryLine, before: above, dryRun: true }, { timeoutMs: 3000 });
+        if (!probe.ok) {
+          console.debug(`[tracely] cite: can't place the entry in order (${probe.reason ?? "?"}) — it will go at the end`);
+          above = null;
+        }
+      } else if (editPath() !== "hook") above = null; // the dev bridge only appends
+      if (entryLine && canAppend && editPath() === "hook" && !above) {
         const plan = await docsEdit("appendLine", { line: list ? entryLine : heading, dryRun: true }, { timeoutMs: 3000 });
         if (!plan.ok) {
           canAppend = false;
@@ -3880,7 +3917,7 @@
       }
       if (entryLine && canAppend) {
         if (!list) steps.push({ action: "appendLine", line: heading });
-        steps.push({ action: "appendLine", line: entryLine });
+        steps.push(above ? { action: "insertLineBefore", line: entryLine, before: above } : { action: "appendLine", line: entryLine });
       }
       const listName = list ? list.heading.replace(/\b\w/g, (c) => c.toUpperCase()) : heading;
       if (!steps.length) {
@@ -3901,6 +3938,8 @@
       const prevCited = st.citedUrl ?? null;
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
+        // If Docs refuses the in-order insert for real: the same group, the entry last.
+        retry: above ? steps.map((st) => (st.action === "insertLineBefore" ? { action: "appendLine", line: st.line } : st)) : null,
         copy: styled.ref,
         doneMsg: pasteEntry ? `cited ${marker} in doc — paste its reference into ${listName}` : `cited ${marker} in doc`,
         notes: hint.occurrences > 1 && !anchor ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Cite in doc") } : null,

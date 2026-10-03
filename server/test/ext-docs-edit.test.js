@@ -520,6 +520,41 @@ test("engine: insertAfter and appendLine land where a person would put them, and
   assert.equal((await h.call("undo", { undoToken: a.undoToken })).reason, "unknown-token", "a token is spent once");
 });
 
+test("engine: insertLineBefore keeps a Works Cited alphabetical, and one undo takes it back exactly", async () => {
+  const docs = new FakeDocs("Peace needs youth (Brown).\nWorks Cited\nAdams, J. \"Peace.\" a.org.\nGhosh, Ambar Kumar. \"Youth.\" x.org.");
+  const before = docs.T;
+  const h = loadHook({ docs });
+  const dry = await h.call("insertLineBefore", { line: "Brown, T. \"B.\" b.org.", before: "Ghosh, Ambar Kumar. \"Youth.\" x.org.", dryRun: true });
+  assert.equal(dry.ok && dry.dryRun, true, JSON.stringify(dry));
+  assert.equal(docs.T, before, "a dry run changes nothing");
+  const r = await h.call("insertLineBefore", { line: "Brown, T. \"B.\" b.org.", before: "Ghosh, Ambar Kumar. \"Youth.\" x.org." });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(docs.body(), "Peace needs youth (Brown).\nWorks Cited\nAdams, J. \"Peace.\" a.org.\nBrown, T. \"B.\" b.org.\nGhosh, Ambar Kumar. \"Youth.\" x.org.", "its own paragraph, between Adams and Ghosh");
+  const u = await h.call("undo", { undoToken: r.undoToken });
+  assert.equal(u.ok, true, JSON.stringify(u));
+  assert.equal(docs.T, before, "exactly as it was");
+});
+
+test("engine: insertLineBefore refuses a target that is missing or not one paragraph", async () => {
+  const docs = new FakeDocs("Works Cited\nAdams, J. a.org.\nAdams, J. a.org.");
+  const before = docs.T;
+  const h = loadHook({ docs });
+  assert.equal((await h.call("insertLineBefore", { line: "B.", before: "Adams, J. a.org." })).reason, "ambiguous");
+  assert.equal((await h.call("insertLineBefore", { line: "B.", before: "Zhou, L. z.org." })).reason, "not-found");
+  assert.equal((await h.call("insertLineBefore", { line: "B.", before: "Adams" })).reason, "not-found", "a PART of a paragraph is not a target");
+  assert.equal((await h.call("insertLineBefore", { line: "", before: "x" })).reason, "bad-request");
+  assert.equal(docs.T, before);
+});
+
+test("planner: insertLineBefore's plan and its read-back check", () => {
+  const T = "\u0003Body.\nWorks Cited\nAdams.\nGhosh.\n\u0003\n";
+  const p = I.planInsertBefore(T, "Ghosh.", "Brown.");
+  assert.equal(T.slice(0, p.c).endsWith("Adams.\n"), true, "at the start of the target paragraph");
+  assert.equal(p.text, "Brown.\n");
+  assert.equal(I.linedAbove("Adams.\nBrown.\nGhosh.", "Brown.", "Ghosh."), true);
+  assert.equal(I.linedAbove("Adams.\nBrown.Ghosh.", "Brown.", "Ghosh."), false, "merged into one paragraph is a mismatch, not a success");
+});
+
 test("engine: undo after someone else typed reverses only our words (semantic undo)", async () => {
   const MID = "The rest of this document is long enough to sit well clear of the edit's context.";
   const docs = new FakeDocs(`The story is really good. ${MID} The end.`);
@@ -1183,6 +1218,45 @@ test("content.js: a source already in the reference list is not added twice — 
   const edits = ops().filter((o) => o.op !== "ping");
   assert.deepEqual(edits.map((o) => o.op), ["replace"]);
   assert.equal(edits[0].replacement, "The Great Wall is visible from space (NASA, n.d.).");
+});
+
+test("content.js: a new entry goes into the reference list in alphabetical order", async () => {
+  // APA in this wiring: the sample source files under "NASA".
+  let n = 0;
+  const { w, ops, S, h } = citeSetup((m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: `t${++n}` }));
+  const body = `${S} It is long.\nReferences\nAdams, J. (2020). Peace. https://a.org\nZhou, L. (2021). Z. https://z.org`;
+  w.setDoc(body, [{ ...seg(S), hash: h }]);
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  const edits = ops().filter((o) => o.op !== "ping");
+  assert.deepEqual(edits.map((o) => o.op), ["replace", "insertLineBefore"]);
+  assert.equal(edits[1].before, "Zhou, L. (2021). Z. https://z.org", "N files between A and Z");
+  assert.equal(edits[1].line, "NASA. (n.d.). Can you see the Great Wall? https://example.com/wall");
+});
+
+test("content.js: if Docs refuses the in-order insert for real, the citation is retried with the entry last — not lost", async () => {
+  let n = 0;
+  const { w, ops, S, h } = citeSetup((m) => {
+    if (m.op === "ping") return okPing(m);
+    if (m.op === "undo") return { ok: true };
+    if (m.op === "insertLineBefore") return { ok: false, reason: "mismatch", changed: true, undoToken: `t${++n}` };
+    return { ok: true, undoToken: `t${++n}` };
+  });
+  w.setDoc(`${S} It is long.\nReferences\nAdams, J. (2020). Peace. https://a.org\nZhou, L. (2021). Z. https://z.org`, [{ ...seg(S), hash: h }]);
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true, "the citation lands");
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace", "insertLineBefore", "undo", "replace", "appendLine"]);
+  assert.equal(w.sourcesMap.get(h).citedUrl, "https://example.com/wall");
+});
+
+test("content.js: an entry that sorts last, or whose neighbour can't be found, is appended", async () => {
+  let n = 0;
+  const { w, ops, S, h } = citeSetup((m) => (m.op === "ping" ? okPing(m) : { ok: true, undoToken: `t${++n}` }),
+    (m) => (m.op === "insertLineBefore" ? { ok: false, reason: "not-found" } : { ok: true, dryRun: true }));
+  w.setDoc(`${S} It is long.\nReferences\nZhou, L. (2021). Z. https://z.org`, [{ ...seg(S), hash: h }]);
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace", "appendLine"], "refused in place → at the end, never nowhere");
 });
 
 test("content.js: a click that changes nothing neither claims an edit nor wipes the last Undo", async () => {
