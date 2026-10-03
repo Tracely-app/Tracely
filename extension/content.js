@@ -3678,6 +3678,10 @@
         for (const step of job.steps) {
           const { hint, ...payload } = step;
           const r = await docApply(payload, hint, path);
+          // One line per step, so "it didn't work" can be read off the console
+          // rather than guessed at. No document text: the action, the path
+          // and the hook's answer only.
+          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}`);
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
@@ -3799,9 +3803,13 @@
       const seg = segments.find((s) => s.hash === hash);
       const st = sourcesMap.get(hash);
       const src = st?.list?.[Number(i)];
-      if (!seg || !src || docBusy) return false;
+      if (!seg || !src || docBusy) {
+        console.debug(`[tracely] cite skipped: ${!seg ? "sentence no longer in the doc" : !src ? "source not found" : "another edit is running"}`);
+        return false;
+      }
       const hint = segHint(seg, anchor);
       const block = sourcesBlock(docText);
+      console.debug(`[tracely] cite: path ${editPath()} · text API ${inDoc.api ? "yes" : "no"} · Sources block ${block ? "found" : "none"}`);
       const existing = block?.entries.find((e) => e.url === src.url);
       const num = existing ? existing.num : (block?.entries.length ?? 0) + 1;
       const styled = formatCitation(src, settings.citationStyle || "apa");
