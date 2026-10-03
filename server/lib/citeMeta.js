@@ -27,6 +27,8 @@
  * reads their presence as "this came from a server that looks".
  */
 import { CheckError } from "./errors.js";
+import { lookup as dnsLookup } from "node:dns/promises";
+import net from "node:net";
 
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 /* HTML's Latin-1 entities (U+00A0..U+00FF, in code-point order), then the
@@ -532,6 +534,67 @@ export function extractCitationMeta(html, pageUrl, now = new Date(), page = scan
 
 const PRIVATE_HOST = /^(localhost$|.*\.local$|127\.|10\.|192\.168\.|169\.254\.|0\.|\[::1\]$|172\.(1[6-9]|2\d|3[01])\.)/i;
 
+/* The address an IP is in, not just the name it was given. PRIVATE_HOST reads
+ * the hostname; a public name that RESOLVES to 127.0.0.1 or 10.x walks past
+ * it, and so does a public page that redirects there. Since 2026-10-02 the
+ * source search hands this reader URLs a model chose from a student's text,
+ * so every hop is resolved and checked before it is fetched. Same ranges as
+ * the regex, plus carrier-grade NAT (100.64/10), the IPv6 loopback, unique-
+ * local (fc00::/7) and link-local (fe80::/10) blocks, and v4-mapped v6. */
+export function isPrivateIp(ip) {
+  const s = String(ip ?? "").trim().toLowerCase();
+  if (net.isIPv4(s)) {
+    const [a, b] = s.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (net.isIPv6(s)) {
+    if (s === "::1" || s === "::") return true;
+    if (s.startsWith("::ffff:")) return isPrivateIp(s.slice(7));
+    return /^f[cd]/.test(s) || s.startsWith("fe8") || s.startsWith("fe9") || s.startsWith("fea") || s.startsWith("feb");
+  }
+  return true; // not an address at all: refuse
+}
+
+let resolveHost = (host) => dnsLookup(host, { all: true });
+/** Tests swap the resolver; a stubbed fetch never reaches DNS. Returns the previous one. */
+export function setHostResolver(fn) {
+  const prev = resolveHost;
+  resolveHost = typeof fn === "function" ? fn : (host) => dnsLookup(host, { all: true });
+  return prev;
+}
+
+const REDIRECT = new Set([301, 302, 303, 307, 308]);
+export const MAX_REDIRECTS = 3;
+
+/**
+ * fetch() for a page somebody else named: http(s) only, no credentials in the
+ * URL, every hostname resolved and refused when any address is private, and
+ * redirects followed by hand (at most MAX_REDIRECTS) so each hop gets the
+ * same check. Throws a CheckError the route can show.
+ */
+export async function safeFetch(url, init = {}, { fetchImpl = globalThis.fetch, maxRedirects = MAX_REDIRECTS } = {}) {
+  let u = url instanceof URL ? new URL(u_href(url)) : new URL(String(url));
+  for (let hop = 0; ; hop++) {
+    if (!/^https?:$/.test(u.protocol)) throw new CheckError("bad_request", "Only http(s) URLs can be cited");
+    if (u.username || u.password) throw new CheckError("bad_request", "A URL with a password in it can't be cited");
+    if (PRIVATE_HOST.test(u.hostname)) throw new CheckError("bad_request", "Local and private addresses can't be cited");
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    let addrs;
+    if (net.isIP(host)) addrs = [{ address: host }];
+    else {
+      try { addrs = await resolveHost(host); } catch { addrs = []; }
+    }
+    if (!Array.isArray(addrs) || addrs.length === 0) throw new CheckError("server", `Couldn't fetch that URL: ${host} does not resolve`, { status: 502 });
+    if (addrs.some((a) => isPrivateIp(a?.address ?? a))) throw new CheckError("bad_request", "Local and private addresses can't be cited");
+    const res = await fetchImpl(u, { ...init, redirect: "manual" });
+    if (!REDIRECT.has(res.status)) return res;
+    const loc = res.headers?.get?.("location");
+    if (!loc || hop >= maxRedirects) throw new CheckError("server", `Couldn't fetch that URL: too many redirects`, { status: 502 });
+    u = new URL(loc, u);
+  }
+}
+const u_href = (u) => u.href;
+
 function descriptionOf(page) {
   const meta = collectMeta(page);
   return meta.get("description")?.[0] || meta.get("og:description")?.[0] || "";
@@ -572,24 +635,24 @@ async function readCapped(res, maxBytes) {
  * CheckError (serialised verbatim to the client) for a bad URL, a missing
  * page, a bot wall or any other HTTP error — none of those is a citation.
  */
-export async function fetchUrlMetadata(raw, { now = new Date() } = {}) {
+export async function fetchUrlMetadata(raw, { now = new Date(), signal = null, fetchImpl = globalThis.fetch } = {}) {
   let u;
   try {
     u = new URL(String(raw ?? "").trim());
   } catch {
     throw new CheckError("bad_request", "That doesn't look like a URL");
   }
-  if (!/^https?:$/.test(u.protocol)) throw new CheckError("bad_request", "Only http(s) URLs can be cited");
-  if (PRIVATE_HOST.test(u.hostname)) throw new CheckError("bad_request", "Local and private addresses can't be cited");
-
   let res;
   try {
-    res = await fetch(u, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
+    // safeFetch: scheme, credentials, private-address and redirect checks on
+    // every hop. A caller's own deadline (the source search completes several
+    // pages under one 2.5 s budget) is honoured alongside this route's 15 s.
+    res = await safeFetch(u, {
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
       headers: { "User-Agent": "Mozilla/5.0 (compatible; Tracely/1.0; local fact-checker)" },
-    });
+    }, { fetchImpl });
   } catch (e) {
+    if (e instanceof CheckError) throw e;
     throw new CheckError("server", `Couldn't fetch that URL: ${e?.cause?.message ?? e?.message ?? e}`, { status: 502 });
   }
   if (res.status === 404 || res.status === 410) {

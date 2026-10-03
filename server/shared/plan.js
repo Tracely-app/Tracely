@@ -300,8 +300,11 @@ export function fairUseLimits(plan) {
 
 /* Source searches per plan, per day and per month. The extension's
  * /api/sources and the desktop's /api/find-sources draw on ONE count. A search
- * is ~16x a check (OpenAI bills web_search per call on top of tokens), so this
- * is the one volume allowance every plan has; Student's 100 a month is always
+ * is ~14x a check — 1.28 cents against 0.09, measured 2026-10-02 after the
+ * search was held to one web_search call; it had been 2.7 cents at effort low
+ * and 5.8-6.0 cents for real users at the vendor's default (OpenAI bills
+ * web_search per call on top of tokens, and the model was opening pages) — so
+ * this is the one volume allowance every plan has; Student's 100 a month is always
  * more than Free's 40. Beta testers get Pro's, keyed on their install id. */
 export const SOURCE_LIMITS = {
   free: { day: 5, month: 40 },

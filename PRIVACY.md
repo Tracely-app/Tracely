@@ -112,6 +112,11 @@ removes the rest.
 
 - **OpenAI** (api.openai.com) — judges the text and runs source searches, on
   our API key, under OpenAI's API data-usage terms.
+- **Crossref** (api.crossref.org) and **the publishers of the sources we
+  find** — after a source search, our server looks up each source's DOI at
+  Crossref and reads the source's own web page to complete its citation
+  (authors, date, journal). They receive that source's DOI or address, never
+  your text or the sentence being cited.
 - **Supabase** — sign-in and account records (email, account id, plan).
 - **Stripe** — payments; we receive plan, customer id and payer email, never
   card details.

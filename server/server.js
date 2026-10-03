@@ -1228,7 +1228,15 @@ const server = http.createServer(async (req, res) => {
       const modelUsed = extensionModel(gate, "/api/sources", choice ? choice.model : appModelFor("sources", ent, model));
       const level = choice ? choice.effort : effort == null ? undefined : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
-      const { webSearchCalls, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
+      const { webSearchCalls, enriched, dropped, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
+      // For the log line only: what the tool billed and what the server filled
+      // in afterwards — the two numbers that say what a search costs and
+      // whether the citation fields are coming from pages or from us.
+      Object.assign(trace, { searches: webSearchCalls, enriched, dropped });
+      // One line per search, no text (PRIVACY.md: routes and outcomes only):
+      // the tool fee is most of this route's cost, so the count is the number
+      // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
+      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can

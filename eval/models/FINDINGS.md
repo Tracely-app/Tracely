@@ -53,6 +53,63 @@ on subtle claims; retired ids from old builds are translated to their tier
 (`usage.input_tokens_details.cache_write_tokens`, 1.25x input on all three
 models); the free check cap stays 400.
 
+## 2026-10-02: what a source search costs, and why
+
+The production ledger (`entitlement_usage`, micro-cents) said a source search
+cost real users **5.8-6.0 cents** on 10-01 — against the 1.15-1.25 cents the
+09-21 smoke test measured and the "~16x a check" the allowances were sized on.
+A check costs 0.09 cents. The difference is the web_search tool, billed per
+`web_search_call` item: a probe of twelve calls on 10-02 found the model
+making 1-3 **searches** and then **opening pages** (3 opens across 3 claims)
+to fill the thirteen citation fields the prompt asks for, and every opened
+page also pulls ~8k "search content" tokens into the input.
+
+Levers tried (gpt-5.6-luna, effort low, 3 claims each):
+
+| variant | billed calls | ms | input tok | all-billed ¢ | years / authors of 4 |
+|---|---|---|---|---|---|
+| current prompt | 2.7 (5 search + 3 open) | 16,181 | 22,890 | 3.14 | 3.3 / 4.0 |
+| `max_tool_calls: 2` | 2.0 | 14,295 | 19,368 | 2.40 | 4.3 / 4.3 |
+| `search_context_size: low` | 2.7 | 31,604 | 24,138 | 3.37 | 2.0 / 2.7 (one answer ran to the output cap, no sources) |
+| no page opens + one search | **1.7 (5 search, 0 open)** | **11,247** | **13,415** | **1.97** | 3.3 / 4.3 |
+
+`max_tool_calls` did not bind (a run under `max_tool_calls: 1` still made two
+searches), and `search_context_size` is not honoured by this model — both are
+rejected. OpenAI's guide attaches the per-call fee to the `search` action
+only, so `open_page` may never have been billed; the ledger counts every
+`web_search_call` item on purpose (a cap that under-counts is worse than one
+that over-counts), which is the likely reason the 10-01 bottom-up tally ran
+~15¢ above the dashboard. Under search-only billing the old search was ~2.1¢
+and the new one is 1.28¢ (−39%); under all-items billing, −53%. With no page
+opens left, the two readings now agree. The prompt is the lever: it now says one search, a second only when
+the first found nothing citable, and never open a page; the SERVER completes
+the fields instead — Crossref for any DOI (0.5 s, the registrar's authors,
+issue date, journal and publisher), the page's own metadata for a source still
+without a year, both under one 2.5 s deadline, and a link that answers 404 is
+dropped (`lib/sourceEnrich.js`, `factcheck.js completeSources`). Page reading
+alone was measured first and found weak — 2 of 8 real pages yielded a year;
+NYT, Pew and Nature answer a plain fetch with a bot wall — which is why DOIs
+come first.
+
+Old `findSources` (origin/main) against new, eight claims (a poll figure, two
+research findings, a quotation, a national statistic, a federal figure, a
+reef statistic, a theatre date), same model and effort:
+
+| | billed calls | ms | input tok | all-billed ¢ | sources | with year | with author |
+|---|---|---|---|---|---|---|---|
+| old | 2.25 | 12,943 | 21,554 | **2.70** | 4.3 | 2.6 | 4.3 |
+| new | **1.00** (every claim) | **9,565** | 13,667 | **1.28** | 4.5 | 2.6 | 3.5 |
+
+Cost −53%, latency −26%, the same number of dated sources; authors slipped
+where the model picked PubMed and AAP pages it no longer opens (it used to
+read the byline there). The output cap went 6,000 → 3,000 tokens: an answer
+is 700-1,000 tokens plus 200-600 of reasoning, and the one runaway cost 0.7
+cents of output for no sources.
+
+What this does to the allowances: at 1.28 cents Pro's 250 searches a month
+are $3.20 of its $9.99 (they were $6.50 at 2.6 and $15 at 6), Student's 100
+are $1.28 of $4.99, Free's 40 are 51 cents. A search is ~14 checks.
+
 ## 2026-10-01: what a citation flag is for
 
 A tester's history essay came back with every sentence underlined for a
