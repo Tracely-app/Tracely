@@ -259,6 +259,9 @@ function widgetContext(tier) {
       api: async () => ({}),
       tier: { ...tier },
       CHECK_INTERVAL_MS: 10_000,
+      nextReadGap: () => 10_000, // the timing helper lives outside the sliced render code
+      lastTextChangeAt: 0,
+      lastCheckFailed: false,
       sourcesMap: new Map(),
       cache: new Map([[ISSUE.seg.hash, ISSUE.f]]),
       segments: [ISSUE.seg],

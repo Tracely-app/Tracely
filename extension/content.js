@@ -3,7 +3,7 @@
    Three modes, chosen at load:
    • Docs mode (docs.google.com/document/*, /document/u/N/d/ included) —
      reads the doc as the signed-in account via the export endpoint every
-     10s, shows findings in the floating widget, and underlines flagged
+     3s while it is changing (10s once idle; see nextReadGap), shows findings in the floating widget, and underlines flagged
      sentences over Docs' canvas (positions from Docs' SVG annotation layer,
      docs-hook.js's paint ledger as the fallback). Fixes are COPY-and-paste
      ("Copy fix") for everyone on the hosted server. "Fix in doc" appears
@@ -14,7 +14,7 @@
    • Harness mode (window.__tracelyHarness) — the test page stands in for Docs.
    • Field mode (everywhere else) — Grammarly's actual core mechanism: track
      the focused textarea / contenteditable, check its sentences, and rewrite
-     flagged ones IN PLACE. Automatic 10s checking is opt-in per site
+     flagged ones IN PLACE. Automatic checking (as for Docs) is opt-in per site
      ("tracely.site.enabled" in the page's localStorage); on a non-enabled
      site nothing is sent anywhere until the user clicks.
 
@@ -874,9 +874,63 @@
         && !/\?\s*$/.test(seg.text)                       // bare questions aren't claims ("(or was it 1945?)" tails still check)
         && /\p{L}/u.test(seg.text)                        // any-script letters — numbers/dividers only
         && !/^[\d\s.)\-–—•*#]+$/.test(seg.text)           // list markers / rules
-        && !(!endsTerminal && words <= 6);                // short unpunctuated line = heading (or mid-typing)
+        && !(!endsTerminal && words <= 6 && looksLikeHeading(seg.text)); // short title-cased unpunctuated line = heading
     }
     return segs;
+  }
+
+  /* A short unpunctuated line is a heading only if it is CASED like one. Any
+     short unpunctuated line used to count, so "Lamine Yamal is 24 years old"
+     (six words, no period, a line of its own) was never checked, while the
+     same sentence with a period was: whether a false claim got flagged
+     depended on one keystroke. A heading capitalises its long words ("Early
+     Life", "The Rise of Barcelona", "INTRODUCTION"); a sentence does not
+     ("years", "old"). Mid-typing fragments this lets through wait for
+     readyToSend's settle rule instead of being sent half-written. */
+  const HEADING_SMALL_WORDS = new Set(["from", "with", "into", "onto", "over", "upon", "than", "that", "versus"]);
+  function looksLikeHeading(text) {
+    return text.split(/\s+/).every((w) => !/^\p{Ll}\p{L}{3,}/u.test(w) || HEADING_SMALL_WORDS.has(w.toLowerCase().replace(/\P{L}+$/u, "")));
+  }
+
+  /* Check timing. A check used to start CHECK_INTERVAL_MS (10 s) after the
+     previous one ENDED, so a sentence finished just after a check began waited
+     for that check, then ten seconds, then its own: ~15-25 s to an underline.
+     Now the page is read every READ_INTERVAL_MS while the text is changing,
+     and a check goes out as soon as something is ready — still one at a time.
+
+     Cost is the number of sentences sent (and the requests carrying them), not
+     how often the page is read; unchanged text is never re-sent (hash cache).
+     What a faster read could add is HALF-WRITTEN sentences, so only a sentence
+     that ends in . ! ? goes at first sight; one without (a fragment with text
+     after it) must read the same twice in a row first. That holds back
+     fragments the 10 s timer used to catch and send. */
+  const READ_INTERVAL_MS = 3_000;
+  const ACTIVE_WINDOW_MS = 30_000; // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
+
+  function readyToSend(seg, prevHashes) {
+    return /[.!?]["')\]]*$/.test(seg.text) || prevHashes.has(seg.hash);
+  }
+
+  // How long after the last read (or check) the next one is due. A failed
+  // check backs off to the old interval so an outage is not retried every 3 s.
+  function nextReadGap(now, lastChangeAt, failed) {
+    if (failed) return CHECK_INTERVAL_MS;
+    return now - lastChangeAt <= ACTIVE_WINDOW_MS ? READ_INTERVAL_MS : CHECK_INTERVAL_MS;
+  }
+
+  // An id the server left out of its answer stays uncached and would be re-sent
+  // on every read; hold it this long first, so a faster loop cannot become a
+  // faster bill.
+  const OMITTED_HOLD_MS = 30_000;
+  function holdOmitted(held, sent, findings, now) {
+    const got = new Set((findings ?? []).map((f) => f.id));
+    for (const s of sent) if (!got.has(s.hash)) held.set(s.hash, now + OMITTED_HOLD_MS);
+  }
+  function isHeld(held, hash, now) {
+    const until = held.get(hash);
+    if (until === undefined) return false;
+    if (now >= until) { held.delete(hash); return false; }
+    return true;
   }
 
   function esc(s) {
@@ -1550,6 +1604,10 @@
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
+    let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
+    let lastCheckFailed = false;
+    let prevHashes = new Set();        // sentence hashes on the previous read (readyToSend's settle rule)
+    const heldHashes = new Map();      // ids the server left out — see holdOmitted
     let statusMsg = "starting…";
     let statusKind = "idle"; // idle | checking | error | offline
     let orphaned = false; // the extension was reloaded under this tab — see standDown
@@ -1590,6 +1648,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         if (cache.has(seg.hash) || editedHashes.has(seg.hash)) continue;
+        if (isHeld(heldHashes, seg.hash, Date.now()) || !readyToSend(seg, prevHashes)) continue;
         out.push(seg);
       }
       return out;
@@ -1599,9 +1658,12 @@
       if (orphaned || inflight || document.hidden) return;
       if (!docsOn) return; // nothing leaves the page until Docs is turned on
       inflight = true;
+      lastCheckFailed = false;
       try {
         const readAt = Date.now();
-        docText = await getDocText();
+        const newText = await getDocText();
+        if (newText !== docText) lastTextChangeAt = readAt;
+        docText = newText;
         segments = segmentText(docText);
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
@@ -1609,6 +1671,7 @@
         for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
         settleEditStates(readAt);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
+        prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -1621,6 +1684,7 @@
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: f.revision, confidence: f.confidence });
           }
+          holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistCaches();
           autoFindSources(data.findings ?? []); // fire-and-forget, capped
         }
@@ -1629,6 +1693,7 @@
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
         if (FEATURES.flow) requestFlow(); // fire-and-forget; gated on structure change + rate floor
       } catch (err) {
+        lastCheckFailed = true;
         if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
@@ -3749,7 +3814,7 @@
         try { job.onApplied?.(); } catch { /* bookkeeping only */ }
         statusKind = "idle";
         statusMsg = job.doneMsg;
-        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000; // re-read soon (export lags slightly)
+        lastCheckEnd = lastTextChangeAt = Date.now(); // the text just changed: read again in READ_INTERVAL_MS (the export lags slightly)
         setEditState(key, { state: "applied", at: Date.now(), base: docText });
         requestDocsMarks(); // the edited sentence's underline drops right away
         return true;
@@ -3797,7 +3862,7 @@
       const onLate = (u) => {
         if (!u?.ok || !reported) return;
         undone(u);
-        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
+        lastCheckEnd = lastTextChangeAt = Date.now(); // the text just changed: read again in READ_INTERVAL_MS (the export lags slightly)
         requestDocsMarks();
       };
       try { r = await docsEdit("undo", { undoToken: e.tokens }, { timeoutMs: undoTimeout(e.tokens), onLate }); } finally { docBusy = false; }
@@ -3810,7 +3875,7 @@
         statusMsg = `Couldn't undo automatically — ${undoAdvice(r)}`;
         setEditState(e.key, { state: "applied", note: statusMsg, at: Date.now(), base: docText });
       }
-      lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000;
+      lastCheckEnd = lastTextChangeAt = Date.now(); // the text just changed: read again in READ_INTERVAL_MS (the export lags slightly)
       requestDocsMarks();
       return !!r.ok;
     }
@@ -4031,7 +4096,7 @@
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
-      const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
+      const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
@@ -4239,15 +4304,35 @@
     }
 
     // ── loop ──
+    /* Typing is what makes the next read due in READ_INTERVAL_MS. Waiting for
+       a read to SEE a change meant the first sentence after a pause of over
+       ACTIVE_WINDOW_MS waited out the idle 10 s first (measured in the
+       harness: sent 11 s after it was typed). Docs routes keystrokes through
+       a same-origin iframe (the one docs-hook.js types into), so listen there
+       too; it can appear late, hence the re-scan. Nothing is read or sent
+       here — this only moves the next export read earlier. */
+    const markActive = () => { lastTextChangeAt = Date.now(); };
+    document.addEventListener("keydown", markActive, true);
+    document.addEventListener("input", markActive, true);
+    const watchTypingFrame = () => {
+      for (const fr of document.querySelectorAll("iframe.docs-texteventtarget-iframe")) {
+        try {
+          const d = fr.contentDocument;
+          if (d && !d.__tracelyTyping) { d.__tracelyTyping = true; d.addEventListener("keydown", markActive, true); }
+        } catch { /* not same-origin after all: the export diff still notices, one read later */ }
+      }
+    };
+    watchTypingFrame();
+    setInterval(watchTypingFrame, 5_000);
     setInterval(() => {
       if (orphaned) return;
-      if (!inflight && !document.hidden && Date.now() - lastCheckEnd >= CHECK_INTERVAL_MS) {
+      if (!inflight && !document.hidden && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
         cycle();
       } else if (expanded && !inflight) {
         // Targeted countdown update — a full render() every second would reset
         // the list scroll and close open dropdowns.
         const el = shadow.getElementById("countdownTxt");
-        if (el) el.textContent = `next check in ${Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000))}s`;
+        if (el) el.textContent = `next check in ${Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000))}s`;
       }
     }, 1000);
     fetchServerStatus();
@@ -4270,6 +4355,13 @@
     const SITE_KEY = "tracely.site.enabled";
     const SETTINGS_KEY = "tracely.widget.settings";
     const DISMISS_KEY = "tracely.widget.dismissed.field"; // localStorage is origin-scoped → per-site
+    // Verdicts, so a reload does not ask the model again: a second answer can
+    // differ from the first (and costs a second check). Same shape and cap as
+    // Docs' vcache; written only while auto-check is on for this site, and
+    // removed with the dismissals when it is switched off.
+    const FIELD_CACHE_KEY = "tracely.widget.vcache.field";
+    const FIELD_CACHE_MAX = 400;
+    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "no_claim"]);
 
     // Per-site enable lives in chrome.storage.local ("enabledSites": [origin])
     // so the options page can list and manage it. The old per-site localStorage
@@ -4320,7 +4412,9 @@
     setInterval(refreshEngine, 30_000);
 
     // ── state (mirrors docs mode) ──
-    const cache = new Map();
+    const storedVerdicts = jsonParse(lsGet(FIELD_CACHE_KEY) ?? "[]", []); // the site can write this key too: trust nothing
+    const cache = new Map((Array.isArray(storedVerdicts) ? storedVerdicts : [])
+      .filter((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && e[1] && typeof e[1] === "object" && STORED_VERDICTS.has(e[1].verdict)));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
@@ -4328,6 +4422,10 @@
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
+    let lastTextChangeAt = Date.now(); // see nextReadGap
+    let lastCheckFailed = false;
+    let prevHashes = new Set();        // readyToSend's settle rule
+    const heldHashes = new Map();      // see holdOmitted
     let statusMsg = siteEnabled() ? "waiting for a text field…" : "auto-check off — click to check";
     let statusKind = "idle"; // idle | checking | error | offline
     let orphaned = false; // the extension was reloaded under this tab — see standDownField
@@ -4654,7 +4752,10 @@
     }, true);
 
     document.addEventListener("input", (e) => {
-      if (tracked && (e.target === tracked || (tracked.contains && tracked.contains(e.target)))) scheduleMarks();
+      if (tracked && (e.target === tracked || (tracked.contains && tracked.contains(e.target)))) {
+        lastTextChangeAt = Date.now(); // typing makes the next read due in READ_INTERVAL_MS (see the Docs loop)
+        scheduleMarks();
+      }
     }, true);
     document.addEventListener("scroll", () => scheduleMarks(), true);
     window.addEventListener("resize", () => scheduleMarks());
@@ -4668,6 +4769,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         if (cache.has(seg.hash)) continue;
+        if (isHeld(heldHashes, seg.hash, Date.now()) || !readyToSend(seg, prevHashes)) continue;
         out.push(seg);
       }
       return out;
@@ -4695,8 +4797,11 @@
         return;
       }
       inflight = true;
+      lastCheckFailed = false;
       try {
-        fieldText = readField(tracked);
+        const newText = readField(tracked);
+        if (newText !== fieldText) lastTextChangeAt = Date.now();
+        fieldText = newText;
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
           statusMsg = `field under ${MIN_FIELD_CHARS} characters — keep writing`;
@@ -4705,6 +4810,7 @@
         }
         segments = segmentText(fieldText);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
+        prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -4718,12 +4824,15 @@
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: f.revision, confidence: f.confidence });
           }
+          holdOmitted(heldHashes, todo, data.findings, Date.now());
+          persistFieldCache();
           autoFindSources(data.findings ?? []); // fire-and-forget, capped
         }
         statusKind = "idle";
         const n = currentIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
       } catch (err) {
+        lastCheckFailed = true;
         if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
@@ -4739,6 +4848,15 @@
         lastCheckEnd = Date.now();
         render();
       }
+    }
+
+    // Live sentences first, then the most recent, capped — the Docs rule.
+    function persistFieldCache() {
+      if (!siteEnabled()) return;
+      const live = new Set(segments.map((sg) => sg.hash));
+      const entries = [...cache.entries()];
+      const keep = [...entries.filter(([h]) => live.has(h)), ...entries.filter(([h]) => !live.has(h)).reverse()].slice(0, FIELD_CACHE_MAX);
+      lsSet(FIELD_CACHE_KEY, JSON.stringify(keep));
     }
 
     async function fetchSources(hash, auto = false) {
@@ -4871,7 +4989,7 @@
         cache.delete(hash); // the rewritten sentence gets re-verified on the next read
         statusKind = "idle";
         statusMsg = "fixed in field";
-        lastCheckEnd = Date.now() - CHECK_INTERVAL_MS + 3000; // re-read soon
+        lastCheckEnd = lastTextChangeAt = Date.now(); // the text just changed: read again in READ_INTERVAL_MS
       } catch {
         fallbackCopy();
       }
@@ -4884,7 +5002,7 @@
       if (!on) {
         // Off means off: the verdicts and source lists this page's localStorage
         // holds (readable by the site, and outliving an uninstall) go with it.
-        for (const k of [DISMISS_KEY]) { try { localStorage.removeItem(k); } catch { /* storage denied */ } }
+        for (const k of [DISMISS_KEY, FIELD_CACHE_KEY]) { try { localStorage.removeItem(k); } catch { /* storage denied */ } }
         cache.clear(); sourcesMap.clear(); dismissed.clear();
       }
       siteOn = on;
@@ -4925,7 +5043,7 @@
 
       const issues = currentIssues();
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
-      const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
+      const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
@@ -5134,11 +5252,11 @@
       }
       if (!tracked || !widget) return;
       if (siteEnabled() && !inflight && !document.hidden && fieldEligible()
-          && Date.now() - lastCheckEnd >= CHECK_INTERVAL_MS) {
-        cycle(); // opted-in automatic path — still floored at 10s + hash cache
+          && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
+        cycle(); // opted-in automatic path — nextReadGap (3 s while typing, 10 s idle or after a failure) + hash cache
       } else if (expanded && !inflight) {
         const el = widget.shadow.getElementById("countdownTxt");
-        if (el && siteEnabled()) el.textContent = `next check in ${Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000))}s`;
+        if (el && siteEnabled()) el.textContent = `next check in ${Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000))}s`;
       } else if (!expanded) {
         // Keep pill visibility fresh as the field grows/shrinks — no re-render.
         const show = Boolean(tracked && (fieldEligible() || segments.length > 0));

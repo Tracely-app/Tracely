@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.21.2, and not one new permission.
+ *   - the manifest: 2.21.3, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -947,7 +947,7 @@ test("content.js: 'Applied ✓' lasts until the export shows the edit — then �
   assert.equal(again.w.editView(key, "Fix in doc").label, "Applied ✓");
   again.w.settleEditStates(Date.now() + 31_000);
   assert.equal(again.w.editView(key, "Fix in doc").label, "Fix in doc");
-  assert.match(read("content.js"), /docText = await getDocText\(\);[\s\S]{0,600}settleEditStates\(readAt\)/, "every export read settles them");
+  assert.match(read("content.js"), /= await getDocText\(\);[\s\S]{0,600}settleEditStates\(readAt\)/, "every export read settles them");
 });
 
 test("content.js: a refused edit copies the fix instead, with a short reason", async () => {
@@ -1439,9 +1439,9 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.21.2, and fixing in the doc asks for no new permission", () => {
+test("manifest: 2.21.3, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.21.2");
+  assert.equal(m.version, "2.21.3");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",
