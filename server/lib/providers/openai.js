@@ -214,5 +214,19 @@ export const openai = {
     return (json?.output ?? []).filter((item) => item?.type === "web_search_call").length;
   },
 
+  /* The same items by action — `search`, `open_page`, `find_in_page` — for
+   * the log line. OpenAI's guide attaches the per-call fee to `search` only;
+   * the ledger keeps charging every item (webSearchCallsOf) until the two
+   * counts have been reconciled against the dashboard. */
+  webSearchActionsOf(json) {
+    const out = {};
+    for (const item of json?.output ?? []) {
+      if (item?.type !== "web_search_call") continue;
+      const a = String(item.action?.type ?? "unknown");
+      out[a] = (out[a] ?? 0) + 1;
+    }
+    return out;
+  },
+
   modelOf: (json) => json.model,
 };

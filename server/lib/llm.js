@@ -258,6 +258,7 @@ function tagFailure(err, sent, p = null, json = null) {
 /* The web_search tool calls an answer made — billed per call, and invisible in
  * the token usage. 0 for a provider that cannot say. */
 const webSearchCallsOf = (p, json) => (typeof p.webSearchCallsOf === "function" ? p.webSearchCallsOf(json) : 0);
+const webSearchActionsOf = (p, json) => (typeof p.webSearchActionsOf === "function" ? p.webSearchActionsOf(json) : {});
 
 /* The two "server" failures that are really answer-quality failures get a
  * finer `reason` for the log. Same kind, same status, same wire message as
@@ -379,7 +380,7 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
       text: p.extractText(json), citations: p.extractCitations(json), model: p.modelOf(json), usage: p.usageOf(json),
       // What the search tool will bill (per call), and what was sent — the
       // caller may still fail on this answer and must tag that failure.
-      webSearchCalls: webSearchCallsOf(p, json), sent: { ...sent },
+      webSearchCalls: webSearchCallsOf(p, json), webSearchActions: webSearchActionsOf(p, json), sent: { ...sent },
     };
   } catch (err) {
     throw tagFailure(err, sent, p, json);

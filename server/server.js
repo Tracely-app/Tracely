@@ -8,6 +8,7 @@ import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
+import { noteClaimSeen } from "./lib/seenClaims.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
@@ -1228,7 +1229,11 @@ const server = http.createServer(async (req, res) => {
       const modelUsed = extensionModel(gate, "/api/sources", choice ? choice.model : appModelFor("sources", ent, model));
       const level = choice ? choice.effort : effort == null ? undefined : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
-      const { webSearchCalls, enriched, dropped, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
+      // Would a cross-user cache have answered this? Counted in memory only
+      // (lib/seenClaims.js) — a hash, never the claim, never on disk — so the
+      // hit rate is known before anyone decides whether to build the cache.
+      const wouldHit = noteClaimSeen(claim);
+      const { webSearchCalls, webSearchActions, enriched, dropped, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1236,7 +1241,8 @@ const server = http.createServer(async (req, res) => {
       // One line per search, no text (PRIVACY.md: routes and outcomes only):
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
-      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} ms=${Date.now() - started}`);
+      const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
+      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can

@@ -368,7 +368,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   const userMsg =
     `CLAIM:\n${claim}\n` +
     (correction ? `\nPROPOSED CORRECTION:\n${correction}\n` : "") +
-    (context ? `\nDOCUMENT CONTEXT (excerpt):\n${context.slice(0, 3000)}\n` : "") +
+    (context ? `\nDOCUMENT CONTEXT (excerpt):\n${claimWindow(context, claim)}\n` : "") +
     `\nFind sources, then output only the JSON object.`;
 
   // The web_search tool bills per call on top of tokens, which is why
@@ -376,7 +376,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   // `effort` undefined sends no reasoning effort — the vendor's default, which
   // is what every source search has run at; the widgets send none here (see
   // webSearchCall). A caller-chosen level is sent.
-  const { text: fullText, citations, model: usedModel, usage, webSearchCalls, sent } = await webSearchCall({
+  const { text: fullText, citations, model: usedModel, usage, webSearchCalls, webSearchActions, sent } = await webSearchCall({
     model: chosenModel,
     system: SOURCES_SYSTEM,
     user: userMsg,
@@ -433,7 +433,34 @@ export async function findSources({ claim, correction, context, model, effort, m
   // `webSearchCalls`: what the search tool billed, per call — the route
   // records it and keeps it out of the response. `enriched`/`dropped` are
   // for the route's log line.
-  return { sources: merged, model: usedModel, usage, webSearchCalls, enriched, dropped };
+  return { sources: merged, model: usedModel, usage, webSearchCalls, webSearchActions, enriched, dropped };
+}
+
+/* The part of the document the search should see: the claim's own
+ * neighbourhood, not the document's head. The extension sends the first
+ * 6,000 characters of the text as context and this used to keep the first
+ * 3,000 — so for a claim in paragraph four the model read the introduction
+ * and never the paragraph the claim lives in. Now: find the claim (its first
+ * 80 characters, whitespace-normalised) and take up to `radius` characters
+ * either side, cut at sentence ends where there is one; a claim that is not
+ * in the context (an edited sentence, a field) falls back to the head. */
+export function claimWindow(context, claim, { radius = 1_200, head = 3_000 } = {}) {
+  const ctx = String(context ?? "");
+  if (!ctx) return "";
+  const needle = String(claim ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const hay = ctx.replace(/\s+/g, " ");
+  const at = needle.length >= 20 ? hay.indexOf(needle) : -1;
+  if (at < 0) return ctx.slice(0, head);
+  let start = Math.max(0, at - radius);
+  let end = Math.min(hay.length, at + needle.length + radius);
+  // Snap outward to a sentence end / start within 200 characters when there is one.
+  const before = hay.slice(Math.max(0, start - 200), start);
+  const cut = before.search(/[.!?]["'”)]*\s+[^\s]*$/);
+  if (start > 0 && cut >= 0) start = Math.max(0, start - 200) + cut + before.slice(cut).search(/\s/) + 1;
+  const after = hay.slice(end, end + 200);
+  const stop = after.search(/[.!?]["'”)]*(\s|$)/);
+  if (end < hay.length && stop >= 0) end = end + stop + 1;
+  return (start > 0 ? "…" : "") + hay.slice(start, end).trim() + (end < hay.length ? "…" : "");
 }
 
 /* Fill in what the search result could not show, from the authority for each
@@ -461,7 +488,10 @@ async function completeSources(list, { now = new Date(), fetchImpl = globalThis.
   const dead = new Set();
   try {
     await Promise.allSettled(list.map(async (s) => {
-      if (s.year != null || doiOf(s)) return;
+      // A source with a DOI was Crossref's; the rest are read when the page
+      // may still state what the result did not — a year, or any author.
+      const credited = (Array.isArray(s.authors) && s.authors.length) || s.groupAuthor;
+      if (doiOf(s) || (s.year != null && credited)) return;
       let page;
       try {
         page = await fetchUrlMetadata(s.url, { now, signal: ctrl.signal, fetchImpl });

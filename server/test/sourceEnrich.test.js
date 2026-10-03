@@ -145,3 +145,43 @@ test("a PubMed link is completed through NCBI esummary, then Crossref for the fu
   r = await enrichSources(src2, { fetchImpl: async (url) => (String(url).includes("esummary") ? { ok: true, json: async () => ES } : { ok: false, json: async () => ({}) }) });
   assert.equal(r.enriched, 1); assert.deepEqual(src2[0].authors, ["Yip T", "Wang Y"], "esummary's names stand when Crossref does not answer"); assert.equal(src2[0].year, 2022);
 });
+
+import { claimWindow } from "../lib/factcheck.js";
+test("claimWindow sends the claim's own neighbourhood, not the document's head, and falls back to the head when the claim is not in the context", () => {
+  const para = (n) => `Paragraph ${n} sentence one about topic ${n}. Paragraph ${n} sentence two with more detail on ${n}. Paragraph ${n} sentence three closes it.`;
+  const doc = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(para).join("\n\n");
+  const claim = "Paragraph 9 sentence two with more detail on 9.";
+  const w = claimWindow(doc, claim, { radius: 150 });
+  assert.ok(w.includes(claim), "the claim is inside the window");
+  assert.ok(w.includes("Paragraph 8") && w.includes("Paragraph 10"), "and so are its neighbours");
+  assert.ok(!w.includes("Paragraph 1 sentence"), "the introduction is not");
+  assert.ok(w.startsWith("…") && w.endsWith("…"), "marked as an excerpt both ends");
+  assert.ok(w.length <= 2 * 150 + claim.length + 420, `bounded: ${w.length}`);
+  assert.equal(claimWindow(doc, "A sentence that is not in the document at all.", { head: 50 }), doc.slice(0, 50), "not found → the head, as before");
+  assert.equal(claimWindow(doc, "short", { head: 50 }), doc.slice(0, 50), "too short a needle to trust → the head");
+  assert.equal(claimWindow("", claim), "");
+  const first = claimWindow(doc, "Paragraph 1 sentence one about topic 1.", { radius: 60 });
+  assert.ok(first.startsWith("Paragraph 1") && first.endsWith("…"), "at the very start: no leading ellipsis");
+});
+
+test("completeSources also reads the page for a source that has a year but no author", async () => {
+  const realFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "sk-test";
+  const model = { sources: [{ title: "About Sleep", url: "https://www.cdc.gov/sleep/about/index.html", publisher: "CDC", snippet: "s", stance: "context", kind: "institutional", authors: [], groupAuthor: "", year: 2024, date: "", container: "", editors: [], doi: "" }] };
+  const html = `<html><head><title>About Sleep | CDC</title><meta property="og:site_name" content="CDC"><meta name="citation_author" content="Centers for Disease Control and Prevention"></head></html>`;
+  let pageReads = 0;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("api.openai.com")) return new Response(JSON.stringify({ status: "completed", model: "gpt-5.6-luna", usage: { input_tokens: 10, output_tokens: 10 }, output: [{ type: "web_search_call", status: "completed", action: { type: "search" } }, { type: "web_search_call", status: "completed", action: { type: "open_page" } }, { type: "message", content: [{ type: "output_text", text: JSON.stringify(model), annotations: [] }] }] }), { status: 200 });
+    if (u.includes("cdc.gov")) { pageReads++; return new Response(html, { status: 200, headers: { "content-type": "text/html" } }); }
+    throw new Error("unexpected " + u);
+  };
+  try {
+    const r = await findSources({ claim: "Adults need seven or more hours of sleep.", model: "gpt-5.6-luna", effort: "low" });
+    assert.equal(pageReads, 1, "the dated-but-unattributed page was read");
+    assert.equal(r.sources[0].groupAuthor, "Centers for Disease Control and Prevention");
+    assert.equal(r.sources[0].year, 2024, "the model's year stands");
+    assert.deepEqual(r.webSearchActions, { search: 1, open_page: 1 }, "actions are reported by type");
+    assert.equal(r.webSearchCalls, 2, "and the ledger still counts every item");
+  } finally { globalThis.fetch = realFetch; }
+});
