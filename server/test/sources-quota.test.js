@@ -20,7 +20,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { usageDay, usageMonth, nextMonthStart, monthDayLabel } from "../shared/plan.js";
@@ -93,7 +93,7 @@ async function boot(env) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const p = await freePort();
     const dataDir = mkdtempSync(path.join(TMP, "data-"));
-    const child = spawn(process.execPath, ["--import", STUB, SERVER], {
+    const child = spawn(process.execPath, ["--import", pathToFileURL(STUB).href, SERVER], {
       env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: dataDir, ...env },
       stdio: ["ignore", "ignore", "pipe"],
     });

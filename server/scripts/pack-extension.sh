@@ -87,7 +87,10 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXT="$ROOT/extension"
 
-VERSION=$(node -p "require('$EXT/manifest.json').version")
+# Paths go to node as ARGUMENTS, never pasted into its source: on Windows,
+# Git Bash rewrites a /c/... argument into C:\... for a native program like
+# node, but leaves a path inside a string alone, and node cannot open /c/....
+VERSION=$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version))' "$EXT/manifest.json")
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 if [ "$BETA" = 1 ]; then NAME="Tracely-$VERSION-beta"; else NAME="Tracely-$VERSION-store"; fi
@@ -99,8 +102,30 @@ if [ "$BETA" = 1 ]; then NAME="Tracely-$VERSION-beta"; else NAME="Tracely-$VERSI
 # /dev/ is developer tooling (the fix-in-doc spike and its browser harness,
 # which names a public test Doc): nothing in the manifest loads it, and no
 # tester's copy should carry it.
+#
+# Git Bash on Windows ships neither rsync nor zip, so each has a fallback that
+# makes the same copy and the same zip; the checks below the zip step run on
+# the result either way, so a fallback that drifted would fail them.
 mkdir -p "$STAGE/$NAME"
-rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' --exclude '/dev/' "$EXT/" "$STAGE/$NAME/"
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' --exclude '/dev/' "$EXT/" "$STAGE/$NAME/"
+else
+  # The same five excludes as the rsync line above: dotfiles, node_modules and
+  # *.map at any depth, beta.json and dev/ at the top level only.
+  node -e '
+    const fs = require("fs"), path = require("path");
+    const copy = (src, dst, top) => {
+      fs.mkdirSync(dst, { recursive: true });
+      for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+        if (e.name.startsWith(".") || e.name === "node_modules" || e.name.endsWith(".map")) continue;
+        if (top && (e.name === "beta.json" || e.name === "dev")) continue;
+        const s = path.join(src, e.name), d = path.join(dst, e.name);
+        if (e.isDirectory()) copy(s, d, false); else fs.copyFileSync(s, d);
+      }
+    };
+    copy(process.argv[1], process.argv[2], true);
+  ' "$EXT" "$STAGE/$NAME"
+fi
 
 if [ "$BETA" = 1 ]; then
   # JSON-encoded by node, not by string pasting, so no token can break the file.
@@ -126,10 +151,25 @@ fi
 mkdir -p "$OUT_DIR"
 ZIP="$(cd "$OUT_DIR" && pwd)/$NAME.zip"
 rm -f "$ZIP"
-if [ "$BETA" = 1 ]; then
-  ( cd "$STAGE" && zip -qr "$ZIP" "$NAME" -x '*.DS_Store' )      # Tracely-<v>-beta/manifest.json
+# Without zip, Windows 10+'s own tar.exe (bsdtar) writes a zip with -a. Not
+# Git Bash's tar, which is GNU tar and cannot. Staging already dropped every
+# dotfile, so .DS_Store needs no exclude there.
+WINTAR="${SYSTEMROOT:-/c/Windows}/System32/tar.exe"
+if command -v zip >/dev/null 2>&1; then
+  if [ "$BETA" = 1 ]; then
+    ( cd "$STAGE" && zip -qr "$ZIP" "$NAME" -x '*.DS_Store' )      # Tracely-<v>-beta/manifest.json
+  else
+    ( cd "$STAGE/$NAME" && zip -qr "$ZIP" . -x '*.DS_Store' )     # manifest.json at the root
+  fi
+elif [ -x "$WINTAR" ]; then
+  if [ "$BETA" = 1 ]; then
+    ( cd "$STAGE" && "$WINTAR" -a -c -f "$ZIP" "$NAME" )
+  else
+    ( cd "$STAGE/$NAME" && "$WINTAR" -a -c -f "$ZIP" * )         # *, not ".": no ./ prefix on entries
+  fi
 else
-  ( cd "$STAGE/$NAME" && zip -qr "$ZIP" . -x '*.DS_Store' )     # manifest.json at the root
+  echo "pack-extension: neither zip nor Windows tar.exe is available to write the zip." >&2
+  exit 1
 fi
 
 # Belt and braces: check the zip itself, not the intent, and delete it on any

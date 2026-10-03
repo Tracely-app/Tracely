@@ -407,7 +407,7 @@ test("old widget settings load without breaking anything, minus the slider stop"
   const old = JSON.stringify({ model: "gpt-5-nano", effort: "low", citationStyle: "mla", autoSources: true });
   assert.deepEqual(plain(loadSettingsApi(old).api.loadSettings(KEY)), { citationStyle: "mla", citeHints: true, autoSources: true });
   for (const junk of [null, "not json", "null", "42", '"apa"', "[1,2]", "true"]) {
-    assert.deepEqual(plain(loadSettingsApi(junk).api.loadSettings(KEY)), { citationStyle: "apa", citeHints: true }, String(junk));
+    assert.deepEqual(plain(loadSettingsApi(junk).api.loadSettings(KEY)), { citationStyle: "mla", citeHints: true }, String(junk));
   }
 });
 

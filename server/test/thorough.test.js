@@ -28,7 +28,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { nextMonthStart, nextUsageDay, THOROUGH_MAX_TOKENS, THOROUGH_RESERVE_USD } from "../shared/plan.js";
 import { checkPromptBytes } from "../lib/factcheck.js";
 import { costMicroCents, MODEL_TIERS } from "../lib/llm.js";
@@ -101,7 +101,7 @@ const freePort = () => new Promise((resolve, reject) => {
 async function boot(env) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const p = await freePort();
-    const child = spawn(process.execPath, ["--import", STUB, SERVER], {
+    const child = spawn(process.execPath, ["--import", pathToFileURL(STUB).href, SERVER], {
       env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: mkdtempSync(path.join(TMP, "data-")), ...env },
       stdio: ["ignore", "ignore", "pipe"],
     });
