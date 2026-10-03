@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { join } from 'path'
 import { app } from 'electron'
 import { is } from '@electron-toolkit/utils'
+import { selfProcessName } from './selfProcess'
 
 export interface ScreenRect {
   x: number
@@ -128,7 +129,7 @@ function runUiaScript<T>(args: string[], timeoutMs: number): Promise<T | { ok: f
         '-File',
         getScriptPath(),
         '-SelfProcessName',
-        `${app.name}.exe`,
+        selfProcessName(process.execPath),
         ...args
       ],
       { windowsHide: true }
