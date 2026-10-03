@@ -328,6 +328,17 @@ a model route, extension or desktop — writes one line to `/var/log/tracely.log
 no caller id — watch the rate, not the content. (What such a call was billed
 is recorded into its spend pool; the log line does not carry the cost.)
 
+On `/api/check`, `kind=timeout` is now one SHARD that missed its 30 s
+deadline (`CHECK_SHARD_TIMEOUT_MS`, `lib/factcheck.js`, env
+`TRACELY_CHECK_SHARD_TIMEOUT_MS`), not necessarily a failed check: when
+another shard answered, the check returns those findings and the extension
+re-sends the omitted ids after its 30 s hold. Count them to watch the hang
+rate:
+
+```sh
+grep 'route=/api/check kind=timeout' /var/log/tracely.log | wc -l
+```
+
 ```sh
 grep -c 'model call failed' /var/log/tracely.log
 grep 'model call failed' /var/log/tracely.log | awk '{print $5, $6, $8}' | sort | uniq -c
