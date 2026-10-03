@@ -923,7 +923,10 @@ test("content.js: a refused edit copies the fix instead, with a short reason", a
     ["ambiguous", "that sentence appears more than once"],
     ["not-applied", "this doc isn't editable right now"],
     ["view-only", "this doc isn't editable right now"],
-    ["selection-mismatch", "the editor couldn't make that edit"],
+    ["selection-mismatch", "Tracely couldn't select that sentence safely, so nothing was changed"],
+    ["no-api", "Docs isn't sharing this document's text with Tracely, so it can't add to it here"],
+    // An unrecognised reason names its code, so a report says what happened.
+    ["something-new", "the editor couldn't make that edit (something-new)"],
   ]) {
     const { w, ops, copied } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: false, reason } : undefined), body: S });
     await w.probeInDoc();
@@ -1122,6 +1125,28 @@ test("content.js: a cite that lands keeps its verdict on the marked sentence, an
   await w.undoLastDocEdit();
   assert.deepEqual(ops().filter((o) => o.op === "undo").pop().undoToken, ["t3", "t2", "t1"]);
   assert.equal(w.sourcesMap.get(h).citedUrl, null);
+});
+
+test("content.js: a Doc that does not share its text gets the marker, and the entry to paste", async () => {
+  // The hook can place a marker without Docs' text API (mouseReplace) but
+  // refuses a blind append. This used to send the append anyway, fail with
+  // no-api, roll the marker back and report "the editor couldn't make that
+  // edit" for every citation on the Doc.
+  let n = 0;
+  const { w, ops, copied, h } = citeSetup((m) => {
+    if (m.op === "ping") return { ok: true, api: false, editor: true, editable: true };
+    if (m.op === "appendLine") return { ok: false, reason: "no-api" };
+    return { ok: true, undoToken: `t${++n}` };
+  });
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace"], "only the marker is sent");
+  const st = w.sourcesMap.get(h);
+  assert.equal(st.citedUrl, "https://example.com/wall");
+  assert.match(st.pasteEntry, /^Sources:\n1\. .* — https:\/\/example\.com\/wall$/, "the entry, with its heading, ready to paste");
+  await new Promise((r) => setTimeout(r, 0)); // the copy is fire-and-forget
+  assert.deepEqual(copied, [st.pasteEntry]);
+  assert.match(w.state().statusMsg, /cited \[1\] in doc — paste its reference into Sources/);
 });
 
 test("content.js: an existing Sources entry is reused — only the marker is added", async () => {

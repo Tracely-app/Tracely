@@ -2454,6 +2454,7 @@
       noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
+      pasteLabel: "ADD THIS TO YOUR SOURCES LIST", copyEntry: "Copy entry",
       willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
       flowTitle: "Flow issue", bridgeLabel: "SUGGESTED BRIDGE", addBridge: "Add transition", copyBridge: "Copy transition",
       bridgeApplied: "Transition added", bridgeAppliedBody: "The bridge sits just before the passage. Undo — or ⌘Z — takes it out again.",
@@ -2893,8 +2894,15 @@
       if (citedState === "applied" || citedState === "undoing") {
         const src = s.list.find((x) => x.url === citedUrl);
         const c = src ? formatCitation(src, style) : null;
-        put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(`This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
-        if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
+        // The desktop overlay's rule (CLAUDE.md, "The confirmation says
+        // different things on the two surfaces"): never say ADDED over a
+        // list nothing was added to.
+        const paste = s.pasteEntry || null;
+        put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(paste
+          ? "The marker is in your sentence. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document."
+          : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
+        if (paste) put(dmBlock(POP_COPY.pasteLabel, dmBlockBody(paste)));
+        else if (c) put(dmBlock(POP_COPY.added, dmBlockBody(c.ref)));
         const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
@@ -2903,7 +2911,12 @@
         done.addEventListener("click", () => { popSteps.delete(hash); hideDocsPopover(); });
         const undo = dmBtn(citedState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: citedState === "undoing" || lastDocEdit?.key !== citedKey(citedUrl) });
         undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
-        put(dmActions(done, undo));
+        let copyEntry = null;
+        if (paste) {
+          copyEntry = dmBtn(POP_COPY.copyEntry, false);
+          copyEntry.addEventListener("click", () => { copyFallback(paste).then((ok) => { copyEntry.textContent = ok ? POP_COPY.copied : POP_COPY.copyEntry; }); });
+        }
+        put(dmActions(done, copyEntry, undo));
         return;
       }
       const failedKey = [...docEditState.keys()].find((k) => k.startsWith(`cite:${hash}:`) && docEditState.get(k)?.state === "failed");
@@ -3566,7 +3579,14 @@
         case "mismatch": return "the edit didn't land as expected, so it was taken back";
         case "timeout": return "the editor didn't answer";
         case "bridge": return String(r.detail || "the Docs bridge refused the edit").slice(0, 120);
-        default: return "the editor couldn't make that edit";
+        case "no-api": return "Docs isn't sharing this document's text with Tracely, so it can't add to it here";
+        case "no-editor": return "Docs' editor isn't ready — try again in a moment";
+        case "selection-failed":
+        case "selection-mismatch":
+        case "selection-unverifiable": return "Tracely couldn't select that sentence safely, so nothing was changed";
+        case "edits-disabled": return "editing is switched off on this page";
+        // The reason code, so the next report names the cause instead of this sentence.
+        default: return `the editor couldn't make that edit (${r?.reason || "unknown"})`;
       }
     }
 
@@ -3787,6 +3807,16 @@
       const styled = formatCitation(src, settings.citationStyle || "apa");
       const steps = [];
       let replacement = null;
+      /* The Sources entry needs Docs' text API (docs-hook.js doAppendLine
+         refuses a blind append, as it should: nothing could verify it). The
+         marker does not — doReplace falls back to mouseReplace — so on a Doc
+         that does not share its text the marker goes in and the entry is
+         COPIED, and the card says to paste it. It used to try the append,
+         fail with no-api, roll the marker back and report "the editor
+         couldn't make that edit" for every citation on that Doc. */
+      const canAppend = editPath() !== "hook" || inDoc.api;
+      const entryLine = existing ? null : `${num}. ${styled.doc} — ${src.url}`;
+      const pasteEntry = entryLine && !canAppend ? (block ? entryLine : `Sources:\n${entryLine}`) : null;
       // The marker first: it is the step most likely to be refused (the
       // sentence changed), and refusing before anything landed needs no rollback.
       if (!seg.text.includes(`[${num}]`)) {
@@ -3795,11 +3825,11 @@
         replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` [${num}]` + seg.text.slice(at);
         steps.push({ action: "replace", find: seg.text, replacement, hint });
       }
-      if (!existing) {
+      if (entryLine && canAppend) {
         if (!block) steps.push({ action: "appendLine", line: "Sources:" });
         // Styled reference + " — url" tail: the url tail is what sourcesBlock
         // parses for numbering/dedupe, so it must survive every style.
-        steps.push({ action: "appendLine", line: `${num}. ${styled.doc} — ${src.url}` });
+        steps.push({ action: "appendLine", line: entryLine });
       }
       if (!steps.length) {
         // Marker and entry are both in the doc already: nothing to change —
@@ -3807,6 +3837,12 @@
         if (st.citedUrl !== src.url) { st.citedUrl = src.url; persistCaches(); }
         statusKind = "idle";
         statusMsg = `already cited [${num}] in the doc`;
+        if (pasteEntry) {
+          // The marker was already there; the entry still is not.
+          st.pasteEntry = pasteEntry;
+          const copied = await copyFallback(pasteEntry);
+          statusMsg = copied ? `[${num}] is in the doc — its reference is copied, paste it into Sources` : `[${num}] is in the doc — add its reference to Sources`;
+        }
         refreshEditViews();
         return true;
       }
@@ -3814,7 +3850,7 @@
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
         copy: styled.ref,
-        doneMsg: `cited [${num}] in doc`,
+        doneMsg: pasteEntry ? `cited [${num}] in doc — paste its reference into Sources` : `cited [${num}] in doc`,
         notes: hint.occurrences > 1 && !anchor ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Cite in doc") } : null,
         onApplied: () => {
           if (replacement) {
@@ -3824,11 +3860,14 @@
             if (!(hint.occurrences > 1)) markEdited(hash); // another copy keeps its underline
           }
           st.citedUrl = src.url;
+          st.pasteEntry = pasteEntry;
+          if (pasteEntry) copyFallback(pasteEntry);
           persistCaches();
         },
         onUndone: () => {
           editedHashes.delete(hash);
           st.citedUrl = prevCited;
+          st.pasteEntry = null;
           persistCaches();
         },
       });
