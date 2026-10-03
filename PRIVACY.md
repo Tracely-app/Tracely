@@ -1,8 +1,9 @@
 # Tracely Privacy Policy
 
-*Effective: 3 October 2026. This update adds one item: the site icons shown
-beside sources are loaded from Google's favicon service (see **Google** under
-"Who else processes your data"). The 24 September 2026 version replaced the
+*Effective: 3 October 2026. This update adds the site icons shown beside
+sources, loaded from Google's favicon service (see **Google** under "Who else
+processes your data"), and says when text is sent for checking: a few seconds
+after a sentence is written or changed, rather than on a ten-second timer. The 24 September 2026 version replaced the
 August 2026 policy, which described an earlier version of the extension that
 ran on your own API key with no server and no accounts. That is not how
 Tracely works now, so this policy starts from what the current version
@@ -34,8 +35,9 @@ the product it describes.
 
 **Checking.** While Tracely is on for the page you are writing in, the
 extension sends the text of the document or text box (up to 30,000
-characters) and the sentences to check to `api.jointracely.com`, every ten
-seconds while the text changes. For "Explain in depth", one sentence and the
+characters) and the sentences to check to `api.jointracely.com`, a few
+seconds after you write or change a sentence. A sentence that has already been
+checked is not sent again. For "Explain in depth", one sentence and the
 document context. For the flow check, the first 12,000 characters. Our server
 forwards this to **OpenAI** (the model that does the judging) and returns the
 verdicts. Neither we nor, per OpenAI's API terms, OpenAI keep the text for
