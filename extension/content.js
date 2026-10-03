@@ -3681,7 +3681,7 @@
           // One line per step, so "it didn't work" can be read off the console
           // rather than guessed at. No document text: the action, the path
           // and the hook's answer only.
-          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}`);
+          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
@@ -3822,8 +3822,22 @@
          COPIED, and the card says to paste it. It used to try the append,
          fail with no-api, roll the marker back and report "the editor
          couldn't make that edit" for every citation on that Doc. */
-      const canAppend = editPath() !== "hook" || inDoc.api;
       const entryLine = existing ? null : `${num}. ${styled.doc} — ${src.url}`;
+      let canAppend = editPath() !== "hook" || inDoc.api;
+      /* Ask before committing to the append: a dry run plans the line and
+         touches nothing. On a Doc whose text does not end the way the hook
+         knows (a footer, footnotes, a table at the end — measured 2026-10-03:
+         "doc-end-unknown" on a real Doc), the group used to land the marker,
+         fail the append and roll the marker back — "[1] for a split second,
+         then Could not apply". Now the marker stays and the entry is handed
+         over to paste. */
+      if (entryLine && canAppend && editPath() === "hook") {
+        const plan = await docsEdit("appendLine", { line: block ? entryLine : "Sources:", dryRun: true }, { timeoutMs: 3000 });
+        if (!plan.ok) {
+          canAppend = false;
+          console.debug(`[tracely] cite: Sources line can't be placed here (${plan.reason ?? "?"}${plan.endShape ? ` · ${plan.endShape}` : ""}) — the entry will be handed over to paste`);
+        }
+      }
       const pasteEntry = entryLine && !canAppend ? (block ? entryLine : `Sources:\n${entryLine}`) : null;
       // The marker first: it is the step most likely to be refused (the
       // sentence changed), and refusing before anything landed needs no rollback.

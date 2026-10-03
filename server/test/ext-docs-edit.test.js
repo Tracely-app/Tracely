@@ -1035,16 +1035,40 @@ test("content.js: an edit the hook could only verify blind lands without an Undo
   assert.ok(!/Undo/.test(w.editBtnHtml(`fix:${h}`, "Fix in doc", "")));
 });
 
-function citeSetup(respond) {
+// docCite asks the hook to PLAN the Sources line (appendLine, dryRun) before
+// committing to it. That probe changes nothing, so these tests answer it
+// (`dry`, default: the line can be placed) and leave it out of `ops()`, which
+// stays the list of edits actually made.
+function citeSetup(respond, dry = () => ({ ok: true, dryRun: true })) {
   const S = "The Great Wall is visible from space.";
   const body = `${S} It is long.`;
-  const env = loadWiring({ respond, body });
+  const env = loadWiring({ respond: (m) => (m.dryRun ? dry(m) : respond(m)), body });
   const h = env.w.hashText(S);
   env.w.setDoc(body, [{ ...seg(S), hash: h }]);
   env.w.cache.set(h, { verdict: "needs_citation" });
   env.w.sourcesMap.set(h, { loading: false, list: [{ title: "Can you see the Great Wall?", url: "https://example.com/wall", publisher: "NASA" }], citedUrl: null });
-  return { ...env, S, h };
+  const allOps = env.ops;
+  return { ...env, ops: () => allOps().filter((o) => !o.dryRun), S, h };
 }
+
+test("content.js: a Doc whose end the hook can't place a line at keeps the marker and hands over the entry", async () => {
+  // Measured 2026-10-03 on a real Doc: the append was refused as
+  // doc-end-unknown, and the group rolled back the marker that had landed —
+  // "[1] for a split second, then Could not apply".
+  let n = 0;
+  const { w, ops, copied, h } = citeSetup((m) => {
+    if (m.op === "ping") return okPing(m);
+    return { ok: true, undoToken: `t${++n}` };
+  }, () => ({ ok: false, reason: "doc-end-unknown", endShape: "len 99 … ·\\u0003" }));
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace"], "the marker only — no append, no rollback");
+  const st = w.sourcesMap.get(h);
+  assert.equal(st.citedUrl, "https://example.com/wall");
+  assert.match(st.pasteEntry, /^Sources:\n1\. .* — https:\/\/example\.com\/wall$/);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(copied, [st.pasteEntry]);
+});
 
 test("content.js: Cite in doc is ONE group — marker, heading, entry — and a failure part-way rolls it all back", async () => {
   let n = 0;

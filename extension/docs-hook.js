@@ -1411,7 +1411,10 @@
       const saved = readSel(at);
       const T1 = at.getText();
       const plan = planAppend(T1, line);
-      if (!plan) return { ok: false, reason: "doc-end-unknown", mode };
+      // endShape: the last characters as their KIND only — control codes by
+      // number, everything else a dot — so a refusal says what Docs' text
+      // actually ends with on this document without carrying any of its words.
+      if (!plan) return { ok: false, reason: "doc-end-unknown", mode, endShape: endShapeOf(T1) };
       const { c, text, newParagraph } = plan;
       // A rich paste only where no paragraph break has to be made in the same
       // paste (verified path: plain text); the line's text is checked either way.
@@ -1452,6 +1455,15 @@
     // the BODY style (pasting into a trailing empty paragraph measured: it took
     // that paragraph's default Arial 11, not the Roboto 14 body). Structure
     // markers (tables etc.) before the trailing paragraph → stay in it.
+    function endShapeOf(T) {
+      const tail = String(T ?? "").slice(-16);
+      let out = "";
+      for (const ch of tail) {
+        const n = ch.charCodeAt(0);
+        out += n < 32 || n === 0x200b ? `\\u${n.toString(16).padStart(4, "0")}` : "·";
+      }
+      return `len ${String(T ?? "").length} … ${out}`;
+    }
     function planAppend(T1, line) {
       const endMark = T1.lastIndexOf("\u0003");
       const c0 = endMark - 1;
