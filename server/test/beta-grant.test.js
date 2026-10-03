@@ -53,7 +53,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.join(HERE, "..", "server.js");
@@ -228,7 +228,7 @@ const booted = [];
 async function boot(env, { preload } = {}) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const p = await freePort();
-    const child = spawn(process.execPath, [...(preload ? ["--import", preload] : []), SERVER], {
+    const child = spawn(process.execPath, [...(preload ? ["--import", pathToFileURL(preload).href] : []), SERVER], {
       env: { ...baseEnv, PORT: String(p), TRACELY_DATA_DIR: mkdtempSync(path.join(TMP, "data-")), ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
