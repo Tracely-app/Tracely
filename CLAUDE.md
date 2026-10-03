@@ -268,8 +268,11 @@ its lines.
 
 Decided from an audit of main at 67120d1. **The extension's colours are
 done** (#267, extension 2.21.2: `MARK_COLORS`, the dot CSS and the verdict
-washes); its "never colour alone" cue is not. The desktop half ships with a
-normal desktop release. Add no new mark or grade UI that contradicts these
+washes), and so is its "never colour alone" cue (extension 2.21.4,
+`MARK_PATTERN` in `extension/content.js`: red solid, orange dashed, amber
+double, with one legend under the panel's cards; grey dotted stays "still
+checking"). The desktop half — colours and cue — ships with a normal
+desktop release, and should reuse those three lines. Add no new mark or grade UI that contradicts these
 in the meantime.
 
 - **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`

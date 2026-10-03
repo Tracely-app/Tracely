@@ -99,6 +99,75 @@
   const MARK_BAND_RADIUS = 3;
   const MARK_LINE_HEIGHT = 2;
   const MARK_LINE_HEIGHT_HOVERED = 3;
+
+  /* Never colour alone (CLAUDE.md "UI decisions"). Amber #ffb800 is 1.73:1 on
+     white, under WCAG's 3:1 for graphics, and red and orange are close under
+     tritanopia, so the colour cannot be the only thing that says which
+     finding a sentence carries. Each meaning also has a LINE: solid for
+     wrong, dashed for worth checking, double for a missing citation. Not
+     dotted for amber: grey dotted already means "still checking", and the two
+     would then differ by colour alone again. The panel's legend names all
+     three (legendHtml). */
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double" };
+  // CSS for a div-drawn line (field mode, and Docs' fallback bars).
+  function markFill(color, pattern) {
+    if (pattern === "dashed") return `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 9px)`;
+    if (pattern === "double") return `linear-gradient(to bottom, ${color} 0 1px, transparent 1px calc(100% - 1px), ${color} calc(100% - 1px))`;
+    return color;
+  }
+  // The panel's legend: one row per LINE, in the cards' own words.
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing citation"]];
+  function legendHtml() {
+    const items = LEGEND.map(([v, label]) => {
+      const p = MARK_PATTERN[v];
+      return `<span class="legend-item"><span class="legend-line" aria-hidden="true" style="background: ${markFill(MARK_COLORS[v], p)}; height: ${markLineHeight(p, false)}px"></span>${label}</span>`;
+    }).join("");
+    return `<div class="legend" role="note" aria-label="What the underlines mean">${items}</div>`;
+  }
+  // A double line needs room for two strokes and a gap, or it reads as solid.
+  const markLineHeight = (pattern, hovered) =>
+    pattern === "double" ? (hovered ? 4 : 3) : (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
+  /* The same patterns for the bars drawn INSIDE Docs' SVG layer, as fills
+     defined once in a hidden SVG of our own (url(#id) resolves across inline
+     SVGs in one document), so nothing is added to Docs' SVG but the rect. */
+  function svgMarkFill(color, pattern) {
+    if (pattern !== "dashed" && pattern !== "double") return color;
+    const id = `tracely-mark-${pattern}-${color.slice(1)}`;
+    if (!document.getElementById(id)) {
+      const NS = "http://www.w3.org/2000/svg";
+      let defs = document.getElementById("tracely-mark-defs");
+      if (!defs) {
+        const svg = document.createElementNS(NS, "svg");
+        svg.setAttribute("width", "0");
+        svg.setAttribute("height", "0");
+        svg.setAttribute("aria-hidden", "true");
+        svg.style.position = "absolute";
+        defs = document.createElementNS(NS, "defs");
+        defs.id = "tracely-mark-defs";
+        svg.appendChild(defs);
+        (document.body || document.documentElement).appendChild(svg);
+      }
+      const p = document.createElementNS(NS, "pattern");
+      p.id = id;
+      const stripe = (x, y, w, h) => {
+        const r = document.createElementNS(NS, "rect");
+        for (const [k, v] of Object.entries({ x, y, width: w, height: h, fill: color })) r.setAttribute(k, String(v));
+        p.appendChild(r);
+      };
+      if (pattern === "dashed") {
+        // Vertical stripes in the bar's own units, so the dashes do not stretch with it.
+        for (const [k, v] of Object.entries({ patternUnits: "userSpaceOnUse", width: 9, height: 1 })) p.setAttribute(k, String(v));
+        stripe(0, 0, 6, 1);
+      } else {
+        // Two strokes, top and bottom of whatever box the bar is.
+        for (const [k, v] of Object.entries({ patternUnits: "objectBoundingBox", patternContentUnits: "objectBoundingBox", width: 1, height: 1 })) p.setAttribute(k, String(v));
+        stripe(0, 0, 1, 0.36);
+        stripe(0, 0.64, 1, 0.36);
+      }
+      defs.appendChild(p);
+    }
+    return `url(#${id})`;
+  }
   const MARK_LINE_RADIUS = 1;
   const MARK_BAND_TRANSITION = "opacity 110ms ease, transform 110ms cubic-bezier(0.22, 1, 0.36, 1), background 110ms ease";
   const MARK_LINE_TRANSITION = "height 110ms ease";
@@ -1218,6 +1287,10 @@
       font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
     }
     .show-all:hover { border-color: #c9c9c9; }
+    /* The one legend (never colour alone): what each underline's LINE means. */
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
@@ -2050,6 +2123,7 @@
           const verdict = lastVerdictByHash.get(hash);
           const color = MARK_COLORS[verdict];
           if (!color) continue;
+          const pattern = MARK_PATTERN[verdict];
           for (const r of list) {
             if (!r || r.width < 3) continue;
             received++;
@@ -2078,7 +2152,7 @@
             const bar = document.createElement("div");
             Object.assign(bar.style, {
               left: "0", top: "0", width: r.width + "px", height: "3px",
-              background: color, borderRadius: "2px", pointerEvents: "none",
+              background: markFill(color, pattern), borderRadius: "2px", pointerEvents: "none",
             });
             if (page) {
               bar.setAttribute("data-tracely-bar", "");
@@ -2308,6 +2382,7 @@
         for (const sb of svgBars) {
           const color = MARK_COLORS[lastVerdictByHash.get(sb.hash)];
           if (!color) continue;
+          const pattern = MARK_PATTERN[lastVerdictByHash.get(sb.hash)];
           const svg = sb.node.ownerSVGElement;
           const rx = parseFloat(sb.node.getAttribute("x"));
           const ry = parseFloat(sb.node.getAttribute("y"));
@@ -2326,9 +2401,9 @@
             bar.setAttribute("x", String(rx + sb.f0 * rw));
             bar.setAttribute("y", String(ry + rh - 2));
             bar.setAttribute("width", String(Math.max(2, (sb.f1 - sb.f0) * rw)));
-            bar.setAttribute("height", "2.5");
+            bar.setAttribute("height", pattern === "double" ? "3.2" : "2.5"); // two strokes need room
             bar.setAttribute("rx", "1.25");
-            bar.setAttribute("fill", color);
+            bar.setAttribute("fill", svgMarkFill(color, pattern));
             bar.setAttribute("pointer-events", "none");
             const tf = sb.node.getAttribute("transform");
             if (tf) bar.setAttribute("transform", tf);
@@ -2354,7 +2429,7 @@
             Object.assign(bar.style, {
               position: "fixed", left: "0", top: "0",
               width: "0px", height: "3px",
-              background: color, borderRadius: "2px", pointerEvents: "none",
+              background: markFill(color, pattern), borderRadius: "2px", pointerEvents: "none",
               willChange: "transform",
             });
             marksLayer.appendChild(bar);
@@ -4175,7 +4250,7 @@
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
           </div>` };
         });
-        const cardsHtml = cards.length ? cardListHtml(cards) : "";
+        const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
         // as soon as the sentence is re-read, so the Undo moves up here.
@@ -4186,7 +4261,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
+            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -4348,7 +4423,7 @@
 
   /* ════════════════════════════════════════════════════════════════════════
      FIELD MODE — any other site: ordinary editable fields, in-place fixes.
-     Money rule: automatic 10s checking runs ONLY when this site is enabled
+     Money rule: automatic checking (nextReadGap) runs ONLY when this site is enabled
      ("tracely.site.enabled"). Otherwise nothing is sent until the user clicks.
      ════════════════════════════════════════════════════════════════════════ */
   function fieldMode() {
@@ -4632,9 +4707,11 @@
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
         let color = null;
+        let pattern = "solid";
         let pending = false;
         if (flagShown(f, settings)) {
           color = MARK_COLORS[f.verdict];
+          pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
           color = MARK_PENDING; // awaiting a verdict this cycle
           pending = true;
@@ -4672,12 +4749,12 @@
             const line = document.createElement("div");
             Object.assign(line.style, {
               position: "absolute", left: "0", right: "0", bottom: "0",
-              height: `${MARK_LINE_HEIGHT}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
-              background: color,
+              height: `${markLineHeight(pattern, false)}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
+              background: markFill(color, pattern),
               transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
             });
             bar.append(band, line);
-            markParts.set(seg.hash, [...(markParts.get(seg.hash) || []), { band, line, color }]);
+            markParts.set(seg.hash, [...(markParts.get(seg.hash) || []), { band, line, color, pattern }]);
           }
           layer.appendChild(bar);
         }
@@ -4694,10 +4771,10 @@
     function paintHover() {
       for (const [h, parts] of markParts) {
         const on = h === hoveredMark;
-        for (const { band, line, color } of parts) {
+        for (const { band, line, color, pattern } of parts) {
           band.style.background = withAlpha(color, on ? MARK_BAND_ALPHA : 0);
           band.style.transform = `scaleY(${on ? 1 : MARK_BAND_SCALE_RESTING})`;
-          line.style.height = `${on ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT}px`;
+          line.style.height = `${markLineHeight(pattern, on)}px`;
         }
       }
     }
@@ -5096,12 +5173,12 @@
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
           </div>` };
         });
-        const cardsHtml = cards.length ? cardListHtml(cards) : "";
+        const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
 
         const emptyMsg = statusKind === "offline"
           ? "Tracely could not reach its server. Try again in a moment."
           : enabled
-            ? "Nothing flagged. Checking every 10s while this field is focused."
+            ? "Nothing flagged. Sentences are checked as you finish them, while this field is focused."
             : "Nothing sent yet. “Check once” reviews this field — or turn on auto-check for this site.";
 
         panelHtml = `
@@ -5113,7 +5190,7 @@
           <div class="foot">
             <span class="foot-left">
               <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "auto-check off"}</span>
-              <label class="autosrc" title="Run automatic checks on this site every 10s. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
+              <label class="autosrc" title="Check sentences on this site as you finish them. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
