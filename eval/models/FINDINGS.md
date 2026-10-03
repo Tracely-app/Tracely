@@ -110,6 +110,31 @@ What this does to the allowances: at 1.28 cents Pro's 250 searches a month
 are $3.20 of its $9.99 (they were $6.50 at 2.6 and $15 at 6), Student's 100
 are $1.28 of $4.99, Free's 40 are 51 cents. A search is ~14 checks.
 
+Live on production after the deploy (10-03 02:30 UTC): a research-finding
+claim answered in 8.2 s for 1.25 cents, four PubMed/PMC sources, every one
+with full author names, year and DOI from the completion path.
+
+A design panel (three plans, two judges, 2026-10-02) ranked the shipped
+change first and agreed on what comes next, in order: (1) count the
+`search` actions beside the count-everything ledger figure, so the two can be
+reconciled against OpenAI's dashboard — now on the `/api/sources` log line
+as `actions=search=1,open_page=0`; (2) read the page for a source that has a
+year but no author (the 4.3 → 3.5 authors regression was PubMed and AAP pages
+the model no longer opens; PubMed now goes through NCBI) — done; (3) send
+the search the claim's own paragraph rather than the document's first 3,000
+characters, which for a claim in paragraph four was the introduction —
+`claimWindow`, done; (4) before building a cross-user cache, measure its hit
+rate without keeping a record: an in-memory SHA-256 of the normalised claim,
+fourteen days, never on disk — `wouldHit=1|0` on the same log line. The
+panel's own estimates of the hit rate ranged from 12% to 30% with no data,
+which is the point of measuring. Rejected by both judges: `max_tool_calls`
+as a saving (did not bind), `search_context_size: low` (measured worse),
+flex or fast service tiers (tokens are a quarter of the cost; the tool fee
+is undiscounted), and prefetching free retrieval at flag time (sends
+sentences to third parties for searches nobody asked for). The check-side
+levers (a byte-stable 2,000-char head, an explicit cache breakpoint, shard
+stagger) are each worth 0.01-0.03 cents on a 0.09-cent check and wait.
+
 ## 2026-10-01: what a citation flag is for
 
 A tester's history essay came back with every sentence underlined for a
