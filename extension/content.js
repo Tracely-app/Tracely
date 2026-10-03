@@ -844,6 +844,60 @@
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
+  /* ── the widget's chrome, from Figma ──────────────────────────────────
+     "Collapsed Launcher" (267:64): a 56px ink circle carrying the Tracely
+     mark, and a 31px orange count badge overlapping its top-right edge.
+     "Widget over Document" (282:70): a panel headed "N claims flagged" with a
+     round close button, ONE claim at a time and "Show all (N)" under it.
+     Both modes draw these. They live here, beside esc(), because that is the
+     region server/test loads alongside render(): the tests keep running the
+     real markup instead of a stub of it.
+
+     The mark is the desktop launcher's asset (src/renderer/src/assets/
+     figma-logo.png, trimmed to 44px), inlined because a content script's
+     images load under the PAGE's policy and the extension exposes no
+     web_accessible_resources. A page whose policy refuses data: images gets
+     the plane glyph instead (wireChrome), never an empty circle. */
+  const MARK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAtCAYAAADV2ImkAAAACXBIWXMAAAsTAAALEwEAmpwYAAALJUlEQVR42s1ZCVRTVxqO1VmsnZn2nOl05py258zMmZ5KBdk3WSQLBAKEJLxAQhDZgoiCtvVU64xxrFUURW07WusyrR3RBpcCLuBSUNzQ6tTqUK1Lre0RkS1hCy/v3vfNDUub2mmnm8I95z//TfLeu9/77vcv90QCWB5wmdXKjcbdVhs5pt/A5v3XSR6Q/MTDEmkZ80GJadzVEtPv7Oum/uXO2nSfO28aI+zWDJWtcqqxe3fu8z3bM0u6NqaX20r0837QIhxnHf3+esuD1w6af9O4Pu0Pl7Zwf7y0Qed1ZSMX0m41hN0pS1XZylM4Wzln6NphmtFbYZrnqDD+vbfCsKZ3V8rm3h36d/t2pOx37Eg55dhpuMjvMnzOV6a3Cfsze8jBbF48lANUm4Gd2eBfTUb7gpiPmosiV98pkPpKWo/medjOZvg170sKs1ckxdsqtSm2Km5G5x5ubnuVemnH3oQ1tirVZlulurxzb9Kenmrt0b4a7Zmeas1lvlrzae9eTZtjr9Yh7NcR1HDAAWY1OmZatiizg2x+OAWoNQzYYSP7LpV5Nq8zAUczmc+GuC8bdGsGyCot2gon0+v6wMuXlB4vN3o+6WuRuO1s02bNOuyLA63XUJxhDz+VBBxXAyeYP8UWbEhmXjdgDYP+BLNjzOqZHWG/1zGrTQY9nAxySCcKB3QiqdFRyozUcIRWcwKp1gv0gEHAkSmCeCybkLocga/I5O2v6knnHDnajQG4qnimpTHsqU1nPZ+U1T4qeWgII4BRODF7LCSSURJOIhndXORdipIgkLeiBGd1gpOc0BGhQUvIMTUh9UmCcDSJCEe1RKjXElrPANSnuIySej0VjqaI9GgqM4NIjhjRb3WGfqPMUM9YbGAsNphBanPQ+0462pepSfO0SGrX+eK23ANXIp5quBz259zzSs/H+wG6gLHRuibtcUeluaB3S+aZlmJD/hfoXf5W/oRpfXO8+rDAF/wr4cRZkQhyMhX0nBHiGbb4qRSIp5hvMLK5acAa0kBPprHr0pmfAnoig9kUiKenQvyAbfO/zRCOmNFbxkAuikNzxiTyeZwXtUWPZ0DHC9cVT++4luCtuGix/HyITVfwt71uUvZZM7eixnwb5WY0z45+d8tjknGSobdxZQTX/OqcAFnPXO+bmOcJ5xwv4lwcIjq3xEKoY8Au5II25kA8nwlyjoE7y/zZLND3mZ1l+jtvBv3PdJCLBRCO58NRlgb7QiU6poaiVeVJW2UepEflhfZ4L+ETlWfV5USfCHc2T8zmxnZuNSXx1vTDwt5sEXXTKUo0uJzgUz5TIvmF+7X9o9YSOcblz1siH7fN938PC31B50yg/CwP6pzrDecaGfg9bKvPTQP9uIhZIeilIpDrz7P5cxBOF4Evz0Lv4nj0ZAajM8ET9tjxYqdqAuG1PiKf7IOmRJ/TV+MDZO6LWzludPdb2XEOq+l97GfSeS9XdFZkO20z5WiMmlBpDQ4e23+95X+k1P7cyx7EsYe0zAtezC/wo7B4u4AToWi8KMyeAGFhCPo2qeE8zsA2LgRfMxP8ai34wkkQUr0h6Lzg5CaiT+9D+RRfAhZMNs7n1k2NT6bruQMyHNTom9mBvWXGWlo5BdifBRzKoo7tmX22KaG4PPnp2kpz/IODL/fN+d/1JlarpP/BN+aHhHa/6Hsei/xAX/Sh5AUvQoo8RZIzHs48P/BzI0BmsJ3I8YSY4w0xyw9Chr8omAIJMoLBpwUIbfqA1ZfMfr8d0qfLX9tQ+JjtzdSNwk5jH/YzeVWZiFhnJva1aUJ7kjduyp45uSdf9cg3Mvs10G66PpaV+Ks78/0X9D3na8dsBnyaNxXM3kTM9AEx+4A+6w+xKAB0uj9olj9FTgBBXii6pgafuzklJOKLnRtcuH1DagZfpr+JfSaQCiMle9MJPWRG+xItvRPthVtyj48+1Pr/aUgu36uiuW6AxdK/0Lm0MI8Wc/A2Z4E/j5kMYJ4vA+5LSGGASAoZ2HwGtCAIQn6Ioy03/OWa5xTjBhjy6M8A11ZzT/Zu0lhRzoHu5kRht4GQ/ekiPZiPthfjaWuUB24rPZtP6/x9+u/jJKN/UBkeYntId1fMoSG2HL+DQkGggMIgYEaQSGcEUhSyQJsWcvFGbnjoANDIMUOB3PF6ipbfpG5CuRbEqiNkdyoVa1hVq8lHx7OxYqvUA7aEic4rat+Y/gQQOXDfjxoupt3eetSN/KjQVnPQbn5GYB+dFYbWvPC1NaZBVq1cP6s3rbPH2tdr1tKtrHJuTRSFbRpCdqaAVmfAuS8P9hkKdMpZQGt8cSPRr7D/3p8C7NeA48t8eCk/zKupSDZ5KPphGQD72T90Xp2b4s9jexLI24nEuV0t0h160H3pcFbloTtPhp5oDwHJAWhJCtr4o2TwnYC76fvLzwPstG/Qmfgtie3YnsAamkRBKNeKdBcDyzKCUMEqX44MjpiJBPpAdGkDj9coTOO+VhjuGXAW/RiMZleQdmzmltLtGiaBBFEoS6Rkpw60gpX4Q1PgfNeMnqzJ4JXeIrhA8Fxwe2N8uO/QzknuxxhipdZiGWP/V9I2VLHO7Z14gVg1VNzFMkIl6z8OZUDYNw2OXCmcyokQNEEU+hC06SJz74luvzX1Debr5lJFNDbGML2qBWFXsihWsWZpD2P2cCac1ay3mCYHiWVVMIkVFS6UVb/wLfeVWfdy7vL2JfKXUDoZwsooQjaoIOzkWG88FcIBBraINVDx3iAalv50rLSnTLrRkBH5+/um268AHswYXUuiq7FSyk4MUYS+Fg1hQxz4XWlwzIoFifNlPUawSLXMuEloTonQDgXqsICtLVI/3LU46lMsY4BXRlGyLpZlhyTWVyfDEcf6iwQWYInBBCnhsOvD3hkWKbgv+tEitWfvEikVl04GKZWLdJ0KtEyPnufj4JD7whkfIiIhGA7tpNarBvlfvnNTc6/0+1lJogorFEBxFKWroiG+zjS8gbGrD4MzOghOVRCBNhy3k8IswyKFu5v+9mXK6ShVQFwqJWIpA/xGAnjWyPMxAQxsCIU6FD3asAtvK5W/HpZA+1ISA4BtxcrlWB0DWiwTaCnzb2jgLJBDUASCJk4i0EnRlByVOazsuuuwY0XcNqxiQEvkAl3FssIrWjj1EXDGsQKhi0SXTnrSwnFDB81RkuEeXctj68CkQJbLCH0lDs5FieBVoSJVh1FwUbidqtQMP7uDTFlYSe5eqrjoCjqhRE7pawxsoRJCXAhBshSdnKzBz2z+2bCz+8Wp18I91LlEfhPLZaAroildzQ6oaTKQeMauXorPU+X6YWfXvWjUzzU+0lscfdvFMF2pFIWXWXbQRlIkR6FTL/3QkhH5y2HNDHcDriiUPsYAt6KEscoAO+eyvkEdwY73CjQZ5S+MCHbdAVvnKR/tLpa3uCQhrFCK/EylCO1k9KUqWi5MVT/hfu2IALzbon64d5miCStYw7NCRfksOUGqDK2G6OHrGb4t6Law43z3csUnWMkAL1FRZ5qUwiDDVWOMdsTI4StBxBjsWhbzAViFc/4tToBRil6D9FKN6T6e074vaHtx7Huu0izMieZhlKE9RV46oti9u73seFlVhtWsWBTJnS45fGxSJIxQwIPNz0uKYpQqgekydKVKP3k7bZi7sv/XXrYtUplREgMUxKDLGL1+RLLrDurWSwlKFMcBuUo0GUaoHNw1fJ4dkfrYfxjdGbLOC+roJwaSh+SBkQd4sHj8kx1CO+erOmxZMafcfh4lGYljCLT9r+rTLWblq+5nvZEJeFAW12ep0xuzYkLudTn+L96+p5yNvf0WAAAAAElFTkSuQmCC";
+  let showAllCards = false; // "Show all (N)" — off until asked, per page
+  let focusCard = null;     // the card single view shows: the underline last clicked
+  function launcherHtml(countCls, countTxt, title) {
+    return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
+      <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
+      <span class="count ${countCls}">${esc(countTxt)}</span>
+    </div>`;
+  }
+  // The header: "N claims flagged" and the round close. The status line is
+  // shown only when it says something the title does not — an error, or
+  // "all clear" with nothing flagged — never "3 issues found" under "3 claims
+  // flagged".
+  function panelHeadHtml(n, statusMsg, statusErr, extra = "") {
+    const title = n > 0 ? `${n} claim${n === 1 ? "" : "s"} flagged` : "Tracely";
+    const status = statusErr || n === 0 ? statusMsg : "";
+    return `<div class="head" id="dragHead">
+      <span class="name">${title}</span>
+      ${extra}
+      <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
+      <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
+    </div>`;
+  }
+  // One card, or all of them. `cards` pairs each hash with its HTML.
+  function cardListHtml(cards) {
+    if (showAllCards || cards.length <= 1) {
+      return cards.map((c) => c.html).join("") + (cards.length > 1 ? `<button class="show-all" id="showAll">Show fewer</button>` : "");
+    }
+    const one = cards.find((c) => c.hash === focusCard) ?? cards[0];
+    return one.html + `<button class="show-all" id="showAll">Show all (${cards.length})</button>`;
+  }
+  function wireChrome(shadow, close, rerender) {
+    shadow.getElementById("panelClose")?.addEventListener("click", close);
+    shadow.getElementById("showAll")?.addEventListener("click", () => { showAllCards = !showAllCards; rerender(); });
+    const mark = shadow.querySelector(".launch-mark");
+    mark?.addEventListener("error", () => { mark.outerHTML = `<span class="launch-plane">${PLANE_SVG}</span>`; }, { once: true });
+    const pill = shadow.getElementById("pill");
+    pill?.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pill.click(); } });
+  }
+
   // Carry [n] citation markers from the original sentence into a revision that
   // dropped them (mirrors applyFix in the app).
   function withMarkers(original, revision) {
@@ -996,22 +1050,67 @@
     }
     .count.off { color: var(--label); }
 
+    /* ── Launcher (Figma "Collapsed Launcher" 267:64) ──────────────────────
+       The desktop overlay's launcher, value for value (OverlayApp.tsx): a
+       56px ink circle, the mark turned white, and a 31px count badge 8.5px
+       above the top edge and 3.5px past the right. The badge is orange
+       because it counts findings; while checking it is grey "…", and with
+       nothing flagged there is no badge at all, as in the frame. */
+    .launcher {
+      position: relative; width: 56px; height: 56px; border-radius: 50%;
+      background: var(--ink); cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,.18);
+      transition: box-shadow .12s ease, transform .12s ease;
+      margin-left: auto;
+    }
+    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.06); }
+    .launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    @media (prefers-reduced-motion: reduce) { .launcher, .launcher:hover { transition: none; transform: none; } }
+    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; }
+    .launch-plane { width: 22px; height: 22px; color: #fff; display: flex; }
+    .launch-plane svg { width: 100%; height: 100%; }
+    .launcher .count {
+      position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
+      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
+      font-size: 16px; font-weight: 600; letter-spacing: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .launcher .count.off { background: #9a9ba1; font-size: 12px; }
+    .launcher .count.ok { display: none; }
+
     /* ── Panel ────────────────────────────────────────────────────────── */
+    /* ── Panel (Figma "Widget over Document" 282:70) ─────────────────────
+       480 wide, 1px ink border, 24px radius, 22/24 padding, a hairline under
+       the header inset to the content width. Capped to the viewport: a 480px
+       card does not fit beside a narrow Docs window. */
     .panel {
-      position: absolute; right: 0; bottom: 54px;
-      width: 384px; max-height: min(560px, 72vh);
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
-      box-shadow: var(--shadow-lg);
+      position: absolute; right: 0; bottom: 70px;
+      width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
+      background: var(--surface); border: 1px solid #000; border-radius: 24px;
+      box-shadow: 0 8px 12px rgba(0,0,0,.18);
       display: flex; flex-direction: column; overflow: hidden;
     }
     .head {
-      display: flex; align-items: center; gap: 8px;
-      padding: 14px 16px; border-bottom: 1px solid var(--border);
-      cursor: grab;
+      display: flex; align-items: center; gap: 10px;
+      margin: 0 24px; padding: 22px 0 16px; border-bottom: 1px solid #e7e7e7;
     }
-    .head .name { font-weight: 600; font-size: 14px; color: var(--text); }
+    .head .name { font-weight: 600; font-size: 19px; color: #1a1a1f; white-space: nowrap; }
+    .close {
+      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
+      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .close:hover { background: #e7e7e7; }
+    .show-all {
+      width: 100%; flex-shrink: 0; padding: 12px; border-radius: 999px;
+      border: 1.5px solid #e2e2e2; background: var(--surface); color: #1a1a1f;
+      font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .show-all:hover { border-color: #c9c9c9; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--label); max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
     .foot .act { padding: 5px 10px; font-size: 11px; }
@@ -1022,18 +1121,21 @@
       padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
     .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
+    /* The frame draws the claim on the panel itself, not in a box inside it;
+       under "Show all" a hairline separates one claim from the next. */
     .card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 12px; display: flex; flex-direction: column; gap: 8px;
+      background: var(--surface); border-radius: 12px;
+      display: flex; flex-direction: column; gap: 10px;
     }
+    .card + .card { border-top: 1px solid #e7e7e7; border-top-left-radius: 0; border-top-right-radius: 0; padding-top: 16px; }
     .top { display: flex; align-items: center; gap: 8px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
     /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
     .d-quest { background: #ff5900; }
@@ -1045,11 +1147,11 @@
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 14px; font-weight: 600; color: var(--ink); }
+    .ctitle { font-size: 15px; font-weight: 700; color: #1a1a1f; }
     .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
     .x:hover { color: var(--text); }
-    .quote { font-style: italic; font-size: 13px; line-height: 18.2px; color: var(--body); border-left: 2px solid var(--border); padding-left: 10px; }
-    .expl { font-size: 13px; line-height: 18.2px; color: var(--body); }
+    .quote { font-size: 14.5px; line-height: 1.4; color: #55565c; }
+    .expl { font-size: 13.5px; line-height: 1.4; color: var(--body); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
@@ -1086,7 +1188,8 @@
     .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > button.act { flex: 1 1 0; min-width: max-content; }
     .edit-note { font-size: 11px; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -1097,16 +1200,17 @@
     .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
+    /* The frame's pills: an ink fill, or a 1.5px ink outline. */
     button.act {
-      border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-      border-radius: var(--r-btn); padding: 8px 16px;
-      font-size: 12px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
+      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
+      border-radius: 999px; padding: 9px 16px;
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
       transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
     }
-    button.act:hover:not([disabled]) { border-color: var(--accent); color: var(--accent-ink); }
+    button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
     button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: var(--ink); border-color: transparent; color: #fff; }
-    button.act.primary:hover:not([disabled]) { color: #fff; border-color: transparent; filter: brightness(1.15); }
+    button.act.primary { background: #111; border-color: #111; color: #fff; }
+    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
     button.act[disabled] { opacity: .5; cursor: default; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
@@ -1138,7 +1242,7 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { accent-color: var(--accent); }
-    .foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; }
+    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
     .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -3761,7 +3865,7 @@
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
@@ -3814,8 +3918,8 @@
                   </div>
                 </div>`).join("") + `</div>`;
           }
-          return `
-          <div class="card">
+          return { hash: seg.hash, html: `
+          <div class="card" data-card="${seg.hash}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
@@ -3836,8 +3940,9 @@
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
-          </div>`;
-        }).join("");
+          </div>` };
+        });
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
         // as soon as the sentence is re-read, so the Undo moves up here.
@@ -3846,13 +3951,9 @@
           : "";
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          <div class="head" id="dragHead">
-            <span class="plane">${PLANE_SVG}</span>
-            <span class="name">Tracely</span>
-            <span class="status ${statusKind === "error" || statusKind === "offline" ? "error" : ""}">${esc(statusMsg)}</span>
-          </div>
+          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${flowCards}${cards || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
+            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — checking every 10s."}</div>`)}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -3868,16 +3969,13 @@
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
       root.innerHTML = `
         ${panelHtml}
-        <div class="pill" id="pill">
-          <span class="plane">${PLANE_SVG}</span>
-          Tracely
-          <span class="count ${countCls}">${countTxt}</span>
-        </div>
+        ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
+      wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
         wireDeep(shadow, explainSentence, render);
@@ -4381,6 +4479,7 @@
       const h = hitMark(e.clientX, e.clientY);
       if (!h) return;
       expanded = true;
+      focusCard = h;
       ensureWidget();
       render();
       flashCard(h);
@@ -4659,7 +4758,7 @@
       const issues = currentIssues();
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((CHECK_INTERVAL_MS - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" ? "off" : issues.length > 0 ? "" : "ok";
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
@@ -4687,7 +4786,7 @@
                   </div>
                 </div>`).join("") + `</div>`;
           }
-          return `
+          return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
@@ -4708,8 +4807,9 @@
             </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
             ${sourcesHtml}
             <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
-          </div>`;
-        }).join("");
+          </div>` };
+        });
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
 
         const emptyMsg = statusKind === "offline"
           ? "Tracely could not reach its server. Try again in a moment."
@@ -4719,18 +4819,14 @@
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          <div class="head" id="dragHead">
-            <span class="plane">${PLANE_SVG}</span>
-            <span class="name">Tracely</span>
-            <label class="autosrc" title="Run automatic checks on this site every 10s. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
-            <span class="status ${statusKind === "error" || statusKind === "offline" ? "error" : ""}">${esc(statusMsg)}</span>
-          </div>
+          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${cards || `<div class="empty">${emptyMsg}</div>`}
+            ${cardsHtml || `<div class="empty">${emptyMsg}</div>`}
           </div>
           <div class="foot">
             <span class="foot-left">
               <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "auto-check off"}</span>
+              <label class="autosrc" title="Run automatic checks on this site every 10s. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
@@ -4742,16 +4838,15 @@
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
       root.innerHTML = `
         ${panelHtml}
-        <div class="pill${quiet ? " quiet" : ""}" id="pill">
-          <span class="plane">${PLANE_SVG}</span>
-          ${quiet ? "Check this field" : "Tracely"}
-          ${quiet ? "" : `<span class="count ${countCls}">${countTxt}</span>`}
-        </div>
+        ${quiet
+          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Check this field</div>`
+          : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
+      wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
         shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
