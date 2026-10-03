@@ -1,9 +1,12 @@
 # Tracely Privacy Policy
 
-*Effective: 24 September 2026. Replaces the August 2026 policy, which
-described an earlier version of the extension that ran on your own API key
-with no server and no accounts. That is not how Tracely works now, so this
-policy starts from what the current version actually does.*
+*Effective: 3 October 2026. This update adds one item: the site icons shown
+beside sources are loaded from Google's favicon service (see **Google** under
+"Who else processes your data"). The 24 September 2026 version replaced the
+August 2026 policy, which described an earlier version of the extension that
+ran on your own API key with no server and no accounts. That is not how
+Tracely works now, so this policy starts from what the current version
+actually does.*
 
 This policy covers the **Tracely Chrome extension** and the **Tracely
 service** it talks to (`api.jointracely.com`), both operated by Tracely
