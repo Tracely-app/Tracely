@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.21.1, and not one new permission.
+ *   - the manifest: 2.21.2, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -1439,9 +1439,9 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.21.1, and fixing in the doc asks for no new permission", () => {
+test("manifest: 2.21.2, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.21.1");
+  assert.equal(m.version, "2.21.2");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",
@@ -1458,8 +1458,10 @@ test("manifest: 2.21.1, and fixing in the doc asks for no new permission", () =>
 
 test("pack-extension.sh leaves extension/dev/ out of every zip, and checks the zip itself", () => {
   const sh = readFileSync(path.join(HERE, "..", "scripts", "pack-extension.sh"), "utf8");
-  const rsync = sh.split("\n").find((l) => l.startsWith("rsync "));
+  const rsync = sh.split("\n").find((l) => l.trim().startsWith("rsync "));
   assert.ok(rsync && rsync.includes("--exclude '/dev/'"), rsync);
+  // The no-rsync fallback (Git Bash on Windows) drops dev/ too.
+  assert.match(sh, /top && \(e\.name === "beta\.json" \|\| e\.name === "dev"\)/, "the node copy fallback excludes dev/ and beta.json");
   assert.match(sh, /count '\(\^\|\/\)dev\/'\)" = 0 \] \|\| fail/, "the zip itself is checked for dev/ entries, in either layout");
   // And behaviourally: build both zips from the real extension/ (which HAS a
   // dev/ folder) and look inside them.
