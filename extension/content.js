@@ -844,6 +844,21 @@
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
+  /* A source's favicon, from Google's public favicon service — the desktop's
+     choice (src/main/services/search/favicon.ts). It identifies the
+     PUBLICATION, where the two-letter tile only restated its name. It tells
+     Google the source's domain (never the user's text), which PRIVACY.md
+     names. A DOI resolver's host is not the publisher's, so a doi.org link
+     gets no icon: a resolver's mark on someone's paper is worse than the
+     tile. Callers keep the tile underneath and drop the image if it fails,
+     which is also what a page whose policy refuses the image gets. */
+  function faviconUrl(url) {
+    let host = "";
+    try { host = new URL(String(url)).hostname.replace(/^www\./, ""); } catch { return null; }
+    if (!host || /(^|\.)doi\.org$|(^|\.)handle\.net$/.test(host)) return null;
+    return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(host)}`;
+  }
+
   /* ── the widget's chrome, from Figma ──────────────────────────────────
      "Collapsed Launcher" (267:64): a 56px ink circle carrying the Tracely
      mark, and a 31px orange count badge overlapping its top-right edge.
@@ -892,6 +907,7 @@
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
     shadow.getElementById("showAll")?.addEventListener("click", () => { showAllCards = !showAllCards; rerender(); });
+    for (const img of shadow.querySelectorAll(".src-ico img")) img.addEventListener("error", () => img.remove(), { once: true });
     const mark = shadow.querySelector(".launch-mark");
     mark?.addEventListener("error", () => { mark.outerHTML = `<span class="launch-plane">${PLANE_SVG}</span>`; }, { once: true });
     const pill = shadow.getElementById("pill");
@@ -1226,6 +1242,9 @@
     .st-refutes { color: #b02a2a; }
     .st-context { color: var(--chip-ink); }
     .st-manual { color: #245d99; }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .src-ico:empty { display: none; }
+    .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
     .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
     .src a:hover { color: var(--accent-ink); }
@@ -2548,6 +2567,23 @@
       const s = words.length >= 2 ? words[0][0] + words[1][0] : name.slice(0, 2);
       return (s || "??").toUpperCase();
     }
+    /* The row's 28px / 8px-radius box: the favicon on white when there is one,
+       the design's two-letter tile underneath it otherwise — and again if the
+       image fails, so a row never shows an empty square. */
+    function dmSourceIcon(src) {
+      const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+      const icon = faviconUrl(src.url);
+      if (!icon) return box;
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const img = el("img", { width: "18px", height: "18px", display: "block" });
+      img.alt = "";
+      img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
+      img.addEventListener("error", () => wrap.remove(), { once: true });
+      img.src = icon;
+      wrap.appendChild(img);
+      box.appendChild(wrap);
+      return box;
+    }
     function dmRow(src, selected, onSelect) {
       const row = el("button", {
         display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
@@ -2555,7 +2591,7 @@
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
-      row.appendChild(el("span", { width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src)));
+      row.appendChild(dmSourceIcon(src));
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
       meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
       const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
@@ -3905,6 +3941,7 @@
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
                 <div class="src">
+                  <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
@@ -4775,6 +4812,7 @@
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
                 <div class="src">
+                  <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>

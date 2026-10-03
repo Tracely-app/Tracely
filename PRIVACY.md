@@ -122,6 +122,10 @@ removes the rest.
   card details.
 - **Google** — Google Docs is read through your own session; Google sign-in
   through Supabase; Google's own diagnostics may note the extension's presence.
+  When sources are shown, your browser loads each source's small site icon
+  from Google's public favicon service (www.google.com/s2/favicons), which
+  receives that source's domain name — never your text or the sentence being
+  cited.
 - **Linode** — hosts our server.
 
 None of them receives more than the feature needs, and none is permitted to
