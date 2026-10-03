@@ -25,6 +25,13 @@ import {
   scanHtml,
 } from "../lib/citeMeta.js";
 
+// The page reader resolves every hostname before fetching (citeMeta.js
+// safeFetch); with fetch stubbed, DNS is stubbed too — a public address.
+import { setHostResolver } from "../lib/citeMeta.js";
+test.before(() => setHostResolver(async () => [{ address: "93.184.216.34" }]));
+test.after(() => setHostResolver(null));
+
+
 const NOW = new Date("2026-09-21T12:00:00Z");
 const page = (name) => readFileSync(new URL(`./fixtures/cite-url/${name}`, import.meta.url), "utf8");
 const URLS = {
@@ -294,7 +301,7 @@ test("fetchUrlMetadata: the IOM page cites with its year, old fields first and u
   assert.equal(src.year, 2024);
   assert.equal(src.kind, "institutional");
   assert.equal(src.date, undefined);
-  assert.equal(seen[0].init.redirect, "follow");
+  assert.equal(seen[0].init.redirect, "manual", "safeFetch follows redirects itself, checking each hop (citeMeta.js)");
 });
 
 test("fetchUrlMetadata refuses a 403 Access Denied page instead of citing it", async () => {

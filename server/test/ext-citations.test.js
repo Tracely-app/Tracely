@@ -19,6 +19,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+// The page reader resolves every hostname before fetching (citeMeta.js
+// safeFetch); with fetch stubbed, DNS is stubbed too — a public address.
+import { setHostResolver } from "../lib/citeMeta.js";
+test.before(() => setHostResolver(async () => [{ address: "93.184.216.34" }]));
+test.after(() => setHostResolver(null));
+
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Same lookup as models.test.js: beside this tree in the app repo, one level
 // further up otherwise. Not finding it is a failure, never a skip.

@@ -1,4 +1,6 @@
 import { CheckError } from "./errors.js";
+import { enrichSources, doiOf } from "./sourceEnrich.js";
+import { fetchUrlMetadata } from "./citeMeta.js";
 import {
   ALLOWED_MODELS,
   DEFAULT_MODEL,
@@ -334,6 +336,10 @@ const SOURCES_SCHEMA = {
 
 const SOURCES_SYSTEM = `You are Tracely's source finder. Given a claim from a document (and optionally a proposed correction), use web search to find authoritative sources that address it.
 
+How to search. Each search is paid for, so be economical:
+- Run ONE web search, with a query that names the claim's specific fact (the figure, the person, the event, the finding, the quoted words). Run a second search only if the first returned nothing a student could cite. Never a third.
+- Do NOT open pages. Judge each result from what the search returned — its title, snippet, site and date. The server opens the pages afterwards and reads each page's own citation data, so nothing is gained by opening them here.
+
 After researching, your FINAL message must be ONLY a JSON object, no prose, in this exact shape:
 {"sources":[{"title":"...","url":"...","publisher":"...","snippet":"...","stance":"supports"|"refutes"|"context","kind":"...","authors":[],"groupAuthor":"","year":null,"date":"","container":"","editors":[],"doi":""}]}
 
@@ -343,7 +349,7 @@ Rules:
 - "snippet": one sentence (max 30 words) describing what the source says about the claim.
 - Use real URLs from your search results only. Never invent URLs.
 
-Citation fields. A student's reference list is built from these, so copy ONLY what the source itself states; never guess, never infer from the URL, the site or what is typical. Empty is correct: use "", [] or null whenever the source does not say.
+Citation fields. A student's reference list is built from these, so copy ONLY what the source itself states; never guess, never infer from the URL, the site or what is typical. Here "states" means what the search result showed you — a byline, a date, a journal name, a DOI. Empty is correct: use "", [] or null whenever the source does not say; the server completes a journal article from its DOI and a readable page from its own metadata.
 - "title": the work's own title, without the site name.
 - "publisher": the organization that publishes it, by name (e.g. "International Organization for Migration"), never a web address.
 - "kind": institutional (a web page of a government, intergovernmental body, NGO, university or research body), news, reference (encyclopedia, dictionary), journal (journal article), report (a report, working paper, white paper or fact sheet an organization publishes, or a chapter of one), book (a book, or a chapter of one), archive, other.
@@ -355,7 +361,7 @@ Citation fields. A student's reference list is built from these, so copy ONLY wh
 - "editors": the editors of that container as the source names them, else [].
 - "doi": the DOI when shown (10.xxxx/...), else "".`;
 
-export async function findSources({ claim, correction, context, model, effort, mock = false }) {
+export async function findSources({ claim, correction, context, model, effort, mock = false, enrich = true }) {
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockSources(claim, chosenModel);
 
@@ -374,7 +380,11 @@ export async function findSources({ claim, correction, context, model, effort, m
     model: chosenModel,
     system: SOURCES_SYSTEM,
     user: userMsg,
-    maxTokens: 6_000,
+    // 3,000, from 6,000: an answer is ~700-1,000 tokens plus ~200-600 of
+    // reasoning at low effort (measured 2026-10-02 over 12 calls); the one
+    // answer that ran to the old cap was a runaway that produced no sources
+    // and cost 0.7 cents of output. The cap now bounds that at a third.
+    maxTokens: 3_000,
     what: "source search",
     effort,
     schema: SOURCES_SCHEMA,
@@ -414,9 +424,70 @@ export async function findSources({ claim, correction, context, model, effort, m
     throw err;
   }
 
+  // The model no longer opens pages (SOURCES_SYSTEM): the server completes
+  // the citation fields itself — Crossref for anything with a DOI, the page's
+  // own metadata for the rest — under one short deadline, and drops a link
+  // that answers 404. Off for a mock answer and whenever a caller asks.
+  const { enriched, dropped } = enrich === false ? { enriched: 0, dropped: 0 } : await completeSources(merged, { now: new Date() });
+
   // `webSearchCalls`: what the search tool billed, per call — the route
-  // records it and keeps it out of the response.
-  return { sources: merged, model: usedModel, usage, webSearchCalls };
+  // records it and keeps it out of the response. `enriched`/`dropped` are
+  // for the route's log line.
+  return { sources: merged, model: usedModel, usage, webSearchCalls, enriched, dropped };
+}
+
+/* Fill in what the search result could not show, from the authority for each
+ * kind of source:
+ *   1. Crossref, for every source that names a DOI (lib/sourceEnrich.js);
+ *   2. the page itself, for a source still without a year — the reader behind
+ *      /api/cite-url (lib/citeMeta.js fetchUrlMetadata), which answers for
+ *      .gov/.org pages and most publishers that do not wall off bots.
+ * Both run in parallel under PAGE_DEADLINE_MS, and a page that answers 404 or
+ * 410 is removed from the list in place: a dead link is not a citation.
+ * Nothing here throws; a lookup that fails leaves the model's fields alone.
+ *
+ * Measured 2026-10-02 before shipping: Crossref answers a DOI in ~0.5 s with
+ * authors, issue date, journal and publisher; the page reader yielded a year
+ * on 2 of 8 real pages (Gallup, CDC) and was walled by NYT, Pew and Nature —
+ * which is why the DOI path comes first and the page path is a fallback. */
+export const PAGE_DEADLINE_MS = 2_500;
+async function completeSources(list, { now = new Date(), fetchImpl = globalThis.fetch, deadlineMs = PAGE_DEADLINE_MS } = {}) {
+  const t0 = Date.now();
+  const { enriched } = await enrichSources(list, { fetchImpl, deadlineMs });
+  const left = Math.max(400, deadlineMs - (Date.now() - t0));
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), left);
+  let filled = 0;
+  const dead = new Set();
+  try {
+    await Promise.allSettled(list.map(async (s) => {
+      if (s.year != null || doiOf(s)) return;
+      let page;
+      try {
+        page = await fetchUrlMetadata(s.url, { now, signal: ctrl.signal, fetchImpl });
+      } catch (e) {
+        if (/returns (404|410)/.test(String(e?.message))) dead.add(s);
+        return;
+      }
+      // Only what the page states and the model left empty; the model's title,
+      // snippet and stance stay. citeFields already validated the page's fields.
+      let changed = false;
+      for (const k of ["authors", "groupAuthor", "year", "date", "container", "editors", "doi", "kind"]) {
+        const v = page[k];
+        const empty = s[k] == null || s[k] === "" || (Array.isArray(s[k]) && s[k].length === 0);
+        const has = v != null && v !== "" && !(Array.isArray(v) && v.length === 0);
+        if (empty && has) { s[k] = v; changed = true; }
+      }
+      if (changed) filled++;
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
+  let dropped = 0;
+  if (dead.size && dead.size < list.length) {
+    for (let i = list.length - 1; i >= 0; i--) if (dead.has(list[i])) { list.splice(i, 1); dropped++; }
+  }
+  return { enriched: enriched + filled, dropped };
 }
 
 /* De-duplicated by URL, at most six, each with the five fields every client

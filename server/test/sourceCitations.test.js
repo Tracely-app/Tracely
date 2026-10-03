@@ -17,6 +17,13 @@ import { fileURLToPath } from "node:url";
 import { findSources } from "../lib/factcheck.js";
 import { SOURCE_KINDS } from "../lib/citeFields.js";
 
+// The page reader resolves every hostname before fetching (citeMeta.js
+// safeFetch); with fetch stubbed, DNS is stubbed too — a public address.
+import { setHostResolver } from "../lib/citeMeta.js";
+test.before(() => setHostResolver(async () => [{ address: "93.184.216.34" }]));
+test.after(() => setHostResolver(null));
+
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OLD_FIELDS = ["title", "url", "publisher", "snippet", "stance"];
 const CITE_FIELDS = ["kind", "authors", "groupAuthor", "year", "date", "container", "editors", "doi"];
