@@ -161,3 +161,74 @@ test("an id the model left out is asked again once, on its own; a second miss st
   assert.equal(calls.length, 1);
   assert.deepEqual(r3.findings, []);
 });
+
+/* A shard that never answers, the way one did on 2026-10-03 (over two
+ * minutes, then `timeout`). The stub waits on the abort signal the provider
+ * passes to fetch, so the deadline under test is the real one. */
+function stubHang(hangs) {
+  stubFetch();
+  const answer = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const ids = [...String(JSON.parse(opts.body).input).matchAll(/^\[(s\d+)\]/gm)].map((m) => m[1]);
+    if (!hangs(ids)) return answer(url, opts);
+    return new Promise((_, reject) => opts.signal.addEventListener("abort", () => reject(opts.signal.reason)));
+  };
+}
+
+test("a hung shard gives up at the shard deadline and the check answers with the shards that did", async () => {
+  stubHang((ids) => ids.includes("s4"));
+  const logged = [];
+  const t0 = Date.now();
+  const r = await runFactCheck({
+    text: "doc", sentences: [1, 2, 3, 4, 5, 6, 7].map(sentence),
+    shardTimeoutMs: 80, onShardFailure: (e) => logged.push(e.kind),
+  });
+  assert.ok(Date.now() - t0 < 2_000, "bounded by the shard deadline, not 120 s");
+  assert.deepEqual(r.findings.map((f) => f.id), ["s1", "s2", "s3", "s7"], "the hung shard's ids are omitted, for the client to re-send");
+  assert.deepEqual(Object.keys(r).sort(), ["findings", "model", "shards", "usage"], "the response shape is unchanged");
+  assert.equal(r.shards, 3);
+  assert.deepEqual(r.usage, { input: 20, output: 10, cached: 0, cacheWrite: 0 }, "the shards that answered are billed");
+  assert.deepEqual(logged, ["timeout"], "the dropped shard is still reported for the failure log");
+});
+
+test("every shard hung: the check fails with the same timeout error as before", async () => {
+  stubHang(() => true);
+  await assert.rejects(
+    runFactCheck({ text: "doc", sentences: [1, 2, 3, 4].map(sentence), shardTimeoutMs: 50 }),
+    (e) => e.kind === "timeout" && e.message === "The model took too long to answer — try a smaller portion of text." && e.status === 504,
+  );
+});
+
+test("a one-shard check is bounded by the deadline too, and fails with the same error", async () => {
+  stubHang(() => true);
+  const t0 = Date.now();
+  await assert.rejects(runFactCheck({ text: "doc", sentences: [1, 2].map(sentence), shardTimeoutMs: 50 }), (e) => e.kind === "timeout");
+  assert.ok(Date.now() - t0 < 2_000);
+});
+
+test("a non-timeout failure still fails the whole check, deadline or not", async () => {
+  stubFetch({ fail: (ids) => ids.includes("s4") });
+  await assert.rejects(runFactCheck({ text: "doc", sentences: [1, 2, 3, 4, 5, 6, 7].map(sentence), shardTimeoutMs: 5_000 }), (e) => e.kind === "server");
+});
+
+test("without a deadline (eval harness, Explain in depth) a timeout fails the check as before", async () => {
+  // The provider's own deadline firing, with no shardTimeoutMs passed: no partial answer.
+  stubFetch({ fail: () => false });
+  const answer = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (opts.body.includes("[s4]")) { const e = new Error("t"); e.name = "TimeoutError"; throw e; }
+    return answer(url, opts);
+  };
+  await assert.rejects(runFactCheck({ text: "doc", sentences: [1, 2, 3, 4, 5, 6, 7].map(sentence) }), (e) => e.kind === "timeout");
+});
+
+test("a call larger than one shard keeps the 120 s deadline", async () => {
+  // admitCalls refused: seven sentences in ONE call, over the shard size of 3.
+  let seen = null;
+  stubFetch();
+  const answer = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => { seen = opts.signal; return answer(url, opts); };
+  await runFactCheck({ text: "doc", sentences: [1, 2, 3, 4, 5, 6, 7].map(sentence), admitCalls: () => false, shardTimeoutMs: 1 });
+  await sleep(30);
+  assert.ok(seen && !seen.aborted, "a 1 ms deadline would have aborted it");
+});
