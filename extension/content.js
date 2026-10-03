@@ -82,6 +82,7 @@
     deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
+    evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -987,6 +988,41 @@
     return now - lastChangeAt <= ACTIVE_WINDOW_MS ? READ_INTERVAL_MS : CHECK_INTERVAL_MS;
   }
 
+  /* Evidence suggestions. A sentence can be TRUE and still be the kind of
+     point a marker wants backed: "Getting enough sleep improves memory" is
+     accurate, so the checker rightly does not flag it, yet an essay arguing
+     that sleep matters is stronger with a study behind it. Owner,
+     2026-10-03: suggest evidence "depending on what you are writing about …
+     dont force this, as it isnt always necessary".
+
+     So: offered, never pushed. Only sentences the checker already judged
+     "accurate" (a real factual claim, not an opinion — those come back
+     no_claim) that make an argumentative or causal point (EVIDENCE_CUE), are
+     not already sourced, and were not dismissed; at most three; no underline,
+     no count on the launcher, a folded section in the panel. Nothing is
+     searched until the writer clicks "Find evidence" — a source search costs
+     ~1-6¢ against a check's 0.09¢, and the free plan has 5 a day — so this
+     adds no cost of its own and decides locally, from verdicts already paid
+     for. Common knowledge ("Water boils at 100 degrees") has no cue and is
+     left alone. */
+  const EVIDENCE_CUE = /\b(?:improv|reduc|increas|decreas|lower|rais|boost|strengthen|weaken|harm|damag|hurt|caus|prevent|protect|benefit|contribut|lead(?:s|ing)? to|led to|result(?:s|ed)? in|linked to|associated with|tied to|affect|impact|more likely|less likely|risk|good for|bad for|essential|vital|crucial|effective|makes? (?:people|students|you|us|them)\b)/i;
+  // Already carries a source: an (Author, year) parenthetical, a [n] marker, or prose attribution.
+  const ALREADY_SOURCED = /\([^()]*\b\d{4}[a-z]?\b[^()]*\)|\[\d+\]|\baccording to\b|\b(?:study|studies|research|survey|report|paper)\s+(?:by|from|in|published)\b/i;
+  const MAX_EVIDENCE_SUGGESTIONS = 3;
+  function evidenceCandidates(segments, cache, dismissed) {
+    const out = [];
+    const seen = new Set();
+    for (const seg of segments) {
+      if (!seg.checkable || seen.has(seg.hash)) continue;
+      seen.add(seg.hash);
+      if (cache.get(seg.hash)?.verdict !== "accurate" || dismissed.has(seg.hash)) continue;
+      if (!EVIDENCE_CUE.test(seg.text) || ALREADY_SOURCED.test(seg.text)) continue;
+      out.push(seg);
+      if (out.length >= MAX_EVIDENCE_SUGGESTIONS) break;
+    }
+    return out;
+  }
+
   // An id the server left out of its answer stays uncached and would be re-sent
   // on every read; hold it this long first, so a faster loop cannot become a
   // faster bill.
@@ -1065,6 +1101,24 @@
     }
     const one = cards.find((c) => c.hash === focusCard) ?? cards[0];
     return one.html + `<button class="show-all" id="showAll">Show all (${cards.length})</button>`;
+  }
+  /* The panel's evidence section (see evidenceCandidates). Folded until
+     opened; neutral, never a finding colour (CLAUDE.md "Colour only ever
+     means a finding"); every card can be dismissed. `sourcesFor(seg)` is the
+     mode's own source list, so citing works exactly as on an issue card. */
+  function evidenceSectionHtml(candidates, open, sourcesFor, searched) {
+    if (!candidates.length) return "";
+    const head = `<button class="ev-toggle" id="evidenceToggle" aria-expanded="${open}">${open ? "▾" : "▸"} Evidence you could add (${candidates.length})</button>`;
+    if (!open) return `<div class="evidence">${head}</div>`;
+    const cards = candidates.map((seg) => `
+      <div class="card ev-card" data-card="${seg.hash}">
+        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
+        <div class="expl">This holds up, but it is a point a reader may want backed. A study or official source would make it harder to argue with.</div>
+        ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">Find evidence</button></div>`}
+        ${sourcesFor(seg)}
+      </div>`).join("");
+    return `<div class="evidence">${head}<div class="ev-intro">Optional — only where evidence would help your argument.</div>${cards}</div>`;
   }
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
@@ -1291,6 +1345,11 @@
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
     .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
+    /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
+    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
+    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
+    .ev-toggle:hover { text-decoration: underline; }
+    .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
@@ -1685,6 +1744,7 @@
     let statusKind = "idle"; // idle | checking | error | offline
     let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
+    let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
@@ -4202,8 +4262,7 @@
             </div>`;
         }).join("");
 
-        const cards = issues.map(({ seg, f }) => {
-          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
+        const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
           if (st?.loading) {
@@ -4226,6 +4285,11 @@
                   </div>
                 </div>`).join("") + `</div>`;
           }
+          return sourcesHtml;
+        };
+        const cards = issues.map(({ seg, f }) => {
+          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
+          const sourcesHtml = sourcesFor(seg);
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}">
             <div class="top">
@@ -4251,6 +4315,9 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
+        const evidenceHtml = FEATURES.evidenceHints
+          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
+          : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
         // as soon as the sentence is re-read, so the Undo moves up here.
@@ -4261,7 +4328,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}
+            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -4287,6 +4354,7 @@
       if (expanded) {
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
         wireDeep(shadow, explainSentence, render);
+        shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -4505,6 +4573,7 @@
     let statusKind = "idle"; // idle | checking | error | offline
     let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
+    let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let fieldText = "";
     let copiedFixHash = null;
@@ -5128,8 +5197,7 @@
       panelWasOpen = expanded;
       let panelHtml = "";
       if (expanded) {
-        const cards = issues.map(({ seg, f }) => {
-          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
+        const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
           if (st?.loading) {
@@ -5150,6 +5218,11 @@
                   </div>
                 </div>`).join("") + `</div>`;
           }
+          return sourcesHtml;
+        };
+        const cards = issues.map(({ seg, f }) => {
+          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
+          const sourcesHtml = sourcesFor(seg);
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}">
             <div class="top">
@@ -5174,6 +5247,9 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
+        const evidenceHtml = FEATURES.evidenceHints
+          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
+          : "";
 
         const emptyMsg = statusKind === "offline"
           ? "Tracely could not reach its server. Try again in a moment."
@@ -5185,7 +5261,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${cardsHtml || `<div class="empty">${emptyMsg}</div>`}
+            ${cardsHtml || `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -5215,6 +5291,7 @@
         shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
         wireDeep(shadow, explainSentence, render);
+        shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
