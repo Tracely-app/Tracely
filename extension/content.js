@@ -48,7 +48,8 @@
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
   const flagShown = (f, settings) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
-    && (f.verdict !== "needs_citation" || settings?.citeHints !== false);
+    // A hidden switch must not keep acting on a value an earlier build saved.
+    && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false);
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
@@ -68,6 +69,20 @@
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
+
+  /* The bare-bones build: fact-checking (underline, card, suggested fix) and
+     citations (find a source, cite it), in Docs and in any text field.
+     Everything else is switched off here rather than deleted, so bringing a
+     feature back is one word. Owner, 2026-10-02: "only the basic bare bones
+     features which is citations fact checking … dont add anything else."
+     The switches are read OUTSIDE the regions server/test slices out of this
+     file and runs in isolation, so those tests keep running the real code. */
+  const FEATURES = {
+    flow: false,          // "Flow issue" passage flags (/api/flow) and their margin bracket
+    deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards
+    citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
+    autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
+  };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
      desktop app's src/shared/markMotion.ts rather than re-picked here — the
@@ -1025,6 +1040,11 @@
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
     .d-flow { background: #7344f1; }
+    /* FEATURES: the switched-off controls are drawn and then hidden here, so
+       render() stays the code server/test exercises. */
+    ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
+    ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
+    ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
     .ctitle { font-size: 14px; font-weight: 600; color: var(--ink); }
     .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
     .x:hover { color: var(--text); }
@@ -1238,7 +1258,7 @@
        the sentence checker. One fast-model call per structural change, cached
        across reloads, so the whole feature costs a fraction of a cent. */
     const flowSaved = jsonParse(lsGet(FCACHE_KEY) ?? "null", null);
-    let flowIssues = Array.isArray(flowSaved?.issues) ? flowSaved.issues : [];
+    let flowIssues = FEATURES.flow && Array.isArray(flowSaved?.issues) ? flowSaved.issues : [];
     let flowSig = String(flowSaved?.sig ?? "");
     let flowAt = 0;
     let flowInflight = false;
@@ -1445,7 +1465,7 @@
         statusKind = "idle";
         const n = currentIssues().length + activeFlowIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
-        requestFlow(); // fire-and-forget; gated on structure change + rate floor
+        if (FEATURES.flow) requestFlow(); // fire-and-forget; gated on structure change + rate floor
       } catch (err) {
         if (err?.kind === "no_engine") {
           statusKind = "offline";
@@ -2310,6 +2330,7 @@
       searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
       noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
+      preview: "Preview", hidePreview: "Hide preview",
       willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
       flowTitle: "Flow issue", bridgeLabel: "SUGGESTED BRIDGE", addBridge: "Add transition", copyBridge: "Copy transition",
       bridgeApplied: "Transition added", bridgeAppliedBody: "The bridge sits just before the passage. Undo — or ⌘Z — takes it out again.",
@@ -2394,7 +2415,9 @@
     }
     function dmProgress() {
       const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: "#ededed", overflow: "hidden", flex: "0 0 auto" });
-      const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.orange });
+      // Ink, not the frame's orange: orange is a finding colour, and a search
+      // in progress is not a finding (CLAUDE.md "UI decisions").
+      const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.ink });
       bar.appendChild(fill);
       if (!reducedMotion() && typeof fill.animate === "function") {
         fill.animate([{ transform: "translateX(-100%)" }, { transform: "translateX(250%)" }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
@@ -2683,6 +2706,7 @@
     /* "Explain in depth" inside the fix card: the app's `.docmark-fix-issues`
        shape (a titled paragraph), and the loading and locked states in it. */
     function paintDeep(hash, f) {
+      if (!FEATURES.deepDive) return null;
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading") {
         const w = el("div", { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: DM.body, flex: "0 0 auto" });
@@ -2703,6 +2727,7 @@
     // The link that asks for it — beside the fix card's buttons, as the app
     // puts its hint beside Cancel. Locked: the PRO chip and a "See plans" note.
     function deepLink(hash, f) {
+      if (!FEATURES.deepDive) return null;
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading" || v.kind === "result") return null;
       const link = dmLink(v.label);
@@ -2761,7 +2786,8 @@
           put(dmActions(again, cancel));
           return;
         }
-        put(dmHead(DM.orange, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
+        // Grey: the colour the marks already use for "still checking".
+        put(dmHead(MARK_PENDING, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
         const cancel = dmBtn(POP_COPY.cancel, false);
         cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
         put(dmActions(cancel, dmHint(POP_COPY.searchHint)));
@@ -2781,7 +2807,9 @@
       // Results.
       const selected = st.selected ?? list[0]?.url ?? null;
       const src = list.find((x) => x.url === selected) ?? null;
-      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, dmChip(CITE_STYLE_LABEL[style])));
+      const styleChip = dmChip(CITE_STYLE_LABEL[style]);
+      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
+      styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
       const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
       scroll.setAttribute("data-pop-sources", "");
       scroll.appendChild(dmBody(`Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
@@ -2795,9 +2823,17 @@
       // to nothing. Its own rule decides it: the header and the buttons
       // never move, everything between them gives.
       scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
-      if (src) {
+      // Behind "Preview", as in Figma "Find a Source (Results)": the card is
+      // usually capped to the room under the line, and the citation is the
+      // part a writer checks once, not on every source they click through.
+      // "Open article" lives in it, so the action row is the frame's two.
+      if (src && st.preview) {
         const c = formatCitation(src, style);
-        scroll.appendChild(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref)));
+        const open = dmLink(POP_COPY.openArticle);
+        Object.assign(open.style, { marginLeft: "0", alignSelf: "flex-start" });
+        open.title = src.url;
+        open.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
+        scroll.appendChild(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref), open));
       }
       put(scroll);
       const i = src ? list.indexOf(src) : -1;
@@ -2811,9 +2847,9 @@
         primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
         primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
       }
-      const open = dmBtn(POP_COPY.openArticle, false, { disabled: !src, title: src?.url });
-      open.addEventListener("click", () => { if (src) window.open(src.url, "_blank", "noopener,noreferrer"); });
-      put(dmActions(primary, open));
+      const preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !src });
+      preview.addEventListener("click", () => setStep(hash, { preview: !st.preview }));
+      put(dmActions(primary, preview));
       const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
       again.addEventListener("click", searchAgain);
       put(again);
@@ -3156,7 +3192,7 @@
 
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
     async function autoFindSources(findings) {
-      if (settings.autoSources !== true) return; // cost: auto web-search is opt-in
+      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
       let started = 0;
       for (const f of findings) {
         if (started >= 3) break;
@@ -4469,7 +4505,7 @@
     // Auto-sources — same toggle and rolling-hour guard as docs mode. Only
     // reachable after a check, which on a non-enabled site takes a click.
     async function autoFindSources(findings) {
-      if (settings.autoSources !== true) return; // cost: auto web-search is opt-in
+      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
       let started = 0;
       for (const f of findings) {
         if (started >= 3) break;
