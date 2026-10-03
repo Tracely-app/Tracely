@@ -22,12 +22,14 @@ this section before touching anything that makes a model call.
 - **Every AI call from every client goes to `server/`.** The desktop called a
   separate Vercel relay (`questionablepuddle/Tracely-relay`) until the backend
   unification; its prompts, schemas and guardrails moved into the server and
-  nothing new ships to the relay. **Every stable install is still a
-  relay-era build:** the newest stable release, v0.3.97 (2026-08-23), predates
-  the move, was compiled against the relay and the since-deleted Supabase
-  project `epafyygdvvkgpdkbevqi`, and cannot sign in; only
-  0.3.98-preview.251 (#251) and later call the server. Stable users leave the
-  relay only when a stable release from `main` ships (0.3.98 is pending) —
+  nothing new ships to the relay. **v0.3.99 (2026-10-03) is the first stable
+  release on the server.** Every stable release up to v0.3.97 (2026-08-23)
+  predates the move, was compiled against the relay and the since-deleted
+  Supabase project `epafyygdvvkgpdkbevqi`, and cannot sign in, so every AI
+  call on it fails; 0.3.98-preview.251 (#251) and later previews call the
+  server. (There was no stable 0.3.98: `ship` bumps the patch, and `main`
+  already said 0.3.98.) A stable install is still a relay-era build until
+  its user accepts the 0.3.99 update — production asks first, and
   electron-updater offers only a strictly higher version and cannot
   downgrade.
 - **The prompts live in `server/lib/prompts/`**, one file per route, and
@@ -192,9 +194,9 @@ kind except the desktop-only `off-topic`, which
 thirteen problem kinds onto those three, plus grey `#9a9ba1` for `searching`,
 because inventing a fourth hue is what produced a purple statistic underline
 and an orange "missing citation" one — the design's two colours, swapped.
-**The extension does not follow this yet** (`extension/content.js`
-`MARK_COLORS`: false red, questionable amber, incoherent violet,
-needs_citation blue); see "UI decisions" below.
+**The extension follows it since #267** (`extension/content.js`
+`MARK_COLORS`: false and incoherent red, questionable orange,
+needs_citation amber); see "UI decisions" below.
 
 **Every popover has a 16x10 tail** (`PopoverTail`, path from node `288:545`)
 pointing at the sentence, overlapping the card border by 2px so the strokes
@@ -264,11 +266,11 @@ its lines.
 
 ## UI decisions (ratified 2026-09-22)
 
-Decided from an audit of main at 67120d1. **Implementation is pending**: the
-desktop half ships with a normal desktop release, and the extension half
-(colours, CSS and a comment in `extension/content.js`, nothing else) waits
-until the current Web Store review clears. Add no new mark or grade UI that
-contradicts these in the meantime.
+Decided from an audit of main at 67120d1. **The extension's colours are
+done** (#267, extension 2.21.2: `MARK_COLORS`, the dot CSS and the verdict
+washes); its "never colour alone" cue is not. The desktop half ships with a
+normal desktop release. Add no new mark or grade UI that contradicts these
+in the meantime.
 
 - **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`
   in `src/renderer/src/components/problemCopy.ts`, mirrored by `COLORS` and
@@ -280,8 +282,8 @@ contradicts these in the meantime.
   amber today); blue `#2563eb` = grammar only (`PROSE_ERROR`,
   `DocumentMarkLayer.tsx`); grey dotted `#9a9ba1` = still checking. The
   extension maps onto it — false and incoherent → red, questionable → orange,
-  needs_citation → amber — where today its `MARK_COLORS` uses amber, violet
-  and blue for the last three.
+  needs_citation → amber (done in #267; it used amber, violet and blue for
+  the last three).
 - **Colour only ever means a finding.** Colour that encodes anything else
   becomes neutral with a text label: the overlay's claim-type dots
   (`BUCKET_COLOR`, `OverlayApp.tsx`), the orange "Searching for a source" dot,
@@ -313,7 +315,7 @@ There is no lint script configured. The two automated correctness checks are `np
 
 ### Server setup for AI features
 
-Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. Stable installs (v0.3.97 and older) still call the relay (`Tracely-relay`) until a stable release from `main` reaches them. Evidence search, scoring, citations, and the library all work with no server.
+Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. Stable installs at v0.3.97 or older still call the relay (`Tracely-relay`) until they take the v0.3.99 update. Evidence search, scoring, citations, and the library all work with no server.
 
 ### Nobody signs in, and the app still has an account
 
@@ -474,6 +476,20 @@ so publishing without bumping produces a release nobody is ever shown.
 
 `GH_TOKEN` lives in `.env.release` and must be in the environment for
 `--publish` to work; electron-builder does not read that file on its own.
+
+- **The token must reach `Tracely-app/Tracely`, and it is checked only at the
+  very end.** v0.3.99's first `ship` built for twenty minutes and then got
+  `403 Resource not accessible by personal access token` creating the
+  release — a token that predated the org transfer. Nothing was published,
+  but the version bump had already merged.
+- **A fine-grained token cannot name Tracely-app unless you are an org
+  MEMBER.** A repo collaborator with push access (Merrick, 2026-10-03) never
+  sees it as a resource owner. Use a classic token with `repo`, or the gh
+  CLI's own login.
+- **To publish without re-bumping, run `release:win` directly** — `ship`
+  would bump again. Set what `ship` would have set (PowerShell):
+  `$env:TRACELY_ENV = "production"; $env:GH_TOKEN = (gh auth token)`, then
+  `npm run release:win`. Clear `GH_TOKEN` from that shell afterwards.
 
 **`main` requires a pull request, enforced on admins**, so nothing — including
 `npm run ship` — can push to it directly. The release bump therefore goes to
