@@ -5584,13 +5584,14 @@ textarea:disabled {
 /* 326 and 377 wide on a 15px gap — NOT equal columns. The primary card is the
    narrower of the two and the one with a border, which is what makes it read
    as primary. */
-/* Three tracks for two cards. The frame stops the pair at 751 of 870 and
-   leaves the rest of the row empty, so the trailing column is that gap —
-   stretching them to the full width is what made this row read as a toolbar
-   rather than as two cards. */
+/* Two equal halves, ending where the stats above end. The frame stops the
+   pair at 751 of 870 and left the rest of the row empty (a 104fr third
+   track); on a wide window that gap grew past 200px and this row was the
+   only one with its own right edge — part of what the owner called "no
+   structure" (2026-10-03). Every row now shares one pair of edges. */
 .home-actions {
   display: grid;
-  grid-template-columns: 325fr 378fr 104fr;
+  grid-template-columns: 1fr 1fr;
   gap: 15px;
   margin-top: 20px;
 }
@@ -5646,7 +5647,9 @@ textarea:disabled {
 
 .home-section { display: flex; flex-direction: column; }
 .home-section + .home-section { margin-top: 26px; }
-.home-actions + .home-section { margin-top: 30px; }
+/* The sections sit inside .home-lower, so `.home-actions + .home-section` (the
+   rule this was) never matched and "Recent documents" sat on the action cards. */
+.home-actions + .home-lower { margin-top: 30px; }
 
 .home-section-head {
   display: flex;
@@ -7104,77 +7107,25 @@ textarea:disabled {
 .srcfind-open:hover,
 .srcfind-copy:hover { background: var(--surface-2); }
 
-/* ── Home's lower half, side by side on a wide window ─────────────────────
+/* ── One set of edges at every width ──────────────────────────────────────
  *
- * "Recent documents" and "Resources" stack, which is right on a normal window
- * and is most of why a full-screened Home is mostly empty: the content ran out
- * around two thirds of the way down a 1063px-tall window while the sides sat
- * blank. Owner, 2026-08-26, with a screenshot: "look how much empty space."
+ * Owner, 2026-10-03, with a full-screen screenshot: "please fix this chaotic
+ * arrangement, UI looks like it has no structure". Three wide-window rules had
+ * accumulated here, each fixing one complaint about empty space, and between
+ * them a 1860px window had FOUR sets of edges: the header 81-1769, stats and
+ * actions capped at 1180 and centred (335-1515), and the documents (102-1030)
+ * and guides (1060-1748) split side by side at 1500px, with each card capped
+ * at 460 inside its cell so even the grids' right edges were ragged.
  *
- * Putting them in two columns spends the extra WIDTH on layout rather than on
- * stretching cards — which is the thing that made the original 888 cap
- * necessary — and it shortens the page, so the vertical emptiness goes with it.
- * The documents column is the wider of the two because its cards carry a
- * thumbnail; the guides are text.
- *
- * 1500px, not 1180: below that the two columns would each be narrower than the
- * three-up grid inside them needs, which trades one bad layout for another.
- */
-@media (min-width: 1500px) {
-  .home-lower {
-    display: grid;
-    grid-template-columns: 1.35fr 1fr;
-    gap: 30px;
-    align-items: start;
-  }
-  /* The grids inside each column drop to two across, so a card in a half-width
-     column is about the size it was in the full-width one. */
-  .home-lower .home-docs,
-  .home-lower .home-resources {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  /* Stacked spacing is the column gap's job now. */
-  .home-lower .home-section + .home-section {
-    margin-top: 0;
-  }
-}
-
-/* The two rows that cannot use extra width.
- *
- * There are exactly three stats and two actions, so a wider container can only
- * make each one wider — and a stat card past about 400px is a single number
- * marooned in a panel, which is the state the old fixed container cap existed
- * to prevent. Capping them HERE instead lets everything that can use the width
- * (the documents and guides below) actually have it.
- *
- * Centred rather than left-aligned: the header card above them is full-width,
- * and a left-aligned row under a full-width banner reads as a layout mistake
- * rather than a decision. */
-@media (min-width: 1400px) {
-  .home-stats,
-  .home-actions {
-    /* `align-self`, NOT auto side margins. `.home-inner` is a COLUMN flex
-       container, and auto margins on a column flex child remove the stretch —
-       the row collapses to fit-content, which measured 680px against a 1180
-       max-width. width:100% + align-self is the pair that actually centres a
-       capped row inside a flex column. */
-    width: 100%;
-    max-width: 1180px;
-    align-self: center;
-  }
-}
-
-/* Cards stop growing before they become panels.
- *
- * The two-column block below uses the extra width well up to a point; past
- * roughly 2200px each column is wide enough that a 2-up grid inside it makes a
- * document card 640px of mostly thumbnail. The cap is on the CARD rather than
- * the grid so the row simply stops widening and the space goes to the gutter,
- * which is the one place extra width is not a problem. */
-.home-doc,
-.home-resource {
-  max-width: 460px;
-}
+ * The Figma Home ("Frame Main Page", 1:183) is one column whose rows share
+ * the same left and right edge: header, three stats, actions, Recent
+ * documents three across, Resources four across, footer. That holds at every
+ * width now. Extra width makes each card wider, never re-arranges the page;
+ * the gutter still scales with the window (.home-inner, owner 2026-08-26),
+ * and the type inside stats and actions still grows at 1180/1440 above. The
+ * three rules that were here (the 1500px two-column split, the 1400px
+ * 1180 cap on stats and actions, the 460px card cap) are deleted rather than
+ * overridden, so nothing can bring the second column back by accident. */
 
 /* -- Dark theme: Argument Score modal + grading loader ----------------------
  *
