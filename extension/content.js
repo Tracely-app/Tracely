@@ -1000,7 +1000,43 @@
   const READ_INTERVAL_MS = 3_000;
   const ACTIVE_WINDOW_MS = 30_000;
   const REVIEW_IDLE_MS = 5_000;    // /api/review waits until the text has been still this long
-  const REVIEW_FLOOR_MS = 60_000;  // and asks at most this often (the server's REVIEW_MIN_INTERVAL_MS)
+  const REVIEW_FLOOR_MS = 60_000;  // and asks at most this often (the server's REVIEW_MIN_INTERVAL_MS) — and retries a failure after it
+  const REVIEW_REPEAT_MS = 180_000; // after a review that ANSWERED, the next waits this long
+
+  /* Whether a resume has changed enough since its last review to pay for
+     another (~0.1-0.3¢ each; Free allows 30 a day). Cost idea 1, 2026-10-04:
+     the first gate re-reviewed on ANY change, so fixing one typo in a bullet
+     bought a whole new review. Now only a line that is new or REWRITTEN counts
+     — not one within a few characters of a line that was there (a typo, a
+     changed digit), and not a deleted line (its tips drop out locally, see
+     resumeTips). The free format rules still update on every read. */
+  function reviewWorthwhile(prev, next) {
+    if (prev == null) return true;
+    const lines = (t) => String(t).split("\n").map((l) => l.toLowerCase().replace(/\s+/g, " ").trim()).filter((l) => l.length >= 3);
+    const before = lines(prev);
+    const seen = new Set(before);
+    for (const line of lines(next)) {
+      if (seen.has(line)) continue;
+      if (!before.some((b) => nearlySame(b, line, 3))) return true; // new, or rewritten past a typo
+    }
+    return false;
+  }
+  // Levenshtein distance <= max, abandoned as soon as a row's best exceeds it.
+  function nearlySame(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return false;
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      let best = i;
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (cur[j] < best) best = cur[j];
+      }
+      if (best > max) return false;
+      prev = cur;
+    }
+    return prev[b.length] <= max;
+  }
   const REVIEW_MAX_CHARS = 12_000; // what the server reads (runReview's clamp), so no more is sent — PRIVACY.md says 12,000 // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
 
   function readyToSend(seg, prevHashes) {
@@ -1968,24 +2004,25 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
-    const review = { key: null, findings: [], at: 0, inflight: false, unavailable: false };
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false };
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
-       resume, only once the text has been still REVIEW_IDLE_MS, only when it
-       differs from what was last reviewed, at most every REVIEW_FLOOR_MS. A
+       resume, only once the text has been still REVIEW_IDLE_MS, only when a
+       line is new or rewritten since the last answer (reviewWorthwhile), at
+       most every REVIEW_FLOOR_MS and REVIEW_REPEAT_MS after an answer. A
        server without the route (404 not_found) switches it off until reload;
        any other failure waits out the floor and tries again. The free format
        rules (resumeFormatIssues) show either way. */
     async function requestReview(text) {
       if (!FEATURES.resumeTips || docGenre !== "resume" || review.inflight || review.unavailable) return;
-      const key = hashText(text);
-      if (key === review.key || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS) return;
+      if (!reviewWorthwhile(review.lastText, text) || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS || Date.now() - review.okAt < REVIEW_REPEAT_MS) return;
       review.inflight = true;
       render();
       try {
         const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL });
         review.findings = Array.isArray(data?.findings) ? data.findings : [];
-        review.key = key;
+        review.lastText = text;
+        review.okAt = Date.now();
       } catch (err) {
         if (err?.kind === "not_found") review.unavailable = true;
       } finally {
@@ -2075,7 +2112,7 @@
         const n = currentIssues().length + activeFlowIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
         if (FEATURES.flow) requestFlow(); // fire-and-forget; gated on structure change + rate floor
-        requestReview(docText); // fire-and-forget; resumes only, gated on stillness + REVIEW_FLOOR_MS
+        requestReview(docText); // fire-and-forget; resumes only, gated on stillness, a real change and the floors
       } catch (err) {
         lastCheckFailed = true;
         if (err?.kind === "no_engine") {
@@ -4841,24 +4878,25 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
-    const review = { key: null, findings: [], at: 0, inflight: false, unavailable: false };
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false };
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
-       resume, only once the text has been still REVIEW_IDLE_MS, only when it
-       differs from what was last reviewed, at most every REVIEW_FLOOR_MS. A
+       resume, only once the text has been still REVIEW_IDLE_MS, only when a
+       line is new or rewritten since the last answer (reviewWorthwhile), at
+       most every REVIEW_FLOOR_MS and REVIEW_REPEAT_MS after an answer. A
        server without the route (404 not_found) switches it off until reload;
        any other failure waits out the floor and tries again. The free format
        rules (resumeFormatIssues) show either way. */
     async function requestReview(text) {
       if (!FEATURES.resumeTips || docGenre !== "resume" || review.inflight || review.unavailable) return;
-      const key = hashText(text);
-      if (key === review.key || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS) return;
+      if (!reviewWorthwhile(review.lastText, text) || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS || Date.now() - review.okAt < REVIEW_REPEAT_MS) return;
       review.inflight = true;
       render();
       try {
         const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL });
         review.findings = Array.isArray(data?.findings) ? data.findings : [];
-        review.key = key;
+        review.lastText = text;
+        review.okAt = Date.now();
       } catch (err) {
         if (err?.kind === "not_found") review.unavailable = true;
       } finally {
