@@ -90,7 +90,7 @@ test("one legend names every line, in the cards' words", () => {
   const { legendHtml, markFill, MARK_COLORS, MARK_PATTERN } = load();
   const html = legendHtml();
   assert.equal((html.match(/class="legend-item"/g) || []).length, 3);
-  for (const label of ["Contradicted or doesn't make sense", "Worth checking", "Missing citation"]) assert.ok(html.includes(label), label);
+  for (const label of ["Contradicted or doesn't make sense", "Worth checking", "Missing or incomplete citation"]) assert.ok(html.includes(label), label);
   for (const v of ["false", "questionable", "needs_citation"]) {
     assert.ok(html.includes(markFill(MARK_COLORS[v], MARK_PATTERN[v])), `the legend draws ${v}'s line exactly as the page does`);
   }
