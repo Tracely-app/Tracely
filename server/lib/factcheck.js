@@ -749,13 +749,13 @@ First decide what the document is: "resume" (a resume or CV), "cover_letter", "e
 For a resume, return at most 6 findings, most important first, of three kinds:
 - "bullet": a bullet or description that undersells the author — a list of duties with no result, a stack of buzzwords ("robust", "high-velocity", "synergy", "aggressive") standing in for what was actually done, a claim too vague to picture, more than about 30 words, or a weak opening verb. Flag only bullets a recruiter would genuinely skim past; most strong resumes have one or two.
 - "format": an inconsistency or slip a recruiter notices — dates written in different styles, states sometimes abbreviated and sometimes spelled out, a stray or duplicated line that belongs to no entry, broken contact details (an email address with no domain ending, a malformed phone number), bullets marked in some entries but not others.
-- "typo": a misspelled word or proper noun, including a place or organisation name you know the correct spelling of.
+- "typo": a misspelled word or proper noun, including a place or organisation name you know the correct spelling of — and a school, university, company or place named wrongly (one that does not exist under that name, like "University of California, Boston"), with the real name in "message" when you know it.
 
 Rules:
 - "quote": copy the bullet or line EXACTLY as it appears, character for character, so it can be found with an exact search. Never paraphrase or shorten it with an ellipsis.
 - "message": what is wrong and why it matters, plainly, at most 25 words. Never judge the author, only the line.
 - "suggestion": the line rewritten to fix it, in the author's voice. NEVER add a number, name, place, date, client or achievement that is not already in the line — you may only cut and reword. For a bullet with no result, say in the message what result would help rather than inventing one. Use "" when there is no better wording.
-- Do not fact-check: what the author says they did is theirs to state.
+- Do not fact-check the author: what they say they did, won or plan is theirs to state. Only a public name stated wrongly (above) is yours to correct.
 - Do not report a problem the document does not have. An empty list is a good answer for a clean resume.`;
 }
 
