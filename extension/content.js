@@ -4091,16 +4091,29 @@
            paint, so bars are corrected before a wrong frame can ever hit the
            screen. Recycled binding → hide until re-match; re-coordinated
            geometry/transform on the SAME text → follow it in place. */
+        /* No blank frame per keystroke. Owner, 2026-10-04: "every time I type
+           a character the underlines flicker". Typing rewrites the line's
+           annotation (and reflows every line after it in the paragraph); the
+           old code HID each such bar and waited a frame — or up to 140ms when
+           typing fast (fastDocsMarks' floor) — to re-match, so every bar on
+           those lines blinked on every key. Now a bar whose line only changed
+           its text keeps following that line, and anything that needs a
+           re-match gets one HERE, in this callback, which runs before the
+           next paint: the frame the user sees is already corrected. */
+        let relocateNow = false;
         for (const b of docsBars) {
           if (!b.node || !b.inSvg) continue;
           if (b.flow) { // brackets are re-located wholesale by the next pass
-            if (!b.el.isConnected || !b.node.isConnected) b.el.style.display = "none";
+            if (!b.el.isConnected || !b.node.isConnected) { b.el.style.display = "none"; relocateNow = true; }
             continue;
           }
-          if (!b.el.isConnected || !b.node.isConnected || b.node.getAttribute("aria-label") !== b.raw) {
-            b.el.style.display = "none";
+          if (!b.el.isConnected || !b.node.isConnected) {
+            b.el.style.display = "none"; // Docs replaced the line: nothing to follow
+            relocateNow = true;
             continue;
           }
+          // Same line, new text: keep following it until the re-match below.
+          if (b.node.getAttribute("aria-label") !== b.raw) relocateNow = true;
           const rx = parseFloat(b.node.getAttribute("x"));
           const ry = parseFloat(b.node.getAttribute("y"));
           const rw = parseFloat(b.node.getAttribute("width"));
@@ -4116,6 +4129,7 @@
             b.size = b.node.getBoundingClientRect().height || b.size;
           }
         }
+        if (relocateNow) { requestDocsMarks(); return; } // before paint, not a frame later
         if (annoRafPending) return;
         annoRafPending = true;
         // Coalesce a mutation burst into one re-match, aligned to the frame.
