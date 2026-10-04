@@ -105,6 +105,7 @@
     resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
     offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
+    refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -1356,6 +1357,85 @@
       .map((u) => u.text);
   }
 
+  /* The reference list, checked against itself and against the text. Owner,
+     2026-10-04, after a position paper listed Ord & Davies (2022) twice and
+     a Samoa country profile nothing in the paper cited. Free and local.
+
+     - Listed twice: two entries equal once case, spacing and punctuation are
+       ignored, or two entries carrying the same DOI or link. The LATER copy
+       is the one flagged — it is the one to delete.
+     - Not cited: no in-text citation points at the entry. A citation is a
+       parenthetical — (Ord & Davies, 2022), (Shoup 45), ("Youth Matters",
+       2025), several split by ";" — or a narrative "Wheaton and Ferro
+       (2016)". A name citation matches an entry carrying its first author's
+       surname; a quoted-title citation one carrying most (60%) of its
+       words. Either way a year, when both sides give one, must agree — which
+       is what keeps ("United Nations: UN Meetings Coverage", 2025) from
+       counting as a citation of "United Nations. (2023). SDG Country
+       Profile Samoa". An entry led by a personal name ("Fitzgerald, F.
+       Scott.") also counts as cited when that surname appears anywhere in
+       the text: MLA attributes in prose ("Fitzgerald writes …") and cites
+       only the page.
+     The uncited check is skipped for numbered and footnoted work ([1], ¹,
+     "1." entries), where the link is a number this does not trace. */
+  const REF_STOP = new Set("the and for from with that this into over under about how why what when are was were its their our your his her a an of in on to by at as or is be not".split(" "));
+  const refNorm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const refWords = (s) => (refNorm(s).match(/\p{L}{3,}/gu) || []).filter((w) => !REF_STOP.has(w));
+  const REF_YEAR = /\b(1[5-9]\d\d|20\d\d)\b/;
+  function inTextCitations(body) {
+    const cites = [];
+    for (const m of body.matchAll(/\(([^()]{2,240})\)/g)) {
+      for (const part of m[1].split(";")) {
+        const p = part.trim();
+        const year = (p.match(REF_YEAR) || [])[1] ?? null;
+        const quoted = p.match(/["“‘']([^"”’']{3,})["”’']/);
+        if (quoted) { cites.push({ title: refWords(quoted[1]), year }); continue; }
+        const names = p.replace(/\bet al\.?/g, "").split(/,|\s(?:&|and)\s|\d/)[0].trim();
+        const surname = (names.match(/([\p{Lu}][\p{L}'’-]+)\s*$/u) || [])[1];
+        if (surname && (year || /\d/.test(p))) cites.push({ surname: surname.toLowerCase(), year });
+      }
+    }
+    for (const m of body.matchAll(/\b([\p{Lu}][\p{L}'’-]+)(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.?)?\s+\((1[5-9]\d\d|20\d\d)/gu)) {
+      cites.push({ surname: m[1].toLowerCase(), year: m[2] });
+    }
+    return cites;
+  }
+  function referenceListIssues(text) {
+    const refs = worksCitedBlock(text);
+    if (!refs || refs.entries.length < 2) return [];
+    const body = text.slice(0, refs.headStart);
+    const out = [];
+    const seenText = new Set(), seenLink = new Set();
+    for (const entry of refs.entries) {
+      const key = refNorm(entry);
+      // A DOI is the same source however it is written (doi:…, https://doi.org/…); other links by address.
+      const trim = (l) => l.toLowerCase().replace(/[.,;)]+$/, "");
+      const dois = (entry.match(/\b10\.\d{4,}\/[^\s"<>]+/g) || []).map(trim);
+      const urls = (entry.match(/https?:\/\/\S+/gi) || []).filter((u) => !/doi\.org\//i.test(u)).map((u) => trim(u).replace(/^https?:\/\/(www\.)?/, ""));
+      const links = [...dois, ...urls];
+      if (seenText.has(key) || links.some((l) => seenLink.has(l))) out.push({ quote: entry, kind: "refdup" });
+      seenText.add(key);
+      for (const l of links) seenLink.add(l);
+    }
+    const numbered = /\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹]/.test(body) || refs.entries.filter((e) => /^\[?\d+[.)\]]/.test(e)).length >= refs.entries.length / 2;
+    if (numbered) return out;
+    const cites = inTextCitations(body);
+    const flagged = new Set(out.map((o) => o.quote));
+    for (const entry of refs.entries) {
+      if (flagged.has(entry)) continue; // a duplicate's note already says what to do
+      const words = new Set(refWords(entry));
+      const years = new Set(entry.match(new RegExp(REF_YEAR.source, "g")) || []);
+      const yearOk = (y) => !y || years.size === 0 || years.has(y);
+      const cited = cites.some((c) => yearOk(c.year) && (c.surname
+        ? words.has(c.surname)
+        : c.title.length >= 1 && c.title.filter((w) => words.has(w)).length >= Math.max(1, Math.ceil(c.title.length * 0.6))));
+      const lead = (entry.match(/^([\p{Lu}][\p{L}'’-]+),\s+[\p{Lu}]/u) || [])[1];
+      const named = lead && new RegExp(`\\b${lead.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "u").test(body);
+      if (!cited && !named) out.push({ quote: entry, kind: "refuncited" });
+    }
+    return out;
+  }
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -1443,7 +1523,7 @@
      kept only if it is a different kind. A note whose quote is no longer in
      the text (the writer fixed it) drops out without waiting for the next
      review. */
-  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number", offtopic: "Doesn't seem to belong" };
+  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number", offtopic: "Doesn't seem to belong", refdup: "Listed twice", refuncited: "Not cited in your text" };
   function resumeTips(text, modelFindings, dismissed) {
     const norm = (q) => String(q).toLowerCase().replace(/\s+/g, " ").trim();
     const hay = norm(text);
@@ -1492,6 +1572,18 @@
   }
   function offTopicHtml(tips, copiedId) {
     return tips.length ? tipsSectionHtml("Off topic", tips, "", copiedId) : "";
+  }
+  // The reference list's two notes (referenceListIssues): shown only when there is one.
+  const REF_MESSAGES = {
+    refdup: "This source is listed twice. Delete this copy.",
+    refuncited: "Nothing in your text cites this source. If you used it, add an in-text citation; if not, remove it from the list.",
+  };
+  function referenceTips(text, dismissed) {
+    return referenceListIssues(text).map((r) => ({ id: "tip:" + hashText(r.quote + "|" + r.kind), quote: r.quote, kind: r.kind, message: REF_MESSAGES[r.kind], suggestion: "" }))
+      .filter((t) => !dismissed.has(t.id));
+  }
+  function referenceTipsHtml(tips, copiedId) {
+    return tips.length ? tipsSectionHtml("Reference list", tips, "", copiedId) : "";
   }
   // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
   function genreLineHtml(genre) {
@@ -4684,9 +4776,10 @@
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
+      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed) : [];
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
-      const flagged = issues.length + offTopic.length;
+      const flagged = issues.length + offTopic.length + refTips.length;
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -4772,8 +4865,8 @@
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
-          : (FEATURES.offTopic || FEATURES.quoteTips) && isArgumentGenre(docGenre)
-            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
+          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips) && isArgumentGenre(docGenre)
+            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
             : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
@@ -5722,10 +5815,11 @@
 
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
+      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
-      const flagged = issues.length + offTopic.length;
+      const flagged = issues.length + offTopic.length + refTips.length;
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -5785,8 +5879,8 @@
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
-          : (FEATURES.offTopic || FEATURES.quoteTips) && isArgumentGenre(docGenre)
-            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
+          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips) && isArgumentGenre(docGenre)
+            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
             : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
