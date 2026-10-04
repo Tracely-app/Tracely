@@ -104,6 +104,7 @@
     evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
     resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
+    offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -1293,6 +1294,68 @@
     return true;
   }
 
+  /* A line or sentence that has nothing to do with the rest of the document.
+     Owner, 2026-10-04, on a Model UN position paper about youth and peace
+     with "Lamine Yamal is 19 years old" typed between the last paragraph and
+     the references: "if I type something that is completely irrelevant or
+     unrelated flag it."
+
+     Free and local, no model call: a LINE (a paragraph, or a sentence typed
+     on a line of its own) is off topic when NONE of its meaningful words
+     appears anywhere else in the body. Real prose about one
+     subject keeps reusing its words (youth, peace, nation…), so a line that
+     shares not one with the whole essay stands out. Lines, not sentences:
+     measured on the eval essays, single sentences inside a paragraph share
+     nothing with the rest far too often to flag ("Days later he addressed a
+     joint session of Congress.") — telling one of those apart from a stray
+     sentence needs a reader, not a word count. Words are compared by
+     their first five letters, so "peace"/"peacemaking" and "solution"/
+     "solutions" count as the same word; that can only make a flag rarer.
+
+     Left out on purpose: the reference list (worksCitedBlock), bracketed
+     citations, header lines like "Country: United Kingdom", lines under four
+     words (titles, headings), generic words ("years", "people", "important")
+     that would tie anything to anything, and documents too short to have a
+     subject (under 150 words or 4 paragraphs). Essays and papers only. */
+  const OFF_TOPIC_MIN_WORDS = 150;
+  const OFF_TOPIC_MIN_PARAGRAPHS = 4;
+  const OFF_TOPIC_STOP = new Set(("a about above after again against all also am an and any are as at be because been before being below between both but by can could did do does doing down during each even ever every few for from further had has have having he her here hers herself him himself his how i if in into is it its itself just let like may me might more most must my myself no nor not now of off on once only or other ought our ours ourselves out over own same shall she should so some such than that the their theirs them themselves then there these they this those through to too under until up upon us very was we were what when where which while who whom why will with within without would yet you your yours yourself " +
+    "however therefore thus although though whereas moreover furthermore indeed fact also still already instead rather quite really often always never sometimes usually perhaps maybe " +
+    "year years old new time times day days people person way ways thing things lot lots many much one two three first second last next good great big small important different same certain several various " +
+    "make makes made making get gets got take takes took give gives gave go goes went come came say says said see seen know known think thought use used want need needs show shows").split(" "));
+  function topicKeys(sentence) {
+    const words = String(sentence).replace(/\([^()]*\)|\[[^\]]*\]/g, " ").toLowerCase().match(/[a-z][a-z'’-]*[a-z]/g) || [];
+    const keys = new Set();
+    for (let w of words) {
+      w = w.replace(/['’]s$/, "");
+      if (w.length < 3 || OFF_TOPIC_STOP.has(w)) continue;
+      keys.add(w.length > 5 ? w.slice(0, 5) : w.replace(/(?:ies|es|s)$/, (m) => (w.length - m.length >= 3 ? "" : m)));
+    }
+    return keys;
+  }
+  function offTopicSentences(text) {
+    const refs = worksCitedBlock(text);
+    const body = refs ? text.slice(0, refs.headStart) : text;
+    const units = [];
+    let started = false; // titles and header lines come before the first full sentence
+    for (const raw of body.split("\n")) {
+      const line = raw.trim();
+      if (!line || /^[A-Z][\w &()/.'’-]{0,40}:\s*\S/.test(line) && line.split(/\s+/).length <= 12) continue; // "Country: United Kingdom"
+      if (!started) { started = /[.!?]["”’)]?$/.test(line); if (!started) continue; }
+      if (line.split(/\s+/).length < 4) continue; // a heading
+      // "That is the part people point at." points back at the paragraph before it.
+      const refersBack = /^["“]?(?:this|that|these|those|it|its|he|she|they|his|her|their|such|here|there)\b/i.test(line);
+      units.push({ text: line, keys: topicKeys(line), refersBack });
+    }
+    const words = body.split(/\s+/).filter(Boolean).length;
+    if (units.length < OFF_TOPIC_MIN_PARAGRAPHS || words < OFF_TOPIC_MIN_WORDS) return [];
+    const seenIn = new Map(); // key → how many paragraphs use it
+    for (const u of units) for (const k of u.keys) seenIn.set(k, (seenIn.get(k) ?? 0) + 1);
+    return units
+      .filter((u) => !u.refersBack && u.keys.size >= 2 && [...u.keys].every((k) => seenIn.get(k) === 1))
+      .map((u) => u.text);
+  }
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -1380,7 +1443,7 @@
      kept only if it is a different kind. A note whose quote is no longer in
      the text (the writer fixed it) drops out without waiting for the next
      review. */
-  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number" };
+  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number", offtopic: "Doesn't seem to belong" };
   function resumeTips(text, modelFindings, dismissed) {
     const norm = (q) => String(q).toLowerCase().replace(/\s+/g, " ").trim();
     const hay = norm(text);
@@ -1420,6 +1483,15 @@
   }
   function citationTipsHtml(tips, copiedId) {
     return tips.length ? tipsSectionHtml("Citation tips", tips, "", copiedId) : "";
+  }
+  // Lines that share no word with the rest of the essay (offTopicSentences): shown only when there is one.
+  const OFF_TOPIC_MESSAGE = "Nothing in this line connects to the rest of your writing. If it doesn't belong, delete it; if it does, tie it to your point.";
+  function offTopicTips(text, dismissed) {
+    return offTopicSentences(text).map((quote) => ({ id: "tip:" + hashText(quote + "|offtopic"), quote, kind: "offtopic", message: OFF_TOPIC_MESSAGE, suggestion: "" }))
+      .filter((t) => !dismissed.has(t.id));
+  }
+  function offTopicHtml(tips, copiedId) {
+    return tips.length ? tipsSectionHtml("Off topic", tips, "", copiedId) : "";
   }
   // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
   function genreLineHtml(genre) {
@@ -4611,9 +4683,12 @@
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
+      const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
-      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
+      // A stray line counts on the launcher too: a ✓ over it would say all is well.
+      const flagged = issues.length + offTopic.length;
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
+      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
       panelWasOpen = expanded;
@@ -4697,7 +4772,9 @@
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
-          : FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "");
+          : (FEATURES.offTopic || FEATURES.quoteTips) && isArgumentGenre(docGenre)
+            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
+            : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
@@ -5644,10 +5721,13 @@
       root.style.display = show ? "" : "none";
 
       const issues = currentIssues();
+      const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
-      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
+      // A stray line counts on the launcher too: a ✓ over it would say all is well.
+      const flagged = issues.length + offTopic.length;
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
+      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
       panelWasOpen = expanded;
@@ -5705,7 +5785,9 @@
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
-          : FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "");
+          : (FEATURES.offTopic || FEATURES.quoteTips) && isArgumentGenre(docGenre)
+            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
+            : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
