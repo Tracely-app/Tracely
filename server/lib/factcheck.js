@@ -99,6 +99,7 @@ Verdicts, in order of precedence:
 Rules:
 - Judge each sentence in the context of the whole document; resolve pronouns and references from the surrounding text.
 - A citation can be a bracketed marker like [1], a parenthetical (Author, year), or prose attribution ("According to…", "X reported…"). Any of these count as cited — never flag them "needs_citation". Ignore bracketed markers when judging the claim itself.
+- You cannot read a cited source. A cited figure you recall under a different label for the same measure ("services" or "facilities", "spending" or "investment") is not "false" or "questionable": judge its number, years, place and direction, never its wording.
 - Widely known facts (capitals, famous dates, basic science), and the encyclopedic facts of the essay's own subject (when a person was born, what post they held, when a battle was fought), are common knowledge for that essay: "accurate", not "needs_citation".
 - Reasonable, widely used approximations and rounded figures are accurate.
 - A sentence that is right in every detail but one is "false" — name the one detail.
