@@ -1085,6 +1085,19 @@
     }
     return null;
   }
+  /* Whether a resume's review stands in for the fact check. Cost idea 5,
+     2026-10-04: on a resume the check's only visible output is "false" — a
+     public fact stated wrongly, like a school's real name (flagShown hides
+     needs_citation and questionable there) — and /api/review now looks for
+     that too, alongside the bullets and typos. So while the review serves the
+     resume, no sentence is sent to /api/check at all. serving is null until
+     the first review is tried (the check waits: the review is due within
+     seconds of the writer pausing), true once one answers for a resume, and
+     false after a failure, a reply saying it is not a resume, or a server
+     without the route (unavailable) — and then the check runs as before. */
+  function reviewCoversCheck(genre, review) {
+    return genre === "resume" && !review.unavailable && review.serving !== false;
+  }
   const REVIEW_MAX_CHARS = 12_000; // what the server reads (runReview's clamp), so no more is sent — PRIVACY.md says 12,000 // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
 
   function readyToSend(seg, prevHashes) {
@@ -2052,7 +2065,7 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
-    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false };
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null };
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
        resume, only once the text has been still REVIEW_IDLE_MS, only when a
@@ -2071,7 +2084,9 @@
         review.findings = Array.isArray(data?.findings) ? data.findings : [];
         review.lastText = text;
         review.okAt = Date.now();
+        review.serving = data?.genre === "resume"; // the model disagrees that it is one: back to the check
       } catch (err) {
+        review.serving = false; // until a review answers again, the check covers the resume
         if (err?.kind === "not_found") review.unavailable = true;
       } finally {
         review.at = Date.now();
@@ -2134,6 +2149,7 @@
     }
 
     function uncheckedSegments() {
+      if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
       for (const seg of segments) {
@@ -4954,7 +4970,7 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
-    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false };
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null };
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
        resume, only once the text has been still REVIEW_IDLE_MS, only when a
@@ -4973,7 +4989,9 @@
         review.findings = Array.isArray(data?.findings) ? data.findings : [];
         review.lastText = text;
         review.okAt = Date.now();
+        review.serving = data?.genre === "resume"; // the model disagrees that it is one: back to the check
       } catch (err) {
+        review.serving = false; // until a review answers again, the check covers the resume
         if (err?.kind === "not_found") review.unavailable = true;
       } finally {
         review.at = Date.now();
@@ -5341,6 +5359,7 @@
     }
 
     function uncheckedSegments() {
+      if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
       for (const seg of segments) {
