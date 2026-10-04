@@ -84,7 +84,7 @@
   // from incoherent; colour alone never has to. It used to be a fourth hue
   // per verdict (amber, violet, blue), which made the same finding a
   // different colour here than in the app.
-  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800" };
+  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800" };
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
@@ -105,6 +105,7 @@
     resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
     offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
+    citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
   };
 
@@ -132,7 +133,12 @@
      dotted for amber: grey dotted already means "still checking", and the two
      would then differ by colour alone again. The panel's legend names all
      three (legendHtml). */
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double" };
+  // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
+  // with no page, a reference listed twice or never cited — citationMarks),
+  // drawn under the parenthetical or the entry rather than the sentence, so a
+  // sentence can carry a red fact mark and an amber citation mark at once.
+  // Same family as needs_citation ("add or fix the attribution"), same line.
   // CSS for a div-drawn line (field mode, and Docs' fallback bars).
   function markFill(color, pattern) {
     if (pattern === "dashed") return `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 9px)`;
@@ -140,7 +146,7 @@
     return color;
   }
   // The panel's legend: one row per LINE, in the cards' own words.
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing citation"]];
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"]];
   function legendHtml() {
     const items = LEGEND.map(([v, label]) => {
       const p = MARK_PATTERN[v];
@@ -1585,6 +1591,29 @@
   function referenceTipsHtml(tips, copiedId) {
     return tips.length ? tipsSectionHtml("Reference list", tips, "", copiedId) : "";
   }
+  /* Where each citation note goes on the page (cite_tip marks). Owner,
+     2026-10-04: "what if it needs to flag for two different things, say wrong
+     information and wrong citation" — so a citation note is underlined on
+     the citation, not the sentence: a quote missing its page on its
+     "(Fitzgerald)", a reference listed twice or never cited on the entry.
+     The fact mark keeps the sentence. start/end are offsets into `text`;
+     `lastCopy` tells Docs, which locates by text, to underline only the
+     later of two identical entries (the one the note says to delete). */
+  function citationMarks(text, style, dismissed) {
+    const out = [];
+    for (const t of citationTips(text, style, dismissed)) {
+      const at = text.indexOf(t.quote);
+      const p = t.quote.lastIndexOf("(");
+      if (at < 0 || p < 0) continue;
+      out.push({ ...t, start: at + p, end: at + t.quote.length, mark: t.quote.slice(p), lastCopy: false });
+    }
+    for (const t of referenceTips(text, dismissed)) {
+      const at = t.kind === "refdup" ? text.lastIndexOf(t.quote) : text.indexOf(t.quote);
+      if (at < 0) continue;
+      out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: t.kind === "refdup" });
+    }
+    return out;
+  }
   // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
   function genreLineHtml(genre) {
     return GENRE_LABEL[genre] ? `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}</div>` : "";
@@ -2411,6 +2440,7 @@
        exactly as before — this is strictly additive. */
     let locateSeq = 0;
     let lastVerdictByHash = new Map();
+    let tipMarkById = new Map(); // cite_tip marks drawn on the last locate: id → citationMarks entry
 
     /* ── PRIMARY position source: Docs' SVG annotation layer ──────────────
        Modern Docs keeps an invisible SVG beside each canvas tile: one
@@ -2492,13 +2522,23 @@
           spans.push([joined.length, joined.length + n.length, run]);
           joined += n;
         }
-        if (joined) lines.push({ joined, spans });
+        if (joined) lines.push({ joined, spans, top: runs[0].r.top });
       }
       const bars = [];
       for (const { seg } of issues) {
         const S = nrm(seg.text);
         if (S.length < 4) continue;
+        // Two identical entries match twice; a lastCopy mark keeps only the
+        // later one — from the last line where the text STARTS, downwards.
+        let fromTop = -Infinity;
+        if (seg.lastCopy) {
+          for (const line of lines) {
+            const r = svgOverlapRange(line.joined, S);
+            if (r && (line.joined.indexOf(S) >= 0 || r[1] === line.joined.length && r[0] > 0 || r[0] === 0 && S.startsWith(line.joined.slice(0, r[1])))) fromTop = Math.max(fromTop, line.top);
+          }
+        }
         for (const line of lines) {
+          if (line.top < fromTop - 1) continue;
           const range = svgOverlapRange(line.joined, S);
           if (!range) continue;
           for (const [s, e, run] of line.spans) {
@@ -3101,7 +3141,10 @@
       // on the other side of the protocol.
       const issues = currentIssues().slice(0, 40);
       const flows = activeFlowIssues();
-      if (issues.length === 0 && flows.length === 0) {
+      // Citation notes get their own marks, on the citation (citationMarks).
+      const tips = FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed).slice(0, Math.max(0, 40 - issues.length)) : [];
+      tipMarkById = new Map(tips.map((t) => [t.id, t]));
+      if (issues.length === 0 && flows.length === 0 && tips.length === 0) {
         clearDocsMarks();
         // A card that just fixed the last issue stays up to show "Applied ✓ ·
         // Undo"; the pointer leaving it closes it as usual.
@@ -3112,8 +3155,16 @@
         return;
       }
       lastVerdictByHash = new Map(issues.map(({ seg, f }) => [seg.hash, f.verdict]));
+      for (const t of tips) lastVerdictByHash.set(t.id, "cite_tip");
+      // A flagged sentence whose citation carries its own note stops before
+      // it, so the two marks sit side by side instead of on top of each other.
+      const factText = (seg) => {
+        const t = tips.find((x) => x.kind === "page" && seg.text.includes(x.mark));
+        return t ? seg.text.slice(0, seg.text.lastIndexOf(t.mark)).trimEnd() : seg.text;
+      };
+      const located = [...issues.map(({ seg }) => ({ seg: { hash: seg.hash, text: factText(seg) } })), ...tips.map((t) => ({ seg: { hash: t.id, text: t.mark, lastCopy: t.lastCopy } }))];
       // PRIMARY: the SVG annotation layer — complete and live-positioned.
-      const svgBars = issues.length ? svgLocate(issues) : [];
+      const svgBars = located.length ? svgLocate(located) : [];
       if (svgBars !== null) {
         drawDocsMarksSvg(svgBars, flows);
         // Keep the hook's ledgers pruned even though we're not using them.
@@ -3127,7 +3178,7 @@
       window.postMessage({
         type: "tracely-docs-locate",
         id: locateSeq,
-        wants: issues.map(({ seg }) => ({ hash: seg.hash, text: seg.text })),
+        wants: located.map(({ seg }) => ({ hash: seg.hash, text: seg.text })),
       }, "*");
     }
 
@@ -3530,7 +3581,7 @@
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
     }
     function showDocsPopover(hash, rect, anchorBar) {
-      if (!cache.get(hash)) return;
+      if (!cache.get(hash) && !tipMarkById.has(hash)) return;
       openPop(hash, rect, anchorBar, POP_WIDTH);
     }
     function showFlowPopover(bar, rect, anchorBar) {
@@ -3543,6 +3594,22 @@
     function renderPopSources(hash) { if (popEl && popHash === hash) paintPop(); }
     function renderPopDeep(hash) { if (popEl && popHash === hash) paintPop(); }
 
+    // A citation note's card: what is wrong with the citation, the citation, Dismiss.
+    function paintCiteTip(tip, put) {
+      put(dmHead(MARK_COLORS.cite_tip, TIP_LABEL[tip.kind] ?? "Citation"));
+      put(dmBody(tip.message));
+      put(dmBlock(tip.kind === "page" ? "QUOTED" : "REFERENCE", dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
+      const dismiss = dmBtn("Dismiss", false);
+      dismiss.addEventListener("click", () => {
+        dismissed.add(tip.id);
+        lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        hideDocsPopover();
+        render();
+        requestDocsMarks();
+      });
+      put(dmActions(dismiss));
+    }
+
     function paintPop() {
       if (!popEl || !popCard) return;
       const hash = popHash;
@@ -3550,6 +3617,8 @@
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
       const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
       if (flow) { paintFlow(hash, flow, put); requestPlace(); return; }
+      const tip = tipMarkById.get(hash);
+      if (tip) { paintCiteTip(tip, put); requestPlace(); return; }
       const f = cache.get(hash);
       const seg = segments.find((s) => s.hash === hash);
       if (!f || !seg) return;
@@ -4909,7 +4978,7 @@
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
-          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); });
+          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); requestDocsMarks(); });
         }
         for (const btn of shadow.querySelectorAll("[data-tip-copy]")) {
           btn.addEventListener("click", () => {
@@ -5347,6 +5416,42 @@
       marksRaf = requestAnimationFrame(() => { marksRaf = null; drawMarks(); });
     }
 
+    /* One finding's mark (field mode): the app's highlighter band under a
+       coloured line (src/shared/markMotion.ts), both growing on hover. Two
+       children rather than a border, so the line paints over the band. Used
+       for sentence marks and for citation notes (cite_tip) alike. */
+    function paintMark(layer, hash, rects, color, pattern) {
+      markRects.set(hash, rects);
+      for (const r of rects) {
+        const bar = document.createElement("div");
+        Object.assign(bar.style, {
+          position: "fixed", left: r.left + "px", top: r.top + "px",
+          width: r.width + "px", height: r.height + "px",
+          background: "transparent", // Grammarly-style: a clean underline, no highlight wash
+          pointerEvents: "none",
+        });
+        const band = document.createElement("div");
+        Object.assign(band.style, {
+          position: "absolute", left: "0", right: "0",
+          top: `-${MARK_BAND_INSET_TOP}px`, bottom: `-${MARK_BAND_INSET_BOTTOM}px`,
+          borderRadius: `${MARK_BAND_RADIUS}px`,
+          background: withAlpha(color, 0),
+          transform: `scaleY(${MARK_BAND_SCALE_RESTING})`, transformOrigin: "bottom",
+          transition: markReducedMotion() ? "none" : MARK_BAND_TRANSITION,
+        });
+        const line = document.createElement("div");
+        Object.assign(line.style, {
+          position: "absolute", left: "0", right: "0", bottom: "0",
+          height: `${markLineHeight(pattern, false)}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
+          background: markFill(color, pattern),
+          transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
+        });
+        bar.append(band, line);
+        markParts.set(hash, [...(markParts.get(hash) || []), { band, line, color, pattern }]);
+        layer.appendChild(bar);
+      }
+    }
+
     function drawMarks() {
       if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; }
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
@@ -5365,7 +5470,14 @@
         liveText = index.text;
       }
       if (liveText.trim().length < MIN_FIELD_CHARS) return;
+      // Citation notes, on the citation itself (citationMarks); a flagged
+      // sentence stops before a citation that carries one.
+      const tips = FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : [];
       const seen = new Set();
+      for (const tip of tips) {
+        const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
+        if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS.cite_tip, MARK_PATTERN.cite_tip);
+      }
       for (const seg of segmentText(liveText)) {
         if (!seg.checkable || seen.has(seg.hash) || dismissed.has(seg.hash)) continue;
         seen.add(seg.hash);
@@ -5382,44 +5494,20 @@
         } else {
           continue;
         }
-        const rects = isTa ? taRects(tracked, seg.start, seg.end) : ceRects(tracked, index, seg.start, seg.end);
+        const cut = tips.find((t) => t.kind === "page" && t.start > seg.start && t.start < seg.end);
+        const end = cut ? seg.start + liveText.slice(seg.start, cut.start).trimEnd().length : seg.end;
+        const rects = isTa ? taRects(tracked, seg.start, end) : ceRects(tracked, index, seg.start, end);
         if (rects.length === 0) continue;
-        if (!pending) markRects.set(seg.hash, rects);
+        if (!pending) { paintMark(layer, seg.hash, rects, color, pattern); continue; }
         for (const r of rects) {
+          // Provisional: a dotted rule, no band — nothing to point at yet.
           const bar = document.createElement("div");
           Object.assign(bar.style, {
             position: "fixed", left: r.left + "px", top: r.top + "px",
             width: r.width + "px", height: r.height + "px",
-            background: "transparent", // Grammarly-style: a clean underline, no highlight wash
-            pointerEvents: "none",
+            background: "transparent", pointerEvents: "none",
+            borderBottom: `2px dotted ${color}`, opacity: "0.7",
           });
-          if (pending) {
-            // Provisional: a dotted rule, no band — nothing to point at yet.
-            bar.style.borderBottom = `2px dotted ${color}`;
-            bar.style.opacity = "0.7";
-          } else {
-            // The app's mark (src/shared/markMotion.ts): a highlighter band
-            // under a coloured line, both growing on hover. Two children
-            // rather than a border, so the line paints over the band.
-            const band = document.createElement("div");
-            Object.assign(band.style, {
-              position: "absolute", left: "0", right: "0",
-              top: `-${MARK_BAND_INSET_TOP}px`, bottom: `-${MARK_BAND_INSET_BOTTOM}px`,
-              borderRadius: `${MARK_BAND_RADIUS}px`,
-              background: withAlpha(color, 0),
-              transform: `scaleY(${MARK_BAND_SCALE_RESTING})`, transformOrigin: "bottom",
-              transition: markReducedMotion() ? "none" : MARK_BAND_TRANSITION,
-            });
-            const line = document.createElement("div");
-            Object.assign(line.style, {
-              position: "absolute", left: "0", right: "0", bottom: "0",
-              height: `${markLineHeight(pattern, false)}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
-              background: markFill(color, pattern),
-              transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
-            });
-            bar.append(band, line);
-            markParts.set(seg.hash, [...(markParts.get(seg.hash) || []), { band, line, color, pattern }]);
-          }
           layer.appendChild(bar);
         }
       }
@@ -5928,7 +6016,7 @@
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
-          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); });
+          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); scheduleMarks(); });
         }
         for (const btn of shadow.querySelectorAll("[data-tip-copy]")) {
           btn.addEventListener("click", () => {
