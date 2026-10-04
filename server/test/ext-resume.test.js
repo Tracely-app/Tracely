@@ -162,5 +162,6 @@ test("wired: the background worker relays /api/review, and the call is gated", (
   assert.match(SRC, /Date\.now\(\) - lastTextChangeAt < REVIEW_IDLE_MS \|\| Date\.now\(\) - review\.at < REVIEW_FLOOR_MS/, "still text, and at most once a minute");
   assert.match(SRC, /if \(err\?\.kind === "not_found"\) review\.unavailable = true;/, "an older server without the route: quiet, not an error");
   assert.equal((SRC.match(/flagShown\(.*?, settings, docGenre, (?:seg|x)\.text\)/g) || []).length, 4, "every place a verdict is shown knows the genre and the sentence");
-  assert.equal((SRC.match(/FEATURES\.evidenceHints && docGenre === "prose"/g) || []).length, 2, "no evidence suggestions on a resume or a letter");
+  assert.equal((SRC.match(/FEATURES\.evidenceHints && isArgumentGenre\(docGenre\)/g) || []).length, 2, "no evidence suggestions on a resume or a letter");
+  assert.match(SRC, /const isArgumentGenre = \(g\) => g === "prose" \|\| g === "research" \|\| g === "literary";/);
 });
