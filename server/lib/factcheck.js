@@ -10,6 +10,7 @@ import {
   webSearchCall,
 } from "./llm.js";
 import { citeFields, SOURCE_KINDS } from "./citeFields.js";
+import { isNarrowing } from "../shared/narrowing.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -84,6 +85,8 @@ function systemPrompt() {
   return `You are Tracely's fact-checker, embedded in a writing tool. The author sees your findings as underlines while they type. You judge one thing: whether the factual content of each sentence is correct, verifiable and attributed. You hold no view on style, tone, politics, or whether a claim is comfortable to read, and you never judge the author.
 
 You receive the full document for context plus a list of sentences to evaluate. Return exactly one finding for EVERY listed sentence id — no more, no fewer.
+
+Decide first what the DOCUMENT is. The verdicts below are for expository writing (an essay, paper, report or article). For anything else — a resume, CV, cover letter, personal statement or bio; fiction, a personal narrative or journal; an email, message or notes — never use "needs_citation"; what the author says they did, won or plan is "no_claim", never "questionable"; still use "false" for a public fact stated wrongly (an institution's real name, a famous date).
 
 Verdicts, in order of precedence:
 - "false": a specific factual claim in the sentence contradicts an established fact — one you can state precisely (the correct date, number, name, place or mechanism) and that standard references document. Put that correct fact in "basis". If you cannot state the correct fact, the sentence is not "false".
@@ -703,6 +706,112 @@ function mockFlow(model) {
     model: `${model} (mock)`,
     usage: { input: 0, output: 0, cached: 0 },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Writing review (/api/review): what a document of ITS kind should be judged
+// on, where the fact checker judges only facts. Owner, 2026-10-03, on a
+// resume the checker answered with eight "needs_citation" flags: "it can give
+// tips about formatting issues or if one of the bullet points is bad it can
+// flag that. Tracely should be able to detect the context". Scoped to resumes
+// and CVs for now: the extension asks only when it has recognised one, and
+// the model returns no findings for anything else.
+// ---------------------------------------------------------------------------
+export const REVIEW_KINDS = ["bullet", "format", "typo"];
+const REVIEW_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["genre", "findings"],
+  properties: {
+    genre: { type: "string", enum: ["resume", "cover_letter", "essay", "other"] },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["quote", "kind", "message", "suggestion"],
+        properties: {
+          quote: { type: "string", description: "The bullet or line at fault, copied VERBATIM from the document." },
+          kind: { type: "string", enum: REVIEW_KINDS },
+          message: { type: "string", description: "What is wrong, addressed to the writer, at most 25 words." },
+          suggestion: { type: "string", description: "The line rewritten, or \"\" when there is nothing to rewrite." },
+        },
+      },
+    },
+  },
+};
+
+function reviewSystemPrompt() {
+  return `You are Tracely's resume reviewer, embedded in a writing tool. You read the whole document the way a recruiter skimming it would, and point out the few things most worth fixing.
+
+First decide what the document is: "resume" (a resume or CV), "cover_letter", "essay", or "other". If it is not a resume or CV, return that genre and an empty findings list — nothing else.
+
+For a resume, return at most 6 findings, most important first, of three kinds:
+- "bullet": a bullet or description that undersells the author — a list of duties with no result, a stack of buzzwords ("robust", "high-velocity", "synergy", "aggressive") standing in for what was actually done, a claim too vague to picture, more than about 30 words, or a weak opening verb. Flag only bullets a recruiter would genuinely skim past; most strong resumes have one or two.
+- "format": an inconsistency or slip a recruiter notices — dates written in different styles, states sometimes abbreviated and sometimes spelled out, a stray or duplicated line that belongs to no entry, broken contact details (an email address with no domain ending, a malformed phone number), bullets marked in some entries but not others.
+- "typo": a misspelled word or proper noun, including a place or organisation name you know the correct spelling of.
+
+Rules:
+- "quote": copy the bullet or line EXACTLY as it appears, character for character, so it can be found with an exact search. Never paraphrase or shorten it with an ellipsis.
+- "message": what is wrong and why it matters, plainly, at most 25 words. Never judge the author, only the line.
+- "suggestion": the line rewritten to fix it, in the author's voice. NEVER add a number, name, place, date, client or achievement that is not already in the line — you may only cut and reword. For a bullet with no result, say in the message what result would help rather than inventing one. Use "" when there is no better wording.
+- Do not fact-check: what the author says they did is theirs to state.
+- Do not report a problem the document does not have. An empty list is a good answer for a clean resume.`;
+}
+
+export async function runReview({ text, model, effort, mock = false }) {
+  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
+  const body = text.length > 12_000 ? text.slice(0, 12_000) + "\n[… document truncated …]" : text;
+  const raw = mock ? mockReview(text, chosenModel) : await structuredCall({
+    model: chosenModel,
+    system: reviewSystemPrompt(),
+    user: `DOCUMENT:\n\n${body}\n\nReview it.`,
+    schema: REVIEW_SCHEMA,
+    maxTokens: 6_000,
+    what: "writing review",
+    name: "review",
+    effort,
+  });
+  const parsed = raw.parsed ?? {};
+  return { ...validateReview(text, parsed), model: raw.model, usage: raw.usage };
+}
+
+/* Keep only findings the writer can act on: the quote must be in the
+ * document (or the extension cannot show which line it means), the kind must
+ * be one of ours, and a suggested rewrite may only NARROW its line — it may
+ * drop a figure or a name but never introduce one, the same rule critique
+ * revisions and Tracer's rewrites live by (shared/narrowing.js). A rewrite
+ * that adds a fact is discarded and the message kept. */
+export function validateReview(text, parsed) {
+  const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const hay = norm(text);
+  const genre = ["resume", "cover_letter", "essay", "other"].includes(parsed?.genre) ? parsed.genre : "other";
+  const seen = new Set();
+  const findings = (Array.isArray(parsed?.findings) ? parsed.findings : [])
+    .map((f) => ({
+      quote: String(f?.quote ?? "").trim().slice(0, 600),
+      kind: REVIEW_KINDS.includes(f?.kind) ? f.kind : null,
+      message: String(f?.message ?? "").trim().slice(0, 300),
+      suggestion: String(f?.suggestion ?? "").trim().slice(0, 600),
+    }))
+    .filter((f) => f.kind && f.message && f.quote.length >= 4 && hay.includes(norm(f.quote)))
+    .filter((f) => { const k = norm(f.quote) + "|" + f.kind; if (seen.has(k)) return false; seen.add(k); return true; })
+    .map((f) => ({ ...f, suggestion: f.suggestion && f.suggestion !== f.quote && isNarrowing(f.suggestion, f.quote) ? f.suggestion : "" }))
+    .slice(0, 6);
+  return { genre, findings: genre === "resume" ? findings : [] };
+}
+
+/* Deterministic, in the real shape, from the document itself, so the UI can be
+ * exercised with no key: the longest line that reads like a bullet, and an
+ * email address with no domain ending if there is one. */
+function mockReview(text, model) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const findings = [];
+  const email = text.match(/[\w.+-]+@[\w-]+(?![\w.-]*\.[a-z]{2,})/i);
+  if (email) findings.push({ quote: email[0], kind: "format", message: "This email address has no domain ending, so a recruiter's reply would bounce.", suggestion: "" });
+  const bullet = lines.filter((l) => l.split(/\s+/).length > 12).sort((a, b) => b.length - a.length)[0];
+  if (bullet) findings.push({ quote: bullet, kind: "bullet", message: "Long and abstract: lead with what you did and what changed because of it.", suggestion: "" });
+  return { parsed: { genre: /\b(experience|education|skills)\b/i.test(text) ? "resume" : "other", findings }, model: `${model} (mock)`, usage: { input: 0, output: 0, cached: 0 } };
 }
 
 function mockSources(claim, model) {

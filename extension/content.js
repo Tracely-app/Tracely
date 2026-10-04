@@ -47,9 +47,13 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
-    && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false);
+    && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
+    // A resume's figures and awards are the author's own account; no reader
+    // wants a source for "$10K+ in revenue". The server stops asking (its
+    // genre clause); this holds the line against a server from before it.
+    && !(genre === "resume" && f.verdict === "needs_citation");
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
@@ -83,6 +87,7 @@
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
     evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
+    resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -975,7 +980,10 @@
      after it) must read the same twice in a row first. That holds back
      fragments the 10 s timer used to catch and send. */
   const READ_INTERVAL_MS = 3_000;
-  const ACTIVE_WINDOW_MS = 30_000; // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
+  const ACTIVE_WINDOW_MS = 30_000;
+  const REVIEW_IDLE_MS = 5_000;    // /api/review waits until the text has been still this long
+  const REVIEW_FLOOR_MS = 60_000;  // and asks at most this often (the server's REVIEW_MIN_INTERVAL_MS)
+  const REVIEW_MAX_CHARS = 12_000; // what the server reads (runReview's clamp), so no more is sent — PRIVACY.md says 12,000 // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
 
   function readyToSend(seg, prevHashes) {
     return /[.!?]["')\]]*$/.test(seg.text) || prevHashes.has(seg.hash);
@@ -1020,6 +1028,76 @@
       out.push(seg);
       if (out.length >= MAX_EVIDENCE_SUGGESTIONS) break;
     }
+    return out;
+  }
+
+  /* What kind of document this is. Owner, 2026-10-03, on a resume the checker
+     answered with eight "needs_citation" flags: "Tracely should be able to
+     detect the context". The server's check prompt now decides this for
+     itself (lib/factcheck.js "Decide first what the DOCUMENT is"); this local
+     copy is what the UI needs — whether to show Resume tips, whether to ask
+     /api/review, and whether to hide a citation flag a server from before
+     that prompt still sends. Deliberately strict: a resume needs two section
+     headings of its own AND contact details or date ranges, and is not mostly
+     full sentences. An essay that says "experience" in a heading is not one. */
+  const RESUME_HEADING = /^(?:education|(?:work |professional |relevant )?experience|employment(?: history)?|skills(?:\s*[/&]\s*interests)?|technical skills|projects|certifications?|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary|profile|objective|interests|languages|publications|references)$/i;
+  const MONTH = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
+  const DATE_RANGE = new RegExp(`\\b${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}\\s*[–—-]\\s*(?:${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}|Present|Current|Now)\\b|\\b(?:19|20)\\d{2}\\s*[–—-]\\s*(?:(?:19|20)\\d{2}|Present|Current|Now)\\b`, "gi");
+  function detectGenre(text) {
+    const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 6) return "prose";
+    const headings = lines.filter((l) => l.length <= 40 && RESUME_HEADING.test(l.replace(/[^\p{L}\s/&]/gu, " ").replace(/\s+/g, " ").trim())).length;
+    const contact = /[\w.+-]+@[\w-]+|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(lines.slice(0, 6).join(" "));
+    const ranges = (String(text).match(DATE_RANGE) ?? []).length;
+    const sentences = lines.filter((l) => /[.!?]["')\]]*$/.test(l) && l.split(/\s+/).length >= 12).length;
+    return headings >= 2 && (contact || ranges >= 2) && sentences / lines.length < 0.6 ? "resume" : "prose";
+  }
+
+  /* Resume format slips a rule can be RIGHT about, free and instant — the
+     /api/review model call adds bullet quality and typos on top. Each rule
+     names the minority, never the majority: the writer's own dominant style
+     is the house style. At most six, every quote verbatim from the text. */
+  const US_STATES = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
+  const STATE_ABBR = /^(?:A[LKZR]|C[AOT]|D[EC]|FL|GA|HI|I[DLNA]|K[SY]|LA|M[EDAINSOT]|N[EVHJMYCD]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[TA]|W[AVIY])$/;
+  function resumeFormatIssues(text) {
+    const raw = String(text ?? "");
+    const out = [];
+    const add = (quote, message) => { if (out.length < 6 && quote && !out.some((o) => o.quote === quote)) out.push({ quote, kind: "format", message }); };
+    // 1. An email address with no domain ending.
+    for (const m of raw.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*/g)) {
+      if (!/@[\w-]+\.[\w-]{2,}/.test(m[0])) add(m[0], "This email address has no domain ending (like .com), so a reply to it would bounce.");
+    }
+    // 2. Date ranges written in more than one style, or with different dash spacing.
+    const ranges = [...raw.matchAll(DATE_RANGE)].map((m) => m[0]);
+    const style = (r) => /\d{1,2},\s*\d{4}/.test(r) ? "day" : /^\d{4}/.test(r) ? "year" : "month";
+    const spacing = (r) => (/\s[–—-]\s/.test(r) ? "spaced" : /[–—-]\s|\s[–—-]/.test(r) ? "lopsided" : "tight");
+    const tally = (f) => ranges.reduce((m, r) => m.set(f(r), (m.get(f(r)) ?? 0) + 1), new Map());
+    const major = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (ranges.length >= 2) {
+      const styles = tally(style), sp = tally(spacing);
+      const mainStyle = major(styles), mainSp = major(sp);
+      for (const r of ranges) {
+        if (styles.size > 1 && style(r) !== mainStyle) add(r, mainStyle === "month" ? "Your other dates are month and year (\"June 2026 – August 2026\"); this one is written differently." : "This date is written in a different style from your others.");
+        else if (sp.size > 1 && spacing(r) !== mainSp) add(r, "The spacing around this dash differs from your other dates.");
+      }
+    }
+    // 3. Locations that mix state abbreviations and full names.
+    const locs = raw.split("\n").map((l) => l.trim()).map((l) => [l, l.match(/^[A-Z][\w .'-]+,\s*([A-Za-z ]+)$/)?.[1]?.trim()]).filter(([, s]) => s && (STATE_ABBR.test(s) || US_STATES.includes(s)));
+    const abbr = locs.filter(([, s]) => STATE_ABBR.test(s)), full = locs.filter(([, s]) => !STATE_ABBR.test(s));
+    if (abbr.length && full.length) {
+      const minority = abbr.length < full.length ? abbr : full;
+      const msg = abbr.length === full.length
+        ? "Your locations mix abbreviated states (CA) and spelled-out ones (California); pick one style."
+        : abbr.length < full.length ? "Most of your locations spell the state out; this one abbreviates it." : "Most of your locations abbreviate the state; this one spells it out.";
+      for (const [line] of minority) add(line, msg);
+    }
+    // 4. Bullets marked in some places and not others, and stray leading spaces.
+    const bulletish = raw.split("\n").filter((l) => l.trim().split(/\s+/).length >= 8);
+    const marked = bulletish.filter((l) => /^\s*[•▪◦*·-]\s/.test(l)), plain = bulletish.filter((l) => !/^\s*[•▪◦*·-]\s/.test(l));
+    if (marked.length && plain.length && marked.length < plain.length) {
+      for (const l of marked.slice(0, 2)) add(l.trim(), "Only some of your bullets start with a marker; use one for all of them, or none.");
+    }
+    for (const l of plain) if (/^ +\S/.test(l)) add(l.trim(), "This line starts with a stray space, so it won't line up with the lines around it.");
     return out;
   }
 
@@ -1119,6 +1197,51 @@
         ${sourcesFor(seg)}
       </div>`).join("");
     return `<div class="evidence">${head}<div class="ev-intro">Optional — only where evidence would help your argument.</div>${cards}</div>`;
+  }
+  /* Resume tips: the free format rules first (instant), then what /api/review
+     found, a line once — a model note on a line the rules already flagged is
+     kept only if it is a different kind. A note whose quote is no longer in
+     the text (the writer fixed it) drops out without waiting for the next
+     review. */
+  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo" };
+  function resumeTips(text, modelFindings, dismissed) {
+    const norm = (q) => String(q).toLowerCase().replace(/\s+/g, " ").trim();
+    const hay = norm(text);
+    /* The quote must still be in the text AS ITSELF, not as the start of
+       something longer: "jordan.rivera@outlook" fixed to "…@outlook.com" is
+       still a substring, and the note about the missing ending would linger
+       over the fix. A following letter, digit, or ".x"/"@x"/"-x" means the
+       quoted text has grown. */
+    const standsAlone = (q) => {
+      for (let i = hay.indexOf(q); i >= 0; i = hay.indexOf(q, i + 1)) {
+        const next = hay.slice(i + q.length, i + q.length + 2);
+        if (!/^\w/.test(next) && !/^[.@-]\w/.test(next)) return true;
+      }
+      return false;
+    };
+    const seen = new Set();
+    const out = [];
+    for (const f of [...resumeFormatIssues(text), ...(Array.isArray(modelFindings) ? modelFindings : [])]) {
+      if (!f || !TIP_LABEL[f.kind] || !f.quote || !standsAlone(norm(f.quote))) continue;
+      const key = norm(f.quote) + "|" + f.kind;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const id = "tip:" + hashText(key);
+      if (dismissed.has(id)) continue;
+      out.push({ id, quote: String(f.quote), kind: f.kind, message: String(f.message ?? ""), suggestion: String(f.suggestion ?? "") });
+    }
+    return out;
+  }
+  function resumeTipsHtml(tips, reviewing, copiedId) {
+    const cards = tips.map((t) => `
+      <div class="card tip-card" data-card="${t.id}">
+        <div class="top"><span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="quote">“${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}”</div>
+        ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
+        ${t.suggestion ? `<div class="fix"><div class="fix-label">Suggested rewrite</div><div class="fix-text">${esc(t.suggestion)}</div><div class="row"><button class="act" data-tip-copy="${t.id}">${copiedId === t.id ? "Copied ✓" : "Copy rewrite"}</button></div></div>` : ""}
+      </div>`).join("");
+    const note = reviewing ? "Reading your bullets…" : tips.length ? "" : "No resume tips — this reads cleanly.";
+    return `<div class="tips"><div class="tips-head">Resume tips${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
   }
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
@@ -1350,6 +1473,9 @@
     .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
     .ev-toggle:hover { text-decoration: underline; }
     .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
+    .tips { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    .tips-head { font-size: 13px; font-weight: 600; color: #1a1a1f; padding: 2px 2px 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
@@ -1745,6 +1871,33 @@
     let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
+    let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    const review = { key: null, findings: [], at: 0, inflight: false, unavailable: false };
+    let copiedTipId = null;
+    /* Ask /api/review for this resume's bullet and typo notes — only for a
+       resume, only once the text has been still REVIEW_IDLE_MS, only when it
+       differs from what was last reviewed, at most every REVIEW_FLOOR_MS. A
+       server without the route (404 not_found) switches it off until reload;
+       any other failure waits out the floor and tries again. The free format
+       rules (resumeFormatIssues) show either way. */
+    async function requestReview(text) {
+      if (!FEATURES.resumeTips || docGenre !== "resume" || review.inflight || review.unavailable) return;
+      const key = hashText(text);
+      if (key === review.key || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS) return;
+      review.inflight = true;
+      render();
+      try {
+        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL });
+        review.findings = Array.isArray(data?.findings) ? data.findings : [];
+        review.key = key;
+      } catch (err) {
+        if (err?.kind === "not_found") review.unavailable = true;
+      } finally {
+        review.at = Date.now();
+        review.inflight = false;
+        render();
+      }
+    }
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
@@ -1798,6 +1951,7 @@
         if (newText !== docText) lastTextChangeAt = readAt;
         docText = newText;
         segments = segmentText(docText);
+        docGenre = FEATURES.resumeTips ? detectGenre(docText) : "prose";
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
@@ -1825,6 +1979,7 @@
         const n = currentIssues().length + activeFlowIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
         if (FEATURES.flow) requestFlow(); // fire-and-forget; gated on structure change + rate floor
+        requestReview(docText); // fire-and-forget; resumes only, gated on stillness + REVIEW_FLOOR_MS
       } catch (err) {
         lastCheckFailed = true;
         if (err?.kind === "no_engine") {
@@ -1851,7 +2006,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -3143,7 +3298,7 @@
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -4315,7 +4470,8 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const evidenceHtml = FEATURES.evidenceHints
+        const tipsHtml = FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId) : "";
+        const evidenceHtml = FEATURES.evidenceHints && docGenre !== "resume"
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -4328,7 +4484,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
+            ${undoStrip}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -4355,6 +4511,18 @@
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
+          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); });
+        }
+        for (const btn of shadow.querySelectorAll("[data-tip-copy]")) {
+          btn.addEventListener("click", () => {
+            const tip = resumeTips(docText, review.findings, dismissed).find((t) => t.id === btn.dataset.tipCopy);
+            if (!tip?.suggestion) return;
+            navigator.clipboard?.writeText(tip.suggestion).catch(() => { /* denied */ });
+            copiedTipId = tip.id;
+            render();
+          });
+        }
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -4574,6 +4742,33 @@
     let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
+    let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    const review = { key: null, findings: [], at: 0, inflight: false, unavailable: false };
+    let copiedTipId = null;
+    /* Ask /api/review for this resume's bullet and typo notes — only for a
+       resume, only once the text has been still REVIEW_IDLE_MS, only when it
+       differs from what was last reviewed, at most every REVIEW_FLOOR_MS. A
+       server without the route (404 not_found) switches it off until reload;
+       any other failure waits out the floor and tries again. The free format
+       rules (resumeFormatIssues) show either way. */
+    async function requestReview(text) {
+      if (!FEATURES.resumeTips || docGenre !== "resume" || review.inflight || review.unavailable) return;
+      const key = hashText(text);
+      if (key === review.key || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS) return;
+      review.inflight = true;
+      render();
+      try {
+        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL });
+        review.findings = Array.isArray(data?.findings) ? data.findings : [];
+        review.key = key;
+      } catch (err) {
+        if (err?.kind === "not_found") review.unavailable = true;
+      } finally {
+        review.at = Date.now();
+        review.inflight = false;
+        render();
+      }
+    }
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let fieldText = "";
     let copiedFixHash = null;
@@ -4778,7 +4973,7 @@
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings)) {
+        if (flagShown(f, settings, docGenre)) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -4928,7 +5123,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings)) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -4948,6 +5143,7 @@
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
+        docGenre = FEATURES.resumeTips ? detectGenre(fieldText) : "prose";
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
           statusMsg = `field under ${MIN_FIELD_CHARS} characters — keep writing`;
@@ -4977,6 +5173,7 @@
         statusKind = "idle";
         const n = currentIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
+        requestReview(fieldText); // fire-and-forget; resumes only
       } catch (err) {
         lastCheckFailed = true;
         if (err?.kind === "no_engine") {
@@ -5247,7 +5444,8 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const evidenceHtml = FEATURES.evidenceHints
+        const tipsHtml = FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId) : "";
+        const evidenceHtml = FEATURES.evidenceHints && docGenre !== "resume"
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -5261,7 +5459,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${cardsHtml || `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${tipsHtml}${cardsHtml || (tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -5292,6 +5490,18 @@
         shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
+          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); });
+        }
+        for (const btn of shadow.querySelectorAll("[data-tip-copy]")) {
+          btn.addEventListener("click", () => {
+            const tip = resumeTips(fieldText, review.findings, dismissed).find((t) => t.id === btn.dataset.tipCopy);
+            if (!tip?.suggestion) return;
+            navigator.clipboard?.writeText(tip.suggestion).catch(() => { /* denied */ });
+            copiedTipId = tip.id;
+            render();
+          });
+        }
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
