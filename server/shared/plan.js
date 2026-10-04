@@ -187,6 +187,7 @@ export function clampModel(requested, plan) {
  *   checkDeep    /api/check deep:true, exactly one sentence          astra low / luna medium
  *                ("Explain in depth", extension 2.20.0)
  *   flow         /api/flow                                          luna low
+ *   review       /api/review (resume bullets and format, extension 2.21.6) luna low
  *   sources      /api/sources                                       luna low
  *                (the vendor default — what every source search was measured at)
  *   findSources  /api/find-sources                                  luna low
@@ -197,7 +198,7 @@ export function clampModel(requested, plan) {
  * luna@medium on /api/check measured 100% (0 harmful verdicts) against 90% at
  * low; nothing else was measured at medium, so everything else is low (the
  * lib/llm.js default). astra was measured at low only. */
-export const ROUTES = ["check", "checkDeep", "flow", "sources", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"];
+export const ROUTES = ["check", "checkDeep", "flow", "review", "sources", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"];
 
 /* astra grading was never measured. Flip only if the grade eval shows a gain. */
 export const GRADE_ON_THOROUGH = false;
@@ -327,6 +328,18 @@ export const FLOW_MIN_INTERVAL_MS = 120_000;
 
 export function dailyFlowLimit(plan) {
   return DAILY_FLOW[normalizePlan(plan)];
+}
+
+/* Writing reviews (/api/review) per day, a usage kind of their own. One call
+ * reads a whole resume and returns its weakest bullets and format slips; the
+ * extension asks once the text has been still for a while and has changed
+ * since the last answer, and the server holds every caller to one call per
+ * REVIEW_MIN_INTERVAL_MS on top (a 429 the extension swallows and retries). */
+export const DAILY_REVIEW = { free: 30, student: 120, pro: 120 };
+export const REVIEW_MIN_INTERVAL_MS = 60_000;
+
+export function dailyReviewLimit(plan) {
+  return DAILY_REVIEW[normalizePlan(plan)];
 }
 
 /**

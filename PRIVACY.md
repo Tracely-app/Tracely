@@ -38,7 +38,8 @@ extension sends the text of the document or text box (up to 30,000
 characters) and the sentences to check to `api.jointracely.com`, a few
 seconds after you write or change a sentence. A sentence that has already been
 checked is not sent again. For "Explain in depth", one sentence and the
-document context. For the flow check, the first 12,000 characters. Our server
+document context. For the flow check, the first 12,000 characters. When
+Tracely recognises a resume, its first 12,000 characters, for Resume tips. Our server
 forwards this to **OpenAI** (the model that does the judging) and returns the
 verdicts. Neither we nor, per OpenAI's API terms, OpenAI keep the text for
 training; our server holds it only for the seconds the check takes.
@@ -92,7 +93,7 @@ On our server:
 
 | what | keyed by | kept |
 |---|---|---|
-| Usage counts (checks, source searches, flow checks per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
+| Usage counts (checks, source searches, flow checks and resume reviews per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |
