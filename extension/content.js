@@ -47,13 +47,28 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
-    // A resume's figures and awards are the author's own account; no reader
-    // wants a source for "$10K+ in revenue". The server stops asking (its
-    // genre clause); this holds the line against a server from before it.
-    && !(genre === "resume" && f.verdict === "needs_citation");
+    // The author's own account needs no source: a resume's figures and awards
+    // ("$10K+ in revenue"), a letter's ("2,000 students use my app"), and in
+    // ANY document a sentence about what the author did ("we sold 500 boxes",
+    // "We surveyed 1,200 students" — their own study). The server stops asking
+    // (its genre clause); this holds the line against a server from before it.
+    && !(f.verdict === "needs_citation" && (genre === "resume" || genre === "letter" || authorsOwnAccount(text)))
+    // On a resume or letter, "questionable" is the same mistake in a softer
+    // word — an unverifiable claim about the author (seen on a contact line).
+    // The server's genre clause: "never questionable". "false" still shows.
+    && !(f.verdict === "questionable" && (genre === "resume" || genre === "letter"));
+  /* First person, but not the generic "we" of an argument ("we know", "we
+     all", "we should"): that "we" is the reader and the world, and a figure
+     in it still needs its source. "I" as a Roman numeral is not the author:
+     World War I, Part I, Chapter I, and a ruler's name after King/Queen/Pope
+     ("King Charles I"). A bare ruler ("Elizabeth I reigned…") still reads as
+     first person — the cost is one missed citation request, not a wrong flag. */
+  const ROMAN_I = /\b(?:War|Part|Chapter|Book|Act|Phase|Title|Section|Volume|Vol\.|Stage|Level|Grade|Class|Type|Article|Round|Season|(?:King|Queen|Pope|Emperor|Empress|Tsar|Czar|Prince|Princess)\s+[A-Z][a-z]+)\s+I\b/g;
+  const OWN_ACCOUNT = /(?:^|[^\w'])I(?:'m|'ve|'d|'ll)?(?=$|[^\w'])|\b[Mm](?:y|e|ine)\b|\b(?:[Ww]e|[Oo]ur|[Uu]s)\b(?!\s+(?:all|can|cannot|could|know|see|must|should|need|often|tend|might|may|now)\b)/;
+  const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
@@ -898,6 +913,8 @@
     let i = dotIndex - 1;
     while (i >= 0 && /[A-Za-z]/.test(text[i])) i--;
     const word = text.slice(i + 1, dotIndex);
+    // "8:30 a.m. Studies show…": a time's a.m./p.m. before a capitalised word ends the sentence.
+    if (/\d\s*[ap]\.m$/i.test(text.slice(Math.max(0, dotIndex - 8), dotIndex)) && /^\.\s+["'“‘(]?[A-Z]/.test(text.slice(dotIndex, dotIndex + 6))) return true;
     if (word.length === 1) return false; // an initial (R.) or one segment of U.S. / e.g.
     return !SPLIT_ABBREVIATIONS.has(word.toLowerCase());
   }
@@ -1043,8 +1060,16 @@
   const RESUME_HEADING = /^(?:education|(?:work |professional |relevant )?experience|employment(?: history)?|skills(?:\s*[/&]\s*interests)?|technical skills|projects|certifications?|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary|profile|objective|interests|languages|publications|references)$/i;
   const MONTH = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
   const DATE_RANGE = new RegExp(`\\b${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}\\s*[–—-]\\s*(?:${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}|Present|Current|Now)\\b|\\b(?:19|20)\\d{2}\\s*[–—-]\\s*(?:(?:19|20)\\d{2}|Present|Current|Now)\\b`, "gi");
+  /* A letter or email: it opens with a salutation and closes with a sign-off.
+     Its figures are the writer's own ("I scored a 5 on AP Statistics"), so
+     no citation flags (flagShown). Checked before the length floor, because
+     an email is often four lines. Both ends are required for anything longer
+     than a short note: "Hi" alone opens plenty of blog posts. */
+  const SALUTATION = /^(?:dear|hi|hello|hey|good (?:morning|afternoon|evening)|to whom it may concern)\b[^!?\n]{0,60}[,:!]?$/i;
+  const SIGNOFF = /^(?:sincerely|best|best regards|best wishes|all the best|kind regards|warm regards|regards|thanks|thank you|many thanks|cheers|warmly|respectfully|yours(?: truly| sincerely| faithfully)?)[,.!]?$/i;
   function detectGenre(text) {
     const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length >= 2 && SALUTATION.test(lines[0]) && (lines.slice(-4).some((l) => SIGNOFF.test(l)) || lines.length <= 4)) return "letter";
     if (lines.length < 6) return "prose";
     const headings = lines.filter((l) => l.length <= 40 && RESUME_HEADING.test(l.replace(/[^\p{L}\s/&]/gu, " ").replace(/\s+/g, " ").trim())).length;
     const contact = /[\w.+-]+@[\w-]+|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(lines.slice(0, 6).join(" "));
@@ -1087,7 +1112,7 @@
     if (abbr.length && full.length) {
       const minority = abbr.length < full.length ? abbr : full;
       const msg = abbr.length === full.length
-        ? "Your locations mix abbreviated states (CA) and spelled-out ones (California); pick one style."
+        ? `Your locations mix abbreviated states (${abbr[0][1]}) and spelled-out ones (${full[0][1]}); pick one style.`
         : abbr.length < full.length ? "Most of your locations spell the state out; this one abbreviates it." : "Most of your locations abbreviate the state; this one spells it out.";
       for (const [line] of minority) add(line, msg);
     }
@@ -2006,7 +2031,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -3298,7 +3323,7 @@
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -4471,7 +4496,7 @@
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const tipsHtml = FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId) : "";
-        const evidenceHtml = FEATURES.evidenceHints && docGenre !== "resume"
+        const evidenceHtml = FEATURES.evidenceHints && docGenre === "prose"
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -4973,7 +4998,7 @@
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings, docGenre)) {
+        if (flagShown(f, settings, docGenre, seg.text)) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -5123,7 +5148,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre)) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text)) continue;
         out.push({ seg, f });
       }
       return out;
@@ -5445,7 +5470,7 @@
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const tipsHtml = FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId) : "";
-        const evidenceHtml = FEATURES.evidenceHints && docGenre !== "resume"
+        const evidenceHtml = FEATURES.evidenceHints && docGenre === "prose"
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
