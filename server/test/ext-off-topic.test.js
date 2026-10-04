@@ -79,7 +79,7 @@ test("the tip: dismissable by id, in its own section, and only when there is one
 test("wired: essays and papers only, in both panels, and counted on the launcher", () => {
   assert.match(SRC, /offTopic: true,/);
   assert.equal((SRC.match(/const offTopic = FEATURES\.offTopic && isArgumentGenre\(docGenre\) \? offTopicTips\((?:docText|fieldText), dismissed\) : \[\];/g) || []).length, 2, "never on a resume or a letter");
-  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length;/g) || []).length, 2, "a ✓ never sits over a stray line");
+  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length;/g) || []).length, 2, "a ✓ never sits over a stray line");
 });
 
 /* The gate: no false alarm on any real essay in eval/, and most stray lines
