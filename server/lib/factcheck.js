@@ -349,8 +349,8 @@ After researching, your FINAL message must be ONLY a JSON object, no prose, in t
 
 Rules:
 - 3 to 5 sources, ranked best-first. Prefer primary and authoritative sources (scientific bodies, encyclopedias, government agencies, reputable news) over blogs and content farms.
-- "stance" is relative to the ORIGINAL claim: "supports" backs the claim as written, "refutes" contradicts it, "context" informs without settling it.
-- "snippet": one sentence (max 30 words) describing what the source says about the claim.
+- "stance" is relative to the ORIGINAL claim: "supports" backs the claim as written, "refutes" contradicts it, "context" informs without settling it. "supports" only when the result itself states the claim's point — the same subject, direction and figures; a source on the same topic that makes a different point is "context", however relevant. When unsure, "context". A student will cite a "supports" source for this exact sentence.
+- "snippet": one sentence (max 30 words) saying what the source itself states — never the claim's words unless the source uses them.
 - Use real URLs from your search results only. Never invent URLs.
 
 Citation fields. A student's reference list is built from these, so copy ONLY what the source itself states; never guess, never infer from the URL, the site or what is typical. Here "states" means what the search result showed you — a byline, a date, a journal name, a DOI. Empty is correct: use "", [] or null whenever the source does not say; the server completes a journal article from its DOI and a readable page from its own metadata.
