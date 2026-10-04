@@ -1037,6 +1037,54 @@
     }
     return prev[b.length] <= max;
   }
+
+  /* Reusing a verdict after a trivial edit. Cost idea 2, 2026-10-04: any
+     change to a sentence gave it a new hash, so fixing "recieve" or adding a
+     comma paid for a fresh check of a sentence already judged. Now the new
+     sentence inherits the verdict (and a dismissal) of the one it replaced
+     when the only change is case, spacing, punctuation, or one typo-sized
+     edit to an ordinary word.
+
+     The rule leans hard toward re-checking, because a reused verdict on a
+     sentence whose meaning DID change is a wrong answer, and a re-check is a
+     fraction of a cent. So it never reuses across a change to: a number or
+     anything holding a digit ("24" → "22", "2.5" → "25"), a % or currency
+     sign, a capitalised word past the first (names: "Austria" → "Australia"),
+     a negation ("is" → "isn't", "not"), a number or quantity word ("nine" →
+     "none"), a word under 4 letters, or more than one word. The changed word
+     must be within one letter, or two swapped. */
+  const PROTECTED_WORDS = new Set(("not no nor never none nothing nobody neither cannot without " +
+    "zero one two three four five six seven eight nine ten eleven twelve twenty thirty forty fifty hundred thousand million billion trillion " +
+    "first second third fourth fifth sixth seventh eighth ninth tenth half twice double triple dozen " +
+    "all every each any some most many much few fewer less least more several only always often rarely seldom sometimes usually").split(" "));
+  const editTokens = (s) => String(s).match(/[\p{L}\p{N}]+(?:['’.,][\p{L}\p{N}]+)*|[%$€£¥°]/gu) || [];
+  function smallEdit(a, b) {
+    const x = editTokens(a), y = editTokens(b);
+    if (x.length !== y.length || x.length === 0) return false;
+    let changed = 0;
+    for (let i = 0; i < x.length; i++) {
+      if (x[i].toLowerCase() === y[i].toLowerCase()) continue;
+      if (++changed > 1) return false;
+      const p = x[i].toLowerCase(), q = y[i].toLowerCase();
+      if (/[^\p{L}'’]/u.test(p + q) || p.length < 4 || q.length < 4) return false; // digits, signs, short words
+      if (i > 0 && (/^\p{Lu}/u.test(x[i]) || /^\p{Lu}/u.test(y[i]))) return false; // a name
+      if (/n['’]t$/.test(p) || /n['’]t$/.test(q) || PROTECTED_WORDS.has(p) || PROTECTED_WORDS.has(q)) return false;
+      const swapped = p.length === q.length && [...p].some((c, k) => k + 1 < p.length && c === q[k + 1] && p[k + 1] === q[k] &&
+        p.slice(0, k) === q.slice(0, k) && p.slice(k + 2) === q.slice(k + 2));
+      if (!swapped && !nearlySame(p, q, 1)) return false;
+    }
+    return true;
+  }
+  // The verdict a new sentence may inherit: from a checked sentence on the
+  // previous read that is gone from this one and differs only by smallEdit.
+  // Each old sentence is inherited once (`taken`).
+  function inheritedVerdict(seg, prevSegs, liveHashes, cache, taken) {
+    for (const old of prevSegs) {
+      if (liveHashes.has(old.hash) || taken.has(old.hash) || !cache.has(old.hash)) continue;
+      if (smallEdit(old.text, seg.text)) { taken.add(old.hash); return old; }
+    }
+    return null;
+  }
   const REVIEW_MAX_CHARS = 12_000; // what the server reads (runReview's clamp), so no more is sent — PRIVACY.md says 12,000 // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
 
   function readyToSend(seg, prevHashes) {
@@ -2060,6 +2108,31 @@
       return t.replace(/^﻿/, "").replace(/\r\n/g, "\n");
     }
 
+    // Cost idea 2: a sentence changed only by a typo or punctuation keeps
+    // the verdict it had (smallEdit). The counts are for the console.
+    let verdictsReused = 0, sentencesChecked = 0;
+    function inheritVerdicts(before) {
+      const live = new Set(segments.map((sg) => sg.hash));
+      const taken = new Set();
+      let n = 0;
+      for (const seg of segments) {
+        if (!seg.checkable || cache.has(seg.hash)) continue;
+        const old = inheritedVerdict(seg, before, live, cache, taken);
+        if (!old) continue;
+        cache.set(seg.hash, cache.get(old.hash));
+        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
+          dismissed.add(seg.hash);
+          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        }
+        n++;
+      }
+      if (n) {
+        verdictsReused += n;
+        console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
+      }
+      return n;
+    }
+
     function uncheckedSegments() {
       const out = [];
       const seen = new Set();
@@ -2083,6 +2156,7 @@
         const newText = await getDocText();
         if (newText !== docText) lastTextChangeAt = readAt;
         docText = newText;
+        const before = segments;
         segments = segmentText(docText);
         docGenre = FEATURES.resumeTips ? detectGenre(docText) : "prose";
         // A sentence we rewrote stays hidden until the export stops showing it
@@ -2090,12 +2164,14 @@
         const liveHashes = new Set(segments.map((sg) => sg.hash));
         for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
         settleEditStates(readAt);
+        if (inheritVerdicts(before)) persistCaches();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
           render();
+          sentencesChecked += todo.length;
           const data = await api("/api/check", {
             text: docText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
@@ -5239,6 +5315,31 @@
 
     /* ── check pipeline (same guards as docs mode) ── */
 
+    // Cost idea 2: a sentence changed only by a typo or punctuation keeps
+    // the verdict it had (smallEdit). The counts are for the console.
+    let verdictsReused = 0, sentencesChecked = 0;
+    function inheritVerdicts(before) {
+      const live = new Set(segments.map((sg) => sg.hash));
+      const taken = new Set();
+      let n = 0;
+      for (const seg of segments) {
+        if (!seg.checkable || cache.has(seg.hash)) continue;
+        const old = inheritedVerdict(seg, before, live, cache, taken);
+        if (!old) continue;
+        cache.set(seg.hash, cache.get(old.hash));
+        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
+          dismissed.add(seg.hash);
+          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        }
+        n++;
+      }
+      if (n) {
+        verdictsReused += n;
+        console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
+      }
+      return n;
+    }
+
     function uncheckedSegments() {
       const out = [];
       const seen = new Set();
@@ -5286,13 +5387,16 @@
           segments = [];
           return;
         }
+        const before = segments;
         segments = segmentText(fieldText);
+        if (inheritVerdicts(before)) persistFieldCache();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
           render();
+          sentencesChecked += todo.length;
           const data = await api("/api/check", {
             text: fieldText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
