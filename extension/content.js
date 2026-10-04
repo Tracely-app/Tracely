@@ -1442,6 +1442,25 @@
     return out;
   }
 
+  /* Only sources that BACK the sentence are offered. Owner, 2026-10-04:
+     "Find sources" handed him Ord & Davies (2022) — a paper on youth work
+     and austerity cuts — for a sentence about youth leadership gaining
+     support but not action, which it never says. "From now on dont
+     recommend me sources that do not align." A search result is kept when
+     its stance is "supports"; "refutes" too when the sentence is flagged
+     wrong (those back the correction, and show why); "context" — on the
+     topic, but not saying this — is dropped and only counted, so the card
+     can say the search found reading on the subject and none of it backs
+     the sentence as written. A source with no stance is one the writer
+     pasted themselves, and is theirs to keep. */
+  function backingSources(list, verdict) {
+    const all = Array.isArray(list) ? list : [];
+    const keep = all.filter((s) => s && (s.stance === undefined || s.stance === "supports" ||
+      (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
+    return { list: keep, unbacked: all.length - keep.length };
+  }
+  const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -2111,7 +2130,7 @@
     const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", []));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
-      .map(([h, st]) => [h, { loading: false, list: st.list, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -3285,7 +3304,7 @@
       appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
       couldNot: "Could not apply",
       searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
-      noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
+      noSources: "No sources found", noBacking: "Nothing backs this as written", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
       copyEntry: "Copy entry",
@@ -3802,7 +3821,8 @@
       const list = s.list ?? [];
       const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(hash, { searched: true, selected: null }); p.catch(() => {}); };
       if (list.length === 0) {
-        put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
+        if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
+        else put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
         const again = dmBtn(POP_COPY.searchAgain, true);
         again.addEventListener("click", searchAgain);
         const dis = dmBtn(POP_COPY.dismiss, false);
@@ -4182,7 +4202,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
+        const { list, unbacked } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, copiedUrl: null });
         persistCaches();
       } catch (err) {
         sourcesMap.delete(hash);
@@ -4884,6 +4905,8 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+          } else if (st?.unbacked && !st.list?.length) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(UNBACKED_NOTE(st.unbacked))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
@@ -5736,7 +5759,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
+        const { list, unbacked } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, copiedUrl: null });
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
@@ -5920,6 +5944,8 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+          } else if (st?.unbacked && !st.list?.length) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(UNBACKED_NOTE(st.unbacked))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
