@@ -103,6 +103,7 @@
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
     evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
     resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
+    quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -1070,12 +1071,66 @@
   function detectGenre(text) {
     const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length >= 2 && SALUTATION.test(lines[0]) && (lines.slice(-4).some((l) => SIGNOFF.test(l)) || lines.length <= 4)) return "letter";
-    if (lines.length < 6) return "prose";
+    if (lines.length < 6) return essayKind(text, lines); // too short to be a resume; a paragraph or two can still be a paper
     const headings = lines.filter((l) => l.length <= 40 && RESUME_HEADING.test(l.replace(/[^\p{L}\s/&]/gu, " ").replace(/\s+/g, " ").trim())).length;
     const contact = /[\w.+-]+@[\w-]+|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(lines.slice(0, 6).join(" "));
     const ranges = (String(text).match(DATE_RANGE) ?? []).length;
     const sentences = lines.filter((l) => /[.!?]["')\]]*$/.test(l) && l.split(/\s+/).length >= 12).length;
-    return headings >= 2 && (contact || ranges >= 2) && sentences / lines.length < 0.6 ? "resume" : "prose";
+    if (headings >= 2 && (contact || ranges >= 2) && sentences / lines.length < 0.6) return "resume";
+    return essayKind(text, lines);
+  }
+
+  /* Research paper, literary essay, or essay. Owner, 2026-10-04: "does it have
+     types of writing detection like research paper vs english essay with page
+     number and stuff detection". All three keep every check and the same
+     citation style; the type is shown in the panel ("Reading this as …") and
+     changes what quoteCitationTips says. A research paper announces itself:
+     an Abstract, or a methods/results-style section beside another heading.
+     A literary essay quotes a text and talks about how it works. Anything
+     short of that is an essay — "prose", the default it always was. */
+  const RESEARCH_HEADING = /^(?:abstract|introduction|background|literature review|related work|methods?|methodology|materials and methods|participants|procedure|data|results|findings|analysis|discussion|limitations|conclusions?|references|bibliography|works cited)$/i;
+  const RESEARCH_CORE = /^(?:abstract|literature review|related work|methods?|methodology|materials and methods|participants|procedure|results|findings|discussion|limitations)$/i;
+  const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*)\b/gi;
+  function essayKind(text, lines) {
+    const heads = lines.map((l) => l.replace(/^(?:\d+|[IVX]+)[.)]?\s+/, "").replace(/[:.]$/, "").trim()).filter((l) => l.length <= 40 && RESEARCH_HEADING.test(l));
+    const core = heads.filter((h) => RESEARCH_CORE.test(h));
+    if (heads.some((h) => /^abstract$/i.test(h)) || (core.length >= 1 && heads.length >= 2)) return "research";
+    const quotes = (String(text).match(/[“"][^”"\n]{8,600}[”"]/g) ?? []).length;
+    const cues = (String(text).match(LITERARY_CUE) ?? []).length;
+    return quotes >= 2 && cues >= 3 ? "literary" : "prose";
+  }
+  const GENRE_LABEL = { resume: "a resume", letter: "a letter", research: "a research paper", literary: "a literary essay" };
+  const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary";
+
+  /* A direct quotation cited without the page it came from. Every common style
+     wants the page for a quote — MLA (Ghosh 23), APA (Ghosh, 2020, p. 23),
+     Chicago (Ghosh 2020, 23) — and Tracely cannot know which page, so it asks.
+     Only a quote followed by its own parenthetical is judged; a parenthetical
+     with a page, paragraph, line or act.scene.line already has its locator. A
+     source with no pages needs none: a quote whose author's Works Cited entry
+     is a web address with no page range is left alone. Free and local. */
+  // A closing number is a page unless it looks like a year (1500-2099): (Tolstoy 1204) is a page, (Smith 2019) is not.
+  const LOCATOR = /\b(?:pp?|paras?|par|ch|chap|l{1,2}|lines?|sec|loc|n\.\s*pag)\.?\s*\d|(?:^|[\s,])(?:\d{1,3}|(?!1[5-9]\d\d\b|20\d\d\b)\d{4})(?:\s*[–-]\s*\d{1,4})?\s*$|\b\d+\.\d+(?:\.\d+)?\b|\bn\.\s*pag\b/i;
+  function quoteCitationTips(text, style) {
+    const raw = String(text ?? "");
+    const wc = worksCitedBlock(raw);
+    const out = [];
+    for (const m of raw.matchAll(/([“"])([^”"\n]{12,600})([”"])\s*\(([^()\n]{1,80})\)/g)) {
+      const inner = m[4].trim();
+      if (!/[A-Z]|\d/.test(inner) || LOCATOR.test(inner)) continue; // not a citation, or it has its page
+      const author = inner.match(/^([\p{Lu}][\p{L}'’-]+)/u)?.[1] ?? null;
+      const year = inner.match(/\b(?:1[5-9]|20)\d{2}\b/)?.[0] ?? null;
+      if (author && wc) {
+        const entry = wc.entries.find((e) => e.toLowerCase().startsWith(author.toLowerCase()));
+        if (entry && /https?:\/\/|\bwww\.|\.(?:com|org|net|gov|edu)\b/i.test(entry) && !/\bpp?\.\s*\d|\b\d+\s*[–-]\s*\d+\b/.test(entry)) continue; // a web page: no pages to cite
+      }
+      const who = author ?? "Author";
+      const example = style === "apa" ? `(${who}, ${year ?? "2020"}, p. 23)` : style === "chicago" ? `(${who} ${year ?? "2020"}, 23)` : `(${who} 23)`;
+      const styleName = style === "apa" ? "APA" : style === "chicago" ? "Chicago" : "MLA";
+      out.push({ quote: m[0].slice(-Math.min(m[0].length, 160)), kind: "page", message: `A direct quote needs the page it came from — in ${styleName}, like ${example}. If the source has no page numbers, leave it as it is.` });
+      if (out.length >= 6) break;
+    }
+    return out;
   }
 
   /* Resume format slips a rule can be RIGHT about, free and instant — the
@@ -1228,7 +1283,7 @@
      kept only if it is a different kind. A note whose quote is no longer in
      the text (the writer fixed it) drops out without waiting for the next
      review. */
-  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo" };
+  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number" };
   function resumeTips(text, modelFindings, dismissed) {
     const norm = (q) => String(q).toLowerCase().replace(/\s+/g, " ").trim();
     const hay = norm(text);
@@ -1258,15 +1313,30 @@
     return out;
   }
   function resumeTipsHtml(tips, reviewing, copiedId) {
+    const note = reviewing ? "Reading your bullets…" : tips.length ? "" : "No resume tips — this reads cleanly.";
+    return tipsSectionHtml("Resume tips", tips, note, copiedId);
+  }
+  /* Page-number notes for an essay or paper: shown only when there is one —
+     an essay with every quote paged gets no empty section. */
+  function citationTips(text, style, dismissed) {
+    return quoteCitationTips(text, style).map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|page"), suggestion: "" })).filter((t) => !dismissed.has(t.id));
+  }
+  function citationTipsHtml(tips, copiedId) {
+    return tips.length ? tipsSectionHtml("Citation tips", tips, "", copiedId) : "";
+  }
+  // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
+  function genreLineHtml(genre) {
+    return GENRE_LABEL[genre] ? `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}</div>` : "";
+  }
+  function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}">
         <div class="top"><span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
-        <div class="quote">“${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}”</div>
+        <div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
         ${t.suggestion ? `<div class="fix"><div class="fix-label">Suggested rewrite</div><div class="fix-text">${esc(t.suggestion)}</div><div class="row"><button class="act" data-tip-copy="${t.id}">${copiedId === t.id ? "Copied ✓" : "Copy rewrite"}</button></div></div>` : ""}
       </div>`).join("");
-    const note = reviewing ? "Reading your bullets…" : tips.length ? "" : "No resume tips — this reads cleanly.";
-    return `<div class="tips"><div class="tips-head">Resume tips${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
+    return `<div class="tips"><div class="tips-head">${title}${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
   }
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
@@ -1501,6 +1571,7 @@
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     .tips { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
     .tips-head { font-size: 13px; font-weight: 600; color: #1a1a1f; padding: 2px 2px 0; }
+    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
@@ -4495,8 +4566,10 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const tipsHtml = FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId) : "";
-        const evidenceHtml = FEATURES.evidenceHints && docGenre === "prose"
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
+          : FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "");
+        const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -4509,7 +4582,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
+            ${undoStrip}${genreHtml}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -5469,8 +5542,10 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const tipsHtml = FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId) : "";
-        const evidenceHtml = FEATURES.evidenceHints && docGenre === "prose"
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
+          : FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "");
+        const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -5484,7 +5559,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${tipsHtml}${cardsHtml || (tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`)}${evidenceHtml}
+            ${genreHtml}${tipsHtml}${cardsHtml || (tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
