@@ -1,6 +1,7 @@
 import { CheckError } from "./errors.js";
 import { enrichSources, doiOf } from "./sourceEnrich.js";
 import { fetchUrlMetadata } from "./citeMeta.js";
+import { verifySources } from "./sourceVerify.js";
 import {
   ALLOWED_MODELS,
   DEFAULT_MODEL,
@@ -434,10 +435,16 @@ export async function findSources({ claim, correction, context, model, effort, m
   // that answers 404. Off for a mock answer and whenever a caller asks.
   const { enriched, dropped } = enrich === false ? { enriched: 0, dropped: 0 } : await completeSources(merged, { now: new Date() });
 
+  // Then the second look (lib/sourceVerify.js): read what each "supports" /
+  // "refutes" source itself says and judge it against the claim, so a source
+  // only on the topic is relabelled "context" and never offered to cite.
+  // Never fails the search; its tokens are added to what the route records.
+  const verified = enrich === false ? { checked: 0, changed: 0, usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel });
+
   // `webSearchCalls`: what the search tool billed, per call — the route
-  // records it and keeps it out of the response. `enriched`/`dropped` are
-  // for the route's log line.
-  return { sources: merged, model: usedModel, usage, webSearchCalls, webSearchActions, enriched, dropped };
+  // records it and keeps it out of the response. `enriched`/`dropped`/
+  // `verified` are for the route's log line.
+  return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, verified: { checked: verified.checked, changed: verified.changed } };
 }
 
 /* The part of the document the search should see: the claim's own
