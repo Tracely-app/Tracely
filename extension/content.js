@@ -47,7 +47,7 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -117,6 +117,7 @@
     resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
     offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
+    writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
   };
@@ -1199,7 +1200,37 @@
      than a short note: "Hi" alone opens plenty of blog posts. */
   const SALUTATION = /^(?:dear|hi|hello|hey|good (?:morning|afternoon|evening)|to whom it may concern)\b[^!?\n]{0,60}[,:!]?$/i;
   const SIGNOFF = /^(?:sincerely|best|best regards|best wishes|all the best|kind regards|warm regards|regards|thanks|thank you|many thanks|cheers|warmly|respectfully|yours(?: truly| sincerely| faithfully)?)[,.!]?$/i;
+  /* Homework, not writing. Owner, 2026-10-04: Tracely "keeps trying to help
+     me with other things such as my physics homework … only make it help on
+     literature", on "3. Determine the net area under the velocity vs time
+     curve … How does the area under the curve compare to …?". A worksheet is
+     a list of TASKS — numbered prompts that tell the student to determine,
+     calculate or explain, and questions — about a STEM subject; an essay
+     makes claims. Two ways to be one, both needing tasks to be a large share
+     of the text so an essay with a rhetorical question is never caught:
+       - at least one task, half or more of the sentences tasks, and a
+         third or more of the sentences using STEM vocabulary, units or math;
+       - three or more numbered task items making up 40% of the sentences.
+     Tracely then sends nothing, draws nothing, and says why. */
+  const TASK_START = /^(?:\(?(?:\d{1,2}|[a-h])[.)]\s*)?(?:determine|calculate|find|solve|compute|show that|prove|derive|evaluate|simplify|estimate|sketch|graph|plot|draw|label|identify|list|state|describe how|explain how|explain why|compare|use (?:the|your)|what is|what are|what was|what were|how does|how do|how did|how many|how much|how far|how long|why does|why do|which)\b/i;
+  const NUMBERED_ITEM = /^\(?(?:\d{1,2}|[a-h])[.)]\s+\S/i;
+  const STEM_TERM = /\b(?:velocity|acceleration|displacement|momentum|kinetic|potential energy|newtons?|joules?|watts?|gravity|friction|vectors?|scalars?|slope|intercept|derivative|integral|equations?|formula|graphs?|axis|axes|curve|functions?|variables?|coefficient|molar|moles?|reactants?|stoichiometr\w*|hypotenuse|triangle|radius|diameter|circumference|probability|area under|net area|position[- ]time|velocity[- ]time)\b|\d\s?(?:m\/s²?|km\/h|kg|cm|mm|N|J|W|Hz|mol|°C)\b|[=√±×÷^]/i;
+  function looksLikeHomework(text) {
+    const sentences = [];
+    for (const line of String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean)) {
+      for (const s of line.split(/(?<=[.!?])\s+(?=["“(]?[A-Z0-9])/)) if (s.split(/\s+/).length >= 3) sentences.push(s);
+    }
+    const n = sentences.length;
+    if (n === 0) return false;
+    const isTask = (s) => TASK_START.test(s) || /\?["”’)]?$/.test(s);
+    const tasks = sentences.filter(isTask).length;
+    const stem = sentences.filter((s) => STEM_TERM.test(s)).length;
+    const numbered = sentences.filter((s) => NUMBERED_ITEM.test(s) && isTask(s)).length;
+    return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4);
+  }
+
   function detectGenre(text) {
+    if (looksLikeHomework(text)) return "homework";
     const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length >= 2 && SALUTATION.test(lines[0]) && (lines.slice(-4).some((l) => SIGNOFF.test(l)) || lines.length <= 4)) return "letter";
     if (lines.length < 6) return essayKind(text, lines); // too short to be a resume; a paragraph or two can still be a paper
@@ -1230,7 +1261,7 @@
     const cues = (String(text).match(LITERARY_CUE) ?? []).length;
     return quotes >= 2 && cues >= 3 ? "literary" : "prose";
   }
-  const GENRE_LABEL = { resume: "a resume", letter: "a letter", research: "a research paper", literary: "a literary essay" };
+  const GENRE_LABEL = { resume: "a resume", letter: "a letter", research: "a research paper", literary: "a literary essay", homework: "homework questions" };
   const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary";
 
   /* A direct quotation cited without the page it came from. Every common style
@@ -1661,6 +1692,7 @@
   }
   // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
   function genreLineHtml(genre) {
+    if (genre === "homework") return `<div class="genre-line">This looks like homework questions. Tracely checks essays and other writing, so it is staying quiet here.</div>`;
     return GENRE_LABEL[genre] ? `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}</div>` : "";
   }
   function tipsSectionHtml(title, tips, note, copiedId) {
@@ -2147,7 +2179,7 @@
         if (docsOn) cycle();
       });
     }
-    const DOCS_CONSENT_TEXT = "Tracely sends this document's text to Tracely's server (api.jointracely.com) to check its facts, every few seconds while you write. It is processed there and not stored. This turns on checking for every Google Doc you open; switch it off any time in Tracely's options.";
+    const DOCS_CONSENT_TEXT = "Tracely sends this document's text to Tracely's server (api.jointracely.com) to check its facts, every few seconds while you write. It is processed there and not stored. This turns on checking for every Google Doc you open; switch it off any time with Turn off in Tracely's panel, or in its options.";
 
     // ── state ──
     // Verdicts and source lists persist per doc: reopening the tab re-checks
@@ -2394,6 +2426,7 @@
     }
 
     function uncheckedSegments() {
+      if (FEATURES.writingOnly && docGenre === "homework") return []; // not writing: nothing to check
       if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
@@ -3190,6 +3223,7 @@
 
     function requestDocsMarks() {
       if (orphaned || document.hidden) return;
+      if (!docsOn) { if (docsBars.length) clearDocsMarks(); return; } // turned off: nothing drawn
       lastLocateAt = Date.now();
       armAnnotationObserver();
       // The hook caps at 40 wants — cap here too so nothing is silently dropped
@@ -4885,6 +4919,19 @@
     tierListeners.push(() => render());
 
     /* The ask. One card, the app's shape, and the one decision it needs. */
+    /* Turn off: the same switch the consent card turns on (docsEnabled), so it
+       holds for every Doc until the writer turns it back on — from the pill,
+       which goes back to "Turn on Tracely for Docs", or from the options
+       page. Underlines and any open card go at once, not at the next read. */
+    function turnDocsOff() {
+      docsOn = false;
+      expanded = false;
+      storageSet({ docsEnabled: false });
+      hideDocsPopover();
+      clearDocsMarks();
+      render();
+    }
+
     function renderDocsConsent() {
       root.innerHTML = `
         ${expanded ? `
@@ -5023,7 +5070,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${genreHtml}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
+            ${undoStrip}${genreHtml}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -5031,7 +5078,7 @@
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="checkNow">Check now</button>
+            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or its options.">Turn off</button>
           </div>
         </div>`;
       }
@@ -5047,7 +5094,7 @@
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
-        shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
@@ -5690,6 +5737,7 @@
     }
 
     function uncheckedSegments() {
+      if (FEATURES.writingOnly && docGenre === "homework") return []; // not writing: nothing to check
       if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
@@ -6054,7 +6102,7 @@
           ? "Tracely could not reach its server. Try again in a moment."
           : enabled
             ? "Nothing flagged. Sentences are checked as you finish them, while this field is focused."
-            : "Nothing sent yet. “Check once” reviews this field — or turn on auto-check for this site.";
+            : "Tracely is off on this site, and nothing is sent. Turn it on to check what you write here.";
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
@@ -6064,12 +6112,11 @@
           </div>
           <div class="foot">
             <span class="foot-left">
-              <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "auto-check off"}</span>
-              <label class="autosrc" title="Check sentences on this site as you finish them. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
+              <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "off on this site"}</span>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="checkNow">${enabled ? "Check now" : "Check once"}</button>
+            <button class="act${enabled ? "" : " primary"}" id="siteSwitch">${enabled ? "Turn off on this site" : "Turn on for this site"}</button>
           </div>
         </div>`;
       }
@@ -6078,7 +6125,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Check this field</div>`
+          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       const listEl = shadow.querySelector(".list");
@@ -6087,8 +6134,7 @@
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
-        shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
-        shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        shadow.getElementById("siteSwitch").addEventListener("click", () => setSiteEnabled(!enabled));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {

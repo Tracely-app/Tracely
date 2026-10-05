@@ -261,6 +261,7 @@ function widgetContext(tier) {
       CHECK_INTERVAL_MS: 10_000,
       nextReadGap: () => 10_000, // the timing helper lives outside the sliced render code
       legendHtml: () => "", // tested in ext-mark-patterns.test.js
+      turnDocsOff: () => {}, // the Turn off button's handler (ext-off-switch.test.js)
       FEATURES: { evidenceHints: false }, // the evidence section is tested in ext-evidence.test.js
       showEvidence: false,
       lastTextChangeAt: 0,
