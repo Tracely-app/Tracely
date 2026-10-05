@@ -56,6 +56,11 @@
     // "We surveyed 1,200 students" — their own study). The server stops asking
     // (its genre clause); this holds the line against a server from before it.
     && !(f.verdict === "needs_citation" && (genre === "resume" || genre === "letter" || authorsOwnAccount(text)))
+    // A sentence that visibly carries a citation never reads "Missing
+    // citation", whatever the model said: the check's own rule is that a
+    // cited sentence is never needs_citation, and it broke it on "… modern
+    // education (Cambridge International, 2018)." (owner, 2026-10-04).
+    && !(f.verdict === "needs_citation" && hasCitationMark(text))
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
@@ -68,6 +73,13 @@
      first person — the cost is one missed citation request, not a wrong flag. */
   const ROMAN_I = /\b(?:War|Part|Chapter|Book|Act|Phase|Title|Section|Volume|Vol\.|Stage|Level|Grade|Class|Type|Article|Round|Season|(?:King|Queen|Pope|Emperor|Empress|Tsar|Czar|Prince|Princess)\s+[A-Z][a-z]+)\s+I\b/g;
   const OWN_ACCOUNT = /(?:^|[^\w'])I(?:'m|'ve|'d|'ll)?(?=$|[^\w'])|\b[Mm](?:y|e|ine)\b|\b(?:[Ww]e|[Oo]ur|[Uu]s)\b(?!\s+(?:all|can|cannot|could|know|see|must|should|need|often|tend|might|may|now)\b)/;
+  /* A citation in the sentence itself: a parenthetical with a year, "n.d."
+     or a quoted title — (Cambridge International, 2018), (Smith, n.d.),
+     ("Youth Matters", 2025) — an MLA author-page (Shoup 45), a [3], or a
+     footnote mark after the full stop. Prose like "according to experts" is
+     not one: it names no source a reader could find. */
+  const CITATION_MARK = /\([^()]*(?:\b(?:1[5-9]|20)\d\d[a-z]?\b|\bn\.\s?d\.|["“][^"”]{3,}["”])[^()]*\)|\([\p{Lu}][\p{L}'’-]+(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.)?\s+\d{1,4}(?:[-–]\d{1,4})?\)|\[\d+(?:[,–-]\s?\d+)*\]|[.!?]["”’]?[¹²³⁴⁵⁶⁷⁸⁹⁰]+/u;
+  const hasCitationMark = (text) => typeof text === "string" && CITATION_MARK.test(text);
   const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
@@ -1107,6 +1119,20 @@
     return genre === "resume" && !review.unavailable && review.serving !== false;
   }
   const REVIEW_MAX_CHARS = 12_000; // what the server reads (runReview's clamp), so no more is sent — PRIVACY.md says 12,000 // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
+
+  /* How long to leave Google's export alone after it answers 429 Too Many
+     Requests. Owner's console, 2026-10-04: "GET …/export … 429". Reads run
+     every 3 s while the writer types (READ_INTERVAL_MS), and a refused read
+     used to retry 10 s later at the same pace, straight back into the limit.
+     Now: Google's Retry-After when it sends one, else 30 s, doubling on each
+     refusal in a row, at most 5 minutes; the first good read resets it. */
+  const EXPORT_BACKOFF_MIN_MS = 30_000;
+  const EXPORT_BACKOFF_MAX_MS = 300_000;
+  function exportBackoffMs(prevMs, retryAfter) {
+    const next = prevMs > 0 ? Math.min(prevMs * 2, EXPORT_BACKOFF_MAX_MS) : EXPORT_BACKOFF_MIN_MS;
+    const asked = Number(retryAfter) > 0 ? Math.min(Number(retryAfter) * 1000, EXPORT_BACKOFF_MAX_MS) : 0;
+    return Math.max(next, asked);
+  }
 
   function readyToSend(seg, prevHashes) {
     return /[.!?]["')\]]*$/.test(seg.text) || prevHashes.has(seg.hash);
@@ -2325,12 +2351,19 @@
     let autoSourceTimes = []; // rolling-hour guard on automatic source lookups
 
     // ── doc reading ──
+    let exportBackoff = 0, exportPausedUntil = 0; // see exportBackoffMs
     async function getDocText() {
       if (harness) return harness.getText();
       const res = await fetch(docExportUrl(DOC_ID, ACCOUNT_PREFIX), {
         credentials: "same-origin",
       });
+      if (res.status === 429) {
+        exportBackoff = exportBackoffMs(exportBackoff, res.headers.get("retry-after"));
+        exportPausedUntil = Date.now() + exportBackoff;
+        throw Object.assign(new Error("Google is limiting how often this doc can be read"), { kind: "rate_limited" });
+      }
       if (!res.ok) throw new Error(`doc export failed (${res.status})`);
+      exportBackoff = 0;
       const t = await res.text();
       return t.replace(/^﻿/, "").replace(/\r\n/g, "\n");
     }
@@ -2419,7 +2452,10 @@
         requestReview(docText); // fire-and-forget; resumes only, gated on stillness, a real change and the floors
       } catch (err) {
         lastCheckFailed = true;
-        if (err?.kind === "no_engine") {
+        if (err?.kind === "rate_limited") {
+          statusKind = "idle"; // not an error the writer can do anything about
+          statusMsg = `Google is pacing reads of this doc — checking again in ${Math.round(exportBackoff / 1000)}s`;
+        } else if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
         } else if (offlineError(err)) {
@@ -5140,7 +5176,7 @@
     setInterval(watchTypingFrame, 5_000);
     setInterval(() => {
       if (orphaned) return;
-      if (!inflight && !document.hidden && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
+      if (!inflight && !document.hidden && Date.now() >= exportPausedUntil && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
         cycle();
       } else if (expanded && !inflight) {
         // Targeted countdown update — a full render() every second would reset
