@@ -157,11 +157,11 @@ test("the tips render escaped, neutral, with Copy only where there is a rewrite"
 test("wired: the background worker relays /api/review, and the call is gated", () => {
   assert.match(BG, /const API_PATHS = new Set\(\[[^\]]*"\/api\/review"/, "or api() fails with 'No reply from the Tracely background worker'");
   assert.equal((SRC.match(/async function requestReview\(text\)/g) || []).length, 2, "Docs and field mode");
-  assert.equal((SRC.match(/api\("\/api\/review", \{ text: text\.slice\(0, REVIEW_MAX_CHARS\), model: CHECK_MODEL \}\)/g) || []).length, 2, "no effort sent: the server decides");
-  assert.match(SRC, /docGenre !== "resume" \|\| review\.inflight \|\| review\.unavailable/, "resumes only, one at a time, off after a 404");
+  assert.equal((SRC.match(/api\("\/api\/review", \{ text: text\.slice\(0, REVIEW_MAX_CHARS\), model: CHECK_MODEL, kind \}\)/g) || []).length, 2, "no effort sent: the server decides");
+  assert.match(SRC, /if \(!kind \|\| review\.inflight \|\| review\.unavailable\) return;/, "resumes only, one at a time, off after a 404");
   assert.match(SRC, /Date\.now\(\) - lastTextChangeAt < REVIEW_IDLE_MS \|\| Date\.now\(\) - review\.at < REVIEW_FLOOR_MS/, "still text, and at most once a minute");
   assert.match(SRC, /if \(err\?\.kind === "not_found"\) review\.unavailable = true;/, "an older server without the route: quiet, not an error");
-  assert.equal((SRC.match(/flagShown\(.*?, settings, docGenre, (?:seg|x)\.text\)/g) || []).length, 4, "every place a verdict is shown knows the genre and the sentence");
+  assert.equal((SRC.match(/flagShown\(.*?, settings, docGenre, (?:seg|x)\.text, (?:citedLater|liveCovered)\.has\((?:seg|x)\.hash\)\)/g) || []).length, 4, "every place a verdict is shown knows the genre and the sentence");
   assert.equal((SRC.match(/FEATURES\.evidenceHints && isArgumentGenre\(docGenre\)/g) || []).length, 2, "no evidence suggestions on a resume or a letter");
   assert.match(SRC, /const isArgumentGenre = \(g\) => g === "prose" \|\| g === "research" \|\| g === "literary";/);
 });

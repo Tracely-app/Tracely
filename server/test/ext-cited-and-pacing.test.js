@@ -47,8 +47,8 @@ test("every common citation shape counts", () => {
 
 test("not a citation: an uncited claim still gets its card", () => {
   for (const s of [
-    "Most students sleep about seven hours a night.", "According to experts, sleep helps memory.",
-    "The study (which was small) found an effect.", "Sleep helps memory (see below).", "It rose sharply (by 40%) last year.",
+    "Most students sleep about 7 hours a night.", "According to experts, sleep helps memory.",
+    "The study (which was small) found an effect.", "Sleep helps 40% of students (see below).", "It rose sharply (by 40%) last year.",
   ]) {
     assert.equal(X.hasCitationMark(s), false, s);
     assert.equal(X.flagShown(cite, {}, "prose", s), true, s);

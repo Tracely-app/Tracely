@@ -100,6 +100,6 @@ test("citation tips: one section only when there is something to say, dismissabl
 
 test("wired into both panels, beside Resume tips", () => {
   assert.match(SRC, /quoteTips: true,/);
-  assert.equal((SRC.match(/\(FEATURES\.offTopic \|\| FEATURES\.refList \|\| FEATURES\.quoteTips\) && isArgumentGenre\(docGenre\)\n\s+\? \(offTopic\.length \? offTopicHtml\(offTopic, copiedTipId\) : ""\) \+ \(refTips\.length \? referenceTipsHtml\(refTips, copiedTipId\) : ""\) \+ \(FEATURES\.quoteTips \? citationTipsHtml\(citationTips\((?:docText|fieldText), settings\.citationStyle, dismissed\), copiedTipId\) : ""\)/g) || []).length, 2);
+  assert.equal((SRC.match(/\(FEATURES\.offTopic \|\| FEATURES\.refList \|\| FEATURES\.quoteTips \|\| FEATURES\.essayFeedback\) && isArgumentGenre\(docGenre\)\n\s+\? essayFeedbackHtml\(essayNotes, review\.inflight && review\.kind === \"essay\", copiedTipId\) \+ \(offTopic\.length \? offTopicHtml\(offTopic, copiedTipId\) : ""\) \+ \(refTips\.length \? referenceTipsHtml\(refTips, copiedTipId\) : ""\) \+ \(FEATURES\.quoteTips \? citationTipsHtml\(citationTips\((?:docText|fieldText), settings\.citationStyle, dismissed\), copiedTipId\) : ""\)/g) || []).length, 2);
   assert.equal((SRC.match(/const genreHtml = FEATURES\.resumeTips \|\| FEATURES\.quoteTips \? genreLineHtml\(docGenre\) : "";/g) || []).length, 2);
 });

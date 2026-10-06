@@ -78,8 +78,8 @@ test("inheritedVerdict: only from a checked sentence that is gone, and each one 
 
 test("wired into both modes: before the check, with the dismissal carried and a console count", () => {
   assert.equal((SRC.match(/const before = segments;\n\s+segments = segmentText\((?:docText|fieldText)\);/g) || []).length, 2);
-  assert.match(SRC, /settleEditStates\(readAt\);\n\s+if \(inheritVerdicts\(before\)\) persistCaches\(\);\n\s+const todo = uncheckedSegments\(\)/, "Docs: after the edit bookkeeping, before choosing what to send");
-  assert.match(SRC, /segments = segmentText\(fieldText\);\n\s+if \(inheritVerdicts\(before\)\) persistFieldCache\(\);\n\s+const todo = uncheckedSegments\(\)/, "field mode: before choosing what to send");
+  assert.match(SRC, /settleEditStates\(readAt\);\n\s+if \(inheritVerdicts\(before\)\) persistCaches\(\);\n\s+citedLater = coveredByLaterCitation\(\w+, segments\);\n\s+const todo = uncheckedSegments\(\)/, "Docs: after the edit bookkeeping, before choosing what to send");
+  assert.match(SRC, /segments = segmentText\(fieldText\);\n\s+if \(inheritVerdicts\(before\)\) persistFieldCache\(\);\n\s+citedLater = coveredByLaterCitation\(\w+, segments\);\n\s+const todo = uncheckedSegments\(\)/, "field mode: before choosing what to send");
   assert.equal((SRC.match(/function inheritVerdicts\(before\) \{/g) || []).length, 2);
   assert.equal((SRC.match(/if \(dismissed\.has\(old\.hash\) && !dismissed\.has\(seg\.hash\)\) \{/g) || []).length, 2, "a dismissed flag stays dismissed after a typo fix");
   assert.equal((SRC.match(/sentencesChecked \+= todo\.length;/g) || []).length, 2);

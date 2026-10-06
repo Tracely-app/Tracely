@@ -47,7 +47,7 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -61,6 +61,13 @@
     // cited sentence is never needs_citation, and it broke it on "… modern
     // education (Cambridge International, 2018)." (owner, 2026-10-04).
     && !(f.verdict === "needs_citation" && hasCitationMark(text))
+    // Only what a marker would ask a source for (citationWorthy) — and not
+    // when a citation later in the same paragraph already carries it
+    // (`covered`, coveredByLaterCitation): a generalization followed by its
+    // cited evidence is how essays are written.
+    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || covered))
+    // "Worth checking" is for something specific that cannot be verified.
+    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text))
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
@@ -80,6 +87,23 @@
      not one: it names no source a reader could find. */
   const CITATION_MARK = /\([^()]*(?:\b(?:1[5-9]|20)\d\d[a-z]?\b|\bn\.\s?d\.|["“][^"”]{3,}["”])[^()]*\)|\([\p{Lu}][\p{L}'’-]+(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.)?\s+\d{1,4}(?:[-–]\d{1,4})?\)|\[\d+(?:[,–-]\s?\d+)*\]|[.!?]["”’]?[¹²³⁴⁵⁶⁷⁸⁹⁰]+/u;
   const hasCitationMark = (text) => typeof text === "string" && CITATION_MARK.test(text);
+  /* Does this sentence owe a source of its OWN? Owner, 2026-10-04: "sometimes
+     it flags stuff just to flag stuff … basic abstractions and
+     generalizations followed by a piece of evidence do not necessarily need a
+     citation." Only a number, a direct quotation or a research finding does;
+     a topic sentence, an abstraction or the writer's own argument is the
+     essay talking. A copy of src/shared/citationWorthy.ts —
+     server/test/citation-worthy-mirror.test.js keeps the two in step. */
+  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|a third|a quarter|twice|double|triple|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority)\b/i;
+  const WORTHY_QUOTATION = /["“][^"”]*\S+\s+\S+\s+\S+[^"”]*["”]/;
+  const WORTHY_FINDING = /\b(?:stud(?:y|ies)|research(?:ers)?|survey(?:s|ed)?|experiments?|data|scientists|report(?:s|ed)?|according to)\b/i;
+  const citationWorthy = (text) => WORTHY_QUANTITY.test(String(text ?? "")) || WORTHY_QUOTATION.test(String(text ?? "")) || WORTHY_FINDING.test(String(text ?? ""));
+  // Names nothing specific either: "Worth checking" has nothing to check there.
+  const isGeneralStatement = (text) => {
+    const t = String(text ?? "").trim();
+    if (citationWorthy(t)) return false;
+    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?[A-Z][a-z]/.test(w));
+  };
   const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
@@ -96,7 +120,7 @@
   // from incoherent; colour alone never has to. It used to be a fourth hue
   // per verdict (amber, violet, blue), which made the same finding a
   // different colour here than in the app.
-  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800" };
+  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#ff5900" };
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
@@ -118,6 +142,7 @@
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
     offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
     writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
+    essayFeedback: true,  // on an essay or paper: /api/review reads it against its rubric (a DBQ's, for one) — essayFeedbackTips
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
   };
@@ -146,7 +171,10 @@
      dotted for amber: grey dotted already means "still checking", and the two
      would then differ by colour alone again. The panel's legend names all
      three (legendHtml). */
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double", note_tip: "dashed" };
+  // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
+  // "needs specific evidence", "explain this evidence". Orange dashed: the
+  // thin-evidence family ("Worth checking"), never red, which means wrong.
   // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
   // with no page, a reference listed twice or never cited — citationMarks),
   // drawn under the parenthetical or the entry rather than the sentence, so a
@@ -1116,6 +1144,12 @@
      seconds of the writer pausing), true once one answers for a resume, and
      false after a failure, a reply saying it is not a resume, or a server
      without the route (unavailable) — and then the check runs as before. */
+  // Which review a document gets: resume tips, essay feedback, or none.
+  function reviewKindFor(genre) {
+    if (genre === "resume") return FEATURES.resumeTips ? "resume" : null;
+    if (isArgumentGenre(genre)) return FEATURES.essayFeedback ? "essay" : null;
+    return null;
+  }
   function reviewCoversCheck(genre, review) {
     return genre === "resume" && !review.unavailable && review.serving !== false;
   }
@@ -1518,6 +1552,22 @@
   }
   const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
 
+  /* Sentences a citation LATER in the same paragraph covers: writers state an
+     idea across a sentence or two and cite once at the close. The desktop's
+     citationScope.ts reads the paragraph the same way ("Forward,
+     unconditionally"). Paragraph = no line break between two sentences. */
+  function coveredByLaterCitation(text, segs) {
+    const covered = new Set();
+    let citedAhead = false;
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const next = segs[i + 1];
+      if (next && /\n/.test(String(text).slice(segs[i].end, next.start))) citedAhead = false; // a new paragraph starts after this one
+      if (citedAhead) covered.add(segs[i].hash);
+      if (hasCitationMark(segs[i].text)) citedAhead = true;
+    }
+    return covered;
+  }
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -1605,7 +1655,9 @@
      kept only if it is a different kind. A note whose quote is no longer in
      the text (the writer fixed it) drops out without waiting for the next
      review. */
-  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number", offtopic: "Doesn't seem to belong", refdup: "Listed twice", refuncited: "Not cited in your text" };
+  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number", offtopic: "Doesn't seem to belong", refdup: "Listed twice", refuncited: "Not cited in your text",
+    thesis: "Thesis", evidence: "Needs specific evidence", analysis: "Explain this evidence", structure: "Structure",
+    documents: "Document evidence (DBQ)", sourcing: "Sourcing (DBQ)", complexity: "Complexity (DBQ)" };
   function resumeTips(text, modelFindings, dismissed) {
     const norm = (q) => String(q).toLowerCase().replace(/\s+/g, " ").trim();
     const hay = norm(text);
@@ -1667,6 +1719,36 @@
   function referenceTipsHtml(tips, copiedId) {
     return tips.length ? tipsSectionHtml("Reference list", tips, "", copiedId) : "";
   }
+  /* Writing feedback (owner, 2026-10-05, on an AP World DBQ whose facts were
+     all right: "it flags things too little … It should of flagged these
+     important parts of the DBQ"). /api/review with kind "essay" reads the
+     essay against its rubric and returns at most five notes, each on one
+     sentence or on the whole essay. Shown only when they belong to the text
+     on screen: a sentence note whose sentence is gone drops out at once. */
+  const ESSAY_NOTE_KINDS = ["thesis", "evidence", "analysis", "sourcing", "complexity", "documents", "structure"];
+  function essayFeedbackTips(text, findings, dismissed) {
+    const norm = (x) => String(x).toLowerCase().replace(/\s+/g, " ").trim();
+    const hay = norm(text);
+    return (Array.isArray(findings) ? findings : [])
+      .filter((f) => f && ESSAY_NOTE_KINDS.includes(f.kind) && f.message && (!f.quote || hay.includes(norm(f.quote))))
+      .map((f) => ({ id: "tip:" + hashText(String(f.quote ?? "") + "|" + f.kind + "|" + (f.quote ? "" : f.message)), quote: String(f.quote ?? ""), kind: f.kind, message: String(f.message), suggestion: "" }))
+      .filter((t) => !dismissed.has(t.id));
+  }
+  function essayFeedbackHtml(tips, reviewing, copiedId) {
+    if (!tips.length && !reviewing) return "";
+    return tipsSectionHtml("Writing feedback", tips, reviewing && !tips.length ? "Reading your essay…" : "", copiedId);
+  }
+  // Sentence notes as marks (note_tip), placed like the citation notes.
+  function essayFeedbackMarks(text, tips) {
+    const out = [];
+    for (const t of tips) {
+      if (!t.quote) continue;
+      const at = text.indexOf(t.quote);
+      if (at >= 0) out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false, markKind: "note_tip" });
+    }
+    return out;
+  }
+
   /* Where each citation note goes on the page (cite_tip marks). Owner,
      2026-10-04: "what if it needs to flag for two different things, say wrong
      information and wrong citation" — so a citation note is underlined on
@@ -1699,7 +1781,7 @@
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}">
         <div class="top"><span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
-        <div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>
+        ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
         ${t.suggestion ? `<div class="fix"><div class="fix-label">Suggested rewrite</div><div class="fix-text">${esc(t.suggestion)}</div><div class="row"><button class="act" data-tip-copy="${t.id}">${copiedId === t.id ? "Copied ✓" : "Copy rewrite"}</button></div></div>` : ""}
       </div>`).join("");
@@ -2322,6 +2404,7 @@
     }
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
+    let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
@@ -2335,7 +2418,7 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
-    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null };
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null };
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
        resume, only once the text has been still REVIEW_IDLE_MS, only when a
@@ -2345,12 +2428,15 @@
        any other failure waits out the floor and tries again. The free format
        rules (resumeFormatIssues) show either way. */
     async function requestReview(text) {
-      if (!FEATURES.resumeTips || docGenre !== "resume" || review.inflight || review.unavailable) return;
+      const kind = reviewKindFor(docGenre);
+      if (!kind || review.inflight || review.unavailable) return;
+      // A document that changed kind (a resume pasted over an essay) starts over.
+      if (review.kind !== kind) Object.assign(review, { kind, lastText: null, findings: [], at: 0, okAt: 0 });
       if (!reviewWorthwhile(review.lastText, text) || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS || Date.now() - review.okAt < REVIEW_REPEAT_MS) return;
       review.inflight = true;
       render();
       try {
-        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL });
+        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL, kind });
         review.findings = Array.isArray(data?.findings) ? data.findings : [];
         review.lastText = text;
         review.okAt = Date.now();
@@ -2459,6 +2545,7 @@
         for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
         settleEditStates(readAt);
         if (inheritVerdicts(before)) persistCaches();
+        citedLater = coveredByLaterCitation(docText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         if (todo.length > 0) {
@@ -2512,7 +2599,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -3231,7 +3318,11 @@
       const issues = currentIssues().slice(0, 40);
       const flows = activeFlowIssues();
       // Citation notes get their own marks, on the citation (citationMarks).
-      const tips = FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed).slice(0, Math.max(0, 40 - issues.length)) : [];
+      const flaggedText = new Set(issues.map(({ seg }) => seg.text));
+      const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
+        ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed)).filter((t) => !flaggedText.has(t.mark)) // a fact mark already holds that sentence
+        : [];
+      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes].slice(0, Math.max(0, 40 - issues.length));
       tipMarkById = new Map(tips.map((t) => [t.id, t]));
       if (issues.length === 0 && flows.length === 0 && tips.length === 0) {
         clearDocsMarks();
@@ -3244,7 +3335,7 @@
         return;
       }
       lastVerdictByHash = new Map(issues.map(({ seg, f }) => [seg.hash, f.verdict]));
-      for (const t of tips) lastVerdictByHash.set(t.id, "cite_tip");
+      for (const t of tips) lastVerdictByHash.set(t.id, t.markKind ?? "cite_tip");
       // A flagged sentence whose citation carries its own note stops before
       // it, so the two marks sit side by side instead of on top of each other.
       const factText = (seg) => {
@@ -3685,9 +3776,9 @@
 
     // A citation note's card: what is wrong with the citation, the citation, Dismiss.
     function paintCiteTip(tip, put) {
-      put(dmHead(MARK_COLORS.cite_tip, TIP_LABEL[tip.kind] ?? "Citation"));
+      put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], TIP_LABEL[tip.kind] ?? "Citation"));
       put(dmBody(tip.message));
-      put(dmBlock(tip.kind === "page" ? "QUOTED" : "REFERENCE", dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
+      put(dmBlock(tip.markKind === "note_tip" ? "SENTENCE" : tip.kind === "page" ? "QUOTED" : "REFERENCE", dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
       const dismiss = dmBtn("Dismiss", false);
       dismiss.addEventListener("click", () => {
         dismissed.add(tip.id);
@@ -3845,7 +3936,7 @@
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -4964,9 +5055,10 @@
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed) : [];
+      const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
-      const flagged = issues.length + offTopic.length + refTips.length;
+      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length;
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -5054,8 +5146,8 @@
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
-          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips) && isArgumentGenre(docGenre)
-            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
+          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
+            ? essayFeedbackHtml(essayNotes, review.inflight && review.kind === "essay", copiedTipId) + (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
             : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
@@ -5316,6 +5408,7 @@
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
+    let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
@@ -5329,7 +5422,7 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
-    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null };
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null };
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
        resume, only once the text has been still REVIEW_IDLE_MS, only when a
@@ -5339,12 +5432,15 @@
        any other failure waits out the floor and tries again. The free format
        rules (resumeFormatIssues) show either way. */
     async function requestReview(text) {
-      if (!FEATURES.resumeTips || docGenre !== "resume" || review.inflight || review.unavailable) return;
+      const kind = reviewKindFor(docGenre);
+      if (!kind || review.inflight || review.unavailable) return;
+      // A document that changed kind (a resume pasted over an essay) starts over.
+      if (review.kind !== kind) Object.assign(review, { kind, lastText: null, findings: [], at: 0, okAt: 0 });
       if (!reviewWorthwhile(review.lastText, text) || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS || Date.now() - review.okAt < REVIEW_REPEAT_MS) return;
       review.inflight = true;
       render();
       try {
-        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL });
+        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL, kind });
         review.findings = Array.isArray(data?.findings) ? data.findings : [];
         review.lastText = text;
         review.okAt = Date.now();
@@ -5592,20 +5688,25 @@
       if (liveText.trim().length < MIN_FIELD_CHARS) return;
       // Citation notes, on the citation itself (citationMarks); a flagged
       // sentence stops before a citation that carries one.
-      const tips = FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : [];
+      const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
+        ? essayFeedbackMarks(liveText, essayFeedbackTips(liveText, review.findings, dismissed)).filter((t) => !(cache.get(hashText(t.mark)) && flagShown(cache.get(hashText(t.mark)), settings, docGenre, t.mark)))
+        : [];
+      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : []), ...notes];
       const seen = new Set();
       for (const tip of tips) {
         const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
-        if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS.cite_tip, MARK_PATTERN.cite_tip);
+        if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS[tip.markKind ?? "cite_tip"], MARK_PATTERN[tip.markKind ?? "cite_tip"]);
       }
-      for (const seg of segmentText(liveText)) {
+      const liveSegs = segmentText(liveText);
+      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      for (const seg of liveSegs) {
         if (!seg.checkable || seen.has(seg.hash) || dismissed.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings, docGenre, seg.text)) {
+        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash))) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -5758,7 +5859,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text)) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -5788,6 +5889,7 @@
         const before = segments;
         segments = segmentText(fieldText);
         if (inheritVerdicts(before)) persistFieldCache();
+        citedLater = coveredByLaterCitation(fieldText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {
@@ -6026,10 +6128,11 @@
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed) : [];
+      const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
-      const flagged = issues.length + offTopic.length + refTips.length;
+      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length;
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -6091,8 +6194,8 @@
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
-          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips) && isArgumentGenre(docGenre)
-            ? (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
+          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
+            ? essayFeedbackHtml(essayNotes, review.inflight && review.kind === "essay", copiedTipId) + (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
             : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))

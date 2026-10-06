@@ -1480,6 +1480,7 @@ function updateOverlayAndWidget(
         c.id,
         problemKindsFor({
           claimType: c.claimType,
+          claimText: c.text,
           hasInlineCitation: isCited(c),
           evidence: evidence
             ? {
