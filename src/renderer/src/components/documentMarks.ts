@@ -174,6 +174,7 @@ export function measureMarks(
     // is returned only for a null evidence input, which cannot reach here.
     const problemKinds = problemKindsFor({
       claimType: span.claim.claimType,
+      claimText: span.claim.text,
       hasInlineCitation: cited,
       hasOwnCitation: ownCitation,
       citationDefect: defect?.message ?? null,

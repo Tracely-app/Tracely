@@ -346,6 +346,7 @@ function gradeClaims(claims: Claim[]): GradeClaim[] {
         ? []
         : problemKindsFor({
             claimType: claim.claimType,
+            claimText: claim.text,
             hasInlineCitation: hasInlineCitation(claim.text),
             evidence: {
               score: claim.strengthScore,

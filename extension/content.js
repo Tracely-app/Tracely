@@ -47,7 +47,7 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -61,6 +61,13 @@
     // cited sentence is never needs_citation, and it broke it on "… modern
     // education (Cambridge International, 2018)." (owner, 2026-10-04).
     && !(f.verdict === "needs_citation" && hasCitationMark(text))
+    // Only what a marker would ask a source for (citationWorthy) — and not
+    // when a citation later in the same paragraph already carries it
+    // (`covered`, coveredByLaterCitation): a generalization followed by its
+    // cited evidence is how essays are written.
+    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || covered))
+    // "Worth checking" is for something specific that cannot be verified.
+    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text))
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
@@ -80,6 +87,23 @@
      not one: it names no source a reader could find. */
   const CITATION_MARK = /\([^()]*(?:\b(?:1[5-9]|20)\d\d[a-z]?\b|\bn\.\s?d\.|["“][^"”]{3,}["”])[^()]*\)|\([\p{Lu}][\p{L}'’-]+(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.)?\s+\d{1,4}(?:[-–]\d{1,4})?\)|\[\d+(?:[,–-]\s?\d+)*\]|[.!?]["”’]?[¹²³⁴⁵⁶⁷⁸⁹⁰]+/u;
   const hasCitationMark = (text) => typeof text === "string" && CITATION_MARK.test(text);
+  /* Does this sentence owe a source of its OWN? Owner, 2026-10-04: "sometimes
+     it flags stuff just to flag stuff … basic abstractions and
+     generalizations followed by a piece of evidence do not necessarily need a
+     citation." Only a number, a direct quotation or a research finding does;
+     a topic sentence, an abstraction or the writer's own argument is the
+     essay talking. A copy of src/shared/citationWorthy.ts —
+     server/test/citation-worthy-mirror.test.js keeps the two in step. */
+  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|a third|a quarter|twice|double|triple|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority)\b/i;
+  const WORTHY_QUOTATION = /["“][^"”]*\S+\s+\S+\s+\S+[^"”]*["”]/;
+  const WORTHY_FINDING = /\b(?:stud(?:y|ies)|research(?:ers)?|survey(?:s|ed)?|experiments?|data|scientists|report(?:s|ed)?|according to)\b/i;
+  const citationWorthy = (text) => WORTHY_QUANTITY.test(String(text ?? "")) || WORTHY_QUOTATION.test(String(text ?? "")) || WORTHY_FINDING.test(String(text ?? ""));
+  // Names nothing specific either: "Worth checking" has nothing to check there.
+  const isGeneralStatement = (text) => {
+    const t = String(text ?? "").trim();
+    if (citationWorthy(t)) return false;
+    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?[A-Z][a-z]/.test(w));
+  };
   const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
@@ -1518,6 +1542,22 @@
   }
   const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
 
+  /* Sentences a citation LATER in the same paragraph covers: writers state an
+     idea across a sentence or two and cite once at the close. The desktop's
+     citationScope.ts reads the paragraph the same way ("Forward,
+     unconditionally"). Paragraph = no line break between two sentences. */
+  function coveredByLaterCitation(text, segs) {
+    const covered = new Set();
+    let citedAhead = false;
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const next = segs[i + 1];
+      if (next && /\n/.test(String(text).slice(segs[i].end, next.start))) citedAhead = false; // a new paragraph starts after this one
+      if (citedAhead) covered.add(segs[i].hash);
+      if (hasCitationMark(segs[i].text)) citedAhead = true;
+    }
+    return covered;
+  }
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -2322,6 +2362,7 @@
     }
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
+    let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
@@ -2459,6 +2500,7 @@
         for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
         settleEditStates(readAt);
         if (inheritVerdicts(before)) persistCaches();
+        citedLater = coveredByLaterCitation(docText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         if (todo.length > 0) {
@@ -2512,7 +2554,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -3845,7 +3887,7 @@
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -5316,6 +5358,7 @@
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
+    let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
@@ -5598,14 +5641,16 @@
         const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
         if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS.cite_tip, MARK_PATTERN.cite_tip);
       }
-      for (const seg of segmentText(liveText)) {
+      const liveSegs = segmentText(liveText);
+      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      for (const seg of liveSegs) {
         if (!seg.checkable || seen.has(seg.hash) || dismissed.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings, docGenre, seg.text)) {
+        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash))) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -5758,7 +5803,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text)) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -5788,6 +5833,7 @@
         const before = segments;
         segments = segmentText(fieldText);
         if (inheritVerdicts(before)) persistFieldCache();
+        citedLater = coveredByLaterCitation(fieldText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {

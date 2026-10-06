@@ -1,5 +1,6 @@
 import type { ClaimType, CritiqueVerdict, ScoreBreakdown } from '@shared/types'
 import type { OutOfScopeReason } from './retrievalScope'
+import { citationWorthy } from './citationWorthy.ts'
 
 /**
  * What is actually wrong with a claim — decided once, in main, and sent to the
@@ -145,6 +146,15 @@ export type ScreenWatchProblemKind =
 
 export interface ProblemKindInput {
   claimType: ClaimType
+  /**
+   * The claim's own words. When given, the UNCITED findings (no sources, weak
+   * or partial evidence, missing citation) are raised only for a sentence that
+   * owes a source of its own — a number, a quotation, a research finding
+   * (`citationWorthy.ts`). A general statement the essay goes on to support is
+   * left alone. Owner, 2026-10-04: "sometimes it flags stuff just to flag
+   * stuff." Omitted means unknown, which keeps the old behaviour.
+   */
+  claimText?: string | null
   /** The writer's own citation in this sentence — see inlineCitation.ts. */
   hasInlineCitation: boolean
   /**
@@ -352,6 +362,7 @@ const MIXED = 40
  */
 export function problemKindsFor({
   claimType,
+  claimText = null,
   hasInlineCitation,
   hasOwnCitation = hasInlineCitation,
   citationDefect = null,
@@ -550,11 +561,13 @@ export function problemKindsFor({
   // Emitting both would print "No supporting sources" underneath "these
   // databases do not hold this kind of claim", which is the accusation the
   // second line exists to withdraw.
-  if (nothingFound && !hasInlineCitation && outOfIndexScope) kinds.push('outside-index')
-  else if (nothingFound && !hasInlineCitation && claimType === 'statistic') kinds.push('unverified-statistic')
-  else if (nothingFound && !hasInlineCitation) kinds.push('no-sources')
+  // Only a sentence that owes a source of its own is told it lacks one.
+  const owesSource = claimText == null || citationWorthy(claimText, claimType)
+  if (owesSource && nothingFound && !hasInlineCitation && outOfIndexScope) kinds.push('outside-index')
+  else if (owesSource && nothingFound && !hasInlineCitation && claimType === 'statistic') kinds.push('unverified-statistic')
+  else if (owesSource && nothingFound && !hasInlineCitation) kinds.push('no-sources')
 
-  if (!nothingFound && !hasInlineCitation) {
+  if (owesSource && !nothingFound && !hasInlineCitation) {
     if (evidence.score < MIXED) kinds.push('weak-evidence')
     else if (evidence.score < STRONG) kinds.push('partial-evidence')
     else kinds.push('missing-citation')
