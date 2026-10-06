@@ -999,6 +999,20 @@ textarea:disabled {
   pointer-events: none;
 }
 
+/* A mark that just left (GhostMark in DocumentMarkLayer), fading where it was.
+   `forwards` is safe here, unlike an entrance: if the animation never runs the
+   ghost is simply removed by its timer at full strength, which is what the old
+   blink-off already looked like. Opacity only, so it composites. */
+.docmark-ghost {
+  animation: docmark-out 180ms ease-out forwards;
+}
+
+@keyframes docmark-out {
+  to {
+    opacity: 0;
+  }
+}
+
 .docmark-popover {
   position: absolute;
   pointer-events: auto;

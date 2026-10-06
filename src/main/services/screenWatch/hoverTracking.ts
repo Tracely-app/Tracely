@@ -2,6 +2,7 @@ import { screen } from 'electron'
 import { IPC_EVENTS } from '@shared/ipc-channels'
 import type { ScreenWatchHoverEvent } from '@shared/ipc-contract'
 import { shouldCaptureMouse } from '@shared/overlayCapture'
+import { hoverIntent, inSafeZone, stepPending, type PendingHover } from '@shared/hoverIntent'
 import { focusedShieldableWindow } from '../../windows/overlayShield'
 import { getOverlayWindow, setOverlayMouseEventsCaptured } from '../../windows/overlayWindow'
 import { getActivePopoverRect, getHoverTargets } from './screenWatchService'
@@ -44,6 +45,12 @@ const LEAVE_GRACE_MS = 200
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let leaveTimer: ReturnType<typeof setTimeout> | null = null
 let hoveredKey: string | null = null
+// Hover intent (shared/hoverIntent.ts): an open or a swap counting down, and
+// the cursor's last spot on the open card's own underline — the tip of the
+// safe zone toward the card. Owner, 2026-10-06: "it jumps too much when there
+// are underlines everywhere."
+let pending: PendingHover | null = null
+let apex: { x: number; y: number } | null = null
 // While a widget drag is in progress the cursor moves freely around the
 // whole screen, well outside the widget's own (small, or not-yet-updated)
 // hit-test rect — normal poll-based hit-testing would toggle click-through
@@ -74,6 +81,8 @@ function clearHover(): void {
   }
   const hadHover = hoveredKey !== null
   hoveredKey = null
+  pending = null
+  apex = null
   setCaptureMouseEvents(false)
   if (hadHover) sendHover(null)
 }
@@ -127,33 +136,35 @@ function poll(): void {
   const cursor = screen.getCursorScreenPoint()
 
   const activeClaimId = hoveredKey?.split(':')[0] ?? null
+  const activeTarget = activeClaimId ? targets.find((t) => t.claimId === activeClaimId) : undefined
+  const popover = getActivePopoverRect()
 
   // If a claim is already hovered, first check whether the cursor is still
   // on its underline OR inside its actually-open popover's real rect. If
   // so, nothing to do — stay hovered, no new event needed.
-  if (activeClaimId) {
-    const activeTarget = targets.find((t) => t.claimId === activeClaimId)
-    if (activeTarget) {
-      const pad = activeTarget.kind === 'widget' ? (activeTarget.capturePadding ?? WIDGET_PAD) : PAD_SIDE
-      const onUnderline = activeTarget.rectsAbsolute.some((r) => within(cursor, r, pad))
-      const popover = getActivePopoverRect()
-      const inPopover =
-        popover.claimId === activeClaimId &&
-        popover.rectAbsolute !== null &&
-        within(cursor, popover.rectAbsolute, POPOVER_PAD)
-      if (onUnderline || inPopover) {
-        if (leaveTimer) {
-          clearTimeout(leaveTimer)
-          leaveTimer = null
-        }
-        // Re-decided every tick rather than latched at hover time: this is the
-        // path the cursor takes when it moves from an underline onto the card,
-        // and back off again.
-        setCaptureMouseEvents(
-          shouldCaptureMouse({ dragActive, hovering: activeTarget.kind, inPopover })
-        )
-        return
+  if (activeTarget) {
+    const pad = activeTarget.kind === 'widget' ? (activeTarget.capturePadding ?? WIDGET_PAD) : PAD_SIDE
+    const onUnderline = activeTarget.rectsAbsolute.some((r) => within(cursor, r, pad))
+    const inPopover =
+      popover.claimId === activeClaimId &&
+      popover.rectAbsolute !== null &&
+      within(cursor, popover.rectAbsolute, POPOVER_PAD)
+    if (onUnderline || inPopover) {
+      if (leaveTimer) {
+        clearTimeout(leaveTimer)
+        leaveTimer = null
       }
+      pending = null
+      // Where the cursor last was on its own line is where the way to the
+      // card starts.
+      if (onUnderline && activeTarget.kind !== 'widget') apex = { x: cursor.x, y: cursor.y }
+      // Re-decided every tick rather than latched at hover time: this is the
+      // path the cursor takes when it moves from an underline onto the card,
+      // and back off again.
+      setCaptureMouseEvents(
+        shouldCaptureMouse({ dragActive, hovering: activeTarget.kind, inPopover })
+      )
+      return
     }
   }
 
@@ -181,29 +192,75 @@ function poll(): void {
     }
   }
 
-  if (match) {
+  const take = (t: NonNullable<typeof match>, rectIndex: number): void => {
     if (leaveTimer) {
       clearTimeout(leaveTimer)
       leaveTimer = null
     }
+    pending = null
     // Outside the hoverKey check below: that only fires when the target
     // CHANGES, and the capture state has to be correct on every tick — a claim
     // whose popover closed under a stationary cursor would otherwise hold the
     // mouse indefinitely.
-    setCaptureMouseEvents(shouldCaptureMouse({ dragActive, hovering: match.kind, inPopover: false }))
+    setCaptureMouseEvents(shouldCaptureMouse({ dragActive, hovering: t.kind, inPopover: false }))
     // Only re-send on an actual target (or matched line, for a claim that
     // wraps multiple lines) change — the tooltip is anchored to that rect,
     // not the cursor, so it has no reason to move on every tick.
-    const hoverKey = `${match.claimId}:${matchedRectIndex}`
+    const hoverKey = `${t.claimId}:${rectIndex}`
     if (hoveredKey !== hoverKey) {
       hoveredKey = hoverKey
+      if (t.kind !== 'widget') apex = { x: cursor.x, y: cursor.y }
       sendHover({
-        claimId: match.claimId,
-        kind: match.kind,
-        text: match.text,
-        claimType: match.claimType,
-        anchor: match.rectsWindowLocal[matchedRectIndex] ?? match.rectsWindowLocal[0]
+        claimId: t.claimId,
+        kind: t.kind,
+        text: t.text,
+        claimType: t.claimType,
+        anchor: t.rectsWindowLocal[rectIndex] ?? t.rectsWindowLocal[0]
       })
+    }
+  }
+
+  // The launcher and the panel are buttons, not underlines: no intent delay.
+  if (match?.kind === 'widget') {
+    take(match, matchedRectIndex)
+    return
+  }
+
+  // Underlines go through hover intent (shared/hoverIntent.ts): open only once
+  // the cursor stays, and on the way from a card's sentence to the card, ignore
+  // the lines it crosses.
+  const cardOpen = activeTarget !== undefined && activeTarget.kind !== 'widget'
+  const card =
+    cardOpen && popover.claimId === activeClaimId && popover.rectAbsolute
+      ? {
+          left: popover.rectAbsolute.x,
+          top: popover.rectAbsolute.y,
+          right: popover.rectAbsolute.x + popover.rectAbsolute.width,
+          bottom: popover.rectAbsolute.y + popover.rectAbsolute.height
+        }
+      : null
+  const decision = hoverIntent({
+    open: cardOpen,
+    openKey: cardOpen ? activeClaimId : null,
+    onCard: false,
+    onOwn: false,
+    inSafeZone: cardOpen && inSafeZone(apex, card, cursor.x, cursor.y),
+    under: match?.claimId ?? null
+  })
+  const step = stepPending(pending, decision, Date.now(), cursor.x, cursor.y)
+  pending = step.pending
+  if (step.fire && match) {
+    take(match, matchedRectIndex)
+    return
+  }
+  // Between underlines, over other text, or counting down: the cursor is over
+  // the watched app, so the overlay must stay click-through.
+  setCaptureMouseEvents(false)
+  if (decision.act === 'stay' || pending?.act === 'swap') {
+    // On the way to the card, or about to swap: the card stays up.
+    if (leaveTimer) {
+      clearTimeout(leaveTimer)
+      leaveTimer = null
     }
     return
   }
@@ -231,5 +288,7 @@ export function stopHoverTracking(): void {
     leaveTimer = null
   }
   hoveredKey = null
+  pending = null
+  apex = null
   setCaptureMouseEvents(false)
 }

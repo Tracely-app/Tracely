@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { maxCardHeight, placePopover } from '@shared/popoverPlacement'
 // The mark's own look and motion, shared with the Screen Watch overlay so the
 // two surfaces cannot drift into drawing the same problem differently.
@@ -18,6 +18,7 @@ import {
   hasJumped
 } from '@shared/markMotion'
 import type { ProseIssue } from '@shared/proseIssues'
+import { useDrawIn, useMarkArrivals, useMarkDepartures, usePopoverEntrance, type MarkItem } from './markArrivals'
 import type { CitationStyle } from '@shared/types'
 import type { DocumentMark, MarkRect, PendingMark, ProseMark } from './documentMarks'
 import MarkdownText from './MarkdownText'
@@ -250,6 +251,9 @@ export interface DocumentMarkLayerProps {
   marks: DocumentMark[]
   /** The claim the pointer is over, or the one whose popover is pinned open. */
   active: { mark: DocumentMark; rect: MarkRect } | null
+  /** The claim under the pointer while its card is still waiting to open
+   *  (shared/hoverIntent.ts): its mark lights up at once, the card follows. */
+  preview?: string | null
   /** Width of the scroll container, so the popover can be kept inside it. */
   wrapWidth: number
   /**
@@ -345,6 +349,7 @@ export function PendingMarkLayer({
 export function ProseMarkLayer({
   marks,
   active,
+  preview = null,
   fix,
   onApply,
   onDismiss,
@@ -357,6 +362,9 @@ export function ProseMarkLayer({
   marks: ProseMark[]
   /** The issue the pointer is over, hit-tested in AnalyzeView. */
   active: { mark: ProseMark; rect: MarkRect } | null
+  /** The issue under the pointer while its card is still waiting to open
+   *  (shared/hoverIntent.ts): it lights up at once, the card follows. */
+  preview?: ProseIssue | null
   fix: DocProseFix | null
   onApply: (mark: ProseMark) => void
   onDismiss: (mark: ProseMark) => void
@@ -366,6 +374,25 @@ export function ProseMarkLayer({
   wrapHeight: number
   wrapScrollTop: number
 }): JSX.Element {
+  const drawn = useMemo<DrawnMark[]>(
+    () =>
+      marks.flatMap((mark) =>
+        mark.rects.map((rect, i) => {
+          const color = mark.issue.severity === 'error' ? PROSE_ERROR : PROSE_STYLE
+          return {
+            id: `${mark.issue.kind}-${mark.issue.start}-${i}`,
+            rect,
+            color,
+            dotted: mark.issue.severity === 'style',
+            // Offsets move with every keystroke before the issue; its words do not.
+            seen: { key: `${mark.issue.kind}:${mark.issue.text}`, color, x0: rect.left, x1: rect.left + rect.width, y: rect.top }
+          }
+        })
+      ),
+    [marks]
+  )
+  const arrivals = useMarkArrivals(drawn)
+  const ghosts = useMarkDepartures(drawn)
   return (
     <>
     <div className="docmark-layer docprose-layer">
@@ -375,13 +402,17 @@ export function ProseMarkLayer({
             key={`${mark.issue.kind}-${mark.issue.start}-${i}`}
             rect={rect}
             color={mark.issue.severity === 'error' ? PROSE_ERROR : PROSE_STYLE}
-            hovered={isSameIssue(active?.mark.issue, mark.issue)}
+            hovered={isSameIssue(active?.mark.issue, mark.issue) || isSameIssue(preview ?? undefined, mark.issue)}
             className={`docprose docprose-${mark.issue.severity}`}
             data={{ 'data-prose-kind': mark.issue.kind }}
             dotted={mark.issue.severity === 'style'}
+            enterDelay={arrivals.get(`${mark.issue.kind}-${mark.issue.start}-${i}`)}
           />
         ))
       )}
+      {ghosts.map((g) => (
+        <GhostMark key={`ghost:${g.id}`} mark={g} />
+      ))}
     </div>
     {/*
       A SIBLING layer, not a child of the one above — see
@@ -485,9 +516,12 @@ function ProsePopover({
 
   const { suggestion, message, severity } = mark.issue
   const applying = fix !== null && fix.start === mark.issue.start && fix.applying
+  const rootRef = useRef<HTMLDivElement>(null)
+  usePopoverEntrance(rootRef, `${mark.issue.kind}:${mark.issue.start}`, height > 0, above)
 
   return (
     <div
+      ref={rootRef}
       className="docmark-popover docprose-popover"
       style={{ left, top, width }}
       onMouseEnter={onMouseEnter}
@@ -544,7 +578,8 @@ function SpanMark({
   className,
   data,
   dotted = false,
-  title
+  title,
+  enterDelay
 }: {
   rect: MarkRect
   color: string
@@ -554,7 +589,12 @@ function SpanMark({
   /** A style note's line is dotted — a suggestion the writer may refuse. */
   dotted?: boolean
   title?: string
+  /** Set when this mark is new on the page (useMarkArrivals): its line draws
+   *  itself in after this many ms. Read once, at mount. */
+  enterDelay?: number
 }): JSX.Element {
+  const lineRef = useRef<HTMLSpanElement>(null)
+  useDrawIn(lineRef, enterDelay)
   const prev = useRef<{ x: number; y: number } | null>(null)
   const jumped = hasJumped(prev.current, { x: rect.left, y: rect.top })
   useEffect(() => {
@@ -593,6 +633,7 @@ function SpanMark({
         }}
       />
       <span
+        ref={lineRef}
         className="docmark-line"
         style={{
           position: 'absolute',
@@ -614,9 +655,53 @@ function SpanMark({
   )
 }
 
+/** A drawn mark, as the arrival and departure hooks see it. */
+interface DrawnMark extends MarkItem {
+  rect: MarkRect
+  color: string
+  dotted?: boolean
+}
+
+/**
+ * A mark that just left — dismissed, fixed, edited away — fading where it was
+ * (`.docmark-ghost` in index.css) instead of blinking off. Line only: nothing
+ * is hovered on a mark that is going.
+ */
+function GhostMark({ mark }: { mark: DrawnMark }): JSX.Element {
+  const { rect, color, dotted } = mark
+  return (
+    <span
+      className="docmark-ghost"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: rect.width,
+        height: rect.height + DESCENDER_ROOM,
+        transform: `translate3d(${rect.left}px, ${rect.top}px, 0)`,
+        pointerEvents: 'none'
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          borderRadius: LINE_RADIUS,
+          ...(dotted
+            ? { height: 0, borderBottom: `${LINE_HEIGHT}px dotted ${color}` }
+            : { height: LINE_HEIGHT, background: color })
+        }}
+      />
+    </span>
+  )
+}
+
 export default function DocumentMarkLayer({
   marks,
   active,
+  preview = null,
   wrapWidth,
   wrapHeight,
   wrapScrollTop,
@@ -630,6 +715,28 @@ export default function DocumentMarkLayer({
 }: DocumentMarkLayerProps): JSX.Element {
   const activeFlow = flow && active && flow.claimId === active.mark.claim.id ? flow : null
   const activeFix = fix && active && fix.claimId === active.mark.claim.id ? fix : null
+  // Keyed on the claim's TEXT for the motion: claim ids change when the editor
+  // re-analyses, and an unchanged sentence must not draw itself in again.
+  const drawn = useMemo<DrawnMark[]>(
+    () =>
+      marks.flatMap((mark) =>
+        mark.rects.map((rect, i) => ({
+          id: `${mark.claim.id}:${i}`,
+          rect,
+          color: PROBLEM_COLOR[mark.problemKinds[0]],
+          seen: {
+            key: mark.claim.text,
+            color: PROBLEM_COLOR[mark.problemKinds[0]],
+            x0: rect.left,
+            x1: rect.left + rect.width,
+            y: rect.top
+          }
+        }))
+      ),
+    [marks]
+  )
+  const arrivals = useMarkArrivals(drawn)
+  const ghosts = useMarkDepartures(drawn)
   return (
     <div className="docmark-layer" aria-hidden="true">
       {marks.map((mark) =>
@@ -641,17 +748,21 @@ export default function DocumentMarkLayer({
               key={`${mark.claim.id}:${i}`}
               rect={rect}
               color={PROBLEM_COLOR[kind]}
-              hovered={isActive}
+              hovered={isActive || preview === mark.claim.id}
               className={`docmark${isActive ? ' active' : ''}`}
               // Same attributes the overlay's marks carry, and for the same
               // reason: this layer renders no text, so without them its DOM is
               // unreadable when inspecting it or asserting on it from a test.
               data={{ 'data-claim-id': mark.claim.id, 'data-problem': kind }}
               title={PROBLEM_LABEL[kind]}
+              enterDelay={arrivals.get(`${mark.claim.id}:${i}`)}
             />
           )
         })
       )}
+      {ghosts.map((g) => (
+        <GhostMark key={`ghost:${g.id}`} mark={g} />
+      ))}
       {active ? (
         <MarkPopover
           mark={active.mark}
@@ -710,6 +821,7 @@ function MarkPopover({
   }, [mark.claim.id, step])
 
   const kind = mark.problemKinds[0]
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const width = flow ? POPOVER_WIDTH_FLOW : POPOVER_WIDTH
 
@@ -761,9 +873,11 @@ function MarkPopover({
     kind
   )
   const remaining = mark.problemKinds.length
+  usePopoverEntrance(rootRef, mark.claim.id, height > 0, wantsAbove)
 
   return (
     <div
+      ref={rootRef}
       className="docmark-popover"
       style={{ left, top, width }}
       onMouseEnter={onMouseEnter}

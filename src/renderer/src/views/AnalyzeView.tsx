@@ -4,7 +4,7 @@ import type { CitationStyle, Claim, DocumentOutline, DocumentRecord, Source } fr
 import { splitParagraphs } from '@shared/paragraphSplit'
 import { clientToLayout, contentOffset, readZoom } from '@shared/zoomLayout'
 import { iconUrlFor } from '@shared/sourceIcon'
-import { createHoverCloser } from '@shared/hoverIntent'
+import { createHoverCloser, hoverIntent, inSafeZone, stepPending, type PendingHover } from '@shared/hoverIntent'
 import { formatInTextCitation } from '@shared/citationInText'
 import ClaimCard from '../components/ClaimCard'
 import Button from '../components/Button'
@@ -319,6 +319,21 @@ function DocumentEditor({
    * mark should not leave a stale close armed for the card it just left.
    */
   const hoverCloser = useRef(createHoverCloser())
+  /**
+   * Hover INTENT (shared/hoverIntent.ts). Owner, 2026-10-06: "it jumps too much
+   * when there are underlines everywhere." A card opens once the pointer stays
+   * on a mark, and on the way from a sentence to its card the marks crossed
+   * are ignored (the safe zone, whose tip is `hoverApexRef`). The pending open
+   * or swap counts down in `pendingHoverRef`; a timer re-reads the pointer when
+   * it stops moving, through `evaluateHoverRef` so it sees this render's marks.
+   */
+  const pointerRef = useRef<{ x: number; y: number } | null>(null)
+  const pendingHoverRef = useRef<PendingHover | null>(null)
+  const pendingHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hoverApexRef = useRef<{ x: number; y: number } | null>(null)
+  const evaluateHoverRef = useRef<() => void>(() => {})
+  /** The mark under the pointer while its card waits to open: lit at once. */
+  const [hoverPreview, setHoverPreview] = useState<HoverTarget | null>(null)
   // Clears the report's "Show me" flash. A ref, not state: restarting it must
   // not re-render the editor mid-typing.
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -918,32 +933,28 @@ function DocumentEditor({
     })
   }
 
+  function clearPendingHover(): void {
+    pendingHoverRef.current = null
+    if (pendingHoverTimer.current) {
+      clearTimeout(pendingHoverTimer.current)
+      pendingHoverTimer.current = null
+    }
+  }
+
+  function setPreviewTarget(target: HoverTarget | null): void {
+    const key = target ? hoverTargetKey(target) : null
+    setHoverPreview((prev) => ((prev ? hoverTargetKey(prev) : null) === key ? prev : target))
+  }
+
   /**
-   * Opens the popover for whatever underline the pointer is over.
+   * The underline at a client point, claim marks first.
    *
    * Hit-tested against the measured rects rather than by putting elements under
    * the cursor: the layer sits over a contentEditable, and anything that
    * accepts a pointer event there is something the writer cannot click through
    * to place their caret.
    */
-  function handleBodyMouseMove(event: ReactMouseEvent<HTMLDivElement>): void {
-    const wrap = wrapRef.current
-    // `marks.length === 0` used to short-circuit here, which silently disabled
-    // the prose layer on exactly the drafts that have most of the grammar in
-    // them: a document with no scored claims has no claim marks at all.
-    if (!wrap || (marks.length === 0 && visibleProseMarks.length === 0)) {
-      if (activeMark || activeProse) armClose()
-      return
-    }
-    // The pointer is on the card. Nothing may close while it is.
-    if (insidePopoverRef.current) {
-      hoverCloser.current.cancel()
-      return
-    }
-    // A running citation flow owns the popover until it is finished or
-    // cancelled. Without this, reaching across another underline on the way to
-    // "Insert citation" swaps the card out from under the cursor.
-    if (flowPinnedRef.current) return
+  function hoverTargetAt(wrap: HTMLDivElement, clientX: number, clientY: number): HoverTarget | null {
     const rect = wrap.getBoundingClientRect()
     // clientX/clientY and rect.left/top are both POST-ZOOM; scrollLeft/Top are
     // layout px, and so are the mark rects being hit-tested against. Without
@@ -951,43 +962,123 @@ function DocumentEditor({
     // on a resized window the popover opens for a sentence the pointer is
     // nowhere near — or for none at all.
     const zoom = readZoom(window, document.documentElement)
-    const x = contentOffset(event.clientX - rect.left, wrap.scrollLeft, zoom)
-    const y = contentOffset(event.clientY - rect.top, wrap.scrollTop, zoom)
+    const x = contentOffset(clientX - rect.left, wrap.scrollLeft, zoom)
+    const y = contentOffset(clientY - rect.top, wrap.scrollTop, zoom)
     const hit = markAt(marks, x, y)
-    if (!hit) {
-      // Only when no claim mark was hit. A claim mark wins over a prose mark on
-      // the same words: the credibility colours carry this app's actual
-      // judgement, and a sentence that is both unverified and clumsy should
-      // open the card about whether it is true.
-      const prose = proseMarkAt(visibleProseMarks, x, y)
-      if (!prose) {
-        // Over neither mark — which is also what crossing the gap toward the
-        // card looks like. Arm the close rather than doing it.
-        if (activeMark || activeProse) armClose()
-        return
-      }
-      hoverCloser.current.cancel()
-      if (activeMark) setActiveMark(null)
-      if (
-        activeProse?.mark.issue.start === prose.mark.issue.start &&
-        activeProse?.mark.issue.kind === prose.mark.issue.kind
-      ) {
-        return
-      }
-      setWrapView({ height: wrap.clientHeight, scrollTop: wrap.scrollTop })
-      setActiveProse(prose)
-      return
-    }
-    // A real mark under the pointer cancels any pending close.
+    if (hit) return { kind: 'claim', hit }
+    // Only when no claim mark was hit. A claim mark wins over a prose mark on
+    // the same words: the credibility colours carry this app's actual
+    // judgement, and a sentence that is both unverified and clumsy should
+    // open the card about whether it is true.
+    const prose = proseMarkAt(visibleProseMarks, x, y)
+    return prose ? { kind: 'prose', hit: prose } : null
+  }
+
+  function openHoverTarget(target: HoverTarget, wrap: HTMLDivElement): void {
     hoverCloser.current.cancel()
-    if (activeProse) setActiveProse(null)
-    if (activeMark?.mark.claim.id === hit.mark.claim.id) return
     // Captured here rather than in the measure effect: scrolling changes
     // scrollTop without re-rendering this component, and the popover decides
     // whether it fits below the sentence from where the visible box sits. Read
     // at the moment of the hover, it is right by construction.
+    if (target.kind === 'claim') {
+      if (activeProse) setActiveProse(null)
+      if (activeMark?.mark.claim.id === target.hit.mark.claim.id) return
+      setWrapView({ height: wrap.clientHeight, scrollTop: wrap.scrollTop })
+      setActiveMark(target.hit)
+      return
+    }
+    if (activeMark) setActiveMark(null)
+    if (activeProse && proseKey(activeProse.mark.issue) === proseKey(target.hit.mark.issue)) return
     setWrapView({ height: wrap.clientHeight, scrollTop: wrap.scrollTop })
-    setActiveMark(hit)
+    setActiveProse(target.hit)
+  }
+
+  /**
+   * One look at where the pointer is: open, swap, keep or close the card,
+   * through hover intent. Runs on every mousemove and once more when a pending
+   * open or swap is due.
+   */
+  function evaluateHover(): void {
+    const wrap = wrapRef.current
+    const p = pointerRef.current
+    if (!wrap || !p) return
+    // `marks.length === 0` used to short-circuit here, which silently disabled
+    // the prose layer on exactly the drafts that have most of the grammar in
+    // them: a document with no scored claims has no claim marks at all.
+    if (marks.length === 0 && visibleProseMarks.length === 0) {
+      clearPendingHover()
+      setPreviewTarget(null)
+      if (activeMark || activeProse) armClose()
+      return
+    }
+    // The pointer is on the card. Nothing may close while it is.
+    if (insidePopoverRef.current) {
+      hoverCloser.current.cancel()
+      clearPendingHover()
+      setPreviewTarget(null)
+      return
+    }
+    // A running citation flow owns the popover until it is finished or
+    // cancelled. Without this, reaching across another underline on the way to
+    // "Insert citation" swaps the card out from under the cursor.
+    if (flowPinnedRef.current) return
+    const target = hoverTargetAt(wrap, p.x, p.y)
+    const under = target ? hoverTargetKey(target) : null
+    const openKey = activeMark
+      ? hoverTargetKey({ kind: 'claim', hit: activeMark })
+      : activeProse
+        ? hoverTargetKey({ kind: 'prose', hit: activeProse })
+        : null
+    const onOwn = openKey !== null && under === openKey
+    // Where the pointer last was on its own sentence is where the way to the
+    // card starts.
+    if (onOwn) hoverApexRef.current = p
+    const cardRect = openKey !== null ? wrap.querySelector('.docmark-card, .docprose-card')?.getBoundingClientRect() : null
+    const decision = hoverIntent({
+      open: openKey !== null,
+      openKey,
+      onCard: false,
+      onOwn,
+      inSafeZone:
+        openKey !== null &&
+        !onOwn &&
+        inSafeZone(hoverApexRef.current, cardRect ?? null, p.x, p.y),
+      under
+    })
+    const now = performance.now()
+    const step = stepPending(pendingHoverRef.current, decision, now, p.x, p.y)
+    pendingHoverRef.current = step.pending
+    // The sentence under a pointer with no card open lights up at once; its
+    // card follows when the pointer stays.
+    setPreviewTarget(decision.act === 'open' && target && !step.fire ? target : null)
+    if (step.fire && target) {
+      clearPendingHover()
+      hoverApexRef.current = p
+      openHoverTarget(target, wrap)
+      return
+    }
+    if (pendingHoverTimer.current) clearTimeout(pendingHoverTimer.current)
+    pendingHoverTimer.current = step.pending
+      ? setTimeout(
+          () => evaluateHoverRef.current(),
+          Math.max(0, step.pending.since + step.pending.ms - now) + 5
+        )
+      : null
+    if (decision.act === 'stay' || step.pending?.act === 'swap') {
+      // On the way to the card, or about to swap: the card stays up.
+      hoverCloser.current.cancel()
+      return
+    }
+    // Over neither mark — which is also what crossing the gap toward the card
+    // looks like. Arm the close rather than doing it.
+    if (decision.act === 'hide') armClose()
+  }
+  evaluateHoverRef.current = evaluateHover
+
+  /** Opens the popover for whatever underline the pointer stays on. */
+  function handleBodyMouseMove(event: ReactMouseEvent<HTMLDivElement>): void {
+    pointerRef.current = { x: event.clientX, y: event.clientY }
+    evaluateHover()
   }
 
   /**
@@ -2120,6 +2211,9 @@ function DocumentEditor({
         ref={wrapRef}
         onMouseMove={handleBodyMouseMove}
         onMouseLeave={() => {
+          // Nothing opens once the pointer has left the editor.
+          if (pendingHoverRef.current?.act === 'open') clearPendingHover()
+          setPreviewTarget(null)
           // Armed, not immediate: the card can be positioned outside the
           // editor's own box near its edges, so leaving the wrap is one of the
           // ways a pointer travels TOWARD the card.
@@ -2165,6 +2259,7 @@ function DocumentEditor({
         <ProseMarkLayer
           marks={visibleProseMarks}
           active={activeProse}
+          preview={hoverPreview?.kind === 'prose' ? hoverPreview.hit.mark.issue : null}
           fix={proseFix}
           wrapWidth={wrapWidth}
           wrapHeight={wrapView.height}
@@ -2202,6 +2297,7 @@ function DocumentEditor({
         <DocumentMarkLayer
           marks={marks}
           active={activeMark}
+          preview={hoverPreview?.kind === 'claim' ? hoverPreview.hit.mark.claim.id : null}
           wrapWidth={wrapWidth}
           wrapHeight={wrapView.height}
           wrapScrollTop={wrapView.scrollTop}
@@ -2472,6 +2568,17 @@ const UNTITLED = 'Untitled document'
  * not the most recent one was unreachable. The Documents page lists every
  * draft, so this view now only ever opens ON one.
  */
+/** What the pointer can be over: a claim's mark or a prose issue's. */
+type HoverTarget =
+  | { kind: 'claim'; hit: { mark: DocumentMark; rect: MarkRect } }
+  | { kind: 'prose'; hit: { mark: ProseMark; rect: MarkRect } }
+
+function hoverTargetKey(t: HoverTarget): string {
+  return t.kind === 'claim'
+    ? `c:${t.hit.mark.claim.id}`
+    : `p:${t.hit.mark.issue.kind}:${t.hit.mark.issue.start}:${t.hit.mark.issue.end}`
+}
+
 export default function AnalyzeView({
   onNavigate,
   openDocumentId

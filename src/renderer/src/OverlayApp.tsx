@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { critiqueIssues } from './critiqueIssues'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import type {
@@ -47,6 +47,7 @@ import {
   hasJumped,
   withAlpha
 } from '@shared/markMotion'
+import { useDrawIn, useMarkArrivals, useMarkDepartures, type MarkItem } from './components/markArrivals'
 import figmaLogo from './assets/figma-logo.png'
 import MarkdownText from './components/MarkdownText'
 // The Essay Grade report and the pieces the frame builds it from. It used to
@@ -322,7 +323,8 @@ function UnderlineMark({
   height,
   color,
   hovered,
-  title
+  title,
+  enterDelay
 }: {
   claimId: string
   x: number
@@ -333,8 +335,13 @@ function UnderlineMark({
   hovered: boolean
   /** Plain-language name of the problem, so the mark is legible on its own. */
   title: string
+  /** Set when this mark is new on the screen (useMarkArrivals): the line draws
+   *  itself in after this many ms. Read once, at mount. */
+  enterDelay?: number
 }): JSX.Element {
   const prev = useRef<{ x: number; y: number } | null>(null)
+  const lineRef = useRef<HTMLDivElement>(null)
+  useDrawIn(lineRef, enterDelay)
 
   const jumped = hasJumped(prev.current, { x, y })
 
@@ -392,6 +399,7 @@ function UnderlineMark({
         }}
       />
       <div
+        ref={lineRef}
         style={{
           position: 'absolute',
           left: 0,
@@ -405,6 +413,49 @@ function UnderlineMark({
           background: color,
           opacity: 1,
           transition: LINE_TRANSITION
+        }}
+      />
+    </div>
+  )
+}
+
+/** A drawn mark, as the arrival and departure hooks see it. */
+interface DrawnUnderline extends MarkItem {
+  x: number
+  y: number
+  width: number
+  height: number
+  color: string
+}
+
+/**
+ * A mark that just left — dismissed, cited, re-detected away — fading where it
+ * was (`.tracely-underline-out`) instead of blinking off. Never one that is
+ * only out of view: useMarkDepartures is told which claims are still tracked.
+ */
+function GhostUnderline({ mark }: { mark: DrawnUnderline }): JSX.Element {
+  return (
+    <div
+      className="tracely-underline-out"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: mark.width,
+        height: mark.height + DESCENDER_ROOM,
+        transform: `translate3d(${mark.x}px, ${mark.y}px, 0)`,
+        pointerEvents: 'none'
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: LINE_HEIGHT,
+          borderRadius: LINE_RADIUS,
+          background: mark.color
         }}
       />
     </div>
@@ -3656,6 +3707,42 @@ export default function OverlayApp(): JSX.Element {
   ): ScreenWatchProblemKind => openKinds(claimId, kinds)[0] ?? kinds[0] ?? 'searching'
 
   /**
+   * Which marks are new on the screen (they draw in) and which just left (they
+   * fade). Keyed on the claim's TEXT: Screen Watch mints a fresh id on every
+   * detection, so by id every re-detection would look like every mark arriving
+   * at once — the old entrance fade replayed exactly that way.
+   */
+  const claimTextById = new Map((widget?.claims ?? []).map((c) => [c.id, c.text]))
+  const drawnList = useMemo<DrawnUnderline[]>(
+    () =>
+      stableUnderlines
+        .filter((u) => !isResolved(u.id))
+        .flatMap((u) => {
+          const color = PROBLEM_COLOR[visibleKindFor(u.id, u.problemKinds)]
+          return u.rects.map((r, i) => ({
+            id: `${u.id}-${i}`,
+            x: Math.round(r.x),
+            y: Math.round(r.y),
+            width: Math.round(r.width),
+            height: Math.round(r.height),
+            color,
+            seen: { key: claimTextById.get(u.id) ?? u.id, color, x0: r.x, x1: r.x + r.width, y: r.y }
+          }))
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stableUnderlines, dismissedIds, dismissedIssues, citedIds.size]
+  )
+  const drawnUnderlines = {
+    arrivals: useMarkArrivals(drawnList),
+    // A claim the service still tracks, and nobody dismissed or cited, is only
+    // out of view or mid-measurement — not gone: no fade for it.
+    ghosts: useMarkDepartures(drawnList, (id) => {
+      const claimId = id.slice(0, id.lastIndexOf('-'))
+      return trackedIds.has(claimId) && !isResolved(claimId)
+    })
+  }
+
+  /**
    * Opens the widget's claims panel, in whichever mode is useful for what is
    * actually flagged. A single claim goes straight to its actions rather than
    * to a one-item list you then have to click into.
@@ -3818,6 +3905,9 @@ export default function OverlayApp(): JSX.Element {
         pointerEvents: 'none'
       }}
     >
+      {drawnUnderlines.ghosts.map((g) => (
+        <GhostUnderline key={`ghost:${g.id}`} mark={g} />
+      ))}
       {stableUnderlines
         .filter((u) => !isResolved(u.id))
         .flatMap((u) => {
@@ -3846,6 +3936,7 @@ export default function OverlayApp(): JSX.Element {
               color={color}
               title={PROBLEM_LABEL[visibleKindFor(u.id, u.problemKinds)]}
               hovered={isHovered}
+              enterDelay={drawnUnderlines.arrivals.get(`${u.id}-${i}`)}
             />
           ))
         })}
@@ -4333,6 +4424,7 @@ export default function OverlayApp(): JSX.Element {
               <div
                 ref={popoverRef}
                 className="tracely-popover"
+                data-above={pointing === 'down' ? 'true' : undefined}
                 style={{
                   position: 'absolute',
                   left: pos.left,
@@ -4432,26 +4524,37 @@ export default function OverlayApp(): JSX.Element {
         *, *::before, *::after {
           box-sizing: border-box;
         }
+        /* The card grows out of its sentence: down from it when it sits
+           below, up from it when it sits above (shared/markMotion.ts
+           popoverInKeyframes — the editor's card does the same). */
         @keyframes tracely-popover-in {
-          from { opacity: 0; transform: translateY(4px) scale(0.98); }
+          from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes tracely-popover-in-above {
+          from { opacity: 0; transform: translateY(6px) scale(0.98); }
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
         .tracely-popover {
-          animation: tracely-popover-in 0.14s ease-out;
+          animation: tracely-popover-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
         }
-        @keyframes tracely-underline-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
+        .tracely-popover[data-above='true'] {
+          animation-name: tracely-popover-in-above;
         }
-        /* No fill-mode on purpose. This window is never focused and always
-           sits above another app, which is exactly the situation Chromium
-           throttles animation/rAF callbacks in — if this never runs, the
-           mark must still be visible. Base opacity is 1 and the animation
-           only softens the entrance, so the degraded case is "appears
-           instantly" rather than "never appears". */
-        .tracely-underline {
-          animation: tracely-underline-in 0.16s ease;
+        /* A mark that just left (GhostUnderline). forwards is safe: if this
+           never runs, the ghost is removed by its timer at full strength,
+           which is what the old blink-off looked like. */
+        @keyframes tracely-underline-out {
+          to { opacity: 0; }
         }
+        .tracely-underline-out {
+          animation: tracely-underline-out 0.18s ease-out forwards;
+        }
+        /* .tracely-underline's entrance is the draw-in (useDrawIn), only
+           for a mark new on the screen and cancelled by a timer: this window
+           is never focused and always sits above another app, exactly where
+           Chromium stops advancing animations, so the degraded case must be
+           "appears instantly", never "never appears". */
         .tracely-btn-primary {
           transition: background 0.12s ease, transform 0.08s ease;
         }
