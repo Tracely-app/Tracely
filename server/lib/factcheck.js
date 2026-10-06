@@ -767,7 +767,8 @@ Rules:
 - Do not report a problem the document does not have. An empty list is a good answer for a clean resume.`;
 }
 
-export async function runReview({ text, model, effort, mock = false }) {
+export async function runReview({ text, model, effort, mock = false, kind = "resume" }) {
+  if (kind === "essay") return runEssayReview({ text, model, effort, mock });
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   const body = text.length > 12_000 ? text.slice(0, 12_000) + "\n[… document truncated …]" : text;
   const raw = mock ? mockReview(text, chosenModel) : await structuredCall({
@@ -812,6 +813,124 @@ export function validateReview(text, parsed) {
 /* Deterministic, in the real shape, from the document itself, so the UI can be
  * exercised with no key: the longest line that reads like a bullet, and an
  * email address with no domain ending if there is one. */
+// ---------------------------------------------------------------------------
+// Essay feedback (/api/review, kind "essay"). Owner, 2026-10-05, on an AP
+// World DBQ the fact check rightly passed (29 of 30 sentences accurate):
+// "it flags things too little … It should of flagged these important parts of
+// the DBQ: limited document evidence … broad claims … limited complexity."
+// Facts were never the problem with that essay; the writing was. This reads
+// the essay the way its grader would, against the rubric of what it is — the
+// College Board's AP history DBQ rubric when it cites Documents by number —
+// and names the few things most worth fixing, each tied to the sentence it is
+// about, or to the whole essay. It never fact-checks (the check does) and
+// never asks for a citation (citationWorthy decides that).
+// ---------------------------------------------------------------------------
+export const ESSAY_REVIEW_KINDS = ["thesis", "evidence", "analysis", "sourcing", "complexity", "documents", "structure"];
+const ESSAY_WIDE_KINDS = new Set(["thesis", "sourcing", "complexity", "documents", "structure"]);
+const ESSAY_REVIEW_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["genre", "findings"],
+  properties: {
+    genre: { type: "string", enum: ["dbq", "essay", "other"] },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["quote", "kind", "message"],
+        properties: {
+          quote: { type: "string", description: "The sentence this is about, copied VERBATIM; \"\" for a finding about the whole essay." },
+          kind: { type: "string", enum: ESSAY_REVIEW_KINDS },
+          message: { type: "string", description: "What is missing and what to do about it, addressed to the writer, at most 40 words." },
+        },
+      },
+    },
+  },
+};
+
+/* The Documents an essay cites, counted here rather than by the model: a
+ * count is exactly the kind of thing a model gets wrong and a regex does not.
+ * "Document 2", "Doc. 3", "(Doc 6)", "Documents 1 and 4". */
+export function citedDocuments(text) {
+  const found = new Set();
+  for (const m of String(text ?? "").matchAll(/\bDoc(?:ument)?s?\.?\s*((?:\d{1,2})(?:\s*(?:,|and|&)\s*\d{1,2})*)/gi)) {
+    for (const n of m[1].match(/\d{1,2}/g) ?? []) found.add(Number(n));
+  }
+  return [...found].filter((n) => n >= 1 && n <= 12).sort((a, b) => a - b);
+}
+
+function essayReviewSystemPrompt() {
+  return `You are Tracely's writing reviewer, embedded in a writing tool. Read the student's essay the way the teacher grading it would, and name the few things most worth fixing. You never fact-check (another check does that) and never ask for a citation.
+
+First decide what it is: "dbq" — an AP history document-based question, which refers to sources as "Document 1", "Doc 2" and so on; "essay" — any other argumentative or analytical essay; "other" — not an essay (notes, a list, a story). For "other", return no findings.
+
+Return at most 5 findings, most important first. Kinds:
+- "thesis": no defensible claim that answers the question, or a thesis that only restates the prompt or lists topics without a line of reasoning.
+- "evidence": a claim stated broadly with nothing specific to support it — quote that sentence. Never for a topic sentence the next sentences go on to support with a document, an example or a figure.
+- "analysis": evidence that is described or summarised but never explained — how it proves the claim — quote the evidence sentence.
+- "structure": paragraphs that do not each advance one claim, or a conclusion that only repeats.
+For a "dbq", also judge against the College Board's AP history DBQ rubric (revised 2023):
+- "documents": 1 point for using the content of at least three documents to address the topic; 2 points for using at least four documents to SUPPORT an argument. Use the DOCUMENTS CITED count given to you, never your own count. Say how many are used and what the next point needs, and that each must support the argument, not only be described.
+- "sourcing": 1 point for explaining, for at least two documents, how or why the author's point of view, purpose, historical situation or audience is relevant to the argument. Flag it when no document gets that explanation.
+- "complexity": 1 point for a complex understanding — explaining relationships among the evidence, such as how a cost and a benefit relate, change and continuity, or multiple causes — not merely mentioning a counterpoint.
+Do not flag contextualization or evidence beyond the documents when the essay clearly has them.
+
+Rules:
+- "quote": copy the sentence EXACTLY as it appears, character for character, or "" when the finding is about the whole essay (documents, sourcing, complexity, thesis, structure).
+- "message": what is missing and what would earn it, plainly, at most 40 words. Concrete: name the document, the sentence or the move. Never praise, never judge the student, never invent a fact or a document's content.
+- Do not report a problem the essay does not have. Fewer, sharper findings beat many.`;
+}
+
+async function runEssayReview({ text, model, effort, mock = false }) {
+  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
+  const body = text.length > 12_000 ? text.slice(0, 12_000) + "\n[… document truncated …]" : text;
+  const docs = citedDocuments(text);
+  const raw = mock ? mockEssayReview(text, chosenModel, docs) : await structuredCall({
+    model: chosenModel,
+    system: essayReviewSystemPrompt(),
+    user: `DOCUMENTS CITED: ${docs.length ? `${docs.join(", ")} (${docs.length} distinct)` : "none"}\n\nESSAY:\n\n${body}\n\nReview it.`,
+    schema: ESSAY_REVIEW_SCHEMA,
+    maxTokens: 6_000,
+    what: "essay review",
+    name: "review",
+    effort,
+  });
+  return { ...validateEssayReview(text, raw.parsed ?? {}), documents: docs, model: raw.model, usage: raw.usage };
+}
+
+/* Only findings the writer can act on: a known kind, a message, and a quote
+ * that is really in the essay — or no quote at all for an essay-wide kind.
+ * The rubric kinds belong to a DBQ only. */
+export function validateEssayReview(text, parsed) {
+  const norm = (s) => String(s).toLowerCase().replace(/\s+/g, " ").trim();
+  const hay = norm(text);
+  const genre = ["dbq", "essay", "other"].includes(parsed?.genre) ? parsed.genre : "other";
+  const seen = new Set();
+  const findings = (Array.isArray(parsed?.findings) ? parsed.findings : [])
+    .map((f) => ({
+      quote: String(f?.quote ?? "").trim().slice(0, 600),
+      kind: ESSAY_REVIEW_KINDS.includes(f?.kind) ? f.kind : null,
+      message: String(f?.message ?? "").trim().slice(0, 400),
+      suggestion: "",
+    }))
+    .filter((f) => f.kind && f.message && (f.quote ? f.quote.length >= 8 && hay.includes(norm(f.quote)) : ESSAY_WIDE_KINDS.has(f.kind)))
+    .filter((f) => genre === "dbq" || !["documents", "sourcing", "complexity"].includes(f.kind))
+    .filter((f) => { const k = norm(f.quote) + "|" + f.kind; if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, 5);
+  return { genre, findings: genre === "other" ? [] : findings };
+}
+
+// Deterministic, in the real shape, so the panel can be exercised with no key.
+function mockEssayReview(text, model, docs) {
+  const findings = [];
+  const isDbq = docs.length > 0;
+  if (isDbq) findings.push({ quote: "", kind: "documents", message: `You use ${docs.length} document${docs.length === 1 ? "" : "s"} (${docs.join(", ")}). [mock]` });
+  const broad = String(text).split(/(?<=[.!?])\s+/).find((s) => /\bsuch as\b/i.test(s) && !/\bDoc(?:ument)?\b/i.test(s));
+  if (broad) findings.push({ quote: broad.trim(), kind: "evidence", message: "A broad claim with nothing specific behind it. [mock]" });
+  return { parsed: { genre: isDbq ? "dbq" : "essay", findings }, model: `${model} (mock)`, usage: { input: 0, output: 0, cached: 0 } };
+}
+
 function mockReview(text, model) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const findings = [];

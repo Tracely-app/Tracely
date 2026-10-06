@@ -122,6 +122,6 @@ test("the tips: own section, dismissable, the duplicate's note says which copy t
 test("wired: essays and papers, both panels, counted on the launcher", () => {
   assert.match(SRC, /refList: true,/);
   assert.equal((SRC.match(/const refTips = FEATURES\.refList && isArgumentGenre\(docGenre\) \? referenceTips\((?:docText|fieldText), dismissed\) : \[\];/g) || []).length, 2);
-  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length;/g) || []).length, 2);
+  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length;/g) || []).length, 2);
   assert.equal((SRC.match(/\(refTips\.length \? referenceTipsHtml\(refTips, copiedTipId\) : ""\)/g) || []).length, 2);
 });

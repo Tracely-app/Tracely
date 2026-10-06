@@ -1312,13 +1312,15 @@ const server = http.createServer(async (req, res) => {
         json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
         return;
       }
-      const { text, model, effort } = (await parseJsonBody(req)) ?? {};
+      const { text, model, effort, kind: rawKind } = (await parseJsonBody(req)) ?? {};
+      // "essay" (extension 2.21.19+): writing feedback against the essay's rubric. Anything else, and every older build, gets the resume review.
+      const kind = rawKind === "essay" ? "essay" : "resume";
       if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
       if (text.length > GUARDS.maxInputChars) throw new CheckError("bad_request", "text too long");
       const { ent, callerId: who } = gate;
       if (ent.enforced && who) {
         if (!reviewRate.ok(who)) {
-          throw new CheckError("review_rate", "Resume tips refresh about once a minute — try again shortly.", { status: 429, retryAfter: Math.ceil(REVIEW_MIN_INTERVAL_MS / 1000) });
+          throw new CheckError("review_rate", kind === "essay" ? "Writing feedback refreshes about once a minute — try again shortly." : "Resume tips refresh about once a minute — try again shortly.", { status: 429, retryAfter: Math.ceil(REVIEW_MIN_INTERVAL_MS / 1000) });
         }
         const quota = reviewQuota(ent, who);
         if (!quota.allowed) throw quotaRefusal(ent, who, reviewLimitMessage(quota));
@@ -1330,7 +1332,7 @@ const server = http.createServer(async (req, res) => {
       const modelUsed = extensionModel(gate, "/api/review", choice ? choice.model : allowedModel(ent, servedModel(model)));
       const level = choice ? choice.effort : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
-      const result = await runReview({ text, model: modelUsed, effort: level, mock: MOCK });
+      const result = await runReview({ text, model: modelUsed, effort: level, mock: MOCK, kind });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;
