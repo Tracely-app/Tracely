@@ -1627,6 +1627,91 @@
     return covered;
   }
 
+  /* Hover intent for the Docs card. Owner, 2026-10-06: "it jumps too much
+     when there are underlines everywhere". Two causes. A card opened the
+     instant the pointer crossed ANY underline, so moving the mouse across a
+     marked page flashed card after card. And the way from a sentence down to
+     its card crosses the lines in between, each of which swapped the card
+     before the pointer could reach a button. Now:
+     - a card opens once the pointer has stayed on an underline for
+       HOVER_OPEN_MS, so a pass across the page opens nothing;
+     - the safe triangle (Amazon's menu-aim): from where the pointer last was
+       on the open card's sentence to the near edge of the card, whatever it
+       crosses is ignored. Stopping on another underline in there for
+       HOVER_REST_MS still opens that one, so nothing becomes unreachable;
+     - outside the triangle, another underline takes over after HOVER_SWAP_MS,
+       and empty page closes the card after HOVER_HIDE_MS.
+     s: { open, popHash, onCard, onOwn, inTri, under } → { act, hash?, ms?, rest? },
+     act one of "none" | "stay" | "open" | "swap" | "hide". */
+  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 120, HOVER_REST_MS = 300, HOVER_HIDE_MS = 250;
+  function hoverIntent(s) {
+    if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
+    if (s.onCard || s.onOwn) return { act: "stay" };
+    const other = s.under && s.under !== s.popHash ? s.under : null;
+    if (s.inTri) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "stay" };
+    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS };
+    return { act: "hide", ms: HOVER_HIDE_MS };
+  }
+  /* Is (x, y) on the way from `apex` to the card? The region is the convex
+     hull of a short segment around the apex (2·slack wide, so the first pixel
+     of a move is never outside a needle-thin tip) and the whole card, widened
+     by `slack` — Floating UI's safePolygon reaches the card's FAR corners for
+     the same reason: a card sits ~10px under its line, so a pointer coming
+     from the end of a long line reaches the card's side, not its top edge. */
+  function inSafeTriangle(apex, card, x, y, slack = 6) {
+    if (!apex || !card) return false;
+    const pts = [
+      [apex.x - slack, apex.y], [apex.x + slack, apex.y],
+      [card.left - slack, card.top - slack], [card.right + slack, card.top - slack],
+      [card.right + slack, card.bottom + slack], [card.left - slack, card.bottom + slack],
+    ].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const half = (list) => {
+      const h = [];
+      for (const p of list) {
+        while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+        h.push(p);
+      }
+      h.pop();
+      return h;
+    };
+    const hull = [...half(pts), ...half([...pts].reverse())];
+    for (let i = 0; i < hull.length; i++) {
+      if (cross(hull[i], hull[(i + 1) % hull.length], [x, y]) < 0) return false;
+    }
+    return true;
+  }
+  /* Does a mark draw itself in, or is it one the reader already saw? Marks are
+     rebuilt on every re-match (scroll, typing, a new verdict), so animating
+     every draw would make them pulse — the flicker fixed in 2.21.16. Only a
+     mark that is new on the page animates: its sentence was not drawn last
+     time, and nothing of the same colour sat on that spot recently (typing
+     in a flagged sentence changes its hash, not its place). `recent`:
+     [{ hash, color, x0, x1, y }] in document coordinates. */
+  function isFreshMark(recent, m) {
+    for (const r of recent) {
+      if (r.hash === m.hash) return false;
+      if (r.color === m.color && Math.abs(r.y - m.y) <= 6 && r.x0 < m.x1 && m.x0 < r.x1) return false;
+    }
+    return true;
+  }
+  const MARK_IN_MS = 260, MARK_OUT_MS = 180, MARK_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  /* A new underline draws itself in from the left, like a pen stroke.
+     Chromium freezes animations on a page that is not painting, and this one
+     holds the mark invisible until it runs — so a timer cancels it, and the
+     worst case is a mark that simply appears (the overlay's entrance-fade
+     lesson, CLAUDE.md "Invisibility"). */
+  function drawMarkIn(el, delay) {
+    if (typeof el.animate !== "function" || markReducedMotion()) return;
+    try {
+      const anim = el.animate(
+        [{ opacity: 0, clipPath: "inset(0 100% 0 0)" }, { opacity: 1, clipPath: "inset(0 0% 0 0)" }],
+        { duration: MARK_IN_MS, delay, easing: MARK_EASE, fill: "backwards" },
+      );
+      setTimeout(() => { if (anim.playState !== "finished") anim.cancel(); }, delay + MARK_IN_MS + 300);
+    } catch { /* no animation: it simply appears */ }
+  }
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -2973,7 +3058,7 @@
       pageObs.disconnect();
       for (const layer of pageLayers.values()) layer.remove();
       pageLayers.clear();
-      for (const stray of document.querySelectorAll("[data-tracely-bar]")) stray.remove();
+      for (const stray of document.querySelectorAll("[data-tracely-bar]:not([data-tracely-leaving])")) stray.remove();
       docsBars = [];
       tileState.clear();
       queueMicrotask(() => { selfMutating = false; });
@@ -3352,12 +3437,89 @@
         const ax = a.gx + a.f0 * a.gw, bx = b.gx + b.f0 * b.gw;
         if (bx > ax) a.el.setAttribute("width", String(Math.max(2, bx - ax + 0.5)));
       }
+      for (const b of bars) {
+        if (!b.wash) continue;
+        b.wash.setAttribute("x", b.el.getAttribute("x"));
+        b.wash.setAttribute("width", b.el.getAttribute("width"));
+        b.wash.setAttribute("y", String(b.gy));
+        b.wash.setAttribute("height", String(b.gh));
+        if (b.tf) b.wash.setAttribute("transform", b.tf); else b.wash.removeAttribute("transform");
+      }
+    }
+
+    /* Motion for the in-tree bars. Removed with their sentence (dismissed,
+       fixed, edited away), a bar fades out where it was instead of blinking
+       off; a bar new on the page draws in (isFreshMark). */
+    let docsRecent = [];
+    function docOrigin() {
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      return { x: docsScroller?.scrollLeft ?? 0, y: docsScroller?.scrollTop ?? 0 };
+    }
+    function barRecord(b, o) {
+      const r = b.el.getBoundingClientRect();
+      return r.width ? { hash: b.hash, color: b.color, x0: r.left + o.x, x1: r.right + o.x, y: r.top + o.y } : null;
+    }
+    function settleDocsMotion(leaving, recentBefore) {
+      const o = docOrigin();
+      const now = docsBars.filter((b) => b.inSvg && !b.flow && b.el.isConnected).map((b) => [b, barRecord(b, o)]).filter(([, r]) => r);
+      // In: new on the page, top to bottom, a few ms apart.
+      const fresh = now.filter(([, r]) => isFreshMark(recentBefore, r)).sort((a, b) => a[1].y - b[1].y || a[1].x0 - b[1].x0);
+      fresh.forEach(([b], i) => drawMarkIn(b.el, Math.min(i * 14, 180)));
+      // Out: gone from this draw. Over a mark that took its place (an edit
+      // re-hashed the sentence) it just goes; elsewhere it fades.
+      for (const b of leaving) {
+        const r = barRecord(b, o);
+        const replaced = r && now.some(([, n]) => n.color === r.color && Math.abs(n.y - r.y) <= 6 && n.x0 < r.x1 && r.x0 < n.x1);
+        let done = false;
+        const gone = () => { if (done) return; done = true; selfMutating = true; b.el.remove(); b.wash?.remove(); queueMicrotask(() => { selfMutating = false; }); };
+        if (!r || replaced || markReducedMotion() || typeof b.el.animate !== "function") { gone(); continue; }
+        b.wash?.remove();
+        try {
+          b.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: MARK_OUT_MS, easing: "ease-out", fill: "forwards" }).finished.then(gone, gone);
+        } catch { gone(); }
+        setTimeout(gone, MARK_OUT_MS + 220); // a page that is not painting never finishes the fade
+      }
+      if (now.length) docsRecent = now.map(([, r]) => r);
+    }
+
+    /* The hovered sentence, and the one whose card is open, get the wash
+       behind their words and a slightly heavier line — Grammarly's gesture,
+       and the one field mode already makes (paintHover). */
+    let docsHoverHash = null;
+    /* The wash's fade. Not a CSS transition: one measured pending forever on
+       a page that was not painting, holding the wash at 0 — the end state is
+       set first and the fade is cancelled by a timer, so the worst case is a
+       highlight that simply appears. */
+    function fadeWash(el, op) {
+      const from = el.style.opacity || "0";
+      el.style.opacity = op;
+      if (markReducedMotion() || typeof el.animate !== "function") return;
+      try {
+        const anim = el.animate([{ opacity: from }, { opacity: op }], { duration: 120, easing: "ease" });
+        setTimeout(() => anim.cancel(), 400);
+      } catch { /* it simply changes */ }
+    }
+    function paintDocsActive() {
+      for (const b of docsBars) {
+        if (!b.wash) continue;
+        const on = b.hash === popHash || b.hash === docsHoverHash;
+        const op = on ? "1" : "0";
+        if (b.wash.style.opacity !== op) fadeWash(b.wash, op);
+        const h = String(on ? b.h0 + 1 : b.h0);
+        if (b.el.getAttribute("height") !== h) b.el.setAttribute("height", h);
+      }
     }
 
     function drawDocsMarksSvg(svgBars, flows = []) {
       try {
         ensureLayer();
         selfMutating = true;
+        const incoming = new Set(svgBars.map((sb) => sb.hash));
+        const recentBefore = docsRecent;
+        // Bars whose sentence is no longer marked leave on their own clock.
+        const leaving = docsBars.filter((b) => b.inSvg && !b.flow && b.el.isConnected && b.el.style.display !== "none" && !incoming.has(b.hash));
+        for (const b of leaving) { b.el.setAttribute("data-tracely-leaving", ""); b.wash?.setAttribute("data-tracely-leaving", ""); }
+        docsBars = docsBars.filter((b) => !leaving.includes(b));
         clearDocsMarks();
         let inTree = 0, glued = 0;
         for (const sb of svgBars) {
@@ -3392,9 +3554,20 @@
             // exact ancestor transform chain (a <g transform> would otherwise
             // silently offset every bar).
             sb.node.parentNode.insertBefore(bar, sb.node.nextSibling);
+            // The highlight behind the words, shown while this sentence is
+            // hovered or its card is open (paintDocsActive). Under the line.
+            const wash = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            wash.setAttribute("data-tracely-bar", "");
+            wash.setAttribute("aria-hidden", "true");
+            wash.setAttribute("pointer-events", "none");
+            wash.setAttribute("rx", "2");
+            wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above carries the pattern
+            if (tf) wash.setAttribute("transform", tf);
+            wash.style.opacity = "0";
+            sb.node.parentNode.insertBefore(wash, bar);
             inTree++;
             docsBars.push({
-              hash: sb.hash, el: bar, node: sb.node, raw: sb.raw, f0: sb.f0, f1: sb.f1,
+              hash: sb.hash, el: bar, wash, color, h0: Number(bar.getAttribute("height")), node: sb.node, raw: sb.raw, f0: sb.f0, f1: sb.f1,
               // size feeds hover-band math and popover placement in CSS px —
               // rh is SVG user units, so measure through the transform chain.
               size: sb.node.getBoundingClientRect().height || rh || 18,
@@ -3436,6 +3609,8 @@
             size: f.lineH, gx: f.x, gy: f.top, gw: f.right - f.x, gh: f.bottom - f.top, tf: "",
           });
         }
+        settleDocsMotion(leaving, recentBefore);
+        paintDocsActive();
         queueMicrotask(() => { selfMutating = false; });
         console.debug(`[tracely] v${EXT_VERSION} docs marks (svg): ${docsBars.length} bar(s) — ${inTree} in-tree, ${glued} glued, ${flowDrawn} flow — across ${new Set(svgBars.map((b) => b.node)).size} line node(s)`);
         glueFrame();
@@ -3530,7 +3705,8 @@
        verdict badge, explanation, suggested fix, and actions. Lives in the
        page DOM with inline styles only — Docs' stylesheets never touch it. */
     // (verdict labels/washes/colors are the shared top-level maps)
-    let popEl = null, popHash = null, popHideTimer = null, popFontIn = false;
+    let popEl = null, popHash = null, popFontIn = false;
+    let popApex = null; // the pointer's last spot on the open card's sentence: the safe triangle's tip
     let popAnchor = null, popLastTop = 0, popFollowRaf = 0, popLostAt = 0;
     let popPinned = false; // an edit from this card may remove the underline it follows — stay put
 
@@ -3556,13 +3732,16 @@
       if (reducedMotion() || typeof el.animate !== "function") return;
       const arrow = el.querySelector("[data-pop-arrow]");
       const ax = arrow ? (parseFloat(arrow.style.left) || 20) + 6 : 26;
-      el.style.transformOrigin = `${ax}px 0px`; // grow out of the caret, i.e. the underline
-      el.animate(
+      // Grow out of the caret, i.e. the underline — from below when the card
+      // sits above its sentence.
+      el.style.transformOrigin = `${ax}px ${popAbove ? "100%" : "0px"}`;
+      const anim = el.animate(
         switching
           ? [{ opacity: 0 }, { opacity: 1 }]
-          : [{ opacity: 0, transform: "translateY(-6px) scale(0.98)" }, { opacity: 1, transform: "none" }],
+          : [{ opacity: 0, transform: `translateY(${popAbove ? 6 : -6}px) scale(0.98)` }, { opacity: 1, transform: "none" }],
         { duration: switching ? 90 : 160, easing: POP_EASE },
       );
+      setTimeout(() => anim.cancel(), 500); // never a card held invisible by an animation that did not run
     }
     function animatePopoverOut(el) {
       dropClosingPopover();
@@ -3575,7 +3754,7 @@
       const done = () => { if (gone) return; gone = true; el.remove(); if (popClosing === el) popClosing = null; };
       try {
         el.animate(
-          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-4px)" }],
+          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${popAbove ? 4 : -4}px)` }],
           { duration: 110, easing: "ease-in", fill: "forwards" },
         ).finished.then(done, done);
       } catch { done(); return; }
@@ -3592,8 +3771,10 @@
       popAnchor = null;
       popLostAt = 0;
       popPinned = false;
+      popApex = null;
       popEditSyncs.clear();
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
+      paintDocsActive();
     }
 
     /* ── the app's popover, state for state ───────────────────────────────
@@ -3922,6 +4103,7 @@
       popLastTop = rect.top;
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
+      paintDocsActive();
     }
     function showDocsPopover(hash, rect, anchorBar) {
       if (!cache.get(hash) && !tipMarkById.has(hash)) return;
@@ -4252,70 +4434,88 @@
       placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
     }
 
-    let hoverRafBusy = false;
+    /* Hover intent (hoverIntent, inSafeTriangle). One pending decision at a
+       time; when its timer fires the pointer is looked at again, and the
+       decision runs only if it still holds. */
+    let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
+    function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
+    function hoverState(x, y) {
+      // Bars are DOM-anchored now — read their LIVE viewport rects, which
+      // are correct mid-scroll by construction.
+      // In-tree bars are PAINT-clipped by the editor natively but their
+      // client rects still exist off-viewport — clip the hit-test too, or
+      // scrolled-away bars open phantom popovers over Docs chrome.
+      if (!docsScroller || !docsScroller.isConnected) {
+        docsScroller = document.querySelector(".kix-appview-editor");
+      }
+      const clip = docsScroller ? docsScroller.getBoundingClientRect() : null;
+      const hitOf = (b) => {
+        if (!b.el.isConnected || b.el.style.opacity === "0" || b.el.style.display === "none") return null;
+        const r = b.el.getBoundingClientRect();
+        if (clip && (r.bottom < clip.top + 2 || r.top > clip.bottom - 2 || r.left > clip.right || r.right < clip.left)) return null;
+        return x >= r.left - 2 && x <= r.right + 2 && y >= r.top - b.size && y <= r.bottom + 3
+          ? { left: r.left, top: r.top, bottom: r.bottom, size: b.size, centerX: r.left + r.width / 2 }
+          : null;
+      };
+      let onOwn = false, bar = null, hit = null;
+      for (const b of docsBars) {
+        if (popEl && b.hash === popHash) { if (!onOwn && hitOf(b)) onOwn = true; continue; }
+        if (bar) continue;
+        const h = hitOf(b);
+        if (h) { bar = b; hit = h; }
+      }
+      let onCard = false, inTri = false;
+      if (popEl) {
+        const pb = popEl.getBoundingClientRect();
+        onCard = x >= pb.left - 8 && x <= pb.right + 8 && y >= pb.top - 8 && y <= pb.bottom + 8;
+        if (!onCard && !onOwn) inTri = inSafeTriangle(popApex, (popCard ?? popEl).getBoundingClientRect(), x, y);
+      }
+      // Not while pinned: an edit from this card is still settling.
+      if (popEl && popPinned) bar = null;
+      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, under: bar?.hash ?? null, bar, hit };
+    }
+    function runHoverDecision(d, st) {
+      if (d.act === "hide") { hideDocsPopover(); return; }
+      if (!st.bar) return;
+      if (st.bar.flow) showFlowPopover(st.bar, st.hit, st.bar);
+      else showDocsPopover(st.bar.hash, st.hit, st.bar);
+      popApex = { x: hoverPt.x, y: hoverPt.y };
+    }
+    function hoverHit() {
+      hoverRafBusy = false;
+      const { x, y } = hoverPt;
+      const st = hoverState(x, y);
+      const d = hoverIntent(st);
+      if (st.onOwn) popApex = { x, y };
+      // The sentence under a closed pointer lights up at once; its card follows.
+      const lit = d.act === "open" ? d.hash : null;
+      if (lit !== docsHoverHash) { docsHoverHash = lit; paintDocsActive(); }
+      if (d.act === "stay" || d.act === "none") { clearHoverPending(); return; }
+      const same = hoverPending && hoverPending.act === d.act && hoverPending.hash === d.hash;
+      // Already counting down — unless this one waits for the pointer to REST
+      // and it has moved since.
+      if (same && !(d.rest && Math.hypot(x - hoverPending.x, y - hoverPending.y) > 3)) return;
+      clearHoverPending();
+      const pending = { act: d.act, hash: d.hash, x, y, timer: 0 };
+      pending.timer = setTimeout(() => {
+        if (hoverPending !== pending) return;
+        hoverPending = null;
+        const now = hoverState(hoverPt.x, hoverPt.y);
+        const again = hoverIntent(now);
+        if (again.act === d.act && again.hash === d.hash) runHoverDecision(again, now);
+      }, d.ms);
+      hoverPending = pending;
+    }
     window.addEventListener("mousemove", (e) => {
+      hoverPt = { x: e.clientX, y: e.clientY };
       if (hoverRafBusy) return;
       hoverRafBusy = true;
-      const x = e.clientX, y = e.clientY;
       // rAF starves in hidden/throttled tabs — a lone mousemove during a
       // tab-hide must not wedge hover forever, so a timer backstops the frame.
       let hoverRan = false;
       const runHover = (fn) => { if (hoverRan) return; hoverRan = true; fn(); };
       setTimeout(() => runHover(hoverHit), 90);
       requestAnimationFrame(() => runHover(hoverHit));
-      function hoverHit() {
-        hoverRafBusy = false;
-        // Bars are DOM-anchored now — read their LIVE viewport rects, which
-        // are correct mid-scroll by construction.
-        // In-tree bars are PAINT-clipped by the editor natively but their
-        // client rects still exist off-viewport — clip the hit-test too, or
-        // scrolled-away bars open phantom popovers over Docs chrome.
-        if (!docsScroller || !docsScroller.isConnected) {
-          docsScroller = document.querySelector(".kix-appview-editor");
-        }
-        const clip = docsScroller ? docsScroller.getBoundingClientRect() : null;
-        const hitOf = (b) => {
-          if (!b.el.isConnected || b.el.style.opacity === "0" || b.el.style.display === "none") return null;
-          const r = b.el.getBoundingClientRect();
-          if (clip && (r.bottom < clip.top + 2 || r.top > clip.bottom - 2 || r.left > clip.right || r.right < clip.left)) return null;
-          return x >= r.left - 2 && x <= r.right + 2 && y >= r.top - b.size && y <= r.bottom + 3
-            ? { left: r.left, top: r.top, bottom: r.bottom, size: b.size, centerX: r.left + r.width / 2 }
-            : null;
-        };
-        if (popEl) {
-          const pb = popEl.getBoundingClientRect();
-          const inPop = x >= pb.left - 8 && x <= pb.right + 8 && y >= pb.top - 8 && y <= pb.bottom + 8;
-          const stillOnMark = docsBars.some((b) => b.hash === popHash && hitOf(b));
-          if (inPop || stillOnMark) {
-            clearTimeout(popHideTimer);
-            popHideTimer = null;
-            return;
-          }
-          // Straight onto ANOTHER underline: swap to its card now (a short
-          // fade, no slide) instead of waiting out the close timer — which
-          // left a dead gap, and no card at all until the pointer moved again.
-          // Not while pinned: an edit from this card is still settling.
-          const other = popPinned ? null : docsBars.find((b) => b.hash !== popHash && hitOf(b));
-          if (other) {
-            clearTimeout(popHideTimer);
-            popHideTimer = null;
-            const hit = hitOf(other);
-            if (other.flow) showFlowPopover(other, hit, other);
-            else showDocsPopover(other.hash, hit, other);
-            return;
-          }
-          if (!popHideTimer) popHideTimer = setTimeout(() => { popHideTimer = null; hideDocsPopover(); }, 250);
-          return;
-        }
-        for (const b of docsBars) {
-          const hit = hitOf(b);
-          if (hit) {
-            if (b.flow) showFlowPopover(b, hit, b);
-            else showDocsPopover(b.hash, hit, b);
-            break;
-          }
-        }
-      }
     }, { passive: true });
 
     // Scroll/wheel fire at frame rate; a trailing 140ms throttle keeps the
@@ -4434,6 +4634,7 @@
           if (!b.el.isConnected || !b.node.isConnected) {
             b.el.style.display = "none"; // Docs replaced the line: nothing to follow
             relocateNow = true;
+            if (b.wash) b.wash.style.display = "none";
             continue;
           }
           // Same line, new text: keep following it until the re-match below.
@@ -5801,8 +6002,11 @@
        coloured line (src/shared/markMotion.ts), both growing on hover. Two
        children rather than a border, so the line paints over the band. Used
        for sentence marks and for citation notes (cite_tip) alike. */
+    let fieldRecent = [], fieldDrawn = [];
     function paintMark(layer, hash, rects, color, pattern) {
       markRects.set(hash, rects);
+      const fresh = isFreshMark(fieldRecent, { hash, color, x0: rects[0].left + scrollX, x1: rects[0].left + rects[0].width + scrollX, y: rects[0].top + scrollY });
+      for (const r of rects) fieldDrawn.push({ hash, color, x0: r.left + scrollX, x1: r.left + r.width + scrollX, y: r.top + scrollY });
       for (const r of rects) {
         const bar = document.createElement("div");
         Object.assign(bar.style, {
@@ -5830,6 +6034,7 @@
         bar.append(band, line);
         markParts.set(hash, [...(markParts.get(hash) || []), { band, line, color, pattern }]);
         layer.appendChild(bar);
+        if (fresh) drawMarkIn(line, 0);
       }
     }
 
@@ -5840,6 +6045,9 @@
       layer.textContent = "";
       markRects.clear();
       markParts.clear();
+      // What the reader saw last draw (fresh marks are tested against it).
+      if (fieldDrawn.length) fieldRecent = fieldDrawn;
+      fieldDrawn = [];
       if (!tracked || !tracked.isConnected) return;
       const isTa = tracked instanceof HTMLTextAreaElement;
       let index = null;
