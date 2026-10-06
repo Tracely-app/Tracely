@@ -3229,6 +3229,24 @@
       return g;
     }
 
+    /* One continuous line per sentence per visual line. Owner, 2026-10-05:
+       "underline segments are word by word and disconnected". Docs often
+       gives each word (or each styled run) its own annotation rect, and a bar
+       was drawn per rect, so the spaces between words showed as gaps. Two
+       consecutive bars of the same sentence on the same line, in the same
+       SVG group and transform, are joined: the first stretches to where the
+       next begins. Re-applied after the observer moves bars. */
+    function joinBars() {
+      const bars = docsBars.filter((b) => b.inSvg && !b.flow && b.el?.isConnected && b.node?.isConnected);
+      for (let i = 0; i + 1 < bars.length; i++) {
+        const a = bars[i], b = bars[i + 1];
+        if (a.hash !== b.hash || a.node.parentNode !== b.node.parentNode || (a.tf || "") !== (b.tf || "")) continue;
+        if (Math.abs((a.gy + a.gh) - (b.gy + b.gh)) > 2) continue; // another line
+        const ax = a.gx + a.f0 * a.gw, bx = b.gx + b.f0 * b.gw;
+        if (bx > ax) a.el.setAttribute("width", String(Math.max(2, bx - ax + 0.5)));
+      }
+    }
+
     function drawDocsMarksSvg(svgBars, flows = []) {
       try {
         ensureLayer();
@@ -3293,6 +3311,7 @@
             docsBars.push({ hash: sb.hash, el: bar, node: sb.node, raw: sb.raw, f0: sb.f0, f1: sb.f1, size: 18 });
           }
         }
+        joinBars();
         /* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT.
            Placing them against Google's rendered text has now failed in five
            distinct ways — anchored to a title, to a table header, to a partial
@@ -4327,6 +4346,7 @@
             b.size = b.node.getBoundingClientRect().height || b.size;
           }
         }
+        joinBars(); // the follow above reset each bar to its own rect's width
         if (relocateNow) { requestDocsMarks(); return; } // before paint, not a frame later
         if (annoRafPending) return;
         annoRafPending = true;

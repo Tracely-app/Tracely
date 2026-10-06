@@ -32,3 +32,18 @@ test("a duplicate entry keeps only its later copy; a sentence not found whole fa
   assert.match(loc, /if \(seg\.lastCopy && hits\.length\) hits = \[hits\[hits\.length - 1\]\];/);
   assert.ok(loc.indexOf("if (hits.length) {") < loc.indexOf("let fromTop = -Infinity;"), "the old path runs only when the whole match failed");
 });
+
+/* Owner, 2026-10-05: "underline segments are word by word and disconnected".
+ * Docs often gives each word its own annotation rect. Measured in a per-word
+ * simulated annotation layer: 34 space-sized holes inside underlines on the
+ * old build, 0 on this one (the 1 remaining gap sits between two different
+ * sentences, as it should), and still 0 after typing moves the bars. */
+test("one continuous underline per sentence per line, kept through typing", () => {
+  const join = SRC.slice(SRC.indexOf("    function joinBars() {"), SRC.indexOf("    function drawDocsMarksSvg("));
+  assert.ok(join.length > 200, "content.js: joinBars moved");
+  assert.match(join, /if \(a\.hash !== b\.hash \|\| a\.node\.parentNode !== b\.node\.parentNode \|\| \(a\.tf \|\| ""\) !== \(b\.tf \|\| ""\)\) continue;/);
+  assert.match(join, /if \(Math\.abs\(\(a\.gy \+ a\.gh\) - \(b\.gy \+ b\.gh\)\) > 2\) continue; \/\/ another line/);
+  assert.match(join, /if \(bx > ax\) a\.el\.setAttribute\("width", String\(Math\.max\(2, bx - ax \+ 0\.5\)\)\);/);
+  assert.match(SRC, /joinBars\(\);\n\s+\/\* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT\./, "after drawing");
+  assert.match(SRC, /joinBars\(\); \/\/ the follow above reset each bar to its own rect's width\n\s+if \(relocateNow\)/, "after the observer moves bars");
+});
