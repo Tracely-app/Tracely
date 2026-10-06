@@ -2700,9 +2700,46 @@
         if (joined) lines.push({ joined, spans, top: runs[0].r.top });
       }
       const bars = [];
+      /* Whole sentences, however they wrap. Owner, 2026-10-05: "it doesnt
+         underline whole sentence, it has a habit of only being able to
+         highlight one line … at a time in google docs". Matching line by
+         line needed a sentence's piece at the end or start of a line to be
+         at least 12 characters (svgOverlapRange), so "Napoleon was" wrapping
+         at a line's end — 11 — lost that line's underline. Now the visible
+         lines are joined in reading order and the sentence is found in the
+         whole text, then cut back into each line it covers, however little
+         of it that is. The line-by-line match stays as the fallback for a
+         sentence that cannot be found whole (part of it scrolled out of
+         Docs' rendered pages). */
+      const ordered = [...lines].sort((a, b) => a.top - b.top);
+      let flat = "";
+      for (const line of ordered) { line.base = flat.length; flat += line.joined; }
+      const barsFor = (seg, line, range) => {
+        for (const [s, e, run] of line.spans) {
+          if (e <= range[0] || s >= range[1]) continue;
+          let f0 = 0, f1 = 1;
+          if (range[0] > s) f0 = svgFrac(run.node, run.raw, run.font, svgRawIndexAt(run.raw, range[0] - s));
+          if (range[1] < e) f1 = svgFrac(run.node, run.raw, run.font, svgRawIndexAt(run.raw, range[1] - s));
+          if (f1 - f0 <= 0.005) continue;
+          bars.push({ hash: seg.hash, node: run.node, raw: run.raw, f0, f1 });
+        }
+      };
       for (const { seg } of issues) {
         const S = nrm(seg.text);
         if (S.length < 4) continue;
+        let hits = [];
+        for (let at = flat.indexOf(S); at >= 0; at = flat.indexOf(S, at + 1)) hits.push(at);
+        if (seg.lastCopy && hits.length) hits = [hits[hits.length - 1]]; // only the later of two identical entries
+        if (hits.length) {
+          for (const at of hits) {
+            for (const line of ordered) {
+              const ls = line.base, le = ls + line.joined.length;
+              if (le <= at || ls >= at + S.length) continue;
+              barsFor(seg, line, [Math.max(at, ls) - ls, Math.min(at + S.length, le) - ls]);
+            }
+          }
+          continue;
+        }
         // Two identical entries match twice; a lastCopy mark keeps only the
         // later one — from the last line where the text STARTS, downwards.
         let fromTop = -Infinity;
