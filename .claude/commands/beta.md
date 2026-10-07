@@ -19,18 +19,15 @@ reviewers the production installer — it did, on 2026-08-14. See the header of
 
 ## What makes this safe to try things in
 
-A preview build uses the **staging** Supabase project, but the same AI
+A preview build is compiled from `.env.staging` and talks to the same AI
 backend as production — there is only one Tracely server:
 
 | | Preview build | Stable build |
 |---|---|---|
 | AI backend | `api.jointracely.com` (or `TRACELY_API_URL` in `.env.staging`) | `api.jointracely.com` |
-| Supabase | staging project | production project |
-| Accounts | separate — sign up again | real users |
+| Supabase | the one project (`docs/environments.md`) | the same |
+| Accounts | the build's own anonymous session | the same |
 | AI spend | the server's app pool (`TRACELY_APP_DAILY_BUDGET_USD`) | the same pool |
-
-The Vercel relay the desktop used to call is retired: it stays deployed only
-for installs too old to update, and nothing new ships to it.
 
 That separation is the entire point. A migration, a quota change or a broken
 endpoint costs a throwaway database and pocket change instead of reaching users.

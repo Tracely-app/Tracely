@@ -1,6 +1,6 @@
 # Deploying the Tracely API
 
-The server as deployed on 2026-09-18, and how to redeploy it.
+The server (what is live, and since when, is in `STATUS.md`), and how to redeploy it.
 
 ## Where it runs
 
@@ -54,11 +54,11 @@ git -C ~/tracely-repo worktree remove /tmp/tracely-deploy
 `--delete` is safe: `.env` and `data` are both excluded, so rsync will not
 remove them. The database is outside the target anyway.
 
-Verify after every deploy: `/api/status` has its usual shape
-(`hasKey: true`, `budget.enforced: true`, `paidBudget`); `/api/entitlement`
-with a bad token answers 200 `plan: "free"`; an `OPTIONS /api/check` from
-`chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm` answers 204 and one from
-a foreign extension id 403; `PUT /api/prefs` answers 403.
+Verify after every deploy with `server/scripts/healthcheck.sh` (the status
+shape, a bad token served as free, the extension's CORS allow and deny, the
+prefs route refused; exits non-zero on the first failure), then **replace the
+server row in `STATUS.md`** with the commit, the time and the backup name.
+That row is how the other developer's agent learns the deploy happened.
 
 **Roll back** by syncing the backup over the app (keep the live `.env`) and
 restarting:
@@ -171,7 +171,7 @@ asks for, clamped to the caller's plan — the prefs row drives the model only
 on a local server. `/api/sources` sends the client's reasoning effort when it
 sends one and otherwise none, i.e. the vendor's default, exactly as every
 source search from the store build always has. No shipped widget sends one:
-2.19.3 and later (2.19.4 is current) send their stop's effort on `/api/check`
+2.19.3 and later send their stop's effort on `/api/check` (the slider is gone since 2.20.0; `STATUS.md` says which version is on the store)
 only (the route it was measured on), and `/api/flow` and `/api/sources` get
 the model alone.
 
@@ -216,7 +216,7 @@ What a matching token does, and does not:
 - `/api/status` gains `betaBudget` (same shape as `budget`) while any token
   is configured, and `paidBudget` always. Both report spend on disk, not
   reservations in flight.
-- The widgets default to the options-page slider (Fast until a tester moves
+- Builds before 2.20.0 defaulted to the options-page slider (Fast until a tester moved
   it); the beta grant raises the ceiling, not the default stop.
 
 Build both zips from a checkout (never commit `extension/beta.json`; the repo
@@ -283,12 +283,12 @@ has the limits. Before a deploy that changes a tier, know these things:
   `paidBudget` (absent before this build), and `/api/entitlement` with
   `X-Tracely-Beta: <token>` answers `beta: true`.
 
-- **Old clients keep sending the old ids.** Extension <= 2.19.2 (the Web
-  Store build under review included) sends `gpt-5-nano` from Fast and
-  `gpt-5.4` from Balanced, 2.19.3-2.19.5 send `gpt-5.6-terra` from Balanced;
-  older desktops send the same. The server reads all three as fast
-  (`shared/plan.js` `LEGACY_MODEL_TIER`), so a deploy needs no extension
-  release, and their Balanced/Thorough stops are cosmetic until 2.20.0.
+- **Old clients keep sending the old ids.** Extension <= 2.19.2 sends
+  `gpt-5-nano` and `gpt-5.4`, 2.19.3-2.19.5 send `gpt-5.6-terra`; older
+  desktops send the same. The server reads all three as fast
+  (`shared/plan.js` `LEGACY_MODEL_TIER`); since 2.20.0 the server picks the
+  model and the client's id only chooses thorough over fast on the two routes
+  that allow it. Keep the map until no such build is installed.
   Nothing runs, or logs a retired id; terra keeps its price row only so old
   usage still prices.
 - **The client's effort is never read on a hosted server.** `/api/check` runs
@@ -298,10 +298,10 @@ has the limits. Before a deploy that changes a tier, know these things:
   level. Shipped extensions sent `medium` or `high`, and on flow, critique,
   correction, structure and find-sources that used to pass straight through.
   A local server (unenforced) keeps `pickModel` and `checkEffort` as before.
-- **Shipped extensions re-run flow up to ~72 times an hour** while someone
-  types at the end of a document. The server holds every caller to one
-  `/api/flow` call per 120 s (a 429 their `requestFlow` swallows silently)
-  and a daily flow quota; 2.20.0 fixes the client.
+- **Extensions before 2.20.0 re-ran flow up to ~72 times an hour** while
+  someone typed at the end of a document. The server holds every caller to
+  one `/api/flow` call per 120 s (a 429 their `requestFlow` swallows silently)
+  and a daily flow quota; 2.21.2+ no longer calls `/api/flow` at all.
 - **Scale the paid and app pools with subscribers.** A regular Pro user
   spends about 9 cents a day and a regular Student about 4, so set
   `TRACELY_PAID_DAILY_BUDGET_USD` and `TRACELY_APP_DAILY_BUDGET_USD` to
@@ -364,28 +364,20 @@ every request 403.
 `/.well-known/acme-challenge/` is excluded from the proxy so certbot can
 answer HTTP-01 without going through the app.
 
-## Still outstanding
+## Open ops debt
 
-1. ~~DNS~~ — **done**: `api.jointracely.com` resolves to `45.56.92.67`
-   (checked 2026-09-22).
-2. ~~TLS~~ — **done**: HTTPS to `api.jointracely.com` verifies.
-3. ~~The OpenAI key~~ — **done**: `/api/status` reports `hasKey: true`.
-4. ~~Pin the extension id~~ — **done**. `TRACELY_EXTENSION_ID` is
-   `dffmoeebkkghhgcklkbmaibfhgiegmdm`, which the manifest `key` pins for
-   unpacked builds too, so one value covers the team's betas and the published
-   extension. Verified live: our origin 204, a foreign extension 403,
-   docs.google.com still 204.
-5. ~~Billing~~ — **done** (checked 2026-09-24): `STRIPE_WEBHOOK_SECRET`,
-   `STRIPE_PRICE_STUDENT`, `STRIPE_PRICE_PRO` and `SUPABASE_SERVICE_ROLE_KEY`
-   are all set and the webhook is verifying and applying events. A purchase
-   that names no account (bought from the website while signed out) is kept
-   in `billing_pending` and placed when that email signs in — see
-   lib/billing.js settleChange.
-6. **Release hosting** (#242, draft): `dl.jointracely.com` on this box is
-   blocked on an `A dl 45.56.92.67` record in the zone (Vercel's nameservers;
-   `dl` still answers from Vercel), then `certbot --apache -d
-   dl.jointracely.com`. Until then desktop updates are served from GitHub
-   Releases, so `Tracely-app/Tracely` must stay public.
+Everything that was outstanding at launch is done (DNS, TLS, the key, the
+pinned extension id, billing — all verified live). What is still open, each
+Sam's to schedule:
+
+- **No backups of `/srv/tracely/data`** (WAL-mode SQLite: back it up with
+  `sqlite3 … "VACUUM INTO"`, not `cp`). The box's 2-backup policy covers
+  WealthPsychology only.
+- **No logrotate entry for `/var/log/tracely.log`.**
+- **`ufw` is inactive** on the host; port 4477 binds loopback only.
+- **Release hosting** (`dl.jointracely.com`, #242) waits on an `A dl 45.56.92.67`
+  record in the zone — Merrick's Vercel — then `certbot --apache -d dl.jointracely.com`.
+  Until then desktop updates come from GitHub Releases and the repo stays public.
 
 ## Data kept, and for how long
 
@@ -404,11 +396,3 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
 - **Application log** (`/var/log/tracely.log`): route, kind, status, model —
   never text, emails, tokens or IPs. Rotate it: there is no logrotate entry
   yet (Apache's own logs rotate daily, 14 kept).
-
-## Not done, and worth knowing
-
-- No backups of `/srv/tracely/data`. The box has a 2-backup policy for
-  WealthPsychology under `/root/backups`; Tracely is not in it.
-- `ufw` is inactive on this host. Port 4477 binds loopback only so it is not
-  exposed, but the box has no host firewall.
-- No log rotation for `/var/log/tracely.log`.

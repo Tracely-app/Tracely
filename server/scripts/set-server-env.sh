@@ -1,4 +1,5 @@
 #!/bin/sh
+# Needs the Linode SSH key — Sam only. The other developer's agent asks via the PR's Handoff.
 # Set ONE variable in the deployed server's .env, without it appearing in
 # scrollback, shell history, argv, or a temp file.
 #

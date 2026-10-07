@@ -17,6 +17,34 @@ The Tracely server runs every AI call for the desktop app, the Chrome extension 
 
 3. Open **http://localhost:4477** and start typing.
 
+## Running it locally
+
+`server/` is also the whole product on one laptop: one Node process, one
+OpenAI key, no Supabase, no Electron. With no Supabase values in its `.env`
+it enforces nothing (right on a laptop, ruinous on a public box).
+
+```bash
+cd server && cp .env.example .env     # paste your OpenAI key (zero npm dependencies: nothing to install)
+node server.js                         # http://localhost:4477
+TRACELY_MOCK=1 node server.js          # keyless: canned answers in the real shapes
+npm test                               # the server AND extension suite, ~10 s
+```
+
+- **The web app** at `http://localhost:4477` (`server/public/app/`, served by
+  `server.js`) is the vanilla client; the hosted box refuses its POSTs by
+  origin, so it works against a local server only.
+- **The extension** prefers `localhost:4477` when it answers (Load unpacked
+  `extension/`; `extension/README.md`).
+- **The desktop app** points at it with `TRACELY_API_URL=http://localhost:4477`
+  in its env file (`docs/environments.md`).
+- `src/renderer/src/bridge/`, `web.vite.config.mts` and `demo.vite.config.mts`
+  are experiments for running the React renderer in a browser on top of this
+  server; they have no npm script and are not a shipped surface.
+
+The cost model this backend exists for — the fast tier on every route, the
+thorough model only out of Pro's monthly allowance, every call metered and
+capped — is in `BILLING.md` and `shared/plan.js`.
+
 ## The web app
 
 `/` serves the built desktop renderer (`../dist-web`, from `web.vite.config.mts`) when it exists, and otherwise the vanilla app in `public/app/` (Home, Documents, Analyze, Library, Watch, Settings), which `/classic/` always serves. The model is picked in Settings by tier — Standard `gpt-5.6-luna`, Thorough `gpt-6-astra` — and that choice applies only on a local server: the hosted server refuses the web app's browser origin and answers `PUT /api/prefs` with 403.

@@ -7,7 +7,12 @@ probe stops before reaching OpenAI — so it is safe to run against production a
 time. Report each check as pass or fail with the evidence; a check you could not
 perform is not a check that passed.
 
-## 1. The server is up and can spend
+## 1. Run the script
+
+`server/scripts/healthcheck.sh` does sections 1 and 2 below in one go and
+exits non-zero on the first failure. Run it, then do 3 and 4.
+
+## 1b. The server is up and can spend
 
 `GET https://api.jointracely.com/api/status` must answer JSON with
 `hasKey: true`, `mock: false`, `budget.enforced: true` and a `paidBudget`
