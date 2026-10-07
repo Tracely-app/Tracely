@@ -1,0 +1,17 @@
+# Surface labels, applied by .github/workflows/labeler.yml from the paths a PR
+# touches. `gh pr list --label server` is then a real list.
+server:
+  - changed-files:
+      - any-glob-to-any-file: ['server/**', '!server/test/ext-*.test.js', '!server/scripts/pack-extension.sh']
+extension:
+  - changed-files:
+      - any-glob-to-any-file: ['extension/**', 'server/test/ext-*.test.js', 'server/scripts/pack-extension.sh']
+desktop:
+  - changed-files:
+      - any-glob-to-any-file: ['src/**', 'scripts/**', 'electron-builder.yml', 'package.json', 'package-lock.json', 'e2e/**']
+docs:
+  - changed-files:
+      - any-glob-to-any-file: ['**/*.md', 'docs/**']
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**', '.claude/**']

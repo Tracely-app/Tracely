@@ -1,0 +1,32 @@
+name: handoff
+
+# Advisory, not required: fails when a non-draft PR's description has no
+# "## Handoff" section or no ticked Surface box — the two things the other
+# developer's agent reads to know whether it must deploy, upload or ship
+# after the merge. Drafts and the release/* branches ship.mjs opens are
+# exempt. Make it a required check (Settings → Branches) once it has run
+# green on a few real PRs.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  handoff:
+    if: ${{ !github.event.pull_request.draft && !startsWith(github.head_ref, 'release/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: the description says who acts next
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node -e '
+            const body = process.env.BODY ?? "";
+            const problems = [];
+            if (!/^##\s*Handoff\b/m.test(body)) problems.push("no \"## Handoff\" section (who acts after the merge: Needs Sam / Needs Merrick / nothing)");
+            if (!/^\s*-\s*\[[xX]\]\s*\*\*(Desktop|Server|Extension|Docs)/m.test(body)) problems.push("no ticked Surface box (Desktop / Server / Extension / Docs, tests, tooling)");
+            if (problems.length) { console.error("Handoff check:\n - " + problems.join("\n - ") + "\n\nThe template in .github/pull_request_template.md has both."); process.exit(1); }
+            console.log("Handoff present, surface ticked.");
+          '
