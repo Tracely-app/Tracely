@@ -108,3 +108,77 @@ export function withAlpha(hex: string, alpha: number): string {
 export function bandBackground(color: string, hovered: boolean): string {
   return withAlpha(color, hovered ? BAND_ALPHA : BAND_ALPHA_RESTING)
 }
+
+/*
+ * ---- Arriving and leaving ---------------------------------------------------
+ *
+ * Owner, 2026-10-06: "make the underlines and animations … more polished and
+ * more like grammarly." A new underline draws itself in from the left, like a
+ * pen stroke; one that goes (dismissed, fixed, edited away) fades where it was
+ * instead of blinking off. Both surfaces share these numbers, and the Chrome
+ * extension carries a copy of them (extension/content.js MARK_IN_MS,
+ * isFreshMark).
+ *
+ * Marks are rebuilt constantly — a keystroke re-measures them, Screen Watch
+ * re-detects with fresh claim ids, the editor re-analyses — so "the element is
+ * new" is not "the mark is new". Animating every mount would make the page
+ * pulse while the writer types, which is the flicker every surface has already
+ * had to fix once. `isFreshMark` is the test.
+ */
+export const MARK_IN_MS = 260
+export const MARK_OUT_MS = 180
+/** New marks arrive top to bottom, this far apart, capped. */
+export const MARK_IN_STAGGER_MS = 14
+export const MARK_IN_STAGGER_MAX_MS = 180
+export const MARK_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+/** Stroke-like: the line is revealed left to right while it fades up. */
+export const MARK_IN_KEYFRAMES: Array<Record<string, string | number>> = [
+  { opacity: 0, clipPath: 'inset(0 100% 0 0)' },
+  { opacity: 1, clipPath: 'inset(0 0% 0 0)' }
+]
+/** A hover card grows out of its sentence: down from it when below, up from it
+ *  when above. */
+export function popoverInKeyframes(above: boolean): Array<Record<string, string | number>> {
+  return [
+    { opacity: 0, transform: `translateY(${above ? 6 : -6}px) scale(0.98)` },
+    { opacity: 1, transform: 'none' }
+  ]
+}
+export const POPOVER_IN_MS = 160
+/**
+ * Every entrance is cancelled by a timer this long after it should have ended.
+ * Chromium does not advance animations on a window that is not painting (the
+ * overlay's "Invisibility" trap — measured again in the extension's harness,
+ * where a pending fade held its element at the first keyframe), so the worst
+ * case must be "appears", never "stays invisible".
+ */
+export const ANIMATION_BACKSTOP_MS = 300
+
+/** Where a mark was drawn, in coordinates that do not move with a scroll. */
+export interface SeenMark {
+  /** Something stable about what is marked — the claim's TEXT, not its id. */
+  key: string
+  color: string
+  x0: number
+  x1: number
+  y: number
+}
+
+/** Does `m` sit where `r` was, in the same colour? */
+export function sameSpot(r: SeenMark, m: SeenMark): boolean {
+  return r.color === m.color && Math.abs(r.y - m.y) <= 6 && r.x0 < m.x1 && m.x0 < r.x1
+}
+
+/**
+ * Should this mark draw itself in? Only if it is new on the page: nothing with
+ * its key was drawn recently, and nothing of its colour sat on that spot
+ * (typing in a flagged sentence changes its text, not its place).
+ */
+export function isFreshMark(recent: readonly SeenMark[], m: SeenMark): boolean {
+  return !recent.some((r) => r.key === m.key || sameSpot(r, m))
+}
+
+/** The stagger for the i-th fresh mark of one draw, top to bottom. */
+export function markInDelay(i: number): number {
+  return Math.min(i * MARK_IN_STAGGER_MS, MARK_IN_STAGGER_MAX_MS)
+}
