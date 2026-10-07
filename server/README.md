@@ -29,20 +29,12 @@ The Tracely server runs every AI call for the desktop app, the Chrome extension 
 
 It reads the doc through your existing Google session (no Google API keys, no OAuth). Out of the box, fixes and citations are one-click **copy**.
 
-### Edit docs directly (optional, ~3 minutes)
+### Editing the document
 
-With the bridge set up, the widget gains **Fix in doc**, **Cite in doc**, **Highlight issues in doc** (red / amber / orange tints per finding), and **Clear highlights** — real edits applied straight into the doc. Google requires an authorization step for anything that modifies your documents; this is the lightest one that exists (no Google Cloud project, no OAuth client):
-
-1. Open **script.google.com** → **New project**.
-2. Replace the default `Code.gs` with the contents of `server/docs-bridge/Code.gs`, and set the same random token in it and in `server/.env` as `TRACELY_BRIDGE_TOKEN`. **As of 67120d1 that file is a one-line placeholder** (added in #199), not the bridge script, so this setup cannot be completed from the repo until the real script is restored.
-3. **Deploy → New deployment → Web app** — *Execute as:* **Me**, *Who has access:* **Anyone** — then **Deploy** and approve the authorization prompt (it's your own script touching your own Docs).
-4. Copy the Web app URL (ends in `/exec`) and paste it into `server/.env`:
-   ```
-   GOOGLE_DOCS_BRIDGE_URL=https://script.google.com/macros/s/…/exec
-   ```
-   No restart needed; the widget buttons appear within ~30 seconds.
-
-*Why "Anyone"?* The local server calls the URL without a Google login; the random URL plus the secret token are the lock. Anyone who has both could edit your docs, so treat `.env` as private (it's already gitignored).
+The widget edits Google Docs itself (`extension/docs-hook.js`): **Fix in doc**
+and **Cite in doc** need no setup. The Apps Script bridge this section used to
+describe is not in the repository (`server/docs-bridge/Code.gs` was a
+placeholder) and `GOOGLE_DOCS_BRIDGE_URL` is only an optional, legacy path.
 
 ## Accounts and plans (optional)
 

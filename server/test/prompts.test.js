@@ -1,46 +1,28 @@
 /**
  * The relay's prompts, held to the byte.
  *
- * server/lib/prompts/ is a port of the relay's lib/prompts.ts,
- * lib/gradePrompt.ts and lib/sourceSearchPrompt.ts. The desktop app's parsing
- * was tuned against those exact words, and the critique prompt's prefix-cache
- * saving (measured at 36% of an eight-claim run) only exists while the bytes
- * never change. A drifted prompt fails in the worst way available: every
- * request still succeeds, and the answers quietly get worse or dearer.
+ * server/lib/prompts/ is a port of the Vercel relay's lib/prompts.ts,
+ * lib/gradePrompt.ts and lib/sourceSearchPrompt.ts (the relay is retired;
+ * nothing new ships there). The desktop app's parsing was tuned against those
+ * exact words, and the critique prompt's prefix-cache saving (measured at 36%
+ * of an eight-claim run) only exists while the bytes never change. A drifted
+ * prompt fails in the worst way available: every request still succeeds, and
+ * the answers quietly get worse or dearer.
  *
- * Two halves:
+ * So every prompt string is pinned by SHA-256 below. Editing a prompt is
+ * allowed and should be a decision: re-measure (eval/models/FINDINGS.md), then
+ * update the hash here in the same PR. The schemas are also checked to be the
+ * BARE shape structuredCall wants (assertStrictSchema), and the grade prompt to
+ * be built from the rubric it claims.
  *
- *  - Checks that need nothing but this tree: every schema is the BARE shape
- *    structuredCall wants and passes assertStrictSchema, and the grade prompt
- *    is built from the rubric it claims to be built from. These always run.
- *
- *  - Checks against the relay SOURCE: each prompt string equal to the value
- *    the relay's TypeScript evaluates to, each schema deep-equal to the
- *    relay's once its chat/Responses wrapper is removed. These need a relay
- *    checkout, and SKIP without one — unlike models.test.js, which fails when
- *    extension/ is missing. The difference is deliberate: extension/ lives in
- *    this repo, so its absence is a broken checkout, while the relay is a
- *    separate repository that CI and the deploy host never clone. A test that
- *    failed there would fail on every run and teach everyone to ignore it.
- *
- * The relay is found at $RELAY_SRC (the relay repo root) when that is set,
- * then at the scratch clone the port was made from. The relay's .ts files are
- * IMPORTED rather than regex-scraped, so what is compared is the string the
- * relay actually sent, with its one interpolation (${RUBRIC_TEXT} in the grade
- * prompt) resolved exactly as the relay resolved it. That works because none
- * of the three files imports zod or openai: prompts.ts and
- * sourceSearchPrompt.ts import nothing and load under Node's own type
- * stripping; gradePrompt.ts imports './prompts' without an extension, which
- * Node's resolver will not follow, so its types are stripped here and the one
- * specifier is pointed at the file.
+ * Until 2026-10 a second half compared each prompt against a relay checkout
+ * ($RELAY_SRC) and skipped without one — which was every run, everywhere.
  */
 import test from "node:test";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import * as nodeModule from "node:module";
 import path from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import { assertStrictSchema } from "../lib/llm.js";
 import { RUBRIC_SECTIONS, RUBRIC_TEXT } from "../shared/rubricText.js";
@@ -188,85 +170,4 @@ test("every prompt is still the text that was verified against the relay", () =>
     const got = createHash("sha256").update(mod[name]).digest("hex");
     assert.equal(got, want, `${name} changed. If on purpose, re-measure it and update the hash in test/prompts.test.js.`);
   }
-});
-
-/* ── against the relay source ─────────────────────────────────────────── */
-
-// RELAY_SRC, or a sibling checkout named like the repo. No machine-specific
-// path: the one that stood here was a scratch directory from the session that
-// did the port.
-const RELAY = [process.env.RELAY_SRC, path.join(HERE, "..", "..", "..", "Tracely-relay")]
-  .filter(Boolean)
-  .find((dir) => existsSync(path.join(dir, "lib", "prompts.ts")));
-const CAN_STRIP = Boolean(process.features?.typescript) && typeof nodeModule.stripTypeScriptTypes === "function";
-
-let SKIP = false;
-if (!RELAY) {
-  SKIP =
-    "no relay checkout found (set RELAY_SRC to the Tracely-relay repo root to run these). " +
-    "Expected in CI, which does not clone the relay.";
-} else if (!CAN_STRIP) {
-  SKIP = `this Node (${process.version}) cannot strip TypeScript types, so the relay's .ts cannot be evaluated`;
-}
-
-let relay = null;
-let loadError = null;
-if (!SKIP) {
-  try {
-    const url = (file) => pathToFileURL(path.join(RELAY, "lib", file)).href;
-    const promptsUrl = url("prompts.ts");
-    const gradeSource = readFileSync(path.join(RELAY, "lib", "gradePrompt.ts"), "utf8");
-    const rewired = gradeSource.replace(/from '\.\/prompts'/, `from '${promptsUrl}'`);
-    assert.notEqual(rewired, gradeSource, "gradePrompt.ts no longer imports './prompts' — update this loader");
-    relay = {
-      prompts: await import(promptsUrl),
-      gradePrompt: await import("data:text/javascript," + encodeURIComponent(nodeModule.stripTypeScriptTypes(rewired))),
-      sourceSearchPrompt: await import(url("sourceSearchPrompt.ts")),
-    };
-  } catch (err) {
-    loadError = err;
-  }
-}
-
-test("the relay source loads", { skip: SKIP }, () => {
-  assert.equal(loadError, null, `found a relay at ${RELAY} but could not evaluate it: ${loadError?.stack}`);
-});
-
-for (const [what, prompt, file, name] of PROMPTS) {
-  test(`${what} is byte-identical to the relay's ${file}.ts ${name}`, { skip: SKIP }, () => {
-    assert.ok(relay, "relay did not load");
-    const theirs = relay[file][name];
-    assert.equal(typeof theirs, "string", `relay ${file}.ts no longer exports ${name}`);
-    // assert.equal on two 13,000-character strings prints both in full; the
-    // first differing offset is what anyone fixing this actually needs.
-    if (prompt !== theirs) {
-      let i = 0;
-      while (i < prompt.length && prompt[i] === theirs[i]) i++;
-      assert.fail(
-        `${what} differs from the relay at char ${i} (port ${prompt.length} chars, relay ${theirs.length}):\n` +
-          `  port:  ${JSON.stringify(prompt.slice(Math.max(0, i - 40), i + 40))}\n` +
-          `  relay: ${JSON.stringify(theirs.slice(Math.max(0, i - 40), i + 40))}`
-      );
-    }
-  });
-}
-
-for (const [what, exported, file, name] of SCHEMAS) {
-  test(`${what} deep-equals the relay's ${name} once unwrapped`, { skip: SKIP }, () => {
-    assert.ok(relay, "relay did not load");
-    const theirs = relay[file][name];
-    assert.ok(theirs && typeof theirs === "object", `relay ${file}.ts no longer exports ${name}`);
-    // What the unwrapping throws away, pinned so it is thrown away knowingly:
-    // strict is re-added by the caller, and only the source-search schema was
-    // Responses-shaped with the format type at the top.
-    assert.equal(theirs.strict, true);
-    assert.equal(theirs.type, file === "sourceSearchPrompt" ? "json_schema" : undefined);
-    assert.deepEqual(exported, { name: theirs.name, schema: theirs.schema });
-  });
-}
-
-test("RUBRIC_TEXT and RUBRIC_SECTIONS match the relay's copies", { skip: SKIP }, () => {
-  assert.ok(relay, "relay did not load");
-  assert.equal(RUBRIC_TEXT, relay.prompts.RUBRIC_TEXT);
-  assert.deepEqual(RUBRIC_SECTIONS, [...relay.prompts.RUBRIC_SECTIONS]);
 });

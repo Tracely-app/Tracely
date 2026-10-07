@@ -18,7 +18,6 @@ release-preview/
 *.db-wal
 *.db-shm
 .DS_Store
-HANDOFF.md
 *.tsbuildinfo
 
 # electron-vite writes a timestamped copy of the config next to it while
@@ -80,3 +79,5 @@ extension/beta.json
 # profiles next to themselves (out/ is already ignored above).
 extension/dev/fix-in-doc/shots/
 extension/dev/fix-in-doc/profile-*
+# Fragments an editor left behind at the root once (#136); never source.
+.blk_*

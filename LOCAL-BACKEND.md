@@ -47,11 +47,8 @@ Settings dropdown away. These strategies apply only on a local server; a
 hosted server ignores the prefs row and picks the model per route itself
 (`server/shared/plan.js` `modelForRoute`).
 
-## Google Docs write-back (optional, per user)
+## Google Docs write-back
 
-Each user deploys `server/docs-bridge/Code.gs` (as of 67120d1 a one-line
-placeholder, not the script — see `server/README.md`) as their own Apps Script Web App
-(Execute as: Me / access: Anyone), sets a random shared token in the script and
-in `server/.env` (`TRACELY_BRIDGE_TOKEN` + `GOOGLE_DOCS_BRIDGE_URL`). The
-widget then gains Fix-in-doc / Highlight / Cite-in-doc. Full steps in
-`server/README.md`.
+Fix in doc and Cite in doc are built into the extension (`extension/docs-hook.js`);
+nothing to deploy. The Apps Script bridge is gone from the repo.
+

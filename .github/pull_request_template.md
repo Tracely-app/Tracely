@@ -8,8 +8,8 @@
 
 - [ ] **Nothing** — docs, tests, tooling
 - [ ] **`/ship`** — desktop app changed; users need a new installer
-- [ ] **Server deploy** — `server/` changed; redeploy api.jointracely.com per `server/DEPLOY.md`, nothing to install. (The Vercel relay is retired: nothing new is deployed to it, and it stays up only for installs too old to update.)
-- [ ] **Both** — promote first, then ship
+- [ ] **Server deploy** — `server/` changed; redeploy api.jointracely.com per `server/DEPLOY.md`, nothing to install.
+- [ ] **Both** — server deploy first, then ship
 
 ## Checks
 
