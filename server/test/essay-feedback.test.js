@@ -55,9 +55,9 @@ test("the AP rubric notes belong to a DBQ only; 'other' gets nothing", () => {
 });
 
 test("the prompt carries the 2023 DBQ rubric and is handed the counted documents", () => {
-  assert.match(FACTCHECK, /2 points for using at least four documents to SUPPORT an argument\. Use the DOCUMENTS CITED count given to you, never your own count\./);
-  assert.match(FACTCHECK, /for at least two documents, how or why the author's point of view, purpose, historical situation or audience is relevant/);
-  assert.match(FACTCHECK, /Never for a topic sentence the next sentences go on to support/);
+  assert.match(FACTCHECK, /1 point for using three documents to address the topic, 2 for using four to SUPPORT an argument\. Use the DOCUMENTS CITED count given; never count yourself\./);
+  assert.match(FACTCHECK, /never describe a document's author, purpose, audience or contents — say what sourcing is missing and ask for the document packet/);
+  assert.match(FACTCHECK, /never a topic sentence the next sentences support/);
   assert.match(FACTCHECK, /DOCUMENTS CITED: \$\{docs\.length \? `\$\{docs\.join\(", "\)\} \(\$\{docs\.length\} distinct\)` : "none"\}/);
 });
 

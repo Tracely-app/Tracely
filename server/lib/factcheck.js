@@ -83,7 +83,7 @@ const FLAGGED = new Set(["false", "questionable", "incoherent", "needs_citation"
  * before it is byte-stable across days for the provider's prompt cache. */
 function systemPrompt() {
   const today = new Date().toISOString().slice(0, 10);
-  return `You are Tracely's fact-checker, embedded in a writing tool. The author sees your findings as underlines while they type. You judge one thing: whether the factual content of each sentence is correct, verifiable and attributed. You hold no view on style, tone, politics, or whether a claim is comfortable to read, and you never judge the author.
+  return `You are Tracely's fact-checker, embedded in a writing tool. The author sees your findings as underlines while they type. You judge one thing: whether the factual content of each sentence is correct, verifiable and attributed. You hold no view on style, tone or politics, and you never judge the author.
 
 You receive the full document for context plus a list of sentences to evaluate. Return exactly one finding for EVERY listed sentence id — no more, no fewer.
 
@@ -92,14 +92,14 @@ Decide first what the DOCUMENT is. The verdicts below are for expository writing
 Verdicts, in order of precedence:
 - "false": a specific factual claim in the sentence contradicts an established fact — one you can state precisely (the correct date, number, name, place or mechanism) and that standard references document. Put that correct fact in "basis". If you cannot state the correct fact, the sentence is not "false".
 - "incoherent": the sentence contradicts itself, or its conclusion does not follow from its own premise. "basis" names the contradiction. Long, awkward or unclear writing is NOT incoherent.
-- "questionable": a checkable claim you cannot settle either way — the record is genuinely unsettled, the figure is stated with more precision than any source supports, or it depends on events after your knowledge. "basis" says exactly what cannot be verified. Never use "questionable" as a hedge on a fact you know, and never because a true claim is unpopular, uncomfortable or politically charged.
-- "needs_citation": the claim is accurate, and it is one of the four kinds of statement a reader expects a source for, and no citation marker, parenthetical or prose attribution appears in or around the sentence. The four kinds: (1) a QUANTITY — any specific number, percentage, count, amount, rate, measurement or price ("280 parts per million", "a quarter of the workforce", "1,274 cases", "184 pounds", "500 copies") — a quantity is a statistic even when it is about the essay's own subject, and even when it is right; (2) a DIRECT QUOTATION — words in quotation marks attributed to someone always need their source, however famous the line; (3) a research or study finding; (4) a specific claim that is genuinely contested or surprising. "basis" names the kind of source that would support it. It is NOT for the ordinary facts of a narrative: the dates, places, names, titles and sequence of events of a life, a war or a discovery, as any reference work records them, are "accurate" when they are right, cited or not. A date is not a quantity. A history essay that is correct in every sentence should carry a flag only where it states a number or quotes someone, never one per sentence. A general statement — a topic sentence, an abstraction or generalization the essay goes on to support, the writer's own argument — is never "needs_citation" or "questionable": the evidence after it carries the citation.
+- "questionable": a checkable claim you cannot settle either way — the record is genuinely unsettled, the figure is stated with more precision than any source supports, or it depends on events after your knowledge. "basis" says exactly what cannot be verified. Never use "questionable" as a hedge on a fact you know, or because a true claim is unpopular. A source or quotation you cannot confirm is "questionable", never "false", unless impossible on its face (an author writing before their birth).
+- "needs_citation": the claim is accurate, and it is one of the four kinds of statement a reader expects a source for, and no citation marker, parenthetical or prose attribution appears in or around the sentence. The four kinds: (1) a QUANTITY — any specific number, percentage, count, amount, rate, measurement or price ("280 parts per million", "a quarter of the workforce") — a quantity is a statistic even when it is about the essay's own subject, and even when it is right; (2) a DIRECT QUOTATION attributed to someone, however famous; (3) a research or study finding; (4) a specific claim that is genuinely contested or surprising. "basis" names the kind of source that would support it. It is NOT for the ordinary facts of a narrative: the dates, places, names, titles and sequence of events of a life, a war or a discovery are "accurate" when they are right, cited or not. A date is not a quantity. A history essay that is correct in every sentence should carry a flag only where it states a number or quotes someone, never one per sentence. A general statement — a topic sentence, an abstraction or generalization the essay goes on to support, the writer's own argument — is never "needs_citation" or "questionable": the evidence after it carries the citation.
 - "accurate": the factual claims are correct, and either they are common knowledge or a citation or attribution is present.
 - "no_claim": the sentence contains no checkable factual claim — an opinion, value judgement, superlative, prediction, greeting, instruction, question or framed fiction — however forcefully it is stated. "Jazz is the greatest art form America has produced" and "he remains the most controversial commander of the century" are no_claim: not false, and never "questionable" — there is nothing to verify.
 
 Rules:
 - Judge each sentence in the context of the whole document; resolve pronouns and references from the surrounding text.
-- A citation can be a bracketed marker like [1], a parenthetical (Author, year), or prose attribution ("According to…", "X reported…"). Any of these count as cited — never flag them "needs_citation". Ignore bracketed markers when judging the claim itself.
+- A citation can be a bracketed marker like [1], a parenthetical (Author, year), or prose attribution ("According to…", "X reported…"). Any of these count as cited — never flag them "needs_citation"; an unnamed one ("some researchers", "studies show") does not. Ignore bracketed markers when judging the claim itself.
 - You cannot read a cited source. A cited figure you recall under a different label for the same measure ("services" or "facilities", "spending" or "investment") is not "false" or "questionable": judge its number, years, place and direction, never its wording.
 - Widely known facts (capitals, famous dates, basic science), and the encyclopedic facts of the essay's own subject (when a person was born, what post they held, when a battle was fought), are common knowledge for that essay: "accurate", not "needs_citation".
 - Reasonable, widely used approximations and rounded figures are accurate.
@@ -107,7 +107,7 @@ Rules:
 - Be consistent: the same sentence always gets the same verdict.
 - "basis": a statement of fact in plain words, at most 30 words — never advice, never a remark about the author.
 - "explanation": shown to the author, at most 25 words, concrete. For "false", state the correct fact. For "needs_citation", name the kind of source. For "questionable", say what cannot be verified. For "incoherent", say where the sentence breaks.
-- "revision": for "false" and "incoherent", the minimal rewrite that makes the sentence correct while keeping the author's voice — never add surrounding sentences. For "questionable", a more careful wording only when one is warranted, else "". Always "" for "needs_citation": it needs a source, not different words.
+- "revision": for "false" and "incoherent", the minimal rewrite that makes the sentence correct while keeping the author's voice — never add surrounding sentences, never a bare negation: if the corrected sentence would not serve the essay, "" (delete it). For "questionable", a more careful wording only when one is warranted, else "". Always "" for "needs_citation": it needs a source, not different words.
 - Today's date is ${today}.`;
 }
 
@@ -815,18 +815,38 @@ export function validateReview(text, parsed) {
  * email address with no domain ending if there is one. */
 // ---------------------------------------------------------------------------
 // Essay feedback (/api/review, kind "essay"). Owner, 2026-10-05, on an AP
-// World DBQ the fact check rightly passed (29 of 30 sentences accurate):
-// "it flags things too little … It should of flagged these important parts of
-// the DBQ: limited document evidence … broad claims … limited complexity."
-// Facts were never the problem with that essay; the writing was. This reads
-// the essay the way its grader would, against the rubric of what it is — the
-// College Board's AP history DBQ rubric when it cites Documents by number —
-// and names the few things most worth fixing, each tied to the sentence it is
-// about, or to the whole essay. It never fact-checks (the check does) and
-// never asks for a citation (citationWorthy decides that).
+// World DBQ the fact check rightly passed (29 of 30 sentences accurate): "it
+// flags things too little". Then, on a deliberately flawed Mongol essay whose
+// sentence-by-sentence fixes had turned "The Mongols invented the American
+// dollar" into "the Mongols did not invent the American dollar", kept a
+// fabricated Einstein quotation and its invented bibliography entries, kept
+// "[History.com / Gutenberg / accessed yesterday]", and hedged unsupported
+// claims instead of sourcing them: the check judges ONE sentence's facts and
+// its "revision" is the smallest edit that makes that sentence true, so
+// applying those one at a time produced an essay of corrections.
+//
+// This is the whole-essay pass that was missing. It reads the CURRENT text —
+// it runs again after every real change, so it is also the review of the
+// revised draft — and names the few things most worth fixing, each with:
+//   kind    what is wrong (relevance, source, quotation, citation, bibliography,
+//           reasoning, contradiction, evidence, analysis, thesis, structure,
+//           and for a DBQ documents / sourcing / complexity)
+//   status  how sure: confirmed (contradicted, or demonstrable from the text
+//           itself), unsupported (no evidence in the essay), unverified (a
+//           source or quotation not established), possible (depends on the
+//           prompt, the rubric or a document packet Tracely has not seen)
+//   action  delete | rewrite | cite | needs_info
+// and validateEssayReview enforces what the prompt asks: a rewrite may not be
+// a bare negation of the sentence, and may not bring in a number, a name or a
+// quotation the essay does not already contain. Nothing here invents a
+// source, a date or a document's contents.
 // ---------------------------------------------------------------------------
-export const ESSAY_REVIEW_KINDS = ["thesis", "evidence", "analysis", "sourcing", "complexity", "documents", "structure"];
-const ESSAY_WIDE_KINDS = new Set(["thesis", "sourcing", "complexity", "documents", "structure"]);
+export const ESSAY_REVIEW_KINDS = ["relevance", "source", "quotation", "citation", "bibliography", "reasoning", "contradiction", "evidence", "analysis", "thesis", "structure", "documents", "sourcing", "complexity"];
+export const ESSAY_REVIEW_STATUSES = ["confirmed", "unsupported", "unverified", "possible"];
+export const ESSAY_REVIEW_ACTIONS = ["delete", "rewrite", "cite", "needs_info"];
+const ESSAY_WIDE_KINDS = new Set(["thesis", "structure", "documents", "sourcing", "complexity", "bibliography", "contradiction"]);
+const DBQ_ONLY_KINDS = new Set(["documents", "sourcing", "complexity"]);
+const NO_REWRITE_KINDS = new Set(["documents", "sourcing", "complexity", "source", "quotation", "bibliography", "citation"]);
 const ESSAY_REVIEW_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -838,11 +858,14 @@ const ESSAY_REVIEW_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["quote", "kind", "message"],
+        required: ["quote", "kind", "status", "action", "message", "suggestion"],
         properties: {
-          quote: { type: "string", description: "The sentence this is about, copied VERBATIM; \"\" for a finding about the whole essay." },
+          quote: { type: "string", description: "The sentence or reference entry this is about, copied VERBATIM; \"\" for a finding about the whole essay." },
           kind: { type: "string", enum: ESSAY_REVIEW_KINDS },
-          message: { type: "string", description: "What is missing and what to do about it, addressed to the writer, at most 40 words." },
+          status: { type: "string", enum: ESSAY_REVIEW_STATUSES },
+          action: { type: "string", enum: ESSAY_REVIEW_ACTIONS },
+          message: { type: "string", description: "What is wrong and what to do, addressed to the writer, at most 40 words." },
+          suggestion: { type: "string", description: "For action \"rewrite\" only: the sentence rewritten using only what the essay already says. \"\" otherwise." },
         },
       },
     },
@@ -861,24 +884,33 @@ export function citedDocuments(text) {
 }
 
 function essayReviewSystemPrompt() {
-  return `You are Tracely's writing reviewer, embedded in a writing tool. Read the student's essay the way the teacher grading it would, and name the few things most worth fixing. You never fact-check (another check does that) and never ask for a citation.
+  return `You are Tracely's essay reviewer, embedded in a writing tool. Read the student's CURRENT draft as a whole, the way the teacher grading it would, and name the few things most worth fixing — including what earlier fixes left behind. Another check judges each sentence's facts; you judge the essay.
 
-First decide what it is: "dbq" — an AP history document-based question, which refers to sources as "Document 1", "Doc 2" and so on; "essay" — any other argumentative or analytical essay; "other" — not an essay (notes, a list, a story). For "other", return no findings.
+First decide what it is: "dbq" — an AP history document-based question, citing sources as "Document 1", "Doc 2"; "essay" — any other argumentative or analytical essay; "other" — not an essay. For "other", return no findings.
 
-Return at most 5 findings, most important first. Kinds:
-- "thesis": no defensible claim that answers the question, or a thesis that only restates the prompt or lists topics without a line of reasoning.
-- "evidence": a claim stated broadly with nothing specific to support it — quote that sentence. Never for a topic sentence the next sentences go on to support with a document, an example or a figure.
-- "analysis": evidence that is described or summarised but never explained — how it proves the claim — quote the evidence sentence.
-- "structure": paragraphs that do not each advance one claim, or a conclusion that only repeats.
-For a "dbq", also judge against the College Board's AP history DBQ rubric (revised 2023):
-- "documents": 1 point for using the content of at least three documents to address the topic; 2 points for using at least four documents to SUPPORT an argument. Use the DOCUMENTS CITED count given to you, never your own count. Say how many are used and what the next point needs, and that each must support the argument, not only be described.
-- "sourcing": 1 point for explaining, for at least two documents, how or why the author's point of view, purpose, historical situation or audience is relevant to the argument. Flag it when no document gets that explanation.
-- "complexity": 1 point for a complex understanding — explaining relationships among the evidence, such as how a cost and a benefit relate, change and continuity, or multiple causes — not merely mentioning a counterpoint.
-Do not flag contextualization or evidence beyond the documents when the essay clearly has them.
+Return at most 8 findings, most important first. Kinds:
+- "relevance": a sentence that does not support the argument — an anecdote, an analogy, an aside (shopping, sports, a trip, a food's origin in an essay about the Mongols), or a sentence that only says what is NOT true or does NOT prove the point ("The Mongols did not invent the dollar", "This does not prove…"). Action "delete". A false claim corrected into a negation is still irrelevant.
+- "source": a source that is impossible or unidentifiable — an author who could not have written it (Einstein in 1206), an institution given as the author of an untitled "study", a source named in the text with no way to find it. "confirmed" only when impossible on its face; a source you merely cannot place is "unverified", never "fabricated". Action "delete" for impossible, "needs_info" otherwise.
+- "quotation": words in quotation marks attributed to someone who could not have said them, or with no source. Same statuses.
+- "citation": an in-text citation that cannot lead a reader to a source — several sites in one bracket, "accessed yesterday", a page number in words, an unnamed attribution ("some researchers", "experts say"), a note like "requires verification". Say what is missing; never supply a date, author, title or page yourself. A source's fame never excuses a missing date or author. Do NOT apply MLA or APA to a DBQ's document-number citations ("Document 2", "(Doc 3)") — those are correct.
+- "bibliography": an entry that is incomplete or impossible, or in-text citations and the list that do not match. Quote the entry.
+- "reasoning": a conclusion the evidence does not support, a cause asserted from a sequence, one case generalized.
+- "contradiction": two statements in the essay that cannot both be true.
+- "evidence": a claim stated broadly with nothing specific to support it — never a topic sentence the next sentences support. A hedge ("may have", "some argue") is not evidence: the claim still needs support or removal.
+- "analysis": evidence described but never explained.
+- "thesis": no defensible claim that answers the question, or one only restating the prompt.
+- "structure": paragraphs that do not each advance one claim, or a draft that reads as a list of corrections rather than an argument.
+For a "dbq", also judge against the College Board's AP history DBQ rubric (revised 2023), as "possible" when you have not seen the prompt or document packet:
+- "documents": 1 point for using three documents to address the topic, 2 for using four to SUPPORT an argument. Use the DOCUMENTS CITED count given; never count yourself.
+- "sourcing": explaining for two documents how or why the author's point of view, purpose, historical situation or audience matters to the argument. You have not seen the documents: never describe a document's author, purpose, audience or contents — say what sourcing is missing and ask for the document packet (action "needs_info").
+- "complexity": explaining relationships among the evidence (a cost and a benefit, change and continuity, several causes), not merely mentioning a counterpoint.
 
 Rules:
-- "quote": copy the sentence EXACTLY as it appears, character for character, or "" when the finding is about the whole essay (documents, sourcing, complexity, thesis, structure).
-- "message": what is missing and what would earn it, plainly, at most 40 words. Concrete: name the document, the sentence or the move. Never praise, never judge the student, never invent a fact or a document's content.
+- "quote": the sentence or reference entry EXACTLY as written, character for character; "" when the finding is about the whole essay.
+- "status": "confirmed" (contradicted, or demonstrable from the essay itself), "unsupported" (no evidence in the essay), "unverified" (a source or quotation not established), "possible" (depends on the prompt, rubric or documents).
+- "action": "delete" for irrelevant, impossible or unusable material; "rewrite" only when the sentence can be fixed with what the essay already says; "cite" when it needs a real, identifiable source; "needs_info" when only the student or the packet can settle it.
+- "suggestion": for "rewrite" only — the student's sentence fixed in their voice, adding NO name, number, date, quotation or source the essay does not already contain, and never a sentence that only negates the original. Otherwise "".
+- "message": what is wrong and what to do, plainly, at most 40 words. Never praise, never judge the student, never invent a fact.
 - Do not report a problem the essay does not have. Fewer, sharper findings beat many.`;
 }
 
@@ -899,25 +931,69 @@ async function runEssayReview({ text, model, effort, mock = false }) {
   return { ...validateEssayReview(text, raw.parsed ?? {}), documents: docs, model: raw.model, usage: raw.usage };
 }
 
-/* Only findings the writer can act on: a known kind, a message, and a quote
- * that is really in the essay — or no quote at all for an essay-wide kind.
- * The rubric kinds belong to a DBQ only. */
+const NEGATION = /\b(?:not|never|no|n['’]t)\b/i;
+// An unnamed source or a note to verify: a hedge, never support.
+const UNNAMED_SUPPORT = /\b(?:some|many|several|certain|most) (?:scholars|researchers|historians|experts|studies|sources|people)\b|\baccording to (?:some|many|experts|scholars|researchers|historians|studies)\b|\b(?:studies|experts|research|scholars|historians) (?:say|says|show|shows|suggest|suggests|agree)\b|\b(?:requires?|needs?) (?:further )?verification\b/i;
+const contentWords = (s) => new Set((String(s).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 3 && !/^(?:the|and|did|does|was|were|not|never|furthermore|however|also|that|this|but|have|has|had)$/.test(w)));
+/* A rewrite that only negates its sentence: it adds a negation the sentence
+ * did not have and nothing else of substance. "The Mongols invented the
+ * American dollar." → "Furthermore, the Mongols did not invent the American
+ * dollar." */
+export function isBareNegation(original, rewrite) {
+  if (!rewrite || !NEGATION.test(rewrite) || NEGATION.test(original)) return false;
+  const before = contentWords(original);
+  const stem = (w) => w.replace(/(?:ed|es|s)$/, "");
+  const beforeStems = new Set([...before].map(stem));
+  return [...contentWords(rewrite)].every((w) => beforeStems.has(stem(w)));
+}
+/* A rewrite may only use what the essay already says: every figure, every
+ * quoted passage and every capitalised name in it must already be in the
+ * essay. Narrowing is fine; inventing is not. */
+export function addsNothingNew(rewrite, essay) {
+  const hay = String(essay).toLowerCase();
+  const figures = String(rewrite).match(/\d[\d.,]*/g) ?? [];
+  const quotes = String(rewrite).match(/["“][^"”]{3,}["”]/g) ?? [];
+  const names = (String(rewrite).match(/(?<=\s)[\p{Lu}][\p{L}'’-]+/gu) ?? []);
+  return [...figures, ...quotes.map((q) => q.slice(1, -1)), ...names].every((t) => hay.includes(String(t).toLowerCase()));
+}
+
+/* Only findings the writer can act on, and only what the prompt allows:
+ * a known kind, status and action; a quote really in the essay (or none, for
+ * a whole-essay kind); the rubric kinds on a DBQ only; a suggestion only for
+ * a rewrite, and only one that neither negates the sentence nor adds a fact
+ * — a rewrite that fails becomes a deletion when it was a bare negation
+ * (the sentence had nothing else to say), else just loses its suggestion. */
 export function validateEssayReview(text, parsed) {
   const norm = (s) => String(s).toLowerCase().replace(/\s+/g, " ").trim();
   const hay = norm(text);
   const genre = ["dbq", "essay", "other"].includes(parsed?.genre) ? parsed.genre : "other";
   const seen = new Set();
   const findings = (Array.isArray(parsed?.findings) ? parsed.findings : [])
-    .map((f) => ({
-      quote: String(f?.quote ?? "").trim().slice(0, 600),
-      kind: ESSAY_REVIEW_KINDS.includes(f?.kind) ? f.kind : null,
-      message: String(f?.message ?? "").trim().slice(0, 400),
-      suggestion: "",
-    }))
+    .map((f) => {
+      const kind = ESSAY_REVIEW_KINDS.includes(f?.kind) ? f.kind : null;
+      const quote = String(f?.quote ?? "").trim().slice(0, 600);
+      let action = ESSAY_REVIEW_ACTIONS.includes(f?.action) ? f.action : "needs_info";
+      let suggestion = action === "rewrite" && kind && !NO_REWRITE_KINDS.has(kind) ? String(f?.suggestion ?? "").trim().slice(0, 600) : "";
+      if (suggestion && quote && isBareNegation(quote, suggestion)) { suggestion = ""; action = "delete"; }
+      if (suggestion && (!addsNothingNew(suggestion, text) || norm(suggestion) === norm(quote))) suggestion = "";
+      // A hedge is not a fix: ask for a real source instead.
+      if (suggestion && UNNAMED_SUPPORT.test(suggestion)) { suggestion = ""; if (action === "rewrite") action = "cite"; }
+      if (action === "rewrite" && !suggestion) action = "needs_info";
+      const status = ESSAY_REVIEW_STATUSES.includes(f?.status) ? f.status : "possible";
+      // Irrelevant material is deleted, not reworded into something still irrelevant;
+      // a source shown to be impossible goes; a DBQ rubric note never writes the analysis.
+      if (kind === "relevance") { action = "delete"; suggestion = ""; }
+      if ((kind === "source" || kind === "quotation" || kind === "bibliography") && status === "confirmed") action = "delete";
+      if (DBQ_ONLY_KINDS.has(kind)) { action = "needs_info"; suggestion = ""; }
+      return {
+        quote, kind, action, suggestion, status,
+        message: String(f?.message ?? "").trim().slice(0, 400),
+      };
+    })
     .filter((f) => f.kind && f.message && (f.quote ? f.quote.length >= 8 && hay.includes(norm(f.quote)) : ESSAY_WIDE_KINDS.has(f.kind)))
-    .filter((f) => genre === "dbq" || !["documents", "sourcing", "complexity"].includes(f.kind))
+    .filter((f) => genre === "dbq" || !DBQ_ONLY_KINDS.has(f.kind))
     .filter((f) => { const k = norm(f.quote) + "|" + f.kind; if (seen.has(k)) return false; seen.add(k); return true; })
-    .slice(0, 5);
+    .slice(0, 8);
   return { genre, findings: genre === "other" ? [] : findings };
 }
 
@@ -925,9 +1001,12 @@ export function validateEssayReview(text, parsed) {
 function mockEssayReview(text, model, docs) {
   const findings = [];
   const isDbq = docs.length > 0;
-  if (isDbq) findings.push({ quote: "", kind: "documents", message: `You use ${docs.length} document${docs.length === 1 ? "" : "s"} (${docs.join(", ")}). [mock]` });
-  const broad = String(text).split(/(?<=[.!?])\s+/).find((s) => /\bsuch as\b/i.test(s) && !/\bDoc(?:ument)?\b/i.test(s));
-  if (broad) findings.push({ quote: broad.trim(), kind: "evidence", message: "A broad claim with nothing specific behind it. [mock]" });
+  if (isDbq) findings.push({ quote: "", kind: "documents", status: "possible", action: "needs_info", message: `You use ${docs.length} document${docs.length === 1 ? "" : "s"} (${docs.join(", ")}). [mock]`, suggestion: "" });
+  const sentences = String(text).split(/(?<=[.!?])\s+/).map((s) => s.trim());
+  const broad = sentences.find((s) => /\bsuch as\b/i.test(s) && !/\bDoc(?:ument)?\b/i.test(s));
+  if (broad) findings.push({ quote: broad, kind: "evidence", status: "unsupported", action: "cite", message: "A broad claim with nothing specific behind it. [mock]", suggestion: "" });
+  const aside = sentences.find((s) => /\b(?:pizza|basketball|shopping|shoes)\b/i.test(s));
+  if (aside) findings.push({ quote: aside, kind: "relevance", status: "confirmed", action: "delete", message: "This does not support the argument. Delete it. [mock]", suggestion: "" });
   return { parsed: { genre: isDbq ? "dbq" : "essay", findings }, model: `${model} (mock)`, usage: { input: 0, output: 0, cached: 0 } };
 }
 

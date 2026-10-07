@@ -40,7 +40,7 @@ test("wired into both modes: no sentence is sent, and the review's answer decide
   assert.equal((SRC.match(/function uncheckedSegments\(\) \{\n\s+if \(FEATURES\.writingOnly && docGenre === "homework"\) return \[\];[^\n]*\n\s+if \(FEATURES\.resumeTips && reviewCoversCheck\(docGenre, review\)\) return \[\];/g) || []).length, 2);
   assert.equal((SRC.match(/review\.serving = data\?\.genre === "resume";/g) || []).length, 2, "the model saying it is not a resume sends it back to the check");
   assert.equal((SRC.match(/\} catch \(err\) \{\n\s+review\.serving = false;/g) || []).length, 2, "any failure, 404 included, falls back to the check");
-  assert.equal((SRC.match(/unavailable: false, serving: null, kind: null \};/g) || []).length, 2);
+  assert.equal((SRC.match(/unavailable: false, serving: null, kind: null, seen: new Map\(\) \};/g) || []).length, 2);
 });
 
 test("the review looks for the one thing the check found on a resume: a public name stated wrongly", () => {
