@@ -1645,10 +1645,11 @@ test("dev drivers that edit a real Doc prove the network is cut — canary, 0 up
   // [file, the first line that can put an edit event into the public Doc,
   //  where its public-Doc path starts (harness.mjs edits a Doc you own,
   //  TRACELY_EDIT_DOC_URL, without severing — that branch comes first)]
+  // edit-trial.mjs and harness.mjs drove the prototype engine and were
+  // deleted with it (#302); the two drivers of the shipped docs-hook.js stay.
   for (const [file, firstEdit, from = ""] of [
-    ["edit-trial.mjs", "const trialSrc = "],
     ["hook-trial.mjs", "window.__tracelyEditConfig.allowEdits = true"],
-    ["harness.mjs", "window.__tracelyEditConfig.allowEdits = true", 'cur = "B-severed"'],
+    ["punct-trial.mjs", "window.__tracelyEditConfig.allowEdits = true"],
   ]) {
     const src = read(path.join("dev", "fix-in-doc", file));
     const edit = src.indexOf(firstEdit, Math.max(0, src.indexOf(from)));

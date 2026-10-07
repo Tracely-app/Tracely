@@ -1,1 +1,4 @@
 reports/
+# Build output of scripts/preview.mjs and HTTP caches the eval scripts rebuild.
+preview.html
+**/*-cache.json

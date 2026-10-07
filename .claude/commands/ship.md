@@ -8,10 +8,11 @@ shipping another one. There is no rollback.
 
 ## Before
 
-1. **Deploy the relay first.** The app and the relay ship together. A client
+1. **Deploy the server first.** The app and `server/` ship together. A client
    released ahead of the endpoint it calls returns 404 in production — that is
-   what happened in v0.3.73, and `preflight.mjs` exists because of it. If the
-   relay has pending changes, run `/promote` first.
+   what happened in v0.3.73, and `preflight.mjs` exists because of it. If
+   `server/` changed since the last deploy, Sam deploys it (`server/DEPLOY.md`)
+   before this runs; `STATUS.md` says what is live.
 2. **`main` must be the source.** Work belongs on `feat/*` branches and reaches
    `main` by merge. `preflight` enforces this.
 3. Everything committed and pushed. `electron-builder` packages the working tree,
@@ -30,14 +31,14 @@ version number.
 
 `ship.mjs` pins `TRACELY_ENV=production` in the environment it spawns. Do not
 remove that: a leftover `staging` value would build a production release pointed
-at the staging relay and staging Supabase, publish it to `latest.yml`, and reach
+at a staging Supabase project, publish it to `latest.yml`, and reach
 every install — with no runtime way to see which backend a build is using.
 
 ## Watch for
 
-- **`env=production relay=...`** in the build log. If it says anything else,
+- **`env=production api=...`** in the build log. If it says anything else,
   stop.
-- Preflight's relay probes. A `404` means the relay is not deployed.
+- Preflight's server probes. A `404` means the server is not deployed.
 - `PASS app.asar contents` and `PASS bundled model embeds offline`. The second
   one matters: v0.3.76 shipped with the entire ML stack excluded and silently
   degraded to word-overlap ranking. Nothing errored.
