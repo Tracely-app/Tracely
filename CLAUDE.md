@@ -253,6 +253,26 @@ its lines.
   so the flow state is owned by the view, and the hit-test stops swapping marks
   while one is open — otherwise reaching across another underline on the way to
   "Insert citation" takes the card with it.
+- **"Find the cited work" is the action on every card about a citation already
+  in the sentence** (citation-defect with a lookable shape, fabricated-citation,
+  cited-unverified, unsupported-by-evidence on a cited sentence). Owner,
+  2026-10-06, on "(Genghis Khan and the, 2022)": the card flagged it *"but it
+  doesnt find citation for me"*. `services/search/citedWorkFinder.ts` runs the
+  server's `compareSource` algorithm in main (Crossref `query.bibliographic` +
+  Open Library, years stripped from scoring, floor 0.5), free and only on the
+  button; the decidable half is the leaf `shared/citedWork.ts`. Every field on
+  a candidate is the record's; the critique's `citationFix` is only ever an
+  extra query string; an empty list is NOT_INDEXED_NOTE, never "fake". The
+  editor's Replace writes the record's marker over the citation and swaps the
+  Works Cited line (one undo step each); the overlay cannot replace text, so it
+  offers Copy citation / Copy entry. Two citations in one sentence: refused,
+  never guessed (`citationTarget`).
+- **Both surfaces route a card's primary button by its ACTION** —
+  `popoverRoute` in `shared/citationAction.ts`. A card about the sentence's own
+  citation never appends a second one (`aboutTheCitation`): the editor's
+  topical search Replaces, the overlay's offers Copy. The overlay offered Insert
+  under "Compare sources", "Review the sources" and "Cite it yourself" until
+  this rule existed.
 - **The editor's marks are driveable from a browser pane that is not
   displayed** — they were not, until `renderer/src/frameScheduler.ts`. They are
   measured inside a frame callback (deliberately: it batches a keystroke and a

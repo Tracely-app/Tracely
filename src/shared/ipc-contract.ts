@@ -28,6 +28,7 @@ import type {
 } from './types'
 import type { ModelTier, Plan } from './plan'
 import type { ScreenWatchProblemKind } from './problemKind'
+import type { CitationDefectKind } from './citationShape'
 import type { Credibility } from './sourceCredibility'
 
 // Note: CitationStyle is already 'APA' | 'MLA' | 'Chicago' — reused as-is for
@@ -138,6 +139,84 @@ export interface CitationResolveCitedResponse {
    * card says so rather than reporting an absence.
    */
   cited: ResolvedCitedWork | null
+}
+
+/**
+ * "Find the cited work" — records that look like what the writer cited.
+ *
+ * Not `ResolvedCitedWork`, and the difference is the point. That one answers
+ * the fabrication check's question — does a work by these authors in this year
+ * exist — and declines to look anything up from a single surname or a partial
+ * title, because its answer can become an accusation. This answers "which real
+ * records match what I typed?", from whatever was typed, and is never a verdict:
+ * an empty list is a fact about two indexes (see citedComparison.ts).
+ *
+ * Every field on a candidate is the index's. `citations` is formatted FROM the
+ * record by the same formatters every other citation uses — nothing in it is
+ * the writer's text or a model's.
+ */
+export interface CitedWorkCandidate {
+  /** Opaque, stable within one response. */
+  ref: string
+  title: string
+  /** Full names as the record gives them. */
+  authors: string[]
+  year: number | null
+  venue: string | null
+  doi: string | null
+  /** The record's own page: doi.org for Crossref, the work page for Open Library. */
+  url: string | null
+  index: 'crossref' | 'openlibrary'
+  /** How much of what the writer typed the record carries, years excluded. */
+  matchPercent: number
+  /** "This record is from 2004; your citation says 2022", or null. */
+  yearNote: string | null
+  /** The in-text marker and the reference entry, per style. */
+  citations: Record<CitationStyle, { inTextCitation: string; worksCitedEntry: string }>
+}
+
+export interface CitationFindCitedWorkRequest {
+  /** The in-text citation exactly as written: "(Genghis Khan and the, 2022)". */
+  citation: string
+  /**
+   * The whole draft, so the Works Cited line the citation points at can be
+   * found and searched instead — it carries the full title and every author.
+   */
+  documentText?: string | null
+  /**
+   * The critique's `citationFix`, when there is one. Used as one more query
+   * string and nothing else — it is the model's memory, never shown.
+   */
+  hint?: string | null
+}
+
+export interface CitationFindCitedWorkResponse {
+  /** The citation as typed, echoed so the card can quote it. */
+  citation: string
+  /** The Works Cited line it was matched to, when one was. */
+  entry: string | null
+  /** The year the writer wrote, for the mismatch line. */
+  citedYear: number | null
+  candidates: CitedWorkCandidate[]
+  /**
+   * False when neither index answered at all. Not the same as an empty
+   * list: "we could not ask" must never read as "nothing exists".
+   */
+  searched: boolean
+}
+
+/** Screen Watch's version: the claim id is all the overlay has. */
+export interface ScreenWatchFindCitedWorkRequest {
+  claimId: string
+}
+export interface ScreenWatchFindCitedWorkResponse extends CitationFindCitedWorkResponse {
+  /**
+   * Whether the claim's sentence carried exactly one citation to look up.
+   * 'none' and 'several' come back with no candidates and `searched: false`:
+   * with two citations in one sentence there is no telling which one the card
+   * is about, and guessing would look up the wrong work.
+   */
+  target: 'one' | 'none' | 'several'
 }
 
 export interface CritiqueGenerateRequest {
@@ -489,6 +568,23 @@ export interface ScreenWatchClaimSummary {
    */
   citationFix: string | null
   citation: ScreenWatchClaimCitation | null
+  /**
+   * Does THIS sentence carry a citation of its own, as opposed to being covered
+   * by one elsewhere in its paragraph (`hasInlineCitation`)? Decides whether
+   * the card offers "Find the cited work" or "Find a source". Optional, and
+   * absent means unknown — older payloads and fixtures did not carry it.
+   */
+  hasOwnCitation?: boolean
+  /** citationShape.ts's sentence for a defect in this sentence's citation. */
+  citationDefect?: string | null
+  /** Which defect — a placeholder has no work behind it to look up. */
+  citationDefectKind?: CitationDefectKind | null
+  /**
+   * Whether the sentence carries exactly one bracketed citation the lookup can
+   * be pointed at (`shared/citedWork.ts` `citationTarget`). Two is 'several',
+   * and the card does not offer the lookup rather than guess which.
+   */
+  citationTarget?: 'one' | 'none' | 'several'
 }
 
 // "Find a source" — a focused, single-claim search distinct from

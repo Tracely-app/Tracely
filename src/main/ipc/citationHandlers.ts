@@ -5,11 +5,13 @@ import { computeClaimSpans } from '@shared/claimSpans'
 import { sentenceAround } from '@shared/inlineCitation'
 import type {
   CitationGenerateResponse,
+  CitationFindCitedWorkResponse,
   CitationListResponse,
   CitationResolveCitedResponse
 } from '@shared/ipc-contract'
 import { formatCitation } from '../services/citations'
 import { checkReferences, resolveCitedWork } from '../services/search/referenceCheck'
+import { findCitedWork } from '../services/search/citedWorkFinder'
 import { getAnalysis } from '../services/storage/analysesRepo'
 import { getClaim } from '../services/storage/claimsRepo'
 import { listCitationsForSource, saveCitation } from '../services/storage/citationsRepo'
@@ -21,6 +23,13 @@ const generateSchema = z.object({
 })
 const listSchema = z.object({ sourceId: z.string() })
 const resolveCitedSchema = z.object({ claimId: z.string() })
+// Bounded: the citation is one bracket, the hint one reference, and the
+// document is only read for its Works Cited lines.
+const findCitedWorkSchema = z.object({
+  citation: z.string().min(1).max(400),
+  documentText: z.string().max(1_000_000).nullish(),
+  hint: z.string().max(600).nullish()
+})
 
 export function registerCitationHandlers(): void {
   ipcMain.handle(IPC.CITATION_GENERATE, (_event, raw): CitationGenerateResponse => {
@@ -73,5 +82,14 @@ export function registerCitationHandlers(): void {
 
     const checks = await checkReferences(sentence, analysis?.sourceText)
     return { cited: resolveCitedWork(checks) }
+  })
+
+  /**
+   * "Find the cited work" on a card in the editor. Crossref and Open Library
+   * only — free, user-triggered, never a verdict. See citedWorkFinder.ts.
+   */
+  ipcMain.handle(IPC.CITATION_FIND_CITED_WORK, async (_event, raw): Promise<CitationFindCitedWorkResponse> => {
+    const { citation, documentText, hint } = findCitedWorkSchema.parse(raw)
+    return findCitedWork({ citation, documentText: documentText ?? null, hint: hint ?? null })
   })
 }

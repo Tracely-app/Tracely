@@ -30,7 +30,9 @@ import type {
   TracerMessage
 } from '@shared/types'
 import type {
+  CitationFindCitedWorkResponse,
   CitationResolveCitedResponse,
+  CitedWorkCandidate,
   ProfileInfo,
   ResolvedCitedWork,
   ScreenWatchSourceCandidate,
@@ -41,6 +43,7 @@ import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { parseReferences } from '@shared/citedReference'
 import { formatInTextCitation } from '@shared/citationInText'
+import { citedYearOf, matchWorksCitedEntry, yearMismatchLabel } from '@shared/citedWork'
 import { bibliographyReferences } from '@shared/bibliography'
 import { splitParagraphs, bucketClaimsByParagraph } from '@shared/paragraphSplit'
 import { argumentParagraphs } from '@shared/structureText'
@@ -529,6 +532,38 @@ export function createHttpApi(): TracelyApi {
         if (!ref) return { cited: null }
         const compared = await post<ServerCompareResponse>('/api/compare-source', { citedRef: ref.raw })
         return { cited: mapCompareToResolved(ref, compared) }
+      },
+      // The server's compareSource IS the algorithm the desktop ported for this
+      // (Crossref bibliographic + Open Library, years out of the scoring), so
+      // the web bridge asks it directly. The critique hint is not sent: that
+      // route takes one reference string, and the writer's own text is the
+      // one to send. Every field below is the record's.
+      findCitedWork: async (req): Promise<CitationFindCitedWorkResponse> => {
+        const citation = req.citation.trim()
+        const entry = req.documentText ? matchWorksCitedEntry(citation, req.documentText) : null
+        const citedYear = citedYearOf(citation)
+        const compared = await post<ServerCompareResponse>('/api/compare-source', { citedRef: entry ?? citation })
+        const candidates: CitedWorkCandidate[] = compared.matches.slice(0, 3).map((m, i) => {
+          const source = sourceFromServer(m, `cited:${i}`)
+          const format = (style: 'APA' | 'MLA' | 'Chicago'): { inTextCitation: string; worksCitedEntry: string } => ({
+            inTextCitation: formatInTextCitation(source, style),
+            worksCitedEntry: formatCitation(source, style)
+          })
+          return {
+            ref: source.id,
+            title: m.title,
+            authors: m.authors ?? [],
+            year: m.year ?? null,
+            venue: m.venue ?? null,
+            doi: m.doi ?? null,
+            url: m.url ?? null,
+            index: m.provider === 'openlibrary' ? 'openlibrary' : 'crossref',
+            matchPercent: Math.round((m.relevance ?? 0) * 100),
+            yearNote: yearMismatchLabel(m.year ?? null, citedYear),
+            citations: { APA: format('APA'), MLA: format('MLA'), Chicago: format('Chicago') }
+          }
+        })
+        return { citation, entry, citedYear, candidates, searched: true }
       }
     },
     critique: {
@@ -1050,7 +1085,15 @@ export function createHttpApi(): TracelyApi {
             : { inTextCitation: '', worksCitedEntry: '' }
         }
       },
-      undoCitation: async () => OK
+      undoCitation: async () => OK,
+      findCitedWork: async () => ({
+        target: 'none' as const,
+        citation: '',
+        entry: null,
+        citedYear: null,
+        candidates: [],
+        searched: false
+      })
     },
     // No global hotkey in a browser tab — nothing captures the clipboard.
     onClipboardCaptured: () => () => undefined,

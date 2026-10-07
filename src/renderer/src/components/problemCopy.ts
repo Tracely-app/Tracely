@@ -1,4 +1,7 @@
 import type { ScreenWatchClaimEvidence, ScreenWatchClaimSummary, ScreenWatchProblemKind } from '@shared/ipc-contract'
+import type { CitationDefectKind } from '@shared/citationShape'
+import { ASK_TRACER, FIND_CITED_WORK, SUGGEST_FIX } from '@shared/citationAction'
+import { canLookUpDefect } from '@shared/citedWork'
 import { hasRelevantSource } from '@shared/problemKind'
 import { retrievalScopeFor, type OutOfScopeReason } from '@shared/retrievalScope'
 import type { ClaimType } from '@shared/types'
@@ -291,6 +294,33 @@ export function problemCopyFor(
 }
 
 /**
+ * Can this card send the writer to the work their citation names?
+ *
+ * Needs a citation of the sentence's OWN (not one covering it from elsewhere in
+ * the paragraph) that the lookup can be pointed at: one bracketed citation —
+ * two give no way to tell which the card means — and not a placeholder, which
+ * names no work at all. `citationTarget` undefined means the surface did not
+ * say, and is read as "one" when the sentence has its own citation.
+ */
+function canFindCitedWork(claim: CitedWorkInputs): boolean {
+  const own = claim.hasOwnCitation ?? claim.hasInlineCitation
+  if (!own) return false
+  if (claim.citationTarget !== undefined && claim.citationTarget !== 'one') return false
+  return true
+}
+
+/** What the card needs to know about the sentence's own citation. */
+interface CitedWorkInputs {
+  hasInlineCitation: boolean
+  /** This sentence's own citation, rather than its paragraph's. */
+  hasOwnCitation?: boolean | null
+  /** Whether that citation is one bracket the lookup and a Replace can target. */
+  citationTarget?: 'one' | 'none' | 'several'
+  /** Which shape defect, when there is one — a placeholder names no work. */
+  citationDefectKind?: CitationDefectKind | null
+}
+
+/**
  * The full popover copy for any problem kind, including the two that are
  * decided by the critique rather than by retrieval.
  *
@@ -298,13 +328,40 @@ export function problemCopyFor(
  * surfaces draw it as a spinner rather than a title/description/button.
  */
 export function popoverCopyFor(
-  claim: Pick<ScreenWatchClaimSummary, 'claimType' | 'hasInlineCitation' | 'critique' | 'text'> & {
-    /** citationShape.ts's own sentence for the defect, when there is one. */
-    citationDefect?: string | null
-  },
+  claim: Pick<ScreenWatchClaimSummary, 'claimType' | 'hasInlineCitation' | 'critique' | 'text'> &
+    Omit<CitedWorkInputs, 'hasInlineCitation'> & {
+      /** citationShape.ts's own sentence for the defect, when there is one. */
+      citationDefect?: string | null
+    },
   evidence: ScreenWatchClaimEvidence,
   kind: Exclude<ScreenWatchProblemKind, 'searching'>
 ): ProblemCopy {
+  const findable = canFindCitedWork(claim)
+  if (kind === 'citation-defect') {
+    // The shape's own sentence, as before. What changed is the button: a
+    // citation that names a real work imperfectly — a title cut off at "and
+    // the", a year that has not happened — is LOOKED UP, so the writer is
+    // handed the record rather than a topical search. A placeholder names no
+    // work, so it keeps "Fix the citation", whose pick replaces it in place.
+    const copy = problemCopyFor(claim, evidence, kind)
+    return findable && claim.citationDefectKind && canLookUpDefect(claim.citationDefectKind)
+      ? { ...copy, action: FIND_CITED_WORK }
+      : copy
+  }
+  if (kind === 'fabricated-citation') {
+    // Its own copy at last — it fell through to the evidence bands and read
+    // like a retrieval result. The kind only survives when a reference lookup
+    // actually ran (normalizeCritique withdraws it otherwise), and even then
+    // "not found" is a fact about two indexes, never "you made this up": the
+    // title says what happened, the body says what it does and does not mean,
+    // and the button goes and looks.
+    return {
+      title: 'Cited source not found',
+      description:
+        'Tracely searched Crossref and Open Library for this reference and the critique could not place it. That does not prove it does not exist — but a reader may not be able to find it either. Look up the work you meant and cite it exactly.',
+      action: findable ? FIND_CITED_WORK : 'Find a source'
+    }
+  }
   if (kind === 'off-topic') {
     // Deliberately not "Find a source". This is the one finding here that a
     // source cannot fix — the sentence may already be true and cited, and
@@ -315,7 +372,7 @@ export function popoverCopyFor(
       title: 'Off topic for this essay',
       description:
         'This sentence is not about the same subject as the rest of the draft. It may still be true — but a marker reads a tangent as padding. Cut it, or connect it to your argument.',
-      action: 'Ask Tracer'
+      action: ASK_TRACER
     }
   }
   if (kind === 'outside-index') {
@@ -346,7 +403,7 @@ export function popoverCopyFor(
       description:
         summariseCritique(claim.critique) ??
         'The substance here is defensible; the phrasing is not. No evidence could support it as strongly as it is stated.',
-      action: 'Suggest fix'
+      action: SUGGEST_FIX
     }
   }
   if (kind === 'contradicted-claim') {
@@ -358,7 +415,7 @@ export function popoverCopyFor(
       description:
         summariseCritique(claim.critique) ??
         'A specific fact asserted here appears to be wrong. Check it against the original source before this goes any further.',
-      action: 'Suggest fix'
+      action: SUGGEST_FIX
     }
   }
   if (kind === 'cited-unverified') {
@@ -379,7 +436,10 @@ export function popoverCopyFor(
       description:
         summariseCritique(claim.critique) ??
         'The source cited here does not appear to carry this claim. Check that it says what you have attributed to it.',
-      action: 'Compare sources'
+      // The work they cited, looked up — and, if it is the wrong one, swapped
+      // for the right record in place. "Compare sources" opened a read-only
+      // list: a card that diagnosed a citation and could do nothing about it.
+      action: findable ? FIND_CITED_WORK : 'Compare sources'
     }
   }
   if (kind === 'unsupported-by-evidence') {
@@ -390,12 +450,20 @@ export function popoverCopyFor(
     // conceding a failed replication and bounding its own claim, underlined in
     // red as bad reasoning because its cited source turned out to be about
     // something else.
+    // The button leads somewhere now. It was "Suggest fix", and for this kind
+    // the critique almost never writes a revision (the server sets one only
+    // for overstatement), so the fix card opened onto "there is no one-word fix
+    // for this one" — a comment, and a second comment behind the first.
+    //  - A sentence with its own citation: the evidence that failed is the
+    //    work they named, so look that work up.
+    //  - An uncited sentence: what it lacks is a source, so go and find one.
+    const own = claim.hasOwnCitation ?? claim.hasInlineCitation
     return {
       title: 'Evidence does not carry this',
       description:
         summariseCritique(claim.critique) ??
         'The sources found do not support this claim as it is phrased. Narrow the claim, or find a source that speaks to it directly.',
-      action: 'Suggest fix'
+      action: own ? (findable ? FIND_CITED_WORK : SUGGEST_FIX) : 'Find a source'
     }
   }
   return problemCopyFor(claim, evidence, kind)
@@ -403,31 +471,22 @@ export function popoverCopyFor(
 
 /**
  * Verdicts the critique reached about the sentence, as opposed to findings
- * retrieval reached about the literature.
- *
- * Kept as its own predicate — rather than folded into `opensFixFlow` below —
- * because it is the question `popoverCopyFor` answers: these are the kinds
- * whose description is the critique text verbatim.
+ * retrieval reached about the literature: the kinds whose description is the
+ * critique text verbatim.
  */
 export function isReasoningProblem(kind: ScreenWatchProblemKind): boolean {
   return kind === 'unsupported-by-evidence' || kind === 'contradicted-claim'
 }
 
-/**
- * Whether the popover's primary button opens the fix card or the citation flow.
- *
- * 'overstated-claim' is here and NOT in `isReasoningProblem`, and the split is
- * deliberate: it is not a finding about reasoning (see problemKind.ts, which
- * ranks it apart from both truth and support findings), but it is the one kind
- * that reliably arrives WITH a replacement sentence attached — the relay sets
- * `suggestedRevision` for overstatement and for nothing else. Routing it to
- * retrieval, which is what happened before, sent the writer looking for
- * evidence for "always" while the narrowed sentence sat unread on the claim.
- */
-export function opensFixFlow(kind: ScreenWatchProblemKind): boolean {
-  return isReasoningProblem(kind) || kind === 'overstated-claim'
-}
+// `opensFixFlow(kind)` was here and decided the primary button by KIND. It is
+// gone: 'unsupported-by-evidence' now leads to a lookup or a source search
+// depending on the sentence, so the kind no longer says where the button goes.
+// Both surfaces route by the ACTION instead — `popoverRoute` in
+// shared/citationAction.ts — which is what the button actually says.
+// ('overstated-claim' and 'contradicted-claim' still say "Suggest fix" and
+// still open the fix card.)
 
-// `insertsCitation` lives in shared/citationAction.ts — a leaf, so `npm test`
-// can load it. This module value-imports @shared/problemKind and cannot be.
-export { insertsCitation } from '@shared/citationAction'
+// `insertsCitation` and `popoverRoute` live in shared/citationAction.ts — a
+// leaf, so `npm test` can load it. This module value-imports @shared/problemKind
+// and cannot be.
+export { aboutTheCitation, insertsCitation, popoverRoute } from '@shared/citationAction'

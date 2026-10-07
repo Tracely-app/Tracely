@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.21.23, and not one new permission.
+ *   - the manifest: 2.21.24, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -546,6 +546,25 @@ test("engine: insertLineBefore refuses a target that is missing or not one parag
   assert.equal(docs.T, before);
 });
 
+test("engine: Replace citation and Complete entry — a citation swapped inside its sentence, a reference line rewritten where it stands, one undo for both", async () => {
+  const S = "Literacy grew in the empire (Genghis Khan and the, 2022).";
+  const E = "Polo, Marco. Website about Mongolia. 2024. Page twelve.";
+  const docs = new FakeDocs(`${S} It spread.\nWorks Cited\n${E}`);
+  const before = docs.T;
+  const h = loadHook({ docs });
+  const a = await h.call("replace", { find: S, replacement: "Literacy grew in the empire (Weatherford).", hint: { occurrences: 1 } });
+  assert.equal(a.ok, true, JSON.stringify(a));
+  assert.equal(docs.pastes[0].text, "Weatherford", "the minimal diff: only the citation's words are pasted");
+  const dry = await h.call("replace", { find: E, replacement: "Polo, Marco. The Travels of Marco Polo. 1958.", hint: { occurrences: 1 }, dryRun: true });
+  assert.equal(dry.ok && dry.dryRun, true, "a whole reference line is a sentence the engine can select");
+  const b = await h.call("replace", { find: E, replacement: "Polo, Marco. The Travels of Marco Polo. 1958.", hint: { occurrences: 1 } });
+  assert.equal(b.ok, true, JSON.stringify(b));
+  assert.equal(docs.body(), `Literacy grew in the empire (Weatherford). It spread.\nWorks Cited\nPolo, Marco. The Travels of Marco Polo. 1958.`);
+  const u = await h.call("undo", { undoToken: [b.undoToken, a.undoToken] });
+  assert.equal(u.ok, true, JSON.stringify(u));
+  assert.equal(docs.T, before, "exactly as it was");
+});
+
 test("planner: insertLineBefore's plan and its read-back check", () => {
   const T = "\u0003Body.\nWorks Cited\nAdams.\nGhosh.\n\u0003\n";
   const p = I.planInsertBefore(T, "Ghosh.", "Brown.");
@@ -799,16 +818,18 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
     const render = () => { renders++; };
     const requestDocsMarks = () => { marks++; };
     const persistCaches = () => {}, persistFlow = () => {};
+    const citedMap = new Map(); // "Find the cited work" lookups (docReplaceCitation, docCompleteEntry)
     ${contentSlice("  function hashText(s) {", "  /* A Doc opened from a second")}
     ${contentSlice("  // Bibliography block", "  function segmentText(")}
+    ${contentSlice('  /* ── "Find the cited work" (2.21.24)', "  function esc(s) {")}
     ${contentSlice("  function esc(s) {", "  /* ── transport")}
     ${contentSlice("    /* ── editing the document ──", "    // (the bridge \"highlight in doc\" feature was removed")}
     ({
-      docsEdit, probeInDoc, canEditDoc, docApply, docFix, docCite, addTransition, undoLastDocEdit, editView, editBtnHtml, segHint, hashText, settleEditStates,
+      docsEdit, probeInDoc, canEditDoc, docApply, docFix, docCite, docReplaceCitation, docCompleteEntry, addTransition, undoLastDocEdit, editView, editBtnHtml, segHint, hashText, settleEditStates,
       setBridge: (v) => { bridgeReady = v; },
       setDoc: (text, segs) => { docText = text; segments = segs; },
       setBars: (b) => { docsBars = b; },
-      cache, sourcesMap, flowDismissed, editedHashes, docEditState,
+      cache, sourcesMap, flowDismissed, editedHashes, docEditState, citedMap,
       state: () => ({ inDoc, lastDocEdit, statusMsg, statusKind, docBusy, flowSig, renders, marks, lastCheckEnd }),
     })`;
   const w = vm.runInContext(code, ctx, { filename: "content-slice.js" });
@@ -1058,6 +1079,25 @@ test("content.js: late answers — a late wrong edit is taken back, a late take-
   assert.equal(c.w.editView(`fix:${c.h}`, "Fix in doc").label, "Fix in doc");
 });
 
+test("content.js: \"Explain in depth\"'s own revision is applied like the card's — its own key, one Undo, the verdict back after", async () => {
+  const S = "Einstein was a basketball player.";
+  const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "d1" } : m.op === "undo" ? { ok: true } : undefined), body: S });
+  await w.probeInDoc();
+  const h = w.hashText(S);
+  w.setDoc(S, [{ ...seg(S), hash: h }]);
+  const finding = { verdict: "questionable", revision: "" }; // the card itself had no fix
+  w.cache.set(h, finding);
+  assert.equal(await w.docFix(h), false, "nothing to apply from the card");
+  assert.equal(await w.docFix(h, null, "Einstein was a theoretical physicist."), true);
+  const rep = ops().find((o) => o.op === "replace");
+  assert.equal(rep.replacement, "Einstein was a theoretical physicist.");
+  assert.equal(w.editView(`deepfix:${h}`, "Fix in doc").label, "Applied ✓");
+  assert.equal(w.editView(`fix:${h}`, "Fix in doc").label, "Fix in doc", "the card's own button is not the one that ran");
+  assert.equal(w.state().lastDocEdit.key, `deepfix:${h}`);
+  await w.undoLastDocEdit();
+  assert.equal(w.cache.get(h), finding, "the original sentence is back, with its verdict");
+});
+
 test("content.js: an edit the hook could only verify blind lands without an Undo", async () => {
   const S = "Einstein was a basketball player.";
   const { w } = loadWiring({ respond: (m) => (m.op === "ping" ? okPing(m) : m.op === "replace" ? { ok: true, undoToken: "m1", rollbackOnly: true, path: "mouse" } : undefined), body: S });
@@ -1259,6 +1299,117 @@ test("content.js: an entry that sorts last, or whose neighbour can't be found, i
   assert.deepEqual(ops().filter((o) => o.op !== "ping").map((o) => o.op), ["replace", "appendLine"], "refused in place → at the end, never nowhere");
 });
 
+/* "Find the cited work" (2.21.24). Owner, 2026-10-06: citing a found source
+ * used to leave "(Genghis Khan and the, 2022) (Weatherford)" — the citation
+ * the card said was the problem, still there beside the new one. */
+const FAULTY = "Literacy expanded across parts of the empire (Genghis Khan and the, 2022).";
+const RECORD = { title: "Genghis Khan and the Making of the Modern World", authors: ["Jack Weatherford"], year: 2004, doi: "", url: "https://openlibrary.org/works/OL1W", kind: "book", container: "", publisher: "", provider: "Open Library" };
+function faultySetup(respond, { extra = "", dry = () => ({ ok: true, dryRun: true }) } = {}) {
+  const body = `${FAULTY} It spread.${extra}`;
+  const env = loadWiring({ respond: (m) => (m.dryRun ? dry(m) : respond(m)), body });
+  const h = env.w.hashText(FAULTY);
+  env.w.setDoc(body, [{ ...seg(FAULTY), hash: h }]);
+  env.w.cache.set(h, { verdict: "questionable" });
+  const all = env.ops;
+  return { ...env, ops: () => all().filter((o) => !o.dryRun && o.op !== "ping"), probes: () => all().filter((o) => o.dryRun), h };
+}
+const lookedUp = (h, plan = {}) => ({
+  loading: false, resolved: true, selected: 0, matches: [RECORD],
+  target: { kind: "sentence", raw: "(Genghis Khan and the, 2022)", inner: "Genghis Khan and the, 2022", segHash: h, sentence: FAULTY },
+  plan: { entry: null, citedYear: "2022", display: "Genghis Khan and the, 2022", ...plan },
+});
+let tokenN = 0;
+const lands = (m) => (m.op === "ping" ? okPing(m) : m.op === "undo" ? { ok: true } : { ok: true, undoToken: `c${++tokenN}` });
+
+test("content.js: Cite in doc takes the place of the citation a card found at fault, and the new sentence is checked afresh", async () => {
+  const { w, ops, h } = faultySetup(lands);
+  w.sourcesMap.set(h, { loading: false, list: [{ title: "Can you see the Great Wall?", url: "https://example.com/wall", publisher: "NASA" }], citedUrl: null });
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0, null, "(Genghis Khan and the, 2022)"), true);
+  const edits = ops();
+  assert.deepEqual(edits.map((o) => o.op), ["replace", "appendLine", "appendLine"]);
+  assert.equal(edits[0].find, FAULTY);
+  assert.equal(edits[0].replacement, "Literacy expanded across parts of the empire (NASA, n.d.).", "in its place — never beside it");
+  assert.ok(!w.cache.has(w.hashText(edits[0].replacement)), "the verdict was about the citation that is gone");
+  assert.equal(w.sourcesMap.get(h).replaced, true);
+  assert.match(w.state().statusMsg, /^replaced \(Genghis Khan and the, 2022\) with \(NASA, n\.d\.\) in doc/);
+  await w.undoLastDocEdit();
+  assert.equal(w.sourcesMap.get(h).replaced, false);
+  assert.equal(w.sourcesMap.get(h).citedUrl, null);
+});
+
+test("content.js: a faulty citation that is in the sentence twice is not guessed at — the marker goes beside, as before", async () => {
+  const S = "Trade grew (Smith, 2019) and ideas spread (Smith, 2019).";
+  const { w, ops } = loadWiring({ respond: (m) => (m.dryRun ? { ok: true, dryRun: true } : lands(m)), body: S });
+  const h = w.hashText(S);
+  w.setDoc(S, [{ ...seg(S), hash: h }]);
+  w.sourcesMap.set(h, { loading: false, list: [{ title: "Trade", url: "https://example.com/t", publisher: "NASA" }], citedUrl: null });
+  await w.probeInDoc();
+  await w.docCite(h, 0, null, "(Smith, 2019)");
+  const rep = ops().find((o) => o.op === "replace");
+  assert.equal(rep.replacement, "Trade grew (Smith, 2019) and ideas spread (Smith, 2019) (NASA, n.d.).");
+});
+
+test("content.js: Replace citation — the record's marker in the sentence and over the writer's own entry, as ONE group with ONE Undo", async () => {
+  const OLD = "Khan, G. (2022). Genghis Khan and the. History.com.";
+  const { w, ops, probes, h } = faultySetup(lands, { extra: `\nReferences\n${OLD}\nZhou, L. (2021). Z. https://z.org` });
+  w.citedMap.set("k1", lookedUp(h, { entry: OLD }));
+  await w.probeInDoc();
+  assert.equal(await w.docReplaceCitation("k1", 0), true);
+  const edits = ops();
+  assert.deepEqual(edits.map((o) => o.op), ["replace", "replace"]);
+  assert.equal(edits[0].replacement, "Literacy expanded across parts of the empire (Weatherford, 2004).");
+  assert.equal(edits[1].find, OLD);
+  assert.equal(edits[1].replacement, "Weatherford, J. (2004). Genghis Khan and the Making of the Modern World.", "the record's fields only: no publisher it did not give, no Open Library address");
+  assert.deepEqual(plain(edits[1].hint), { occurrences: 1 });
+  assert.ok(probes().some((p) => p.op === "replace" && p.find === OLD), "the old entry was dry-run first");
+  assert.equal(w.state().statusMsg, "replaced the citation with (Weatherford, 2004)");
+  assert.match(w.citedMap.get("k1").done.message, /References entry for it now gives the record's details/);
+  assert.ok(w.editedHashes.has(h), "the old sentence's underline drops");
+  await w.undoLastDocEdit();
+  assert.equal(ops().filter((o) => o.op === "undo").pop().undoToken.length, 2, "one Undo takes both back");
+  assert.equal(w.citedMap.get("k1").done, null);
+});
+
+test("content.js: Replace citation adds the entry in order when the old entry is cited elsewhere too, and nothing when the doc has no list", async () => {
+  const OLD = "Khan, G. (2022). Genghis Khan and the. History.com.";
+  const twice = faultySetup(lands, { extra: ` More (Genghis Khan and the, 2022).\nReferences\n${OLD}\nZhou, L. (2021). Z. https://z.org` });
+  twice.w.citedMap.set("k1", lookedUp(twice.h, { entry: OLD }));
+  await twice.w.probeInDoc();
+  assert.equal(await twice.w.docReplaceCitation("k1", 0), true);
+  assert.deepEqual(twice.ops().map((o) => o.op), ["replace", "insertLineBefore"], "another sentence still cites the old entry: it stays");
+  assert.equal(twice.ops()[1].before, "Zhou, L. (2021). Z. https://z.org");
+
+  const bare = faultySetup(lands);
+  bare.w.citedMap.set("k2", lookedUp(bare.h));
+  await bare.w.probeInDoc();
+  assert.equal(await bare.w.docReplaceCitation("k2", 0), true);
+  assert.deepEqual(bare.ops().map((o) => o.op), ["replace"], "no reference list: the sentence only — Copy reference is beside the button");
+});
+
+test("content.js: Replace citation refuses a citation no longer in the sentence exactly once", async () => {
+  const { w, ops, h } = faultySetup(lands);
+  w.citedMap.set("k1", { ...lookedUp(h), target: { ...lookedUp(h).target, raw: "(Somebody, 1999)" } });
+  await w.probeInDoc();
+  assert.equal(await w.docReplaceCitation("k1", 0), false);
+  assert.equal(ops().length, 0, "nothing sent to the doc");
+  assert.match(w.state().statusMsg, /nothing was changed/);
+});
+
+test("content.js: Complete entry rewrites the incomplete reference line where it stands", async () => {
+  const E = "Polo, Marco. Website about Mongolia. 2024. Page twelve.";
+  const body = `The Mongols spread ideas.\nWorks Cited\n${E}`;
+  const { w, ops } = loadWiring({ respond: lands, body });
+  w.setDoc(body, [{ ...seg("The Mongols spread ideas."), hash: "s" }]);
+  w.citedMap.set("tip:e", { loading: false, resolved: true, selected: 0, target: { kind: "entry", entry: E, inner: E, raw: null, segHash: null, sentence: "" }, plan: { entry: E }, matches: [{ ...RECORD, title: "The Travels of Marco Polo", authors: ["Marco Polo"], year: 1958 }] });
+  await w.probeInDoc();
+  assert.equal(await w.docCompleteEntry("tip:e", 0), true);
+  const edits = ops().filter((o) => o.op !== "ping");
+  assert.deepEqual(edits.map((o) => [o.op, o.find, o.replacement]), [["replace", E, "Polo, M. (1958). The Travels of Marco Polo."]]);
+  assert.equal(w.state().statusMsg, "completed the reference entry");
+  assert.ok(w.state().lastDocEdit, "and it can be undone");
+});
+
 test("content.js: a click that changes nothing neither claims an edit nor wipes the last Undo", async () => {
   const S = "The Great Wall is visible from space (Wall, n.d.).";
   const F = "Einstein was a basketball player.";
@@ -1439,9 +1590,9 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.21.23, and fixing in the doc asks for no new permission", () => {
+test("manifest: 2.21.24, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.21.23");
+  assert.equal(m.version, "2.21.24");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",

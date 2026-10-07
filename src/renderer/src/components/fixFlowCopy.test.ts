@@ -1,6 +1,6 @@
 import { strictEqual, notStrictEqual, ok } from 'node:assert'
 import { describe, it } from 'node:test'
-import { NO_REVISION_BODY, OVERLAY_APPLY_NOTE, REVISION_RULE, fixTitle } from './fixFlowCopy.ts'
+import { NO_REVISION_BODY, OVERLAY_APPLY_NOTE, REVISION_RULE, fixTitle, tangentQuestion } from './fixFlowCopy.ts'
 
 /*
  * Loadable by `npm test` only because every import in fixFlowCopy.ts is
@@ -58,5 +58,20 @@ describe('the card states its own limits', () => {
 describe('the headers are stable strings', () => {
   it('returns the same header for the same kind', () => {
     strictEqual(fixTitle('overstated-claim'), fixTitle('overstated-claim'))
+  })
+})
+
+describe('tangentQuestion — what "Ask Tracer" prefills for an off-topic paragraph', () => {
+  it('quotes the paragraph and asks the cut-or-connect question', () => {
+    const q = tangentQuestion('Lamine Yamal is 22 years old.')
+    ok(q.includes('“Lamine Yamal is 22 years old.”'), q)
+    ok(/cut it/.test(q) && /connect it/.test(q), q)
+  })
+
+  it('cuts a long paragraph on a word boundary', () => {
+    const long = `${'word '.repeat(80)}end`
+    const q = tangentQuestion(long, 50)
+    ok(q.includes('…”'), q)
+    ok(!q.includes('wor…'), 'never mid-word')
   })
 })

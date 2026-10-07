@@ -6,12 +6,16 @@ import type {
   ScreenWatchClaimCitation,
   ScreenWatchClaimEvidence,
   ScreenWatchClaimSummary,
+  ScreenWatchFindCitedWorkResponse,
   ScreenWatchOverlayUpdateEvent,
   ScreenWatchSourceCandidate,
   ResolvedCitedWork,
   ScreenWatchStatus,
   ScreenWatchStructure
 } from '@shared/ipc-contract'
+import { findCitationDefects, type CitationDefect } from '@shared/citationShape'
+import { citationTarget, type CitationTarget } from '@shared/citedWork'
+import { findCitedWork } from '../search/citedWorkFinder'
 import type {
   CitationStyle,
   Claim,
@@ -1197,6 +1201,42 @@ async function resolveCitedForClaim(claimId: string): Promise<ResolvedCitedWork 
   }
 }
 
+/**
+ * "Find the cited work" from the overlay: records that look like what this
+ * claim's sentence cites.
+ *
+ * Free and user-triggered — Crossref and Open Library, the same two indexes
+ * `resolveCitedForClaim` above asks — so it is allowed on this passive surface
+ * for the same reason that one is. The critique's `citationFix`, when a
+ * critique has run, rides along as one more query string; it is never shown.
+ *
+ * Refuses rather than guesses when the sentence carries two citations: there
+ * is no telling which one the card is about. The overlay then says so.
+ */
+export async function findCitedWorkForClaim(claimId: string): Promise<ScreenWatchFindCitedWorkResponse> {
+  const empty = (target: ScreenWatchFindCitedWorkResponse['target']): ScreenWatchFindCitedWorkResponse => ({
+    target,
+    citation: '',
+    entry: null,
+    citedYear: null,
+    candidates: [],
+    searched: false
+  })
+  const claim = currentClaims.find((c) => c.id === claimId)
+  if (!claim) throw new Error('This claim is no longer being tracked (the watched text likely changed).')
+  const span = computeClaimSpans(lastAnalyzedText, [claim])[0]
+  const sentence = span ? sentenceAround(lastAnalyzedText, span.start, span.end) : claim.text
+  const defect = findCitationDefects(sentence)[0] ?? null
+  const target = citationTarget(sentence, defect?.text ?? null)
+  if (target.status !== 'one') return empty(target.status)
+  const result = await findCitedWork({
+    citation: target.text,
+    documentText: lastAnalyzedText,
+    hint: critiqueByClaimId.get(claimId)?.citationFix ?? null
+  })
+  return { ...result, target: 'one' }
+}
+
 /** Both halves of the comparison, in one round trip from the overlay. */
 export async function findSourceWithCited(
   claimId: string,
@@ -1472,16 +1512,50 @@ function updateOverlayAndWidget(
   )
   const isCited = (claim: Claim): boolean => citedById.get(claim.id) ?? hasInlineCitation(claim.text)
 
+  /**
+   * The claim's own SENTENCE, read for the two things the editor has always
+   * passed and this surface never did: whether the sentence carries a citation
+   * of its own (rather than being covered by one in its paragraph), and whether
+   * that citation is visibly broken. Without them a "(Genghis Khan and the,
+   * 2022)" could never reach the overlay as a mark, and the card could not tell
+   * "find the work you cited" from "find a source".
+   *
+   * Both are free, local and decided from the text — nothing here calls
+   * anything. Falls back to the claim's own text when its span cannot be
+   * located, exactly as `isCited` does.
+   */
+  interface SentenceInfo {
+    own: boolean
+    defect: CitationDefect | null
+    target: CitationTarget['status']
+  }
+  const readSentence = (sentence: string, own: boolean): SentenceInfo => {
+    const defect = findCitationDefects(sentence)[0] ?? null
+    return { own, defect, target: citationTarget(sentence, defect?.text ?? null).status }
+  }
+  const sentenceInfoById = new Map<string, SentenceInfo>()
+  for (const span of computeClaimSpans(fullText, claims)) {
+    sentenceInfoById.set(
+      span.claim.id,
+      readSentence(sentenceAround(fullText, span.start, span.end), hasInlineCitationNear(fullText, span.start, span.end))
+    )
+  }
+  const sentenceInfo = (claim: Claim): SentenceInfo =>
+    sentenceInfoById.get(claim.id) ?? readSentence(claim.text, hasInlineCitation(claim.text))
+
   /** Decided once here, so the underline and the card cannot disagree. */
   const problemKindById = new Map(
     claims.map((c) => {
       const evidence = evidenceResultByClaimId.get(c.id)
+      const info = sentenceInfo(c)
       return [
         c.id,
         problemKindsFor({
           claimType: c.claimType,
           claimText: c.text,
           hasInlineCitation: isCited(c),
+          hasOwnCitation: info.own,
+          citationDefect: info.defect?.message ?? null,
           evidence: evidence
             ? {
                 score: evidence.score,
@@ -1729,7 +1803,11 @@ function updateOverlayAndWidget(
         critiqueVerdict: critique?.verdict ?? null,
         suggestedRevision: critique?.suggestedRevision ?? null,
         citationFix: critique?.citationFix ?? null,
-        citation: citation ? { inTextCitation: citation.inTextCitation, worksCitedEntry: citation.worksCitedEntry } : null
+        citation: citation ? { inTextCitation: citation.inTextCitation, worksCitedEntry: citation.worksCitedEntry } : null,
+        hasOwnCitation: sentenceInfo(c).own,
+        citationDefect: sentenceInfo(c).defect?.message ?? null,
+        citationDefectKind: sentenceInfo(c).defect?.kind ?? null,
+        citationTarget: sentenceInfo(c).target
       }
     })
   // The actual number of sources found across every currently-flagged claim

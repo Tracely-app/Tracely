@@ -46,9 +46,11 @@ function slice(file, from, to) {
 }
 const content = (from, to) => slice("content.js", from, to);
 
-// The shared pieces every widget/deep test needs: esc, the deep module.
+// The shared pieces every widget/deep test needs: esc, the deep module, and
+// the guard a revision passes (usableRevision) — a deep answer's too, since 2.21.24.
 const SHARED = () => content("  function esc(s) {", "  // Carry [n] citation markers")
-  + content('  /* ── "Explain in depth" (2.20.0)', "  /* ── shared helpers");
+  + content('  /* ── "Explain in depth" (2.20.0)', "  /* ── shared helpers")
+  + content("  const FIX_NEGATION", "  /* Citations that cannot lead a reader");
 
 const VERDICT_LABEL = { false: "False", questionable: "Questionable", incoherent: "Doesn't make sense", needs_citation: "Citation needed" };
 const VERDICT_WASH = { false: "#fdecec", questionable: "#fff4d6", incoherent: "#f1e6fb", needs_citation: "#e8f0fd" };
@@ -74,7 +76,7 @@ function loadDeep({ tier = PRO_TIER, answer = null, fail = null } = {}) {
     },
   });
   const api = vm.runInContext(
-    SHARED() + ";({ explainInDepth, deepView, deepHtml, canDeep, lockDeep, forgetDeepLocks, deepCache, DEEP_COPY, setTier(t) { tier = { ...tier, ...t }; } })",
+    SHARED() + ";({ explainInDepth, deepView, deepHtml, deepRevision, canDeep, lockDeep, forgetDeepLocks, deepCache, DEEP_COPY, setTier(t) { tier = { ...tier, ...t }; } })",
     ctx,
   );
   return { api, calls, opened };
@@ -232,6 +234,60 @@ test("an answer with no explanation is a failure, not an empty card", async () =
     await d.api.explainInDepth("s1", "A claim.", "doc", "false", () => {});
     assert.equal(d.api.deepView("s1", "false").kind, "button", JSON.stringify(answer));
   }
+});
+
+/* ── 2.21.24: on again, and the fuller answer can be acted on ───────────── */
+
+test("Explain in depth is on again in 2.21.24, and nothing hides it", () => {
+  const src = read("content.js");
+  assert.match(src, /deepDive: true,/);
+  assert.match(src, /\$\{FEATURES\.deepDive \? "" : "\.deep, \.deep-row \{ display: none; \}"\}/, "the CSS hide follows the switch");
+  // The /api/check body is unchanged: one sentence, deep:true (pinned above).
+});
+
+test("the fuller answer's revision and basis are kept, and offered as Fix / Copy", async () => {
+  const d = loadDeep({ answer: { findings: [{ id: "s1", verdict: "false", explanation: "Einstein trained and worked as a physicist.", basis: "Einstein was a theoretical physicist.", revision: "Einstein was a physicist." }], modelUsed: "gpt-6-astra", thorough: { used: true, remainingPct: 60 } } });
+  await d.api.explainInDepth("s1", "Einstein was a basketball player.", "doc", "false", () => {});
+  const v = d.api.deepView("s1", "false");
+  assert.equal(v.revision, "Einstein was a physicist.");
+  assert.equal(v.basis, "Einstein was a theoretical physicist.");
+  assert.equal(d.api.deepRevision("s1"), "Einstein was a physicist.");
+  const withFix = d.api.deepHtml("s1", "false", (h) => `<button data-deep-fix="${h}">Fix in doc</button>`);
+  assert.match(withFix, /What it rests on<\/div><div class="deep-text">Einstein was a theoretical physicist\./);
+  assert.match(withFix, /Suggested revision<\/div><div class="deep-text">Einstein was a physicist\./);
+  assert.match(withFix, /<button data-deep-fix="s1">Fix in doc<\/button><button class="act" data-deep-copy="s1">Copy revision<\/button>/);
+  const copyOnly = d.api.deepHtml("s1", "false", () => "");
+  assert.match(copyOnly, /<button class="act primary" data-deep-copy="s1">Copy revision<\/button>/, "where the doc cannot be edited, Copy is the action");
+  assert.ok(!copyOnly.includes("data-deep-fix"));
+});
+
+test("a fuller answer's revision passes the card's guard: no bare negation, no echo of the sentence", async () => {
+  for (const [sentence, revision] of [
+    ["The Mongols invented the American dollar.", "The Mongols did not invent the American dollar."],
+    ["Einstein was a physicist.", "Einstein was a physicist."],
+    ["A claim.", ""],
+  ]) {
+    const d = loadDeep({ answer: { findings: [{ id: "s1", verdict: "false", explanation: "A fuller explanation.", basis: "A fact.", revision }], modelUsed: "gpt-6-astra" } });
+    await d.api.explainInDepth("s1", sentence, "doc", "false", () => {});
+    assert.equal(d.api.deepView("s1", "false").revision, "", `${sentence} → ${revision}`);
+    assert.ok(!d.api.deepHtml("s1", "false", () => "<FIX>").includes("Suggested revision"));
+    assert.equal(d.api.deepView("s1", "false").text, "A fuller explanation.", "the explanation itself still shows");
+  }
+  // A basis that only repeats the explanation is not shown twice.
+  const same = loadDeep({ answer: { findings: [{ id: "s1", verdict: "questionable", explanation: "Same words.", basis: "Same words.", revision: "" }], modelUsed: "gpt-6-astra" } });
+  await same.api.explainInDepth("s1", "A claim.", "doc", "questionable", () => {});
+  assert.equal(same.api.deepView("s1", "questionable").basis, "");
+});
+
+test("wired: Fix in doc (Docs, one Undo) and Fix in field apply the fuller answer's revision; the hover's locked link explains before it sells", () => {
+  const src = read("content.js");
+  assert.match(src, /docFix\(btn\.dataset\.deepFix, null, deepRevision\(btn\.dataset\.deepFix\)\)/);
+  assert.match(src, /fixInField\(btn\.dataset\.deepFix, deepRevision\(btn\.dataset\.deepFix\)\)/);
+  assert.match(src, /return runDocEdit\(`\$\{revision \? "deepfix" : "fix"\}:\$\{hash\}`/, "its own edit key, so its own Applied ✓ and Undo");
+  assert.match(src, /apply\.addEventListener\("click", \(\) => \{ popPinned = true; docFix\(hash, popAnchor, deepRevision\(hash\)\); \}\);/, "and from the hover card");
+  // A locked click says why first (the panel's note), and never opens a tab on its own.
+  assert.match(src, /link\.addEventListener\("click", \(\) => \{ lockDeep\(hash\); paintPop\(\); render\(\); \}\);/);
+  assert.ok(!/lockDeep\(hash\); openOrderPage\(\)/.test(src));
 });
 
 /* ── the two widgets' panels ────────────────────────────────────────────── */
