@@ -121,7 +121,7 @@ function gradingGuide(ctx) {
     claim, never the count — so padding an essay with extra paragraphs lowers the score instead of raising it.
     And when a draft contains no counterargument, that component leaves the denominator entirely rather than
     scoring zero, so prompts that never asked for one are not punished.</p>
-    <p>Your grading level shifts the score: Tracely adds 1.5 points for every grade below 12, and the report
+    <p>Your grading level shifts the score: Tracely adds 4 points for every grade below 12, and the report
     prints that arithmetic as its own row so a student can trace exactly where the number came from.</p>
     <p>Credibility problems — the coloured marks — do not subtract points directly. They are listed beside the
     grade as work the draft owes before its claims can be trusted.</p>

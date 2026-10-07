@@ -90,17 +90,18 @@ export function letterFor(score) {
 }
 
 /**
- * The grading level (grades 3-12) shifts the SCORE, and the letter follows.
- * Credit: +4 points per grade below 12 (the shipped constant — grade 3 sits 36
- * points below grade 12, so an essay that is an A+ for a third-grader lands
- * around a D against final-year expectations). Clamped to 0-100 so a shifted
+ * The grading level (grades 7-12) shifts the SCORE, and the letter follows.
+ * Credit: +4 points per grade below 12 (the shipped constant — grade 7 sits 20
+ * points below grade 12, so an essay that is an A for a seventh-grader lands
+ * around a C against final-year expectations). A level below 7 (offered until
+ * 2026-10) is read as 7, as the app's storedGradeLevel does. Clamped to 0-100 so a shifted
  * score never leaves the band table. The report prints the arithmetic as its
  * own row so a student can trace the number.
  */
 export const POINTS_PER_LEVEL = 4;
 
 export function applyGradeLevel(rubricScore, level) {
-  const lv = Math.min(12, Math.max(3, Number(level) || 12));
+  const lv = Math.min(12, Math.max(7, Number(level) || 12));
   const credit = (12 - lv) * POINTS_PER_LEVEL;
   const total = Math.max(0, Math.min(100, Math.round(rubricScore + credit)));
   return { rubricScore, credit, total, letter: letterFor(total) };

@@ -1,6 +1,16 @@
 import { strictEqual } from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { GRADE_LEVELS, REFERENCE_LEVEL, adjustedScore, gradeFor, isGradeLevel } from './gradeLevel.ts'
+import {
+  GRADE_LEVELS,
+  MIN_GRADE_LEVEL,
+  REFERENCE_LEVEL,
+  adjustedScore,
+  gradeFor,
+  gradeLevelCredit,
+  gradeLevelLabel,
+  isGradeLevel,
+  storedGradeLevel
+} from './gradeLevel.ts'
 
 describe('adjustedScore', () => {
   it('leaves the reference level untouched', () => {
@@ -11,17 +21,18 @@ describe('adjustedScore', () => {
   it('credits four points per year below the reference', () => {
     strictEqual(adjustedScore(50, 11), 54)
     strictEqual(adjustedScore(50, 8), 66)
-    strictEqual(adjustedScore(50, 3), 86)
+    strictEqual(adjustedScore(50, 7), 70)
   })
 
-  it('is the owner\'s example: an A+ for a third-grader is a D for a senior', () => {
-    // 61 bands as D against final-year expectations and as A (97) at grade 3.
-    strictEqual(adjustedScore(61, 3), 97)
-    strictEqual(adjustedScore(61, 12), 61)
+  it('makes an A for a seventh-grader a C for a senior', () => {
+    // 73 bands as C against final-year expectations and as A (93) at grade 7.
+    strictEqual(adjustedScore(73, 7), 93)
+    strictEqual(gradeFor(73, 7).letter, 'A')
+    strictEqual(gradeFor(73, 12).letter, 'C')
   })
 
   it('clamps rather than leaving the band table', () => {
-    strictEqual(adjustedScore(80, 3), 100)
+    strictEqual(adjustedScore(90, 7), 100)
     strictEqual(adjustedScore(0, 12), 0)
   })
 
@@ -31,13 +42,40 @@ describe('adjustedScore', () => {
     strictEqual(adjustedScore(70, Number.NaN), 70)
   })
 
-  it('offers grades 3 to 12', () => {
-    strictEqual(GRADE_LEVELS.length, 10)
-    strictEqual(GRADE_LEVELS[0], 3)
+  it('offers grades 7 to 12, nothing an under-13 is in', () => {
+    // The privacy policy and terms say 13 and over; grade 3 was a setting for
+    // eight-year-olds.
+    strictEqual(GRADE_LEVELS.length, 6)
+    strictEqual(GRADE_LEVELS[0], 7)
+    strictEqual(MIN_GRADE_LEVEL, 7)
     strictEqual(GRADE_LEVELS[GRADE_LEVELS.length - 1], 12)
-    strictEqual(isGradeLevel(3), true)
-    strictEqual(isGradeLevel(2), false)
+    strictEqual(isGradeLevel(7), true)
+    strictEqual(isGradeLevel(6), false)
+    strictEqual(isGradeLevel(3), false)
     strictEqual(isGradeLevel('7'), false)
+  })
+})
+
+describe('storedGradeLevel', () => {
+  it('reads a grade 3-6 row from before the floor moved as grade 7, not 12', () => {
+    // Someone who chose grade 5 asked for lenient grading; reading the row as
+    // the reference would take 28 points off every grade without a word.
+    for (const old of [3, 4, 5, 6]) {
+      strictEqual(storedGradeLevel(old), 7)
+      strictEqual(gradeLevelCredit(old), 20)
+      strictEqual(gradeLevelLabel(old), 'Grade 7')
+    }
+    strictEqual(adjustedScore(50, 3), 70)
+  })
+
+  it('keeps an offered level and reads anything else as the reference', () => {
+    strictEqual(storedGradeLevel(9), 9)
+    strictEqual(storedGradeLevel(2), 12)
+    strictEqual(storedGradeLevel(13), 12)
+    strictEqual(storedGradeLevel(5.5), 12)
+    strictEqual(storedGradeLevel(Number.NaN), 12)
+    strictEqual(storedGradeLevel('5'), 12)
+    strictEqual(storedGradeLevel(undefined), 12)
   })
 })
 
@@ -71,18 +109,18 @@ describe('gradeFor', () => {
     strictEqual(gradeFor(93).letter, 'A')
   })
 
-  it('is the Hepburn essay: A+ for a third-grader, B for a senior', () => {
+  it('is the Hepburn essay: A+ for a seventh-grader, C+ for a senior', () => {
     // 78 is what the rubric scores that draft (see scoreDraft.test.ts). At
-    // grade 3 the shift takes it past the top of the scale; at 12 it does not
-    // move at all.
-    strictEqual(gradeFor(78, 3).letter, 'A+')
+    // grade 7 the shift takes it to 98, the top of the scale; at 12 it does
+    // not move at all.
+    strictEqual(gradeFor(78, 7).letter, 'A+')
     strictEqual(gradeFor(78, 12).letter, 'C+')
   })
 
   it('still has somewhere to fall at a low level', () => {
     // The shift is credit, not a floor: a draft with nothing the rubric can
-    // find is still failing it, in year 3 as in year 12.
-    strictEqual(gradeFor(0, 3).letter, 'F')
-    strictEqual(gradeFor(20, 3).letter, 'F')
+    // find is still failing it, in year 7 as in year 12.
+    strictEqual(gradeFor(0, 7).letter, 'F')
+    strictEqual(gradeFor(30, 7).letter, 'F')
   })
 })

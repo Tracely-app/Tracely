@@ -814,7 +814,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               {hotkeyError ? <p className="error-text">{hotkeyError}</p> : null}
               <p className="muted settings-app-note">
                 Grading level moves the letter, not the score out of 100 — the rubric measures the same six
-                things at every level. The same draft that earns an A in grade 3 is a D in grade 12, because the
+                things at every level. The same draft that earns an A in grade 7 is a C in grade 12, because the
                 expectations are what changed, and the breakdown in the report still explains every point.
               </p>
               <p className="muted settings-app-note">

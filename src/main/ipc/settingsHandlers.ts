@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { IPC } from '@shared/ipc-channels'
-import { REFERENCE_LEVEL, isGradeLevel } from '@shared/gradeLevel'
+import { GRADE_LEVELS, MIN_GRADE_LEVEL, storedGradeLevel } from '@shared/gradeLevel'
 import { MODEL_TIERS, isModelTier, normalizeModelTier } from '@shared/plan'
 import type { SettingsScanInstalledAppsResponse, SettingsSetResponse } from '@shared/ipc-contract'
 import type { AccentColor, AppSettings, CitationStyle, Density, FontSize, Theme } from '@shared/types'
@@ -22,7 +22,7 @@ const setSchema = z.object({
   screenWatchHotkeyAccelerator: z.string().optional(),
   screenWatchAllowedApps: z.string().optional(),
   suppressSaveConfirm: z.boolean().optional(),
-  gradingLevel: z.number().int().min(3).max(12).optional(),
+  gradingLevel: z.number().int().min(MIN_GRADE_LEVEL).max(GRADE_LEVELS[GRADE_LEVELS.length - 1]).optional(),
   autoCritiqueCited: z.boolean().optional(),
   modelTier: z.enum(MODEL_TIERS).optional()
 })
@@ -42,8 +42,9 @@ function buildSettings(): AppSettings {
     screenWatchAllowedApps: raw.screenWatchAllowedApps,
     suppressSaveConfirm: raw.suppressSaveConfirm === 'true',
     // Number(), then the shared guard on the way out: a row written by a hand
-    // edit or a future build must not reach the bands as NaN.
-    gradingLevel: isGradeLevel(Number(raw.gradingLevel)) ? Number(raw.gradingLevel) : REFERENCE_LEVEL,
+    // edit or a future build must not reach the bands as NaN, and a grade 3-6
+    // row from before the floor moved reads as grade 7 (storedGradeLevel).
+    gradingLevel: storedGradeLevel(Number(raw.gradingLevel)),
     autoCritiqueCited: raw.autoCritiqueCited === 'true',
     // The stored REQUEST, not the tier a call ends up running at — that is
     // resolved against the plan in services/ai/modelTier.ts. Guarded on the way
