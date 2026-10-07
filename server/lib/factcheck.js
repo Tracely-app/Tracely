@@ -153,6 +153,22 @@ export function checkPromptBytes({ text, sentences }) {
  * exactly as before. Overridable for the eval harness's sweeps. */
 export const CHECK_SHARD_SENTENCES = Math.max(1, Number(process.env.TRACELY_CHECK_SHARD) || 8);
 
+/* How long one call of at most CHECK_SHARD_SENTENCES sentences may take.
+ *
+ * Every model call waits up to lib/llm.js's 120 s, and a shard of /api/check
+ * occasionally hangs for all of it: 2026-10-03, a 10-sentence check (two
+ * shards) ran over two minutes and failed `timeout`, where the identical
+ * request a minute later took 4.6 s. Measured the same day against
+ * production, 100 ten-sentence checks: p50 4.1 s, p99 5.4 s, max 11.4 s, no
+ * hang. So a shard that has not answered in 30 s is the hang, not a slow
+ * answer — and waiting out the other 90 s only delays the same failure.
+ *
+ * Only calls of at most one shard's size get it: a check refused its extra
+ * calls runs up to 40 sentences as ONE call, and an "Explain in depth" call
+ * (server.js passes no deadline for those) is the thorough model, neither of
+ * which this measurement covers. */
+export const CHECK_SHARD_TIMEOUT_MS = Math.max(1, Number(process.env.TRACELY_CHECK_SHARD_TIMEOUT_MS) || 30_000);
+
 export function shardSentences(sentences, size = CHECK_SHARD_SENTENCES) {
   const n = sentences.length;
   if (n <= size) return [sentences];
@@ -174,7 +190,18 @@ export function shardSentences(sentences, size = CHECK_SHARD_SENTENCES) {
  * passes 2,000 for an "Explain in depth" check on the thorough model, which is
  * what makes that call's worst case (shared/plan.js THOROUGH_RESERVE_USD) a
  * bound. Absent, the ceiling is unchanged. */
-export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, admitCalls = null, maxTokens = undefined }) {
+/* `shardTimeoutMs` (server.js passes CHECK_SHARD_TIMEOUT_MS for every check
+ * but "Explain in depth") is the deadline for each call of at most one
+ * shard's size; absent, every call keeps 120 s. When a sharded check's only
+ * failures are TIMEOUTS and another shard answered, the check answers with
+ * what it has: the timed-out sentences are simply absent from `findings`,
+ * which the extension already reads as "not checked yet" and re-sends after
+ * its 30 s hold (content.js holdOmitted). A server-side retry would be that
+ * same call, sooner — so it would raise the bill on every hang, where this
+ * raises nothing. `onShardFailure(err)` is told of each shard so dropped,
+ * so the failure log still counts it. Any other failure, or every shard
+ * timing out, fails the check exactly as before. */
+export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, admitCalls = null, maxTokens = undefined, shardTimeoutMs = undefined, onShardFailure = null }) {
   const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
   const context = checkContext(text);
@@ -183,26 +210,34 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
   const shards = shardSentences(sentences);
   if (shards.length === 1 || !callsAdmitted(admitCalls, shards.length - 1)) {
-    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, maxTokens });
+    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, maxTokens, shardTimeoutMs });
   }
-  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, maxTokens })));
+  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, maxTokens, shardTimeoutMs })));
   const done = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
-  const failed = settled.find((r) => r.status === "rejected");
-  if (failed) {
+  const rejected = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
+  const partial = rejected.length > 0 && done.length > 0 && shardTimeoutMs !== undefined && rejected.every((e) => e?.kind === "timeout");
+  if (rejected.length && !partial) {
     // Every shard that answered was billed, and so was whatever the failing
     // one managed — the route records only what the error it catches carries.
     const billed = done.reduce((acc, r) => addUsage(acc, r.usage), null);
-    throw withBilledUsage(failed.reason, billed, failed.reason?.llm);
+    throw withBilledUsage(rejected[0], billed, rejected[0]?.llm);
   }
+  for (const e of rejected) {
+    try { onShardFailure?.(e); } catch { /* a log hook never fails the check */ }
+  }
+  // A dropped shard can still have been billed (a truncation split or a
+  // missed-id retry that completed before the deadline), so it is counted.
+  const usage = [...done.map((r) => r.usage), ...rejected.map((e) => e?.llm?.usage)]
+    .reduce((acc, u) => addUsage(acc, u), { input: 0, output: 0, cached: 0, cacheWrite: 0 });
   return {
     findings: done.flatMap((r) => r.findings),
     model: done[0]?.model ?? chosenModel,
-    usage: done.reduce((acc, r) => addUsage(acc, r.usage), { input: 0, output: 0, cached: 0, cacheWrite: 0 }),
+    usage,
     shards: shards.length,
   };
 }
 
-async function checkBatch({ text, sentences, model, effort, admitSplit, maxTokens, retryMissing = true }) {
+async function checkBatch({ text, sentences, model, effort, admitSplit, maxTokens, shardTimeoutMs, retryMissing = true }) {
   let result;
   try {
     result = await structuredCall({
@@ -215,6 +250,7 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, maxToken
       maxTokens: maxTokens ?? 16_000,
       what: "fact check",
       name: "findings",
+      timeoutMs: sentences.length <= CHECK_SHARD_SENTENCES ? shardTimeoutMs : undefined,
     });
   } catch (err) {
     // Output budget exhausted — split the batch so each retry makes progress.
@@ -223,8 +259,8 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, maxToken
       const mid = Math.ceil(sentences.length / 2);
       let first = null;
       try {
-        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, maxTokens });
-        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, maxTokens });
+        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, maxTokens, shardTimeoutMs });
+        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, maxTokens, shardTimeoutMs });
         // The truncated attempt was billed too — every output token it was
         // allowed — so its usage (lib/llm.js tags it on the error) is part of
         // what this check cost and of what the route records.
@@ -256,7 +292,7 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, maxToken
   const answered = new Set(findings.map((f) => f.id));
   const missed = sentences.filter((s) => !answered.has(s.id));
   if (missed.length && missed.length < sentences.length && retryMissing) {
-    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, maxTokens, retryMissing: false });
+    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, maxTokens, shardTimeoutMs, retryMissing: false });
     return { findings: [...findings, ...again.findings], model: again.model, usage: addUsage(result.usage, again.usage) };
   }
 

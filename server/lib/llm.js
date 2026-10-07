@@ -280,8 +280,10 @@ const effortDisabled = new Set();
 const effortKey = (p, model) => `${p.name}:${model}`;
 const effortFor = (p, model) => !effortDisabled.has(effortKey(p, model)) && p.supportsEffort(model);
 
-/** A call that must return JSON matching `schema`. */
-export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
+/** A call that must return JSON matching `schema`. `timeoutMs`, when given,
+ * replaces post()'s 120 s deadline for this call alone (lib/factcheck.js's
+ * per-shard deadline on /api/check); absent, every caller keeps 120 s. */
+export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT, timeoutMs = undefined }) {
   assertStrictSchema(schema, what);
   const p = provider();
   const chosen = chooseModel(model);
@@ -293,12 +295,12 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
     const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
 
     try {
-      json = await post(p, body);
+      json = await post(p, body, { timeoutMs });
     } catch (err) {
       if (!withEffort || !p.isEffortError(err)) throw err;
       effortDisabled.add(effortKey(p, chosen));
       sent.effort = null;
-      json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }));
+      json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }), { timeoutMs });
     }
     p.checkComplete(json, what);
     const text = p.extractText(json);

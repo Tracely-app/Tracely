@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runFactCheck, findSources, runFlowCheck, runReview, hasApiKey, CheckError, checkPromptBytes } from "./lib/factcheck.js";
+import { runFactCheck, findSources, runFlowCheck, runReview, hasApiKey, CheckError, checkPromptBytes, CHECK_SHARD_TIMEOUT_MS } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
 import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
@@ -1155,6 +1155,11 @@ const server = http.createServer(async (req, res) => {
         text, sentences, model: modelUsed, effort: level, mock: MOCK, maxTokens,
         admitSplit: () => admitSplitCalls(gate, "/api/check", modelUsed),
         admitCalls: (extra) => admitExtraCalls(gate, "/api/check", modelUsed, extra),
+        // A hung shard gives up at 30 s instead of 120, and when the others
+        // answered the check returns theirs (factcheck.js runFactCheck). Not
+        // on "Explain in depth": the thorough model was not measured for it.
+        shardTimeoutMs: deep ? undefined : CHECK_SHARD_TIMEOUT_MS,
+        onShardFailure: (e) => console.error(modelFailureLine("/api/check", e, trace)),
       });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       // `thorough` (optional, deep only, hosted): whether this answer came from
