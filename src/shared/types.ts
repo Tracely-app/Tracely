@@ -277,7 +277,7 @@ export interface AppSettings {
   /** The Save changes dialog's "Do not show anymore" has been ticked. */
   suppressSaveConfirm: boolean
   /**
-   * The school year the writing is graded against, 3-12.
+   * The school year the writing is graded against, 7-12.
    *
    * It moves the LETTER, never the /100 — see shared/gradeLevel.ts. Defaults to
    * 12, which is the level the bands were written against, so an install that

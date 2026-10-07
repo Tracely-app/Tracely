@@ -2191,7 +2191,7 @@ function DocumentEditor({
           What year this document is being graded against.
 
           At the top of the document because that is where the setting's
-          consequences are: the same draft is an A at grade 3 and a D at grade
+          consequences are: the same draft is an A at grade 7 and a C at grade
           12, and a letter with no statement of which one it is is a number
           without units. It reads the same value every letter in this window
           bands against (lib/gradeLevel.tsx), and opens Settings, because the

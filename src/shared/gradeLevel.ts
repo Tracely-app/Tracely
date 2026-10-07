@@ -2,8 +2,8 @@
  * What year the writer is in, and what that does to the letter.
  *
  * The rubric measures the same six things at every level — a thesis is a thesis
- * in year 3 and in year 12 — so the /100 does NOT move with this setting. What
- * moves is what the number is worth: the same essay that meets a nine-year-old's
+ * in year 7 and in year 12 — so the /100 does NOT move with this setting. What
+ * moves is what the number is worth: the same essay that meets a seventh-grader's
  * expectations is thin for someone about to leave school.
  *
  * That distinction is the whole design. Scaling the score would break the
@@ -15,9 +15,17 @@
  * A leaf with no imports, so `npm test` can load it.
  */
 
-/** The school years offered in Settings → Preferences. */
-export const GRADE_LEVELS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
+/**
+ * The school years offered in Settings → Preferences.
+ *
+ * Grade 7 up. They ran from grade 3, and a setting for eight-year-olds is a
+ * product inviting users under 13 — which COPPA governs from the first one,
+ * while the privacy policy and terms say Tracely is for 13 and over. The
+ * lowest grade offered is the age the app tells people it is for.
+ */
+export const GRADE_LEVELS = [7, 8, 9, 10, 11, 12] as const
 export type GradeLevel = (typeof GRADE_LEVELS)[number]
+export const MIN_GRADE_LEVEL: GradeLevel = GRADE_LEVELS[0]
 
 /**
  * The level the bands were written against.
@@ -28,14 +36,15 @@ export type GradeLevel = (typeof GRADE_LEVELS)[number]
  * is easier by construction rather than by a second table of bands that could
  * disagree with the first.
  */
-export const REFERENCE_LEVEL = 12
+export const REFERENCE_LEVEL: GradeLevel = 12
 
 /**
  * Points of credit per year below the reference.
  *
- * 4 a year, so year 3 sits 36 points below year 12 — which is the owner's own
- * example: an essay that is an A+ for a third-grader lands around D+ against
- * final-year expectations (97 vs 61 on these bands).
+ * 4 a year, so year 7 sits 20 points below year 12: an essay that is an A for a
+ * seventh-grader lands around a C against final-year expectations (93 vs 73 on
+ * these bands). (The owner's original example was year 3, 36 points below — an
+ * A+ against a D+ — from when the levels started there.)
  *
  * Deliberately linear. A curve fitted to something would need that something to
  * exist; there is no cohort here to norm against, and inventing a shape would
@@ -48,15 +57,32 @@ export function isGradeLevel(value: unknown): value is GradeLevel {
 }
 
 /**
+ * The level a stored or passed-in value means.
+ *
+ * Grades 3-6 were offered until the floor moved to 7, so a settings row can
+ * still hold one. It reads as the lowest level offered, not as the reference:
+ * someone who chose grade 5 asked for lenient grading, and jumping them to 12
+ * would take 28 points off every grade with nothing on screen saying why.
+ * Anything else that is not a level — a hand edit, a future build's value,
+ * NaN — reads as the reference, the pre-setting behaviour.
+ */
+export function storedGradeLevel(value: unknown): GradeLevel {
+  if (isGradeLevel(value)) return value
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 3 && value < MIN_GRADE_LEVEL) {
+    return MIN_GRADE_LEVEL
+  }
+  return REFERENCE_LEVEL
+}
+
+/**
  * The score to band, once the writer's year is taken into account.
  *
  * Clamped to 0-100 so a shifted score never leaves the table: the bands' floor
- * is 0 and their top is 90, and a year-3 draft scoring 80 would otherwise be
- * asked for a letter at 116.
+ * is 0 and their top is 97, and a year-7 draft scoring 90 would otherwise be
+ * asked for a letter at 110.
  */
 export function adjustedScore(score: number, level: number = REFERENCE_LEVEL): number {
-  const safe = isGradeLevel(level) ? level : REFERENCE_LEVEL
-  const shift = (REFERENCE_LEVEL - safe) * POINTS_PER_LEVEL
+  const shift = (REFERENCE_LEVEL - storedGradeLevel(level)) * POINTS_PER_LEVEL
   return Math.max(0, Math.min(100, Math.round(score + shift)))
 }
 
@@ -118,11 +144,10 @@ export function gradeFor(score: number, level?: number): { letter: string; line:
  * between that and the number in the ring.
  */
 export function gradeLevelCredit(level: number = REFERENCE_LEVEL): number {
-  const safe = isGradeLevel(level) ? level : REFERENCE_LEVEL
-  return (REFERENCE_LEVEL - safe) * POINTS_PER_LEVEL
+  return (REFERENCE_LEVEL - storedGradeLevel(level)) * POINTS_PER_LEVEL
 }
 
-/** "Year 12" / "Grade 3" — the label the setting shows. */
+/** "Grade 12" / "Grade 7" — the label the setting shows. */
 export function gradeLevelLabel(level: number): string {
-  return `Grade ${isGradeLevel(level) ? level : REFERENCE_LEVEL}`
+  return `Grade ${storedGradeLevel(level)}`
 }

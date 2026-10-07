@@ -737,7 +737,9 @@ It used to be a rail beside the editor (`StructurePanel.tsx`). The rail was remo
   so a draft that met every expectation of its level could not be told it had.
   That file is now a re-export.
 - **The grading LEVEL moves the SCORE, and the letter follows it**
-  (`shared/gradeLevel.ts`, Settings → Preferences, grades 3-12). It moved the
+  (`shared/gradeLevel.ts`, Settings → Preferences, grades 7-12 — 3-12 until
+  2026-10, when the floor moved to match the 13+ minimum age; a stored 3-6
+  reads as 7). It moved the
   letter only at first, on the argument that the report's six components add to
   the number shown; the owner's answer was that the number is what a student
   reads, and a 78 with an "A+" beside it is a card arguing with itself. So the

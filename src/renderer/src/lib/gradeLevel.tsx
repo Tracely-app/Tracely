@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { REFERENCE_LEVEL, isGradeLevel } from '@shared/gradeLevel'
+import { REFERENCE_LEVEL, storedGradeLevel } from '@shared/gradeLevel'
 import { tracelyApi } from './api'
 
 /**
@@ -27,7 +27,7 @@ export function GradeLevelProvider({ children }: { children: ReactNode }): JSX.E
   useEffect(() => {
     tracelyApi
       .getSettings()
-      .then((s) => setLevel(isGradeLevel(s.gradingLevel) ? s.gradingLevel : REFERENCE_LEVEL))
+      .then((s) => setLevel(storedGradeLevel(s.gradingLevel)))
       // The reference level is the pre-setting behaviour, so a failed read
       // grades exactly as the app did before this existed rather than showing
       // nothing.

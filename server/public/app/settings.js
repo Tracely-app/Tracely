@@ -287,7 +287,7 @@ export async function render(mount, ctx) {
   mount.appendChild(root);
 
   const gradeOptions = [];
-  for (let g = 3; g <= 12; g++) gradeOptions.push({ id: g, label: `Grade ${g}` });
+  for (let g = 7; g <= 12; g++) gradeOptions.push({ id: g, label: `Grade ${g}` });
 
   const strategy = settings.modelStrategy === "uniform" ? "uniform" : "smart";
 

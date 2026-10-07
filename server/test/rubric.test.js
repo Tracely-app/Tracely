@@ -50,11 +50,14 @@ test("grade level shifts the score and the letter follows; arithmetic is traceab
   assert.equal(g8.credit, 16);
   assert.equal(g8.total, 96);
   assert.equal(g8.letter, letterFor(96));
-  // The owner's example: an A+ for a third-grader is a D for a senior.
-  assert.equal(applyGradeLevel(61, 3).total, 97);
-  assert.equal(letterFor(applyGradeLevel(61, 3).total), "A+");
-  assert.equal(letterFor(61), "D-");
-  assert.equal(applyGradeLevel(99, 3).total, 100); // capped
+  // An A for a seventh-grader is a C for a senior.
+  assert.equal(applyGradeLevel(73, 7).total, 93);
+  assert.equal(letterFor(applyGradeLevel(73, 7).total), "A");
+  assert.equal(letterFor(73), "C");
+  assert.equal(applyGradeLevel(99, 7).total, 100); // capped
+  // Grades 3-6 are no longer offered (13+ minimum age); a stored one reads as 7.
+  assert.equal(applyGradeLevel(50, 3).credit, 20);
+  assert.equal(applyGradeLevel(50, 6).total, 70);
 });
 
 test("letter bands are the standard scale with thirds — A+ exists, D has thirds", () => {
