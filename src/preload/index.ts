@@ -9,6 +9,8 @@ import type {
   AuthGetPlanResponse,
   AuthGetThoroughResponse,
   AuthGetUserResponse,
+  CitationFindCitedWorkRequest,
+  CitationFindCitedWorkResponse,
   CitationGenerateRequest,
   CitationGenerateResponse,
   CitationListRequest,
@@ -56,6 +58,8 @@ import type {
   ProfileSetResponse,
   ScreenWatchCritiqueClaimRequest,
   ScreenWatchCritiqueClaimResponse,
+  ScreenWatchFindCitedWorkRequest,
+  ScreenWatchFindCitedWorkResponse,
   ScreenWatchFindSourceRequest,
   ScreenWatchFindSourceResponse,
   ScreenWatchGetStatusResponse,
@@ -136,7 +140,10 @@ const api = {
     list: (req: CitationListRequest): Promise<CitationListResponse> =>
       ipcRenderer.invoke(IPC.CITATION_LIST, req),
     resolveCited: (req: CitationResolveCitedRequest): Promise<CitationResolveCitedResponse> =>
-      ipcRenderer.invoke(IPC.CITATION_RESOLVE_CITED, req)
+      ipcRenderer.invoke(IPC.CITATION_RESOLVE_CITED, req),
+    /** Records that look like what a sentence cites. Free: Crossref + Open Library. */
+    findCitedWork: (req: CitationFindCitedWorkRequest): Promise<CitationFindCitedWorkResponse> =>
+      ipcRenderer.invoke(IPC.CITATION_FIND_CITED_WORK, req)
   },
   critique: {
     generate: (req: CritiqueGenerateRequest): Promise<CritiqueGenerateResponse> =>
@@ -266,7 +273,9 @@ const api = {
     insertCitation: (req: ScreenWatchInsertCitationRequest): Promise<ScreenWatchInsertCitationResponse> =>
       ipcRenderer.invoke(IPC.SCREENWATCH_INSERT_CITATION, req),
     undoCitation: (req: ScreenWatchUndoCitationRequest): Promise<ScreenWatchUndoCitationResponse> =>
-      ipcRenderer.invoke(IPC.SCREENWATCH_UNDO_CITATION, req)
+      ipcRenderer.invoke(IPC.SCREENWATCH_UNDO_CITATION, req),
+    findCitedWork: (req: ScreenWatchFindCitedWorkRequest): Promise<ScreenWatchFindCitedWorkResponse> =>
+      ipcRenderer.invoke(IPC.SCREENWATCH_FIND_CITED_WORK, req)
   },
   onClipboardCaptured: (callback: (event: FloatingClipboardCapturedEvent) => void): (() => void) => {
     const listener = (_: unknown, payload: FloatingClipboardCapturedEvent): void => callback(payload)

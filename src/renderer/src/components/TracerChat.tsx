@@ -23,9 +23,17 @@ const GREETING_ID = '__greeting__'
 
 export default function TracerChat({
   onClose,
-  onApplyRewrite
+  onApplyRewrite,
+  initialQuestion = null
 }: {
   onClose: () => void
+  /**
+   * A question typed into the box for the writer — the off-topic card's "Ask
+   * Tracer" — and NOT sent. Sending is a paid call, so the writer presses
+   * Send; this only saves them composing it. A new question replaces whatever
+   * is in the box, since it is the answer to the button they just pressed.
+   */
+  initialQuestion?: string | null
   /**
    * Apply a proposed rewrite to the document, returning whether it landed.
    *
@@ -43,7 +51,10 @@ export default function TracerChat({
   const [serverConfigured, setServerConfigured] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(initialQuestion ?? '')
+  useEffect(() => {
+    if (initialQuestion) setInput(initialQuestion)
+  }, [initialQuestion])
   // Message id -> what happened when its rewrite was applied. Keyed by id
   // rather than held on the message so re-fetching the conversation cannot
   // resurrect an offer the writer has already taken.

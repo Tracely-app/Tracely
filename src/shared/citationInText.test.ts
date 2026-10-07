@@ -118,9 +118,35 @@ describe('shortTitle', () => {
   })
 
   // The cut can land on punctuation, which would then sit inside the quotes.
+  //
+  // This pinned 'Screen time, sleep, and' until 2026-10-06 — a marker ending on
+  // "and". That is the same shape as the "(Genghis Khan and the, 2022)" a
+  // student pasted into a draft: a short title cut on a function word reads as
+  // a typo and identifies nothing, so the cut now reaches on to the next word
+  // that carries meaning, and the comma that lands there still comes off.
   it('drops punctuation left at the cut', () => {
-    strictEqual(shortTitle('Screen time, sleep, and mood, in adolescents'), 'Screen time, sleep, and')
+    strictEqual(shortTitle('Screen time, sleep, and mood, in adolescents'), 'Screen time, sleep, and mood')
     strictEqual(shortTitle('A Title.'), 'A Title')
+  })
+
+  it('never ends on a function word — reaches forward to the next real word', () => {
+    strictEqual(
+      shortTitle('Genghis Khan and the Making of the Modern World'),
+      'Genghis Khan and the Making'
+    )
+    strictEqual(shortTitle('A History of the World in 100 Objects'), 'A History of the World')
+    strictEqual(shortTitle('Reading Lolita in Tehran: A Memoir in Books'), 'Reading Lolita in Tehran')
+  })
+
+  it('cuts back instead when nothing within reach carries meaning', () => {
+    // Four function words after the cut — reaching for a fifth would drag the
+    // marker halfway through the title, so it cuts back to the last real word.
+    strictEqual(shortTitle('Sleep Loss and the of the of the Teenage Brain'), 'Sleep Loss')
+  })
+
+  it('treats a capitalised "A" as part of the title, not a dangling article', () => {
+    strictEqual(shortTitle('Coverage of Plan A in Rural Districts'), 'Coverage of Plan A')
+    strictEqual(shortTitle('Deficiency of Vitamin A among Young Children'), 'Deficiency of Vitamin A')
   })
 
   it('normalises whitespace and handles nothing', () => {

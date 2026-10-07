@@ -33,3 +33,59 @@ const INSERTING: ReadonlySet<string> = new Set([
 export function insertsCitation(action: string): boolean {
   return INSERTING.has(action)
 }
+
+/**
+ * The action on a card whose citation names a work that can be looked up.
+ *
+ * Added 2026-10-06. Owner, on "(Genghis Khan and the, 2022)": the card called
+ * the citation out *"but it doesnt find citation for me"*. This is the button
+ * that does: it shows the records that match what the writer typed, and in the
+ * editor replaces the citation with the one they pick.
+ */
+export const FIND_CITED_WORK = 'Find the cited work'
+
+/** The off-topic card's action. It opens Tracer — it never searched anything. */
+export const ASK_TRACER = 'Ask Tracer'
+
+/** The fix card's action: shows what the critique already wrote, calls nothing. */
+export const SUGGEST_FIX = 'Suggest fix'
+
+/** Where a card's primary button goes. */
+export type PopoverRoute = 'cited-work' | 'insert' | 'read-only' | 'fix' | 'tracer'
+
+/**
+ * One dispatch for both surfaces, decided from the ACTION WORDING for the same
+ * reason `insertsCitation` is: the card's label and its click must not
+ * disagree. They did twice — "Ask Tracer" on the editor opened the read-only
+ * source list, and the overlay ignored read-only altogether and offered an
+ * Insert under "Compare sources" and "Cite it yourself".
+ */
+export function popoverRoute(action: string): PopoverRoute {
+  if (action === FIND_CITED_WORK) return 'cited-work'
+  if (action === ASK_TRACER) return 'tracer'
+  if (action === SUGGEST_FIX) return 'fix'
+  return insertsCitation(action) ? 'insert' : 'read-only'
+}
+
+/** Kinds that are about the citation already in the sentence. */
+const ABOUT_THE_CITATION: ReadonlySet<string> = new Set([
+  'citation-defect',
+  'fabricated-citation',
+  'cited-unverified'
+])
+
+/**
+ * Was this card opened about a citation the sentence ALREADY carries?
+ *
+ * Then any source the writer picks must go in INSTEAD of that citation, never
+ * beside it — appending is how "(Unknown Author, 2025) (Walker, 2004)" ended up
+ * in a draft. The editor replaces in place. The overlay cannot (it can only
+ * type at the caret through UI Automation), so it offers Copy instead of
+ * Insert.
+ *
+ * `unsupported-by-evidence` counts only on a sentence with its own citation:
+ * there the evidence that failed was the work the writer named.
+ */
+export function aboutTheCitation(kind: string, hasOwnCitation: boolean): boolean {
+  return ABOUT_THE_CITATION.has(kind) || (kind === 'unsupported-by-evidence' && hasOwnCitation)
+}

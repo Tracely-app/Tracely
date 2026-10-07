@@ -414,7 +414,21 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
             fx.citations.find((c) => c.sourceId === req.sourceId) ?? fx.citations[0]
           ).formattedText
         }),
-      list: () => ok('citation.list', { citations: fx.citations })
+      list: () => ok('citation.list', { citations: fx.citations }),
+      /**
+       * "Find the cited work". Answers by the CITATION, because the outcomes
+       * are about what was typed: the cut-off Genghis citation finds two
+       * records dated away from 2022; a placeholder or anything else finds
+       * nothing above the floor, which the card must report as two indexes
+       * coming back empty — never as a verdict.
+       */
+      findCitedWork: (req) =>
+        ok(
+          'citation.findCitedWork',
+          /genghis/i.test(req.citation)
+            ? fx.citedWorkGenghis
+            : { citation: req.citation, entry: null, citedYear: null, candidates: [], searched: true }
+        )
     },
     critique: {
       generate: () =>
@@ -727,7 +741,20 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
             worksCitedEntry: fx.citations[0].formattedText
           }
         }),
-      undoCitation: () => ok('screenWatch.undoCitation', { ok: true as const })
+      undoCitation: () => ok('screenWatch.undoCitation', { ok: true as const }),
+      /**
+       * The overlay's "Find the cited work". c8 carries the cut-off citation
+       * and gets the two records; every other claim's sentence carries no
+       * single citation to look up, which is the 'none' state the card has to
+       * explain rather than show an empty list for.
+       */
+      findCitedWork: (req) =>
+        ok(
+          'screenWatch.findCitedWork',
+          req.claimId === 'c8'
+            ? { ...fx.citedWorkGenghis, target: 'one' as const }
+            : { citation: '', entry: null, citedYear: null, candidates: [], searched: false, target: 'none' as const }
+        )
     },
     onClipboardCaptured: (cb) =>
       subscribe('onClipboardCaptured', { text: fx.analysis.sourceText }, cb),

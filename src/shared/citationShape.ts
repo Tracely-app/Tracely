@@ -35,6 +35,13 @@ export type CitationDefectKind =
   | 'future-year'
   /** A raw URL standing in for a reference. */
   | 'bare-url'
+  /**
+   * The name or title in the citation stops on a function word — "(Genghis
+   * Khan and the, 2022)". A title cut off mid-phrase, usually by pasting a
+   * short form that was itself cut at a word count. Nobody can look up "and
+   * the", so like the three above it leaves no followable source.
+   */
+  | 'truncated'
 
 export interface CitationDefect {
   kind: CitationDefectKind
@@ -82,6 +89,49 @@ function looksLikeReference(inner: string): boolean {
 
 function yearsIn(inner: string): number[] {
   return [...inner.matchAll(/\b((?:1[5-9]|20)\d{2})[a-z]?\b/g)].map((m) => Number(m[1]))
+}
+
+/**
+ * Words a name or title in a citation cannot END on.
+ *
+ * Deliberately short — articles, the three conjunctions and "of" — and
+ * compared CASE-SENSITIVELY against the lowercase form. Title case leaves
+ * exactly these lowercase, so "(Genghis Khan and the, 2022)" is caught while
+ * "(Vitamin A, 2019)" and "(Plan A, 2020)" — where the capital "A" is part of
+ * the name — are not. Prepositions are left out on purpose: a real title can
+ * end on one ("Something to Live For"), and a wrong flag here costs more than
+ * a missed one.
+ */
+const DANGLING_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'nor', 'of', '&'])
+
+/**
+ * One reference inside a parenthetical, split into the name part and the year.
+ *
+ * The COMMA before the year is required. "(Smith, 2020)" separates the two; a
+ * parenthetical like "(Up from 2019)" has no comma and is prose about a date,
+ * not a reference, so it never reaches the test below.
+ */
+const NAME_THEN_YEAR =
+  /^\s*(.+?),\s*(?:1[5-9]|20)\d{2}[a-z]?(?:\s*[,:]\s*(?:pp?\.\s*)?\d+(?:\s*[–—-]\s*\d+)?)?\s*$/
+
+/**
+ * Does this parenthetical name a work in a way that stops mid-phrase?
+ *
+ * Each `;`-separated reference is tested on its own, so "(Paris, 1996; Walker,
+ * 2010)" is two ordinary references. A name part has to START like a name — a
+ * capital, or an opening quote before one — and run to at least two words, so
+ * "(in 2020)" and a lone "(The, 2020)" are never read as a truncated citation.
+ */
+function truncatedReference(inner: string): boolean {
+  return inner.split(';').some((part) => {
+    const match = NAME_THEN_YEAR.exec(part)
+    if (!match) return false
+    const name = match[1].trim().replace(/^["“'‘]+|["”'’]+$/g, '').trim()
+    if (!/^\p{Lu}/u.test(name)) return false
+    const words = name.split(/\s+/)
+    if (words.length < 2) return false
+    return DANGLING_WORDS.has(words[words.length - 1])
+  })
 }
 
 /** The reference as written, normalised so two copies of it compare equal. */
@@ -144,6 +194,20 @@ export function findCitationDefects(text: string, currentYear = new Date().getFu
       })
     }
 
+    // A name or title cut off on a function word. Same class as a placeholder
+    // author — there is no work a reader could look up from "and the" — which
+    // is why it shares the EVIDENCE clause the others map to (see rubric.ts,
+    // `malformed-citation`) rather than needing one of its own.
+    if (truncatedReference(reference.inner)) {
+      found.push({
+        kind: 'truncated',
+        start: reference.start,
+        end: reference.end,
+        text: reference.text,
+        message: 'This citation looks cut off — the title or author is incomplete.'
+      })
+    }
+
     const later = yearsIn(reference.inner).filter((year) => year > currentYear)
     if (later.length > 0) {
       found.push({
@@ -165,8 +229,8 @@ export function findCitationDefects(text: string, currentYear = new Date().getFu
     // formatting, and GRAMMAR / MECHANICS says not to lean on typos. What
     // survives above is the subset that means there is no followable source at
     // ALL — a placeholder author, a bracketed note, a bare link, an impossible
-    // year — which maps to EVIDENCE: "Flag unsupported factual claims when
-    // factual support is expected."
+    // year, a name cut off mid-phrase — which maps to EVIDENCE: "Flag
+    // unsupported factual claims when factual support is expected."
     //
     // If duplicates should come back, the route is to add a clause to the
     // rubric, not to widen the EVIDENCE one to cover them.

@@ -22,8 +22,9 @@ import { useDrawIn, useMarkArrivals, useMarkDepartures, usePopoverEntrance, type
 import type { CitationStyle } from '@shared/types'
 import type { DocumentMark, MarkRect, PendingMark, ProseMark } from './documentMarks'
 import MarkdownText from './MarkdownText'
-import { PROBLEM_COLOR, PROBLEM_LABEL, opensFixFlow, popoverCopyFor } from './problemCopy'
-import { insertsCitation } from '@shared/citationAction'
+import { PROBLEM_COLOR, PROBLEM_LABEL, popoverCopyFor } from './problemCopy'
+import { popoverRoute } from '@shared/citationAction'
+import type { EntryOutcome } from '@shared/citedWork'
 import SourceIconBox from './SourceIconBox'
 import { useFavicons } from '../lib/useFavicons'
 import { critiqueIssues } from '../critiqueIssues'
@@ -40,9 +41,22 @@ import {
 // The flow's wording is shared with the Screen Watch overlay, which draws the
 // same four frames over other applications — see citationFlowCopy.ts.
 import {
+  CITATION_REPLACED_TITLE,
   CITATION_STYLE_LABEL,
+  CITED_WORK_EMPTY_TITLE,
+  CITED_WORK_RESULTS_BODY,
+  CITED_WORK_SEARCHING_TITLE,
+  CITED_WORK_UNREACHABLE,
+  FIND_DIFFERENT_SOURCE,
   WORKS_CITED_FAILED_NOTE,
+  citationReplacedBody,
+  citedWorkEmptyBody,
+  citedWorkMeta,
+  citedWorkResultsTitle,
+  citedWorkSearchingBody,
   emptyResultsBody,
+  entryOutcomeLabel,
+  willReplaceLabel,
   flagsLeft,
   insertedBody,
   resultsBody,
@@ -52,7 +66,11 @@ import {
   worksCitedLabel
 } from './citationFlowCopy'
 import { CITED_HEADING, UNCHECKABLE_SHAPE_NOTE, describeCitedWork } from '@shared/citedComparison'
-import type { ResolvedCitedWork } from '@shared/ipc-contract'
+import type {
+  CitationFindCitedWorkResponse,
+  CitedWorkCandidate,
+  ResolvedCitedWork
+} from '@shared/ipc-contract'
 import type { Credibility } from '@shared/sourceCredibility'
 import type { WorksCitedResult } from './documentMarks'
 
@@ -247,6 +265,55 @@ export interface DocFixFlow {
   onDone: () => void
 }
 
+/**
+ * "Find the cited work", run in the popover. Owned by AnalyzeView for the
+ * reason every flow here is: the card unmounts when the pointer leaves the
+ * sentence, and this one has a Replace button on it.
+ *
+ * Free — Crossref and Open Library through `citation:findCitedWork` — and only
+ * ever started by the button. Nothing it shows is a verdict: a record is "the
+ * work you cited", an empty list is a fact about two indexes.
+ */
+export type DocCitedWorkState =
+  | { step: 'searching' }
+  | {
+      step: 'results'
+      response: CitationFindCitedWorkResponse
+      selectedRef: string | null
+      style: CitationStyle
+    }
+  | {
+      step: 'replaced'
+      candidate: CitedWorkCandidate
+      style: CitationStyle
+      /** The reference entry as written into the list. */
+      entry: string
+      /** What happened to the reference list — see entryOutcomeLabel. */
+      outcome: EntryOutcome | 'failed'
+    }
+  | { step: 'error'; title: string; message: string }
+
+export interface DocCitedWorkFlow {
+  claimId: string
+  /** The citation being looked up and replaced, exactly as the writer typed it. */
+  citation: string
+  state: DocCitedWorkState
+  replacing: boolean
+  undoing: boolean
+  onSelect: (ref: string) => void
+  onSetStyle: (style: CitationStyle) => void
+  onReplace: () => void
+  /** The record's own page, in the writer's browser. */
+  onOpenRecord: (url: string) => void
+  /** The topical search — whose pick REPLACES the citation, never sits beside it. */
+  onFindSource: () => void
+  onRetry: () => void
+  onUndo: () => void
+  onDone: () => void
+  onCancel: () => void
+  onViewWorksCited: () => void
+}
+
 export interface DocumentMarkLayerProps {
   marks: DocumentMark[]
   /** The claim the pointer is over, or the one whose popover is pinned open. */
@@ -271,9 +338,14 @@ export interface DocumentMarkLayerProps {
   flow: DocCitationFlow | null
   /** The fix card, when one is open for the active mark's claim. */
   fix: DocFixFlow | null
+  /** "Find the cited work", when it is open for the active mark's claim. */
+  citedWork: DocCitedWorkFlow | null
   /** `readOnly` when the card was opened to look rather than to cite. */
   onFindSource: (mark: DocumentMark, readOnly: boolean) => void
   onSuggestFix: (mark: DocumentMark) => void
+  onFindCitedWork: (mark: DocumentMark) => void
+  /** Opens Tracer with a question about this sentence's paragraph, unsent. */
+  onAskTracer: (mark: DocumentMark) => void
   onDismiss: (mark: DocumentMark) => void
   /** Keeps the popover open while the pointer is inside it. */
   onPopoverEnter: () => void
@@ -707,14 +779,18 @@ export default function DocumentMarkLayer({
   wrapScrollTop,
   flow,
   fix,
+  citedWork,
   onFindSource,
   onSuggestFix,
+  onFindCitedWork,
+  onAskTracer,
   onDismiss,
   onPopoverEnter,
   onPopoverLeave
 }: DocumentMarkLayerProps): JSX.Element {
   const activeFlow = flow && active && flow.claimId === active.mark.claim.id ? flow : null
   const activeFix = fix && active && fix.claimId === active.mark.claim.id ? fix : null
+  const activeCitedWork = citedWork && active && citedWork.claimId === active.mark.claim.id ? citedWork : null
   // Keyed on the claim's TEXT for the motion: claim ids change when the editor
   // re-analyses, and an unchanged sentence must not draw itself in again.
   const drawn = useMemo<DrawnMark[]>(
@@ -772,8 +848,11 @@ export default function DocumentMarkLayer({
           wrapScrollTop={wrapScrollTop}
           flow={activeFlow}
           fix={activeFix}
+          citedWork={activeCitedWork}
           onFindSource={(readOnly) => onFindSource(active.mark, readOnly)}
           onSuggestFix={() => onSuggestFix(active.mark)}
+          onFindCitedWork={() => onFindCitedWork(active.mark)}
+          onAskTracer={() => onAskTracer(active.mark)}
           onDismiss={() => onDismiss(active.mark)}
           onMouseEnter={onPopoverEnter}
           onMouseLeave={onPopoverLeave}
@@ -791,8 +870,11 @@ function MarkPopover({
   wrapScrollTop,
   flow,
   fix,
+  citedWork,
   onFindSource,
   onSuggestFix,
+  onFindCitedWork,
+  onAskTracer,
   onDismiss,
   onMouseEnter,
   onMouseLeave
@@ -804,8 +886,11 @@ function MarkPopover({
   wrapScrollTop: number
   flow: DocCitationFlow | null
   fix: DocFixFlow | null
+  citedWork: DocCitedWorkFlow | null
   onFindSource: (readOnly: boolean) => void
   onSuggestFix: () => void
+  onFindCitedWork: () => void
+  onAskTracer: () => void
   onDismiss: () => void
   onMouseEnter: () => void
   onMouseLeave: () => void
@@ -815,7 +900,7 @@ function MarkPopover({
   // Re-measured on the step as well as the claim: the flow's cards are three to
   // five times the height of the problem statement they replace, and a stale
   // measurement is what decides above-vs-below.
-  const step = flow?.state.step ?? fix?.state.step ?? null
+  const step = flow?.state.step ?? fix?.state.step ?? citedWork?.state.step ?? null
   useLayoutEffect(() => {
     setHeight(cardRef.current?.offsetHeight ?? 0)
   }, [mark.claim.id, step])
@@ -823,7 +908,10 @@ function MarkPopover({
   const kind = mark.problemKinds[0]
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const width = flow ? POPOVER_WIDTH_FLOW : POPOVER_WIDTH
+  // The lookup's list is a list of titles, like the citation flow's, so it
+  // takes the flow's width once there is something to list.
+  const width =
+    flow || (citedWork && citedWork.state.step !== 'searching') ? POPOVER_WIDTH_FLOW : POPOVER_WIDTH
 
   // Centred on the line it points at, then pulled back inside the editor. The
   // tail stays on the sentence when the card moves, which is the whole reason
@@ -866,12 +954,29 @@ function MarkPopover({
       // What citationShape.ts found wrong with the citation's SHAPE, so the
       // card can print that sentence rather than a generic one.
       citationDefect: mark.citationDefect,
+      citationDefectKind: mark.citationDefectKind,
+      // Whether this sentence's own citation can be looked up and replaced —
+      // what decides "Find the cited work" against "Find a source".
+      hasOwnCitation: mark.hasOwnCitation,
+      citationTarget: mark.citationTarget.status,
       critique: mark.claim.critique,
       text: mark.claim.text
     },
     mark.evidence,
     kind
   )
+  // Decided from the action WORDING, so the label and the click cannot
+  // disagree — see popoverRoute. It was kind-based, and "Ask Tracer" on an
+  // off-topic card opened the read-only source list.
+  const route = popoverRoute(action)
+  const onPrimary =
+    route === 'fix'
+      ? onSuggestFix
+      : route === 'cited-work'
+        ? onFindCitedWork
+        : route === 'tracer'
+          ? onAskTracer
+          : () => onFindSource(route === 'read-only')
   const remaining = mark.problemKinds.length
   usePopoverEntrance(rootRef, mark.claim.id, height > 0, wantsAbove)
 
@@ -903,6 +1008,8 @@ function MarkPopover({
       <div ref={cardRef} className="docmark-card" style={cardCap > 0 ? { maxHeight: cardCap } : undefined}>
         {flow ? (
           <CitationFlowCard flow={flow} claimText={mark.claim.text} />
+        ) : citedWork ? (
+          <CitedWorkCard citedWork={citedWork} color={PROBLEM_COLOR[kind]} />
         ) : fix ? (
           <FixCard
             fix={fix}
@@ -935,13 +1042,11 @@ function MarkPopover({
         <div className="docmark-actions">
           <button
             className="docmark-btn-primary"
-            // NOT insertsCitation(action) — readOnly is its negation. Passing
-            // it straight through inverted the whole feature: "Add citation"
-            // opened the read-only card and "Compare sources" opened the
-            // inserter. Caught in the harness, not by reading.
-            onClick={
-              opensFixFlow(kind) ? onSuggestFix : () => onFindSource(!insertsCitation(action))
-            }
+            // read-only is the NEGATION of inserting. Passing insertsCitation
+            // straight through once inverted the whole feature: "Add citation"
+            // opened the read-only card and "Compare sources" the inserter.
+            // Caught in the harness, not by reading; popoverRoute keeps it so.
+            onClick={onPrimary}
           >
             {action}
           </button>
@@ -1087,6 +1192,212 @@ function FixCard({
           Back
         </button>
       </div>
+    </>
+  )
+}
+
+/**
+ * "Find the cited work" — the records that look like what the sentence cites,
+ * and a Replace that swaps the citation for the one the writer picks.
+ *
+ * No Figma frame; assembled from the citation flow's own parts so it reads as
+ * the same card: header dot, `.docmark-row`s with a radio, the style pills, a
+ * `.docmark-block` saying exactly what Replace will write, and the frame's
+ * full-width third button — here "Find a different source", which runs the
+ * topical search with Replace semantics.
+ *
+ * Every title, author, year and venue on it is the record's (see
+ * citedWorkFinder.ts). The year line is the one sentence of ours, and it only
+ * states the two years side by side.
+ */
+function CitedWorkCard({ citedWork, color }: { citedWork: DocCitedWorkFlow; color: string }): JSX.Element {
+  const { state, citation } = citedWork
+
+  if (state.step === 'searching') {
+    return (
+      <>
+        <div className="docmark-head">
+          <span className="docmark-dot" style={{ background: color }} />
+          <span className="docmark-title">{CITED_WORK_SEARCHING_TITLE}</span>
+        </div>
+        <p className="docmark-body">{citedWorkSearchingBody(citation)}</p>
+        <div className="docmark-progress">
+          <div className="docmark-progress-fill" />
+        </div>
+        <div className="docmark-actions">
+          <button className="docmark-btn-secondary" onClick={citedWork.onCancel}>
+            Cancel
+          </button>
+          <span className="docmark-hint">Usually 2–4 seconds</span>
+        </div>
+      </>
+    )
+  }
+
+  if (state.step === 'error') {
+    return (
+      <>
+        <div className="docmark-head">
+          <span className="docmark-dot" style={{ background: '#d93636' }} />
+          <span className="docmark-title">{state.title}</span>
+        </div>
+        <p className="docmark-body">{state.message}</p>
+        <div className="docmark-actions">
+          <button className="docmark-btn-primary" onClick={citedWork.onCancel}>
+            Back
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  if (state.step === 'replaced') {
+    return (
+      <>
+        <div className="docmark-head">
+          <span className="docmark-dot" style={{ background: '#16a34a' }} />
+          <span className="docmark-title">{CITATION_REPLACED_TITLE}</span>
+        </div>
+        <p className="docmark-body">{citationReplacedBody(state.style, citation)}</p>
+        <div className="docmark-block">
+          <div className="docmark-block-label">{entryOutcomeLabel(state.outcome)}</div>
+          <div className="docmark-block-body">{state.entry}</div>
+          {state.outcome === 'failed' ? <div className="docmark-block-body">{WORKS_CITED_FAILED_NOTE}</div> : null}
+        </div>
+        <div className="docmark-actions">
+          <button className="docmark-btn-primary" onClick={citedWork.onDone}>
+            Done
+          </button>
+          {state.outcome === 'failed' ? null : (
+            <button className="docmark-btn-secondary" onClick={citedWork.onViewWorksCited}>
+              View Works Cited
+            </button>
+          )}
+          <button className="docmark-btn-secondary" onClick={citedWork.onUndo} disabled={citedWork.undoing}>
+            {citedWork.undoing ? 'Undoing…' : 'Undo'}
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  const { response, selectedRef, style } = state
+  const { candidates } = response
+
+  if (candidates.length === 0) {
+    // Two different empties, never one. "Could not ask" and "asked, and both
+    // indexes came back with nothing" read the same as a blank list, and only
+    // the second is even a fact — neither is a verdict on the citation.
+    return (
+      <>
+        <div className="docmark-head">
+          <span className="docmark-dot" style={{ background: '#ffb800' }} />
+          <span className="docmark-title">{CITED_WORK_EMPTY_TITLE}</span>
+        </div>
+        <p className="docmark-body">{response.searched ? citedWorkEmptyBody(citation) : CITED_WORK_UNREACHABLE}</p>
+        <div className="docmark-actions">
+          {response.searched ? (
+            <button className="docmark-btn-primary" onClick={citedWork.onFindSource}>
+              Find a source
+            </button>
+          ) : (
+            <button className="docmark-btn-primary" onClick={citedWork.onRetry}>
+              Try again
+            </button>
+          )}
+          <button className="docmark-btn-secondary" onClick={citedWork.onCancel}>
+            Back
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  const selected = candidates.find((c) => c.ref === selectedRef) ?? null
+  const written = selected ? selected.citations[style] : null
+
+  return (
+    <>
+      <div className="docmark-head">
+        <span className="docmark-dot" style={{ background: '#16a34a' }} />
+        <span className="docmark-title">{citedWorkResultsTitle(candidates.length)}</span>
+        <span className="docmark-chip">{CITATION_STYLE_LABEL[style]}</span>
+      </div>
+      <div className="docmark-scroll">
+        <p className="docmark-body">{CITED_WORK_RESULTS_BODY}</p>
+        <div className="docmark-rows">
+          {candidates.map((candidate) => (
+            <button
+              type="button"
+              key={candidate.ref}
+              className={`docmark-row${candidate.ref === selectedRef ? ' selected' : ''}`}
+              data-cited-ref={candidate.ref}
+              onClick={() => citedWork.onSelect(candidate.ref)}
+            >
+              <SourceIconBox
+                className="docmark-row-badge"
+                initials={candidate.index === 'crossref' ? 'CR' : 'OL'}
+                faviconDataUrl={null}
+              />
+              <span className="docmark-row-meta">
+                <span className="docmark-row-title">{candidate.title}</span>
+                <span className="docmark-row-sub">
+                  <span className="docmark-venue">{citedWorkMeta(candidate)}</span>
+                  <span className="docmark-match">{candidate.matchPercent}% match</span>
+                </span>
+                {candidate.yearNote ? <span className="docmark-year-note">{candidate.yearNote}</span> : null}
+              </span>
+              <span className={`docmark-radio${candidate.ref === selectedRef ? ' on' : ''}`} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+        {/* Inside the scroller, not pinned beside the buttons. Measured in the
+            harness: with the style row and this block pinned too, a card capped
+            to 219px over a sentence near the bottom of the editor collapsed
+            the list to nothing and still drew Replace past its own edge. The
+            buttons are what must stay reachable; this is reading. */}
+        <div className="docmark-styles">
+          <span className="docmark-styles-label">Style</span>
+          {CITATION_STYLES.map((option) => (
+            <button
+              type="button"
+              key={option}
+              className={`docmark-style-pill${option === style ? ' on' : ''}`}
+              onClick={() => citedWork.onSetStyle(option)}
+            >
+              {CITATION_STYLE_LABEL[option]}
+            </button>
+          ))}
+        </div>
+        {written ? (
+          <div className="docmark-block">
+            <div className="docmark-block-label">{willReplaceLabel(citation)}</div>
+            <div className="docmark-block-marker">{written.inTextCitation}</div>
+            <div className="docmark-block-body">{written.worksCitedEntry}</div>
+          </div>
+        ) : null}
+      </div>
+      <div className="docmark-actions">
+        <button
+          className="docmark-btn-primary"
+          onClick={citedWork.onReplace}
+          disabled={citedWork.replacing || !selected}
+          title={`Replaces ${citation}`}
+        >
+          {citedWork.replacing ? 'Replacing…' : 'Replace citation'}
+        </button>
+        <button
+          className="docmark-btn-secondary"
+          onClick={() => selected?.url && citedWork.onOpenRecord(selected.url)}
+          disabled={!selected?.url}
+          title={selected?.url ?? undefined}
+        >
+          Open record ↗
+        </button>
+      </div>
+      <button className="docmark-btn-secondary docmark-btn-wide" onClick={citedWork.onFindSource}>
+        {FIND_DIFFERENT_SOURCE}
+      </button>
     </>
   )
 }

@@ -78,6 +78,23 @@ export const APPLIED_BODY =
  */
 export const OVERLAY_APPLY_NOTE = 'Paste it over the sentence yourself — Tracely does not edit other apps.'
 
+/**
+ * What "Ask Tracer" types into Tracer's box for a tangent — a question about
+ * the paragraph, prefilled and NOT sent. Sending is a paid call, so the writer
+ * presses Send; the card only saves them composing the question.
+ *
+ * The off-topic card's button said "Ask Tracer" and opened the read-only
+ * source list, which is a card about a tangent offering sources for it.
+ *
+ * Quotes the paragraph, cut on a word boundary, because Tracer reads the whole
+ * draft and needs to know which part is being asked about.
+ */
+export function tangentQuestion(paragraph: string, max = 220): string {
+  const clean = paragraph.replace(/\s+/g, ' ').trim()
+  const cut = clean.length <= max ? clean : `${clean.slice(0, clean.lastIndexOf(' ', max) > max * 0.6 ? clean.lastIndexOf(' ', max) : max)}…`
+  return `This paragraph seems off topic for my essay: “${cut}” Should I cut it, or how could I connect it to my argument?`
+}
+
 /** The claim can no longer be found in the draft, so nothing was rewritten. */
 export const APPLY_LOST_CLAIM =
   'Could not find that sentence in the document any more — it may have been edited since the critique ran.'

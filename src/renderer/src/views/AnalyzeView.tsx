@@ -13,7 +13,15 @@ import ArgumentScoreModal from '../components/ArgumentScoreModal'
 import ToolbarMenu from '../components/ToolbarMenu'
 import ConfirmDialog from '../components/ConfirmDialog'
 import DocumentMarkLayer, { PendingMarkLayer, ProseMarkLayer } from '../components/DocumentMarkLayer'
-import type { DocCitationFlowState, DocFixState, DocProseFix } from '../components/DocumentMarkLayer'
+import type {
+  DocCitationFlowState,
+  DocCitedWorkState,
+  DocFixState,
+  DocProseFix
+} from '../components/DocumentMarkLayer'
+import { aboutTheCitation } from '@shared/citationAction'
+import { citationUsedElsewhere } from '@shared/citedWork'
+import { tangentQuestion } from '../components/fixFlowCopy'
 import type { ProseMark } from '../components/documentMarks'
 import { useGradeLevel } from '../lib/gradeLevel'
 import { gradeLevelLabel } from '@shared/gradeLevel'
@@ -23,7 +31,9 @@ import { APPLY_LOST_CLAIM } from '../components/fixFlowCopy'
 import {
   applyTracerRewrite,
   addWorksCitedEntry,
+  applyEntryReplacement,
   applyProseIssue,
+  editorText,
   type PendingMark,
   insertCitationForClaim,
   markAt,
@@ -214,6 +224,17 @@ function DocumentEditor({
   const [proseMarks, setProseMarks] = useState<ProseMark[]>([])
   /** Claims found and being searched right now — a progress line, not a finding. */
   const [pendingMarks, setPendingMarks] = useState<PendingMark[]>([])
+  /**
+   * Claims measured as tangents. Null until measured, and null again whenever
+   * the check could not run — see shared/claimRelevance.ts for why that
+   * distinction is carried rather than collapsed to an empty set.
+   *
+   * Restored 2026-10-06. This and the effect that fills it went missing in the
+   * #199 merge, which left `measureMarks` taking an off-topic set nobody passed
+   * — so the off-topic mark, and the "Ask Tracer" card behind it, could never
+   * be drawn in the editor at all.
+   */
+  const [offTopicIds, setOffTopicIds] = useState<ReadonlySet<string> | null>(null)
   const [activeMark, setActiveMark] = useState<{ mark: DocumentMark; rect: MarkRect } | null>(null)
   // The prose issue under the pointer, and whether its fix is being applied.
   // Hit-tested exactly like `activeMark`: nothing in either layer may accept a
@@ -240,6 +261,11 @@ function DocumentEditor({
   // proposed rewrite can actually be applied: the document is open, so the
   // edit goes through execCommand and lands on the browser's undo stack.
   const [tracerOpen, setTracerOpen] = useState(false)
+  /**
+   * What the off-topic card's "Ask Tracer" types into Tracer's box. Prefilled,
+   * never sent: sending is a paid call and the writer presses Send.
+   */
+  const [tracerQuestion, setTracerQuestion] = useState<string | null>(null)
   // Shown in the toolbar and used for nothing else here — the report bands its
   // own letters. See the chip below.
   const gradingLevel = useGradeLevel()
@@ -362,8 +388,28 @@ function DocumentEditor({
      */
     cited: ResolvedCitedWork | null
     citedLoading: boolean
+    /**
+     * The citation already in the sentence that Insert must REPLACE, exactly
+     * as typed — or null to append. Decided when the flow starts, from the card
+     * that started it (shared/citationAction.ts `aboutTheCitation`): a flow
+     * opened about a citation never puts a second one beside it.
+     */
+    replaces: string | null
   } | null>(null)
   const [citationBusy, setCitationBusy] = useState<'inserting' | 'previewing' | 'undoing' | null>(null)
+  /**
+   * "Find the cited work", run in place — same ownership and pinning as the
+   * two flows around it. `citation` is the bracket being looked up and, on
+   * Replace, written over.
+   */
+  const [citedWorkFlow, setCitedWorkFlow] = useState<{
+    claimId: string
+    citation: string
+    state: DocCitedWorkState
+  } | null>(null)
+  const [citedWorkBusy, setCitedWorkBusy] = useState<'replacing' | 'undoing' | null>(null)
+  /** execCommand steps the last Replace took: the entry edit (when there was one) and the marker. */
+  const citedUndoStepsRef = useRef(1)
   // While a flow is open its mark is pinned: the hit-test must not swap the
   // popover to another underline the pointer happens to cross on its way to a
   // button, and leaving the card must not close it.
@@ -376,8 +422,8 @@ function DocumentEditor({
   const [fixBusy, setFixBusy] = useState<'applying' | 'undoing' | null>(null)
   const flowPinnedRef = useRef(false)
   useEffect(() => {
-    flowPinnedRef.current = citationFlow !== null || fixFlow !== null
-  }, [citationFlow, fixFlow])
+    flowPinnedRef.current = citationFlow !== null || fixFlow !== null || citedWorkFlow !== null
+  }, [citationFlow, fixFlow, citedWorkFlow])
   // The `Source` objects behind the current candidate list. Held in a ref
   // rather than in the flow state because they are only ever read to format a
   // citation — putting a full Source per row into state would re-render the
@@ -776,7 +822,7 @@ function DocumentEditor({
     if (!body || !wrap) return
     return scheduleFrame(window, () => {
       const live = (claims ?? []).filter((claim) => !dismissed.has(claim.id))
-      setMarks(measureMarks(body, wrap, live, articleCounts))
+      setMarks(measureMarks(body, wrap, live, articleCounts, offTopicIds))
       // In the same frame as the claim marks, not behind a debounce of its own:
       // findProseIssues is pure and local — a thousand-word draft is a few
       // milliseconds — and measuring both together is what keeps the two layers
@@ -803,7 +849,7 @@ function DocumentEditor({
     // `checking` is in the deps so the pending lines appear when a sweep starts
     // and clear when it ends — without it they would only ever be measured on
     // the next keystroke.
-  }, [claims, dismissed, articleCounts, measureTick, fontFamily, fontSize, align, checking])
+  }, [claims, dismissed, articleCounts, measureTick, fontFamily, fontSize, align, checking, offTopicIds])
 
   // The editor reflows on window resize, which does not go through
   // handleInput.
@@ -1203,8 +1249,12 @@ function DocumentEditor({
   async function startCitationFlow(
     claim: Claim,
     fresh: boolean,
-    readOnly = citationFlow?.readOnly ?? false
+    readOnly = citationFlow?.readOnly ?? false,
+    // Carried across "Search again" on the same sentence, like `readOnly`.
+    replaces = citationFlow?.claimId === claim.id ? citationFlow.replaces : null
   ): Promise<void> {
+    // One card at a time: the lookup's "Find a different source" lands here.
+    setCitedWorkFlow(null)
     // Carried across a "Search again" on the same sentence: the citation has
     // not changed, and re-drawing "Looking it up…" over an answer already in
     // hand is a flicker that says the card lost something.
@@ -1214,7 +1264,8 @@ function DocumentEditor({
       state: { step: 'searching' },
       readOnly,
       cited: knownCited,
-      citedLoading: readOnly && knownCited === null
+      citedLoading: readOnly && knownCited === null,
+      replaces: readOnly ? null : replaces
     })
     // Fire and forget, deliberately NOT awaited. Two unmetered requests to
     // Crossref and Open Library, resolving independently of the source search —
@@ -1229,7 +1280,7 @@ function DocumentEditor({
       // this claim yet, not that nothing exists — fall through to a real search
       // rather than printing "No sources found" over an unasked question.
       if (!fresh && evidence.length === 0) {
-        await startCitationFlow(claim, true)
+        await startCitationFlow(claim, true, readOnly, replaces)
         return
       }
       if (fresh) {
@@ -1273,6 +1324,7 @@ function DocumentEditor({
               readOnly: prev.readOnly,
               cited: prev.cited,
               citedLoading: prev.citedLoading,
+              replaces: prev.replaces,
               state: {
                 step: 'picking',
                 candidates,
@@ -1291,6 +1343,7 @@ function DocumentEditor({
               readOnly: prev.readOnly,
               cited: prev.cited,
               citedLoading: prev.citedLoading,
+              replaces: prev.replaces,
               state: { step: 'error', message: err instanceof Error ? err.message : String(err) }
             }
       )
@@ -1352,6 +1405,7 @@ function DocumentEditor({
         readOnly: flow.readOnly,
         cited: flow.cited,
         citedLoading: false,
+        replaces: flow.replaces,
         state: { step: 'error', message: err instanceof Error ? err.message : String(err) }
       })
     } finally {
@@ -1382,6 +1436,7 @@ function DocumentEditor({
         // An insert card draws no comparison — see CitedSourceBlock.
         cited: null,
         citedLoading: false,
+        replaces: null,
         state: {
           step: 'inserted',
           citation: {
@@ -1400,6 +1455,8 @@ function DocumentEditor({
         readOnly: false,
         cited: null,
         citedLoading: false,
+        // Kept, so the card's Search again still replaces rather than appends.
+        replaces,
         state: { step: 'error', message: err instanceof Error ? err.message : String(err) }
       })
     } finally {
@@ -1504,6 +1561,172 @@ function DocumentEditor({
 
   function closeCitationFlow(): void {
     setCitationFlow(null)
+    setActiveMark(null)
+  }
+
+  /**
+   * The citation a source picked from this card must REPLACE, or null to
+   * append. Only for a card about the citation already in the sentence, and
+   * only when that sentence carries exactly one — two is refused rather than
+   * guessed (shared/citedWork.ts `citationTarget`).
+   */
+  function replacesFor(mark: DocumentMark): string | null {
+    if (!aboutTheCitation(mark.problemKinds[0], mark.hasOwnCitation)) return null
+    return mark.citationTarget.status === 'one' ? mark.citationTarget.text : null
+  }
+
+  /**
+   * "Find the cited work": the records that look like what the sentence
+   * cites, from Crossref and Open Library. Free, and only ever on the button.
+   *
+   * Sends the editor's text so the Works Cited line the citation points at can
+   * be found and searched instead — it carries the full title. The critique's
+   * `citationFix`, when there is one, rides along as an extra query string and
+   * is never shown: everything on the card comes from a record.
+   */
+  async function startCitedWork(mark: DocumentMark): Promise<void> {
+    const target = mark.citationTarget
+    // The action is only offered with exactly one citation to look up.
+    if (target.status !== 'one') return
+    const claimId = mark.claim.id
+    const body = editorRef.current
+    setCitationFlow(null)
+    setFixFlow(null)
+    setCitedWorkFlow({ claimId, citation: target.text, state: { step: 'searching' } })
+    try {
+      const response = await window.tracely.citation.findCitedWork({
+        citation: target.text,
+        documentText: body ? editorText(body) : null,
+        hint: mark.claim.citationFix
+      })
+      setCitedWorkFlow((prev) =>
+        prev?.claimId !== claimId
+          ? prev
+          : {
+              ...prev,
+              state: {
+                step: 'results',
+                response,
+                selectedRef: response.candidates[0]?.ref ?? null,
+                style: citationStyle
+              }
+            }
+      )
+    } catch (err) {
+      setCitedWorkFlow((prev) =>
+        prev?.claimId !== claimId
+          ? prev
+          : {
+              ...prev,
+              state: {
+                step: 'error',
+                title: 'Lookup failed',
+                message: err instanceof Error ? err.message : String(err)
+              }
+            }
+      )
+    }
+  }
+
+  /**
+   * Swaps the citation for the picked record's, and the reference list with it.
+   *
+   * The entry first, then the marker — insertCitation's order, for its two
+   * reasons: the list sits after the sentence, so writing it cannot move the
+   * sentence out from under the marker, and the marker lands on top of the undo
+   * stack. Each is one `insertText`, so Undo (and Ctrl+Z) unwinds exactly what
+   * was written.
+   *
+   * The old Works Cited line comes out only when no other sentence still cites
+   * it the same way — a bad reference pasted after several sentences is the
+   * ordinary case, and its entry is still theirs.
+   */
+  async function replaceWithCitedWork(claim: Claim): Promise<void> {
+    const flow = citedWorkFlow
+    const body = editorRef.current
+    if (!body || flow?.state.step !== 'results') return
+    const { response, selectedRef, style } = flow.state
+    const candidate = response.candidates.find((c) => c.ref === selectedRef)
+    if (!candidate) return
+    const { inTextCitation, worksCitedEntry } = candidate.citations[style]
+    setCitedWorkBusy('replacing')
+    try {
+      const text = editorText(body)
+      const oldEntry = response.entry && !citationUsedElsewhere(text, flow.citation) ? response.entry : null
+      const entry = applyEntryReplacement(body, {
+        oldEntry,
+        entry: worksCitedEntry,
+        sourceTitle: candidate.title,
+        style
+      })
+      if (!replaceCitationText(body, claim, flow.citation, inTextCitation)) {
+        // Roll the list back out: an entry for a citation that never reached
+        // the sentence is an orphan nobody was told about.
+        if (entry.wrote) {
+          body.focus()
+          document.execCommand('undo')
+        }
+        handleInput()
+        setCitedWorkFlow({
+          ...flow,
+          state: {
+            step: 'error',
+            title: 'Could not replace the citation',
+            message: `Could not replace ${flow.citation} in that sentence — it may have been edited since the card opened, or the sentence carries it twice.`
+          }
+        })
+        return
+      }
+      handleInput()
+      citedUndoStepsRef.current = entry.wrote ? 2 : 1
+      setCitedWorkFlow({
+        ...flow,
+        state: { step: 'replaced', candidate, style, entry: worksCitedEntry, outcome: entry.outcome }
+      })
+      // Re-read, for insertCitation's reason: the underline was drawn from a
+      // citation that is no longer in the sentence.
+      const analysisId = analysisIdRef.current
+      if (analysisId) await onRefreshClaims(analysisId)
+    } finally {
+      setCitedWorkBusy(null)
+    }
+  }
+
+  /** The same undo stack Ctrl+Z uses, as many steps as the Replace took. */
+  async function undoCitedWork(): Promise<void> {
+    const body = editorRef.current
+    if (!body) return
+    setCitedWorkBusy('undoing')
+    try {
+      body.focus()
+      for (let i = 0; i < citedUndoStepsRef.current; i++) document.execCommand('undo')
+      citedUndoStepsRef.current = 1
+      handleInput()
+      const analysisId = analysisIdRef.current
+      if (analysisId) await onRefreshClaims(analysisId)
+      setCitedWorkFlow(null)
+      setActiveMark(null)
+    } finally {
+      setCitedWorkBusy(null)
+    }
+  }
+
+  function closeCitedWork(): void {
+    setCitedWorkFlow(null)
+    setActiveMark(null)
+  }
+
+  /**
+   * The off-topic card's "Ask Tracer": opens the panel with a question about
+   * the paragraph already typed in, and sends nothing. It opened the read-only
+   * source list until 2026-10-06 — a card about a tangent offering sources for
+   * it.
+   */
+  function askTracerAbout(mark: DocumentMark): void {
+    const paragraph =
+      splitParagraphs(bodyText()).find((p) => p.text.includes(mark.claim.text))?.text ?? mark.claim.text
+    setTracerQuestion(tangentQuestion(paragraph))
+    setTracerOpen(true)
     setActiveMark(null)
   }
 
@@ -1724,6 +1947,37 @@ function DocumentEditor({
     // measureTick — that counts resizes too, and a window drag would postpone
     // detection for as long as it lasted.
   }, [textTick])
+
+  /**
+   * Which claims are tangents — recomputed whenever the claims change.
+   *
+   * Free and local (two batched MiniLM embeddings, no server call), which is
+   * what lets it run unasked on the same rule the evidence sweep runs under.
+   * Keyed off `claims` rather than the text, because a tangent is a property of
+   * a detected claim and the claims are what changes when the draft does.
+   *
+   * A failure leaves the previous answer alone rather than clearing it: a
+   * transient worker error should not make every underline in the document
+   * change colour. (Restored 2026-10-06 — see `offTopicIds`.)
+   */
+  useEffect(() => {
+    const body = editorRef.current
+    if (!body || !claims || claims.length === 0) {
+      setOffTopicIds(null)
+      return
+    }
+    let cancelled = false
+    void window.tracely.evidence
+      .offTopic({ text: body.innerText, claims })
+      .then((res) => {
+        if (cancelled) return
+        setOffTopicIds(res.offTopicClaimIds === null ? null : new Set(res.offTopicClaimIds))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [claims])
 
   /**
    * Search evidence for claims nothing has looked at yet — automatically.
@@ -2309,7 +2563,11 @@ function DocumentEditor({
                   readOnly: citationFlow.readOnly,
                   cited: citationFlow.cited,
                   citedLoading: citationFlow.citedLoading,
-                  replaces: activeMark.mark.citationDefectText ?? null,
+                  // Decided when the flow started, from the card that started
+                  // it — not re-read off the mark, which only ever knew about
+                  // a shape defect and so appended beside every other kind of
+                  // bad citation.
+                  replaces: citationFlow.replaces,
                   inserting: citationBusy === 'inserting',
                   previewing: citationBusy === 'previewing',
                   undoing: citationBusy === 'undoing',
@@ -2359,11 +2617,7 @@ function DocumentEditor({
                   // The cited work's own link, which is not a candidate in the
                   // list — it is the thing the list is being compared against.
                   onOpenUrl: (url) => void window.tracely.shell.openExternal({ url }),
-                  onInsert: () =>
-                    void insertFlowCitation(
-                      activeMark.mark.claim,
-                      activeMark.mark.citationDefectText ?? null
-                    ),
+                  onInsert: () => void insertFlowCitation(activeMark.mark.claim, citationFlow.replaces),
                   onCancel: closeCitationFlow,
                   onDone: closeCitationFlow,
                   // Goes to the list rather than folding a block. Closing the
@@ -2398,7 +2652,49 @@ function DocumentEditor({
                 }
               : null
           }
-          onFindSource={(mark, readOnly) => void startCitationFlow(mark.claim, false, readOnly)}
+          citedWork={
+            citedWorkFlow && activeMark
+              ? {
+                  claimId: citedWorkFlow.claimId,
+                  citation: citedWorkFlow.citation,
+                  state: citedWorkFlow.state,
+                  replacing: citedWorkBusy === 'replacing',
+                  undoing: citedWorkBusy === 'undoing',
+                  onSelect: (ref) =>
+                    setCitedWorkFlow((prev) =>
+                      prev && prev.state.step === 'results'
+                        ? { ...prev, state: { ...prev.state, selectedRef: ref } }
+                        : prev
+                    ),
+                  onSetStyle: (style) =>
+                    setCitedWorkFlow((prev) =>
+                      prev && prev.state.step === 'results'
+                        ? { ...prev, state: { ...prev.state, style } }
+                        : prev
+                    ),
+                  onReplace: () => void replaceWithCitedWork(activeMark.mark.claim),
+                  onOpenRecord: (url) => void window.tracely.shell.openExternal({ url }),
+                  // The topical search, with Replace semantics: the citation
+                  // this card is about is what the pick goes in over.
+                  onFindSource: () =>
+                    void startCitationFlow(activeMark.mark.claim, false, false, citedWorkFlow.citation),
+                  onRetry: () => void startCitedWork(activeMark.mark),
+                  onUndo: () => void undoCitedWork(),
+                  onDone: closeCitedWork,
+                  onCancel: closeCitedWork,
+                  onViewWorksCited: () => {
+                    const body = editorRef.current
+                    closeCitedWork()
+                    if (body) revealWorksCited(body)
+                  }
+                }
+              : null
+          }
+          onFindSource={(mark, readOnly) =>
+            void startCitationFlow(mark.claim, false, readOnly, readOnly ? null : replacesFor(mark))
+          }
+          onFindCitedWork={(mark) => void startCitedWork(mark)}
+          onAskTracer={askTracerAbout}
           // Opens the fix in the popover, over the sentence it is about. It used
           // to call setScoreOpen(true) — the full-screen Argument Score report,
           // i.e. exactly the context switch away from the paragraph being
@@ -2406,7 +2702,10 @@ function DocumentEditor({
           // fetched: every word the card shows was written onto the claim by the
           // critique that raised this underline, so opening it cannot spend
           // anything on the relay.
-          onSuggestFix={(mark) => setFixFlow({ claimId: mark.claim.id, state: { step: 'open' } })}
+          onSuggestFix={(mark) => {
+            setCitedWorkFlow(null)
+            setFixFlow({ claimId: mark.claim.id, state: { step: 'open' } })
+          }}
           onDismiss={(mark) => {
             setDismissed((prev) => new Set(prev).add(mark.claim.id))
             setActiveMark(null)
@@ -2486,7 +2785,14 @@ function DocumentEditor({
 
       {tracerOpen ? (
 
-        <TracerChat onClose={() => setTracerOpen(false)} onApplyRewrite={applyRewriteFromTracer} />
+        <TracerChat
+          onClose={() => {
+            setTracerOpen(false)
+            setTracerQuestion(null)
+          }}
+          onApplyRewrite={applyRewriteFromTracer}
+          initialQuestion={tracerQuestion}
+        />
 
       ) : null}
 

@@ -3,7 +3,14 @@ import { computeClaimSpans } from '@shared/claimSpans'
 import { findCitationInsertPoint } from '@shared/citationInsertPoint'
 import { findProseIssues, replacementRange, type ProseIssue } from '@shared/proseIssues'
 import { isCitedInScope } from '@shared/citationScope'
-import { findCitationDefects } from '@shared/citationShape'
+import { findCitationDefects, type CitationDefectKind } from '@shared/citationShape'
+import {
+  citationTarget,
+  planCitationReplacement,
+  planEntryReplacement,
+  type CitationTarget,
+  type EntryOutcome
+} from '@shared/citedWork'
 import {
   hasInlineCitationNear,
   inlineCitationKind,
@@ -62,6 +69,19 @@ export interface DocumentMark {
   citationDefect: string | null
   /** The defective citation exactly as typed, so it can be replaced in place. */
   citationDefectText: string | null
+  /** Which defect — a placeholder names no work to look up. */
+  citationDefectKind: CitationDefectKind | null
+  /**
+   * Does THIS sentence carry a citation, as opposed to `hasInlineCitation`,
+   * which is paragraph-scoped? Decides "Find the cited work" vs "Find a source".
+   */
+  hasOwnCitation: boolean
+  /**
+   * The one bracketed citation in the sentence a lookup can be pointed at and a
+   * replacement can land on — or why there is none (`shared/citedWork.ts`).
+   * Two citations in one sentence is 'several', and nothing is guessed.
+   */
+  citationTarget: CitationTarget
   /**
    * Never null: a claim whose search has not resolved is not marked at all —
    * see the note in measureMarks. Typed non-null so the popover cannot be
@@ -227,6 +247,11 @@ export function measureMarks(
       hasInlineCitation: cited,
       citationDefect: defect?.message ?? null,
       citationDefectText: defect?.text ?? null,
+      citationDefectKind: defect?.kind ?? null,
+      hasOwnCitation: ownCitation,
+      // The defect's own text decides when there is one: it is exactly the
+      // citation the card is about.
+      citationTarget: citationTarget(sentence, defect?.text ?? null),
       evidence,
       rects
     })
@@ -560,13 +585,50 @@ export function replaceCitationText(
   // the one case the old error message described correctly.
   if (!span) return false
 
-  const { from, to } = sentenceRangeAround(text, span.start, span.end)
-  const sentence = text.slice(from, to)
-  const rel = sentence.indexOf(defective)
-  if (rel === -1 || rel !== sentence.lastIndexOf(defective)) return false
+  // The search itself is `planCitationReplacement` (shared/citedWork.ts), so
+  // the sentence bound and the refuse-a-duplicate rule are tested without a
+  // contentEditable.
+  const edit = planCitationReplacement(text, sentenceRangeAround(text, span.start, span.end), defective, replacement)
+  if (!edit) return false
+  return replaceRange(body, edit.start, edit.end, edit.replacement, true)
+}
 
-  const at = from + rel
-  return replaceRange(body, at, at + defective.length, replacement, true)
+/**
+ * The editor's text as the mark pass reads it — what "Find the cited work"
+ * sends, so the Works Cited line it matches is one `applyEntryReplacement` can
+ * find again character for character.
+ */
+export function editorText(body: HTMLElement): string {
+  return buildTextMap(body).text
+}
+
+/**
+ * The reference-list half of "Replace citation": the record's entry in, the
+ * line the bad citation pointed at out, as ONE `insertText` over the section —
+ * one undo step, like every other write here.
+ *
+ * Planned against the LIVE text (`planEntryReplacement`), never at an offset
+ * remembered from when the card opened. `oldEntry` null means add only — the
+ * caller passes null when another sentence still uses the old citation.
+ */
+export function applyEntryReplacement(
+  body: HTMLElement,
+  {
+    oldEntry,
+    entry,
+    sourceTitle,
+    style
+  }: { oldEntry: string | null; entry: string; sourceTitle: string | null; style: CitationStyle }
+): { outcome: EntryOutcome | 'failed'; wrote: boolean } {
+  const { text } = buildTextMap(body)
+  const { edit, outcome } = planEntryReplacement({ text, oldEntry, entry, sourceTitle, style })
+  // `wrote` is what Undo counts. 'already-listed' can still be a write — the
+  // old line coming out — so the outcome alone cannot say whether a step was
+  // taken.
+  if (!edit) return { outcome, wrote: false }
+  return replaceRange(body, edit.start, edit.end, edit.replacement)
+    ? { outcome, wrote: true }
+    : { outcome: 'failed', wrote: false }
 }
 
 export function applyProseIssue(body: HTMLElement, issue: ProseIssue): boolean {
