@@ -479,7 +479,9 @@ test("the route is on the extension's surface, gated as a lookup, and relayed by
   assert.match(SERVER, /kind: LOOKUP_ROUTES\.has\(url\.pathname\) \? "lookup" : SOURCE_ROUTES\.has\(url\.pathname\) \? "sources" : "check",/);
   // A lookup reserves nothing and is never refused for the day's model budget: it spends none.
   const gate = SERVER.slice(SERVER.indexOf("async function spendGate("), SERVER.indexOf("let pick = null;", SERVER.indexOf("async function spendGate(")));
-  assert.match(gate, /if \(kind === "lookup"\) \{\s*stampCallerRate\(ent, id, kind\);\s*return \{ ent, holder: ent, callerId: id, budget: null, pool: null, reservation: null, modelCeiling: null \};/);
+  // The only refusals before the early return are the two rate windows: the
+  // shared one (checked first, stamped last) and the caller's own.
+  assert.match(gate, /if \(kind === "lookup"\) \{\s*if \(ent\.enforced && !lookupGlobalRate\.ok\("all"\)\) \{\s*throw new CheckError\("rate_limit", [^\n]*\);\s*\}\s*stampCallerRate\(ent, id, kind\);\s*if \(ent\.enforced\) lookupGlobalRate\.stamp\("all"\);\s*return \{ ent, holder: ent, callerId: id, budget: null, pool: null, reservation: null, modelCeiling: null \};/);
   assert.ok(!/"\/api\/compare-source":/.test(SERVER.slice(SERVER.indexOf("const WORST_CALL = {"), SERVER.indexOf("};", SERVER.indexOf("const WORST_CALL = {")))), "no worst-case hold");
   assert.match(SERVER, /const rate = kind === "sources" \? sourceRate : kind === "lookup" \? lookupRate : checkRate;/);
   assert.match(BG, /const API_PATHS = new Set\(\[[^\]]*"\/api\/compare-source"/, "or api() fails with 'No reply from the Tracely background worker'");
@@ -551,4 +553,27 @@ test("over HTTP: the extension's origin is admitted, a burst is limited per call
   assert.equal(sources.status, 400, JSON.stringify(sources.body));
   // And another caller is untouched by this one's burst.
   assert.equal((await call("/api/compare-source", {}, "someone-else")).status, 400);
+});
+
+test("over HTTP: every caller together is held to SPEND.globalLookupsPerMinute, so rotating install ids cannot flood Crossref", async () => {
+  // Fresh install ids, each kept under its own ten-a-minute window, until the
+  // shared window refuses. The earlier test already spent some of it, so the
+  // refusal must come at or before the sixty-first admitted lookup.
+  let admitted = 0;
+  let refused = null;
+  for (let caller = 0; caller < 10 && !refused; caller++) {
+    for (let i = 0; i < 9 && !refused; i++) {
+      const r = await call("/api/compare-source", {}, `rotating-${caller}`);
+      if (r.status === 429) refused = r;
+      else admitted++;
+    }
+  }
+  assert.ok(refused, "ninety lookups from rotating ids were all admitted");
+  assert.ok(admitted <= 60, `refused only after ${admitted} admitted lookups`);
+  assert.equal(refused.body.error.kind, "rate_limit");
+  assert.match(refused.body.error.message, /busy right now/);
+  // The shared window, not a caller's: an id never seen before is refused too.
+  const fresh = await call("/api/compare-source", {}, "never-seen-before");
+  assert.equal(fresh.status, 429);
+  assert.match(fresh.body.error.message, /busy right now/);
 });

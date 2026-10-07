@@ -83,6 +83,12 @@ export const SPEND = {
   // Library lookup, one per click. Ten a minute is more than a writer working
   // down a reference list clicks, and bounds what one caller can send on.
   callerLookupsPerMinute: 10,
+  // ...and every caller together. An install id rotates freely, so the
+  // per-caller window alone does not bound what this server sends on, and each
+  // lookup is a Crossref and an Open Library request: being throttled by either
+  // would also break the DOI enrichment /api/sources relies on. One a second is
+  // well under both services' limits and far above what launch traffic clicks.
+  globalLookupsPerMinute: 60,
 
   // Bounds the rate-limiter map so a rotating-identity attacker cannot grow it
   // without limit. Oldest keys are dropped; a dropped key just gets a fresh

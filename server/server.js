@@ -557,6 +557,7 @@ async function handleStripeWebhook(req, res) {
 const checkRate = keyedRateLimiter(SPEND.callerChecksPerMinute);
 const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
 const lookupRate = keyedRateLimiter(SPEND.callerLookupsPerMinute); // LOOKUP_ROUTES
+const lookupGlobalRate = keyedRateLimiter(SPEND.globalLookupsPerMinute); // all callers, one key
 // The app routes' own limiter — see APP_AI_ROUTES for why it is not checkRate.
 const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
 // One /api/flow call per caller per FLOW_MIN_INTERVAL_MS, on a hosted server.
@@ -665,10 +666,17 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
   const id = callerId(req, ent);
 
   // A lookup (LOOKUP_ROUTES) reaches no model: no pool pays for it, nothing
-  // is reserved, and a spent day does not refuse it. The caller's own window
-  // is all that bounds a burst.
+  // is reserved, and a spent day does not refuse it. Two windows bound a
+  // burst: the caller's own, and one for every caller together, because an
+  // install id rotates freely and each lookup is sent on to Crossref and Open
+  // Library. The shared window is checked first and stamped last, so a call
+  // the caller's window refuses does not use up everyone else's.
   if (kind === "lookup") {
+    if (ent.enforced && !lookupGlobalRate.ok("all")) {
+      throw new CheckError("rate_limit", "Looking up citations is busy right now — try again in a minute.", { status: 429, retryAfter: 60 });
+    }
     stampCallerRate(ent, id, kind);
+    if (ent.enforced) lookupGlobalRate.stamp("all");
     return { ent, holder: ent, callerId: id, budget: null, pool: null, reservation: null, modelCeiling: null };
   }
 

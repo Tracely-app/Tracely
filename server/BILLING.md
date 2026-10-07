@@ -288,7 +288,9 @@ ids included, shares the 15/hour counter (an install id rotates freely and that
 pool holds no reservation); beta has its own; the paid pool, which reserves
 every call, has none. `/api/compare-source` ("Find the cited work", a Crossref
 and Open Library lookup with no model call) has a window of its own, 10 a
-minute per caller (`callerLookupsPerMinute`); it reserves nothing, counts
+minute per caller (`callerLookupsPerMinute`) and 60 a minute for all callers
+together (`globalLookupsPerMinute`, since an install id rotates freely and
+every lookup goes on to Crossref and Open Library); it reserves nothing, counts
 against no quota, and is not refused when the day's budget is spent.
 
 ### What identity a quota counts against
