@@ -23,7 +23,7 @@ import type {
   ScreenWatchStructure,
   ScreenWatchWidget
 } from '@shared/ipc-contract'
-import type { ResolvedCitedWork } from '@shared/ipc-contract'
+import type { ResolvedCitedWork, ScreenWatchFindCitedWorkResponse } from '@shared/ipc-contract'
 import { CITED_HEADING, describeCitedWork } from '@shared/citedComparison'
 import { hasRelevantSource, isRetrievalMiss } from '@shared/problemKind'
 import { REFERENCE_LEVEL, isGradeLevel } from '@shared/gradeLevel'
@@ -82,9 +82,9 @@ import {
   PROBLEM_COLOR,
   PROBLEM_LABEL,
   bucketFor,
-  opensFixFlow,
   popoverCopyFor
 } from './components/problemCopy'
+import { aboutTheCitation, popoverRoute } from '@shared/citationAction'
 // The fix card's wording, shared with the editor's DocumentMarkLayer for the
 // same reason citationFlowCopy.ts is.
 import {
@@ -105,10 +105,23 @@ import { paragraphNames } from './components/paragraphNames'
 // the note at the top of that file.
 import {
   CITATION_STYLE_LABEL,
+  CITED_WORK_EMPTY_TITLE,
+  CITED_WORK_RESULTS_BODY_EXTERNAL,
+  CITED_WORK_SEARCHING_TITLE,
+  CITED_WORK_UNREACHABLE,
+  FIND_DIFFERENT_SOURCE,
+  PASTE_OVER_NOTE,
+  citedWorkEmptyBody,
+  citedWorkMeta,
+  citedWorkNoTarget,
+  citedWorkResultsTitle,
+  citedWorkSearchingBody,
   emptyResultsBody,
   flagsLeft,
   insertedBodyExternal,
   EXTERNAL_REFERENCE_LABEL,
+  pasteOverLabel,
+  readOnlyTitle,
   resultsBody,
   resultsTitle,
   searchingBody
@@ -2402,6 +2415,7 @@ function ProblemCard({
   remaining,
   onSuggestFix,
   onStartCitationFlow,
+  onFindCitedWork,
   onDismiss
 }: {
   claim: ScreenWatchClaimSummary
@@ -2410,7 +2424,9 @@ function ProblemCard({
   /** How many problems remain on this sentence, including the active one. */
   remaining: number
   onSuggestFix: () => void
-  onStartCitationFlow: () => void
+  /** Opens the source list in the mode the card's action asks for. */
+  onStartCitationFlow: (mode: FlowMode) => void
+  onFindCitedWork: () => void
   onDismiss: () => void
 }): JSX.Element {
   // Read, not re-derived. This card and the underline disagreeing about what
@@ -2444,7 +2460,27 @@ function ProblemCard({
     claim.evidence as ScreenWatchClaimEvidence,
     kind
   )
-  const onPrimary = opensFixFlow(kind) ? onSuggestFix : onStartCitationFlow
+  // Routed by the ACTION, the editor's rule (shared/citationAction.ts). This
+  // used to send every non-fix kind to the inserter: "Compare sources", "Review
+  // the sources" and "Cite it yourself" each opened a picker whose primary
+  // button typed a citation into the watched document — the opposite of what
+  // the card above it had just said.
+  //
+  // And this window can only type at the caret, never replace: on a card about
+  // a citation already in the sentence, an Insert would append a second one
+  // beside it. So there the list offers Copy instead.
+  const route = popoverRoute(primaryLabel)
+  const own = claim.hasOwnCitation ?? claim.hasInlineCitation
+  const onPrimary =
+    route === 'fix'
+      ? onSuggestFix
+      : route === 'cited-work'
+        ? onFindCitedWork
+        : route === 'insert'
+          ? () => onStartCitationFlow(aboutTheCitation(kind, own) ? 'copy' : 'insert')
+          : // 'read-only', and 'tracer', which Screen Watch never raises (it
+            // does not measure tangents) — a list to read is the safe default.
+            () => onStartCitationFlow('read-only')
 
   return (
     <>
@@ -2570,6 +2606,40 @@ type CitationFlowState =
   | { step: 'error'; message: string }
 
 const CITATION_STYLES: CitationStyle[] = ['MLA', 'APA', 'Chicago']
+
+/**
+ * What the source list is FOR, decided by the card that opened it.
+ *
+ *  - `insert`: the card asked for a citation; Insert types the marker after
+ *    the sentence through UI Automation.
+ *  - `read-only`: "Compare sources", "Review the sources", "Cite it yourself" —
+ *    a list to read. The editor has always drawn these without an Insert; this
+ *    window offered one under all three until 2026-10-06.
+ *  - `copy`: the card was about a citation ALREADY in the sentence. This window
+ *    can only type at the caret, never replace, so an Insert would append a
+ *    second citation beside the bad one. It hands the text over instead.
+ */
+type FlowMode = 'insert' | 'read-only' | 'copy'
+
+/** Which half of a citation was last put on the clipboard. */
+type Copied = 'marker' | 'entry' | null
+
+/**
+ * Puts text on the clipboard through main.
+ *
+ * Not `navigator.clipboard`: this window is `focusable: false`, and the async
+ * clipboard API refuses a document without focus — the reason the older Copy
+ * buttons here fall back to selectable text. Main's `clipboard.writeText` has
+ * no such rule.
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await window.tracely.clipboard.write({ text })
+    return true
+  } catch {
+    return false
+  }
+}
 
 /** 18px, filled ink with a 3px white centre — the design's selected radio. */
 function Radio({ selected }: { selected: boolean }): JSX.Element {
@@ -2759,6 +2829,290 @@ function CitedSourceBlock({ cited }: { cited: ResolvedCitedWork | null }): JSX.E
   )
 }
 
+/**
+ * "Copy citation" and "Copy entry" — what this window offers where the editor
+ * offers Replace. It cannot replace text in another app (UI Automation types at
+ * the caret, nothing more), so it hands both halves over and says so.
+ */
+function CopyButtons({
+  disabled,
+  copied,
+  onCopy
+}: {
+  disabled: boolean
+  copied: Copied
+  onCopy: (which: 'marker' | 'entry') => void
+}): JSX.Element {
+  const style = (primary: boolean): CSSProperties => ({
+    ...(primary ? PRIMARY_BTN_STYLE : SECONDARY_BTN_STYLE),
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled ? 'default' : 'pointer'
+  })
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <button className="tracely-btn-primary" onClick={() => onCopy('marker')} disabled={disabled} style={style(true)}>
+        {copied === 'marker' ? '✓ Copied' : 'Copy citation'}
+      </button>
+      <button className="tracely-btn-secondary" onClick={() => onCopy('entry')} disabled={disabled} style={style(false)}>
+        {copied === 'entry' ? '✓ Copied' : 'Copy entry'}
+      </button>
+    </div>
+  )
+}
+
+/** The overlay's "Find the cited work" card. See OverlayCitedWorkState. */
+type OverlayCitedWorkState =
+  | { step: 'searching' }
+  | {
+      step: 'results'
+      response: ScreenWatchFindCitedWorkResponse
+      selectedRef: string | null
+      style: CitationStyle
+      copied: Copied
+    }
+  | { step: 'error'; message: string }
+
+/**
+ * "Find the cited work", over another application.
+ *
+ * The same records the editor's card lists (both read `findCitedWork`), drawn
+ * in this window's inline styles. The difference is the last row: the editor
+ * replaces the citation in place, and this window cannot — so it offers the
+ * record's marker and entry to copy, with the line that says why. Every field
+ * shown is the record's; the year line states the two years and nothing else.
+ */
+function CitedWorkCard({
+  state,
+  color,
+  onSelect,
+  onSetStyle,
+  onCopy,
+  onFindSource,
+  onRetry,
+  onCancel
+}: {
+  state: OverlayCitedWorkState
+  color: string
+  onSelect: (ref: string) => void
+  onSetStyle: (style: CitationStyle) => void
+  onCopy: (which: 'marker' | 'entry') => void
+  onFindSource: () => void
+  onRetry: () => void
+  onCancel: () => void
+}): JSX.Element {
+  const head = (dot: string, title: string): JSX.Element => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+      <div style={POPOVER_TITLE}>{title}</div>
+    </div>
+  )
+
+  if (state.step === 'searching') {
+    return (
+      <>
+        {head(color, CITED_WORK_SEARCHING_TITLE)}
+        <div style={POPOVER_BODY}>{citedWorkSearchingBody('your citation')}</div>
+        <div className="tracely-progress-track">
+          <div className="tracely-progress-fill" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
+            Cancel
+          </button>
+          <span style={{ fontSize: 12, color: DIM }}>Usually 2–4 seconds</span>
+        </div>
+      </>
+    )
+  }
+
+  if (state.step === 'error') {
+    return (
+      <>
+        {head(DESIGN_RED, 'Lookup failed')}
+        <div style={POPOVER_BODY}>{state.message}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
+            Back
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  const { response, selectedRef, style, copied } = state
+
+  // The sentence's citation could not be pinned down — none in brackets, or
+  // two. Said, with the topical search offered, rather than an empty list.
+  if (response.target !== 'one') {
+    return (
+      <>
+        {head(DESIGN_AMBER, CITED_WORK_EMPTY_TITLE)}
+        <div style={POPOVER_BODY}>{citedWorkNoTarget(response.target)}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="tracely-btn-primary" onClick={onFindSource} style={PRIMARY_BTN_STYLE}>
+            Find a source
+          </button>
+          <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
+            Back
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  if (response.candidates.length === 0) {
+    return (
+      <>
+        {head(DESIGN_AMBER, CITED_WORK_EMPTY_TITLE)}
+        <div style={POPOVER_BODY}>
+          {response.searched ? citedWorkEmptyBody(response.citation) : CITED_WORK_UNREACHABLE}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {response.searched ? (
+            <button className="tracely-btn-primary" onClick={onFindSource} style={PRIMARY_BTN_STYLE}>
+              Find a source
+            </button>
+          ) : (
+            <button className="tracely-btn-primary" onClick={onRetry} style={PRIMARY_BTN_STYLE}>
+              Try again
+            </button>
+          )}
+          <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
+            Back
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  const selected = response.candidates.find((c) => c.ref === selectedRef) ?? null
+  const written = selected ? selected.citations[style] : null
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: POSITIVE, flexShrink: 0 }} />
+        <div style={POPOVER_TITLE}>{citedWorkResultsTitle(response.candidates.length)}</div>
+        <span
+          style={{
+            flexShrink: 0,
+            background: CHIP_BG,
+            color: MUTED,
+            fontSize: 11.5,
+            fontWeight: 500,
+            borderRadius: 999,
+            padding: '3px 9px'
+          }}
+        >
+          {CITATION_STYLE_LABEL[style]}
+        </span>
+      </div>
+      <div style={POPOVER_BODY}>{CITED_WORK_RESULTS_BODY_EXTERNAL}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+        {response.candidates.map((candidate) => {
+          const on = candidate.ref === selectedRef
+          return (
+            <button
+              key={candidate.ref}
+              data-cited-ref={candidate.ref}
+              onClick={() => onSelect(candidate.ref)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: 8,
+                borderRadius: 10,
+                border: `1px solid ${on ? '#e5e5e5' : 'transparent'}`,
+                background: on ? SELECTED_BG : 'transparent',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                color: 'inherit'
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    fontSize: 13.5,
+                    fontWeight: 500,
+                    color: INK,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}
+                >
+                  {candidate.title}
+                </div>
+                <div style={{ fontSize: 12, color: DIM, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {citedWorkMeta(candidate)}
+                </div>
+                {/* Neutral, words doing the work — colour here means a finding. */}
+                {candidate.yearNote ? (
+                  <div style={{ fontSize: 11.5, lineHeight: 1.35, color: MUTED }}>{candidate.yearNote}</div>
+                ) : null}
+              </div>
+              <Radio selected={on} />
+            </button>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: MUTED }}>Style</span>
+        {CITATION_STYLES.map((option) => {
+          const active = option === style
+          return (
+            <button
+              key={option}
+              onClick={() => onSetStyle(option)}
+              style={{
+                borderRadius: 999,
+                padding: '5px 11px',
+                fontFamily: 'inherit',
+                fontSize: 12,
+                fontWeight: active ? 600 : 400,
+                color: active ? '#fff' : MUTED,
+                background: active ? INK : '#fff',
+                border: active ? 'none' : '1px solid #e0e0e0',
+                cursor: 'pointer'
+              }}
+            >
+              {CITATION_STYLE_LABEL[option]}
+            </button>
+          )
+        })}
+      </div>
+      {written ? (
+        <div
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            background: SELECTED_BG,
+            borderRadius: 10,
+            padding: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6
+          }}
+        >
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>
+            {pasteOverLabel(response.citation)}
+          </div>
+          <div style={{ fontSize: 12.5, fontWeight: 500, color: INK, userSelect: 'text' }}>{written.inTextCitation}</div>
+          <div style={{ fontSize: 12, lineHeight: 1.4, color: MUTED, userSelect: 'text', wordBreak: 'break-word' }}>
+            {written.worksCitedEntry}
+          </div>
+        </div>
+      ) : null}
+      <CopyButtons disabled={!written} copied={copied} onCopy={onCopy} />
+      <div style={{ ...POPOVER_BODY, fontSize: 11.5 }}>{PASTE_OVER_NOTE}</div>
+      <button className="tracely-btn-secondary" onClick={onFindSource} style={{ ...SECONDARY_BTN_STYLE, width: '100%' }}>
+        {FIND_DIFFERENT_SOURCE}
+      </button>
+    </>
+  )
+}
+
 function CitationFlowCard({
   state,
   claimText,
@@ -2775,9 +3129,17 @@ function CitationFlowCard({
   inserting,
   previewing,
   undoing,
-  showCancel
+  showCancel,
+  mode = 'insert',
+  onCopy,
+  copied = null
 }: {
   state: CitationFlowState
+  /** What the list is for — see FlowMode. Absent means insert. */
+  mode?: FlowMode
+  /** Copy mode's two buttons: the in-text marker, or the reference entry. */
+  onCopy?: (which: 'marker' | 'entry') => void
+  copied?: Copied
   /** The sentence being cited — the design quotes it back to the reader. */
   claimText: string
   visibleClaimCount: number
@@ -2970,20 +3332,26 @@ function CitationFlowCard({
           found, this many, and it will be written in this style. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: POSITIVE, flexShrink: 0 }} />
-        <div style={POPOVER_TITLE}>{resultsTitle(candidates.length)}</div>
-        <span
-          style={{
-            flexShrink: 0,
-            background: CHIP_BG,
-            color: MUTED,
-            fontSize: 11.5,
-            fontWeight: 500,
-            borderRadius: 999,
-            padding: '3px 9px'
-          }}
-        >
-          {CITATION_STYLE_LABEL[style]}
-        </span>
+        <div style={POPOVER_TITLE}>
+          {mode === 'read-only' ? readOnlyTitle(candidates.length) : resultsTitle(candidates.length)}
+        </div>
+        {/* No style chip on a list opened to be read: a citation style is a
+            question about a citation nobody is about to write. */}
+        {mode === 'read-only' ? null : (
+          <span
+            style={{
+              flexShrink: 0,
+              background: CHIP_BG,
+              color: MUTED,
+              fontSize: 11.5,
+              fontWeight: 500,
+              borderRadius: 999,
+              padding: '3px 9px'
+            }}
+          >
+            {CITATION_STYLE_LABEL[style]}
+          </span>
+        )}
       </div>
       <div style={POPOVER_BODY}>{resultsBody(claimText)}</div>
       <CitedSourceBlock cited={cited} />
@@ -3001,6 +3369,7 @@ function CitationFlowCard({
           the one cycling button this used to be: the design shows every option
           at once, and a button that had to be clicked twice to discover
           Chicago was hiding two thirds of the control. */}
+      {mode === 'read-only' ? null : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: MUTED }}>Style</span>
         {CITATION_STYLES.map((option) => {
@@ -3026,6 +3395,7 @@ function CitationFlowCard({
           )
         })}
       </div>
+      )}
       {/* What Insert would write, in the style and for the source currently
           selected. Both inputs clear it (see selectCandidate/setCandidateStyle),
           so a block left standing can never describe something other than what
@@ -3043,7 +3413,7 @@ function CitationFlowCard({
           }}
         >
           <div style={{ fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>
-            WILL BE INSERTED
+            {mode === 'copy' ? pasteOverLabel('YOUR CITATION') : 'WILL BE INSERTED'}
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 500, color: INK }}>{preview.inTextCitation}</div>
           <div style={{ fontSize: 12, lineHeight: 1.4, color: MUTED }}>{preview.worksCitedEntry}</div>
@@ -3053,6 +3423,18 @@ function CitationFlowCard({
           here in a way it would not in Tracely's own editor: this writes into
           someone else's document over UIA, where the only way to see what is
           about to land is to be shown it first. */}
+      {mode === 'read-only' ? (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="tracely-btn-primary" onClick={onDone} style={PRIMARY_BTN_STYLE}>
+            Done
+          </button>
+        </div>
+      ) : mode === 'copy' ? (
+        <>
+          <CopyButtons disabled={!selectedRef} copied={copied} onCopy={(which) => onCopy?.(which)} />
+          <div style={{ ...POPOVER_BODY, fontSize: 11.5 }}>{PASTE_OVER_NOTE}</div>
+        </>
+      ) : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <button
           className="tracely-btn-primary"
@@ -3079,6 +3461,7 @@ function CitationFlowCard({
           {previewing ? 'Formatting…' : 'Preview'}
         </button>
       </div>
+      )}
       {/* Full-width, under the pair — the frame's own third row. It re-runs the
           same focused search rather than filtering what came back: this window
           is `focusable: false` (overlayWindow.ts) and can never host a real
@@ -3220,6 +3603,15 @@ export default function OverlayApp(): JSX.Element {
   // The hover popup's citation flow (Find a source / Add citation), keyed
   // by claim id — absent means "just showing ProblemCard," not started.
   const [citationFlowByClaimId, setCitationFlowByClaimId] = useState<Map<string, CitationFlowState>>(new Map())
+  /** What each running source list is for — see FlowMode. Absent means insert. */
+  const [flowModeByClaimId, setFlowModeByClaimId] = useState<Map<string, FlowMode>>(new Map())
+  /** Copy mode's last copy, per claim, so the button can say so. */
+  const [flowCopiedByClaimId, setFlowCopiedByClaimId] = useState<Map<string, Copied>>(new Map())
+  /**
+   * "Find the cited work", per claim — the same per-claim keying as the source
+   * list, for the same reason: nothing pins the hover here.
+   */
+  const [citedWorkByClaimId, setCitedWorkByClaimId] = useState<Map<string, OverlayCitedWorkState>>(new Map())
   /**
    * Claims whose hover popover is currently showing the fix card.
    *
@@ -3448,7 +3840,9 @@ export default function OverlayApp(): JSX.Element {
    */
   function openGradeSourceFinder(claimId: string): void {
     setGradeFlowClaimId(claimId)
-    void startCitationFlow(claimId)
+    // Always insert: this is an UNCITED claim's "Find evidence" button, and a
+    // mode left over from a hover card on the same claim must not carry in.
+    void startCitationFlow(claimId, 'insert')
   }
 
   /** Puts the popover away AND drops the flow, so reopening starts clean. */
@@ -3485,7 +3879,12 @@ export default function OverlayApp(): JSX.Element {
   // being watched), so there's no way to host a real free-text search box
   // here; "search again" always re-runs with the claim's own query rather
   // than a typed override.
-  async function startCitationFlow(claimId: string): Promise<void> {
+  async function startCitationFlow(claimId: string, mode?: FlowMode): Promise<void> {
+    // A new mode only when the card says so; "Search again" keeps the one the
+    // list was opened with.
+    if (mode) setFlowModeByClaimId((prev) => new Map(prev).set(claimId, mode))
+    setFlowCopiedByClaimId((prev) => new Map(prev).set(claimId, null))
+    setCitedWork(claimId, null)
     setFlow(claimId, { step: 'searching' })
     try {
       const { candidates, cited } = await window.tracely.screenWatch.findSource({ claimId })
@@ -3534,9 +3933,9 @@ export default function OverlayApp(): JSX.Element {
    * pure formatters in `citations/formatters/*` behind an IPC call, which is
    * why this is safe to offer as a plain button beside Insert.
    */
-  async function previewCitation(claimId: string): Promise<void> {
+  async function previewCitation(claimId: string): Promise<ScreenWatchClaimCitation | null> {
     const flow = citationFlowByClaimId.get(claimId)
-    if (flow?.step !== 'picking' || !flow.selectedRef) return
+    if (flow?.step !== 'picking' || !flow.selectedRef) return null
     const sourceRef = flow.selectedRef
     const style = flow.style
     setPreviewBusyIds((prev) => new Set(prev).add(claimId))
@@ -3555,8 +3954,10 @@ export default function OverlayApp(): JSX.Element {
         next.set(claimId, { ...current, preview: citation })
         return next
       })
+      return citation
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err))
+      return null
     } finally {
       setPreviewBusyIds((prev) => {
         const next = new Set(prev)
@@ -3595,6 +3996,78 @@ export default function OverlayApp(): JSX.Element {
   function markEntryCopied(claimId: string): void {
     const flow = citationFlowByClaimId.get(claimId)
     if (flow?.step === 'inserted') setFlow(claimId, { ...flow, entryCopied: true })
+  }
+
+  /**
+   * Copy mode's buttons on the source list. The formatted pair comes from the
+   * same pure `previewCitation` the Preview button calls — nothing is written
+   * to the watched document, which is the whole point of the mode.
+   */
+  async function copyFlowCitation(claimId: string, which: 'marker' | 'entry'): Promise<void> {
+    const citation = await previewCitation(claimId)
+    if (!citation) return
+    const ok = await copyToClipboard(which === 'marker' ? citation.inTextCitation : citation.worksCitedEntry)
+    if (ok) setFlowCopiedByClaimId((prev) => new Map(prev).set(claimId, which))
+  }
+
+  function setCitedWork(claimId: string, state: OverlayCitedWorkState | null): void {
+    setCitedWorkByClaimId((prev) => {
+      if (state === null && !prev.has(claimId)) return prev
+      const next = new Map(prev)
+      if (state === null) next.delete(claimId)
+      else next.set(claimId, state)
+      return next
+    })
+  }
+
+  /**
+   * "Find the cited work" from the hover card. Crossref and Open Library via
+   * main — free, and only ever on this button, which is the line Screen Watch
+   * holds: nothing passive here spends anything or writes anything.
+   */
+  async function startCitedWork(claimId: string): Promise<void> {
+    setFlow(claimId, null)
+    setCitedWork(claimId, { step: 'searching' })
+    try {
+      const response = await window.tracely.screenWatch.findCitedWork({ claimId })
+      setCitedWorkByClaimId((prev) => {
+        // Cancelled while it was in flight — do not reopen it.
+        if (!prev.has(claimId)) return prev
+        return new Map(prev).set(claimId, {
+          step: 'results',
+          response,
+          selectedRef: response.candidates[0]?.ref ?? null,
+          style: defaultStyle,
+          copied: null
+        })
+      })
+    } catch (err) {
+      setCitedWorkByClaimId((prev) =>
+        prev.has(claimId)
+          ? new Map(prev).set(claimId, { step: 'error', message: err instanceof Error ? err.message : String(err) })
+          : prev
+      )
+    }
+  }
+
+  function updateCitedWork(
+    claimId: string,
+    change: (state: Extract<OverlayCitedWorkState, { step: 'results' }>) => OverlayCitedWorkState
+  ): void {
+    setCitedWorkByClaimId((prev) => {
+      const current = prev.get(claimId)
+      return current?.step === 'results' ? new Map(prev).set(claimId, change(current)) : prev
+    })
+  }
+
+  async function copyCitedWork(claimId: string, which: 'marker' | 'entry'): Promise<void> {
+    const state = citedWorkByClaimId.get(claimId)
+    if (state?.step !== 'results') return
+    const candidate = state.response.candidates.find((c) => c.ref === state.selectedRef)
+    if (!candidate) return
+    const pair = candidate.citations[state.style]
+    const ok = await copyToClipboard(which === 'marker' ? pair.inTextCitation : pair.worksCitedEntry)
+    if (ok) updateCitedWork(claimId, (s) => ({ ...s, copied: which }))
   }
 
   async function undoCitation(claimId: string): Promise<void> {
@@ -3853,8 +4326,11 @@ export default function OverlayApp(): JSX.Element {
     hoveredOpenKinds[0] ?? claimHoveredSummary?.problemKinds[0] ?? 'searching'
   const hoveredRemaining = hoveredOpenKinds.length
 
+  // The lookup's list is the same kind of list, so it widens the same way.
   const hoveredFlowStep = claimHovered
-    ? (citationFlowByClaimId.get(claimHovered.claimId)?.step ?? null)
+    ? (citationFlowByClaimId.get(claimHovered.claimId)?.step ??
+      citedWorkByClaimId.get(claimHovered.claimId)?.step ??
+      null)
     : null
   // 320 for a glance, 380 once the card is showing a list. Measured off the
   // frames rather than "the flow is wider": "Find a Source (Searching)" is 320
@@ -4463,10 +4939,19 @@ export default function OverlayApp(): JSX.Element {
                 {flow ? (
                   <CitationFlowCard
                     state={flow}
+                    mode={flowModeByClaimId.get(claimHoveredSummary.id) ?? 'insert'}
+                    copied={flowCopiedByClaimId.get(claimHoveredSummary.id) ?? null}
+                    onCopy={(which) => void copyFlowCitation(claimHoveredSummary.id, which)}
                     claimText={claimHoveredSummary.text}
                     visibleClaimCount={visibleCount}
-                    onSelectCandidate={(ref) => selectCandidate(claimHoveredSummary.id, ref)}
-                    onSetStyle={(style) => setCandidateStyle(claimHoveredSummary.id, style)}
+                    onSelectCandidate={(ref) => {
+                      selectCandidate(claimHoveredSummary.id, ref)
+                      setFlowCopiedByClaimId((prev) => new Map(prev).set(claimHoveredSummary.id, null))
+                    }}
+                    onSetStyle={(style) => {
+                      setCandidateStyle(claimHoveredSummary.id, style)
+                      setFlowCopiedByClaimId((prev) => new Map(prev).set(claimHoveredSummary.id, null))
+                    }}
                     onSearchAgain={() => void startCitationFlow(claimHoveredSummary.id)}
                     onInsert={() => void insertCitation(claimHoveredSummary.id)}
                     onPreview={() => void previewCitation(claimHoveredSummary.id)}
@@ -4478,6 +4963,24 @@ export default function OverlayApp(): JSX.Element {
                     previewing={previewBusyIds.has(claimHoveredSummary.id)}
                     undoing={undoBusyIds.has(claimHoveredSummary.id)}
                     showCancel={false}
+                  />
+                ) : citedWorkByClaimId.has(claimHoveredSummary.id) ? (
+                  <CitedWorkCard
+                    state={citedWorkByClaimId.get(claimHoveredSummary.id) as OverlayCitedWorkState}
+                    color={PROBLEM_COLOR[hoveredActiveKind]}
+                    onSelect={(ref) =>
+                      updateCitedWork(claimHoveredSummary.id, (s) => ({ ...s, selectedRef: ref, copied: null }))
+                    }
+                    onSetStyle={(style) =>
+                      updateCitedWork(claimHoveredSummary.id, (s) => ({ ...s, style, copied: null }))
+                    }
+                    onCopy={(which) => void copyCitedWork(claimHoveredSummary.id, which)}
+                    // The topical search — in copy mode, because the card was
+                    // about the citation already in the sentence and this
+                    // window cannot replace it.
+                    onFindSource={() => void startCitationFlow(claimHoveredSummary.id, 'copy')}
+                    onRetry={() => void startCitedWork(claimHoveredSummary.id)}
+                    onCancel={() => setCitedWork(claimHoveredSummary.id, null)}
                   />
                 ) : fixOpenIds.has(claimHoveredSummary.id) ? (
                   <FixCard
@@ -4496,7 +4999,8 @@ export default function OverlayApp(): JSX.Element {
                   <ProblemCard
                     claim={claimHoveredSummary}
                     onSuggestFix={() => openFix(claimHoveredSummary.id)}
-                    onStartCitationFlow={() => void startCitationFlow(claimHoveredSummary.id)}
+                    onStartCitationFlow={(mode) => void startCitationFlow(claimHoveredSummary.id, mode)}
+                    onFindCitedWork={() => void startCitedWork(claimHoveredSummary.id)}
                     activeKind={hoveredActiveKind}
                     remaining={hoveredRemaining}
                     onDismiss={() =>

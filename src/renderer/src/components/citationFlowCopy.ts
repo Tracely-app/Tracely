@@ -1,4 +1,5 @@
 import type { CitationStyle } from '@shared/types'
+import { NOT_INDEXED_NOTE } from '@shared/citedComparison'
 
 /**
  * What the citation flow's popover says, at each of its steps.
@@ -177,4 +178,98 @@ export function sourceInitials(name: string): string {
 /** The "Claim resolved · N flags left" line's second half. */
 export function flagsLeft(count: number): string {
   return `${count} flag${count === 1 ? '' : 's'} left in this document`
+}
+
+// ── "Find the cited work" ───────────────────────────────────────────────────
+//
+// The card behind FIND_CITED_WORK (shared/citationAction.ts), on both surfaces.
+// No Figma frame: it is built from the citation flow's own pieces — the same
+// header dot, body, rows, style pills and block — and its wording lives here
+// for the same reason the flow's does.
+//
+// Two rules every string below holds to:
+//  - a record is "the work you cited", never proof that the sentence is right;
+//  - an empty answer is a fact about two indexes, never a verdict on the
+//    citation — the caveat is citedComparison's NOT_INDEXED_NOTE, verbatim.
+
+export const CITED_WORK_SEARCHING_TITLE = 'Looking up the work you cited'
+
+export function citedWorkSearchingBody(citation: string): string {
+  return `Searching Crossref and Open Library for records that match ${citation}.`
+}
+
+/** Says what the list IS: records that look like the citation. */
+export function citedWorkResultsTitle(count: number): string {
+  return count === 1 ? '1 record matches your citation' : `${count} records match your citation`
+}
+
+export const CITED_WORK_RESULTS_BODY =
+  'From Crossref and Open Library. Pick the work you actually used — this replaces your citation, it does not prove your sentence.'
+
+/** The overlay's version: it cannot replace anything, only hand text over. */
+export const CITED_WORK_RESULTS_BODY_EXTERNAL =
+  'From Crossref and Open Library. Pick the work you actually used — this fixes your citation, it does not prove your sentence.'
+
+export const CITED_WORK_EMPTY_TITLE = 'No matching record'
+
+export function citedWorkEmptyBody(citation: string): string {
+  return `Crossref and Open Library have nothing that matches ${citation}. ${NOT_INDEXED_NOTE}`
+}
+
+/** Neither index answered. Not the same as finding nothing, and never said as it. */
+export const CITED_WORK_UNREACHABLE =
+  'Could not reach Crossref or Open Library just now. Nothing was decided about your citation — try again in a moment.'
+
+/**
+ * Screen Watch read the sentence and it carries no single bracketed citation —
+ * none at all, or two, where picking one would look up the wrong work.
+ */
+export function citedWorkNoTarget(status: 'none' | 'several'): string {
+  return status === 'several'
+    ? 'This sentence carries two citations, so Tracely cannot tell which one this card is about. Look each one up yourself, or find a new source.'
+    : 'Tracely could not find a citation in brackets in this sentence to look up. Find a source for it instead.'
+}
+
+/** The block over what Replace will write, naming what it replaces. */
+export function willReplaceLabel(citation: string): string {
+  return `WILL REPLACE ${citation}`
+}
+
+/** The overlay's block: text to paste, not a write it will make. */
+export function pasteOverLabel(citation: string): string {
+  return `PASTE OVER ${citation}`
+}
+
+/** Under the overlay's Copy buttons — a limit stated, not a feature missing. */
+export const PASTE_OVER_NOTE = 'Paste it over the citation yourself — Tracely does not edit other apps.'
+
+export const FIND_DIFFERENT_SOURCE = 'Find a different source'
+
+export const CITATION_REPLACED_TITLE = 'Citation replaced'
+
+export function citationReplacedBody(style: CitationStyle, replaced: string): string {
+  return `${CITATION_STYLE_LABEL[style]} citation written over ${replaced}. Undo — or Ctrl+Z — puts the old one back.`
+}
+
+/**
+ * The reference-list half of a replacement. 'replaced' is its own answer: the
+ * line the bad citation pointed at came OUT as the record's went in.
+ */
+export function entryOutcomeLabel(outcome: 'replaced' | 'added' | 'already-listed' | 'failed'): string {
+  if (outcome === 'replaced') return 'REPLACED IN WORKS CITED'
+  return worksCitedLabel(outcome)
+}
+
+/** "Jack Weatherford · 2004 · Open Library" — the row's second line, all record fields. */
+export function citedWorkMeta(candidate: {
+  authors: string[]
+  year: number | null
+  venue: string | null
+  index: 'crossref' | 'openlibrary'
+}): string {
+  const authors =
+    candidate.authors.length > 2 ? `${candidate.authors[0]} et al.` : candidate.authors.join(' & ')
+  return [authors || null, candidate.year ? String(candidate.year) : null, candidate.venue, candidate.index === 'crossref' ? 'Crossref' : 'Open Library']
+    .filter(Boolean)
+    .join(' · ')
 }

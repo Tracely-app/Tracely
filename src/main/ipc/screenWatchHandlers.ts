@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { IPC } from '@shared/ipc-channels'
 import type {
   ScreenWatchCritiqueClaimResponse,
+  ScreenWatchFindCitedWorkResponse,
   ScreenWatchFindSourceResponse,
   ScreenWatchGetStatusResponse,
   ScreenWatchInsertCitationResponse,
@@ -18,6 +19,7 @@ import type {
 } from '@shared/ipc-contract'
 import {
   critiqueClaim,
+  findCitedWorkForClaim,
   findSourceWithCited,
   getScreenWatchStatus,
   insertCitationForClaim,
@@ -103,6 +105,13 @@ export function registerScreenWatchHandlers(): void {
     // Both halves: the sources found, and the source already cited. See
     // ResolvedCitedWork — a card headed "Compare sources" needs two things.
     return await findSourceWithCited(claimId, query)
+  })
+
+  // "Find the cited work" from the overlay's card. Free and user-triggered —
+  // Crossref and Open Library only, nothing written to the watched app.
+  ipcMain.handle(IPC.SCREENWATCH_FIND_CITED_WORK, async (_event, raw): Promise<ScreenWatchFindCitedWorkResponse> => {
+    const { claimId } = claimIdSchema.parse(raw)
+    return await findCitedWorkForClaim(claimId)
   })
 
   // Same shape as insert, and the same schema on purpose: previewing what would

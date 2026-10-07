@@ -3,6 +3,7 @@
 // like "this venue name wraps to three lines" or "an et-al author list
 // overflows the card", and placeholder text hides exactly those.
 import type {
+  CitationFindCitedWorkResponse,
   ProfileInfo,
   ResolvedCitedWork,
   ScreenWatchClaimSummary,
@@ -397,6 +398,26 @@ export const claims: Claim[] = [
     citationFix: null,
     createdAt: T0
   },
+  // The cut-off citation's claim. Searched (a mark needs evidence to be drawn)
+  // with one weak hit; what puts it on the page is the citation's SHAPE, which
+  // needs no search or critique at all.
+  {
+    id: 'c8',
+    analysisId: 'a1',
+    text: 'Some researchers have argued that literacy expanded in parts of the empire, but the extent remains uncertain',
+    claimType: 'factual',
+    confidence: 0.74,
+    searchQuery: 'literacy expansion Mongol empire',
+    strengthScore: 22,
+    scoreBreakdown: { sourceCount: 1 / 6, quality: 0.5, recency: 0.4, relevance: 0.3, support: 0 },
+    critique: null,
+    critiqueVerdict: null,
+    suggestedRevision: null,
+    citedWorkRead: null,
+    retrievalGeneration: 2,
+    citationFix: null,
+    createdAt: T0
+  },
   {
     id: 'c7',
     analysisId: 'a1',
@@ -454,6 +475,81 @@ export const citedMissing: ResolvedCitedWork = {
   doi: null,
   url: null,
   index: null
+}
+
+/**
+ * What "Find the cited work" returns for "(Genghis Khan and the, 2022)".
+ *
+ * Two records, both dated away from the cited 2022, so the year line is
+ * reachable — and the second exists so selecting between candidates is. The
+ * Open Library record is the book the half-title plainly names; the Crossref
+ * one is a fixture-only record (note the 10.0000 DOI prefix, which no real
+ * registrant uses) standing for the reviews and chapters Crossref returns
+ * beside a book. Formatted strings are written out by hand in the shapes the
+ * formatters produce; the real ones come from citations/formatters/*.
+ */
+export const citedWorkGenghis: CitationFindCitedWorkResponse = {
+  citation: '(Genghis Khan and the, 2022)',
+  entry: null,
+  citedYear: 2022,
+  searched: true,
+  candidates: [
+    {
+      ref: 'cited:openlibrary:0',
+      title: 'Genghis Khan and the Making of the Modern World',
+      authors: ['Jack Weatherford'],
+      year: 2004,
+      venue: null,
+      doi: null,
+      url: 'https://openlibrary.org/works/OL0000000W',
+      index: 'openlibrary',
+      matchPercent: 100,
+      yearNote: 'This record is from 2004; your citation says 2022',
+      citations: {
+        APA: {
+          inTextCitation: '(Weatherford, 2004)',
+          worksCitedEntry: 'Weatherford, J. (2004). Genghis Khan and the making of the modern world.'
+        },
+        MLA: {
+          inTextCitation: '(Weatherford)',
+          worksCitedEntry: 'Weatherford, Jack. Genghis Khan and the Making of the Modern World. 2004.'
+        },
+        Chicago: {
+          inTextCitation: '(Weatherford, 2004)',
+          worksCitedEntry: 'Weatherford, Jack. 2004. Genghis Khan and the Making of the Modern World.'
+        }
+      }
+    },
+    {
+      ref: 'cited:crossref:1',
+      title: 'Genghis Khan and the Mongol Empire',
+      authors: ['Preview Fixture'],
+      year: 2009,
+      venue: 'Journal of Preview History',
+      doi: '10.0000/preview.genghis',
+      url: 'https://doi.org/10.0000/preview.genghis',
+      index: 'crossref',
+      matchPercent: 100,
+      yearNote: 'This record is from 2009; your citation says 2022',
+      citations: {
+        APA: {
+          inTextCitation: '(Fixture, 2009)',
+          worksCitedEntry:
+            'Fixture, P. (2009). Genghis Khan and the Mongol Empire. Journal of Preview History. https://doi.org/10.0000/preview.genghis'
+        },
+        MLA: {
+          inTextCitation: '(Fixture)',
+          worksCitedEntry:
+            'Fixture, Preview. "Genghis Khan and the Mongol Empire." Journal of Preview History, 2009, https://doi.org/10.0000/preview.genghis.'
+        },
+        Chicago: {
+          inTextCitation: '(Fixture, 2009)',
+          worksCitedEntry:
+            'Fixture, Preview. 2009. "Genghis Khan and the Mongol Empire." Journal of Preview History. https://doi.org/10.0000/preview.genghis.'
+        }
+      }
+    }
+  ]
 }
 
 export const citations: Citation[] = [
@@ -562,6 +658,12 @@ export const documents: DocumentListItem[] = [
       // several sentences is the ordinary way this happens. Without a second
       // copy here the harness cannot reach that failure at all.
       '<div>Schools in three districts have already moved to ban phones during instructional hours (Unknown Author, 2025).</div><div><br></div>' +
+      // A citation CUT OFF mid-title, verbatim from a student draft (owner,
+      // 2026-10-06: the card called it out and "doesnt find citation for me").
+      // Claim c8 — reaches the 'citation-defect' card, whose action is "Find
+      // the cited work", and the mock answers with a 2004 record so the year
+      // line and Replace citation are both reachable.
+      '<div>The movement of ideas may have contributed to increased literacy in some parts of the empire. Some researchers have argued that literacy expanded in parts of the empire, but the extent remains uncertain (Genghis Khan and the, 2022).</div><div><br></div>' +
       '<div>This matters because policy is being written now, before the evidence has settled.</div><div><br></div>' +
       // A TANGENT — true, unrelated, and the only way to reach the 'off-topic'
       // underline in the harness. Owner, 2026-08-22: a random sentence pasted
@@ -891,6 +993,33 @@ export const screenWatchClaims: ScreenWatchClaimSummary[] = [
     citationFix: 'Wahlstrom, Kyla. "Later Start Time for Teens Improves Grades, Mood, and Safety." Phi Delta Kappan, 2014, p. 12.',
     citation: null
   },
+  // The cut-off citation, as Screen Watch now reports it: the sentence's own
+  // citation and its shape defect travel on the payload (they did not until
+  // 2026-10-06, so this mark could never reach the overlay). Its card offers
+  // "Find the cited work" and, over another app, Copy rather than Insert.
+  {
+    id: 'c8',
+    text: 'Some researchers have argued that literacy expanded in parts of the empire, but the extent remains uncertain',
+    claimType: 'factual',
+    confidence: 0.74,
+    hasInlineCitation: true,
+    hasOwnCitation: true,
+    citationDefect: 'This citation looks cut off — the title or author is incomplete.',
+    citationDefectKind: 'truncated',
+    citationTarget: 'one',
+    problemKinds: ['citation-defect'],
+    evidence: {
+      score: 22,
+      count: 5,
+      breakdown: { sourceCount: 1 / 6, quality: 0.5, recency: 0.4, relevance: 0.3, support: 0 },
+      articles: []
+    },
+    critique: null,
+    critiqueVerdict: null,
+    suggestedRevision: null,
+    citationFix: null,
+    citation: null
+  },
   {
     id: 'c3',
     text: 'This is the clearest public-health crisis of our generation.',
@@ -1094,7 +1223,8 @@ export const overlayUpdate: ScreenWatchOverlayUpdateEvent = {
       claimType: 'statistic',
       problemKinds: ['unverified-statistic']
     },
-    { id: 'c3', rects: [{ x: 60, y: 174, width: 330, height: 18 }], claimType: 'opinion', problemKinds: ['missing-citation'] }
+    { id: 'c3', rects: [{ x: 60, y: 174, width: 330, height: 18 }], claimType: 'opinion', problemKinds: ['missing-citation'] },
+    { id: 'c8', rects: [{ x: 60, y: 206, width: 390, height: 18 }], claimType: 'factual', problemKinds: ['citation-defect'] }
   ],
   widget: {
     rect: { x: 520, y: 300, width: 56, height: 56 },
@@ -1103,11 +1233,12 @@ export const overlayUpdate: ScreenWatchOverlayUpdateEvent = {
     claimCount: screenWatchClaims.length,
     claims: screenWatchClaims,
     totalInfoCount: screenWatchClaims.length + 10,
-    // Hand-traced, not derived: the `underlines` array above carries three
-    // entries (c1, c2, c3). Written as a literal so adding a fourth shows up
-    // here as a disagreement instead of quietly following along — which is the
-    // whole point of the badge counting marks rather than claims or sources.
-    underlineCount: 3,
+    // Hand-traced, not derived: the `underlines` array above carries four
+    // entries (c1, c2, c3, and c8 — the cut-off citation, added 2026-10-06).
+    // Written as a literal so adding a fifth shows up here as a disagreement
+    // instead of quietly following along — which is the whole point of the
+    // badge counting marks rather than claims or sources.
+    underlineCount: 4,
     structure: screenWatchStructure,
     // False alongside a non-null `structure`, because those are the only two
     // states main ever pushes together — see ScreenWatchWidget.analyzing. The

@@ -80,6 +80,68 @@ describe('findCitationDefects — placeholders', () => {
   })
 })
 
+describe('findCitationDefects — a name cut off mid-phrase', () => {
+  /**
+   * The case that prompted it, verbatim from a student draft: a short title cut
+   * at four words and pasted in as the citation. Owner, 2026-10-06: the card
+   * said the sentence was not truthful and did nothing to find the work.
+   */
+  it('flags a citation whose name or title ends on a function word', () => {
+    const text =
+      'Some researchers have argued that literacy expanded in parts of the empire, but the extent remains uncertain (Genghis Khan and the, 2022).'
+    const [defect] = findCitationDefects(text, YEAR)
+    strictEqual(defect.kind, 'truncated')
+    strictEqual(defect.text, '(Genghis Khan and the, 2022)')
+    strictEqual(text.slice(defect.start, defect.end), defect.text)
+    ok(/cut off/.test(defect.message))
+  })
+
+  it('catches the other dangling shapes, quoted titles included', () => {
+    for (const text of [
+      'The figure is contested (Smith and, 2020).',
+      'The figure is contested (Smith &, 2020).',
+      'The figure is contested ("The Effects of", 2020).',
+      'The figure is contested (Okafor, 2019; History of the, 2021).',
+      'The figure is contested (A Study of an, 2018, p. 4).'
+    ]) {
+      ok(kinds(text).includes('truncated'), text)
+    }
+  })
+
+  it('leaves complete names and titles alone, however many function words they contain', () => {
+    for (const text of [
+      'Policy shifted after the review (Ministry of the Interior, 2020).',
+      'Policy shifted after the review (Department of Health and Social Care, 2021).',
+      'The trial was small (Smith and Jones, 2020).',
+      'The trial was small (Smith et al., 2020).',
+      'The trial was small (Paris, 1996; Walker, 2010).',
+      // A capital A is part of the name, not an article left dangling.
+      'Deficiency is common in the region (Vitamin A, 2019).',
+      'The rollout followed the earlier scheme (Plan A, 2020).',
+      // Prepositions are left out of the test on purpose: real titles end on them.
+      'The essay borrows its title ("Something to Live For", 2015).'
+    ]) {
+      deepStrictEqual(findCitationDefects(text, YEAR), [], text)
+    }
+  })
+
+  it('never reads a dated aside as a truncated citation', () => {
+    for (const text of [
+      'The rate rose sharply (in 2020).',
+      'The rate rose sharply (Up from 2019).',
+      'The rate rose sharply (The, 2020).',
+      'The rate rose sharply (see the, 2020).'
+    ]) {
+      ok(!kinds(text).includes('truncated'), text)
+    }
+  })
+
+  it('keeps the existing negatives clean: (Smith) and (Walker and Paris) carry no year', () => {
+    deepStrictEqual(findCitationDefects('The claim rests on one account (Smith).', YEAR), [])
+    deepStrictEqual(findCitationDefects('Two biographers disagree (Walker and Paris).', YEAR), [])
+  })
+})
+
 describe('findCitationDefects — dates', () => {
   it('flags a year that has not happened yet', () => {
     const [defect] = findCitationDefects('A recent study confirms it (Walker, 2029).', YEAR)

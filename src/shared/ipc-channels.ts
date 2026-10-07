@@ -10,6 +10,9 @@ export const IPC = {
   CITATION_GENERATE: 'citation:generate',
   CITATION_LIST: 'citation:list',
   CITATION_RESOLVE_CITED: 'citation:resolveCited',
+  // Records that look like what a sentence cites, from a partial title, one
+  // surname or the Works Cited line. Free: Crossref and Open Library only.
+  CITATION_FIND_CITED_WORK: 'citation:findCitedWork',
 
   CRITIQUE_GENERATE: 'critique:generate',
 
@@ -68,6 +71,7 @@ export const IPC = {
   SCREENWATCH_PREVIEW_CITATION: 'screenWatch:previewCitation',
   SCREENWATCH_INSERT_CITATION: 'screenWatch:insertCitation',
   SCREENWATCH_UNDO_CITATION: 'screenWatch:undoCitation',
+  SCREENWATCH_FIND_CITED_WORK: 'screenWatch:findCitedWork',
 
   TRACER_OPEN: 'tracer:open',
   TRACER_CLOSE: 'tracer:close',
