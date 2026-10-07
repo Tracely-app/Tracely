@@ -57,7 +57,7 @@ its commit is in `STATUS.md`.
 
 ## Desktop
 
-`CLAUDE.md` "Branches and releasing" has the full story; the short version:
+`src/CLAUDE.md` "Releasing the desktop app" has the full story; the short version:
 `npm run ship` runs `scripts/preflight.mjs` (on `main`, clean, in sync,
 typecheck, every server route live, version above the latest release), bumps
 the version, opens `release/vX.Y.Z`, auto-merges it once `check` is green,

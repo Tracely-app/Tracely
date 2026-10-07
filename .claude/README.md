@@ -63,3 +63,38 @@ committed. The edit guard is the real protection; the commit rule is a backstop.
 
 `npm run ship` is unaffected: it runs git inside `execSync`, so the hook only
 ever sees the single `npm run ship` invocation, not the commands underneath it.
+
+## Lore: how main, worktrees and the guards relate
+
+Moved verbatim from the root CLAUDE.md on 2026-10-07; each bullet was written after something broke.
+
+- **`main` is the integration branch and the only branch releases are cut
+  from.** It advances by deliberate merge. `.claude/hooks/guard-edit.sh` refuses
+  edits to `src/`, `scripts/` and the build config while on `main`, because
+  `electron-builder` packages the working tree rather than `HEAD` — an
+  uncommitted edit there can reach an installer without ever being committed.
+- **Merge into `main` when a feature is done, not when a release is due.**
+  `npm run ship` no longer merges anything; it publishes what is already on
+  `main`. Release time should not also be integration time.
+- **Parallel work uses throwaway worktrees, not permanent ones.** Subagents
+  launched with `isolation: "worktree"` get their own checkout and clean up
+  after themselves. Three standing worktrees with a file-ownership contract were
+  retired in favour of this: the contract needed maintaining, branches drifted
+  24 commits behind, and 421 lines once sat uncommitted in two of them because
+  each worktree registered the auto-commit hook separately.
+- **A worktree runs the guards it was branched from, not the ones on `main`.**
+  `settings.json` invokes them as `$CLAUDE_PROJECT_DIR/.claude/hooks/*.sh`, and
+  in a worktree session that variable resolves to the worktree — so the hook
+  files are whatever that checkout has, and fixing a guard on `main` does
+  nothing for any worktree already in flight. A live probe of the revised
+  `guard-bash.sh` sailed through a `git commit` aimed at `main` for exactly this
+  reason: the session was four commits behind and running the version with the
+  bug. **Merge `main` before trusting a guard in a long-lived worktree**, and
+  test hook changes from a checkout that actually has them.
+- **Test the guards with real tool calls, not hand-built payloads.** A synthetic
+  payload has no `cwd` field, so it falls through to whatever the fallback is
+  and passes while the real thing fails. Both hook bugs so far were found by
+  running an actual command and neither was caught by a 19-case suite over
+  invented JSON. The suite is still worth having for the branches real probes
+  cannot reach — the deny path needs some checkout to be sitting on `main` —
+  but it confirms nothing on its own.
