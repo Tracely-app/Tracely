@@ -22,7 +22,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..", "..");
 const SRC = readFileSync(path.join(ROOT, "extension", "content.js"), "utf8");
 const FACTCHECK = readFileSync(path.join(HERE, "..", "lib", "factcheck.js"), "utf8");
-const ESSAY = readFileSync(path.join(ROOT, "eval", "revision", "flawed-mongols.txt"), "utf8");
+const ESSAY = readFileSync(path.join(ROOT, "eval", "revision", "flawed-mongols.txt"), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF
 
 function loadExt() {
   const f0 = SRC.indexOf("  const ISSUE_VERDICTS =");
