@@ -146,6 +146,20 @@ function originAllowed(origin) {
 // extension surface can reach.
 // /api/compare-source joined in extension 2.21.24 ("Find the cited work"):
 // appended, so an older build that never asks for it sees nothing change.
+/* THE SHIPPED CONTRACT. Every store build of the extension bakes in these
+ * paths, their response shapes and their error kinds/messages; CLAUDE.md
+ * points here instead of copying the list. Append a route when a new build
+ * needs one (an older build that never asks for it sees nothing change);
+ * never remove or rename one while a build that calls it is installed —
+ * that is an extension release, not a server deploy.
+ *
+ * The four sets below, in one breath:
+ *   EXTENSION_API  — what a chrome-extension:// origin may call at all
+ *   PAID_ROUTES    — what can reach a model and spend (spendGate)
+ *   APP_AI_ROUTES  — the desktop's model routes, with their own pool (appGate)
+ *   MODEL_ROUTES   — whose failures are logged as model failures
+ * server/test/ext-api-paths.test.js keeps background.js's API_PATHS inside
+ * EXTENSION_API. */
 const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account", "/api/compare-source"]);
 
 /* Every route that can reach a model, and therefore spend money.
