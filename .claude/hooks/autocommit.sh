@@ -52,11 +52,20 @@ case "$branch" in
     ;;
 esac
 
-git add -A 2>/dev/null
+# Tracked files: everything the turn modified. Untracked files: only inside
+# the directories the project owns, plus Markdown at the root. `git add -A`
+# used to sweep whatever happened to be lying around — editor fragments,
+# builder-error.log — into main four times over.
+git add -u 2>/dev/null
+git add -- src server extension eval scripts docs e2e .claude .github resources '*.md' 2>/dev/null
+stray=$(git ls-files -o --exclude-standard | grep -v '/' | grep -v '\.md$' | head -5 | paste -sd', ' -)
 
 # Nothing staged means the turn changed no files (a question, a read-only
 # investigation) — stay completely silent rather than reporting a non-event.
-git diff --cached --quiet && exit 0
+if git diff --cached --quiet; then
+  [ -n "$stray" ] && emit "Nothing committed. Untracked at the root and left alone: ${stray}"
+  exit 0
+fi
 
 count=$(git diff --cached --name-only | wc -l | tr -d ' ')
 areas=$(git diff --cached --name-only -z \
@@ -64,16 +73,32 @@ areas=$(git diff --cached --name-only -z \
   | sort -u | head -3 | paste -sd', ' -)
 [ -z "$areas" ] && areas="repo"
 
-if ! git commit -q -m "auto: ${count} file(s) in ${areas} — $(date '+%Y-%m-%d %H:%M')" \
-    -m "Automatic checkpoint at end of a Claude Code turn." \
-    -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" 2>/dev/null; then
+# The subject is the PR's title when the branch has one — so a squash merge,
+# and `git log` between merges, say what the work is rather than "auto: 3
+# file(s)". Without a PR it is the branch name. The checkpoint count stays in
+# the body.
+subject=""
+if command -v gh >/dev/null 2>&1; then
+  subject=$(gh pr view "$branch" --json title -q .title 2>/dev/null | head -1)
+fi
+[ -z "$subject" ] && subject="${branch}: checkpoint (${count} file(s) in ${areas})"
+coauthor=${CLAUDE_COAUTHOR:-"Claude <noreply@anthropic.com>"}
+
+if ! git commit -q -m "$subject" \
+    -m "Automatic checkpoint at the end of a Claude Code turn: ${count} file(s) in ${areas}, $(date '+%Y-%m-%d %H:%M')." \
+    -m "Co-Authored-By: ${coauthor}" 2>/dev/null; then
   emit "Auto-commit failed on ${branch} — changes are staged but uncommitted."
 fi
 
 sha=$(git rev-parse --short HEAD)
 
 if err=$(git push origin "HEAD:${branch}" 2>&1); then
-  emit "Auto-committed ${sha} (${count} file(s)) and pushed to ${branch}."
+  nudge=""
+  if command -v gh >/dev/null 2>&1 && ! gh pr view "$branch" --json number >/dev/null 2>&1; then
+    nudge=" No PR yet: open a draft (gh pr create --draft) — it is the only signal the other developer's agent can see."
+  fi
+  [ -n "$stray" ] && nudge="${nudge} Untracked at the root and left alone: ${stray}."
+  emit "Auto-committed ${sha} (${count} file(s)) and pushed to ${branch}.${nudge}"
 fi
 
 # Most common cause is the remote having moved ahead. Never auto-resolve that

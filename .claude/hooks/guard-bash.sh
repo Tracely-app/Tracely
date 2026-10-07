@@ -106,15 +106,15 @@ To release what is on main: npm run ship"
     # also the moment work becomes public and, for the relay, the moment a
     # deploy fires. Worth a beat, not a wall.
     *"git push"*)
-      ask "Pushing ${branch}. For the relay this deploys to production immediately; for the app it is what npm run ship publishes from." ;;
+      ask "Pushing ${branch}. main is what releases are cut from and what the server is deployed from." ;;
   esac
 fi
 
 # Money and irreversibility. 'ask' rather than 'deny' — these are all things you
 # legitimately want to run, just never by accident.
 case "$cmd" in
-  *EVAL_ALLOW_SPEND*|*EVAL_REFRESH*|*"npm run evaluate"*)
-    ask "This runs the eval against the live relay: paid OpenAI calls plus OpenAlex credits (10 per claim, 1000/day free)." ;;
+  *EVAL_ALLOW_SPEND*|*EVAL_REFRESH*|*"npm run evaluate"*|*"eval/models/harness/run.mjs"*)
+    ask "This runs an eval: paid OpenAI calls (and, for the desktop eval, OpenAlex credits). Say what it costs first." ;;
   # A dry run publishes nothing, and saying it does would be worse than saying
   # nothing: a prompt that cries wolf on the safe form is what teaches people to
   # click through the dangerous one. It still asks, because it does bump the
@@ -123,8 +123,20 @@ case "$cmd" in
     ask "Dry run: bumps the version and merges the release PR to main, then stops. Nothing is built or published." ;;
   *"run ship"*|*release:win*|*preview:win*)
     ask "This publishes a release. Installed copies pick it up within 6 hours and electron-updater cannot downgrade them." ;;
-  *"vercel --prod"*|*"vercel deploy --prod"*|*"vercel promote"*)
-    ask "This deploys the relay to production, which every installed build talks to." ;;
+  # The server's publishing path (server/DEPLOY.md): anything that reaches the
+  # Linode or restarts the service is a production change every installed
+  # extension and desktop talks to the moment it lands.
+  *45.56.92.67*|*"systemctl restart tracely"*|*"systemctl stop tracely"*|*"/srv/tracely/"*)
+    ask "This touches the production server (the Linode). Every installed extension and desktop talks to it; follow server/DEPLOY.md (snapshot, backup, verify) and update STATUS.md after." ;;
+  # The extension's publishing path. The --beta zip carries the token that
+  # grants testers Pro; it must never reach the Developer Dashboard.
+  *"pack-extension.sh"*)
+    ask "This builds an extension zip. The store zip is what Sam uploads; the --beta zip carries the Pro-grant token and must never be uploaded to the Web Store." ;;
+  # Landing a PR is the moment the other developer's agent inherits it.
+  *"gh pr merge"*)
+    ask "This merges a pull request into main. Its Handoff section must say who acts next (deploy, store upload, ship)." ;;
+  *"git tag"*"ext/"*|*"git tag"*"server/"*)
+    ask "This tags a release point other tooling and STATUS.md refer to." ;;
   *"git push --force"*|*"git push -f"*)
     ask "Force push. This rewrites history other checkouts may already have." ;;
 esac

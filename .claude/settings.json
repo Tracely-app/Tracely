@@ -10,9 +10,12 @@
       "Read(./.env.release)",
       "Edit(./.env.release)",
       "Write(./.env.release)",
-      "Read(./.env.backup-before-killswitch)",
-      "Edit(./.env.backup-before-killswitch)",
-      "Write(./.env.backup-before-killswitch)"
+      "Read(./server/.env)",
+      "Edit(./server/.env)",
+      "Write(./server/.env)",
+      "Read(./.env.live)",
+      "Edit(./.env.live)",
+      "Write(./.env.live)"
     ]
   },
   "hooks": {
@@ -44,14 +47,14 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck.sh\"",
-            "timeout": 180,
-            "statusMessage": "Typechecking…"
+            "timeout": 300,
+            "statusMessage": "Typecheck + server tests\u2026"
           },
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/autocommit.sh\"",
             "timeout": 90,
-            "statusMessage": "Committing and pushing…"
+            "statusMessage": "Committing and pushing\u2026"
           }
         ]
       }
