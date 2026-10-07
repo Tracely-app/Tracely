@@ -79,6 +79,10 @@ export const SPEND = {
   // ever throttling honest use. Keyed on the CALLER, never on the address.
   callerChecksPerMinute: 20,
   callerSourcesPerMinute: 4,
+  // "Find the cited work" (/api/compare-source): a free Crossref + Open
+  // Library lookup, one per click. Ten a minute is more than a writer working
+  // down a reference list clicks, and bounds what one caller can send on.
+  callerLookupsPerMinute: 10,
 
   // Bounds the rate-limiter map so a rotating-identity attacker cannot grow it
   // without limit. Oldest keys are dropped; a dropped key just gets a fresh

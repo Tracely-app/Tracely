@@ -125,7 +125,10 @@ removes the rest.
   source's abstract from OpenAlex, or the page's text, to check that the
   source really says what the sentence claims before offering it (that check
   is made by OpenAI, above). They receive that source's DOI or address, never
-  your text or the sentence being cited.
+  your text or the sentence being cited. When you click "Find the cited work",
+  our server sends that citation's words (author, title words, year), or the
+  matching entry from your reference list, to Crossref and Open Library
+  (openlibrary.org) to look the work up.
 - **Supabase** — sign-in and account records (email, account id, plan).
 - **Stripe** — payments; we receive plan, customer id and payer email, never
   card details.

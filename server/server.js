@@ -144,7 +144,9 @@ function originAllowed(origin) {
 // /api/billing/webhook is deliberately NOT here: Stripe calls it server-to-
 // server with no Origin, and listing it would also hand it to every page the
 // extension surface can reach.
-const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account"]);
+// /api/compare-source joined in extension 2.21.24 ("Find the cited work"):
+// appended, so an older build that never asks for it sees nothing change.
+const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account", "/api/compare-source"]);
 
 /* Every route that can reach a model, and therefore spend money.
  *
@@ -201,7 +203,18 @@ const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review"
 // extension pool, whatever the caller id, since an install id rotates freely);
 // only the paid pool, which reserves every call, has no global window.
 const callerSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
-const SOURCE_ROUTES = new Set(["/api/sources", "/api/compare-source"]);
+const SOURCE_ROUTES = new Set(["/api/sources"]);
+/* Routes that LOOK SOMETHING UP and reach no model: /api/compare-source asks
+ * Crossref and Open Library for the writer's own citation and scores the
+ * answers lexically. It used to ride as a "sources" route, which was harmless
+ * while only the desktop called it and wrong once the extension did: it
+ * shared /api/sources' 4-a-minute caller window (so looking up two cited
+ * works could 429 the source search that follows an unresolved one), and it
+ * was shed with "Source search is paused" when the day's model budget ran
+ * low, although it spends none of it. A lookup gets its own per-caller window
+ * (SPEND.callerLookupsPerMinute), reserves nothing and is never refused for
+ * the budget (spendGate). */
+const LOOKUP_ROUTES = new Set(["/api/compare-source"]);
 function routeAllowedForOrigin(origin, pathname) {
   if (!origin || SELF_ORIGINS.has(origin)) return true;
   if (!pathname.startsWith("/api/")) return true; // static files are harmless
@@ -543,6 +556,7 @@ async function handleStripeWebhook(req, res) {
    this existed, which is how the local-first install runs. */
 const checkRate = keyedRateLimiter(SPEND.callerChecksPerMinute);
 const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
+const lookupRate = keyedRateLimiter(SPEND.callerLookupsPerMinute); // LOOKUP_ROUTES
 // The app routes' own limiter — see APP_AI_ROUTES for why it is not checkRate.
 const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
 // One /api/flow call per caller per FLOW_MIN_INTERVAL_MS, on a hosted server.
@@ -552,7 +566,7 @@ const reviewRate = keyedRateLimiter(1, REVIEW_MIN_INTERVAL_MS);
 
 function stampCallerRate(ent, id, kind) {
   if (!ent.enforced || !id) return;
-  const rate = kind === "sources" ? sourceRate : checkRate;
+  const rate = kind === "sources" ? sourceRate : kind === "lookup" ? lookupRate : checkRate;
   if (!rate.ok(id)) {
     throw new CheckError("rate_limit", "Slow down a moment — too many requests in the last minute.", { status: 429, retryAfter: 60 });
   }
@@ -649,6 +663,14 @@ function admitExtraCalls(gate, route, model, extra) {
 async function spendGate(req, { kind = "check", extension = false, route = null } = {}) {
   const ent = await planForRequest(req);
   const id = callerId(req, ent);
+
+  // A lookup (LOOKUP_ROUTES) reaches no model: no pool pays for it, nothing
+  // is reserved, and a spent day does not refuse it. The caller's own window
+  // is all that bounds a burst.
+  if (kind === "lookup") {
+    stampCallerRate(ent, id, kind);
+    return { ent, holder: ent, callerId: id, budget: null, pool: null, reservation: null, modelCeiling: null };
+  }
 
   let pick = null;
   let modelCeiling = null;
@@ -977,7 +999,7 @@ const server = http.createServer(async (req, res) => {
       gate = await appGate(req);
     } else if (PAID_ROUTES.has(url.pathname)) {
       gate = await spendGate(req, {
-        kind: SOURCE_ROUTES.has(url.pathname) ? "sources" : "check",
+        kind: LOOKUP_ROUTES.has(url.pathname) ? "lookup" : SOURCE_ROUTES.has(url.pathname) ? "sources" : "check",
         extension: EXTENSION_API.has(url.pathname),
         route: url.pathname,
       });
@@ -1620,10 +1642,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/api/compare-source") {
       // Free — resolves the writer's own citation against Crossref + Open Library.
+      // Called by the desktop and, since extension 2.21.24, by "Find the cited
+      // work" (EXTENSION_API). A citation or one reference entry is a few
+      // hundred characters; anything past 1,000 is not one, and is not sent on.
       const { citedRef } = (await parseJsonBody(req)) ?? {};
       if (typeof citedRef !== "string" || !citedRef.trim()) throw new CheckError("bad_request", "citedRef required");
       if (typeof evidence.compareSource !== "function") throw new CheckError("server", "compare not built yet", { status: 501 });
-      json(res, 200, await evidence.compareSource({ citedRef }), cors);
+      json(res, 200, await evidence.compareSource({ citedRef: citedRef.slice(0, 1000) }), cors);
       return;
     }
 
