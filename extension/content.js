@@ -5,12 +5,9 @@
      reads the doc as the signed-in account via the export endpoint every
      3s while it is changing (10s once idle; see nextReadGap), shows findings in the floating widget, and underlines flagged
      sentences over Docs' canvas (positions from Docs' SVG annotation layer,
-     docs-hook.js's paint ledger as the fallback). Fixes are COPY-and-paste
-     ("Copy fix") for everyone on the hosted server. "Fix in doc" appears
-     only when /api/status reports docsBridge, i.e. a developer's local
-     server with the Apps Script bridge (server/docs-bridge/Code.gs,
-     GOOGLE_DOCS_BRIDGE_URL) configured; that script edits as whoever
-     deployed it, so the hosted server has none.
+     docs-hook.js's paint ledger as the fallback). "Fix in doc" and "Cite in
+     doc" edit the document through docs-hook.js's in-page engine whenever
+     Docs reports it editable (canEditDoc); "Copy fix" is the fallback.
    • Harness mode (window.__tracelyHarness) — the test page stands in for Docs.
    • Field mode (everywhere else) — Grammarly's actual core mechanism: track
      the focused textarea / contenteditable, check its sentences, and rewrite
@@ -28,6 +25,27 @@
    colour from MARK_COLORS below (the app's red / orange / amber); 2px grey
    dotted while pending; clicking one
    opens the panel and flashes that verdict's card. */
+/* FILE MAP — one file, no build step, two developers editing it at once.
+   Sections, by the line their anchor sits on (regenerate the numbers with
+   `grep -n` when you move things; the anchors themselves must not move):
+        56  Verdicts, card copy, colours, FEATURES switches
+       378  Settings and plan gate
+       630  Shared helpers: hashing, bibliography, citation formatting
+       987  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1311  Genre detection, evidence suggestions, local checks
+      2311  Widget chrome, API transport, design tokens
+      2769  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+      6589  Field mode (textareas and contenteditables on any site)
+   Rules that keep two agents out of each other's way:
+   • The lines marked "TEST ANCHOR" below, and every marker in
+     server/test/helpers/anchors.js, are fixtures: server/test slices this
+     file by them. Never rename or re-indent one; ext-anchors.test.js fails
+     with its name if you do.
+   • Add code INSIDE the section it belongs to, never at the top of the file,
+     so two PRs touching different features rebase cleanly.
+   • Bump manifest.json ONCE per PR, in the last commit, with
+     server/scripts/bump-extension.mjs; say which section you touched in the
+     PR's Handoff. */
 "use strict";
 
 (() => {
@@ -41,6 +59,7 @@
   const IS_DOCS = !harness && location.hostname === "docs.google.com" && location.pathname.startsWith("/document/");
   if (document.getElementById("tracely-host")) return;
 
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
   /* Whether a finding is shown — underlined, carded, counted. "Citation
      suggestions" (needs_citation: accurate, but a reader would want a source)
@@ -105,6 +124,7 @@
     return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?[A-Z][a-z]/.test(w));
   };
   const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
@@ -171,6 +191,7 @@
      dotted for amber: grey dotted already means "still checking", and the two
      would then differ by colour alone again. The panel's legend names all
      three (legendHtml). */
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double", note_tip: "dashed" };
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
   // "needs specific evidence", "explain this evidence". Orange dashed: the
@@ -613,7 +634,7 @@
     }
   }
 
-  /* ── shared helpers (mirror public/app.js) ─────────────────────────────── */
+  /* ── shared helpers (the web app's copy: server/public/app/settings.js) ─────────────────────────────── */
 
   function hashText(s) {
     const norm = s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -648,7 +669,8 @@
     return `https://docs.google.com/document${prefix}/d/${docId}/export?format=txt`;
   }
 
-  // Bibliography block ("Sources:" + numbered entries) — mirrors public/app.js.
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
+  // Bibliography block ("Sources:" + numbered entries) — the web app has the same in server/public/app/settings.js.
   function sourcesBlock(text) {
     const m = text.match(/(?:^|\n)Sources:\n/);
     if (!m) return null;
@@ -1990,6 +2012,7 @@
     replacedTitle: "Citation replaced", completedTitle: "Entry completed",
   };
 
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -2291,6 +2314,7 @@
       + `<div class="src-snip">${esc(CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
       + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
   }
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
     shadow.getElementById("showAll")?.addEventListener("click", () => { showAllCards = !showAllCards; rerender(); });
@@ -2748,6 +2772,7 @@
   /* ════════════════════════════════════════════════════════════════════════
      DOCS MODE — the original Google Docs widget, behavior unchanged.
      ════════════════════════════════════════════════════════════════════════ */
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function docsMode() {
     const DOC_ID = harness ? "harness" : (location.pathname.match(/\/document\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] ?? null);
     if (!DOC_ID) return;
@@ -6567,6 +6592,7 @@
      Money rule: automatic checking (nextReadGap) runs ONLY when this site is enabled
      ("tracely.site.enabled"). Otherwise nothing is sent until the user clicks.
      ════════════════════════════════════════════════════════════════════════ */
+  // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function fieldMode() {
     const SITE_KEY = "tracely.site.enabled";
     const SETTINGS_KEY = "tracely.widget.settings";

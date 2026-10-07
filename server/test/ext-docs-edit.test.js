@@ -14,7 +14,7 @@
  *     paste/copy/undo), including a locked editor that silently ignores input;
  *   - content.js: when the in-doc buttons appear, the fallback to Copy on any
  *     refusal, and "Cite in doc" landing as one group that rolls back;
- *   - the manifest: 2.21.24, and not one new permission.
+ *   - the manifest: a semver version, and not one new permission.
  *
  * The live-Doc proof (46/46, network severed) is extension/dev/fix-in-doc/.
  */
@@ -1590,9 +1590,11 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
 
 /* ── the manifest ─────────────────────────────────────────────────────── */
 
-test("manifest: 2.21.24, and fixing in the doc asks for no new permission", () => {
+test("manifest: a semver version, and fixing in the doc asks for no new permission", () => {
   const m = JSON.parse(read("manifest.json"));
-  assert.equal(m.version, "2.21.24");
+  // The number itself is bumped by server/scripts/bump-extension.mjs once per
+  // PR; pinning it here made every extension PR edit this file too.
+  assert.match(m.version, /^\d+\.\d+\.\d+$/, "manifest version is x.y.z");
   assert.deepEqual(m.permissions, ["storage", "identity"], "no clipboardWrite, scripting, tabs or activeTab: the edit runs in the page's own editor");
   assert.deepEqual(m.host_permissions, [
     "http://localhost:4477/*",

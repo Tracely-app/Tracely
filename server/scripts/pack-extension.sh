@@ -221,6 +221,11 @@ if [ "$BETA" = 1 ]; then
 else
   echo "  version   $VERSION  (Web Store upload)"
   echo "  layout    manifest.json at the zip root, no beta.json"
+  if git -C "$ROOT" rev-parse -q --verify "refs/tags/ext/v$VERSION" >/dev/null 2>&1; then
+    echo "  note      ext/v$VERSION is already tagged: this version was built for the store before. Bump with server/scripts/bump-extension.mjs before uploading a new one."
+  else
+    echo "  tag it    git -C \"$ROOT\" tag ext/v$VERSION && git push origin ext/v$VERSION   (when this zip goes to the store)"
+  fi
 fi
 echo "  files     $(unzip -l "$ZIP" | tail -1 | awk '{print $2}')"
 echo "  size      $(du -h "$ZIP" | cut -f1)"
