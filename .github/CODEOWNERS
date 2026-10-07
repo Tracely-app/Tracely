@@ -1,29 +1,38 @@
-# Paths where a mistake is expensive and does not announce itself.
+# Who gets asked when a path changes. ADVISORY: main requires zero approvals
+# and code-owner review is not enforced (settings, 2026-10-07), so an entry
+# here never blocks a merge. What it does is request the other person's
+# review automatically — which, for two developers whose agents do the
+# talking, IS the notification that something on your surface moved. Read
+# the request, or have your agent read it; nobody has to be messaged.
 #
-# Deliberately NOT a blanket `* @merrickphan`. With two people on opposite
-# schedules, requiring the maintainer on every routine PR means work sits
-# waiting overnight for a rubber stamp, and rubber stamps are how review stops
-# being review. These are the files where that tradeoff flips.
+# @questionablepuddle is Sam (org admin; deploys the server, holds the OpenAI
+# key and the Web Store publisher account). @merrickphan is Merrick (ships
+# the desktop installers from his Windows box; Vercel website and DNS).
 
-# Packaging. v0.3.76 shipped with the whole ML stack excluded — the app degraded
-# to word-overlap ranking silently, no error, while every measurement described
-# a code path nobody was executing. A green build proves nothing here.
-/electron-builder.yml   @merrickphan
-/scripts/               @merrickphan
+# Server: only Sam can put it live.
+/server/                       @questionablepuddle
 
-# Release and quality gates. Each check in here exists because a release already
-# went wrong that way; weakening one is not a refactor.
-/.github/               @merrickphan
-/.claude/               @merrickphan
+# Extension: either can change it; Sam uploads to the store. Its tests live
+# in server/test, so the ext-* tests follow the extension, not the server.
+/extension/                    @questionablepuddle @merrickphan
+/server/test/ext-*.test.js     @questionablepuddle @merrickphan
+/server/scripts/pack-extension.sh @questionablepuddle @merrickphan
 
-# ship.mjs owns the version field, and dependency changes reach the installer.
-/package.json           @merrickphan
-/package-lock.json      @merrickphan
+# Desktop app, packaging and release scripts: Merrick's machine builds them.
+# v0.3.76 shipped with the whole ML stack excluded and no error; a green build
+# proves nothing here, so a second pair of eyes is requested.
+/src/                          @merrickphan
+/scripts/                      @merrickphan
+/electron-builder.yml          @merrickphan
+/package.json                  @merrickphan
+/package-lock.json             @merrickphan
+/e2e/                          @merrickphan
 
-# Sessions, tokens, and the code that decides who is signed in.
-/src/main/services/auth/ @merrickphan
-
-# The written reasoning behind all of the above.
-/AGENTS.md              @merrickphan
-/CLAUDE.md              @merrickphan
-/ROLLBACK.md            @merrickphan
+# The contract both agents read, and the machinery both run.
+/.github/                      @questionablepuddle @merrickphan
+/.claude/                      @questionablepuddle @merrickphan
+/CLAUDE.md                     @questionablepuddle @merrickphan
+/AGENTS.md                     @questionablepuddle @merrickphan
+/CONTRIBUTING.md               @questionablepuddle @merrickphan
+/STATUS.md                     @questionablepuddle @merrickphan
+/docs/                         @questionablepuddle @merrickphan
