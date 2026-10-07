@@ -2,11 +2,16 @@
 description: Run the app locally against staging, so testing costs nothing real
 ---
 
-Launch Tracely from source, pointed at the staging backend.
+Launch Tracely from source, pointed at the staging env file.
 
-```bash
-$env:TRACELY_ENV="staging"; npm run dev
+```powershell
+$env:TRACELY_ENV="staging"; npm run dev      # Windows
 ```
+```bash
+TRACELY_ENV=staging npm run dev               # macOS / Linux
+```
+
+Which file each command reads, and the one Supabase project: `docs/environments.md`.
 
 Hot-reloads as files change. Nothing is packaged, nothing is published, and the
 auto-updater is inert — `initAutoUpdater` returns early when `app.isPackaged` is
@@ -19,8 +24,9 @@ OpenAI key and counts against real quota on every Analyze, every Screen Watch
 detection, every critique. Fine for looking at a button. Not fine for
 running detection twenty times while tuning something.
 
-`TRACELY_ENV=staging` reads `.env.staging` instead: separate Supabase project,
-throwaway data.
+`TRACELY_ENV=staging` reads `.env.staging` instead — historically a separate
+Supabase project; today there is one project, so the file mostly exists to
+point `TRACELY_API_URL` at a local server.
 
 The AI calls are the exception now that the app talks to the Tracely server
 rather than a per-environment relay. They go wherever `TRACELY_API_URL` in the
@@ -48,11 +54,6 @@ the variable did not take and you are on the production Supabase project.
 `api=` is the Tracely server the build's AI calls go to; there is one hosted
 server, so it reads `api.jointracely.com (default)` in both environments unless
 `TRACELY_API_URL` in the env file names another.
-
-## You will need the staging account
-
-Staging is a different Supabase project, so your production login does not exist
-there. Sign up separately, once. That is working as intended, not a bug.
 
 ## When this is not enough
 

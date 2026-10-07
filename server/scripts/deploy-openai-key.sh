@@ -1,4 +1,5 @@
 #!/bin/sh
+# Needs the Linode SSH key — Sam only.
 # Copy the OpenAI key from this machine's .env to the deployed server.
 #
 #   sh scripts/deploy-openai-key.sh

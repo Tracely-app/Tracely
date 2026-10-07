@@ -200,9 +200,10 @@ POST /api/billing/webhook
 
 `enforced` is false when no Supabase project is configured, and it means the
 server clamps **nothing** — not "everyone is free". The extension reads it and
-opens every stop of its model slider in that mode, because locking the slider
-and showing an upgrade prompt against a server that will serve `gpt-6-astra` on request
-would be a lie. Anything other than an explicit `false` is treated as enforced.
+hides its plan gate in that mode (builds before 2.20.0 opened their model
+slider), because an upgrade prompt against a server that will serve
+`gpt-6-astra` on request would be a lie. Anything other than an explicit
+`false` is treated as enforced.
 
 ## Event outcomes, and which ones Stripe retries
 

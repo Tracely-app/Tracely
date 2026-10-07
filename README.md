@@ -1,12 +1,29 @@
 # Tracely
 
-Tracely is a private, local AI writing and research assistant. Instead of fixing grammar, it checks the *credibility* of what you write: it detects factual claims, finds evidence for them (OpenAlex, Crossref and Semantic Scholar always; PubMed for biomedical claims, Wikipedia for general ones, the World Bank's indicators for statistical ones), scores how well-supported each claim is, critiques weak arguments, generates citations (APA/MLA/Chicago), and keeps a local library of sources you've used.
+Tracely checks the *credibility* of what you write — factual claims, evidence,
+citations, argument — instead of its grammar. It ships as three products on one
+backend. **Start with the map; each row names the one document for that
+surface.**
 
-It's a desktop app (Electron + React + TypeScript), not a website. Everything — your text, your source library, your settings — stays on your machine in a local SQLite database. Network calls go to the **Tracely server** (see below) for AI features and to free academic search APIs. The editor detects claims after a 2.5-second pause in typing, searches evidence for them, and, while Settings → "Fact-check my claims automatically" is on (the default), critiques up to 6 claims per analysis. Screen Watch (Windows, off by default) detects claims in other apps after a pause in typing.
+| Surface | Directory | Who publishes | How it ships | Read |
+|---|---|---|---|---|
+| Server, `api.jointracely.com` | `server/` | Sam | rsync to the Linode | `server/DEPLOY.md` |
+| Chrome extension | `extension/` | Sam (Web Store) | `server/scripts/pack-extension.sh` | `extension/README.md` |
+| Desktop app (Windows, macOS) | `src/` | Merrick | `npm run ship` | this file, `BUILDING.md` |
+| Model evals | `eval/` | — | paid runs | `eval/README.md` |
+
+What is live right now: `STATUS.md`. How releases are ordered: `docs/RELEASING.md`.
+Working here with an agent: `CLAUDE.md` (the contract both developers' agents
+read), `AGENTS.md`, `CONTRIBUTING.md`.
+
+The rest of this file is about the **desktop app**: a private, local-first
+Electron app (React + TypeScript). Everything — your text, your source library,
+your settings — stays on your machine in a local SQLite database; the AI calls
+go to the Tracely server, never to OpenAI directly.
 
 ## Requirements
 
-- Windows 10/11 (primary, tested target). macOS packaging config is included but untested — see [Building for macOS](#building-for-macos).
+- Windows 10/11 (primary target). macOS installers (both architectures) are built by CI on release — see `BUILDING.md`; `npm run dist:mac` is a local arm64 build only.
 - [Node.js](https://nodejs.org) 22+ (developed against Node 24).
 - The Tracely server for the AI features (claim detection, argument critique) — the hosted one at `https://api.jointracely.com` by default. Everything else — evidence search, citations, the library — works without it.
 
@@ -118,15 +135,11 @@ src/
 - Evidence-strength scoring is a deterministic formula (source count, venue quality, recency, relevance) — it does not make an additional AI call.
 - The server itself enforces its own limits — input size, a per-caller rate limit, a daily quota for free accounts and a daily spend ceiling (see `server/shared/guards.js`) — rather than trusting the app to behave, since the app is running on machines you don't control. Set a hard monthly budget limit on your OpenAI account (Billing → Limits) as the real backstop against runaway usage.
 
-### Troubleshooting `npm run dist:win`
+### Packaging gotchas
 
-The first time you package the app, electron-builder downloads a small tool bundle (`winCodeSign`) that includes some macOS-only files as symlinks. On a standard (non-admin, Developer-Mode-off) Windows account, extracting those symlinks fails with:
-
-```
-ERROR: Cannot create symbolic link : A required privilege is not held by the client.
-```
-
-This does **not** affect anything actually needed for the Windows build (icon embedding, NSIS) — only two irrelevant macOS `.dylib` symlinks fail to extract, but electron-builder's downloader treats the whole archive as failed and retries forever. Fix: enable **Settings → Privacy & Security → For developers → Developer Mode** (grants your account the symlink-creation privilege without needing admin), then re-run `npm run dist:win`.
+The Windows symlink error on first package, code signing, and why
+`electron-builder.yml` is shaped the way it is: `BUILDING.md`. `electron-builder`
+packages the **working tree**, not `HEAD` — commit before you build.
 
 ### Known MVP simplifications
 

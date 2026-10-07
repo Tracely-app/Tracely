@@ -23,4 +23,4 @@ deploys or ships, in the same PR or right after. Dates are UTC.
 - Deployed the server? Replace the server row: commit, time, backup name.
 - Shipped an installer? Replace the desktop row.
 - Uploaded or published on the Web Store? Replace the extension rows.
-- Everything else here is a pointer; the runbooks are `server/DEPLOY.md` and `docs/releasing.md`.
+- Everything else here is a pointer; the runbooks are `server/DEPLOY.md` and `docs/RELEASING.md`; `server/scripts/healthcheck.sh` checks the server.

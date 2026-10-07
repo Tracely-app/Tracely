@@ -1,106 +1,66 @@
 # Contributing
 
-Two people work on Tracely, usually not at the same time. This describes how
-that stays untangled.
+Two people work on Tracely, almost entirely through their own Claude Code
+agents, rarely at the same time. The repository is the channel between them:
+a pull request's **Handoff** section is how one developer's agent tells the
+other's what to do next. Read `CLAUDE.md` first — it is the contract both
+agents read every session.
 
-## Setup
-
-```bash
-git clone https://github.com/Tracely-app/Tracely.git
-cd Tracely
-npm install
-```
-
-Then ask the maintainer for a `.env`. Nothing in this repo contains credentials
-and nothing should — it is public. Copy the values you are sent into **both**
-`.env` and `.env.staging`.
+## Setup, per surface
 
 ```bash
-npm run dev        # boots the app
-npm run typecheck  # the only automated correctness check
+git clone https://github.com/Tracely-app/Tracely.git && cd Tracely
+cd server && npm test            # the server AND extension tests; zero dependencies, ~10 s
+npm install && npm run typecheck && npm test     # the desktop app (Node 24)
 ```
 
-If `npm run dist:win` fails on `Cannot create symbolic link`, enable Settings →
-Privacy & Security → For developers → Developer Mode and re-run.
-
-The backend lives in a separate repository, `Tracely-relay`. You only need it if
-you are changing an endpoint, auth, or quota.
+Nothing in the repo contains credentials and nothing should — **it is public**.
+`docs/environments.md` says which `.env` each command reads and that there is
+one Supabase project and one hosted server. A keyless server is
+`TRACELY_MOCK=1 node server/server.js`.
 
 ## The loop
 
-```bash
-git checkout main && git pull
-git checkout -b feat/what-you-are-doing
-# work
-npm run typecheck
-git push -u origin feat/what-you-are-doing
-```
+1. Branch off an up-to-date `main`: `<type>/<slug>` (`feat/`, `fix/`, `docs/`, `chore/`).
+2. **Open a draft PR in your first turn.** It is the only signal the other agent
+   can see; a branch that lives only on your machine is invisible. Before
+   starting, `gh pr list` — do not start on a file an open PR already touches;
+   if you must, branch off that PR's head and say so.
+3. Keep it small and short-lived. Pull `main` daily while a branch is open.
+4. Fill the template: **Surface** (who acts after the merge), **Checks**,
+   **Handoff** (Needs Sam / Needs Merrick / Order / Hot files touched / STATUS.md).
+5. CI (`check`) must be green. Merge is a squash; the PR title and body become
+   the commit. Zero approvals are required — the auto-requested review from
+   `CODEOWNERS` is the notification, not a gate.
 
-Then open a pull request. CI runs typecheck and the eval-bundle check on every
-PR. Get a review, merge, delete the branch.
+## Who publishes what
 
-**`main` is protected.** You cannot push to it directly, and that applies to
-everyone including the maintainer. This is the mechanism that replaces
-remembering.
-
-## Saying what you are working on
-
-There is no fixed ownership split — either of us can work anywhere. That only
-works if we say what we are touching, because we are rarely online together.
-
-**Before starting anything non-trivial, claim it.** Open a GitHub issue, or
-comment on the existing one, saying what you are doing and roughly which files.
-Two agents rewriting the same component in parallel is the expensive failure
-mode here, and it has already happened once in this repo.
-
-**Keep pull requests small and short-lived.** A branch open for a week is a
-merge conflict with a delay fuse. The worst conflict in this project's history —
-six hunks in one renderer component — happened because `main` rebuilt it on
-Tailwind while a branch kept editing the version that existed before.
-
-**Pull `main` daily** while a branch is open. Conflicts found early are typing;
-conflicts found late are archaeology.
-
-## Reviewing
-
-Look for these, in roughly this order:
-
-1. **Secrets.** Any `.env*`, key-shaped literal, or token. The repo is public.
-2. **Does it need a relay change?** The app and the relay ship together. A client
-   calling an endpoint that is not deployed returns 404 in production — that
-   shipped once, as v0.3.73.
-3. **Packaging.** Changes to `electron-builder.yml` or `scripts/` can break an
-   installer in ways that do not fail the build. v0.3.76 shipped with the ML
-   stack silently excluded.
-4. **Does it move the number?** For anything touching retrieval or scoring, the
-   claim "this improves results" needs the eval, not reasoning. See
-   `eval/baseline.md`.
-
-## Releasing
-
-**Only the maintainer releases.** It needs a `GH_TOKEN` that is not distributed.
-
-- Changed something in `Tracely-relay`? → `/promote` (merges `staging` → `main`;
-  Vercel deploys it, no build, no installer)
-- Changed something here? → `/ship` (builds an installer, publishes it, users
-  install it)
-- Changed both? → `/promote` first, then `/ship`. Deploy the thing being called
-  before the thing calling it.
-
-`electron-updater` **cannot downgrade**, so a bad desktop release is only
-fixable by shipping another one. See [ROLLBACK.md](ROLLBACK.md) — the relay
-reverts in about two seconds; the app does not revert at all.
-
-## Environments
-
-| | Yours | Production |
+| | Sam | Merrick |
 |---|---|---|
-| Relay | `tracely-relay-staging.vercel.app` | `folio-relay.vercel.app` |
-| Supabase | staging project | production project |
-| Accounts | sign up separately | real users |
-| OpenAI | separate key, low cap | real key |
+| Server deploy (`server/DEPLOY.md`) | ✓ | — (no Linode key) |
+| Extension store upload | ✓ (publisher account) | — |
+| Desktop installers (`/ship`) | — | ✓ (Windows box, `GH_TOKEN`) |
+| Website, DNS (Vercel) | — | ✓ |
+| Server `.env`, OpenAI key, beta token | ✓ | — |
 
-Your builds point at staging. Your account does not exist in production, and
-production's does not exist in staging — that is working as intended.
+Either may change any file. A merged PR that needs the other person carries a
+`needs:*` label until `STATUS.md` says it is live. Order across surfaces:
+server first, then store zip, then `/ship` (`docs/RELEASING.md`).
 
-Every build prints which backend it targets. Read that line.
+## Reviewing (your agent does this on the request)
+
+1. **Secrets.** Any `.env*`, key-shaped literal, token, `beta.json`.
+2. **Surface and handoff.** Does the PR say what must happen after the merge,
+   and is the manifest bumped exactly once when `extension/` changed?
+3. **Frozen contracts.** `EXTENSION_API` in `server/server.js`, the prompt
+   SHAs in `server/test/prompts.test.js`, `LEGACY_MODEL_TIER` — changing one
+   is a release, not a refactor.
+4. **Packaging.** `electron-builder.yml` and `scripts/` can break an installer
+   without failing the build (v0.3.76 shipped with the ML stack excluded).
+5. **Does it move the number?** A prompt or model change needs
+   `eval/models/FINDINGS.md`, not an adjective.
+
+## When something shipped wrong
+
+`ROLLBACK.md`: the server reverts in a minute; the desktop and the extension
+cannot be rolled back, only shipped forward.
