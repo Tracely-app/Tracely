@@ -35,6 +35,7 @@ import {
   dailyCheckLimit,
   dailyAiLimit,
   dailyFlowLimit,
+  dailyReviewLimit,
   fairUseLimits,
   thoroughMonthlyUsd,
   wantsThorough,
@@ -208,6 +209,7 @@ const SOURCE_SEARCH_KIND = "source_search";
 const CHECK_KIND = "check";
 const AI_KIND = "ai"; // the desktop's app routes — never shares a count with "check"
 const FLOW_KIND = "flow";
+const REVIEW_KIND = "review";
 /* Micro-cent totals, not call counts (usageAdd). Kinds of their own so an
  * operator summing a pool's "spend_ucents" (lib/spend.js) never adds an
  * account's spend in twice: the pools are "__global*__" accounts, these are
@@ -410,6 +412,18 @@ export function recordFlow(ent, id, at = Date.now()) {
   const q = flowQuota(ent, id, at);
   if (q.limit === null) return 0;
   return usageBump(id, q.day, FLOW_KIND);
+}
+
+/* Writing reviews (/api/review), metered like flow checks (DAILY_REVIEW). The
+ * once-a-minute floor (REVIEW_MIN_INTERVAL_MS) is a rate limiter in server.js. */
+export function reviewQuota(ent, id, at = Date.now()) {
+  return dailyQuota(ent, id, REVIEW_KIND, dailyReviewLimit, at);
+}
+
+export function recordReview(ent, id, at = Date.now()) {
+  const q = reviewQuota(ent, id, at);
+  if (q.limit === null) return 0;
+  return usageBump(id, q.day, REVIEW_KIND);
 }
 
 // ── per-account spend and the fair-use limit ───────────────────────────

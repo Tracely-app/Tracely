@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runFactCheck, findSources, runFlowCheck, hasApiKey, CheckError, checkPromptBytes, CHECK_SHARD_TIMEOUT_MS } from "./lib/factcheck.js";
+import { runFactCheck, findSources, runFlowCheck, runReview, hasApiKey, CheckError, checkPromptBytes, CHECK_SHARD_TIMEOUT_MS } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
 import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
@@ -13,12 +13,12 @@ import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
-         flowQuota, recordFlow, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
+         flowQuota, recordFlow, reviewQuota, recordReview, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
-         THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
+         THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
@@ -144,7 +144,7 @@ function originAllowed(origin) {
 // /api/billing/webhook is deliberately NOT here: Stripe calls it server-to-
 // server with no Origin, and listing it would also hand it to every page the
 // extension surface can reach.
-const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account"]);
+const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account"]);
 
 /* Every route that can reach a model, and therefore spend money.
  *
@@ -160,7 +160,7 @@ const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/s
  * shed first when the daily budget runs low.
  */
 const PAID_ROUTES = new Set([
-  "/api/check", "/api/flow", "/api/sources", "/api/evidence", "/api/compare-source",
+  "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/evidence", "/api/compare-source",
   "/api/watch/critique", "/api/watch/fix", "/api/cite-url",
 ]);
 
@@ -185,14 +185,14 @@ const APP_AI_ROUTES = new Set([
  * handler (lib/failureLog.js): the extension's three model routes, the one
  * paid watch route, and every desktop AI route. A fixed set, so the logged
  * `route` can never be a path carrying an id. */
-const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources", "/api/watch/critique", ...APP_AI_ROUTES]);
+const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources", "/api/watch/critique", ...APP_AI_ROUTES]);
 
 /* The extension's model routes, which record their spend into `gate.pool`.
  * A call on one of them that fails AFTER the vendor answered (truncated,
  * refused, unparseable) was still billed; the central handler records that
  * cost from the error's tag into the same pool, so the ceiling sees it. The
  * app routes keep their own accounting (appCall), untouched. */
-const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/sources"]);
+const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources"]);
 
 // Source searches by one IDENTIFIED caller ("user:" / "install:") on a hosted
 // server: a rolling hourly window per caller, shared by the desktop's
@@ -547,6 +547,8 @@ const sourceRate = keyedRateLimiter(SPEND.callerSourcesPerMinute);
 const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
 // One /api/flow call per caller per FLOW_MIN_INTERVAL_MS, on a hosted server.
 const flowRate = keyedRateLimiter(1, FLOW_MIN_INTERVAL_MS);
+// One /api/review call per caller per REVIEW_MIN_INTERVAL_MS, on a hosted server.
+const reviewRate = keyedRateLimiter(1, REVIEW_MIN_INTERVAL_MS);
 
 function stampCallerRate(ent, id, kind) {
   if (!ent.enforced || !id) return;
@@ -588,6 +590,9 @@ function stampCallerRate(ent, id, kind) {
 const WORST_CALL = {
   "/api/check": { input: 24_000, output: 16_000, webSearchCalls: 0 },
   "/api/flow": { input: 4_000, output: 8_000, webSearchCalls: 0 },
+  // 12,000 characters of document (~4k tokens in the worst script) + the
+  // prompt and schema; maxTokens 6,000 in runReview.
+  "/api/review": { input: 6_000, output: 6_000, webSearchCalls: 0 },
   "/api/sources": { input: 40_000, output: 6_000, webSearchCalls: 3 },
 };
 function worstCallMicroCents(route, model) {
@@ -829,6 +834,7 @@ const checkLimitMessage = (q) =>
 const aiLimitMessage = (q) =>
   `Starter includes ${q.limit ?? FREE_DAILY_AI_CALLS} AI actions a day, and today's are used. They reset at midnight — Student and Pro have no daily limit.`;
 const flowLimitMessage = (q) => `You've used today's ${q.limit} flow checks. They reset at midnight.`;
+const reviewLimitMessage = (q) => `You've used today's ${q.limit} resume reviews. They reset at midnight.`;
 function sourceLimitMessage(q) {
   if (q.blockedBy === "month") {
     return `You've used this month's ${q.monthLimit} source searches. They reset on ${monthDayLabel(q.resetsOn)}. Checking still works.`;
@@ -1238,7 +1244,7 @@ const server = http.createServer(async (req, res) => {
       // (lib/seenClaims.js) — a hash, never the claim, never on disk — so the
       // hit rate is known before anyone decides whether to build the cache.
       const wouldHit = noteClaimSeen(claim);
-      const { webSearchCalls, webSearchActions, enriched, dropped, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK }); // verified: the log line only — /api/sources is frozen
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1247,7 +1253,7 @@ const server = http.createServer(async (req, res) => {
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
       const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
-      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
+      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
@@ -1294,6 +1300,44 @@ const server = http.createServer(async (req, res) => {
       const level = choice ? choice.effort : normalizeEffort(effort);
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFlowCheck({ text, model: modelUsed, effort: level, mock: MOCK });
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
+      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
+      return;
+    }
+
+    /* /api/review: a whole-document writing review (resume bullets, format
+     * slips, typos), lib/factcheck.js runReview. Built on /api/flow's
+     * pattern: a usage kind of its own (DAILY_REVIEW), one call per caller
+     * per REVIEW_MIN_INTERVAL_MS, the fast model at low, pinned on a hosted
+     * server. NOT one of the routes frozen for the Web Store review — no
+     * shipped build calls it; extension 2.21.6 is the first. */
+    if (req.method === "POST" && url.pathname === "/api/review") {
+      loadEnvFile();
+      if (!hasApiKey() && !MOCK) {
+        json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
+        return;
+      }
+      const { text, model, effort, kind: rawKind } = (await parseJsonBody(req)) ?? {};
+      // "essay" (extension 2.21.19+): writing feedback against the essay's rubric. Anything else, and every older build, gets the resume review.
+      const kind = rawKind === "essay" ? "essay" : "resume";
+      if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
+      if (text.length > GUARDS.maxInputChars) throw new CheckError("bad_request", "text too long");
+      const { ent, callerId: who } = gate;
+      if (ent.enforced && who) {
+        if (!reviewRate.ok(who)) {
+          throw new CheckError("review_rate", kind === "essay" ? "Writing feedback refreshes about once a minute — try again shortly." : "Resume tips refresh about once a minute — try again shortly.", { status: 429, retryAfter: Math.ceil(REVIEW_MIN_INTERVAL_MS / 1000) });
+        }
+        const quota = reviewQuota(ent, who);
+        if (!quota.allowed) throw quotaRefusal(ent, who, reviewLimitMessage(quota));
+        reviewRate.stamp(who);
+        recordReview(ent, who); // before the call, not after
+      }
+      const started = Date.now();
+      const choice = ent.enforced ? hostedChoice("review", ent, who) : null;
+      const modelUsed = extensionModel(gate, "/api/review", choice ? choice.model : allowedModel(ent, servedModel(model)));
+      const level = choice ? choice.effort : normalizeEffort(effort);
+      Object.assign(trace, { model: modelUsed, effort: level });
+      const result = await runReview({ text, model: modelUsed, effort: level, mock: MOCK, kind });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
       return;

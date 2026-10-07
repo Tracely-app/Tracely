@@ -38,7 +38,8 @@ extension sends the text of the document or text box (up to 30,000
 characters) and the sentences to check to `api.jointracely.com`, a few
 seconds after you write or change a sentence. A sentence that has already been
 checked is not sent again. For "Explain in depth", one sentence and the
-document context. For the flow check, the first 12,000 characters. Our server
+document context. For the flow check, the first 12,000 characters. When
+Tracely recognises a resume, its first 12,000 characters, for Resume tips. Our server
 forwards this to **OpenAI** (the model that does the judging) and returns the
 verdicts. Neither we nor, per OpenAI's API terms, OpenAI keep the text for
 training; our server holds it only for the seconds the check takes.
@@ -92,7 +93,7 @@ On our server:
 
 | what | keyed by | kept |
 |---|---|---|
-| Usage counts (checks, source searches, flow checks per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
+| Usage counts (checks, source searches, flow checks and resume reviews per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |
@@ -117,10 +118,13 @@ removes the rest.
 
 - **OpenAI** (api.openai.com) — judges the text and runs source searches, on
   our API key, under OpenAI's API data-usage terms.
-- **Crossref** (api.crossref.org) and **the publishers of the sources we
-  find** — after a source search, our server looks up each source's DOI at
-  Crossref and reads the source's own web page to complete its citation
-  (authors, date, journal). They receive that source's DOI or address, never
+- **Crossref** (api.crossref.org), **OpenAlex** (api.openalex.org) and **the
+  publishers of the sources we find** — after a source search, our server
+  looks up each source's DOI at Crossref and reads the source's own web page
+  to complete its citation (authors, date, journal), and reads a scholarly
+  source's abstract from OpenAlex, or the page's text, to check that the
+  source really says what the sentence claims before offering it (that check
+  is made by OpenAI, above). They receive that source's DOI or address, never
   your text or the sentence being cited.
 - **Supabase** — sign-in and account records (email, account id, plan).
 - **Stripe** — payments; we receive plan, customer id and payer email, never

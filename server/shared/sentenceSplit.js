@@ -125,10 +125,21 @@ function isRealBoundary(text, dotIndex, spanStart) {
   while (i >= 0 && /[A-Za-z]/.test(text[i])) i--
   const word = text.slice(i + 1, dotIndex)
 
+  // A time's `a.m.` / `p.m.` after a digit, followed by a capitalised word,
+  // ends its sentence: "start no earlier than 8:30 a.m. Studies show…" was
+  // one span, so the second sentence's finding landed on the first (owner's
+  // genre demo, 2026-10-04). Mid-sentence it is followed by lowercase or a
+  // digit, which stays joined.
+  if (isTimeEnding(text, dotIndex)) return true
+
   // A single letter: an initial (`R.`) or one segment of a dotted abbreviation
   // (`U.S.`, `e.g.`). Both are mid-sentence.
   if (word.length === 1) return false
   return !ABBREVIATIONS.has(word.toLowerCase())
+}
+
+function isTimeEnding(text, dotIndex) {
+  return /\d\s*[ap]\.m$/i.test(text.slice(Math.max(0, dotIndex - 8), dotIndex)) && /^\.\s+["'“‘(]?[A-Z]/.test(text.slice(dotIndex, dotIndex + 6))
 }
 
 /**

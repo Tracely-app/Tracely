@@ -93,3 +93,21 @@ describe('splitSentences — a period is not always a sentence end', () => {
     ok(spans.length >= 2, `expected more than one span, got ${spans.length}`)
   })
 })
+
+describe('splitSentences — a time ends a sentence', () => {
+  // Owner's genre demo, 2026-10-04: "start no earlier than 8:30 a.m. Studies
+  // show…" was one span, so the second sentence's finding landed on the first.
+  it('splits after a.m. or p.m. when a capitalised sentence follows', () => {
+    deepStrictEqual(texts('Schools should start no earlier than 8:30 a.m. Studies show students sleep more.'), [
+      'Schools should start no earlier than 8:30 a.m.',
+      'Studies show students sleep more.'
+    ])
+    deepStrictEqual(texts('Doors open at 9 p.m. Tickets are free.'), ['Doors open at 9 p.m.', 'Tickets are free.'])
+  })
+  it('keeps a time mid-sentence joined, and leaves initials and abbreviations alone', () => {
+    deepStrictEqual(texts('We met at 8 a.m. and left at noon.'), ['We met at 8 a.m. and left at noon.'])
+    deepStrictEqual(texts('The bell rings at 7:45 a.m. every day.'), ['The bell rings at 7:45 a.m. every day.'])
+    deepStrictEqual(texts('Dr. Smith arrived at 10 a.m. sharp.'), ['Dr. Smith arrived at 10 a.m. sharp.'])
+    deepStrictEqual(texts('It was e.g. Smith who said so.'), ['It was e.g. Smith who said so.'])
+  })
+})

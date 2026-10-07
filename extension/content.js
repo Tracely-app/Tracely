@@ -47,9 +47,64 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings) => Boolean(f) && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
-    && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false);
+    && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
+    // The author's own account needs no source: a resume's figures and awards
+    // ("$10K+ in revenue"), a letter's ("2,000 students use my app"), and in
+    // ANY document a sentence about what the author did ("we sold 500 boxes",
+    // "We surveyed 1,200 students" — their own study). The server stops asking
+    // (its genre clause); this holds the line against a server from before it.
+    && !(f.verdict === "needs_citation" && (genre === "resume" || genre === "letter" || authorsOwnAccount(text)))
+    // A sentence that visibly carries a citation never reads "Missing
+    // citation", whatever the model said: the check's own rule is that a
+    // cited sentence is never needs_citation, and it broke it on "… modern
+    // education (Cambridge International, 2018)." (owner, 2026-10-04).
+    && !(f.verdict === "needs_citation" && hasCitationMark(text))
+    // Only what a marker would ask a source for (citationWorthy) — and not
+    // when a citation later in the same paragraph already carries it
+    // (`covered`, coveredByLaterCitation): a generalization followed by its
+    // cited evidence is how essays are written.
+    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || covered))
+    // "Worth checking" is for something specific that cannot be verified.
+    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text))
+    // On a resume or letter, "questionable" is the same mistake in a softer
+    // word — an unverifiable claim about the author (seen on a contact line).
+    // The server's genre clause: "never questionable". "false" still shows.
+    && !(f.verdict === "questionable" && (genre === "resume" || genre === "letter"));
+  /* First person, but not the generic "we" of an argument ("we know", "we
+     all", "we should"): that "we" is the reader and the world, and a figure
+     in it still needs its source. "I" as a Roman numeral is not the author:
+     World War I, Part I, Chapter I, and a ruler's name after King/Queen/Pope
+     ("King Charles I"). A bare ruler ("Elizabeth I reigned…") still reads as
+     first person — the cost is one missed citation request, not a wrong flag. */
+  const ROMAN_I = /\b(?:War|Part|Chapter|Book|Act|Phase|Title|Section|Volume|Vol\.|Stage|Level|Grade|Class|Type|Article|Round|Season|(?:King|Queen|Pope|Emperor|Empress|Tsar|Czar|Prince|Princess)\s+[A-Z][a-z]+)\s+I\b/g;
+  const OWN_ACCOUNT = /(?:^|[^\w'])I(?:'m|'ve|'d|'ll)?(?=$|[^\w'])|\b[Mm](?:y|e|ine)\b|\b(?:[Ww]e|[Oo]ur|[Uu]s)\b(?!\s+(?:all|can|cannot|could|know|see|must|should|need|often|tend|might|may|now)\b)/;
+  /* A citation in the sentence itself: a parenthetical with a year, "n.d."
+     or a quoted title — (Cambridge International, 2018), (Smith, n.d.),
+     ("Youth Matters", 2025) — an MLA author-page (Shoup 45), a [3], or a
+     footnote mark after the full stop. Prose like "according to experts" is
+     not one: it names no source a reader could find. */
+  const CITATION_MARK = /\([^()]*(?:\b(?:1[5-9]|20)\d\d[a-z]?\b|\bn\.\s?d\.|["“][^"”]{3,}["”])[^()]*\)|\([\p{Lu}][\p{L}'’-]+(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.)?\s+\d{1,4}(?:[-–]\d{1,4})?\)|\[\d+(?:[,–-]\s?\d+)*\]|[.!?]["”’]?[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\(Doc(?:ument)?\.?\s*\d{1,2}\)|\bDoc(?:ument)?\.?\s*\d{1,2}\s+(?:explains|says|shows|states|describes|argues|reveals|suggests|notes|reports|depicts|illustrates)\b/u;
+  const hasCitationMark = (text) => typeof text === "string" && CITATION_MARK.test(text);
+  /* Does this sentence owe a source of its OWN? Owner, 2026-10-04: "sometimes
+     it flags stuff just to flag stuff … basic abstractions and
+     generalizations followed by a piece of evidence do not necessarily need a
+     citation." Only a number, a direct quotation or a research finding does;
+     a topic sentence, an abstraction or the writer's own argument is the
+     essay talking. A copy of src/shared/citationWorthy.ts —
+     server/test/citation-worthy-mirror.test.js keeps the two in step. */
+  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|a third|a quarter|twice|double|triple|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority)\b/i;
+  const WORTHY_QUOTATION = /["“][^"”]*\S+\s+\S+\s+\S+[^"”]*["”]/;
+  const WORTHY_FINDING = /\b(?:stud(?:y|ies)|research(?:ers)?|survey(?:s|ed)?|experiments?|data|scientists|report(?:s|ed)?|according to)\b/i;
+  const citationWorthy = (text) => WORTHY_QUANTITY.test(String(text ?? "")) || WORTHY_QUOTATION.test(String(text ?? "")) || WORTHY_FINDING.test(String(text ?? ""));
+  // Names nothing specific either: "Worth checking" has nothing to check there.
+  const isGeneralStatement = (text) => {
+    const t = String(text ?? "").trim();
+    if (citationWorthy(t)) return false;
+    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?[A-Z][a-z]/.test(w));
+  };
+  const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
@@ -65,7 +120,7 @@
   // from incoherent; colour alone never has to. It used to be a fourth hue
   // per verdict (amber, violet, blue), which made the same finding a
   // different colour here than in the app.
-  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800" };
+  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#ff5900" };
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
@@ -83,6 +138,13 @@
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
     evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
+    resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
+    quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
+    offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
+    writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
+    essayFeedback: true,  // on an essay or paper: /api/review reads it against its rubric (a DBQ's, for one) — essayFeedbackTips
+    citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
+    refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -109,7 +171,15 @@
      dotted for amber: grey dotted already means "still checking", and the two
      would then differ by colour alone again. The panel's legend names all
      three (legendHtml). */
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double", note_tip: "dashed" };
+  // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
+  // "needs specific evidence", "explain this evidence". Orange dashed: the
+  // thin-evidence family ("Worth checking"), never red, which means wrong.
+  // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
+  // with no page, a reference listed twice or never cited — citationMarks),
+  // drawn under the parenthetical or the entry rather than the sentence, so a
+  // sentence can carry a red fact mark and an amber citation mark at once.
+  // Same family as needs_citation ("add or fix the attribution"), same line.
   // CSS for a div-drawn line (field mode, and Docs' fallback bars).
   function markFill(color, pattern) {
     if (pattern === "dashed") return `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 9px)`;
@@ -117,7 +187,7 @@
     return color;
   }
   // The panel's legend: one row per LINE, in the cards' own words.
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing citation"]];
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"]];
   function legendHtml() {
     const items = LEGEND.map(([v, label]) => {
       const p = MARK_PATTERN[v];
@@ -893,6 +963,8 @@
     let i = dotIndex - 1;
     while (i >= 0 && /[A-Za-z]/.test(text[i])) i--;
     const word = text.slice(i + 1, dotIndex);
+    // "8:30 a.m. Studies show…": a time's a.m./p.m. before a capitalised word ends the sentence.
+    if (/\d\s*[ap]\.m$/i.test(text.slice(Math.max(0, dotIndex - 8), dotIndex)) && /^\.\s+["'“‘(]?[A-Z]/.test(text.slice(dotIndex, dotIndex + 6))) return true;
     if (word.length === 1) return false; // an initial (R.) or one segment of U.S. / e.g.
     return !SPLIT_ABBREVIATIONS.has(word.toLowerCase());
   }
@@ -975,7 +1047,127 @@
      after it) must read the same twice in a row first. That holds back
      fragments the 10 s timer used to catch and send. */
   const READ_INTERVAL_MS = 3_000;
-  const ACTIVE_WINDOW_MS = 30_000; // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
+  const ACTIVE_WINDOW_MS = 30_000;
+  const REVIEW_IDLE_MS = 5_000;    // /api/review waits until the text has been still this long
+  const REVIEW_FLOOR_MS = 60_000;  // and asks at most this often (the server's REVIEW_MIN_INTERVAL_MS) — and retries a failure after it
+  const REVIEW_REPEAT_MS = 180_000; // after a review that ANSWERED, the next waits this long
+
+  /* Whether a resume has changed enough since its last review to pay for
+     another (~0.1-0.3¢ each; Free allows 30 a day). Cost idea 1, 2026-10-04:
+     the first gate re-reviewed on ANY change, so fixing one typo in a bullet
+     bought a whole new review. Now only a line that is new or REWRITTEN counts
+     — not one within a few characters of a line that was there (a typo, a
+     changed digit), and not a deleted line (its tips drop out locally, see
+     resumeTips). The free format rules still update on every read. */
+  function reviewWorthwhile(prev, next) {
+    if (prev == null) return true;
+    const lines = (t) => String(t).split("\n").map((l) => l.toLowerCase().replace(/\s+/g, " ").trim()).filter((l) => l.length >= 3);
+    const before = lines(prev);
+    const seen = new Set(before);
+    for (const line of lines(next)) {
+      if (seen.has(line)) continue;
+      if (!before.some((b) => nearlySame(b, line, 3))) return true; // new, or rewritten past a typo
+    }
+    return false;
+  }
+  // Levenshtein distance <= max, abandoned as soon as a row's best exceeds it.
+  function nearlySame(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return false;
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      let best = i;
+      for (let j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (cur[j] < best) best = cur[j];
+      }
+      if (best > max) return false;
+      prev = cur;
+    }
+    return prev[b.length] <= max;
+  }
+
+  /* Reusing a verdict after a trivial edit. Cost idea 2, 2026-10-04: any
+     change to a sentence gave it a new hash, so fixing "recieve" or adding a
+     comma paid for a fresh check of a sentence already judged. Now the new
+     sentence inherits the verdict (and a dismissal) of the one it replaced
+     when the only change is case, spacing, punctuation, or one typo-sized
+     edit to an ordinary word.
+
+     The rule leans hard toward re-checking, because a reused verdict on a
+     sentence whose meaning DID change is a wrong answer, and a re-check is a
+     fraction of a cent. So it never reuses across a change to: a number or
+     anything holding a digit ("24" → "22", "2.5" → "25"), a % or currency
+     sign, a capitalised word past the first (names: "Austria" → "Australia"),
+     a negation ("is" → "isn't", "not"), a number or quantity word ("nine" →
+     "none"), a word under 4 letters, or more than one word. The changed word
+     must be within one letter, or two swapped. */
+  const PROTECTED_WORDS = new Set(("not no nor never none nothing nobody neither cannot without " +
+    "zero one two three four five six seven eight nine ten eleven twelve twenty thirty forty fifty hundred thousand million billion trillion " +
+    "first second third fourth fifth sixth seventh eighth ninth tenth half twice double triple dozen " +
+    "all every each any some most many much few fewer less least more several only always often rarely seldom sometimes usually").split(" "));
+  const editTokens = (s) => String(s).match(/[\p{L}\p{N}]+(?:['’.,][\p{L}\p{N}]+)*|[%$€£¥°]/gu) || [];
+  function smallEdit(a, b) {
+    const x = editTokens(a), y = editTokens(b);
+    if (x.length !== y.length || x.length === 0) return false;
+    let changed = 0;
+    for (let i = 0; i < x.length; i++) {
+      if (x[i].toLowerCase() === y[i].toLowerCase()) continue;
+      if (++changed > 1) return false;
+      const p = x[i].toLowerCase(), q = y[i].toLowerCase();
+      if (/[^\p{L}'’]/u.test(p + q) || p.length < 4 || q.length < 4) return false; // digits, signs, short words
+      if (i > 0 && (/^\p{Lu}/u.test(x[i]) || /^\p{Lu}/u.test(y[i]))) return false; // a name
+      if (/n['’]t$/.test(p) || /n['’]t$/.test(q) || PROTECTED_WORDS.has(p) || PROTECTED_WORDS.has(q)) return false;
+      const swapped = p.length === q.length && [...p].some((c, k) => k + 1 < p.length && c === q[k + 1] && p[k + 1] === q[k] &&
+        p.slice(0, k) === q.slice(0, k) && p.slice(k + 2) === q.slice(k + 2));
+      if (!swapped && !nearlySame(p, q, 1)) return false;
+    }
+    return true;
+  }
+  // The verdict a new sentence may inherit: from a checked sentence on the
+  // previous read that is gone from this one and differs only by smallEdit.
+  // Each old sentence is inherited once (`taken`).
+  function inheritedVerdict(seg, prevSegs, liveHashes, cache, taken) {
+    for (const old of prevSegs) {
+      if (liveHashes.has(old.hash) || taken.has(old.hash) || !cache.has(old.hash)) continue;
+      if (smallEdit(old.text, seg.text)) { taken.add(old.hash); return old; }
+    }
+    return null;
+  }
+  /* Whether a resume's review stands in for the fact check. Cost idea 5,
+     2026-10-04: on a resume the check's only visible output is "false" — a
+     public fact stated wrongly, like a school's real name (flagShown hides
+     needs_citation and questionable there) — and /api/review now looks for
+     that too, alongside the bullets and typos. So while the review serves the
+     resume, no sentence is sent to /api/check at all. serving is null until
+     the first review is tried (the check waits: the review is due within
+     seconds of the writer pausing), true once one answers for a resume, and
+     false after a failure, a reply saying it is not a resume, or a server
+     without the route (unavailable) — and then the check runs as before. */
+  // Which review a document gets: resume tips, essay feedback, or none.
+  function reviewKindFor(genre) {
+    if (genre === "resume") return FEATURES.resumeTips ? "resume" : null;
+    if (isArgumentGenre(genre)) return FEATURES.essayFeedback ? "essay" : null;
+    return null;
+  }
+  function reviewCoversCheck(genre, review) {
+    return genre === "resume" && !review.unavailable && review.serving !== false;
+  }
+  const REVIEW_MAX_CHARS = 12_000; // what the server reads (runReview's clamp), so no more is sent — PRIVACY.md says 12,000 // read fast for this long after the last change, then idle at CHECK_INTERVAL_MS
+
+  /* How long to leave Google's export alone after it answers 429 Too Many
+     Requests. Owner's console, 2026-10-04: "GET …/export … 429". Reads run
+     every 3 s while the writer types (READ_INTERVAL_MS), and a refused read
+     used to retry 10 s later at the same pace, straight back into the limit.
+     Now: Google's Retry-After when it sends one, else 30 s, doubling on each
+     refusal in a row, at most 5 minutes; the first good read resets it. */
+  const EXPORT_BACKOFF_MIN_MS = 30_000;
+  const EXPORT_BACKOFF_MAX_MS = 300_000;
+  function exportBackoffMs(prevMs, retryAfter) {
+    const next = prevMs > 0 ? Math.min(prevMs * 2, EXPORT_BACKOFF_MAX_MS) : EXPORT_BACKOFF_MIN_MS;
+    const asked = Number(retryAfter) > 0 ? Math.min(Number(retryAfter) * 1000, EXPORT_BACKOFF_MAX_MS) : 0;
+    return Math.max(next, asked);
+  }
 
   function readyToSend(seg, prevHashes) {
     return /[.!?]["')\]]*$/.test(seg.text) || prevHashes.has(seg.hash);
@@ -1023,6 +1215,218 @@
     return out;
   }
 
+  /* What kind of document this is. Owner, 2026-10-03, on a resume the checker
+     answered with eight "needs_citation" flags: "Tracely should be able to
+     detect the context". The server's check prompt now decides this for
+     itself (lib/factcheck.js "Decide first what the DOCUMENT is"); this local
+     copy is what the UI needs — whether to show Resume tips, whether to ask
+     /api/review, and whether to hide a citation flag a server from before
+     that prompt still sends. Deliberately strict: a resume needs two section
+     headings of its own AND contact details or date ranges, and is not mostly
+     full sentences. An essay that says "experience" in a heading is not one. */
+  const RESUME_HEADING = /^(?:education|(?:work |professional |relevant )?experience|employment(?: history)?|skills(?:\s*[/&]\s*interests)?|technical skills|projects|certifications?|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary|profile|objective|interests|languages|publications|references)$/i;
+  const MONTH = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
+  const DATE_RANGE = new RegExp(`\\b${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}\\s*[–—-]\\s*(?:${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}|Present|Current|Now)\\b|\\b(?:19|20)\\d{2}\\s*[–—-]\\s*(?:(?:19|20)\\d{2}|Present|Current|Now)\\b`, "gi");
+  /* A letter or email: it opens with a salutation and closes with a sign-off.
+     Its figures are the writer's own ("I scored a 5 on AP Statistics"), so
+     no citation flags (flagShown). Checked before the length floor, because
+     an email is often four lines. Both ends are required for anything longer
+     than a short note: "Hi" alone opens plenty of blog posts. */
+  const SALUTATION = /^(?:dear|hi|hello|hey|good (?:morning|afternoon|evening)|to whom it may concern)\b[^!?\n]{0,60}[,:!]?$/i;
+  const SIGNOFF = /^(?:sincerely|best|best regards|best wishes|all the best|kind regards|warm regards|regards|thanks|thank you|many thanks|cheers|warmly|respectfully|yours(?: truly| sincerely| faithfully)?)[,.!]?$/i;
+  /* Homework, not writing. Owner, 2026-10-04: Tracely "keeps trying to help
+     me with other things such as my physics homework … only make it help on
+     literature", on "3. Determine the net area under the velocity vs time
+     curve … How does the area under the curve compare to …?". A worksheet is
+     a list of TASKS — numbered prompts that tell the student to determine,
+     calculate or explain, and questions — about a STEM subject; an essay
+     makes claims. Two ways to be one, both needing tasks to be a large share
+     of the text so an essay with a rhetorical question is never caught:
+       - at least one task, half or more of the sentences tasks, and a
+         third or more of the sentences using STEM vocabulary, units or math;
+       - three or more numbered task items making up 40% of the sentences.
+     Tracely then sends nothing, draws nothing, and says why. */
+  const TASK_START = /^(?:\(?(?:\d{1,2}|[a-h])[.)]\s*)?(?:determine|calculate|find|solve|compute|show that|prove|derive|evaluate|simplify|estimate|sketch|graph|plot|draw|label|identify|list|state|describe how|explain how|explain why|compare|use (?:the|your)|what is|what are|what was|what were|how does|how do|how did|how many|how much|how far|how long|why does|why do|which)\b/i;
+  const NUMBERED_ITEM = /^\(?(?:\d{1,2}|[a-h])[.)]\s+\S/i;
+  const STEM_TERM = /\b(?:velocity|acceleration|displacement|momentum|kinetic|potential energy|newtons?|joules?|watts?|gravity|friction|vectors?|scalars?|slope|intercept|derivative|integral|equations?|formula|graphs?|axis|axes|curve|functions?|variables?|coefficient|molar|moles?|reactants?|stoichiometr\w*|hypotenuse|triangle|radius|diameter|circumference|probability|area under|net area|position[- ]time|velocity[- ]time)\b|\d\s?(?:m\/s²?|km\/h|kg|cm|mm|N|J|W|Hz|mol|°C)\b|[=√±×÷^]/i;
+  function looksLikeHomework(text) {
+    const sentences = [];
+    for (const line of String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean)) {
+      for (const s of line.split(/(?<=[.!?])\s+(?=["“(]?[A-Z0-9])/)) if (s.split(/\s+/).length >= 3) sentences.push(s);
+    }
+    const n = sentences.length;
+    if (n === 0) return false;
+    const isTask = (s) => TASK_START.test(s) || /\?["”’)]?$/.test(s);
+    const tasks = sentences.filter(isTask).length;
+    const stem = sentences.filter((s) => STEM_TERM.test(s)).length;
+    const numbered = sentences.filter((s) => NUMBERED_ITEM.test(s) && isTask(s)).length;
+    return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4);
+  }
+
+  function detectGenre(text) {
+    if (looksLikeHomework(text)) return "homework";
+    const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length >= 2 && SALUTATION.test(lines[0]) && (lines.slice(-4).some((l) => SIGNOFF.test(l)) || lines.length <= 4)) return "letter";
+    if (lines.length < 6) return essayKind(text, lines); // too short to be a resume; a paragraph or two can still be a paper
+    const headings = lines.filter((l) => l.length <= 40 && RESUME_HEADING.test(l.replace(/[^\p{L}\s/&]/gu, " ").replace(/\s+/g, " ").trim())).length;
+    const contact = /[\w.+-]+@[\w-]+|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(lines.slice(0, 6).join(" "));
+    const ranges = (String(text).match(DATE_RANGE) ?? []).length;
+    const sentences = lines.filter((l) => /[.!?]["')\]]*$/.test(l) && l.split(/\s+/).length >= 12).length;
+    if (headings >= 2 && (contact || ranges >= 2) && sentences / lines.length < 0.6) return "resume";
+    return essayKind(text, lines);
+  }
+
+  /* Research paper, literary essay, or essay. Owner, 2026-10-04: "does it have
+     types of writing detection like research paper vs english essay with page
+     number and stuff detection". All three keep every check and the same
+     citation style; the type is shown in the panel ("Reading this as …") and
+     changes what quoteCitationTips says. A research paper announces itself:
+     an Abstract, or a methods/results-style section beside another heading.
+     A literary essay quotes a text and talks about how it works. Anything
+     short of that is an essay — "prose", the default it always was. */
+  const RESEARCH_HEADING = /^(?:abstract|introduction|background|literature review|related work|methods?|methodology|materials and methods|participants|procedure|data|results|findings|analysis|discussion|limitations|conclusions?|references|bibliography|works cited)$/i;
+  const RESEARCH_CORE = /^(?:abstract|literature review|related work|methods?|methodology|materials and methods|participants|procedure|results|findings|discussion|limitations)$/i;
+  const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*)\b/gi;
+  function essayKind(text, lines) {
+    const heads = lines.map((l) => l.replace(/^(?:\d+|[IVX]+)[.)]?\s+/, "").replace(/[:.]$/, "").trim()).filter((l) => l.length <= 40 && RESEARCH_HEADING.test(l));
+    const core = heads.filter((h) => RESEARCH_CORE.test(h));
+    if (heads.some((h) => /^abstract$/i.test(h)) || (core.length >= 1 && heads.length >= 2)) return "research";
+    const quotes = (String(text).match(/[“"][^”"\n]{8,600}[”"]/g) ?? []).length;
+    const cues = (String(text).match(LITERARY_CUE) ?? []).length;
+    return quotes >= 2 && cues >= 3 ? "literary" : "prose";
+  }
+  const GENRE_LABEL = { resume: "a resume", letter: "a letter", research: "a research paper", literary: "a literary essay", homework: "homework questions" };
+  const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary";
+
+  /* A direct quotation cited without the page it came from. Every common style
+     wants the page for a quote — MLA (Ghosh 23), APA (Ghosh, 2020, p. 23),
+     Chicago (Ghosh 2020, 23) — and Tracely cannot know which page, so it asks.
+     Only a quote followed by its own parenthetical is judged; a parenthetical
+     with a page, paragraph, line or act.scene.line already has its locator. A
+     source with no pages needs none: a quote whose author's Works Cited entry
+     is a web address with no page range is left alone. Free and local. */
+  // A closing number is a page unless it looks like a year (1500-2099): (Tolstoy 1204) is a page, (Smith 2019) is not.
+  const LOCATOR = /\b(?:pp?|paras?|par|ch|chap|l{1,2}|lines?|sec|loc|n\.\s*pag)\.?\s*\d|(?:^|[\s,])(?:\d{1,3}|(?!1[5-9]\d\d\b|20\d\d\b)\d{4})(?:\s*[–-]\s*\d{1,4})?\s*$|\b\d+\.\d+(?:\.\d+)?\b|\bn\.\s*pag\b/i;
+  function quoteCitationTips(text, style) {
+    const raw = String(text ?? "");
+    const wc = worksCitedBlock(raw);
+    const out = [];
+    for (const m of raw.matchAll(/([“"])([^”"\n]{12,600})([”"])\s*\(([^()\n]{1,80})\)/g)) {
+      const inner = m[4].trim();
+      if (!/[A-Z]|\d/.test(inner) || LOCATOR.test(inner)) continue; // not a citation, or it has its page
+      if (/^Doc(?:ument)?\.?\s*\d{1,2}$/i.test(inner)) continue; // a DBQ's document number: the assignment's own citation, no page
+      const author = inner.match(/^([\p{Lu}][\p{L}'’-]+)/u)?.[1] ?? null;
+      const year = inner.match(/\b(?:1[5-9]|20)\d{2}\b/)?.[0] ?? null;
+      if (author && wc) {
+        const entry = wc.entries.find((e) => e.toLowerCase().startsWith(author.toLowerCase()));
+        if (entry && /https?:\/\/|\bwww\.|\.(?:com|org|net|gov|edu)\b/i.test(entry) && !/\bpp?\.\s*\d|\b\d+\s*[–-]\s*\d+\b/.test(entry)) continue; // a web page: no pages to cite
+      }
+      const who = author ?? "Author";
+      const example = style === "apa" ? `(${who}, ${year ?? "2020"}, p. 23)` : style === "chicago" ? `(${who} ${year ?? "2020"}, 23)` : `(${who} 23)`;
+      const styleName = style === "apa" ? "APA" : style === "chicago" ? "Chicago" : "MLA";
+      out.push({ quote: m[0].slice(-Math.min(m[0].length, 160)), kind: "page", message: `A direct quote needs the page it came from — in ${styleName}, like ${example}. If the source has no page numbers, leave it as it is.` });
+      if (out.length >= 6) break;
+    }
+    return out;
+  }
+
+  /* A fix that only negates its sentence is no fix. Owner, 2026-10-05: "The
+     Mongols invented the American dollar" was "fixed" to "Furthermore, the
+     Mongols did not invent the American dollar" — true, and still nothing to
+     do with the essay. The check is told not to (its "revision" rule), and a
+     fix that does it anyway is dropped here: the card keeps the correct fact
+     and offers nothing to paste. A copy of factcheck.js isBareNegation. */
+  const FIX_NEGATION = /\b(?:not|never|no|n['’]t)\b/i;
+  const FIX_FILLER = /^(?:the|and|did|does|was|were|not|never|furthermore|however|also|that|this|but|have|has|had)$/;
+  function bareNegation(original, rewrite) {
+    if (!rewrite || !FIX_NEGATION.test(rewrite) || FIX_NEGATION.test(original ?? "")) return false;
+    const words = (x) => (String(x).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 3 && !FIX_FILLER.test(w)).map((w) => w.replace(/(?:ed|es|s)$/, ""));
+    const before = new Set(words(original));
+    return words(rewrite).every((w) => before.has(w));
+  }
+  const usableRevision = (original, rewrite) => (bareNegation(original, rewrite) ? "" : rewrite);
+
+  /* Citations that cannot lead a reader to a source. Owner, 2026-10-05, on a
+     deliberately flawed essay whose revisions kept "[History.com / Gutenberg
+     / accessed yesterday]", hedged with "Some researchers have argued … but
+     the evidence requires verification", and said "The study does not need a
+     publication date because Harvard is a famous institution". Each rule says
+     what is missing and never supplies it — no date, author, title or page is
+     ever filled in. Free and local; underlined on the passage (cite_tip). */
+  const VAGUE_ATTRIBUTION = /\b(?:some|many|several|most|certain) (?:researchers|scholars|historians|experts|scientists|studies|sources|people)(?: (?:have|has))? (?:argued|argue|say|said|claim|claimed|believe|believed|suggest|suggested|found|shown|show|think)\b|\b(?:experts|studies|research|scientists|historians) (?:say|says|show|shows|agree|suggest|suggests)\b|\bit is (?:widely|generally|often) (?:believed|said|thought|accepted)\b/i;
+  const VERIFY_NOTE = /\b(?:requires?|needs?|pending|awaiting) (?:further )?verification\b|\b(?:citation|source) needed\b|\bto be verified\b/i;
+  const PRESTIGE_EXCUSE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
+  const BAD_INLINE = /\[[^\]\n]{3,120}\/[^\]\n]{1,120}\]|\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i;
+  function citationHygieneTips(text) {
+    const out = [];
+    const body = (() => { const wc = worksCitedBlock(String(text ?? "")); return wc ? String(text).slice(0, wc.headStart) : String(text ?? ""); })();
+    // Sentences paragraph by paragraph, so an unnamed source the NEXT sentence
+    // goes on to cite ("Studies show X. Smith (2019) found …") is left alone.
+    const sentences = [];
+    for (const para of body.split(/\n+/)) {
+      const ss = para.split(/(?<=[.!?]["”’)\]]?)\s+/).map((x) => x.trim()).filter(Boolean);
+      ss.forEach((x, i) => sentences.push({ s: x, next: ss[i + 1] ?? "" }));
+    }
+    for (const { s, next } of sentences) {
+      if (s.length < 12) continue;
+      const bracket = s.match(BAD_INLINE);
+      if (bracket) out.push({ quote: bracket[0], kind: "badcite", message: "This cannot lead a reader to a source: name one source with its author, title and date (or n.d. if it truly has none), and cite it in your style. Do not guess missing details." });
+      else if (PRESTIGE_EXCUSE.test(s)) out.push({ quote: s, kind: "excuse", message: "A source's reputation never excuses missing citation details. Give the date, or n.d. if the source truly has none — never leave it out." });
+      else if (VERIFY_NOTE.test(s)) out.push({ quote: s, kind: "placeholder", message: "A note to yourself is not support. Verify the claim and cite where you found it, or remove it." });
+      else if (VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) out.push({ quote: s, kind: "vague", message: "An unnamed source is not a citation: say which researchers or study, and cite it — or remove the claim." });
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  /* Resume format slips a rule can be RIGHT about, free and instant — the
+     /api/review model call adds bullet quality and typos on top. Each rule
+     names the minority, never the majority: the writer's own dominant style
+     is the house style. At most six, every quote verbatim from the text. */
+  const US_STATES = ["Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"];
+  const STATE_ABBR = /^(?:A[LKZR]|C[AOT]|D[EC]|FL|GA|HI|I[DLNA]|K[SY]|LA|M[EDAINSOT]|N[EVHJMYCD]|O[HKR]|PA|RI|S[CD]|T[NX]|UT|V[TA]|W[AVIY])$/;
+  function resumeFormatIssues(text) {
+    const raw = String(text ?? "");
+    const out = [];
+    const add = (quote, message) => { if (out.length < 6 && quote && !out.some((o) => o.quote === quote)) out.push({ quote, kind: "format", message }); };
+    // 1. An email address with no domain ending.
+    for (const m of raw.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*/g)) {
+      if (!/@[\w-]+\.[\w-]{2,}/.test(m[0])) add(m[0], "This email address has no domain ending (like .com), so a reply to it would bounce.");
+    }
+    // 2. Date ranges written in more than one style, or with different dash spacing.
+    const ranges = [...raw.matchAll(DATE_RANGE)].map((m) => m[0]);
+    const style = (r) => /\d{1,2},\s*\d{4}/.test(r) ? "day" : /^\d{4}/.test(r) ? "year" : "month";
+    const spacing = (r) => (/\s[–—-]\s/.test(r) ? "spaced" : /[–—-]\s|\s[–—-]/.test(r) ? "lopsided" : "tight");
+    const tally = (f) => ranges.reduce((m, r) => m.set(f(r), (m.get(f(r)) ?? 0) + 1), new Map());
+    const major = (m) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (ranges.length >= 2) {
+      const styles = tally(style), sp = tally(spacing);
+      const mainStyle = major(styles), mainSp = major(sp);
+      for (const r of ranges) {
+        if (styles.size > 1 && style(r) !== mainStyle) add(r, mainStyle === "month" ? "Your other dates are month and year (\"June 2026 – August 2026\"); this one is written differently." : "This date is written in a different style from your others.");
+        else if (sp.size > 1 && spacing(r) !== mainSp) add(r, "The spacing around this dash differs from your other dates.");
+      }
+    }
+    // 3. Locations that mix state abbreviations and full names.
+    const locs = raw.split("\n").map((l) => l.trim()).map((l) => [l, l.match(/^[A-Z][\w .'-]+,\s*([A-Za-z ]+)$/)?.[1]?.trim()]).filter(([, s]) => s && (STATE_ABBR.test(s) || US_STATES.includes(s)));
+    const abbr = locs.filter(([, s]) => STATE_ABBR.test(s)), full = locs.filter(([, s]) => !STATE_ABBR.test(s));
+    if (abbr.length && full.length) {
+      const minority = abbr.length < full.length ? abbr : full;
+      const msg = abbr.length === full.length
+        ? `Your locations mix abbreviated states (${abbr[0][1]}) and spelled-out ones (${full[0][1]}); pick one style.`
+        : abbr.length < full.length ? "Most of your locations spell the state out; this one abbreviates it." : "Most of your locations abbreviate the state; this one spells it out.";
+      for (const [line] of minority) add(line, msg);
+    }
+    // 4. Bullets marked in some places and not others, and stray leading spaces.
+    const bulletish = raw.split("\n").filter((l) => l.trim().split(/\s+/).length >= 8);
+    const marked = bulletish.filter((l) => /^\s*[•▪◦*·-]\s/.test(l)), plain = bulletish.filter((l) => !/^\s*[•▪◦*·-]\s/.test(l));
+    if (marked.length && plain.length && marked.length < plain.length) {
+      for (const l of marked.slice(0, 2)) add(l.trim(), "Only some of your bullets start with a marker; use one for all of them, or none.");
+    }
+    for (const l of plain) if (/^ +\S/.test(l)) add(l.trim(), "This line starts with a stray space, so it won't line up with the lines around it.");
+    return out;
+  }
+
   // An id the server left out of its answer stays uncached and would be re-sent
   // on every read; hold it this long first, so a faster loop cannot become a
   // faster bill.
@@ -1036,6 +1440,276 @@
     if (until === undefined) return false;
     if (now >= until) { held.delete(hash); return false; }
     return true;
+  }
+
+  /* A line or sentence that has nothing to do with the rest of the document.
+     Owner, 2026-10-04, on a Model UN position paper about youth and peace
+     with "Lamine Yamal is 19 years old" typed between the last paragraph and
+     the references: "if I type something that is completely irrelevant or
+     unrelated flag it."
+
+     Free and local, no model call: a LINE (a paragraph, or a sentence typed
+     on a line of its own) is off topic when NONE of its meaningful words
+     appears anywhere else in the body. Real prose about one
+     subject keeps reusing its words (youth, peace, nation…), so a line that
+     shares not one with the whole essay stands out. Lines, not sentences:
+     measured on the eval essays, single sentences inside a paragraph share
+     nothing with the rest far too often to flag ("Days later he addressed a
+     joint session of Congress.") — telling one of those apart from a stray
+     sentence needs a reader, not a word count. Words are compared by
+     their first five letters, so "peace"/"peacemaking" and "solution"/
+     "solutions" count as the same word; that can only make a flag rarer.
+
+     Left out on purpose: the reference list (worksCitedBlock), bracketed
+     citations, header lines like "Country: United Kingdom", lines under four
+     words (titles, headings), generic words ("years", "people", "important")
+     that would tie anything to anything, and documents too short to have a
+     subject (under 150 words or 4 paragraphs). Essays and papers only. */
+  const OFF_TOPIC_MIN_WORDS = 150;
+  const OFF_TOPIC_MIN_PARAGRAPHS = 4;
+  const OFF_TOPIC_STOP = new Set(("a about above after again against all also am an and any are as at be because been before being below between both but by can could did do does doing down during each even ever every few for from further had has have having he her here hers herself him himself his how i if in into is it its itself just let like may me might more most must my myself no nor not now of off on once only or other ought our ours ourselves out over own same shall she should so some such than that the their theirs them themselves then there these they this those through to too under until up upon us very was we were what when where which while who whom why will with within without would yet you your yours yourself " +
+    "however therefore thus although though whereas moreover furthermore indeed fact also still already instead rather quite really often always never sometimes usually perhaps maybe " +
+    "year years old new time times day days people person way ways thing things lot lots many much one two three first second last next good great big small important different same certain several various " +
+    "make makes made making get gets got take takes took give gives gave go goes went come came say says said see seen know known think thought use used want need needs show shows").split(" "));
+  function topicKeys(sentence) {
+    const words = String(sentence).replace(/\([^()]*\)|\[[^\]]*\]/g, " ").toLowerCase().match(/[a-z][a-z'’-]*[a-z]/g) || [];
+    const keys = new Set();
+    for (let w of words) {
+      w = w.replace(/['’]s$/, "");
+      if (w.length < 3 || OFF_TOPIC_STOP.has(w)) continue;
+      keys.add(w.length > 5 ? w.slice(0, 5) : w.replace(/(?:ies|es|s)$/, (m) => (w.length - m.length >= 3 ? "" : m)));
+    }
+    return keys;
+  }
+  function offTopicSentences(text) {
+    const refs = worksCitedBlock(text);
+    const body = refs ? text.slice(0, refs.headStart) : text;
+    const units = [];
+    let started = false; // titles and header lines come before the first full sentence
+    for (const raw of body.split("\n")) {
+      const line = raw.trim();
+      if (!line || /^[A-Z][\w &()/.'’-]{0,40}:\s*\S/.test(line) && line.split(/\s+/).length <= 12) continue; // "Country: United Kingdom"
+      if (!started) { started = /[.!?]["”’)]?$/.test(line); if (!started) continue; }
+      if (line.split(/\s+/).length < 4) continue; // a heading
+      // "That is the part people point at." points back at the paragraph before it.
+      const refersBack = /^["“]?(?:this|that|these|those|it|its|he|she|they|his|her|their|such|here|there)\b/i.test(line);
+      units.push({ text: line, keys: topicKeys(line), refersBack });
+    }
+    const words = body.split(/\s+/).filter(Boolean).length;
+    if (units.length < OFF_TOPIC_MIN_PARAGRAPHS || words < OFF_TOPIC_MIN_WORDS) return [];
+    const seenIn = new Map(); // key → how many paragraphs use it
+    for (const u of units) for (const k of u.keys) seenIn.set(k, (seenIn.get(k) ?? 0) + 1);
+    return units
+      .filter((u) => !u.refersBack && u.keys.size >= 2 && [...u.keys].every((k) => seenIn.get(k) === 1))
+      .map((u) => u.text);
+  }
+
+  /* The reference list, checked against itself and against the text. Owner,
+     2026-10-04, after a position paper listed Ord & Davies (2022) twice and
+     a Samoa country profile nothing in the paper cited. Free and local.
+
+     - Listed twice: two entries equal once case, spacing and punctuation are
+       ignored, or two entries carrying the same DOI or link. The LATER copy
+       is the one flagged — it is the one to delete.
+     - Not cited: no in-text citation points at the entry. A citation is a
+       parenthetical — (Ord & Davies, 2022), (Shoup 45), ("Youth Matters",
+       2025), several split by ";" — or a narrative "Wheaton and Ferro
+       (2016)". A name citation matches an entry carrying its first author's
+       surname; a quoted-title citation one carrying most (60%) of its
+       words. Either way a year, when both sides give one, must agree — which
+       is what keeps ("United Nations: UN Meetings Coverage", 2025) from
+       counting as a citation of "United Nations. (2023). SDG Country
+       Profile Samoa". An entry led by a personal name ("Fitzgerald, F.
+       Scott.") also counts as cited when that surname appears anywhere in
+       the text: MLA attributes in prose ("Fitzgerald writes …") and cites
+       only the page.
+     The uncited check is skipped for numbered and footnoted work ([1], ¹,
+     "1." entries), where the link is a number this does not trace. */
+  const REF_STOP = new Set("the and for from with that this into over under about how why what when are was were its their our your his her a an of in on to by at as or is be not".split(" "));
+  const refNorm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const refWords = (s) => (refNorm(s).match(/\p{L}{3,}/gu) || []).filter((w) => !REF_STOP.has(w));
+  const REF_YEAR = /\b(1[5-9]\d\d|20\d\d)\b/;
+  function inTextCitations(body) {
+    const cites = [];
+    for (const m of body.matchAll(/\(([^()]{2,240})\)/g)) {
+      for (const part of m[1].split(";")) {
+        const p = part.trim();
+        const year = (p.match(REF_YEAR) || [])[1] ?? null;
+        const quoted = p.match(/["“‘']([^"”’']{3,})["”’']/);
+        if (quoted) { cites.push({ title: refWords(quoted[1]), year }); continue; }
+        const names = p.replace(/\bet al\.?/g, "").split(/,|\s(?:&|and)\s|\d/)[0].trim();
+        const surname = (names.match(/([\p{Lu}][\p{L}'’-]+)\s*$/u) || [])[1];
+        if (surname && (year || /\d/.test(p))) cites.push({ surname: surname.toLowerCase(), year });
+      }
+    }
+    for (const m of body.matchAll(/\b([\p{Lu}][\p{L}'’-]+)(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.?)?\s+\((1[5-9]\d\d|20\d\d)/gu)) {
+      cites.push({ surname: m[1].toLowerCase(), year: m[2] });
+    }
+    return cites;
+  }
+  function referenceListIssues(text) {
+    const refs = worksCitedBlock(text);
+    if (!refs || refs.entries.length < 2) return [];
+    const body = text.slice(0, refs.headStart);
+    const out = [];
+    const seenText = new Set(), seenLink = new Set();
+    for (const entry of refs.entries) {
+      const key = refNorm(entry);
+      // A DOI is the same source however it is written (doi:…, https://doi.org/…); other links by address.
+      const trim = (l) => l.toLowerCase().replace(/[.,;)]+$/, "");
+      const dois = (entry.match(/\b10\.\d{4,}\/[^\s"<>]+/g) || []).map(trim);
+      const urls = (entry.match(/https?:\/\/\S+/gi) || []).filter((u) => !/doi\.org\//i.test(u)).map((u) => trim(u).replace(/^https?:\/\/(www\.)?/, ""));
+      const links = [...dois, ...urls];
+      if (seenText.has(key) || links.some((l) => seenLink.has(l))) out.push({ quote: entry, kind: "refdup" });
+      seenText.add(key);
+      for (const l of links) seenLink.add(l);
+    }
+    // An entry that cannot be found from what it says. Named, never filled in.
+    for (const entry of refs.entries) {
+      if (out.some((o) => o.quote === entry)) continue;
+      const missing = [];
+      if (/\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i.test(entry)) missing.push("a real access date, not a relative one");
+      if (/\bpages? (?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|twenty|thirty|forty|fifty|hundred)\b/i.test(entry)) missing.push("the page as a number");
+      if (/\b(?:website|site|article|page|book|study|video|document) (?:about|on|regarding)\b/i.test(entry)) missing.push("the source's actual title");
+      if (missing.length) out.push({ quote: entry, kind: "refincomplete", missing });
+    }
+    const numbered = /\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹]/.test(body) || refs.entries.filter((e) => /^\[?\d+[.)\]]/.test(e)).length >= refs.entries.length / 2;
+    if (numbered) return out;
+    const cites = inTextCitations(body);
+    const flagged = new Set(out.map((o) => o.quote));
+    for (const entry of refs.entries) {
+      if (flagged.has(entry)) continue; // a duplicate's note already says what to do
+      const words = new Set(refWords(entry));
+      const years = new Set(entry.match(new RegExp(REF_YEAR.source, "g")) || []);
+      const yearOk = (y) => !y || years.size === 0 || years.has(y);
+      const cited = cites.some((c) => yearOk(c.year) && (c.surname
+        ? words.has(c.surname)
+        : c.title.length >= 1 && c.title.filter((w) => words.has(w)).length >= Math.max(1, Math.ceil(c.title.length * 0.6))));
+      const lead = (entry.match(/^([\p{Lu}][\p{L}'’-]+),\s+[\p{Lu}]/u) || [])[1];
+      const named = lead && new RegExp(`\\b${lead.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "u").test(body);
+      if (!cited && !named && !out.some((o) => o.quote === entry)) out.push({ quote: entry, kind: "refuncited" });
+    }
+    return out;
+  }
+
+  /* Only sources that BACK the sentence are offered. Owner, 2026-10-04:
+     "Find sources" handed him Ord & Davies (2022) — a paper on youth work
+     and austerity cuts — for a sentence about youth leadership gaining
+     support but not action, which it never says. "From now on dont
+     recommend me sources that do not align." A search result is kept when
+     its stance is "supports"; "refutes" too when the sentence is flagged
+     wrong (those back the correction, and show why); "context" — on the
+     topic, but not saying this — is dropped and only counted, so the card
+     can say the search found reading on the subject and none of it backs
+     the sentence as written. A source with no stance is one the writer
+     pasted themselves, and is theirs to keep. */
+  function backingSources(list, verdict) {
+    const all = Array.isArray(list) ? list : [];
+    const keep = all.filter((s) => s && (s.stance === undefined || s.stance === "supports" ||
+      (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
+    return { list: keep, unbacked: all.length - keep.length };
+  }
+  const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
+
+  /* Sentences a citation LATER in the same paragraph covers: writers state an
+     idea across a sentence or two and cite once at the close. The desktop's
+     citationScope.ts reads the paragraph the same way ("Forward,
+     unconditionally"). Paragraph = no line break between two sentences. */
+  function coveredByLaterCitation(text, segs) {
+    const covered = new Set();
+    let citedAhead = false;
+    for (let i = segs.length - 1; i >= 0; i--) {
+      const next = segs[i + 1];
+      if (next && /\n/.test(String(text).slice(segs[i].end, next.start))) citedAhead = false; // a new paragraph starts after this one
+      if (citedAhead) covered.add(segs[i].hash);
+      if (hasCitationMark(segs[i].text)) citedAhead = true;
+    }
+    return covered;
+  }
+
+  /* Hover intent for the Docs card. Owner, 2026-10-06: "it jumps too much
+     when there are underlines everywhere". Two causes. A card opened the
+     instant the pointer crossed ANY underline, so moving the mouse across a
+     marked page flashed card after card. And the way from a sentence down to
+     its card crosses the lines in between, each of which swapped the card
+     before the pointer could reach a button. Now:
+     - a card opens once the pointer has stayed on an underline for
+       HOVER_OPEN_MS, so a pass across the page opens nothing;
+     - the safe triangle (Amazon's menu-aim): from where the pointer last was
+       on the open card's sentence to the near edge of the card, whatever it
+       crosses is ignored. Stopping on another underline in there for
+       HOVER_REST_MS still opens that one, so nothing becomes unreachable;
+     - outside the triangle, another underline takes over after HOVER_SWAP_MS,
+       and empty page closes the card after HOVER_HIDE_MS.
+     s: { open, popHash, onCard, onOwn, inTri, under } → { act, hash?, ms?, rest? },
+     act one of "none" | "stay" | "open" | "swap" | "hide". */
+  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 120, HOVER_REST_MS = 300, HOVER_HIDE_MS = 250;
+  function hoverIntent(s) {
+    if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
+    if (s.onCard || s.onOwn) return { act: "stay" };
+    const other = s.under && s.under !== s.popHash ? s.under : null;
+    if (s.inTri) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "stay" };
+    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS };
+    return { act: "hide", ms: HOVER_HIDE_MS };
+  }
+  /* Is (x, y) on the way from `apex` to the card? The region is the convex
+     hull of a short segment around the apex (2·slack wide, so the first pixel
+     of a move is never outside a needle-thin tip) and the whole card, widened
+     by `slack` — Floating UI's safePolygon reaches the card's FAR corners for
+     the same reason: a card sits ~10px under its line, so a pointer coming
+     from the end of a long line reaches the card's side, not its top edge. */
+  function inSafeTriangle(apex, card, x, y, slack = 6) {
+    if (!apex || !card) return false;
+    const pts = [
+      [apex.x - slack, apex.y], [apex.x + slack, apex.y],
+      [card.left - slack, card.top - slack], [card.right + slack, card.top - slack],
+      [card.right + slack, card.bottom + slack], [card.left - slack, card.bottom + slack],
+    ].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const half = (list) => {
+      const h = [];
+      for (const p of list) {
+        while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+        h.push(p);
+      }
+      h.pop();
+      return h;
+    };
+    const hull = [...half(pts), ...half([...pts].reverse())];
+    for (let i = 0; i < hull.length; i++) {
+      if (cross(hull[i], hull[(i + 1) % hull.length], [x, y]) < 0) return false;
+    }
+    return true;
+  }
+  /* Does a mark draw itself in, or is it one the reader already saw? Marks are
+     rebuilt on every re-match (scroll, typing, a new verdict), so animating
+     every draw would make them pulse — the flicker fixed in 2.21.16. Only a
+     mark that is new on the page animates: its sentence was not drawn last
+     time, and nothing of the same colour sat on that spot recently (typing
+     in a flagged sentence changes its hash, not its place). `recent`:
+     [{ hash, color, x0, x1, y }] in document coordinates. */
+  function isFreshMark(recent, m) {
+    for (const r of recent) {
+      if (r.hash === m.hash) return false;
+      if (r.color === m.color && Math.abs(r.y - m.y) <= 6 && r.x0 < m.x1 && m.x0 < r.x1) return false;
+    }
+    return true;
+  }
+  const MARK_IN_MS = 260, MARK_OUT_MS = 180, MARK_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  /* A new underline draws itself in from the left, like a pen stroke.
+     Chromium freezes animations on a page that is not painting, and this one
+     holds the mark invisible until it runs — so a timer cancels it, and the
+     worst case is a mark that simply appears (the overlay's entrance-fade
+     lesson, CLAUDE.md "Invisibility"). */
+  function drawMarkIn(el, delay) {
+    if (typeof el.animate !== "function" || markReducedMotion()) return;
+    try {
+      const anim = el.animate(
+        [{ opacity: 0, clipPath: "inset(0 100% 0 0)" }, { opacity: 1, clipPath: "inset(0 0% 0 0)" }],
+        { duration: MARK_IN_MS, delay, easing: MARK_EASE, fill: "backwards" },
+      );
+      setTimeout(() => { if (anim.playState !== "finished") anim.cancel(); }, delay + MARK_IN_MS + 300);
+    } catch { /* no animation: it simply appears */ }
   }
 
   function esc(s) {
@@ -1119,6 +1793,190 @@
         ${sourcesFor(seg)}
       </div>`).join("");
     return `<div class="evidence">${head}<div class="ev-intro">Optional — only where evidence would help your argument.</div>${cards}</div>`;
+  }
+  /* Resume tips: the free format rules first (instant), then what /api/review
+     found, a line once — a model note on a line the rules already flagged is
+     kept only if it is a different kind. A note whose quote is no longer in
+     the text (the writer fixed it) drops out without waiting for the next
+     review. */
+  const TIP_LABEL = { bullet: "This bullet could be stronger", format: "Formatting", typo: "Possible typo", page: "Add the page number", offtopic: "Doesn't seem to belong", residue: "Correction left in the essay", refdup: "Listed twice", refuncited: "Not cited in your text",
+    thesis: "Thesis", evidence: "Needs specific evidence", analysis: "Explain this evidence", structure: "Structure",
+    documents: "Document evidence (DBQ)", sourcing: "Sourcing (DBQ)", complexity: "Complexity (DBQ)",
+    relevance: "Doesn't support the argument", source: "Source problem", quotation: "Quotation problem", citation: "Citation problem",
+    bibliography: "Works Cited problem", reasoning: "Reasoning", contradiction: "Contradiction",
+    vague: "Unnamed source", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
+  const NOTE_ACTION = { delete: "Delete this", rewrite: "Rewrite", cite: "Add a real source", needs_info: "Needs more information" };
+  const NOTE_STATUS = { confirmed: "confirmed", unsupported: "unsupported", unverified: "unverified", possible: "possible" };
+  function resumeTips(text, modelFindings, dismissed) {
+    const norm = (q) => String(q).toLowerCase().replace(/\s+/g, " ").trim();
+    const hay = norm(text);
+    /* The quote must still be in the text AS ITSELF, not as the start of
+       something longer: "jordan.rivera@outlook" fixed to "…@outlook.com" is
+       still a substring, and the note about the missing ending would linger
+       over the fix. A following letter, digit, or ".x"/"@x"/"-x" means the
+       quoted text has grown. */
+    const standsAlone = (q) => {
+      for (let i = hay.indexOf(q); i >= 0; i = hay.indexOf(q, i + 1)) {
+        const next = hay.slice(i + q.length, i + q.length + 2);
+        if (!/^\w/.test(next) && !/^[.@-]\w/.test(next)) return true;
+      }
+      return false;
+    };
+    const seen = new Set();
+    const out = [];
+    for (const f of [...resumeFormatIssues(text), ...(Array.isArray(modelFindings) ? modelFindings : [])]) {
+      if (!f || !TIP_LABEL[f.kind] || !f.quote || !standsAlone(norm(f.quote))) continue;
+      const key = norm(f.quote) + "|" + f.kind;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const id = "tip:" + hashText(key);
+      if (dismissed.has(id)) continue;
+      out.push({ id, quote: String(f.quote), kind: f.kind, message: String(f.message ?? ""), suggestion: String(f.suggestion ?? "") });
+    }
+    return out;
+  }
+  function resumeTipsHtml(tips, reviewing, copiedId) {
+    const note = reviewing ? "Reading your bullets…" : tips.length ? "" : "No resume tips — this reads cleanly.";
+    return tipsSectionHtml("Resume tips", tips, note, copiedId);
+  }
+  /* Page-number notes for an essay or paper: shown only when there is one —
+     an essay with every quote paged gets no empty section. */
+  function citationTips(text, style, dismissed) {
+    return [...quoteCitationTips(text, style), ...citationHygieneTips(text)]
+      .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
+      .filter((t) => !dismissed.has(t.id));
+  }
+  function citationTipsHtml(tips, copiedId) {
+    return tips.length ? tipsSectionHtml("Citation tips", tips, "", copiedId) : "";
+  }
+  // Lines that share no word with the rest of the essay (offTopicSentences): shown only when there is one.
+  const OFF_TOPIC_MESSAGE = "Nothing in this line connects to the rest of your writing. If it doesn't belong, delete it; if it does, tie it to your point.";
+  /* A correction left in the essay. Owner, 2026-10-05: a revised draft
+     "became a sequence of corrections: 'This does not prove…', 'The Mongols
+     did not…', 'Pizza is not evidence…'". A sentence whose point is what
+     something does NOT show is a note about the draft, not an argument.
+     Narrow on purpose — proof-negations only; "The treaty did not end the
+     war" is history and is left alone. */
+  const CORRECTION_RESIDUE = /^(?:this|that|it|these|those|which|such)\b[^.!?]{0,80}\b(?:does|do|did) not (?:prove|show|demonstrate|support|establish)\b|\b(?:is|are|was|were) not (?:evidence|proof)\b|\bhas nothing to do with\b|\b(?:cannot|can't) be (?:verified|proven)\b/i;
+  // "did not mean the Mongols abandoned …", "this does not prove X, but …":
+  // a contrast is the essay arguing, and is left alone (a DBQ's complexity).
+  const CONTRAST = /\b(?:but|however|although|though|instead|rather|yet|while)\b/i;
+  function correctionResidue(text) {
+    const wc = worksCitedBlock(String(text ?? ""));
+    const body = wc ? String(text).slice(0, wc.headStart) : String(text ?? "");
+    return body.split(/(?<=[.!?]["”’)\]]?)\s+|\n+/).map((x) => x.trim())
+      .filter((x) => x.length >= 12 && CORRECTION_RESIDUE.test(x) && !CONTRAST.test(x)).slice(0, 6);
+  }
+  const RESIDUE_MESSAGE = "This says what something does not show — a correction note, not part of your argument. Delete it, or make the point the paragraph needs.";
+  function offTopicTips(text, dismissed) {
+    return [
+      ...offTopicSentences(text).map((quote) => ({ id: "tip:" + hashText(quote + "|offtopic"), quote, kind: "offtopic", message: OFF_TOPIC_MESSAGE, suggestion: "" })),
+      ...correctionResidue(text).map((quote) => ({ id: "tip:" + hashText(quote + "|residue"), quote, kind: "residue", message: RESIDUE_MESSAGE, suggestion: "" })),
+    ].filter((t) => !dismissed.has(t.id));
+  }
+  function offTopicHtml(tips, copiedId) {
+    return tips.length ? tipsSectionHtml("Off topic", tips, "", copiedId) : "";
+  }
+  // The reference list's two notes (referenceListIssues): shown only when there is one.
+  const REF_MESSAGES = {
+    refdup: "This source is listed twice. Delete this copy.",
+    refuncited: "Nothing in your text cites this source. If you used it, add an in-text citation; if not, remove it from the list.",
+    refincomplete: "A reader cannot find this source from this entry. Add what is missing from the source itself — never guess it.",
+  };
+  function referenceTips(text, dismissed) {
+    return referenceListIssues(text).map((r) => ({ id: "tip:" + hashText(r.quote + "|" + r.kind), quote: r.quote, kind: r.kind, message: r.missing ? `${REF_MESSAGES[r.kind]} Missing: ${r.missing.join("; ")}.` : REF_MESSAGES[r.kind], suggestion: "" }))
+      .filter((t) => !dismissed.has(t.id));
+  }
+  function referenceTipsHtml(tips, copiedId) {
+    return tips.length ? tipsSectionHtml("Reference list", tips, "", copiedId) : "";
+  }
+  /* Writing feedback (owner, 2026-10-05, on an AP World DBQ whose facts were
+     all right: "it flags things too little … It should of flagged these
+     important parts of the DBQ"). /api/review with kind "essay" reads the
+     essay against its rubric and returns at most five notes, each on one
+     sentence or on the whole essay. Shown only when they belong to the text
+     on screen: a sentence note whose sentence is gone drops out at once. */
+  const ESSAY_NOTE_KINDS = ["relevance", "source", "quotation", "citation", "bibliography", "reasoning", "contradiction", "evidence", "analysis", "thesis", "structure", "documents", "sourcing", "complexity"];
+  function essayFeedbackTips(text, findings, dismissed) {
+    const norm = (x) => String(x).toLowerCase().replace(/\s+/g, " ").trim();
+    const hay = norm(text);
+    return (Array.isArray(findings) ? findings : [])
+      .filter((f) => f && ESSAY_NOTE_KINDS.includes(f.kind) && f.message && (!f.quote || hay.includes(norm(f.quote))))
+      .map((f) => ({
+        id: "tip:" + hashText(String(f.quote ?? "") + "|" + f.kind + "|" + (f.quote ? "" : f.message)),
+        quote: String(f.quote ?? ""), kind: f.kind, message: String(f.message),
+        action: NOTE_ACTION[f.action] ? f.action : null, status: NOTE_STATUS[f.status] ? f.status : null,
+        suggestion: f.action === "rewrite" ? String(f.suggestion ?? "") : "",
+      }))
+      .filter((t) => !dismissed.has(t.id));
+  }
+  /* Fixed since an earlier review: a sentence note whose sentence is no
+     longer in the text, and that the latest review did not raise again.
+     Shown apart from what is still open, so a revised draft says what was
+     done and what was not — never that it is now flawless. */
+  function resolvedNotes(seen, open, text) {
+    const norm = (x) => String(x).toLowerCase().replace(/\s+/g, " ").trim();
+    const hay = norm(text);
+    const openIds = new Set(open.map((t) => t.id));
+    return [...seen.values()].filter((t) => t.quote && !openIds.has(t.id) && !hay.includes(norm(t.quote)));
+  }
+  function essayFeedbackHtml(tips, reviewing, copiedId, fixed = []) {
+    if (!tips.length && !reviewing && !fixed.length) return "";
+    const note = reviewing && !tips.length ? "Reading your essay…" : !tips.length ? "Nothing open from the last review." : "";
+    const fixedHtml = fixed.length ? `<div class="ev-intro">Fixed since an earlier review (${fixed.length}): ${fixed.slice(0, 6).map((t) => esc(TIP_LABEL[t.kind] ?? t.kind)).join(", ")}${fixed.length > 6 ? "…" : ""}</div>` : "";
+    return tipsSectionHtml("Writing feedback", tips, note, copiedId).replace(/<\/div>$/, `${fixedHtml}</div>`);
+  }
+  // Sentence notes as marks (note_tip), placed like the citation notes.
+  function essayFeedbackMarks(text, tips) {
+    const out = [];
+    for (const t of tips) {
+      if (!t.quote) continue;
+      const at = text.indexOf(t.quote);
+      if (at >= 0) out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false, markKind: "note_tip" });
+    }
+    return out;
+  }
+
+  /* Where each citation note goes on the page (cite_tip marks). Owner,
+     2026-10-04: "what if it needs to flag for two different things, say wrong
+     information and wrong citation" — so a citation note is underlined on
+     the citation, not the sentence: a quote missing its page on its
+     "(Fitzgerald)", a reference listed twice or never cited on the entry.
+     The fact mark keeps the sentence. start/end are offsets into `text`;
+     `lastCopy` tells Docs, which locates by text, to underline only the
+     later of two identical entries (the one the note says to delete). */
+  function citationMarks(text, style, dismissed) {
+    const out = [];
+    for (const t of citationTips(text, style, dismissed)) {
+      const at = text.indexOf(t.quote);
+      if (at < 0) continue;
+      if (t.kind !== "page") { out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false }); continue; }
+      const p = t.quote.lastIndexOf("(");
+      if (p < 0) continue;
+      out.push({ ...t, start: at + p, end: at + t.quote.length, mark: t.quote.slice(p), lastCopy: false });
+    }
+    for (const t of referenceTips(text, dismissed)) {
+      const at = t.kind === "refdup" ? text.lastIndexOf(t.quote) : text.indexOf(t.quote);
+      if (at < 0) continue;
+      out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: t.kind === "refdup" });
+    }
+    return out;
+  }
+  // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
+  function genreLineHtml(genre) {
+    if (genre === "homework") return `<div class="genre-line">This looks like homework questions. Tracely checks essays and other writing, so it is staying quiet here.</div>`;
+    return GENRE_LABEL[genre] ? `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}</div>` : "";
+  }
+  function tipsSectionHtml(title, tips, note, copiedId) {
+    const cards = tips.map((t) => `
+      <div class="card tip-card" data-card="${t.id}">
+        <div class="top"><span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
+        ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
+        ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
+        ${t.suggestion ? `<div class="fix"><div class="fix-label">Suggested rewrite</div><div class="fix-text">${esc(t.suggestion)}</div><div class="row"><button class="act" data-tip-copy="${t.id}">${copiedId === t.id ? "Copied ✓" : "Copy rewrite"}</button></div></div>` : ""}
+      </div>`).join("");
+    return `<div class="tips"><div class="tips-head">${title}${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
   }
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
@@ -1350,6 +2208,10 @@
     .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
     .ev-toggle:hover { text-decoration: underline; }
     .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
+    .tips { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    .tips-head { font-size: 13px; font-weight: 600; color: #1a1a1f; padding: 2px 2px 0; }
+    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
@@ -1590,7 +2452,7 @@
         if (docsOn) cycle();
       });
     }
-    const DOCS_CONSENT_TEXT = "Tracely sends this document's text to Tracely's server (api.jointracely.com) to check its facts, every few seconds while you write. It is processed there and not stored. This turns on checking for every Google Doc you open; switch it off any time in Tracely's options.";
+    const DOCS_CONSENT_TEXT = "Tracely sends this document's text to Tracely's server (api.jointracely.com) to check its facts, every few seconds while you write. It is processed there and not stored. This turns on checking for every Google Doc you open; switch it off any time with Turn off in Tracely's panel, or in its options.";
 
     // ── state ──
     // Verdicts and source lists persist per doc: reopening the tab re-checks
@@ -1599,7 +2461,7 @@
     const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", []));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
-      .map(([h, st]) => [h, { loading: false, list: st.list, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -1733,6 +2595,7 @@
     }
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
+    let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
@@ -1745,6 +2608,40 @@
     let orphaned = false; // the extension was reloaded under this tab — see standDown
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
+    let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
+    let copiedTipId = null;
+    /* Ask /api/review for this resume's bullet and typo notes — only for a
+       resume, only once the text has been still REVIEW_IDLE_MS, only when a
+       line is new or rewritten since the last answer (reviewWorthwhile), at
+       most every REVIEW_FLOOR_MS and REVIEW_REPEAT_MS after an answer. A
+       server without the route (404 not_found) switches it off until reload;
+       any other failure waits out the floor and tries again. The free format
+       rules (resumeFormatIssues) show either way. */
+    async function requestReview(text) {
+      const kind = reviewKindFor(docGenre);
+      if (!kind || review.inflight || review.unavailable) return;
+      // A document that changed kind (a resume pasted over an essay) starts over.
+      if (review.kind !== kind) Object.assign(review, { kind, lastText: null, findings: [], at: 0, okAt: 0, seen: new Map() });
+      if (!reviewWorthwhile(review.lastText, text) || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS || Date.now() - review.okAt < REVIEW_REPEAT_MS) return;
+      review.inflight = true;
+      render();
+      try {
+        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL, kind });
+        review.findings = Array.isArray(data?.findings) ? data.findings : [];
+        if (kind === "essay") for (const t of essayFeedbackTips(text, review.findings, new Set())) review.seen.set(t.id, t);
+        review.lastText = text;
+        review.okAt = Date.now();
+        review.serving = data?.genre === "resume"; // the model disagrees that it is one: back to the check
+      } catch (err) {
+        review.serving = false; // until a review answers again, the check covers the resume
+        if (err?.kind === "not_found") review.unavailable = true;
+      } finally {
+        review.at = Date.now();
+        review.inflight = false;
+        render();
+      }
+    }
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
@@ -1764,17 +2661,51 @@
     let autoSourceTimes = []; // rolling-hour guard on automatic source lookups
 
     // ── doc reading ──
+    let exportBackoff = 0, exportPausedUntil = 0; // see exportBackoffMs
     async function getDocText() {
       if (harness) return harness.getText();
       const res = await fetch(docExportUrl(DOC_ID, ACCOUNT_PREFIX), {
         credentials: "same-origin",
       });
+      if (res.status === 429) {
+        exportBackoff = exportBackoffMs(exportBackoff, res.headers.get("retry-after"));
+        exportPausedUntil = Date.now() + exportBackoff;
+        throw Object.assign(new Error("Google is limiting how often this doc can be read"), { kind: "rate_limited" });
+      }
       if (!res.ok) throw new Error(`doc export failed (${res.status})`);
+      exportBackoff = 0;
       const t = await res.text();
       return t.replace(/^﻿/, "").replace(/\r\n/g, "\n");
     }
 
+    // Cost idea 2: a sentence changed only by a typo or punctuation keeps
+    // the verdict it had (smallEdit). The counts are for the console.
+    let verdictsReused = 0, sentencesChecked = 0;
+    function inheritVerdicts(before) {
+      const live = new Set(segments.map((sg) => sg.hash));
+      const taken = new Set();
+      let n = 0;
+      for (const seg of segments) {
+        if (!seg.checkable || cache.has(seg.hash)) continue;
+        const old = inheritedVerdict(seg, before, live, cache, taken);
+        if (!old) continue;
+        cache.set(seg.hash, cache.get(old.hash));
+        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
+          dismissed.add(seg.hash);
+          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        }
+        n++;
+      }
+      if (n) {
+        verdictsReused += n;
+        console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
+      }
+      return n;
+    }
+
     function uncheckedSegments() {
+      if (FEATURES.writingOnly && docGenre === "homework") return []; // not writing: nothing to check
+      if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
       for (const seg of segments) {
@@ -1797,25 +2728,30 @@
         const newText = await getDocText();
         if (newText !== docText) lastTextChangeAt = readAt;
         docText = newText;
+        const before = segments;
         segments = segmentText(docText);
+        docGenre = FEATURES.resumeTips ? detectGenre(docText) : "prose";
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
         for (const [h, at] of editedHashes) if (!liveHashes.has(h) || Date.now() - at > 30_000) editedHashes.delete(h);
         settleEditStates(readAt);
+        if (inheritVerdicts(before)) persistCaches();
+        citedLater = coveredByLaterCitation(docText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
           render();
+          sentencesChecked += todo.length;
           const data = await api("/api/check", {
             text: docText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
             model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
           });
           for (const f of data.findings ?? []) {
-            cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: f.revision, confidence: f.confidence });
+            cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: usableRevision(todo.find((x) => x.hash === f.id)?.text, f.revision), confidence: f.confidence });
           }
           holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistCaches();
@@ -1825,9 +2761,13 @@
         const n = currentIssues().length + activeFlowIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
         if (FEATURES.flow) requestFlow(); // fire-and-forget; gated on structure change + rate floor
+        requestReview(docText); // fire-and-forget; resumes only, gated on stillness, a real change and the floors
       } catch (err) {
         lastCheckFailed = true;
-        if (err?.kind === "no_engine") {
+        if (err?.kind === "rate_limited") {
+          statusKind = "idle"; // not an error the writer can do anything about
+          statusMsg = `Google is pacing reads of this doc — checking again in ${Math.round(exportBackoff / 1000)}s`;
+        } else if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;
         } else if (offlineError(err)) {
@@ -1851,7 +2791,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings)) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -1867,6 +2807,7 @@
        exactly as before — this is strictly additive. */
     let locateSeq = 0;
     let lastVerdictByHash = new Map();
+    let tipMarkById = new Map(); // cite_tip marks drawn on the last locate: id → citationMarks entry
 
     /* ── PRIMARY position source: Docs' SVG annotation layer ──────────────
        Modern Docs keeps an invisible SVG beside each canvas tile: one
@@ -1948,13 +2889,60 @@
           spans.push([joined.length, joined.length + n.length, run]);
           joined += n;
         }
-        if (joined) lines.push({ joined, spans });
+        if (joined) lines.push({ joined, spans, top: runs[0].r.top });
       }
       const bars = [];
+      /* Whole sentences, however they wrap. Owner, 2026-10-05: "it doesnt
+         underline whole sentence, it has a habit of only being able to
+         highlight one line … at a time in google docs". Matching line by
+         line needed a sentence's piece at the end or start of a line to be
+         at least 12 characters (svgOverlapRange), so "Napoleon was" wrapping
+         at a line's end — 11 — lost that line's underline. Now the visible
+         lines are joined in reading order and the sentence is found in the
+         whole text, then cut back into each line it covers, however little
+         of it that is. The line-by-line match stays as the fallback for a
+         sentence that cannot be found whole (part of it scrolled out of
+         Docs' rendered pages). */
+      const ordered = [...lines].sort((a, b) => a.top - b.top);
+      let flat = "";
+      for (const line of ordered) { line.base = flat.length; flat += line.joined; }
+      const barsFor = (seg, line, range) => {
+        for (const [s, e, run] of line.spans) {
+          if (e <= range[0] || s >= range[1]) continue;
+          let f0 = 0, f1 = 1;
+          if (range[0] > s) f0 = svgFrac(run.node, run.raw, run.font, svgRawIndexAt(run.raw, range[0] - s));
+          if (range[1] < e) f1 = svgFrac(run.node, run.raw, run.font, svgRawIndexAt(run.raw, range[1] - s));
+          if (f1 - f0 <= 0.005) continue;
+          bars.push({ hash: seg.hash, node: run.node, raw: run.raw, f0, f1 });
+        }
+      };
       for (const { seg } of issues) {
         const S = nrm(seg.text);
         if (S.length < 4) continue;
+        let hits = [];
+        for (let at = flat.indexOf(S); at >= 0; at = flat.indexOf(S, at + 1)) hits.push(at);
+        if (seg.lastCopy && hits.length) hits = [hits[hits.length - 1]]; // only the later of two identical entries
+        if (hits.length) {
+          for (const at of hits) {
+            for (const line of ordered) {
+              const ls = line.base, le = ls + line.joined.length;
+              if (le <= at || ls >= at + S.length) continue;
+              barsFor(seg, line, [Math.max(at, ls) - ls, Math.min(at + S.length, le) - ls]);
+            }
+          }
+          continue;
+        }
+        // Two identical entries match twice; a lastCopy mark keeps only the
+        // later one — from the last line where the text STARTS, downwards.
+        let fromTop = -Infinity;
+        if (seg.lastCopy) {
+          for (const line of lines) {
+            const r = svgOverlapRange(line.joined, S);
+            if (r && (line.joined.indexOf(S) >= 0 || r[1] === line.joined.length && r[0] > 0 || r[0] === 0 && S.startsWith(line.joined.slice(0, r[1])))) fromTop = Math.max(fromTop, line.top);
+          }
+        }
         for (const line of lines) {
+          if (line.top < fromTop - 1) continue;
           const range = svgOverlapRange(line.joined, S);
           if (!range) continue;
           for (const [s, e, run] of line.spans) {
@@ -2070,7 +3058,7 @@
       pageObs.disconnect();
       for (const layer of pageLayers.values()) layer.remove();
       pageLayers.clear();
-      for (const stray of document.querySelectorAll("[data-tracely-bar]")) stray.remove();
+      for (const stray of document.querySelectorAll("[data-tracely-bar]:not([data-tracely-leaving])")) stray.remove();
       docsBars = [];
       tileState.clear();
       queueMicrotask(() => { selfMutating = false; });
@@ -2433,10 +3421,105 @@
       return g;
     }
 
+    /* One continuous line per sentence per visual line. Owner, 2026-10-05:
+       "underline segments are word by word and disconnected". Docs often
+       gives each word (or each styled run) its own annotation rect, and a bar
+       was drawn per rect, so the spaces between words showed as gaps. Two
+       consecutive bars of the same sentence on the same line, in the same
+       SVG group and transform, are joined: the first stretches to where the
+       next begins. Re-applied after the observer moves bars. */
+    function joinBars() {
+      const bars = docsBars.filter((b) => b.inSvg && !b.flow && b.el?.isConnected && b.node?.isConnected);
+      for (let i = 0; i + 1 < bars.length; i++) {
+        const a = bars[i], b = bars[i + 1];
+        if (a.hash !== b.hash || a.node.parentNode !== b.node.parentNode || (a.tf || "") !== (b.tf || "")) continue;
+        if (Math.abs((a.gy + a.gh) - (b.gy + b.gh)) > 2) continue; // another line
+        const ax = a.gx + a.f0 * a.gw, bx = b.gx + b.f0 * b.gw;
+        if (bx > ax) a.el.setAttribute("width", String(Math.max(2, bx - ax + 0.5)));
+      }
+      for (const b of bars) {
+        if (!b.wash) continue;
+        b.wash.setAttribute("x", b.el.getAttribute("x"));
+        b.wash.setAttribute("width", b.el.getAttribute("width"));
+        b.wash.setAttribute("y", String(b.gy));
+        b.wash.setAttribute("height", String(b.gh));
+        if (b.tf) b.wash.setAttribute("transform", b.tf); else b.wash.removeAttribute("transform");
+      }
+    }
+
+    /* Motion for the in-tree bars. Removed with their sentence (dismissed,
+       fixed, edited away), a bar fades out where it was instead of blinking
+       off; a bar new on the page draws in (isFreshMark). */
+    let docsRecent = [];
+    function docOrigin() {
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      return { x: docsScroller?.scrollLeft ?? 0, y: docsScroller?.scrollTop ?? 0 };
+    }
+    function barRecord(b, o) {
+      const r = b.el.getBoundingClientRect();
+      return r.width ? { hash: b.hash, color: b.color, x0: r.left + o.x, x1: r.right + o.x, y: r.top + o.y } : null;
+    }
+    function settleDocsMotion(leaving, recentBefore) {
+      const o = docOrigin();
+      const now = docsBars.filter((b) => b.inSvg && !b.flow && b.el.isConnected).map((b) => [b, barRecord(b, o)]).filter(([, r]) => r);
+      // In: new on the page, top to bottom, a few ms apart.
+      const fresh = now.filter(([, r]) => isFreshMark(recentBefore, r)).sort((a, b) => a[1].y - b[1].y || a[1].x0 - b[1].x0);
+      fresh.forEach(([b], i) => drawMarkIn(b.el, Math.min(i * 14, 180)));
+      // Out: gone from this draw. Over a mark that took its place (an edit
+      // re-hashed the sentence) it just goes; elsewhere it fades.
+      for (const b of leaving) {
+        const r = barRecord(b, o);
+        const replaced = r && now.some(([, n]) => n.color === r.color && Math.abs(n.y - r.y) <= 6 && n.x0 < r.x1 && r.x0 < n.x1);
+        let done = false;
+        const gone = () => { if (done) return; done = true; selfMutating = true; b.el.remove(); b.wash?.remove(); queueMicrotask(() => { selfMutating = false; }); };
+        if (!r || replaced || markReducedMotion() || typeof b.el.animate !== "function") { gone(); continue; }
+        b.wash?.remove();
+        try {
+          b.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: MARK_OUT_MS, easing: "ease-out", fill: "forwards" }).finished.then(gone, gone);
+        } catch { gone(); }
+        setTimeout(gone, MARK_OUT_MS + 220); // a page that is not painting never finishes the fade
+      }
+      if (now.length) docsRecent = now.map(([, r]) => r);
+    }
+
+    /* The hovered sentence, and the one whose card is open, get the wash
+       behind their words and a slightly heavier line — Grammarly's gesture,
+       and the one field mode already makes (paintHover). */
+    let docsHoverHash = null;
+    /* The wash's fade. Not a CSS transition: one measured pending forever on
+       a page that was not painting, holding the wash at 0 — the end state is
+       set first and the fade is cancelled by a timer, so the worst case is a
+       highlight that simply appears. */
+    function fadeWash(el, op) {
+      const from = el.style.opacity || "0";
+      el.style.opacity = op;
+      if (markReducedMotion() || typeof el.animate !== "function") return;
+      try {
+        const anim = el.animate([{ opacity: from }, { opacity: op }], { duration: 120, easing: "ease" });
+        setTimeout(() => anim.cancel(), 400);
+      } catch { /* it simply changes */ }
+    }
+    function paintDocsActive() {
+      for (const b of docsBars) {
+        if (!b.wash) continue;
+        const on = b.hash === popHash || b.hash === docsHoverHash;
+        const op = on ? "1" : "0";
+        if (b.wash.style.opacity !== op) fadeWash(b.wash, op);
+        const h = String(on ? b.h0 + 1 : b.h0);
+        if (b.el.getAttribute("height") !== h) b.el.setAttribute("height", h);
+      }
+    }
+
     function drawDocsMarksSvg(svgBars, flows = []) {
       try {
         ensureLayer();
         selfMutating = true;
+        const incoming = new Set(svgBars.map((sb) => sb.hash));
+        const recentBefore = docsRecent;
+        // Bars whose sentence is no longer marked leave on their own clock.
+        const leaving = docsBars.filter((b) => b.inSvg && !b.flow && b.el.isConnected && b.el.style.display !== "none" && !incoming.has(b.hash));
+        for (const b of leaving) { b.el.setAttribute("data-tracely-leaving", ""); b.wash?.setAttribute("data-tracely-leaving", ""); }
+        docsBars = docsBars.filter((b) => !leaving.includes(b));
         clearDocsMarks();
         let inTree = 0, glued = 0;
         for (const sb of svgBars) {
@@ -2471,9 +3554,20 @@
             // exact ancestor transform chain (a <g transform> would otherwise
             // silently offset every bar).
             sb.node.parentNode.insertBefore(bar, sb.node.nextSibling);
+            // The highlight behind the words, shown while this sentence is
+            // hovered or its card is open (paintDocsActive). Under the line.
+            const wash = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            wash.setAttribute("data-tracely-bar", "");
+            wash.setAttribute("aria-hidden", "true");
+            wash.setAttribute("pointer-events", "none");
+            wash.setAttribute("rx", "2");
+            wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above carries the pattern
+            if (tf) wash.setAttribute("transform", tf);
+            wash.style.opacity = "0";
+            sb.node.parentNode.insertBefore(wash, bar);
             inTree++;
             docsBars.push({
-              hash: sb.hash, el: bar, node: sb.node, raw: sb.raw, f0: sb.f0, f1: sb.f1,
+              hash: sb.hash, el: bar, wash, color, h0: Number(bar.getAttribute("height")), node: sb.node, raw: sb.raw, f0: sb.f0, f1: sb.f1,
               // size feeds hover-band math and popover placement in CSS px —
               // rh is SVG user units, so measure through the transform chain.
               size: sb.node.getBoundingClientRect().height || rh || 18,
@@ -2497,6 +3591,7 @@
             docsBars.push({ hash: sb.hash, el: bar, node: sb.node, raw: sb.raw, f0: sb.f0, f1: sb.f1, size: 18 });
           }
         }
+        joinBars();
         /* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT.
            Placing them against Google's rendered text has now failed in five
            distinct ways — anchored to a title, to a table header, to a partial
@@ -2514,6 +3609,8 @@
             size: f.lineH, gx: f.x, gy: f.top, gw: f.right - f.x, gh: f.bottom - f.top, tf: "",
           });
         }
+        settleDocsMotion(leaving, recentBefore);
+        paintDocsActive();
         queueMicrotask(() => { selfMutating = false; });
         console.debug(`[tracely] v${EXT_VERSION} docs marks (svg): ${docsBars.length} bar(s) — ${inTree} in-tree, ${glued} glued, ${flowDrawn} flow — across ${new Set(svgBars.map((b) => b.node)).size} line node(s)`);
         glueFrame();
@@ -2551,13 +3648,21 @@
 
     function requestDocsMarks() {
       if (orphaned || document.hidden) return;
+      if (!docsOn) { if (docsBars.length) clearDocsMarks(); return; } // turned off: nothing drawn
       lastLocateAt = Date.now();
       armAnnotationObserver();
       // The hook caps at 40 wants — cap here too so nothing is silently dropped
       // on the other side of the protocol.
       const issues = currentIssues().slice(0, 40);
       const flows = activeFlowIssues();
-      if (issues.length === 0 && flows.length === 0) {
+      // Citation notes get their own marks, on the citation (citationMarks).
+      const flaggedText = new Set(issues.map(({ seg }) => seg.text));
+      const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
+        ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed)).filter((t) => !flaggedText.has(t.mark)) // a fact mark already holds that sentence
+        : [];
+      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes].slice(0, Math.max(0, 40 - issues.length));
+      tipMarkById = new Map(tips.map((t) => [t.id, t]));
+      if (issues.length === 0 && flows.length === 0 && tips.length === 0) {
         clearDocsMarks();
         // A card that just fixed the last issue stays up to show "Applied ✓ ·
         // Undo"; the pointer leaving it closes it as usual.
@@ -2568,8 +3673,16 @@
         return;
       }
       lastVerdictByHash = new Map(issues.map(({ seg, f }) => [seg.hash, f.verdict]));
+      for (const t of tips) lastVerdictByHash.set(t.id, t.markKind ?? "cite_tip");
+      // A flagged sentence whose citation carries its own note stops before
+      // it, so the two marks sit side by side instead of on top of each other.
+      const factText = (seg) => {
+        const t = tips.find((x) => x.kind === "page" && seg.text.includes(x.mark));
+        return t ? seg.text.slice(0, seg.text.lastIndexOf(t.mark)).trimEnd() : seg.text;
+      };
+      const located = [...issues.map(({ seg }) => ({ seg: { hash: seg.hash, text: factText(seg) } })), ...tips.map((t) => ({ seg: { hash: t.id, text: t.mark, lastCopy: t.lastCopy } }))];
       // PRIMARY: the SVG annotation layer — complete and live-positioned.
-      const svgBars = issues.length ? svgLocate(issues) : [];
+      const svgBars = located.length ? svgLocate(located) : [];
       if (svgBars !== null) {
         drawDocsMarksSvg(svgBars, flows);
         // Keep the hook's ledgers pruned even though we're not using them.
@@ -2583,7 +3696,7 @@
       window.postMessage({
         type: "tracely-docs-locate",
         id: locateSeq,
-        wants: issues.map(({ seg }) => ({ hash: seg.hash, text: seg.text })),
+        wants: located.map(({ seg }) => ({ hash: seg.hash, text: seg.text })),
       }, "*");
     }
 
@@ -2592,7 +3705,8 @@
        verdict badge, explanation, suggested fix, and actions. Lives in the
        page DOM with inline styles only — Docs' stylesheets never touch it. */
     // (verdict labels/washes/colors are the shared top-level maps)
-    let popEl = null, popHash = null, popHideTimer = null, popFontIn = false;
+    let popEl = null, popHash = null, popFontIn = false;
+    let popApex = null; // the pointer's last spot on the open card's sentence: the safe triangle's tip
     let popAnchor = null, popLastTop = 0, popFollowRaf = 0, popLostAt = 0;
     let popPinned = false; // an edit from this card may remove the underline it follows — stay put
 
@@ -2618,13 +3732,16 @@
       if (reducedMotion() || typeof el.animate !== "function") return;
       const arrow = el.querySelector("[data-pop-arrow]");
       const ax = arrow ? (parseFloat(arrow.style.left) || 20) + 6 : 26;
-      el.style.transformOrigin = `${ax}px 0px`; // grow out of the caret, i.e. the underline
-      el.animate(
+      // Grow out of the caret, i.e. the underline — from below when the card
+      // sits above its sentence.
+      el.style.transformOrigin = `${ax}px ${popAbove ? "100%" : "0px"}`;
+      const anim = el.animate(
         switching
           ? [{ opacity: 0 }, { opacity: 1 }]
-          : [{ opacity: 0, transform: "translateY(-6px) scale(0.98)" }, { opacity: 1, transform: "none" }],
+          : [{ opacity: 0, transform: `translateY(${popAbove ? 6 : -6}px) scale(0.98)` }, { opacity: 1, transform: "none" }],
         { duration: switching ? 90 : 160, easing: POP_EASE },
       );
+      setTimeout(() => anim.cancel(), 500); // never a card held invisible by an animation that did not run
     }
     function animatePopoverOut(el) {
       dropClosingPopover();
@@ -2637,7 +3754,7 @@
       const done = () => { if (gone) return; gone = true; el.remove(); if (popClosing === el) popClosing = null; };
       try {
         el.animate(
-          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-4px)" }],
+          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${popAbove ? 4 : -4}px)` }],
           { duration: 110, easing: "ease-in", fill: "forwards" },
         ).finished.then(done, done);
       } catch { done(); return; }
@@ -2654,8 +3771,10 @@
       popAnchor = null;
       popLostAt = 0;
       popPinned = false;
+      popApex = null;
       popEditSyncs.clear();
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
+      paintDocsActive();
     }
 
     /* ── the app's popover, state for state ───────────────────────────────
@@ -2690,7 +3809,7 @@
       appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
       couldNot: "Could not apply",
       searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
-      noSources: "No sources found", searchFailed: "Search failed", searchAgain: "Search again",
+      noSources: "No sources found", noBacking: "Nothing backs this as written", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
       copyEntry: "Copy entry",
@@ -2984,9 +4103,10 @@
       popLastTop = rect.top;
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
+      paintDocsActive();
     }
     function showDocsPopover(hash, rect, anchorBar) {
-      if (!cache.get(hash)) return;
+      if (!cache.get(hash) && !tipMarkById.has(hash)) return;
       openPop(hash, rect, anchorBar, POP_WIDTH);
     }
     function showFlowPopover(bar, rect, anchorBar) {
@@ -2999,6 +4119,22 @@
     function renderPopSources(hash) { if (popEl && popHash === hash) paintPop(); }
     function renderPopDeep(hash) { if (popEl && popHash === hash) paintPop(); }
 
+    // A citation note's card: what is wrong with the citation, the citation, Dismiss.
+    function paintCiteTip(tip, put) {
+      put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], TIP_LABEL[tip.kind] ?? "Citation"));
+      put(dmBody(tip.message));
+      put(dmBlock(tip.markKind === "note_tip" ? "SENTENCE" : tip.kind === "page" ? "QUOTED" : "REFERENCE", dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
+      const dismiss = dmBtn("Dismiss", false);
+      dismiss.addEventListener("click", () => {
+        dismissed.add(tip.id);
+        lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        hideDocsPopover();
+        render();
+        requestDocsMarks();
+      });
+      put(dmActions(dismiss));
+    }
+
     function paintPop() {
       if (!popEl || !popCard) return;
       const hash = popHash;
@@ -3006,6 +4142,8 @@
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
       const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
       if (flow) { paintFlow(hash, flow, put); requestPlace(); return; }
+      const tip = tipMarkById.get(hash);
+      if (tip) { paintCiteTip(tip, put); requestPlace(); return; }
       const f = cache.get(hash);
       const seg = segments.find((s) => s.hash === hash);
       if (!f || !seg) return;
@@ -3143,7 +4281,7 @@
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -3189,7 +4327,8 @@
       const list = s.list ?? [];
       const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(hash, { searched: true, selected: null }); p.catch(() => {}); };
       if (list.length === 0) {
-        put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
+        if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
+        else put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
         const again = dmBtn(POP_COPY.searchAgain, true);
         again.addEventListener("click", searchAgain);
         const dis = dmBtn(POP_COPY.dismiss, false);
@@ -3295,70 +4434,88 @@
       placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
     }
 
-    let hoverRafBusy = false;
+    /* Hover intent (hoverIntent, inSafeTriangle). One pending decision at a
+       time; when its timer fires the pointer is looked at again, and the
+       decision runs only if it still holds. */
+    let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
+    function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
+    function hoverState(x, y) {
+      // Bars are DOM-anchored now — read their LIVE viewport rects, which
+      // are correct mid-scroll by construction.
+      // In-tree bars are PAINT-clipped by the editor natively but their
+      // client rects still exist off-viewport — clip the hit-test too, or
+      // scrolled-away bars open phantom popovers over Docs chrome.
+      if (!docsScroller || !docsScroller.isConnected) {
+        docsScroller = document.querySelector(".kix-appview-editor");
+      }
+      const clip = docsScroller ? docsScroller.getBoundingClientRect() : null;
+      const hitOf = (b) => {
+        if (!b.el.isConnected || b.el.style.opacity === "0" || b.el.style.display === "none") return null;
+        const r = b.el.getBoundingClientRect();
+        if (clip && (r.bottom < clip.top + 2 || r.top > clip.bottom - 2 || r.left > clip.right || r.right < clip.left)) return null;
+        return x >= r.left - 2 && x <= r.right + 2 && y >= r.top - b.size && y <= r.bottom + 3
+          ? { left: r.left, top: r.top, bottom: r.bottom, size: b.size, centerX: r.left + r.width / 2 }
+          : null;
+      };
+      let onOwn = false, bar = null, hit = null;
+      for (const b of docsBars) {
+        if (popEl && b.hash === popHash) { if (!onOwn && hitOf(b)) onOwn = true; continue; }
+        if (bar) continue;
+        const h = hitOf(b);
+        if (h) { bar = b; hit = h; }
+      }
+      let onCard = false, inTri = false;
+      if (popEl) {
+        const pb = popEl.getBoundingClientRect();
+        onCard = x >= pb.left - 8 && x <= pb.right + 8 && y >= pb.top - 8 && y <= pb.bottom + 8;
+        if (!onCard && !onOwn) inTri = inSafeTriangle(popApex, (popCard ?? popEl).getBoundingClientRect(), x, y);
+      }
+      // Not while pinned: an edit from this card is still settling.
+      if (popEl && popPinned) bar = null;
+      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, under: bar?.hash ?? null, bar, hit };
+    }
+    function runHoverDecision(d, st) {
+      if (d.act === "hide") { hideDocsPopover(); return; }
+      if (!st.bar) return;
+      if (st.bar.flow) showFlowPopover(st.bar, st.hit, st.bar);
+      else showDocsPopover(st.bar.hash, st.hit, st.bar);
+      popApex = { x: hoverPt.x, y: hoverPt.y };
+    }
+    function hoverHit() {
+      hoverRafBusy = false;
+      const { x, y } = hoverPt;
+      const st = hoverState(x, y);
+      const d = hoverIntent(st);
+      if (st.onOwn) popApex = { x, y };
+      // The sentence under a closed pointer lights up at once; its card follows.
+      const lit = d.act === "open" ? d.hash : null;
+      if (lit !== docsHoverHash) { docsHoverHash = lit; paintDocsActive(); }
+      if (d.act === "stay" || d.act === "none") { clearHoverPending(); return; }
+      const same = hoverPending && hoverPending.act === d.act && hoverPending.hash === d.hash;
+      // Already counting down — unless this one waits for the pointer to REST
+      // and it has moved since.
+      if (same && !(d.rest && Math.hypot(x - hoverPending.x, y - hoverPending.y) > 3)) return;
+      clearHoverPending();
+      const pending = { act: d.act, hash: d.hash, x, y, timer: 0 };
+      pending.timer = setTimeout(() => {
+        if (hoverPending !== pending) return;
+        hoverPending = null;
+        const now = hoverState(hoverPt.x, hoverPt.y);
+        const again = hoverIntent(now);
+        if (again.act === d.act && again.hash === d.hash) runHoverDecision(again, now);
+      }, d.ms);
+      hoverPending = pending;
+    }
     window.addEventListener("mousemove", (e) => {
+      hoverPt = { x: e.clientX, y: e.clientY };
       if (hoverRafBusy) return;
       hoverRafBusy = true;
-      const x = e.clientX, y = e.clientY;
       // rAF starves in hidden/throttled tabs — a lone mousemove during a
       // tab-hide must not wedge hover forever, so a timer backstops the frame.
       let hoverRan = false;
       const runHover = (fn) => { if (hoverRan) return; hoverRan = true; fn(); };
       setTimeout(() => runHover(hoverHit), 90);
       requestAnimationFrame(() => runHover(hoverHit));
-      function hoverHit() {
-        hoverRafBusy = false;
-        // Bars are DOM-anchored now — read their LIVE viewport rects, which
-        // are correct mid-scroll by construction.
-        // In-tree bars are PAINT-clipped by the editor natively but their
-        // client rects still exist off-viewport — clip the hit-test too, or
-        // scrolled-away bars open phantom popovers over Docs chrome.
-        if (!docsScroller || !docsScroller.isConnected) {
-          docsScroller = document.querySelector(".kix-appview-editor");
-        }
-        const clip = docsScroller ? docsScroller.getBoundingClientRect() : null;
-        const hitOf = (b) => {
-          if (!b.el.isConnected || b.el.style.opacity === "0" || b.el.style.display === "none") return null;
-          const r = b.el.getBoundingClientRect();
-          if (clip && (r.bottom < clip.top + 2 || r.top > clip.bottom - 2 || r.left > clip.right || r.right < clip.left)) return null;
-          return x >= r.left - 2 && x <= r.right + 2 && y >= r.top - b.size && y <= r.bottom + 3
-            ? { left: r.left, top: r.top, bottom: r.bottom, size: b.size, centerX: r.left + r.width / 2 }
-            : null;
-        };
-        if (popEl) {
-          const pb = popEl.getBoundingClientRect();
-          const inPop = x >= pb.left - 8 && x <= pb.right + 8 && y >= pb.top - 8 && y <= pb.bottom + 8;
-          const stillOnMark = docsBars.some((b) => b.hash === popHash && hitOf(b));
-          if (inPop || stillOnMark) {
-            clearTimeout(popHideTimer);
-            popHideTimer = null;
-            return;
-          }
-          // Straight onto ANOTHER underline: swap to its card now (a short
-          // fade, no slide) instead of waiting out the close timer — which
-          // left a dead gap, and no card at all until the pointer moved again.
-          // Not while pinned: an edit from this card is still settling.
-          const other = popPinned ? null : docsBars.find((b) => b.hash !== popHash && hitOf(b));
-          if (other) {
-            clearTimeout(popHideTimer);
-            popHideTimer = null;
-            const hit = hitOf(other);
-            if (other.flow) showFlowPopover(other, hit, other);
-            else showDocsPopover(other.hash, hit, other);
-            return;
-          }
-          if (!popHideTimer) popHideTimer = setTimeout(() => { popHideTimer = null; hideDocsPopover(); }, 250);
-          return;
-        }
-        for (const b of docsBars) {
-          const hit = hitOf(b);
-          if (hit) {
-            if (b.flow) showFlowPopover(b, hit, b);
-            else showDocsPopover(b.hash, hit, b);
-            break;
-          }
-        }
-      }
     }, { passive: true });
 
     // Scroll/wheel fire at frame rate; a trailing 140ms throttle keeps the
@@ -3458,16 +4615,30 @@
            paint, so bars are corrected before a wrong frame can ever hit the
            screen. Recycled binding → hide until re-match; re-coordinated
            geometry/transform on the SAME text → follow it in place. */
+        /* No blank frame per keystroke. Owner, 2026-10-04: "every time I type
+           a character the underlines flicker". Typing rewrites the line's
+           annotation (and reflows every line after it in the paragraph); the
+           old code HID each such bar and waited a frame — or up to 140ms when
+           typing fast (fastDocsMarks' floor) — to re-match, so every bar on
+           those lines blinked on every key. Now a bar whose line only changed
+           its text keeps following that line, and anything that needs a
+           re-match gets one HERE, in this callback, which runs before the
+           next paint: the frame the user sees is already corrected. */
+        let relocateNow = false;
         for (const b of docsBars) {
           if (!b.node || !b.inSvg) continue;
           if (b.flow) { // brackets are re-located wholesale by the next pass
-            if (!b.el.isConnected || !b.node.isConnected) b.el.style.display = "none";
+            if (!b.el.isConnected || !b.node.isConnected) { b.el.style.display = "none"; relocateNow = true; }
             continue;
           }
-          if (!b.el.isConnected || !b.node.isConnected || b.node.getAttribute("aria-label") !== b.raw) {
-            b.el.style.display = "none";
+          if (!b.el.isConnected || !b.node.isConnected) {
+            b.el.style.display = "none"; // Docs replaced the line: nothing to follow
+            relocateNow = true;
+            if (b.wash) b.wash.style.display = "none";
             continue;
           }
+          // Same line, new text: keep following it until the re-match below.
+          if (b.node.getAttribute("aria-label") !== b.raw) relocateNow = true;
           const rx = parseFloat(b.node.getAttribute("x"));
           const ry = parseFloat(b.node.getAttribute("y"));
           const rw = parseFloat(b.node.getAttribute("width"));
@@ -3483,6 +4654,8 @@
             b.size = b.node.getBoundingClientRect().height || b.size;
           }
         }
+        joinBars(); // the follow above reset each bar to its own rect's width
+        if (relocateNow) { requestDocsMarks(); return; } // before paint, not a frame later
         if (annoRafPending) return;
         annoRafPending = true;
         // Coalesce a mutation burst into one re-match, aligned to the frame.
@@ -3569,7 +4742,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
+        const { list, unbacked } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, copiedUrl: null });
         persistCaches();
       } catch (err) {
         sourcesMap.delete(hash);
@@ -4201,6 +5375,19 @@
     tierListeners.push(() => render());
 
     /* The ask. One card, the app's shape, and the one decision it needs. */
+    /* Turn off: the same switch the consent card turns on (docsEnabled), so it
+       holds for every Doc until the writer turns it back on — from the pill,
+       which goes back to "Turn on Tracely for Docs", or from the options
+       page. Underlines and any open card go at once, not at the next read. */
+    function turnDocsOff() {
+      docsOn = false;
+      expanded = false;
+      storageSet({ docsEnabled: false });
+      hideDocsPopover();
+      clearDocsMarks();
+      render();
+    }
+
     function renderDocsConsent() {
       root.innerHTML = `
         ${expanded ? `
@@ -4231,9 +5418,14 @@
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
+      const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
+      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed) : [];
+      const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
-      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
+      // A stray line counts on the launcher too: a ✓ over it would say all is well.
+      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length;
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
+      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
       panelWasOpen = expanded;
@@ -4267,6 +5459,8 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+          } else if (st?.unbacked && !st.list?.length) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(UNBACKED_NOTE(st.unbacked))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
@@ -4315,7 +5509,12 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const evidenceHtml = FEATURES.evidenceHints
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
+          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
+            ? essayFeedbackHtml(essayNotes, review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : []) + (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
+            : "");
+        const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -4328,7 +5527,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${flowCards}${cardsHtml || (flowCards ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
+            ${undoStrip}${genreHtml}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -4336,7 +5535,7 @@
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="checkNow">Check now</button>
+            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or its options.">Turn off</button>
           </div>
         </div>`;
       }
@@ -4352,9 +5551,21 @@
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
-        shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
+          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); requestDocsMarks(); });
+        }
+        for (const btn of shadow.querySelectorAll("[data-tip-copy]")) {
+          btn.addEventListener("click", () => {
+            const tip = [...resumeTips(docText, review.findings, dismissed), ...essayFeedbackTips(docText, review.findings, dismissed)].find((t) => t.id === btn.dataset.tipCopy);
+            if (!tip?.suggestion) return;
+            navigator.clipboard?.writeText(tip.suggestion).catch(() => { /* denied */ });
+            copiedTipId = tip.id;
+            render();
+          });
+        }
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);
@@ -4469,7 +5680,7 @@
     setInterval(watchTypingFrame, 5_000);
     setInterval(() => {
       if (orphaned) return;
-      if (!inflight && !document.hidden && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
+      if (!inflight && !document.hidden && Date.now() >= exportPausedUntil && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
         cycle();
       } else if (expanded && !inflight) {
         // Targeted countdown update — a full render() every second would reset
@@ -4562,6 +5773,7 @@
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
+    let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
     let lastCheckEnd = Date.now();
@@ -4574,6 +5786,40 @@
     let orphaned = false; // the extension was reloaded under this tab — see standDownField
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
+    let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
+    let copiedTipId = null;
+    /* Ask /api/review for this resume's bullet and typo notes — only for a
+       resume, only once the text has been still REVIEW_IDLE_MS, only when a
+       line is new or rewritten since the last answer (reviewWorthwhile), at
+       most every REVIEW_FLOOR_MS and REVIEW_REPEAT_MS after an answer. A
+       server without the route (404 not_found) switches it off until reload;
+       any other failure waits out the floor and tries again. The free format
+       rules (resumeFormatIssues) show either way. */
+    async function requestReview(text) {
+      const kind = reviewKindFor(docGenre);
+      if (!kind || review.inflight || review.unavailable) return;
+      // A document that changed kind (a resume pasted over an essay) starts over.
+      if (review.kind !== kind) Object.assign(review, { kind, lastText: null, findings: [], at: 0, okAt: 0, seen: new Map() });
+      if (!reviewWorthwhile(review.lastText, text) || Date.now() - lastTextChangeAt < REVIEW_IDLE_MS || Date.now() - review.at < REVIEW_FLOOR_MS || Date.now() - review.okAt < REVIEW_REPEAT_MS) return;
+      review.inflight = true;
+      render();
+      try {
+        const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL, kind });
+        review.findings = Array.isArray(data?.findings) ? data.findings : [];
+        if (kind === "essay") for (const t of essayFeedbackTips(text, review.findings, new Set())) review.seen.set(t.id, t);
+        review.lastText = text;
+        review.okAt = Date.now();
+        review.serving = data?.genre === "resume"; // the model disagrees that it is one: back to the check
+      } catch (err) {
+        review.serving = false; // until a review answers again, the check covers the resume
+        if (err?.kind === "not_found") review.unavailable = true;
+      } finally {
+        review.at = Date.now();
+        review.inflight = false;
+        render();
+      }
+    }
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let fieldText = "";
     let copiedFixHash = null;
@@ -4752,6 +5998,46 @@
       marksRaf = requestAnimationFrame(() => { marksRaf = null; drawMarks(); });
     }
 
+    /* One finding's mark (field mode): the app's highlighter band under a
+       coloured line (src/shared/markMotion.ts), both growing on hover. Two
+       children rather than a border, so the line paints over the band. Used
+       for sentence marks and for citation notes (cite_tip) alike. */
+    let fieldRecent = [], fieldDrawn = [];
+    function paintMark(layer, hash, rects, color, pattern) {
+      markRects.set(hash, rects);
+      const fresh = isFreshMark(fieldRecent, { hash, color, x0: rects[0].left + scrollX, x1: rects[0].left + rects[0].width + scrollX, y: rects[0].top + scrollY });
+      for (const r of rects) fieldDrawn.push({ hash, color, x0: r.left + scrollX, x1: r.left + r.width + scrollX, y: r.top + scrollY });
+      for (const r of rects) {
+        const bar = document.createElement("div");
+        Object.assign(bar.style, {
+          position: "fixed", left: r.left + "px", top: r.top + "px",
+          width: r.width + "px", height: r.height + "px",
+          background: "transparent", // Grammarly-style: a clean underline, no highlight wash
+          pointerEvents: "none",
+        });
+        const band = document.createElement("div");
+        Object.assign(band.style, {
+          position: "absolute", left: "0", right: "0",
+          top: `-${MARK_BAND_INSET_TOP}px`, bottom: `-${MARK_BAND_INSET_BOTTOM}px`,
+          borderRadius: `${MARK_BAND_RADIUS}px`,
+          background: withAlpha(color, 0),
+          transform: `scaleY(${MARK_BAND_SCALE_RESTING})`, transformOrigin: "bottom",
+          transition: markReducedMotion() ? "none" : MARK_BAND_TRANSITION,
+        });
+        const line = document.createElement("div");
+        Object.assign(line.style, {
+          position: "absolute", left: "0", right: "0", bottom: "0",
+          height: `${markLineHeight(pattern, false)}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
+          background: markFill(color, pattern),
+          transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
+        });
+        bar.append(band, line);
+        markParts.set(hash, [...(markParts.get(hash) || []), { band, line, color, pattern }]);
+        layer.appendChild(bar);
+        if (fresh) drawMarkIn(line, 0);
+      }
+    }
+
     function drawMarks() {
       if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; }
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
@@ -4759,6 +6045,9 @@
       layer.textContent = "";
       markRects.clear();
       markParts.clear();
+      // What the reader saw last draw (fresh marks are tested against it).
+      if (fieldDrawn.length) fieldRecent = fieldDrawn;
+      fieldDrawn = [];
       if (!tracked || !tracked.isConnected) return;
       const isTa = tracked instanceof HTMLTextAreaElement;
       let index = null;
@@ -4770,15 +6059,27 @@
         liveText = index.text;
       }
       if (liveText.trim().length < MIN_FIELD_CHARS) return;
+      // Citation notes, on the citation itself (citationMarks); a flagged
+      // sentence stops before a citation that carries one.
+      const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
+        ? essayFeedbackMarks(liveText, essayFeedbackTips(liveText, review.findings, dismissed)).filter((t) => !(cache.get(hashText(t.mark)) && flagShown(cache.get(hashText(t.mark)), settings, docGenre, t.mark)))
+        : [];
+      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : []), ...notes];
       const seen = new Set();
-      for (const seg of segmentText(liveText)) {
+      for (const tip of tips) {
+        const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
+        if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS[tip.markKind ?? "cite_tip"], MARK_PATTERN[tip.markKind ?? "cite_tip"]);
+      }
+      const liveSegs = segmentText(liveText);
+      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      for (const seg of liveSegs) {
         if (!seg.checkable || seen.has(seg.hash) || dismissed.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings)) {
+        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash))) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -4787,44 +6088,20 @@
         } else {
           continue;
         }
-        const rects = isTa ? taRects(tracked, seg.start, seg.end) : ceRects(tracked, index, seg.start, seg.end);
+        const cut = tips.find((t) => t.kind === "page" && t.start > seg.start && t.start < seg.end);
+        const end = cut ? seg.start + liveText.slice(seg.start, cut.start).trimEnd().length : seg.end;
+        const rects = isTa ? taRects(tracked, seg.start, end) : ceRects(tracked, index, seg.start, end);
         if (rects.length === 0) continue;
-        if (!pending) markRects.set(seg.hash, rects);
+        if (!pending) { paintMark(layer, seg.hash, rects, color, pattern); continue; }
         for (const r of rects) {
+          // Provisional: a dotted rule, no band — nothing to point at yet.
           const bar = document.createElement("div");
           Object.assign(bar.style, {
             position: "fixed", left: r.left + "px", top: r.top + "px",
             width: r.width + "px", height: r.height + "px",
-            background: "transparent", // Grammarly-style: a clean underline, no highlight wash
-            pointerEvents: "none",
+            background: "transparent", pointerEvents: "none",
+            borderBottom: `2px dotted ${color}`, opacity: "0.7",
           });
-          if (pending) {
-            // Provisional: a dotted rule, no band — nothing to point at yet.
-            bar.style.borderBottom = `2px dotted ${color}`;
-            bar.style.opacity = "0.7";
-          } else {
-            // The app's mark (src/shared/markMotion.ts): a highlighter band
-            // under a coloured line, both growing on hover. Two children
-            // rather than a border, so the line paints over the band.
-            const band = document.createElement("div");
-            Object.assign(band.style, {
-              position: "absolute", left: "0", right: "0",
-              top: `-${MARK_BAND_INSET_TOP}px`, bottom: `-${MARK_BAND_INSET_BOTTOM}px`,
-              borderRadius: `${MARK_BAND_RADIUS}px`,
-              background: withAlpha(color, 0),
-              transform: `scaleY(${MARK_BAND_SCALE_RESTING})`, transformOrigin: "bottom",
-              transition: markReducedMotion() ? "none" : MARK_BAND_TRANSITION,
-            });
-            const line = document.createElement("div");
-            Object.assign(line.style, {
-              position: "absolute", left: "0", right: "0", bottom: "0",
-              height: `${markLineHeight(pattern, false)}px`, borderRadius: `${MARK_LINE_RADIUS}px`,
-              background: markFill(color, pattern),
-              transition: markReducedMotion() ? "none" : MARK_LINE_TRANSITION,
-            });
-            bar.append(band, line);
-            markParts.set(seg.hash, [...(markParts.get(seg.hash) || []), { band, line, color, pattern }]);
-          }
           layer.appendChild(bar);
         }
       }
@@ -4908,7 +6185,34 @@
 
     /* ── check pipeline (same guards as docs mode) ── */
 
+    // Cost idea 2: a sentence changed only by a typo or punctuation keeps
+    // the verdict it had (smallEdit). The counts are for the console.
+    let verdictsReused = 0, sentencesChecked = 0;
+    function inheritVerdicts(before) {
+      const live = new Set(segments.map((sg) => sg.hash));
+      const taken = new Set();
+      let n = 0;
+      for (const seg of segments) {
+        if (!seg.checkable || cache.has(seg.hash)) continue;
+        const old = inheritedVerdict(seg, before, live, cache, taken);
+        if (!old) continue;
+        cache.set(seg.hash, cache.get(old.hash));
+        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
+          dismissed.add(seg.hash);
+          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+        }
+        n++;
+      }
+      if (n) {
+        verdictsReused += n;
+        console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
+      }
+      return n;
+    }
+
     function uncheckedSegments() {
+      if (FEATURES.writingOnly && docGenre === "homework") return []; // not writing: nothing to check
+      if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
       for (const seg of segments) {
@@ -4928,7 +6232,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings)) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -4948,19 +6252,24 @@
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
+        docGenre = FEATURES.resumeTips ? detectGenre(fieldText) : "prose";
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
           statusMsg = `field under ${MIN_FIELD_CHARS} characters — keep writing`;
           segments = [];
           return;
         }
+        const before = segments;
         segments = segmentText(fieldText);
+        if (inheritVerdicts(before)) persistFieldCache();
+        citedLater = coveredByLaterCitation(fieldText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
           render();
+          sentencesChecked += todo.length;
           const data = await api("/api/check", {
             text: fieldText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
@@ -4968,7 +6277,7 @@
           });
           checkedOnce = true;
           for (const f of data.findings ?? []) {
-            cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: f.revision, confidence: f.confidence });
+            cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: usableRevision(todo.find((x) => x.hash === f.id)?.text, f.revision), confidence: f.confidence });
           }
           holdOmitted(heldHashes, todo, data.findings, Date.now());
           persistFieldCache();
@@ -4977,6 +6286,7 @@
         statusKind = "idle";
         const n = currentIssues().length;
         statusMsg = n > 0 ? `${n} issue${n === 1 ? "" : "s"} found` : "all clear";
+        requestReview(fieldText); // fire-and-forget; resumes only
       } catch (err) {
         lastCheckFailed = true;
         if (err?.kind === "no_engine") {
@@ -5022,7 +6332,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        sourcesMap.set(hash, { loading: false, list: data.sources ?? [], copiedUrl: null });
+        const { list, unbacked } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, copiedUrl: null });
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
@@ -5188,10 +6499,15 @@
       root.style.display = show ? "" : "none";
 
       const issues = currentIssues();
+      const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
+      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed) : [];
+      const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
-      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : issues.length > 0 ? "" : "ok";
-      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : issues.length > 0 ? String(issues.length) : "✓";
+      // A stray line counts on the launcher too: a ✓ over it would say all is well.
+      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length;
+      const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
+      const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
       const panelOpening = expanded && !panelWasOpen;
       panelWasOpen = expanded;
@@ -5202,6 +6518,8 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+          } else if (st?.unbacked && !st.list?.length) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(UNBACKED_NOTE(st.unbacked))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
@@ -5247,7 +6565,12 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const evidenceHtml = FEATURES.evidenceHints
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
+          : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
+            ? essayFeedbackHtml(essayNotes, review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : []) + (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
+            : "");
+        const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -5255,22 +6578,21 @@
           ? "Tracely could not reach its server. Try again in a moment."
           : enabled
             ? "Nothing flagged. Sentences are checked as you finish them, while this field is focused."
-            : "Nothing sent yet. “Check once” reviews this field — or turn on auto-check for this site.";
+            : "Tracely is off on this site, and nothing is sent. Turn it on to check what you write here.";
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${cardsHtml || `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${genreHtml}${tipsHtml}${cardsHtml || (tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`)}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
-              <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "auto-check off"}</span>
-              <label class="autosrc" title="Check sentences on this site as you finish them. Off: nothing is sent until you click."><input type="checkbox" id="siteTgl"${enabled ? " checked" : ""} /><span>Auto-check on this site</span></label>
+              <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "off on this site"}</span>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="checkNow">${enabled ? "Check now" : "Check once"}</button>
+            <button class="act${enabled ? "" : " primary"}" id="siteSwitch">${enabled ? "Turn off on this site" : "Turn on for this site"}</button>
           </div>
         </div>`;
       }
@@ -5279,7 +6601,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Check this field</div>`
+          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       const listEl = shadow.querySelector(".list");
@@ -5288,10 +6610,21 @@
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       wireChrome(shadow, () => { expanded = false; render(); }, render);
       if (expanded) {
-        shadow.getElementById("siteTgl").addEventListener("change", (e) => setSiteEnabled(e.target.checked));
-        shadow.getElementById("checkNow").addEventListener("click", () => { lastCheckEnd = 0; cycle(); });
+        shadow.getElementById("siteSwitch").addEventListener("click", () => setSiteEnabled(!enabled));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
+          btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); scheduleMarks(); });
+        }
+        for (const btn of shadow.querySelectorAll("[data-tip-copy]")) {
+          btn.addEventListener("click", () => {
+            const tip = [...resumeTips(fieldText, review.findings, dismissed), ...essayFeedbackTips(fieldText, review.findings, dismissed)].find((t) => t.id === btn.dataset.tipCopy);
+            if (!tip?.suggestion) return;
+            navigator.clipboard?.writeText(tip.suggestion).catch(() => { /* denied */ });
+            copiedTipId = tip.id;
+            render();
+          });
+        }
         for (const btn of shadow.querySelectorAll("[data-dismiss]")) {
           btn.addEventListener("click", () => {
             dismissed.add(btn.dataset.dismiss);

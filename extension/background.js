@@ -46,7 +46,7 @@ let SERVER = LOCAL_SERVER;
 // was how you enabled a site.
 chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
 
-const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement"]);
+const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement"]);
 
 const PROBE_INTERVAL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1500;
