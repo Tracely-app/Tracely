@@ -52,15 +52,16 @@ branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null) ||
 [ "$branch" = "main" ] || [ "$branch" = "master" ] || exit 0
 
 case "$norm" in
-  */src/*|*/scripts/*|*/package.json|*/electron-builder.yml|*/electron.vite.config.ts)
+  */src/*|*/scripts/*|*/package.json|*/electron-builder.yml|*/electron.vite.config.ts|*/server/*|*/extension/*)
     printf '%s\n' "Editing ${norm##*/} while on ${branch}.
 
-main is what releases are cut from, and electron-builder packages the working
-tree rather than HEAD — so an uncommitted edit here can reach an installer.
+main only advances by pull request. It is what releases are cut from, what the
+server is deployed from and what the store zip is built from, and
+electron-builder packages the working tree rather than HEAD.
 
-  git checkout -b feat/<what-you-are-doing>
+  git checkout -b <type>/<slug>     # feat/, fix/, docs/, chore/
 
-Docs, README and .claude/ config are fine to edit on main." >&2
+Then open a draft PR early: it is the only signal the other agent can see." >&2
     exit 2
     ;;
 esac

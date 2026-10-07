@@ -6,8 +6,8 @@ Machine-specific settings go in `settings.local.json`, which is gitignored.
 
 ## Why secrets are a permission rule, not a hook
 
-`settings.json` denies reads and writes of `.env`, `.env.staging`, `.env.release`
-and the killswitch backup through `permissions.deny` rather than through a hook.
+`settings.json` denies reads and writes of `.env`, `.env.staging`, `.env.release`,
+`.env.live` and `server/.env` through `permissions.deny` rather than through a hook.
 
 A hook has to *run* to protect you. If bash is missing, or the file picked up
 CRLF line endings, or there's a typo on line 3, the hook exits non-zero — and a
@@ -25,10 +25,14 @@ also block `.env.example`, which is documentation and should stay readable.
 
 | File | Fires on | Does |
 |---|---|---|
-| `guard-bash.sh` | before any `Bash` | Blocks `git commit`/`merge`/`push` on `main`. Asks before anything that spends money or publishes. |
-| `guard-edit.sh` | before any `Edit`/`Write` | Blocks edits to `src/`, `scripts/`, `package.json` and build config while on `main`. |
-| `typecheck.sh` | end of turn | Runs `npm run typecheck` if the turn touched TypeScript. |
-| `autocommit.sh` | end of turn | Commits and pushes the turn's work to the current branch. Refuses on `main`. |
+| `guard-bash.sh` | before any `Bash` | Denies `git commit`/`rebase` on `main`. Asks before: pushing `main`, anything that reaches the production server (the Linode, `systemctl restart tracely`), `pack-extension.sh`, `gh pr merge`, release tags, `npm run ship`, force pushes, and anything that spends on an eval. |
+| `guard-edit.sh` | before any `Edit`/`Write` | Refuses edits to `src/`, `scripts/`, `server/`, `extension/`, `package.json` and the build config while on `main`. Docs and `.claude/` may be edited on `main`. |
+| `typecheck.sh` | end of turn | `npm run typecheck` if the turn touched TypeScript; `cd server && npm test` (the server AND extension suite, ~10 s) if it touched `server/` or `extension/`. `TRACELY_HOOK_NO_TESTS=1` skips the suite for a session. |
+| `autocommit.sh` | end of turn | Commits the turn's work with the PR's title as the subject (or the branch name) and pushes to the current branch. Refuses on `main`. Adds only tracked changes and new files under the project's own directories; names, and leaves alone, anything untracked at the root. Reminds you to open a draft PR when the branch has none. |
+
+**Not guarded, by design:** the Web Store upload, the website and DNS (Vercel),
+and the server's `.env` on the Linode. Those are people's actions, named in
+`STATUS.md` and the PR template's Handoff section, not commands this repo can see.
 
 ### Rules any new hook here must follow
 

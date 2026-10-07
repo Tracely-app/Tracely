@@ -2,13 +2,33 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "preview-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview:ui"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "server-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/server.js"
+      ],
+      "env": {
+        "TRACELY_MOCK": "1"
+      },
+      "port": 4477
+    },
+    {
       "name": "dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev"
       ],
-      "port": 3000
+      "port": 5173
     }
   ]
 }
