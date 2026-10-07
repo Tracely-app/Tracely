@@ -134,7 +134,7 @@
      file and runs in isolation, so those tests keep running the real code. */
   const FEATURES = {
     flow: false,          // "Flow issue" passage flags (/api/flow) and their margin bracket
-    deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards
+    deepDive: true,       // "Explain in depth" (Pro) in the fix card and the widget cards — back on in 2.21.24 (off only for the 2026-10-02 bare-bones build)
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
     evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
@@ -480,6 +480,9 @@
         verdictLabel: introduced ? DEEP_VERDICT_LABEL[e.verdict] ?? String(e.verdict) : "",
         text: e.explanation,
         note,
+        // The fuller answer's own fact and fix (explainInDepth guards the fix).
+        basis: e.basis && e.basis !== e.explanation ? e.basis : "",
+        revision: e.revision ?? "",
       };
     }
     if (e?.state === "locked" || !canDeep()) {
@@ -506,6 +509,11 @@
 
   // A click on the locked button: say why, and never call the server.
   function lockDeep(hash) { deepCache.set(hash, { state: "locked" }); }
+  // The fuller answer's revision for a sentence, once it has one ("" otherwise).
+  function deepRevision(hash) {
+    const e = deepCache.get(hash);
+    return e?.state === "done" ? e.revision || "" : "";
+  }
 
   /* One deep check. `context` is the document or field text (the same
      context a normal check sends); `verdict` is the card's current verdict.
@@ -530,12 +538,20 @@
       const fromLargest = data.thorough
         ? data.thorough.used === true
         : String(data.modelUsed ?? THOROUGH_MODEL).startsWith(THOROUGH_MODEL);
+      /* Its revision and its basis used to be dropped here, so a fuller
+         answer could only be read — never acted on. The revision passes the
+         same guard as a card's own (usableRevision: a bare negation is no
+         fix), and one that only repeats the sentence is none either. */
+      const raw = typeof f.revision === "string" ? f.revision.trim() : "";
+      const revision = raw && raw !== String(sentence).trim() ? usableRevision(sentence, raw) : "";
       next = {
         state: "done",
         verdict: typeof f.verdict === "string" ? f.verdict : verdict,
         explanation: f.explanation,
         fromLargest,
         fallback: fallbackNote(data.thorough),
+        basis: typeof f.basis === "string" ? f.basis.trim() : "",
+        revision,
       };
     } catch (err) {
       next = err?.kind === "plan_required" ? { state: "locked" } : { state: "error" };
@@ -549,20 +565,26 @@
     return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" ? "cite" : v === "incoherent" ? "inco" : "ok";
   }
 
-  // The widget cards' block (docs panel and field mode), from deepView.
-  function deepHtml(hash, verdict) {
+  /* The widget cards' block (docs panel and field mode), from deepView.
+     `fixHtml(hash)`: the mode's button that puts the fuller answer's
+     revision into the text (Fix in doc / Fix in field), "" where it cannot;
+     Copy revision is always beside it. */
+  function deepHtml(hash, verdict, fixHtml = null) {
     const v = deepView(hash, verdict);
     const h = esc(hash);
     if (v.kind === "loading") {
       return `<div class="deep deep-loading" data-deep-box="${h}"><span class="deep-spin"></span>${esc(v.text)}</div>`;
     }
     if (v.kind === "result") {
-      const kind = v.verdict ? verdictKind(v.verdict) : "";
+      const fix = v.revision && typeof fixHtml === "function" ? fixHtml(hash) : "";
       return `<div class="deep" data-deep-box="${h}">
         <div class="deep-label">${esc(v.label)}</div>
         ${v.prefix ? `<div class="deep-prefix">${esc(v.prefix)}</div>` : ""}
         ${v.verdictLabel ? `<span class="badge">${esc(v.verdictLabel)}</span>` : ""}
         <div class="deep-text">${esc(v.text)}</div>
+        ${v.basis ? `<div class="deep-label deep-sub">What it rests on</div><div class="deep-text">${esc(v.basis)}</div>` : ""}
+        ${v.revision ? `<div class="deep-label deep-sub">Suggested revision</div><div class="deep-text">${esc(v.revision)}</div>
+        <div class="row">${fix}<button class="act${fix ? "" : " primary"}" data-deep-copy="${h}">Copy revision</button></div>` : ""}
         ${v.note ? `<div class="deep-note">${esc(v.note)}</div>` : ""}
       </div>`;
     }
@@ -581,6 +603,14 @@
     for (const b of scope.querySelectorAll("[data-deep]")) b.addEventListener("click", () => run(b.dataset.deep));
     for (const b of scope.querySelectorAll("[data-deep-locked]")) b.addEventListener("click", () => { lockDeep(b.dataset.deepLocked); repaint(); });
     for (const a of scope.querySelectorAll("[data-deep-plans]")) a.addEventListener("click", (e) => { e.preventDefault(); openOrderPage(); });
+    for (const b of scope.querySelectorAll("[data-deep-copy]")) {
+      b.addEventListener("click", () => {
+        const r = deepRevision(b.dataset.deepCopy);
+        if (!r) return;
+        try { navigator.clipboard?.writeText(r)?.catch?.(() => {}); } catch { /* denied */ }
+        b.textContent = "Copied ✓";
+      });
+    }
   }
 
   /* ── shared helpers (mirror public/app.js) ─────────────────────────────── */
@@ -1712,6 +1742,254 @@
     } catch { /* no animation: it simply appears */ }
   }
 
+  /* ── "Find the cited work" (2.21.24) ──────────────────────────────────
+     Owner, 2026-10-06: "it says if a citation is invalid, but it doesnt find
+     citation for me … it doesnt go find the publication date for me". A card
+     that says a citation is the problem now looks the cited work up —
+     /api/compare-source: Crossref and Open Library, scored lexically, no
+     model — and offers the record's own in-text marker in place of the one
+     that could not be traced. These are its pure halves: which citation a
+     card is about, what is sent, which reference entry it points at, and the
+     sentence with the citation swapped. Nothing here supplies a field: every
+     author, title, year and venue shown or inserted is the record's, and a
+     resolved record is the work the writer CITED — never evidence that the
+     sentence is true. */
+  // A parenthetical that names a position, not a work: (Figure 3), (Doc 4) —
+  // a DBQ's own document number — (Table 2), (Chapter 4).
+  const CITED_NOT_A_WORK = /^(?:fig(?:ure)?|table|chapter|ch|section|sec|appendix|page|part|doc(?:ument)?|exhibit|step|phase|grade|level|vol(?:ume)?|item|line|lines|act|scene|verse|para(?:graph)?)\.?\s/i;
+  /* The work citations in one sentence, in order: each part of a
+     parenthetical that starts with a name or a quoted title and carries a
+     year, n.d. or a page — (Ghosh, 2025), ("Youth Matters", 2025), (Shoup 45),
+     (Genghis Khan and the, 2022). `shared`: the parenthetical holds more than
+     one work, so swapping it would take the others with it. A [3] or a
+     footnote mark is not one: it names a position in a list, not a work. */
+  function inTextCitationsOf(sentence) {
+    const out = [];
+    for (const m of String(sentence ?? "").matchAll(/\(([^()\n]{2,240})\)/g)) {
+      const parts = m[1].split(";").map((p) => p.trim()).filter(Boolean);
+      const works = parts.filter((p) => !CITED_NOT_A_WORK.test(`${p} `) && /^[\p{Lu}"“‘']/u.test(p) && /\p{L}{2,}/u.test(p)
+        && (/\d/.test(p) || /\bn\.\s?d\./i.test(p) || /^["“‘'][^"”’']{3,}["”’']/.test(p)));
+      for (const inner of works) out.push({ raw: m[0], inner, start: m.index, end: m.index + m[0].length, shared: parts.length > 1 });
+    }
+    return out;
+  }
+  // The citation a card about this sentence means: its only work citation.
+  // null for none, or for several — which one the card is about would then
+  // be a guess, and a guess here rewrites the half the writer did not mean.
+  function lookupableCitation(sentence) {
+    const all = inTextCitationsOf(sentence);
+    return all.length === 1 && !all[0].shared ? all[0] : null;
+  }
+  // A verdict that puts a cited sentence in doubt puts its citation in doubt.
+  const CITED_VERDICTS = ["false", "questionable", "incoherent"];
+  function flaggedCitationOf(verdict, sentence) {
+    return CITED_VERDICTS.includes(verdict) ? lookupableCitation(sentence) : null;
+  }
+  /* What is sent: the citation's (or entry's) words without what a lookup
+     cannot use — a link, a DOI, an access note, a bare site name, a volume or
+     page number. `thin` when fewer than two words are left beside a year:
+     "(Khan, 2022)" alone matches any Khan who published in any year, and a
+     match like that must never be offered as the work the writer meant. */
+  function citedRefQuery(text) {
+    const query = String(text ?? "")
+      .replace(/https?:\/\/\S+|\bwww\.\S+|\bdoi:\s*\S+|\b10\.\d{4,}\/\S+/gi, " ")
+      .replace(/\b(?:retrieved|accessed)\b[^.;\]]*/gi, " ")
+      .replace(/\b[\w-]+(?:\.[\w-]+)*\.(?:com|org|net|edu|gov|io|co|uk|info)\b/gi, " ")
+      .replace(/\b(?:vol|nos?|pp?|eds?|para|ch)\.\s*/gi, " ")
+      .replace(/\b(?!(?:1[5-9]|20)\d\d[a-z]?\b)\d+[a-z]?(?:\s*[-–]\s*\d+)?\b/gi, " ")
+      .replace(/[[\]()/|:]+/g, " ")
+      .replace(/\s+([,.;])/g, "$1").replace(/([,.;])(?:\s*[,.;])+/g, "$1").replace(/\s+/g, " ")
+      .replace(/^[\s,.;]+|[\s,;]+$/g, "")
+      .slice(0, 400);
+    const words = refWords(query.replace(/\b(?:1[5-9]|20)\d\d[a-z]?\b|\bn\.\s?d\./gi, " "));
+    return { query, thin: words.length < 2 };
+  }
+  // The year a citation or entry gives, "n.d." for an explicit no-date, else null.
+  function citedYearOf(text) {
+    const t = String(text ?? "");
+    const y = t.match(/\b(1[5-9]\d\d|20\d\d)[a-z]?\b/);
+    return y ? y[1] : /\bn\.\s?d\./i.test(t) ? "n.d." : null;
+  }
+  /* The reference entry an in-text citation points at, by the same reading
+     referenceListIssues uses: the name (or quoted title) words before the
+     year, most of them in one entry. A year that agrees picks between two
+     such entries; one that disagrees does not rule an entry out, because a
+     wrong year is exactly what this is for. null for no list, no entry, or a
+     tie — sending the wrong entry would look up the wrong work. */
+  function referenceEntryFor(inner, text) {
+    const wc = worksCitedBlock(String(text ?? ""));
+    if (!wc || !wc.entries.length) return null;
+    const p = String(inner ?? "");
+    const year = (p.match(REF_YEAR) || [])[1] ?? null;
+    const quoted = p.match(/["“‘']([^"”’']{3,})["”’']/);
+    const words = refWords(quoted ? quoted[1] : p.replace(/\bet al\.?/gi, " ").split(/,|\d/)[0]);
+    if (!words.length) return null;
+    const scored = [];
+    for (const e of wc.entries) {
+      const have = new Set(refWords(e));
+      const frac = words.filter((w) => have.has(w)).length / words.length;
+      if (frac < 0.6) continue;
+      const years = e.match(/\b(?:1[5-9]\d\d|20\d\d)\b/g) || [];
+      scored.push({ e, frac, yearOk: !year || years.length === 0 || years.includes(year) });
+    }
+    const agree = scored.filter((s) => s.yearOk);
+    const pool = agree.length ? agree : scored;
+    if (!pool.length) return null;
+    const best = Math.max(...pool.map((s) => s.frac));
+    const top = [...new Set(pool.filter((s) => s.frac === best).map((s) => s.e))];
+    return top.length === 1 ? top[0] : null;
+  }
+  // How many times the body (the text above its reference list) carries a citation.
+  function citationUses(text, raw) {
+    const t = String(text ?? ""), r = String(raw ?? "");
+    if (!r) return 0;
+    const wc = worksCitedBlock(t);
+    const body = wc ? t.slice(0, wc.headStart) : t;
+    let n = 0;
+    for (let i = body.indexOf(r); i >= 0; i = body.indexOf(r, i + r.length)) n++;
+    return n;
+  }
+  /* The lookup one card makes. `target` (tipCitedTarget, or a verdict card's
+     sentence) says what the card is about; the matching reference entry is
+     sent when there is one, because it is richer than the in-text form. */
+  function citedLookupPlan(target, text) {
+    if (!target) return null;
+    const isEntry = target.kind === "entry";
+    const entry = isEntry ? target.entry : referenceEntryFor(target.inner, text);
+    const { query, thin } = citedRefQuery(entry ?? target.inner);
+    return {
+      citedRef: query, thin, entry,
+      noEntry: !isEntry && !entry && Boolean(worksCitedBlock(String(text ?? ""))),
+      citedYear: citedYearOf(isEntry ? target.entry : target.inner) ?? (entry ? citedYearOf(entry) : null),
+      display: String(target.inner ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+    };
+  }
+  // Said plainly when the record and the citation disagree on the year.
+  function citedYearNote(recordYear, citedYear) {
+    const r = Number.isInteger(recordYear) ? String(recordYear) : "";
+    if (!citedYear || r === citedYear) return "";
+    if (citedYear === "n.d.") return r ? `This record is from ${r}; your citation gives no date.` : "";
+    return r ? `This record is from ${r}; your citation says ${citedYear}.` : `This record gives no year; your citation says ${citedYear}.`;
+  }
+  /* One /api/compare-source match → the shape formatCitation reads. Only the
+     record's own fields, and only where they mean what the slot means: a
+     journal's or a chapter's venue is its container; a book's "venue" may be
+     its publisher or its series, which cannot be told apart, so a book is
+     cited without one rather than with a guess. */
+  function citedWorkSource(m) {
+    const s = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+    const t = s(m?.venueType);
+    const kind = t === "journal" ? "journal" : t === "book" || t === "chapter" ? "book" : t === "report" ? "report" : t === "news" ? "news" : "other";
+    const venue = s(m?.venue);
+    const doi = s(m?.doi);
+    return {
+      title: s(m?.title),
+      authors: Array.isArray(m?.authors) ? m.authors.map(s).filter(Boolean) : [],
+      year: Number.isInteger(m?.year) ? m.year : null,
+      doi,
+      url: s(m?.url) || (doi ? `https://doi.org/${doi}` : ""),
+      kind,
+      container: t === "journal" || t === "chapter" ? venue : "",
+      publisher: t === "news" ? venue : "",
+      provider: m?.provider === "openlibrary" ? "Open Library" : m?.provider === "crossref" ? "Crossref" : "",
+    };
+  }
+  // The marker and the reference entry for a record. A book is found by its
+  // author, title and publisher; an Open Library address is not part of it.
+  function citedWorkEntry(src, style) {
+    const c = formatCitation(src, style);
+    return { marker: c.marker, entry: src.kind === "book" && !src.doi && !src.container ? c.doc : c.ref };
+  }
+  // The page a citation gives (its writer's own), or null. A year is not a page.
+  function citationPage(inner) {
+    const p = String(inner ?? "");
+    const m = p.match(/\bpp?\.\s*(\d{1,4}(?:\s*[-–]\s*\d{1,4})?)/i) || p.match(/(?:^|[\s,:])(\d{1,4}(?:\s*[-–]\s*\d{1,4})?)\s*$/);
+    if (!m) return null;
+    const n = m[1].replace(/\s+/g, "");
+    return /^(?:1[5-9]|20)\d\d$/.test(n) ? null : n;
+  }
+  function markerWithPage(marker, page, style) {
+    if (!page || !/\)$/.test(marker)) return marker;
+    const sep = style === "apa" ? (/[-–]/.test(page) ? ", pp. " : ", p. ") : style === "chicago" ? ", " : " ";
+    return `${marker.slice(0, -1)}${sep}${page})`;
+  }
+  /* The sentence with the flagged citation swapped for the record's marker,
+     keeping a page the writer gave. null unless that citation is in the
+     sentence exactly once: which copy is meant would otherwise be a guess. */
+  function swapCitation(sentence, raw, marker, style) {
+    const s = String(sentence ?? ""), r = String(raw ?? "");
+    if (!r || !marker) return null;
+    const at = s.indexOf(r);
+    if (at < 0 || s.indexOf(r, at + r.length) >= 0) return null;
+    const out = s.slice(0, at) + markerWithPage(marker, citationPage(r.slice(1, -1)), style) + s.slice(at + r.length);
+    return out === s ? null : out;
+  }
+  /* The sentence a citation note is about, as an index into segs
+     (segmentText's), or -1. An unusable citation, an unnamed source, a note
+     to self are about their own sentence — unless the note is all the
+     sentence is; an excuse ("does not need a publication date because…")
+     is about the claim before it. */
+  function claimSentenceIndex(kind, quote, segs) {
+    const q = String(quote ?? "").trim();
+    const list = Array.isArray(segs) ? segs : [];
+    let i = list.findIndex((s) => s.text === q);
+    if (i < 0) i = list.findIndex((s) => s.text.includes(q) || (q.length >= 12 && q.includes(s.text)));
+    if (i < 0) return -1;
+    const rest = (t) => t.replace(VERIFY_NOTE, " ").split(/\s+/).filter((w) => /\p{L}{3,}/u.test(w)).length;
+    const noteOnly = kind === "excuse" || (kind === "placeholder" && rest(list[i].text) < 5);
+    return noteOnly ? i - 1 : i;
+  }
+  /* What a tip card's "Find the cited work" looks up, or null. "sentence": a
+     citation inside a sentence, swapped in place; "entry": a reference line,
+     completed in place. An unusable citation is the bracket itself; an
+     essay note or an excuse, the one work citation in the sentence it
+     means. segHash is null when that sentence is not one of segs. */
+  function tipCitedTarget(tip, segs) {
+    if (!tip) return null;
+    const list = Array.isArray(segs) ? segs : [];
+    if (tip.kind === "refincomplete") return { kind: "entry", entry: tip.quote, inner: tip.quote, raw: null, segHash: null, sentence: "" };
+    if (tip.kind === "badcite") {
+      const seg = list.find((s) => s.text.includes(tip.quote)) ?? null;
+      return { kind: "sentence", raw: tip.quote, inner: tip.quote.replace(/^\[|\]$/g, ""), segHash: seg?.hash ?? null, sentence: seg?.text ?? "" };
+    }
+    let seg = null, c = null;
+    if (tip.kind === "excuse") {
+      const i = claimSentenceIndex("excuse", tip.quote, list);
+      seg = i >= 0 ? list[i] : null;
+      c = seg ? lookupableCitation(seg.text) : null;
+    } else if (tip.kind === "citation" || tip.kind === "source") {
+      c = lookupableCitation(tip.quote);
+      if (c) seg = list.find((s) => s.text.includes(c.raw) && (s.text.includes(tip.quote) || tip.quote.includes(s.text))) ?? null;
+    }
+    return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg?.hash ?? null, sentence: seg?.text ?? "" } : null;
+  }
+  // The notes whose fix is a source for the claim they excuse or hedge.
+  const TIP_FIND_SOURCE = ["excuse", "placeholder", "vague"];
+  // A lookup that answered nothing usable, in words that never call a source fake.
+  function citedFailureNote(err) {
+    const kind = err?.kind;
+    if (kind === "forbidden" || kind === "not_found") return "This Tracely server can't look up cited works yet, so this citation wasn't checked — that says nothing about whether the work exists.";
+    if (kind === "rate_limit" || kind === "budget") return `${String(err?.message ?? "Too many lookups just now.")} This citation wasn't checked.`;
+    if (err?.offline || kind === "no_engine") return "Couldn't reach Tracely to look up the cited work, so this citation wasn't checked.";
+    return `The lookup didn't answer${err?.message ? ` (${String(err.message).slice(0, 80)})` : ""}, so this citation wasn't checked.`;
+  }
+  const CITED_COPY = {
+    find: "Find the cited work",
+    looking: "Looking up the work you cited…",
+    searching: "Looking up the work you cited",
+    one: "The work you cited",
+    many: (n) => `${n} records match your citation`,
+    intro: (c) => `From Crossref and Open Library, for “${c}”. Check it is the work you meant: this is where your citation points, not proof the sentence is true.`,
+    thin: (c) => `“${c}” doesn't name enough of a work — an author and a title — to look it up.`,
+    notFound: "Not found in Crossref or Open Library. These indexes hold journal articles and books, so no match does not mean the source doesn't exist. Verify it by hand instead.",
+    noEntry: "Nothing in your reference list matches this citation.",
+    fallback: "Sources for the sentence instead:",
+    yours: "YOUR CITATION",
+    replace: "Replace citation", replacing: "Replacing…", complete: "Complete entry", completing: "Completing…",
+    copyRef: "Copy reference", different: "Find a different source",
+    replacedTitle: "Citation replaced", completedTitle: "Entry completed",
+  };
+
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -1978,6 +2256,41 @@
       </div>`).join("");
     return `<div class="tips"><div class="tips-head">${title}${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
   }
+  /* "Find the cited work" in a panel card (both modes). `c` is one card's
+     lookup: { loading } | { resolved:false, note } | { resolved:true,
+     matches, plan }. Every line under a match is the record's own field;
+     `actionsFor(i, src)` is the mode's buttons for match i. */
+  function citedAuthors(list) {
+    const a = Array.isArray(list) ? list.filter(Boolean) : [];
+    return a.length > 3 ? `${a.slice(0, 3).join(", ")} et al.` : a.join(", ");
+  }
+  function citedMetaLine(src) {
+    return [citedAuthors(src.authors), src.year, src.container || src.publisher, src.provider].filter((x) => x != null && x !== "").join(" · ");
+  }
+  function citedWorkHtml(c, actionsFor, more = "") {
+    if (!c) return "";
+    if (c.loading) return `<div class="sources"><div class="loading">${esc(CITED_COPY.looking)}</div></div>`;
+    if (!c.resolved) {
+      return `<div class="sources"><div class="sources-title">${esc(CITED_COPY.one)}</div><div class="loading">${esc(c.note)}</div>`
+        + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${c.target?.segHash ? `<div class="src-snip">${esc(CITED_COPY.fallback)}</div>` : ""}</div>`;
+    }
+    const rows = c.matches.map((src, i) => {
+      const meta = citedMetaLine(src);
+      const yn = citedYearNote(src.year, c.plan?.citedYear);
+      return `
+        <div class="src" data-cited-row="${i}">
+          <div class="src-body">
+            ${src.url ? `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>` : `<span class="src-title">${esc(src.title)}</span>`}
+            ${meta ? `<div class="src-meta">${esc(meta)}</div>` : ""}
+            ${yn ? `<div class="src-snip">${esc(yn)}</div>` : ""}
+            <div class="src-actions">${actionsFor(i, src)}</div>
+          </div>
+        </div>`;
+    }).join("");
+    return `<div class="sources"><div class="sources-title">${esc(c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
+      + `<div class="src-snip">${esc(CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
+      + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
+  }
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
     shadow.getElementById("showAll")?.addEventListener("click", () => { showAllCards = !showAllCards; rerender(); });
@@ -2033,6 +2346,27 @@
 
   function offlineError(err) {
     return Boolean(err?.offline) || err instanceof TypeError || /failed to fetch/i.test(String(err?.message));
+  }
+
+  /* "Find the cited work": one /api/compare-source call (citedLookupPlan
+     says what is sent). Resolves { resolved, matches, note } and never
+     throws. A server from before 2.21.24 refuses the route by origin (403),
+     and that reads as "not checked", never as an answer about the work. A
+     citation too thin to look up is not sent at all. At most three records,
+     each passed through citedWorkSource so only its own fields travel on. */
+  async function lookupCitedWork(plan) {
+    if (!plan) return { resolved: false, matches: [], note: CITED_COPY.notFound };
+    if (plan.thin) return { resolved: false, matches: [], note: CITED_COPY.thin(plan.display) };
+    try {
+      const data = await api("/api/compare-source", { citedRef: plan.citedRef });
+      const matches = (Array.isArray(data?.matches) ? data.matches : [])
+        .filter((m) => m && typeof m.title === "string" && m.title.trim()).slice(0, 3).map(citedWorkSource);
+      if (data?.resolved === true && matches.length) return { resolved: true, matches, note: "" };
+      const note = typeof data?.resolvedNote === "string" && data.resolvedNote.trim() ? data.resolvedNote.trim() : CITED_COPY.notFound;
+      return { resolved: false, matches: [], note };
+    } catch (err) {
+      return { resolved: false, matches: [], note: citedFailureNote(offlineError(err) ? { ...err, kind: err?.kind, offline: true } : err), failed: true };
+    }
   }
 
   /* ── widget chrome (shared shadow-DOM shell) ───────────────────────────── */
@@ -2281,6 +2615,8 @@
     }
     .deep .badge { align-self: flex-start; }
     .deep-prefix { font-size: 13px; font-weight: 600; color: var(--ink); }
+    .deep-sub { margin-top: 6px; }
+    .deep .row { margin-top: 4px; }
     .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
     .fix-text { white-space: normal; }
     .deep-note { font-size: 11px; color: var(--label); }
@@ -2334,6 +2670,7 @@
     .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
     .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
+    .src-title { font-size: 13px; font-weight: 500; color: var(--ink); display: block; }
     .src a:hover { color: var(--accent-ink); }
     .src-meta { font-size: 11px; color: var(--label); }
     .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
@@ -2659,6 +2996,15 @@
     const editedHashes = new Map(); // sentence hash → when we rewrote it (export lags; don't re-check the old text)
     const popEditSyncs = new Set(); // popover edit buttons re-sync on every state change
     let autoSourceTimes = []; // rolling-hour guard on automatic source lookups
+    /* "Find the cited work": a card's key (a sentence's hash, or a tip's id)
+       → its lookup ({ loading } | lookupCitedWork's answer, with the target
+       and plan it was made for). citedFallback: a sentence's hash → the
+       citation in it a card found at fault, so a source cited from the
+       search that follows takes its place (docCite) instead of sitting beside
+       it. For this page session only; nothing here is persisted. */
+    const citedMap = new Map();
+    const citedFallback = new Map();
+    let copiedCitedKey = null; // "key:i" of the last Copy reference, for its ✓
 
     // ── doc reading ──
     let exportBackoff = 0, exportPausedUntil = 0; // see exportBackoffMs
@@ -4116,14 +4462,37 @@
     }
     let popFlowBar = null;
     // The two entry points other code already calls: repaint if this claim is up.
-    function renderPopSources(hash) { if (popEl && popHash === hash) paintPop(); }
+    function renderPopSources(hash) { if (popEl && (popHash === hash || stepOf(popHash).claim === hash)) paintPop(); }
     function renderPopDeep(hash) { if (popEl && popHash === hash) paintPop(); }
 
-    // A citation note's card: what is wrong with the citation, the citation, Dismiss.
+    /* A citation note's card: what is wrong with the citation, the passage it
+       is about, and what can be done — "Find the cited work" where it names
+       a work, "Find a source" for the claim an excuse, a hedge or an unnamed
+       source leaves unsupported — then Dismiss. The block names what it
+       quotes: the sentence for a note about one, the citation for a bracket
+       that stands in for one, the entry for a reference-list note. It said
+       REFERENCE over every sentence an excuse or a hedge was found in. */
+    function citeTipBlockLabel(tip) {
+      if (tip.markKind === "note_tip" || TIP_FIND_SOURCE.includes(tip.kind)) return "SENTENCE";
+      if (tip.kind === "page") return "QUOTED";
+      if (tip.kind === "badcite") return "CITATION";
+      return "REFERENCE";
+    }
     function paintCiteTip(tip, put) {
       put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], TIP_LABEL[tip.kind] ?? "Citation"));
       put(dmBody(tip.message));
-      put(dmBlock(tip.markKind === "note_tip" ? "SENTENCE" : tip.kind === "page" ? "QUOTED" : "REFERENCE", dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
+      put(dmBlock(citeTipBlockLabel(tip), dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
+      const target = tipCitedTarget(tip, segments);
+      const findSrc = TIP_FIND_SOURCE.includes(tip.kind) && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
+      let cited = null, src = null;
+      if (target) {
+        cited = dmBtn(CITED_COPY.find, true);
+        cited.addEventListener("click", () => { findCitedWork(tip.id); });
+      }
+      if (findSrc) {
+        src = dmBtn(POP_COPY.findSource, !target, { wide: Boolean(target) });
+        src.addEventListener("click", () => { findClaimSource(tip.id); });
+      }
       const dismiss = dmBtn("Dismiss", false);
       dismiss.addEventListener("click", () => {
         dismissed.add(tip.id);
@@ -4132,7 +4501,129 @@
         render();
         requestDocsMarks();
       });
-      put(dmActions(dismiss));
+      // Two to a row: a third button would push Dismiss past the card's edge.
+      put(dmActions(cited ?? src, dismiss));
+      if (cited && src) put(src);
+    }
+
+    /* "Find the cited work", card for card: looking it up, the record(s) with
+       Replace citation / Complete entry / Copy reference, and the edit's
+       applied and failed states. A lookup that resolves nothing never shows
+       here — the card has already moved on to the sentence's search, with
+       the server's note on top (paintSources' `note`). */
+    function dmWorkRow(src, selected, onSelect) {
+      const row = el("button", {
+        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
+        textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
+      });
+      row.type = "button";
+      const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px" });
+      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflowWrap: "anywhere" }, src.title));
+      const line = citedMetaLine(src);
+      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflowWrap: "anywhere" }, line));
+      row.appendChild(meta);
+      const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box", marginTop: "2px" });
+      if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
+      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      row.appendChild(radio);
+      row.addEventListener("click", onSelect);
+      return row;
+    }
+    function paintCited(key, put) {
+      const c = citedMap.get(key);
+      const t = c.target;
+      const style = settings.citationStyle || "mla";
+      const back = () => { popSteps.delete(key); paintPop(); };
+      // The edit made from this card, if one is showing.
+      const editKey = [...docEditState.keys()].find((k) => k.startsWith(`recite:${key}:`) || k.startsWith(`entry:${key}:`)) ?? null;
+      // An edit the export already shows keeps its confirmation here; its
+      // Undo has moved to the panel's strip by then.
+      const done = editKey ? docEditState.get(editKey) : c.done ? { state: "applied" } : null;
+      const doneKey = editKey ?? c.done?.key ?? "";
+      if (done && (done.state === "applied" || done.state === "undoing")) {
+        const entry = doneKey.startsWith("entry:");
+        put(dmHead(DM.green, entry ? CITED_COPY.completedTitle : CITED_COPY.replacedTitle), dmBody(c.done?.message ?? (entry ? "The reference entry now gives the record's details." : "Your sentence now cites the work you meant.")));
+        if (c.done?.paste) put(dmBlock(`ADD THIS TO YOUR ${String(c.done.list || "Works Cited").toUpperCase()}`, dmBlockBody(c.done.paste)));
+        const ok = dmBtn(POP_COPY.done, true);
+        ok.addEventListener("click", () => { if (editKey) setEditState(editKey, null); popSteps.delete(key); hideDocsPopover(); });
+        const undo = dmBtn(done.state === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: done.state === "undoing" || lastDocEdit?.key !== doneKey });
+        undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+        put(dmActions(ok, undo));
+        return;
+      }
+      if (done?.state === "failed") {
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${done.copied ? "Copied instead — " : ""}${done.note || "the editor couldn't make that edit"}.`));
+        const b = dmBtn(POP_COPY.back, true);
+        b.addEventListener("click", () => { setEditState(doneKey, null); paintPop(); });
+        put(dmActions(b));
+        return;
+      }
+      if (c.loading) {
+        put(dmHead(MARK_PENDING, CITED_COPY.searching), dmBody(`Searching Crossref and Open Library for “${c.plan?.display ?? ""}”.`), dmProgress());
+        const cancel = dmBtn(POP_COPY.cancel, false);
+        cancel.addEventListener("click", back);
+        put(dmActions(cancel));
+        return;
+      }
+      if (!c.resolved) {
+        // An entry has no sentence to search for: the note is the answer.
+        put(dmHead(DM.amber, CITED_COPY.one), dmBody(c.note));
+        if (c.plan?.noEntry) put(dmHint(CITED_COPY.noEntry));
+        const b = dmBtn(POP_COPY.back, true);
+        b.addEventListener("click", back);
+        put(dmActions(b));
+        return;
+      }
+      const list = c.matches;
+      const sel = Math.min(Math.max(0, c.selected ?? 0), list.length - 1);
+      const src = list[sel];
+      const styleChip = dmChip(CITE_STYLE_LABEL[style]);
+      put(dmHead(DM.green, list.length === 1 ? CITED_COPY.one : CITED_COPY.many(list.length), styleChip));
+      styleChip.style.marginLeft = "0";
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      scroll.appendChild(dmBody(CITED_COPY.intro(c.plan?.display ?? "")));
+      if (c.plan?.noEntry) scroll.appendChild(dmHint(CITED_COPY.noEntry));
+      const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
+      list.forEach((m, i) => rows.appendChild(dmWorkRow(m, i === sel, () => { c.selected = i; paintPop(); })));
+      scroll.appendChild(rows);
+      const yn = citedYearNote(src.year, c.plan?.citedYear);
+      if (yn) scroll.appendChild(dmBlock("THE YEAR", dmBlockBody(yn)));
+      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; saveSettings(); paintPop(); render(); }));
+      const { marker, entry } = citedWorkEntry(src, style);
+      const swapped = t?.kind === "sentence" && t.raw ? swapCitation(t.sentence, t.raw, marker, style) : null;
+      scroll.appendChild(dmBlock(swapped ? "YOUR SENTENCE WILL READ" : "REFERENCE", swapped ? dmBlockBody(swapped) : null, dmBlockBody(entry)));
+      put(scroll);
+      const repKey = `recite:${key}:${sel}`, entKey = `entry:${key}:${sel}`;
+      let primary = null;
+      if (canEditDoc() && swapped && t.segHash) {
+        const busy = editState(repKey) === "applying";
+        primary = dmBtn(busy ? CITED_COPY.replacing : CITED_COPY.replace, true, { disabled: busy || docBusy });
+        primary.addEventListener("click", () => { popPinned = true; docReplaceCitation(key, sel, popAnchor); });
+      } else if (canEditDoc() && t?.kind === "entry") {
+        const busy = editState(entKey) === "applying";
+        primary = dmBtn(busy ? CITED_COPY.completing : CITED_COPY.complete, true, { disabled: busy || docBusy });
+        primary.addEventListener("click", () => { popPinned = true; docCompleteEntry(key, sel); });
+      }
+      const copy = dmBtn(copiedCitedKey === `${key}:${sel}` ? POP_COPY.copied : CITED_COPY.copyRef, !primary);
+      copy.addEventListener("click", () => copyCitedReference(key, sel));
+      put(dmActions(primary, copy));
+      if (t?.segHash) {
+        const more = dmBtn(CITED_COPY.different, false, { wide: true });
+        more.addEventListener("click", () => { startClaimSources(key, t.segHash, t.sentence); });
+        put(more);
+      }
+      if (!canEditDoc() && (swapped || t?.kind === "entry")) put(dmHint(editBlockReason()));
+    }
+    // A card's search for the sentence it is about, painted with the
+    // citation flow's own cards (paintSources), whatever opened it.
+    function paintClaimSources(key, pst, put) {
+      const seg = segments.find((s) => s.hash === pst.claim) ?? { hash: pst.claim, text: String(pst.claimText ?? "") };
+      paintSources(pst.claim, seg, cache.get(pst.claim), pst, put, {
+        stepKey: key,
+        onBack: () => { popSteps.delete(key); paintPop(); },
+        note: citedNote(key),
+      });
     }
 
     function paintPop() {
@@ -4142,37 +4633,47 @@
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
       const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
       if (flow) { paintFlow(hash, flow, put); requestPlace(); return; }
+      // "Find the cited work", and a card's search for the sentence it is
+      // about: painted from their own state, which outlives the underline
+      // the card was opened on (an edit from here can remove it).
+      const pst = stepOf(hash);
+      if (pst.step === "cited" && citedMap.has(hash)) { paintCited(hash, put); requestPlace(); return; }
+      if (pst.step === "sources" && pst.claim) { paintClaimSources(hash, pst, put); requestPlace(); return; }
       const tip = tipMarkById.get(hash);
       if (tip) { paintCiteTip(tip, put); requestPlace(); return; }
       const f = cache.get(hash);
       const seg = segments.find((s) => s.hash === hash);
+      // The edit made from this card — its own revision, or the fuller
+      // answer's ("deepfix:") — shows how it went even after the sentence it
+      // replaced is gone. A fix drops that sentence's verdict, and the card
+      // used to paint itself empty right there, over "Sentence fixed".
+      const fixKey = editState(`deepfix:${hash}`) ? `deepfix:${hash}` : `fix:${hash}`;
+      const fixState = editState(fixKey);
+      if (fixState === "applied" || fixState === "undoing") {
+        put(dmHead(DM.green, POP_COPY.appliedTitle), dmBody(POP_COPY.appliedBody));
+        const done = dmBtn(POP_COPY.done, true);
+        done.addEventListener("click", () => { setEditState(fixKey, null); popSteps.delete(hash); hideDocsPopover(); });
+        const undo = dmBtn(fixState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: fixState === "undoing" || lastDocEdit?.key !== fixKey });
+        undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+        put(dmActions(done, undo));
+        requestPlace(); return;
+      }
+      if (fixState === "failed") {
+        const s = docEditState.get(fixKey);
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${s?.copied ? "Copied instead — " : ""}${s?.note || "the editor couldn't make that edit"}.`));
+        const back = dmBtn(POP_COPY.back, true);
+        back.addEventListener("click", () => { setEditState(fixKey, null); setStep(hash, { step: "fix" }); });
+        put(dmActions(back));
+        requestPlace(); return;
+      }
       if (!f || !seg) return;
       const st = stepOf(hash);
       const color = MARK_COLORS[f.verdict] ?? "#9a9ba1";
       const hasRevision = Boolean(f.revision) && f.verdict !== "needs_citation";
-      const fixKey = `fix:${hash}`;
-      const fixState = editState(fixKey);
 
-      if (st.step === "sources") { paintSources(hash, seg, f, st, put); requestPlace(); return; }
+      if (st.step === "sources") { paintSources(hash, seg, f, st, put, { note: citedNote(hash) }); requestPlace(); return; }
 
-      if (st.step === "fix" || fixState === "applying" || fixState === "applied" || fixState === "undoing" || fixState === "failed") {
-        if (fixState === "applied" || fixState === "undoing") {
-          put(dmHead(DM.green, POP_COPY.appliedTitle), dmBody(POP_COPY.appliedBody));
-          const done = dmBtn(POP_COPY.done, true);
-          done.addEventListener("click", () => { setEditState(fixKey, null); popSteps.delete(hash); hideDocsPopover(); });
-          const undo = dmBtn(fixState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: fixState === "undoing" || lastDocEdit?.key !== fixKey });
-          undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
-          put(dmActions(done, undo));
-          requestPlace(); return;
-        }
-        if (fixState === "failed") {
-          const s = docEditState.get(fixKey);
-          put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${s?.copied ? "Copied instead — " : ""}${s?.note || "the editor couldn't make that edit"}.`));
-          const back = dmBtn(POP_COPY.back, true);
-          back.addEventListener("click", () => { setEditState(fixKey, null); setStep(hash, { step: "fix" }); });
-          put(dmActions(back));
-          requestPlace(); return;
-        }
+      if (st.step === "fix" || fixState === "applying") {
         // The fix card: what the check found, the revision, Apply / Back.
         put(dmHead(color, fixTitle(f.verdict)));
         put(dmBody(f.verdict === "questionable" ? POP_COPY.fixRuleNarrow : POP_COPY.fixRule));
@@ -4191,22 +4692,34 @@
         }
         const back = dmBtn(POP_COPY.back, false);
         back.addEventListener("click", () => setStep(hash, { step: "problem" }));
-        put(dmActions(primary, back, deepLink(hash, f)));
+        // The link sits beside the buttons; the locked note is a line of its own.
+        const link = deepLink(hash, f);
+        const inRow = link?.tagName === "BUTTON";
+        put(dmActions(primary, back, inRow ? link : null));
+        if (link && !inRow) put(dmActions(link));
         if (hasRevision && !canEditDoc()) put(dmHint(editBlockReason()));
         requestPlace(); return;
       }
 
       // The problem card — exactly the app's: dot, title; body; [action][Dismiss].
+      // A sentence whose citation the verdict puts in doubt also offers to
+      // find the cited work: first when there is no fix to suggest, else
+      // under the row (two buttons to a row; a third pushes Dismiss off).
       put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
       put(dmBody(f.explanation || f.basis || seg.text));
-      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : POP_COPY.findSource, true);
-      action.addEventListener("click", () => {
-        if (hasRevision) { setStep(hash, { step: "fix" }); return; }
+      const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
+      const findSource = () => {
         // The search marks itself in flight before its first await, so the
         // card painted next already reads "searching" rather than "failed".
         const started = fetchSources(hash);
         setStep(hash, { step: "sources", searched: true });
         started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
+      };
+      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : POP_COPY.findSource, true);
+      action.addEventListener("click", () => {
+        if (hasRevision) { setStep(hash, { step: "fix" }); return; }
+        if (citedHere) { findCitedWork(hash); return; }
+        findSource();
       });
       const dis = dmBtn(POP_COPY.dismiss, false);
       dis.addEventListener("click", () => {
@@ -4218,6 +4731,19 @@
         render();
       });
       put(dmActions(action, dis));
+      if (citedHere) {
+        const more = dmBtn(hasRevision ? CITED_COPY.find : POP_COPY.findSource, false, { wide: true });
+        more.addEventListener("click", () => { if (hasRevision) findCitedWork(hash); else findSource(); });
+        put(more);
+      }
+      // A card with no fix of its own has no fix card to hold "Explain in
+      // depth": it lives here instead — the answer, and its own fix when it
+      // has one, or the link that asks for it.
+      if (!hasRevision) {
+        put(paintDeep(hash, f));
+        const link = deepLink(hash, f);
+        if (link) put(dmActions(link));
+      }
       requestPlace();
     }
 
@@ -4238,7 +4764,26 @@
         const w = dmIssue(title, v.text);
         if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
-        return w;
+        if (!v.basis && !v.revision) return w;
+        // What the fuller answer rests on, and its own fix — applied like the
+        // card's (docFix, one Undo), or copied where the doc cannot be edited.
+        const col = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
+        col.appendChild(w);
+        if (v.basis) col.appendChild(dmIssue("What it rests on", v.basis));
+        if (v.revision) {
+          const own = Boolean(f.revision) && f.verdict !== "needs_citation";
+          col.appendChild(dmBlock("IN-DEPTH REVISION", dmQuote(v.revision)));
+          let apply = null;
+          if (canEditDoc()) {
+            const busy = editState(`deepfix:${hash}`) === "applying";
+            apply = dmBtn(busy ? POP_COPY.applying : own ? "Apply this one" : POP_COPY.apply, !own, { disabled: busy || docBusy });
+            apply.addEventListener("click", () => { popPinned = true; docFix(hash, popAnchor, deepRevision(hash)); });
+          }
+          const copy = dmBtn(POP_COPY.copyRevision, !apply && !own);
+          copy.addEventListener("click", () => { try { navigator.clipboard.writeText(v.revision); } catch { /* denied */ } copy.textContent = POP_COPY.copied; });
+          col.appendChild(dmActions(apply, copy));
+        }
+        return col;
       }
       return null;
     }
@@ -4248,11 +4793,22 @@
       if (!FEATURES.deepDive) return null;
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading" || v.kind === "result") return null;
+      // Asked for and locked: say why, with the way to the plans — as the
+      // panel does. The click before this one only says it; it never
+      // navigates away from the doc on its own.
+      if (v.kind === "locked" && v.note) {
+        const plans = dmLink(DEEP_COPY.seePlans);
+        Object.assign(plans.style, { marginLeft: "6px", color: APP.accentInk });
+        plans.addEventListener("click", () => openOrderPage());
+        const said = el("span", { fontSize: "12px", color: DM.hint }, `${v.note}.`);
+        said.appendChild(plans);
+        return said;
+      }
       const link = dmLink(v.label);
       if (v.kind === "locked") {
         link.title = v.title;
         link.appendChild(el("span", { padding: "1px 6px", borderRadius: "20px", background: APP.accentWash, color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em" }, "PRO"));
-        link.addEventListener("click", () => { lockDeep(hash); openOrderPage(); paintPop(); render(); });
+        link.addEventListener("click", () => { lockDeep(hash); paintPop(); render(); });
       } else {
         link.addEventListener("click", () => { explainSentence(hash); paintPop(); });
       }
@@ -4261,9 +4817,18 @@
     }
 
     /* ── the citation flow, card for card ───────────────────────────────── */
-    function paintSources(hash, seg, f, st, put) {
+    /* opts, for a search a card started for a sentence that is not its own
+       (a note's claim, a lookup's fallback): stepKey — the card whose step
+       this is; onBack — where Cancel goes; note — what the lookup before it
+       found, said first. A cited source takes the place of the sentence's
+       faulty citation when a card found one (replaceFor). */
+    function paintSources(hash, seg, f, st, put, opts = {}) {
       const s = sourcesMap.get(hash);
       const style = settings.citationStyle || "mla";
+      const stepKey = opts.stepKey ?? hash;
+      const back = opts.onBack ?? (() => setStep(stepKey, { step: "problem" }));
+      const noteEl = () => (opts.note ? dmBlock(CITED_COPY.yours, dmBlockBody(opts.note)) : null);
+      const replace = replaceFor(hash);
       const citedKey = (url) => `cite:${hash}:${url}`;
       // Inserted: the marker is in the sentence, the entry in the Sources list.
       const citedUrl = s?.citedUrl ?? null;
@@ -4276,8 +4841,10 @@
         // list nothing was added to.
         const paste = s.pasteEntry || null;
         put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(paste
-          ? `${c ? c.marker : "The citation"} is in your sentence. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document.`
-          : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
+          ? `${c ? c.marker : "The citation"} is in your sentence${s.replaced ? ", in place of the citation that couldn't be traced" : ""}. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document.`
+          : s.replaced
+            ? `${c ? c.marker : "The source"} now stands where the citation that couldn't be traced was. ${CITE_STYLE_LABEL[style]} in-text citation.`
+            : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
@@ -4286,7 +4853,7 @@
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
         const done = dmBtn(POP_COPY.done, true);
-        done.addEventListener("click", () => { popSteps.delete(hash); hideDocsPopover(); });
+        done.addEventListener("click", () => { popSteps.delete(stepKey); hideDocsPopover(); });
         const undo = dmBtn(citedState === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: citedState === "undoing" || lastDocEdit?.key !== citedKey(citedUrl) });
         undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
         let copyEntry = null;
@@ -4309,30 +4876,31 @@
       // Searching.
       if (!s || s.loading) {
         if (!s && !sourcesInflight && st.searched) {
-          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(statusMsg || "The search did not answer — try again."));
+          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(statusMsg || "The search did not answer — try again."), noteEl());
           const again = dmBtn(POP_COPY.searchAgain, true);
-          again.addEventListener("click", () => { const p = fetchSources(hash); setStep(hash, { searched: true }); p.catch(() => {}); });
+          again.addEventListener("click", () => { const p = fetchSources(hash); setStep(stepKey, { searched: true }); p.catch(() => {}); });
           const cancel = dmBtn(POP_COPY.cancel, false);
-          cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
+          cancel.addEventListener("click", back);
           put(dmActions(again, cancel));
           return;
         }
         // Grey: the colour the marks already use for "still checking".
-        put(dmHead(MARK_PENDING, POP_COPY.searching), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
+        put(dmHead(MARK_PENDING, POP_COPY.searching), noteEl(), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
         const cancel = dmBtn(POP_COPY.cancel, false);
-        cancel.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        cancel.addEventListener("click", back);
         put(dmActions(cancel, dmHint(POP_COPY.searchHint)));
         return;
       }
       const list = s.list ?? [];
-      const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(hash, { searched: true, selected: null }); p.catch(() => {}); };
+      const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(stepKey, { searched: true, selected: null }); p.catch(() => {}); };
       if (list.length === 0) {
         if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
         else put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
+        put(noteEl());
         const again = dmBtn(POP_COPY.searchAgain, true);
         again.addEventListener("click", searchAgain);
         const dis = dmBtn(POP_COPY.dismiss, false);
-        dis.addEventListener("click", () => setStep(hash, { step: "problem" }));
+        dis.addEventListener("click", back);
         put(dmActions(again, dis));
         return;
       }
@@ -4344,9 +4912,11 @@
       styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
       const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
       scroll.setAttribute("data-pop-sources", "");
+      const note = noteEl();
+      if (note) scroll.appendChild(note);
       scroll.appendChild(dmBody(`Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
-      for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(hash, { selected: item.url })));
+      for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(stepKey, { selected: item.url })));
       scroll.appendChild(rows);
       // The style pills and the preview scroll with the list. The app keeps
       // them outside its scroll region, in an editor tall enough not to
@@ -4365,7 +4935,10 @@
         Object.assign(open.style, { marginLeft: "0", alignSelf: "flex-start" });
         open.title = src.url;
         open.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
-        scroll.appendChild(dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref), open));
+        const swapped = replace ? swapCitation(seg.text, replace, c.marker, style) : null;
+        scroll.appendChild(swapped
+          ? dmBlock("YOUR SENTENCE WILL READ", dmBlockBody(swapped), dmBlockBody(c.ref), open)
+          : dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref), open));
       }
       put(scroll);
       const i = src ? list.indexOf(src) : -1;
@@ -4373,14 +4946,15 @@
       const inserting = key ? editState(key) === "applying" : false;
       let primary;
       if (canEditDoc()) {
-        primary = dmBtn(inserting ? POP_COPY.inserting : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
-        primary.addEventListener("click", () => { if (i >= 0) { popPinned = true; docCite(hash, i, popAnchor); } });
+        // In place of the sentence's faulty citation when a card found one; beside it otherwise.
+        primary = dmBtn(inserting ? POP_COPY.inserting : replace ? CITED_COPY.replace : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
+        primary.addEventListener("click", () => { if (i >= 0) { popPinned = true; docCite(hash, i, popAnchor, replaceFor(hash)); } });
       } else {
         primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
         primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
       }
       const preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !src });
-      preview.addEventListener("click", () => setStep(hash, { preview: !st.preview }));
+      preview.addEventListener("click", () => setStep(stepKey, { preview: !st.preview }));
       put(dmActions(primary, preview));
       const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
       again.addEventListener("click", searchAgain);
@@ -4808,6 +5382,138 @@
       render();
     }
 
+    /* ── "Find the cited work" ─────────────────────────────────────────────
+       A card whose citation is the problem looks the cited work up
+       (lookupCitedWork) and offers it: Replace citation, Complete entry,
+       Copy reference. When nothing resolves, the card says so in the
+       server's words and searches for the sentence instead — and a source
+       cited from there replaces the faulty citation (replaceFor, docCite). */
+    // Every note a card can be opened on, as the panel lists them (kept for
+    // as long as the text, the dismissals and the review stay the same).
+    let tipsMemo = null;
+    function allTips() {
+      if (!isArgumentGenre(docGenre)) return [];
+      const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
+      if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
+      const list = [
+        ...citationTips(docText, settings.citationStyle, dismissed),
+        ...(FEATURES.refList ? referenceTips(docText, dismissed) : []),
+        ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : []),
+      ];
+      tipsMemo = { k, list };
+      return list;
+    }
+    function tipById(id) { return tipMarkById.get(id) ?? allTips().find((t) => t.id === id) ?? null; }
+    // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation.
+    function citedTargetFor(key) {
+      if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
+      const seg = segments.find((s) => s.hash === key);
+      const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
+      return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
+    }
+    // The citation a source cited for this sentence takes the place of, or null (added beside).
+    function replaceFor(hash) {
+      if (citedFallback.has(hash)) return citedFallback.get(hash);
+      const seg = segments.find((s) => s.hash === hash);
+      return seg ? flaggedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
+    }
+    function refreshCited(key) {
+      render();
+      if (popEl && popHash === key) paintPop();
+    }
+    // A card's search for the sentence it is about (a claim that is not the card's own).
+    function startClaimSources(key, claimHash, claimText) {
+      setStep(key, { step: "sources", claim: claimHash, claimText, searched: true, selected: null });
+      fetchSources(claimHash).then(() => refreshCited(key)).catch(() => {});
+    }
+    async function findCitedWork(key) {
+      const target = citedTargetFor(key);
+      if (!target) return false;
+      const cur = citedMap.get(key);
+      if (cur?.loading) return true;
+      if (cur?.resolved) { setStep(key, { step: "cited" }); render(); return true; } // answered this session
+      const plan = citedLookupPlan(target, docText);
+      if (target.raw && target.segHash) citedFallback.set(target.segHash, target.raw);
+      citedMap.set(key, { loading: true, target, plan, matches: [], selected: 0 });
+      setStep(key, { step: "cited" });
+      refreshCited(key);
+      const r = await lookupCitedWork(plan);
+      citedMap.set(key, { loading: false, target, plan, selected: 0, ...r });
+      if (!r.resolved && target.segHash) startClaimSources(key, target.segHash, target.sentence);
+      refreshCited(key);
+      return true;
+    }
+    // An excused, hedged or unnamed claim: the search for the sentence the note is about.
+    function findClaimSource(tipId) {
+      const tip = tipById(tipId);
+      const i = tip ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      if (i < 0) return;
+      const claim = segments[i];
+      // An excuse is about the citation in its claim: a source cited from here replaces it.
+      const c = tip.kind === "excuse" ? lookupableCitation(claim.text) : null;
+      if (c) citedFallback.set(claim.hash, c.raw);
+      startClaimSources(tipId, claim.hash, claim.text);
+      render();
+    }
+    // What a search started from a lookup that found nothing says first, or "".
+    function citedNote(key) {
+      const c = citedMap.get(key);
+      return c && !c.loading && !c.resolved ? c.note : "";
+    }
+    function copyCitedReference(key, i) {
+      const src = citedMap.get(key)?.matches?.[Number(i)];
+      if (!src) return;
+      navigator.clipboard?.writeText(citedWorkEntry(src, settings.citationStyle || "mla").entry).catch(() => {});
+      copiedCitedKey = `${key}:${i}`;
+      render();
+      if (popEl && popHash === key) paintPop();
+    }
+    /* The panel's extras for one card, after its HTML is in: "Find the cited
+       work" / "Find a source" where the card earns them, the lookup's answer,
+       and the search that follows it. Added to the rendered card rather than
+       to its template, so the card markup every test reads stays as it is. */
+    function decorateCard(card, sourcesFor) {
+      const key = card.dataset.card;
+      if (!key || card.classList.contains("ev-card")) return;
+      const isTip = key.startsWith("tip:");
+      const tip = isTip ? tipById(key) : null;
+      const target = citedTargetFor(key);
+      const ci = tip && TIP_FIND_SOURCE.includes(tip.kind) ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      const st = stepOf(key);
+      const c = citedMap.get(key);
+      const buttons = [];
+      if (target) buttons.push(`<button class="act${isTip ? " primary" : ""}" data-cited="${esc(key)}"${c?.loading ? " disabled" : ""}>${esc(CITED_COPY.find)}</button>`);
+      if (ci >= 0) buttons.push(`<button class="act${target ? "" : " primary"}" data-claim-src="${esc(key)}">${esc(POP_COPY.findSource)}</button>`);
+      let html = "";
+      if (c) html += citedWorkHtml(c, (i, src) => citedActionsHtml(key, c, i, src), c.resolved && c.target?.segHash ? `<div class="row"><button class="act" data-cited-more="${esc(key)}">${esc(CITED_COPY.different)}</button></div>` : "");
+      const claim = st.claim ? segments.find((s) => s.hash === st.claim) : null;
+      if (isTip && claim) html += sourcesFor(claim); // a verdict card already lists its own sentence's sources
+      if (isTip && buttons.length) card.insertAdjacentHTML("beforeend", `<div class="row">${buttons.join("")}</div>${html}`);
+      else if (buttons.length || html) {
+        const row = card.querySelector(".row");
+        if (row && buttons.length) row.insertAdjacentHTML("beforeend", buttons.join(""));
+        const at = card.querySelector(".sources") ?? card.querySelector(".cite-url");
+        if (html) { if (at) at.insertAdjacentHTML("beforebegin", html); else card.insertAdjacentHTML("beforeend", html); }
+      }
+    }
+    // One match's buttons in the panel: the edit (Replace citation or
+    // Complete entry) where the doc can be edited, and Copy reference always.
+    function citedActionsHtml(key, c, i, src) {
+      const t = c.target;
+      const style = settings.citationStyle || "mla";
+      let edit = "";
+      const k = t?.kind === "entry" ? `entry:${key}:${i}` : `recite:${key}:${i}`;
+      if (c.done?.i === i && !editState(k)) {
+        // Settled: the doc shows it, and the Undo is on the panel's strip.
+        edit = `<button class="act primary" disabled>${t?.kind === "entry" ? "Completed ✓" : "Replaced ✓"}</button>`;
+      } else if (canEditDoc() && t?.kind === "sentence" && t.segHash && t.raw && swapCitation(t.sentence, t.raw, formatCitation(src, style).marker, style)) {
+        edit = editBtnHtml(k, CITED_COPY.replace, `data-cited-replace="${esc(key)}" data-i="${i}"`) + editNoteHtml(k);
+      } else if (canEditDoc() && t?.kind === "entry") {
+        edit = editBtnHtml(k, CITED_COPY.complete, `data-cited-entry="${esc(key)}" data-i="${i}"`) + editNoteHtml(k);
+      }
+      return `${edit}<button class="act${edit ? "" : " primary"}" data-cited-copy="${esc(key)}" data-i="${i}">${copiedCitedKey === `${key}:${i}` ? "Copied ✓" : esc(CITED_COPY.copyRef)}</button>`;
+    }
+
     /* ── editing the document ─────────────────────────────────────────────
        "Fix in doc", "Cite in doc" and "Add transition" reach the document by
        whichever path is live, best first:
@@ -5193,17 +5899,20 @@
     const REPEATED_NOTE = "that sentence appears more than once — use Fix in doc on the underline you mean";
 
     // anchor: the underline bar a popover was opened from (null from the panel).
-    async function docFix(hash, anchor = null) {
+    // revision: "Explain in depth"'s own fix (deepRevision), in place of the
+    // card's — its own button, so its own edit key ("deepfix:").
+    async function docFix(hash, anchor = null, revision = null) {
       const seg = segments.find((s) => s.hash === hash);
       const f = cache.get(hash);
-      if (!seg || !f?.revision || docBusy) return false;
+      const rev = revision || f?.revision;
+      if (!seg || !rev || docBusy) return false;
       const hint = segHint(seg, anchor);
       // Another copy stays in the doc, flagged exactly as before: keep its
       // verdict and its underline (hiding the hash would hide every copy).
       const repeated = hint.occurrences > 1;
-      return runDocEdit(`fix:${hash}`, {
-        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, f.revision), hint }],
-        copy: f.revision,
+      return runDocEdit(`${revision ? "deepfix" : "fix"}:${hash}`, {
+        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, rev), hint }],
+        copy: rev,
         doneMsg: "fixed in doc",
         notes: repeated && !anchor ? { ambiguous: REPEATED_NOTE } : null,
         onApplied: () => {
@@ -5214,7 +5923,7 @@
           persistCaches();
         },
         onUndone: () => {
-          if (!cache.has(hash)) cache.set(hash, f); // the original is back — and already checked
+          if (f && !cache.has(hash)) cache.set(hash, f); // the original is back — and already checked
           editedHashes.delete(hash);
           persistCaches();
         },
@@ -5222,8 +5931,11 @@
     }
 
     // In-text marker + the Sources entry (and the heading, the first time),
-    // as ONE group: all of it lands, or none of it stays.
-    async function docCite(hash, i, anchor = null) {
+    // as ONE group: all of it lands, or none of it stays. `replace`: the
+    // sentence's citation a card found at fault (replaceFor) — the marker
+    // takes its place instead of standing beside it ("(Genghis Khan and the,
+    // 2022) (Weatherford)" was what citing one used to leave behind).
+    async function docCite(hash, i, anchor = null, replace = null) {
       const seg = segments.find((s) => s.hash === hash);
       const st = sourcesMap.get(hash);
       const src = st?.list?.[Number(i)];
@@ -5231,7 +5943,6 @@
         console.debug(`[tracely] cite skipped: ${!seg ? "sentence no longer in the doc" : !src ? "source not found" : "another edit is running"}`);
         return false;
       }
-      const hint = segHint(seg, anchor);
       /* The STYLE's citation, not a number. This inserted " [n]" and a
          numbered "Sources:" list whatever style was picked, while Preview
          showed the style's real marker — so the card promised "(Ghosh)" and
@@ -5242,58 +5953,10 @@
       const style = settings.citationStyle || "mla";
       const styled = formatCitation(src, style);
       const marker = styled.marker;
-      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
-      const list = worksCitedBlock(docText);
-      const doi = String(src.doi ?? "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
-      // By address WITHOUT its scheme: MLA prints "example.com/wall", APA
-      // "https://example.com/wall", and the writer may have typed either.
-      const urlKey = String(src.url ?? "").replace(/^https?:\/\/(www\.)?/i, "").replace(/\/+$/, "");
-      const listed = Boolean(list?.entries.some((l) => (urlKey && l.includes(urlKey)) || (doi && l.includes(doi))));
-      const entryLine = listed ? null : styled.ref;
-      console.debug(`[tracely] cite: ${style} · path ${editPath()} · text API ${inDoc.api ? "yes" : "no"} · reference list ${list ? `"${list.heading}"` : "none"}${listed ? " (source already listed)" : ""}`);
-      const steps = [];
-      let replacement = null;
-      /* The entry needs Docs' text API (docs-hook.js doAppendLine refuses a
-         blind append, as it should: nothing could verify it). The marker does
-         not — doReplace falls back to mouseReplace — so on a Doc that does not
-         share its text the marker goes in and the entry is handed over to
-         paste. And a dry run asks first whether the line can be placed at
-         all: on a Doc whose text does not end the way the hook knows ("doc-
-         end-unknown", measured 2026-10-03) the group used to land the marker,
-         fail the append and roll the marker back. */
-      let canAppend = editPath() !== "hook" || inDoc.api;
-      // Alphabetical: above the first entry that sorts after it — kept only
-      // when that entry is a single paragraph the hook can find (it refuses
-      // otherwise, and the entry then goes last rather than nowhere).
-      let above = list && entryLine ? refInsertBefore(list.entries, entryLine) : null;
-      if (above && editPath() === "hook" && canAppend) {
-        const probe = await docsEdit("insertLineBefore", { line: entryLine, before: above, dryRun: true }, { timeoutMs: 3000 });
-        if (!probe.ok) {
-          console.debug(`[tracely] cite: can't place the entry in order (${probe.reason ?? "?"}) — it will go at the end`);
-          above = null;
-        }
-      } else if (editPath() !== "hook") above = null; // the dev bridge only appends
-      if (entryLine && canAppend && editPath() === "hook" && !above) {
-        const plan = await docsEdit("appendLine", { line: list ? entryLine : heading, dryRun: true }, { timeoutMs: 3000 });
-        if (!plan.ok) {
-          canAppend = false;
-          console.debug(`[tracely] cite: the reference can't be placed here (${plan.reason ?? "?"}${plan.endShape ? ` · ${plan.endShape}` : ""}) — it will be handed over to paste`);
-        }
-      }
-      const pasteEntry = entryLine && !canAppend ? (list ? entryLine : `${heading}\n${entryLine}`) : null;
-      // The marker first: it is the step most likely to be refused (the
-      // sentence changed), and refusing before anything landed needs no rollback.
-      if (!seg.text.includes(marker)) {
-        const punct = seg.text.match(/[.!?]+["'’”)\]]*$/);
-        const at = punct ? seg.text.length - punct[0].length : seg.text.length;
-        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` ${marker}` + seg.text.slice(at);
-        steps.push({ action: "replace", find: seg.text, replacement, hint });
-      }
-      if (entryLine && canAppend) {
-        if (!list) steps.push({ action: "appendLine", line: heading });
-        steps.push(above ? { action: "insertLineBefore", line: entryLine, before: above } : { action: "appendLine", line: entryLine });
-      }
-      const listName = list ? list.heading.replace(/\b\w/g, (c) => c.toUpperCase()) : heading;
+      // Only where that citation is in the sentence exactly once; otherwise
+      // the marker goes beside it, as it always did.
+      const swapped = replace ? swapCitation(seg.text, replace, marker, style) : null;
+      const { steps, retry, hint, pasteEntry, listName, replacement } = await citePlan(seg, styled, src, { anchor, swapped });
       if (!steps.length) {
         // Marker and entry are both in the doc already: nothing to change —
         // so no "Applied ✓", and the last real edit keeps its Undo.
@@ -5310,23 +5973,27 @@
         return true;
       }
       const prevCited = st.citedUrl ?? null;
+      const did = swapped ? `replaced ${replace} with ${markerWithPage(marker, citationPage(replace.slice(1, -1)), style)}` : `cited ${marker}`;
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
         // If Docs refuses the in-order insert for real: the same group, the entry last.
-        retry: above ? steps.map((st) => (st.action === "insertLineBefore" ? { action: "appendLine", line: st.line } : st)) : null,
+        retry,
         copy: styled.ref,
-        doneMsg: pasteEntry ? `cited ${marker} in doc — paste its reference into ${listName}` : `cited ${marker} in doc`,
+        doneMsg: pasteEntry ? `${did} in doc — paste its reference into ${listName}` : `${did} in doc`,
         notes: hint.occurrences > 1 && !anchor ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Cite in doc") } : null,
         onApplied: () => {
           if (replacement) {
             const newHash = hashText(replacement);
-            if (cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
+            // A swapped citation was what the verdict was about: the sentence
+            // that cites a real source now is checked afresh, not told the same.
+            if (!swapped && cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
             if (sourcesMap.has(hash) && !sourcesMap.has(newHash)) sourcesMap.set(newHash, sourcesMap.get(hash));
             if (!(hint.occurrences > 1)) markEdited(hash); // another copy keeps its underline
           }
           st.citedUrl = src.url;
           st.pasteEntry = pasteEntry;
           st.citedList = listName;
+          st.replaced = Boolean(swapped);
           if (pasteEntry) copyFallback(pasteEntry);
           persistCaches();
         },
@@ -5334,8 +6001,180 @@
           editedHashes.delete(hash);
           st.citedUrl = prevCited;
           st.pasteEntry = null;
+          st.replaced = false;
           persistCaches();
         },
+      });
+    }
+
+    /* The group a citation sends, decided before anything is sent: the
+       sentence first — `swapped` (its faulty citation replaced), or the
+       marker added before its closing punctuation — then the reference
+       entry: in its alphabetical place, or appended, or (`oldEntry`) over the
+       writer's own entry for the same work. Dry runs ask the hook first
+       whether each line can be placed; one that cannot is handed over to
+       paste (pasteEntry). `entryLine` overrides the source's own reference;
+       `listOnly` adds an entry only to a list the doc already has. */
+    async function citePlan(seg, styled, src, { anchor = null, swapped = null, entryLine: line = null, oldEntry = null, listOnly = false } = {}) {
+      const hint = segHint(seg, anchor);
+      const style = settings.citationStyle || "mla";
+      const marker = styled.marker;
+      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const list = worksCitedBlock(docText);
+      const doi = String(src.doi ?? "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
+      // By address WITHOUT its scheme: MLA prints "example.com/wall", APA
+      // "https://example.com/wall", and the writer may have typed either.
+      const urlKey = String(src.url ?? "").replace(/^https?:\/\/(www\.)?/i, "").replace(/\/+$/, "");
+      const listed = Boolean(list?.entries.some((l) => (urlKey && l.includes(urlKey)) || (doi && l.includes(doi))));
+      const entryLine = listed || (listOnly && !list) ? null : line ?? styled.ref;
+      console.debug(`[tracely] cite: ${style} · path ${editPath()} · text API ${inDoc.api ? "yes" : "no"} · reference list ${list ? `"${list.heading}"` : "none"}${listed ? " (source already listed)" : ""}`);
+      const steps = [];
+      let replacement = null;
+      /* The entry needs Docs' text API (docs-hook.js doAppendLine refuses a
+         blind append, as it should: nothing could verify it). The marker does
+         not — doReplace falls back to mouseReplace — so on a Doc that does not
+         share its text the marker goes in and the entry is handed over to
+         paste. And a dry run asks first whether the line can be placed at
+         all: on a Doc whose text does not end the way the hook knows ("doc-
+         end-unknown", measured 2026-10-03) the group used to land the marker,
+         fail the append and roll the marker back. */
+      let canAppend = editPath() !== "hook" || inDoc.api;
+      // The writer's own entry for this work, rewritten where it stands — while
+      // it is one line of the list that the hook can select and replace.
+      let over = oldEntry && entryLine && canAppend && list?.entries.includes(oldEntry) ? oldEntry : null;
+      const overHint = over ? { occurrences: list.entries.filter((e) => e === over).length } : null;
+      if (over && editPath() === "hook") {
+        const probe = await docsEdit("replace", { find: over, replacement: entryLine, hint: overHint, dryRun: true }, { timeoutMs: 3000 });
+        if (!probe.ok) {
+          console.debug(`[tracely] cite: can't rewrite the old entry in place (${probe.reason ?? "?"}) — the new one is added instead`);
+          over = null;
+        }
+      }
+      // Alphabetical: above the first entry that sorts after it — kept only
+      // when that entry is a single paragraph the hook can find (it refuses
+      // otherwise, and the entry then goes last rather than nowhere).
+      let above = list && entryLine && !over ? refInsertBefore(list.entries, entryLine) : null;
+      if (above && editPath() === "hook" && canAppend) {
+        const probe = await docsEdit("insertLineBefore", { line: entryLine, before: above, dryRun: true }, { timeoutMs: 3000 });
+        if (!probe.ok) {
+          console.debug(`[tracely] cite: can't place the entry in order (${probe.reason ?? "?"}) — it will go at the end`);
+          above = null;
+        }
+      } else if (editPath() !== "hook") above = null; // the dev bridge only appends
+      if (entryLine && canAppend && editPath() === "hook" && !above && !over) {
+        const plan = await docsEdit("appendLine", { line: list ? entryLine : heading, dryRun: true }, { timeoutMs: 3000 });
+        if (!plan.ok) {
+          canAppend = false;
+          console.debug(`[tracely] cite: the reference can't be placed here (${plan.reason ?? "?"}${plan.endShape ? ` · ${plan.endShape}` : ""}) — it will be handed over to paste`);
+        }
+      }
+      const pasteEntry = entryLine && !canAppend ? (list ? entryLine : `${heading}\n${entryLine}`) : null;
+      // The marker first: it is the step most likely to be refused (the
+      // sentence changed), and refusing before anything landed needs no rollback.
+      if (swapped) {
+        replacement = swapped;
+        steps.push({ action: "replace", find: seg.text, replacement, hint });
+      } else if (!seg.text.includes(marker)) {
+        const punct = seg.text.match(/[.!?]+["'’”)\]]*$/);
+        const at = punct ? seg.text.length - punct[0].length : seg.text.length;
+        replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` ${marker}` + seg.text.slice(at);
+        steps.push({ action: "replace", find: seg.text, replacement, hint });
+      }
+      if (entryLine && canAppend) {
+        if (over) steps.push({ action: "replace", find: over, replacement: entryLine, hint: overHint });
+        else {
+          if (!list) steps.push({ action: "appendLine", line: heading });
+          steps.push(above ? { action: "insertLineBefore", line: entryLine, before: above } : { action: "appendLine", line: entryLine });
+        }
+      }
+      const listName = list ? list.heading.replace(/\b\w/g, (c) => c.toUpperCase()) : heading;
+      return {
+        steps, hint, pasteEntry, listName, replacement, entryLine, rewroteEntry: Boolean(over && entryLine && canAppend),
+        retry: above ? steps.map((st) => (st.action === "insertLineBefore" ? { action: "appendLine", line: st.line } : st)) : null,
+      };
+    }
+
+    /* "Replace citation": the sentence's faulty citation swapped for the
+       record's marker (a page the writer gave is kept), and the record's
+       entry in the reference list — over the writer's own entry for that
+       work when one matched and nothing else in the text cites it, else in
+       its alphabetical place; a doc with no list gets none, and Copy
+       reference is beside the button. ONE group, read back by the hook and
+       taken back by one Undo, like Cite in doc. */
+    async function docReplaceCitation(key, i, anchor = null) {
+      const c = citedMap.get(key);
+      const src = c?.matches?.[Number(i)];
+      const t = c?.target;
+      const seg = t?.segHash ? segments.find((s) => s.hash === t.segHash) : null;
+      if (!src || !seg || !t.raw || docBusy) {
+        console.debug(`[tracely] replace citation skipped: ${!src ? "record not found" : !seg ? "sentence no longer in the doc" : "another edit is running"}`);
+        if (src && !seg && !docBusy) { statusKind = "idle"; statusMsg = "that sentence changed since it was checked — nothing was changed"; render(); }
+        return false;
+      }
+      const style = settings.citationStyle || "mla";
+      const styled = formatCitation(src, style);
+      const swapped = swapCitation(seg.text, t.raw, styled.marker, style);
+      if (!swapped) {
+        statusKind = "idle";
+        statusMsg = "that citation is no longer in the sentence exactly once — nothing was changed";
+        render();
+        return false;
+      }
+      const shown = markerWithPage(styled.marker, citationPage(t.raw.slice(1, -1)), style);
+      const oldEntry = c.plan?.entry && citationUses(docText, t.raw) <= 1 ? c.plan.entry : null;
+      const plan = await citePlan(seg, styled, src, { anchor, swapped, entryLine: citedWorkEntry(src, style).entry, oldEntry, listOnly: true });
+      return runDocEdit(`recite:${key}:${i}`, {
+        steps: plan.steps,
+        retry: plan.retry,
+        copy: swapped,
+        doneMsg: plan.pasteEntry ? `replaced the citation with ${shown} — paste its reference into ${plan.listName}` : `replaced the citation with ${shown}`,
+        notes: plan.hint.occurrences > 1 && !(anchor && anchor.hash === seg.hash) ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Replace citation") } : null,
+        onApplied: () => {
+          if (!(plan.hint.occurrences > 1)) markEdited(seg.hash); // the new sentence is checked afresh
+          const where = plan.rewroteEntry ? `, and your ${plan.listName} entry for it now gives the record's details`
+            : plan.entryLine && !plan.pasteEntry ? `, and its entry is in your ${plan.listName}` : "";
+          c.done = {
+            i: Number(i), key: `recite:${key}:${i}`,
+            message: `Your sentence now cites ${shown}${where}.${plan.pasteEntry ? " Docs didn't let Tracely add the reference itself — paste it from below." : ""}`,
+            paste: plan.pasteEntry, list: plan.listName,
+          };
+          if (plan.pasteEntry) copyFallback(plan.pasteEntry);
+          persistCaches();
+        },
+        onUndone: () => {
+          editedHashes.delete(seg.hash);
+          c.done = null;
+          persistCaches();
+        },
+      });
+    }
+
+    /* "Complete entry": an incomplete reference line replaced, where it
+       stands, by the record's entry — one step, read back by the hook, one
+       Undo. Its own underline's rects go along, so a Doc that does not share
+       its text can still be edited by selecting them. */
+    async function docCompleteEntry(key, i) {
+      const c = citedMap.get(key);
+      const src = c?.matches?.[Number(i)];
+      const t = c?.target;
+      if (!src || t?.kind !== "entry" || docBusy) return false;
+      const list = worksCitedBlock(docText);
+      const n = list ? list.entries.filter((e) => e === t.entry).length : 0;
+      if (!n) {
+        statusKind = "idle";
+        statusMsg = "that entry changed since it was checked — nothing was changed";
+        render();
+        return false;
+      }
+      const entry = citedWorkEntry(src, settings.citationStyle || "mla").entry;
+      const onScreen = (r) => r && r.width > 0 && r.left >= 0 && r.top >= 0 && r.left + r.width <= innerWidth && r.top + r.height <= innerHeight;
+      const rects = n === 1 ? docsBars.filter((b) => b.hash === key && b.el?.isConnected).map(barTextRect).filter(onScreen).slice(0, 8) : [];
+      return runDocEdit(`entry:${key}:${i}`, {
+        steps: [{ action: "replace", find: t.entry, replacement: entry, hint: { occurrences: n, ...(rects.length ? { rects } : {}) } }],
+        copy: entry,
+        doneMsg: "completed the reference entry",
+        onApplied: () => { c.done = { i: Number(i), key: `entry:${key}:${i}`, message: "The entry now gives the record's details — check them against the work itself." }; },
+        onUndone: () => { c.done = null; },
       });
     }
 
@@ -5430,6 +6269,7 @@
       const panelOpening = expanded && !panelWasOpen;
       panelWasOpen = expanded;
       let panelHtml = "";
+      let cardSources = null; // the panel's sourcesFor, for decorateCard once the HTML is in
       if (expanded) {
         undoShown = false;
         /* Flow issues live in the PANEL, not only in the document. The
@@ -5472,7 +6312,7 @@
                     <div class="src-meta">${esc(src.publisher)}</div>
                     ${src.snippet ? `<div class="src-snip">${esc(src.snippet)}</div>` : ""}
                     <div class="src-actions">
-                      ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
+                      ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
                     </div>
                     ${editNoteHtml(`cite:${seg.hash}:${src.url}`)}
@@ -5481,6 +6321,7 @@
           }
           return sourcesHtml;
         };
+        cardSources = sourcesFor;
         const cards = issues.map(({ seg, f }) => {
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
@@ -5492,7 +6333,7 @@
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
-            ${deepHtml(seg.hash, f.verdict)}
+            ${deepHtml(seg.hash, f.verdict, (h) => (canEditDoc() ? editBtnHtml(`deepfix:${h}`, "Fix in doc", `data-deep-fix="${h}"`) + editNoteHtml(`deepfix:${h}`) : ""))}
             ${f.revision ? `
             <div class="fix">
               <div class="fix-label">Suggested revision</div>
@@ -5545,6 +6386,11 @@
         ${panelHtml}
         ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
+      // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
+      if (cardSources) {
+        for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
+        if (undoShown) shadow.querySelector(".undo-strip")?.remove(); // a card carries the Undo now
+      }
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
@@ -5612,9 +6458,25 @@
         for (const btn of shadow.querySelectorAll("[data-doc-fix]")) {
           btn.addEventListener("click", () => docFix(btn.dataset.docFix));
         }
-        for (const btn of shadow.querySelectorAll("[data-doc-cite]")) {
-          btn.addEventListener("click", () => docCite(btn.dataset.docCite, btn.dataset.i));
+        // "Explain in depth"'s own revision, applied like the card's.
+        for (const btn of shadow.querySelectorAll("[data-deep-fix]")) {
+          btn.addEventListener("click", () => docFix(btn.dataset.deepFix, null, deepRevision(btn.dataset.deepFix)));
         }
+        for (const btn of shadow.querySelectorAll("[data-doc-cite]")) {
+          btn.addEventListener("click", () => docCite(btn.dataset.docCite, btn.dataset.i, null, replaceFor(btn.dataset.docCite)));
+        }
+        // "Find the cited work" and what it offers (decorateCard).
+        for (const btn of shadow.querySelectorAll("[data-cited]")) btn.addEventListener("click", () => findCitedWork(btn.dataset.cited));
+        for (const btn of shadow.querySelectorAll("[data-claim-src]")) btn.addEventListener("click", () => findClaimSource(btn.dataset.claimSrc));
+        for (const btn of shadow.querySelectorAll("[data-cited-more]")) {
+          btn.addEventListener("click", () => {
+            const t = citedMap.get(btn.dataset.citedMore)?.target;
+            if (t?.segHash) startClaimSources(btn.dataset.citedMore, t.segHash, t.sentence);
+          });
+        }
+        for (const btn of shadow.querySelectorAll("[data-cited-copy]")) btn.addEventListener("click", () => copyCitedReference(btn.dataset.citedCopy, btn.dataset.i));
+        for (const btn of shadow.querySelectorAll("[data-cited-replace]")) btn.addEventListener("click", () => docReplaceCitation(btn.dataset.citedReplace, btn.dataset.i));
+        for (const btn of shadow.querySelectorAll("[data-cited-entry]")) btn.addEventListener("click", () => docCompleteEntry(btn.dataset.citedEntry, btn.dataset.i));
         for (const btn of shadow.querySelectorAll("[data-doc-undo]")) {
           btn.addEventListener("click", () => undoLastDocEdit());
         }
@@ -5827,6 +6689,12 @@
     let autoSourceTimes = [];
     let tracked = null;       // the editable element we watch
     let checkedOnce = false;  // pill leaves its quiet state after the first check
+    // "Find the cited work" (docs mode's citedMap / citedFallback), and a
+    // note's search for its claim: tip id → { hash, text } of that sentence.
+    const citedMap = new Map();
+    const citedFallback = new Map();
+    const claimSearch = new Map();
+    let copiedCitedKey = null;
 
     let widget = null; // created lazily — pages without qualifying fields get zero UI
     function ensureWidget() {
@@ -6389,22 +7257,237 @@
       render();
     }
 
+    /* ── "Find the cited work" (docs mode's, on a field) ─────────────────
+       The same lookup and the same cards; the edits go through the field
+       (replaceInField) instead of Docs' editor. A field has no reference-list
+       engine, so the record's entry rewrites the writer's own entry for that
+       work when it is there exactly once, and is copied to paste otherwise. */
+    let tipsMemo = null;
+    function allTips() {
+      if (!isArgumentGenre(docGenre)) return [];
+      const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
+      if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
+      const list = [
+        ...citationTips(fieldText, settings.citationStyle, dismissed),
+        ...(FEATURES.refList ? referenceTips(fieldText, dismissed) : []),
+        ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : []),
+      ];
+      tipsMemo = { k, list };
+      return list;
+    }
+    function tipById(id) { return allTips().find((t) => t.id === id) ?? null; }
+    function citedTargetFor(key) {
+      if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
+      const seg = segments.find((s) => s.hash === key);
+      const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
+      return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
+    }
+    function replaceFor(hash) {
+      if (citedFallback.has(hash)) return citedFallback.get(hash);
+      const seg = segments.find((s) => s.hash === hash);
+      return seg ? flaggedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
+    }
+    function startClaimSources(key, claimHash, claimText) {
+      claimSearch.set(key, { hash: claimHash, text: claimText });
+      if (!sourcesMap.get(claimHash)?.list?.length) fetchSources(claimHash);
+      render();
+    }
+    async function findCitedWork(key) {
+      const target = citedTargetFor(key);
+      if (!target) return;
+      const cur = citedMap.get(key);
+      if (cur?.loading || cur?.resolved) return;
+      const plan = citedLookupPlan(target, fieldText);
+      if (target.raw && target.segHash) citedFallback.set(target.segHash, target.raw);
+      citedMap.set(key, { loading: true, target, plan, matches: [], selected: 0 });
+      render();
+      const r = await lookupCitedWork(plan);
+      citedMap.set(key, { loading: false, target, plan, selected: 0, ...r });
+      if (!r.resolved && target.segHash) startClaimSources(key, target.segHash, target.sentence);
+      render();
+    }
+    function findClaimSource(tipId) {
+      const tip = tipById(tipId);
+      const i = tip ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      if (i < 0) return;
+      const claim = segments[i];
+      const c = tip.kind === "excuse" ? lookupableCitation(claim.text) : null;
+      if (c) citedFallback.set(claim.hash, c.raw);
+      startClaimSources(tipId, claim.hash, claim.text);
+    }
+    function copyCitedReference(key, i) {
+      const src = citedMap.get(key)?.matches?.[Number(i)];
+      if (!src) return;
+      navigator.clipboard?.writeText(citedWorkEntry(src, settings.citationStyle || "mla").entry).catch(() => {});
+      copiedCitedKey = `${key}:${i}`;
+      render();
+    }
+    function decorateCard(card, sourcesFor) {
+      const key = card.dataset.card;
+      if (!key || card.classList.contains("ev-card")) return;
+      const isTip = key.startsWith("tip:");
+      const tip = isTip ? tipById(key) : null;
+      const target = citedTargetFor(key);
+      const ci = tip && TIP_FIND_SOURCE.includes(tip.kind) ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      const c = citedMap.get(key);
+      const buttons = [];
+      if (target) buttons.push(`<button class="act${isTip ? " primary" : ""}" data-cited="${esc(key)}"${c?.loading ? " disabled" : ""}>${esc(CITED_COPY.find)}</button>`);
+      if (ci >= 0) buttons.push(`<button class="act${target ? "" : " primary"}" data-claim-src="${esc(key)}">Find a source</button>`);
+      let html = "";
+      if (c) html += citedWorkHtml(c, (i, src) => citedActionsHtml(key, c, i, src), c.resolved && c.target?.segHash ? `<div class="row"><button class="act" data-cited-more="${esc(key)}">${esc(CITED_COPY.different)}</button></div>` : "");
+      const cs = claimSearch.get(key);
+      const claim = cs ? segments.find((s) => s.hash === cs.hash) : null;
+      if (isTip && claim) html += sourcesFor(claim);
+      if (isTip && buttons.length) card.insertAdjacentHTML("beforeend", `<div class="row">${buttons.join("")}</div>${html}`);
+      else if (buttons.length || html) {
+        const row = card.querySelector(".row");
+        if (row && buttons.length) row.insertAdjacentHTML("beforeend", buttons.join(""));
+        const at = card.querySelector(".sources") ?? card.querySelector(".cite-url");
+        if (html) { if (at) at.insertAdjacentHTML("beforebegin", html); else card.insertAdjacentHTML("beforeend", html); }
+      }
+    }
+    function citedActionsHtml(key, c, i, src) {
+      const t = c.target;
+      const style = settings.citationStyle || "mla";
+      let edit = "";
+      if (t?.kind === "sentence" && t.segHash && t.raw && swapCitation(t.sentence, t.raw, formatCitation(src, style).marker, style)) {
+        edit = `<button class="act primary" data-cited-replace="${esc(key)}" data-i="${i}">${c.done?.i === i ? "Replaced ✓" : esc(CITED_COPY.replace)}</button>`;
+      } else if (t?.kind === "entry") {
+        edit = `<button class="act primary" data-cited-entry="${esc(key)}" data-i="${i}">${c.done?.i === i ? "Completed ✓" : esc(CITED_COPY.complete)}</button>`;
+      }
+      return `${edit}<button class="act${edit ? "" : " primary"}" data-cited-copy="${esc(key)}" data-i="${i}">${copiedCitedKey === `${key}:${i}` ? "Copied ✓" : esc(CITED_COPY.copyRef)}</button>`;
+    }
+
+    /* `find` swapped for `replacement` in the tracked field, in place — only
+       where `find` is in the field exactly once (which copy is meant is
+       otherwise a guess), and read back afterwards. A contenteditable takes
+       it through insertText, so the page's own Undo takes it back. */
+    function replaceInField(find, replacement) {
+      const el = tracked;
+      if (!el || !el.isConnected || !find || !replacement) return false;
+      try {
+        if (el instanceof HTMLTextAreaElement) {
+          const v = el.value;
+          const at = v.indexOf(find);
+          if (at < 0 || v.indexOf(find, at + find.length) >= 0) return false;
+          el.focus();
+          el.setRangeText(replacement, at, at + find.length, "end");
+          nativeValueSetter()?.call(el, el.value);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          const index = buildTextIndex(el);
+          const at = index.text.indexOf(find);
+          if (at < 0 || index.text.indexOf(find, at + find.length) >= 0) return false;
+          const range = rangeForOffsets(index, at, at + find.length);
+          if (!range) return false;
+          el.focus();
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          let ok = false;
+          try { ok = document.execCommand("insertText", false, replacement); } catch { ok = false; }
+          if (!ok) { sel.removeAllRanges(); return false; }
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        return readField(el).includes(replacement);
+      } catch {
+        return false;
+      }
+    }
+    // The record's entry over the writer's own one for that work, or copied to paste.
+    function placeEntryInField(oldEntry, entry) {
+      if (oldEntry && replaceInField(oldEntry, entry)) return "and its reference entry";
+      navigator.clipboard?.writeText(entry).catch(() => {});
+      return worksCitedBlock(readField(tracked)) ? "— its reference is copied, paste it into your list" : "— its reference is copied";
+    }
+    // "Replace citation" for a looked-up record.
+    function fieldReplaceCitation(key, i) {
+      const c = citedMap.get(key);
+      const src = c?.matches?.[Number(i)];
+      const t = c?.target;
+      const seg = t?.segHash ? segments.find((s) => s.hash === t.segHash) : null;
+      if (!src || !seg || !t.raw) return;
+      const style = settings.citationStyle || "mla";
+      const { marker, entry } = citedWorkEntry(src, style);
+      const swapped = swapCitation(seg.text, t.raw, marker, style);
+      if (!swapped || !replaceInField(seg.text, swapped)) {
+        if (swapped) navigator.clipboard?.writeText(swapped).catch(() => {});
+        statusKind = "idle";
+        statusMsg = swapped ? "couldn't edit in place — copied the sentence instead" : "that citation is no longer in the sentence exactly once — nothing was changed";
+        render();
+        return;
+      }
+      const oldEntry = c.plan?.entry && citationUses(fieldText, t.raw) <= 1 ? c.plan.entry : null;
+      const rest = worksCitedBlock(readField(tracked)) ? placeEntryInField(oldEntry, entry) : "";
+      c.done = { i: Number(i) };
+      statusKind = "idle";
+      statusMsg = `citation replaced${rest ? ` ${rest}` : ""}`;
+      lastCheckEnd = lastTextChangeAt = Date.now(); // the text just changed: read again in READ_INTERVAL_MS
+      render();
+    }
+    // "Complete entry": the incomplete reference line, rewritten in place.
+    function fieldCompleteEntry(key, i) {
+      const c = citedMap.get(key);
+      const src = c?.matches?.[Number(i)];
+      const t = c?.target;
+      if (!src || t?.kind !== "entry") return;
+      const { entry } = citedWorkEntry(src, settings.citationStyle || "mla");
+      if (!replaceInField(t.entry, entry)) {
+        navigator.clipboard?.writeText(entry).catch(() => {});
+        statusKind = "idle";
+        statusMsg = "couldn't edit in place — copied the entry instead";
+        render();
+        return;
+      }
+      c.done = { i: Number(i) };
+      statusKind = "idle";
+      statusMsg = "reference entry completed";
+      lastCheckEnd = lastTextChangeAt = Date.now();
+      render();
+    }
+    // A source from the search, in place of the sentence's faulty citation (Cite in doc's field twin).
+    function fieldCiteReplace(hash, i) {
+      const seg = segments.find((s) => s.hash === hash);
+      const src = sourcesMap.get(hash)?.list?.[Number(i)];
+      const raw = replaceFor(hash);
+      if (!seg || !src || !raw) return;
+      const style = settings.citationStyle || "mla";
+      const styled = formatCitation(src, style);
+      const swapped = swapCitation(seg.text, raw, styled.marker, style);
+      if (!swapped || !replaceInField(seg.text, swapped)) {
+        copyText(styled.ref, hash, src.url);
+        statusKind = "idle";
+        statusMsg = "couldn't edit in place — copied the citation instead";
+        render();
+        return;
+      }
+      const rest = placeEntryInField(null, styled.ref);
+      const st = sourcesMap.get(hash);
+      if (st) st.copiedUrl = src.url;
+      statusKind = "idle";
+      statusMsg = `citation replaced ${rest}`;
+      lastCheckEnd = lastTextChangeAt = Date.now();
+      render();
+    }
+
     /* ── in-place fix — the point of field mode ── */
 
     function nativeValueSetter() {
       return Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set ?? null;
     }
 
-    function fixInField(hash) {
+    // revision: "Explain in depth"'s own fix (deepRevision), in place of the card's.
+    function fixInField(hash, revision = null) {
       const f = cache.get(hash);
-      if (!f?.revision) return;
+      const rev = revision || f?.revision;
+      if (!rev) return;
       const known = segments.find((s) => s.hash === hash);
 
       // Fallback when the live range can't be located (framework re-rendered,
       // field gone, execCommand refused): copy instead, and say so.
       const fallbackCopy = () => {
         copiedFixHash = hash;
-        navigator.clipboard?.writeText(known ? withMarkers(known.text, f.revision) : f.revision).catch(() => {});
+        navigator.clipboard?.writeText(known ? withMarkers(known.text, rev) : rev).catch(() => {});
         statusKind = "idle";
         statusMsg = "couldn't edit in place — copied instead";
       };
@@ -6417,7 +7500,7 @@
           // Recompute the sentence's range against the CURRENT value.
           const seg = segmentText(el.value).find((s) => s.hash === hash);
           if (!seg) { fallbackCopy(); render(); return; }
-          const replacement = withMarkers(seg.text, f.revision);
+          const replacement = withMarkers(seg.text, rev);
           el.focus();
           el.setRangeText(replacement, seg.start, seg.end, "end");
           // Controlled inputs (React et al.): re-assert through the native
@@ -6432,7 +7515,7 @@
           const seg = segmentText(index.text).find((s) => s.hash === hash);
           const range = seg ? rangeForOffsets(index, seg.start, seg.end) : null;
           if (!range) { fallbackCopy(); render(); return; }
-          const replacement = withMarkers(seg.text, f.revision);
+          const replacement = withMarkers(seg.text, rev);
           el.focus();
           const sel = window.getSelection();
           sel.removeAllRanges();
@@ -6461,6 +7544,7 @@
         // holds (readable by the site, and outliving an uninstall) go with it.
         for (const k of [DISMISS_KEY, FIELD_CACHE_KEY]) { try { localStorage.removeItem(k); } catch { /* storage denied */ } }
         cache.clear(); sourcesMap.clear(); dismissed.clear();
+        citedMap.clear(); citedFallback.clear(); claimSearch.clear();
       }
       siteOn = on;
       lsSet(SITE_KEY, on ? "1" : "0");
@@ -6512,6 +7596,7 @@
       const panelOpening = expanded && !panelWasOpen;
       panelWasOpen = expanded;
       let panelHtml = "";
+      let cardSources = null; // the panel's sourcesFor, for decorateCard once the HTML is in
       if (expanded) {
         const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
@@ -6531,6 +7616,7 @@
                     <div class="src-meta">${esc(src.publisher)}</div>
                     ${src.snippet ? `<div class="src-snip">${esc(src.snippet)}</div>` : ""}
                     <div class="src-actions">
+                      ${replaceFor(seg.hash) ? `<button class="act primary" data-src-replace="${seg.hash}" data-i="${i}">${esc(CITED_COPY.replace)}</button>` : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
                     </div>
                   </div>
@@ -6538,6 +7624,7 @@
           }
           return sourcesHtml;
         };
+        cardSources = sourcesFor;
         const cards = issues.map(({ seg, f }) => {
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
@@ -6549,7 +7636,7 @@
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
-            ${deepHtml(seg.hash, f.verdict)}
+            ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Fix in field"}</button>`)}
             ${f.revision ? `
             <div class="fix">
               <div class="fix-label">Suggested revision</div>
@@ -6604,6 +7691,8 @@
           ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
+      // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
+      if (cardSources) for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
@@ -6635,6 +7724,10 @@
         for (const btn of shadow.querySelectorAll("[data-field-fix]")) {
           btn.addEventListener("click", () => fixInField(btn.dataset.fieldFix));
         }
+        // "Explain in depth"'s own revision, put in like the card's.
+        for (const btn of shadow.querySelectorAll("[data-deep-fix]")) {
+          btn.addEventListener("click", () => fixInField(btn.dataset.deepFix, deepRevision(btn.dataset.deepFix)));
+        }
         for (const btn of shadow.querySelectorAll("[data-copy-fix]")) {
           btn.addEventListener("click", () => {
             const f = cache.get(btn.dataset.copyFix);
@@ -6651,6 +7744,20 @@
             if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
           });
         }
+        // "Find the cited work" and what it offers (decorateCard), and a
+        // searched source in place of the sentence's faulty citation.
+        for (const btn of shadow.querySelectorAll("[data-src-replace]")) btn.addEventListener("click", () => fieldCiteReplace(btn.dataset.srcReplace, btn.dataset.i));
+        for (const btn of shadow.querySelectorAll("[data-cited]")) btn.addEventListener("click", () => findCitedWork(btn.dataset.cited));
+        for (const btn of shadow.querySelectorAll("[data-claim-src]")) btn.addEventListener("click", () => findClaimSource(btn.dataset.claimSrc));
+        for (const btn of shadow.querySelectorAll("[data-cited-more]")) {
+          btn.addEventListener("click", () => {
+            const t = citedMap.get(btn.dataset.citedMore)?.target;
+            if (t?.segHash) startClaimSources(btn.dataset.citedMore, t.segHash, t.sentence);
+          });
+        }
+        for (const btn of shadow.querySelectorAll("[data-cited-copy]")) btn.addEventListener("click", () => copyCitedReference(btn.dataset.citedCopy, btn.dataset.i));
+        for (const btn of shadow.querySelectorAll("[data-cited-replace]")) btn.addEventListener("click", () => fieldReplaceCitation(btn.dataset.citedReplace, btn.dataset.i));
+        for (const btn of shadow.querySelectorAll("[data-cited-entry]")) btn.addEventListener("click", () => fieldCompleteEntry(btn.dataset.citedEntry, btn.dataset.i));
         shadow.getElementById("autoSrcTgl")?.addEventListener("change", (e) => {
           settings.autoSources = e.target.checked;
           saveSettings();
