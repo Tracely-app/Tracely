@@ -1689,8 +1689,8 @@
   }
   /* The sources the server could not read, collapsed under one toggle (the
      panel re-renders every few seconds, so the open state lives in the
-     sources entry: `open`). Open only — nobody is told to cite a source
-     nothing read. */
+     sources entry, `unreadOpen`). Open only — nobody is told to cite a
+     source nothing read. */
   function unreadSourcesHtml(hash, unread, open) {
     const list = Array.isArray(unread) ? unread.filter(Boolean) : [];
     if (!list.length) return "";
