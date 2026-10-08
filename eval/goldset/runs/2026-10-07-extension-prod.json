@@ -434,6 +434,241 @@
     }
    ],
    "shown": 0
+  },
+  "02-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 11237,
+   "claim": "A randomized controlled trial at a Chinese travel agency found that employees working from home were roughly 13 percent more productive than their in-office counterparts, and that attrition fell by half.",
+   "essay": "02-remote-work.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://doi.org/10.1093/qje/qju032",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "“Call center employees who volunteered to WFH were randomly assigned either to work from home or in the office for nine months. Home working led to a 13% performance increase”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Nicholas Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2014,
+     "doi": "10.1093/qje/qju032",
+     "container": "The Quarterly Journal of Economics",
+     "date": "2014-11-20",
+     "volume": "130",
+     "issue": "1",
+     "pages": "165-218",
+     "editors": []
+    },
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://www.nber.org/papers/w18871",
+     "publisher": "National Bureau of Economic Research",
+     "snippet": "Call-center employees at CTrip were randomly assigned to work from home or in the office for nine months; home working increased performance by 13%.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [
+      "Nicholas Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2013,
+     "doi": "10.3386/w18871",
+     "container": "NBER Working Paper"
+    },
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://www.gsb.stanford.edu/faculty-research/publications/does-working-home-work-evidence-chinese-experiment",
+     "publisher": "Stanford Graduate School of Business",
+     "snippet": "“Call center employees who volunteered to WFH were randomly assigned either to work from home or in the office for nine months. … Home working led to a 13% performance increase”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [
+      "Nicholas A. Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2015,
+     "container": "The Quarterly Journal of Economics"
+    },
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://www.gsb.stanford.edu/faculty-research/working-papers/does-working-home-work-evidence-chinese-experiment",
+     "publisher": "Stanford Graduate School of Business",
+     "snippet": "The randomized experiment involved volunteer call-center employees at CTrip who were assigned to work from home or in the office for nine months.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [
+      "Nicholas Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2013,
+     "container": "Stanford Graduate School of Business Working Paper No. 3109"
+    }
+   ],
+   "shown": 2
+  },
+  "02-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13808,
+   "claim": "Meanwhile, commercial office vacancy rates in major American cities reached record highs after 2020, which has put real pressure on municipal tax bases that depend on commercial property assessments.",
+   "essay": "02-remote-work.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "With Revenue at Risk, Cities Seek to Overcome Office Vacancies",
+     "url": "https://www.pew.org/en/research-and-analysis/articles/2026/05/13/with-revenue-at-risk-cities-seek-to-overcome-office-vacancies",
+     "publisher": "The Pew Charitable Trusts",
+     "snippet": "Office vacancies remain 50% above pre-2020 rates, while declining office property taxes may become a less reliable source of city revenue.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "The Pew Charitable Trusts",
+     "date": "2026-05-13",
+     "year": 2026
+    },
+    {
+     "title": "The Future Of Commercial Real Estate And Big City Budgets",
+     "url": "https://taxpolicycenter.org/taxvox/future-commercial-real-estate-and-big-city-budgets",
+     "publisher": "Tax Policy Center",
+     "snippet": "The shift to remote work has put commercial real estate and potentially city government budgets on shaky ground, especially in major cities with large commercial districts.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Tax Policy Center",
+     "year": 2023
+    },
+    {
+     "title": "The Future of Commercial Real Estate",
+     "url": "https://taxpolicycenter.org/sites/default/files/publication/165853/the-future-of-commercial-real-estate_2024-05-01.pdf",
+     "publisher": "Urban-Brookings Tax Policy Center",
+     "snippet": "Declining office-building values after COVID-19 could reduce local property-tax revenues and alter how major cities and localities raise revenue and provide services.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Urban-Brookings Tax Policy Center",
+     "year": 2024
+    },
+    {
+     "title": "The Impact of the COVID-19 Pandemic on the Fiscal Health of American Central Cities",
+     "url": "https://www.lincolninst.edu/publications/working-papers/impact-covid-19-pandemic-fiscal-health-american-central-cities/",
+     "publisher": "Lincoln Institute of Land Policy",
+     "snippet": "Remote work reduces demand for office space, placing downward pressure on cities’ commercial-industrial property-tax bases and creating fiscal challenges without state aid.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Lincoln Institute of Land Policy",
+     "year": 2025
+    },
+    {
+     "title": "Declining Office Market Valuations and the Risk to Property Taxes",
+     "url": "https://www.kbra.com/publications/PcDcggbC/kbra-releases-research-declining-office-market-valuations-and-the-risk-to-property-taxes?format=web",
+     "publisher": "KBRA",
+     "snippet": "“record commercial office vacancies and rising loan delinquencies across many U.S.”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "KBRA",
+     "year": 2024
+    }
+   ],
+   "shown": 4
+  },
+  "02-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 10800,
+   "claim": "Research suggests that fully remote workers are less likely to be promoted than colleagues who come in, a gap sometimes attributed to reduced visibility rather than reduced output.",
+   "essay": "02-remote-work.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Working Remotely?",
+     "url": "https://www.newyorkfed.org/medialibrary/media/research/staff_reports/sr1061.pdf?sc_lang=en",
+     "publisher": "Federal Reserve Bank of New York",
+     "snippet": "A year after hiring, 44.0% of on-site hires had been promoted compared with 20.9% of remote hires; the study attributes differences partly to reduced skill acquisition and manager bonding.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Federal Reserve Bank of New York",
+     "year": 2023
+    },
+    {
+     "title": "Mechanisms Underlying the Effects of Work from Home on Careers in the Post-Covid Context",
+     "url": "https://journals.sagepub.com/doi/10.1177/09500170251325769",
+     "publisher": "SAGE Publications",
+     "snippet": "“Among full-time teleworkers, reduced career opportunities stem not only from managers’ perceptions of their job performance but also from assumptions that full-time teleworkers are less committed to work.”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Anna Matysiak",
+      "Agnieszka Kasperska",
+      "Ewa Cukrowska-Torzewska"
+     ],
+     "groupAuthor": "",
+     "year": 2025,
+     "doi": "10.1177/09500170251325769",
+     "container": "Work, Employment and Society",
+     "volume": "39",
+     "issue": "5",
+     "pages": "1103-1126",
+     "editors": []
+    },
+    {
+     "title": "Managerial (dis)preferences towards employees working from home: Post-pandemic experimental evidence",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11095720/",
+     "publisher": "PLOS ONE",
+     "snippet": "Experimental evidence suggests some workers who work from home are less likely to be promoted or receive raises, while managers may evaluate remote employees through output rather than observable face time.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2024
+    },
+    {
+     "title": "Hybrid working from home improves retention without damaging performance",
+     "url": "https://doi.org/10.1038/s41586-024-07500-2",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "A randomized trial found no difference in promotion rates between hybrid-work and control groups, contrasting with evidence that fully remote work can harm employee development and promotions.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Nicholas Bloom",
+      "Ruobing Han",
+      "James Liang"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1038/s41586-024-07500-2",
+     "date": "2024-06-12",
+     "container": "Nature",
+     "volume": "630",
+     "issue": "8018",
+     "pages": "920-925",
+     "editors": []
+    }
+   ],
+   "shown": 2
   }
  }
 }
