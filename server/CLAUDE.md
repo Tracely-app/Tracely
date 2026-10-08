@@ -43,6 +43,24 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   dropped; a DOI whose registered title or year is another work's is not
   applied (`lib/sourceEnrich.js` `sameWork`). The route's `verified` and
   `retracted` tallies are log-line only.
+- **The desktop gets the same receipts from its own route,
+  `/api/verify-sources`** (2026-10-07; `lib/reasoning.js` `verifySources` →
+  the same `lib/sourceVerify.js`, never a second verifier). The desktop sends
+  a list the writer OPENED — at most 8 sources `{ id, title, url?, doi?,
+  abstract?, venue?, year? }`, clamped — and gets one `{ id, verdict:
+  backs|contradicts|topic|unread, quote?, readFrom?, retracted? }` each. An
+  `abstract` the desktop sends (a scholarly index's own) is read only when
+  OpenAlex has none (`gatherEvidence` `abstractOf`; the extension passes none).
+  It is an APP route: `appGate`/`appCall`, the app pool and limiter, one `ai`
+  action per list, never the source-search allowance (nothing is searched),
+  the fast model at low (`plan.js` `verifySources`), no server cache (a page
+  that missed the deadline must not be frozen as unread; the desktop caches).
+  A judge that fails is a 502, never a list of "unread" — the desktop falls
+  back to its unchecked list. Why user-triggered: it is a paid call, and the
+  desktop's passive Screen Watch never makes one unasked. `context` is
+  accepted and not sent to the judge (VERIFY_SYSTEM is measured on the claim
+  alone). Tests: `test/verify-sources.test.js`, `test/boundary.test.js`,
+  `test/mirror-contracts.test.js`.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
   request builders and parsers did not change when it moved.

@@ -206,7 +206,8 @@ export async function callServer<T>(
     | 'correction'
     | 'grade'
     | 'tracer'
-    | 'find-sources',
+    | 'find-sources'
+    | 'verify-sources',
   body: Record<string, unknown>,
   options: { model?: ServerModel } = {}
 ): Promise<T> {

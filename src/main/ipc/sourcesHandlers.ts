@@ -1,8 +1,9 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 import { IPC } from '@shared/ipc-channels'
-import type { SourcesFaviconsResponse } from '@shared/ipc-contract'
+import type { SourcesFaviconsResponse, SourcesVerifyResponse } from '@shared/ipc-contract'
 import { getFaviconDataUrl } from '../services/search/favicon'
+import { verifySourceList } from '../services/ai/verifySources'
 
 /**
  * Real site icons for the main window's source rows.
@@ -46,7 +47,42 @@ const schema = z.object({
   urls: z.array(z.string()).max(500)
 })
 
+/**
+ * The list a surface is showing, to be checked for receipts. Bounds on an
+ * unprivileged renderer, not product limits: a list is five rows, the server
+ * checks eight, and every field is clamped again in shared/sourceReceipts.ts
+ * before it leaves the machine. Lengths are generous because an abstract is
+ * long and a row with a long one must not cost the list its check.
+ */
+const verifySchema = z.object({
+  claimText: z.string().max(20_000),
+  sources: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(2_000),
+        title: z.string().max(20_000),
+        url: z.string().max(20_000).nullable(),
+        doi: z.string().max(2_000).nullable(),
+        abstract: z.string().max(100_000).nullable(),
+        venue: z.string().max(20_000).nullable(),
+        year: z.number().int().nullable(),
+        provider: z.string().max(100)
+      })
+    )
+    .max(40)
+})
+
 export function registerSourcesHandlers(): void {
+  /**
+   * Receipts for the list being shown — a paid server call, made only because
+   * the writer opened that list. The renderer calls this from the citation
+   * flow it just opened and from nowhere else; see services/ai/verifySources.ts.
+   */
+  ipcMain.handle(IPC.SOURCES_VERIFY, async (_event, raw): Promise<SourcesVerifyResponse> => {
+    const { claimText, sources } = verifySchema.parse(raw)
+    return await verifySourceList(claimText, sources)
+  })
+
   ipcMain.handle(IPC.SOURCES_FAVICONS, async (_event, raw): Promise<SourcesFaviconsResponse> => {
     const { urls } = schema.parse(raw)
 

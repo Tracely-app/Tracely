@@ -41,6 +41,18 @@ import {
 // The flow's wording is shared with the Screen Watch overlay, which draws the
 // same four frames over other applications — see citationFlowCopy.ts.
 import {
+  CHECKING_TITLE,
+  OPEN_SOURCE,
+  RECEIPTS_UNAVAILABLE,
+  SOURCE_SAYS,
+  checkingBody,
+  contradictsGroupLabel,
+  quoted,
+  readFromLabel,
+  receiptsBody,
+  receiptsTitle,
+  topicGroupLabel,
+  unreadGroupLabel,
   CITATION_REPLACED_TITLE,
   CITATION_STYLE_LABEL,
   CITED_WORK_EMPTY_TITLE,
@@ -59,7 +71,6 @@ import {
   willReplaceLabel,
   flagsLeft,
   insertedBody,
-  resultsBody,
   resultsTitle,
   readOnlyTitle,
   searchingBody,
@@ -72,6 +83,7 @@ import type {
   ResolvedCitedWork
 } from '@shared/ipc-contract'
 import type { Credibility } from '@shared/sourceCredibility'
+import { groupByReceipt, mayInsert, type ReceiptsState, type SourceReceipt } from '@shared/sourceReceipts'
 import type { WorksCitedResult } from './documentMarks'
 
 /**
@@ -147,6 +159,11 @@ export interface DocSourceCandidate {
    */
   url: string | null
   /**
+   * The source's OWN page, for a row's Open button — not `url`, which is the
+   * publisher's site for the icon (a doi.org link has the DOI logo).
+   */
+  pageUrl: string | null
+  /**
    * Whether a marker would accept this, decided locally — see
    * shared/sourceCredibility.ts. Drives the chip on the row and the order.
    */
@@ -159,6 +176,15 @@ export type DocCitationFlowState =
       step: 'picking'
       candidates: DocSourceCandidate[]
       selectedId: string | null
+      /**
+       * What each source SAYS — shared/sourceReceipts.ts. Asked for the moment
+       * the list arrives (opening it is the click that pays for it): while it
+       * is `checking` the card says so and nothing can be inserted; once
+       * `checked`, only a source quoted backing the sentence can be; when
+       * `unavailable`, the list is the one from before receipts, under a line
+       * saying nothing was checked.
+       */
+      receipts: ReceiptsState
       style: CitationStyle
       /**
        * What "Insert citation" would write, once Preview has been pressed.
@@ -1483,6 +1509,95 @@ function CitedSourceBlock({
   )
 }
 
+/**
+ * One source in the list, with its receipt.
+ *
+ * Two shapes, decided by whether Insert may take it (shared/sourceReceipts.ts
+ * `mayInsert`): a pickable row is the radio button it always was; any other
+ * row — topic, unread, says otherwise, or anything in a read-only list — is
+ * not selectable at all and offers only Open, because selecting a row the
+ * Insert button then refuses is a click that teaches the wrong thing.
+ *
+ * The receipt is the source's own words, verbatim, with where they were read.
+ * It wraps: the quote is the reason the row is here, and an ellipsis that cut
+ * it would cut the evidence.
+ */
+function DocSourceRow({
+  candidate,
+  receipt,
+  pickable,
+  selected,
+  showMatch,
+  faviconDataUrl,
+  onSelect,
+  onOpen
+}: {
+  candidate: DocSourceCandidate
+  receipt: SourceReceipt | null
+  pickable: boolean
+  selected: boolean
+  showMatch: boolean
+  faviconDataUrl: string | null
+  onSelect: () => void
+  onOpen: (() => void) | null
+}): JSX.Element {
+  const meta = (
+    <span className="docmark-row-meta">
+      <span className="docmark-row-title">{candidate.title}</span>
+      {/* The venue is what gives and the match percentage is what does
+          not — see .docmark-venue / .docmark-match. */}
+      <span className="docmark-row-sub">
+        <span className="docmark-venue">
+          {candidate.venue ?? 'Unknown venue'}
+          {candidate.year ? ` · ${candidate.year}` : ''}
+        </span>
+        {showMatch ? <span className="docmark-match">{candidate.matchPercent}% match</span> : null}
+      </span>
+      {receipt?.quote ? (
+        <span className="docmark-receipt">
+          <span className="docmark-receipt-lead">{SOURCE_SAYS}</span> {quoted(receipt.quote)}{' '}
+          <span className="docmark-receipt-from">· {readFromLabel(receipt.readFrom)}</span>
+        </span>
+      ) : null}
+      {/* What a marker would make of the publisher. `title` carries the reason. */}
+      <span
+        className={`docmark-cred docmark-cred-${candidate.credibility.tier}`}
+        title={candidate.credibility.why}
+      >
+        {candidate.credibility.label}
+      </span>
+    </span>
+  )
+  const badge = (
+    <SourceIconBox className="docmark-row-badge" initials={candidate.initials} faviconDataUrl={faviconDataUrl} />
+  )
+  const receiptClass = receipt?.quote ? ' has-receipt' : ''
+  if (pickable) {
+    return (
+      <button
+        type="button"
+        className={`docmark-row${selected ? ' selected' : ''}${receiptClass}`}
+        onClick={onSelect}
+      >
+        {badge}
+        {meta}
+        <span className={`docmark-radio${selected ? ' on' : ''}`} aria-hidden="true" />
+      </button>
+    )
+  }
+  return (
+    <div className={`docmark-row docmark-row-static${receiptClass}`}>
+      {badge}
+      {meta}
+      {onOpen ? (
+        <button type="button" className="docmark-open" onClick={onOpen} title={candidate.pageUrl ?? undefined}>
+          {OPEN_SOURCE}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimText: string }): JSX.Element {
   // Hooks run before any of the early returns below, which is why this is here
   // rather than beside the rows it feeds: the card returns a different tree per
@@ -1492,6 +1607,10 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
   const favicons = useFavicons(
     flow.state.step === 'picking' ? flow.state.candidates.map((c) => c.url) : []
   )
+  // "Related, but they don't say this" starts folded: those rows are what the
+  // writer is being told not to cite, and they should not be the first thing
+  // read. Here with the other hook for the same early-return reason.
+  const [topicOpen, setTopicOpen] = useState(false)
 
   const { state } = flow
 
@@ -1591,8 +1710,8 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
     )
   }
 
-  const { candidates, selectedId, style, preview } = state
-  const selectedUrl = candidates.find((c) => c.sourceId === selectedId)?.url ?? null
+  const { candidates, selectedId, style, preview, receipts } = state
+  const selectedUrl = candidates.find((c) => c.sourceId === selectedId)?.pageUrl ?? null
 
   if (candidates.length === 0) {
     return (
@@ -1614,20 +1733,86 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
     )
   }
 
+  // "Checking what each source says…" — between the search and the list. The
+  // rows are not drawn yet on purpose: a list on screen before it is read is a
+  // list that reads as recommended, and Insert has nothing it may offer.
+  if (receipts.status === 'checking') {
+    return (
+      <>
+        <div className="docmark-head">
+          {/* Grey: the "still checking" colour, not a finding. */}
+          <span className="docmark-dot" style={{ background: PROBLEM_COLOR.searching }} />
+          <span className="docmark-title">{CHECKING_TITLE}</span>
+        </div>
+        <p className="docmark-body">{checkingBody(candidates.length, claimText)}</p>
+        <div className="docmark-progress">
+          <div className="docmark-progress-fill" />
+        </div>
+        <div className="docmark-skeletons">
+          {SKELETON_ROWS.map(([wide, narrow], i) => (
+            <div className="docmark-skeleton-row" key={i}>
+              <span className="docmark-skeleton tile" />
+              <span className="docmark-skeleton-lines">
+                <span className="docmark-skeleton" style={{ width: wide }} />
+                <span className="docmark-skeleton faint" style={{ width: narrow }} />
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="docmark-actions">
+          <button className="docmark-btn-secondary" onClick={flow.onCancel}>
+            Cancel
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  // Checked: grouped by what each source SAYS. Unavailable: the list as it was
+  // before receipts, Insert and all, under a line saying nothing was checked.
+  const checked = receipts.status === 'checked'
+  const groups = checked ? groupByReceipt(candidates, (c) => c.sourceId, receipts.byId) : null
+  const backing = groups?.backs.length ?? 0
+  const receiptOf = (id: string): SourceReceipt | null => (checked ? receipts.byId[id] ?? null : null)
+  // A row may be picked only where Insert may take it (shared/sourceReceipts.ts).
+  const pickable = (id: string): boolean => !flow.readOnly && mayInsert(receipts, id)
+  const anyPickable = candidates.some((c) => pickable(c.sourceId))
+  const canInsert = pickable(selectedId ?? '')
+
+  const row = (candidate: DocSourceCandidate): JSX.Element => (
+    <DocSourceRow
+      key={candidate.sourceId}
+      candidate={candidate}
+      receipt={receiptOf(candidate.sourceId)}
+      pickable={pickable(candidate.sourceId)}
+      selected={candidate.sourceId === selectedId}
+      // A match percentage measured the TOPIC. Once a source has been read,
+      // its receipt is the answer and the percentage would contradict it.
+      showMatch={!checked}
+      faviconDataUrl={candidate.url ? favicons.get(candidate.url) ?? null : null}
+      onSelect={() => flow.onSelect(candidate.sourceId)}
+      onOpen={candidate.pageUrl ? () => flow.onOpenUrl(candidate.pageUrl as string) : null}
+    />
+  )
+
   return (
     <>
       <div className="docmark-head">
-        <span className="docmark-dot" style={{ background: '#16a34a' }} />
+        <span className="docmark-dot" style={{ background: checked && backing === 0 ? '#ffb800' : '#16a34a' }} />
         <span className="docmark-title">
-          {flow.readOnly ? readOnlyTitle(candidates.length) : resultsTitle(candidates.length)}
+          {checked
+            ? receiptsTitle(backing)
+            : flow.readOnly
+              ? readOnlyTitle(candidates.length)
+              : resultsTitle(candidates.length)}
         </span>
-        {flow.readOnly ? null : <span className="docmark-chip">{CITATION_STYLE_LABEL[style]}</span>}
+        {flow.readOnly || !anyPickable ? null : <span className="docmark-chip">{CITATION_STYLE_LABEL[style]}</span>}
       </div>
       {/* The header above and the buttons below stay put; this is the part that
           scrolls. See .docmark-scroll — the version that scrolled only the
           results list left the buttons off the bottom of the editor. */}
       <div className="docmark-scroll">
-      <p className="docmark-body">{resultsBody(claimText)}</p>
+      <p className="docmark-body">{checked ? receiptsBody(claimText, backing) : RECEIPTS_UNAVAILABLE}</p>
       {/* Only in read-only. This card is titled "Compare sources" there; the
           insert card is about a sentence with nothing to compare against. */}
       {flow.readOnly ? (
@@ -1637,55 +1822,44 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
           onOpen={flow.onOpenUrl}
         />
       ) : null}
-      <div className="docmark-rows">
-        {candidates.map((candidate) => (
-          <button
-            type="button"
-            key={candidate.sourceId}
-            className={`docmark-row${candidate.sourceId === selectedId ? ' selected' : ''}`}
-            onClick={() => flow.onSelect(candidate.sourceId)}
-          >
-            <SourceIconBox
-              className="docmark-row-badge"
-              initials={candidate.initials}
-              faviconDataUrl={candidate.url ? favicons.get(candidate.url) : null}
-            />
-            <span className="docmark-row-meta">
-              <span className="docmark-row-title">{candidate.title}</span>
-              {/* The venue is what gives and the match percentage is what does
-                  not — see .docmark-venue / .docmark-match. Ellipsising the
-                  line as a whole would cut the number the card is titled
-                  around. */}
-              <span className="docmark-row-sub">
-                <span className="docmark-venue">
-                  {candidate.venue ?? 'Unknown venue'}
-                  {candidate.year ? ` · ${candidate.year}` : ''}
-                </span>
-                <span className="docmark-match">{candidate.matchPercent}% match</span>
-              </span>
-              {/* What a marker would make of it. `title` carries the reason, so
-                  the chip stays short enough to sit on one line beside the
-                  match percentage. */}
-              <span
-                className={`docmark-cred docmark-cred-${candidate.credibility.tier}`}
-                title={candidate.credibility.why}
+      {groups ? (
+        <>
+          {groups.backs.length ? <div className="docmark-rows">{groups.backs.map(row)}</div> : null}
+          {groups.contradicts.length ? (
+            <div className="docmark-rows">
+              <div className="docmark-group-label">{contradictsGroupLabel(groups.contradicts.length)}</div>
+              {groups.contradicts.map(row)}
+            </div>
+          ) : null}
+          {groups.topic.length ? (
+            <div className="docmark-rows">
+              <button
+                type="button"
+                className="docmark-group-toggle"
+                aria-expanded={topicOpen}
+                onClick={() => setTopicOpen((open) => !open)}
               >
-                {candidate.credibility.label}
-              </span>
-            </span>
-            <span
-              className={`docmark-radio${candidate.sourceId === selectedId ? ' on' : ''}`}
-              aria-hidden="true"
-            />
-          </button>
-        ))}
-      </div>
+                <span aria-hidden="true">{topicOpen ? '▾' : '▸'}</span> {topicGroupLabel(groups.topic.length)}
+              </button>
+              {topicOpen ? groups.topic.map(row) : null}
+            </div>
+          ) : null}
+          {groups.unread.length ? (
+            <div className="docmark-rows">
+              <div className="docmark-group-label">{unreadGroupLabel(groups.unread.length)}</div>
+              {groups.unread.map(row)}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="docmark-rows">{candidates.map(row)}</div>
+      )}
       </div>
       {/* Every option at once, as the frame draws them — not one cycling
           button, which hid two thirds of the control behind a second click.
           Absent in read-only: a citation style is a question about a citation
-          nobody is inserting. */}
-      {flow.readOnly ? null : (
+          nobody is inserting — and absent when no row may be inserted. */}
+      {flow.readOnly || !anyPickable ? null : (
       <div className="docmark-styles">
         <span className="docmark-styles-label">Style</span>
         {CITATION_STYLES.map((option) => (
@@ -1707,7 +1881,10 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
           <div className="docmark-block-body">{preview.worksCitedEntry}</div>
         </div>
       ) : null}
-      {flow.readOnly ? (
+      {flow.readOnly || !anyPickable ? (
+        // Nothing here may be cited — read-only, or no source was quoted
+        // backing the sentence. An Insert that can never enable is a button
+        // promising something the card has just said not to do.
         <div className="docmark-actions">
           <button className="docmark-btn-primary" onClick={flow.onCancel}>
             Done
@@ -1718,7 +1895,7 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
           <button
             className="docmark-btn-primary"
             onClick={flow.onInsert}
-            disabled={flow.inserting || !selectedId}
+            disabled={flow.inserting || !canInsert}
             title={flow.replaces ? `Replaces ${flow.replaces}` : undefined}
           >
             {flow.inserting

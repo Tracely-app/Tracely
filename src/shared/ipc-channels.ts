@@ -92,7 +92,9 @@ export const IPC = {
   AUTH_DELETE_ACCOUNT: 'auth:deleteAccount',
   AUTH_GET_PLAN: 'auth:getPlan',
   AUTH_GET_THOROUGH: 'auth:getThorough',
-  SOURCES_FAVICONS: 'sources:favicons'
+  SOURCES_FAVICONS: 'sources:favicons',
+  // Receipts for the list a surface is showing — shared/sourceReceipts.ts.
+  SOURCES_VERIFY: 'sources:verify'
 } as const
 
 export const IPC_EVENTS = {

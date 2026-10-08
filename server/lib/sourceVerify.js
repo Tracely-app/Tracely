@@ -383,8 +383,17 @@ export function openAccessPage(work) {
  * Every source is read — the search's own label is not trusted either way.
  * For a DOI: OpenAlex (abstract, is_retracted, open-access copy), then the
  * open-access copy when the abstract does not settle it, or the source's page
- * when there is no abstract. Otherwise the page. All under one deadline. */
-export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS } = {}) {
+ * when there is no abstract. Otherwise the page. All under one deadline.
+ *
+ * `abstractOf(source)` (optional) is the work's OWN abstract when the caller
+ * already holds one: the desktop's /api/verify-sources, whose sources come
+ * from OpenAlex, Crossref, Semantic Scholar and PubMed and carry the abstract
+ * those indexes returned. It is read exactly like OpenAlex's — after it, when
+ * OpenAlex has none — so a work with no DOI, or one OpenAlex has no abstract
+ * for, is still read. The caller vouches that it is the source's own words
+ * (the desktop never passes a search model's summary here). The extension's
+ * /api/sources passes none and is unchanged. */
+export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), deadlineMs);
   const evidence = [];
@@ -405,6 +414,10 @@ export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fe
           if (abstract.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: abstract });
           oa = openAccessPage(work);
         } catch { /* fall through to the page */ }
+      }
+      if (!texts.length && typeof abstractOf === "function") {
+        const own = String(abstractOf(s) ?? "").replace(/\s+/g, " ").trim();
+        if (own.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: own });
       }
       if (!texts.length || !abstractSettles(texts[0].text, claim)) {
         // The open-access copy first; the source's own page only when there is
@@ -502,7 +515,7 @@ export function applyVerdicts(sources, evidence, verdicts) {
   return tally;
 }
 
-export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS }) {
+export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null }) {
   const list = Array.isArray(sources) ? sources : [];
   // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
   // not (fell to topic) — the number that says whether the rule is too strict.
@@ -516,7 +529,7 @@ export async function verifySources({ claim, correction, sources, model, call = 
   };
   let evidence = [];
   try {
-    ({ evidence, retracted: out.retracted } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs }));
+    ({ evidence, retracted: out.retracted } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf }));
   } catch { /* nothing read */ }
   const read = new Set(evidence.map((e) => e.i));
   const gone = new Set(out.retracted);

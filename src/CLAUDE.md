@@ -39,6 +39,51 @@ There is no lint script configured. The two automated correctness checks are `np
 
 Claim detection, critique and every other AI call go to the Tracely server (`server/` in this repo, hosted at `https://api.jointracely.com`) through `callServer` in `services/ai/client.ts`. The URL is `TRACELY_API_URL` from `.env`, defaulting to the hosted server when unset or blank (`apiUrl()` in `scripts/env.mjs`); it is read once by `electron.vite.config.ts` and compiled into the main-process bundle as `__API_URL__` — there's no runtime/user-facing way to change it; changing the server means editing `.env` and rebuilding. There is no shared token any more (the relay's `RELAY_TOKEN` identified nobody). Each call sends the Supabase access token when there is one, an `X-Tracely-Install` id from `config.json`, and a `model` in the body resolved from the plan (`MODEL_FOR_TIER` in `shared/plan.ts`), which the server clamps. Stable installs at v0.3.97 or older still call the relay (`Tracely-relay`) until they take the v0.3.99 update. Evidence search, scoring, citations, and the library all work with no server.
 
+## Source lists show receipts (`shared/sourceReceipts.ts`, 2026-10-07)
+
+**No source is presented as backing a sentence unless Tracely read it and can
+show the exact words from it that back the sentence.** Measured 2026-10-07:
+three judges graded the 145 sources the desktop's search showed across 36
+claims — 15 (10%) backed their sentence, 71 were on-topic without backing it,
+56 were off-topic, and 11 of 36 claims got even one backing source. The list
+was ranked by topical relevance; a "92% match" beside a paper that says
+something else was the product vouching for a citation it never read.
+
+- **What verifies:** the server's `/api/verify-sources` (an app route), which
+  runs THE verifier the extension's source search runs
+  (`server/lib/sourceVerify.js`): it reads each source (OpenAlex abstract, the
+  open-access copy, else the page; or the abstract the desktop sends when it is
+  the work's own — never `webSources.ts`'s model summary), picks the best
+  passages, and one fast-model call returns backs / contradicts with a
+  verbatim quote it checks, topic, or unread. Retracted works are dropped.
+- **When:** only when the writer OPENS a list — the editor's citation flow
+  (`AnalyzeView` `checkReceipts`) and Screen Watch's "Find a source" from a
+  hover card or the grade panel (`OverlayApp` `startCitationFlow` →
+  `checkReceipts`). **Never from passive watching**: it is a paid call (one AI
+  action, ~0.1–0.4 cent), and Screen Watch makes no paid call the writer did
+  not click for. "Find the cited work" candidates are not verified: they are
+  the writer's own citation, not a claim to back.
+- **How it shows** (both surfaces, wording in `citationFlowCopy.ts`): a
+  "Checking what each source says…" step, then backs first with `The source
+  says: “…”` and "from the abstract"/"from the page"; "Says otherwise"; a
+  collapsed "Related, but they don't say this"; "Couldn't read these — check
+  them yourself". No match percentage once read — it measured the topic.
+- **Insert only on backs** (`mayInsert`): the editor's Insert/Replace, the
+  overlay's Insert, Copy citation and Copy entry. Every other row is Open
+  only. **The fallback:** when nothing could be checked (server unreachable,
+  an older server that 404s the route, a refusal, a judge failure) main
+  answers `unavailable` and the list is the one from before receipts, Insert
+  allowed, under "Tracely couldn't check these — read a source before citing
+  it" — so a server outage cannot take the citation flow down.
+- **Cache** (`services/ai/verifySources.ts`, `request_cache`): keyed on
+  `RECEIPTS_VERIFIER_VERSION` + the claim + the SET of source ids. A failure
+  is kept 1 minute, an answer that read nothing 10 minutes (the EMPTY_TTL
+  lesson, `docs/desktop-architecture.md`), a partial one an hour, a full one a
+  week. Bump the version when what a verdict means changes.
+- **Not fed into the score or the underlines yet.** `scoring.ts`'s strength
+  score and `problemKind.ts`'s kinds still read retrieval relevance and the
+  local NLI stance; receipts exist only for a list someone opened.
+
 ## Nobody signs in, and the app still has an account
 
 There is no sign-in screen, no sign-up, no Google button, no name prompt, no

@@ -72,6 +72,73 @@ export function resultsBody(claimText: string): string {
   return `Ranked by how directly each source supports “${truncateClaim(claimText)}.”`
 }
 
+// ── Receipts ────────────────────────────────────────────────────────────────
+//
+// What each source in the list SAYS, read by the server when the writer opens
+// the list (shared/sourceReceipts.ts). No Figma frame: built from the results
+// frame's own rows and blocks. Every string holds to one rule — a source is
+// called backing only beside the words from it that back the sentence — and
+// none of them uses a match percentage, which measured topic, not support.
+
+/** The step between the search and the list. Grey dot: still checking. */
+export const CHECKING_TITLE = 'Checking what each source says…'
+
+export function checkingBody(count: number, claimText: string): string {
+  const what = count === 1 ? 'the source' : `the ${count} sources`
+  return `Reading ${what} found for “${truncateClaim(claimText)}.” A source is offered for citing only with the words from it that back your sentence.`
+}
+
+/** The list's title once it has been read — a count of what BACKS, not of what came back. */
+export function receiptsTitle(backing: number): string {
+  if (backing === 0) return 'No source here says this'
+  return backing === 1 ? '1 source backs this' : `${backing} sources back this`
+}
+
+export function receiptsBody(claimText: string, backing: number): string {
+  return backing > 0
+    ? `Each is shown with the words from it that back “${truncateClaim(claimText)}.” Read them before you cite.`
+    : `None of these sources says “${truncateClaim(claimText)}” in words Tracely could find. Don’t cite one for it as it stands — search again, or read them yourself.`
+}
+
+/** The receipt's lead-in: `The source says: “<quote>”`. */
+export const SOURCE_SAYS = 'The source says:'
+
+export function quoted(quote: string): string {
+  return `“${quote}”`
+}
+
+/** Where the quote was read. Honest about which: an abstract is not the paper. */
+export function readFromLabel(from: 'abstract' | 'page' | null): string {
+  return from === 'page' ? 'from the page' : 'from the abstract'
+}
+
+/** A source that says something that cannot be true alongside the sentence. Never offered for insert. */
+export const CONTRADICTS_LABEL = 'Says otherwise'
+
+export function contradictsGroupLabel(count: number): string {
+  return `${CONTRADICTS_LABEL} (${count})`
+}
+
+/** Collapsed by default: read, on the subject, and not saying this. */
+export function topicGroupLabel(count: number): string {
+  return `Related, but they don’t say this (${count})`
+}
+
+export function unreadGroupLabel(count: number): string {
+  return `Couldn’t read these — check them yourself (${count})`
+}
+
+/**
+ * The fallback, when nothing could be checked (server unreachable, an older
+ * server, a refusal). The list is the one from before receipts, Insert and all,
+ * so a server outage cannot take the citation flow down — and this line is
+ * what stops that list reading as checked.
+ */
+export const RECEIPTS_UNAVAILABLE = 'Tracely couldn’t check these — read a source before citing it.'
+
+/** Opens a row's page in the browser — the one action on a row that may not be cited. */
+export const OPEN_SOURCE = 'Open ↗'
+
 export function emptyResultsBody(claimText: string): string {
   return (
     `Nothing in the open-access databases came back for “${truncateClaim(claimText)}.” ` +
