@@ -1,0 +1,173 @@
+{
+ "meta": {
+  "what": "extension /api/sources on production, beta pool",
+  "base": "https://api.jointracely.com",
+  "startedAt": "2026-10-08T04:01:44.318Z",
+  "install": "2010c141-8822-41cd-9d3e-ea3d94611f76",
+  "harnessCommit": "57331fb",
+  "shownRule": "stance === \"supports\" (sentence not flagged false)"
+ },
+ "results": {
+  "01-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 8569,
+   "claim": "The American Academy of Pediatrics recommended in 2014 that middle and high schools start no earlier than 8:30 a.m., yet the majority of public high schools in the United States still begin before that.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "School Start Times for Adolescents",
+     "url": "https://publications.aap.org/pediatrics/article/134/3/642/32591/School-Start-Times-for-Adolescents",
+     "publisher": "American Academy of Pediatrics (AAP)",
+     "snippet": "“The American Academy of Pediatrics strongly supports the efforts of school districts to optimize sleep in students and urges high schools and middle schools to aim for start times”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Rhoda Au",
+      "Mary Carskadon",
+      "Richard Millman",
+      "Amy Wolfson",
+      "Paula K. Braverman",
+      "William P. Adelman",
+      "Cora C. Breuner",
+      "David A. Levine",
+      "Arik V. Marcell",
+      "Pamela J. Murray",
+      "Rebecca F. O’Brien",
+      "Cynthia D. Devore",
+      "Mandy Allison",
+      "Richard Ancona",
+      "FAAP Stephen E. Barnett",
+      "Robert Gunther",
+      "Breena Holmes",
+      "Jeffrey H. Lamont",
+      "Mark Minier",
+      "Jeffrey K. Okamoto",
+      "Lani S.M. Wheeler",
+      "Thomas Young"
+     ],
+     "groupAuthor": "American Academy of Pediatrics",
+     "date": "2014-09-01",
+     "year": 2014,
+     "doi": "10.1542/peds.2014-1697",
+     "container": "Pediatrics",
+     "volume": "134",
+     "issue": "3",
+     "pages": "642-649",
+     "editors": []
+    },
+    {
+     "title": "School Start Times for Middle School and High School Students — United States, 2011–12 School Year",
+     "url": "https://www.cdc.gov/mmwr/preview/mmwrhtml/mm6430a1.htm",
+     "publisher": "Centers for Disease Control MMWR Office",
+     "snippet": "“AAP recommended that \"middle and high schools should aim for a starting time of no earlier than 8:30 a.m.”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Anne G. Wheaton",
+      "Gabrielle A. Ferro",
+      "Janet B. Croft"
+     ],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2015-08-07",
+     "year": 2015,
+     "doi": "10.15585/mmwr.mm6430a1",
+     "container": "MMWR. Morbidity and Mortality Weekly Report",
+     "volume": "64",
+     "issue": "30",
+     "pages": "809-813",
+     "editors": []
+    },
+    {
+     "title": "Start Time for U.S. Public High Schools",
+     "url": "https://nces.ed.gov/pubs2020/2020006/index.asp",
+     "publisher": "National Center for Education Statistics",
+     "snippet": "The report examines public high school start times and notes that the American Academy of Pediatrics recommended starting middle and high schools at 8:30 a.m. or later in 2014.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "National Center for Education Statistics",
+     "year": 2020
+    }
+   ],
+   "shown": 2
+  },
+  "01-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 9893,
+   "claim": "Teenagers require between eight and ten hours of sleep per night, and roughly 70 percent of them get less than seven.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Teen Sleep Duration Health Advisory - AASM Recommendation",
+     "url": "https://aasm.org/advocacy/position-statements/teen-sleep-duration-health-advisory/",
+     "publisher": "American Academy of Sleep Medicine",
+     "snippet": "“teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "American Academy of Sleep Medicine",
+     "year": 2018
+    },
+    {
+     "title": "Sleep and Health",
+     "url": "https://cdc.gov/physical-activity-education/staying-healthy/sleep.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "About 7 out of 10 high school students, or 72.7%, did not get enough sleep on school nights.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2024
+    },
+    {
+     "title": "Insufficient Sleep Among High School Students",
+     "url": "https://publications.aap.org/aapgrandrounds/article-pdf/24/2/26/807513/gr_0810_p26.pdf",
+     "publisher": "American Academy of Pediatrics",
+     "snippet": "Seventy percent of high school students were not getting enough sleep on school nights, according to cited surveillance findings.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [
+      "Eaton DK",
+      "McKnight-Eily LR",
+      "Lowry R"
+     ],
+     "groupAuthor": "",
+     "year": 2010,
+     "container": "AAP Grand Rounds"
+    },
+    {
+     "title": "Teens May Do Better When School Starts Later",
+     "url": "https://time.com/4741147/school-start-time/",
+     "publisher": "TIME",
+     "snippet": "The CDC reported that almost 70% of high-school students regularly slept seven hours or less, while teenagers are recommended to sleep eight to 10 hours nightly.",
+     "stance": "supports",
+     "kind": "news",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2017
+    },
+    {
+     "title": "Recommended Amount of Sleep for Pediatric Populations: A Consensus Statement of the American Academy of Sleep Medicine",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4877308/",
+     "publisher": "American Academy of Sleep Medicine",
+     "snippet": "The consensus statement recommends that teenagers aged 13 to 18 sleep eight to 10 hours per 24 hours regularly for optimal health.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2016,
+     "container": "Journal of Clinical Sleep Medicine"
+    }
+   ],
+   "shown": 4
+  }
+ }
+}
