@@ -1868,6 +1868,18 @@
     }
    ],
    "shown": 0
+  },
+  "07-c1": {
+   "ok": false,
+   "status": 429,
+   "ms": 104,
+   "claim": "A 2019 global analysis attributed 1.27 million deaths directly to bacterial antimicrobial resistance, more than either HIV or malaria caused that year.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": null,
+   "plan": null,
+   "error": "Source search is limited to a few dozen an hour — try again later.",
+   "sources": [],
+   "shown": 0
   }
  }
 }
