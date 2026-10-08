@@ -1628,6 +1628,9 @@ test("pack-extension.sh leaves extension/dev/ out of every zip, and checks the z
     for (const z of zips) {
       const entries = execFileSync("unzip", ["-Z1", path.join(out, z)], { encoding: "utf8" }).split("\n");
       assert.ok(!entries.some((e) => /(^|\/)dev\//.test(e)), `${z} carries extension/dev/`);
+      // extension/CLAUDE.md and README.md are notes for whoever edits the
+      // folder; the store zip of 2026-10-07 carried both until this excluded them.
+      assert.ok(!entries.some((e) => /\.md$/.test(e)), `${z} carries a .md file`);
       // The store build carries no localhost permission; the beta build keeps it for developers.
       const manifestEntry = entries.find((e) => /(^|\/)manifest\.json$/.test(e));
       const m = JSON.parse(execFileSync("unzip", ["-p", path.join(out, z), manifestEntry], { encoding: "utf8" }));

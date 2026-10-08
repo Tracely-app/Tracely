@@ -108,16 +108,19 @@ if [ "$BETA" = 1 ]; then NAME="Tracely-$VERSION-beta"; else NAME="Tracely-$VERSI
 # the result either way, so a fallback that drifted would fail them.
 mkdir -p "$STAGE/$NAME"
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '/beta.json' --exclude '/dev/' "$EXT/" "$STAGE/$NAME/"
+  rsync -a --exclude '.*' --exclude 'node_modules' --exclude '*.map' --exclude '*.md' --exclude '/beta.json' --exclude '/dev/' "$EXT/" "$STAGE/$NAME/"
 else
-  # The same five excludes as the rsync line above: dotfiles, node_modules and
-  # *.map at any depth, beta.json and dev/ at the top level only.
+  # The same six excludes as the rsync line above: dotfiles, node_modules,
+  # *.map and *.md at any depth, beta.json and dev/ at the top level only.
+  # Markdown is developer documentation (extension/CLAUDE.md, README.md):
+  # nothing in the manifest loads it, and a store package is not where the
+  # notes for whoever edits this folder belong.
   node -e '
     const fs = require("fs"), path = require("path");
     const copy = (src, dst, top) => {
       fs.mkdirSync(dst, { recursive: true });
       for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-        if (e.name.startsWith(".") || e.name === "node_modules" || e.name.endsWith(".map")) continue;
+        if (e.name.startsWith(".") || e.name === "node_modules" || e.name.endsWith(".map") || e.name.endsWith(".md")) continue;
         if (top && (e.name === "beta.json" || e.name === "dev")) continue;
         const s = path.join(src, e.name), d = path.join(dst, e.name);
         if (e.isDirectory()) copy(s, d, false); else fs.copyFileSync(s, d);
@@ -190,6 +193,8 @@ count() { grep -cE -- "$1" <<<"$LISTING" || true; }
 # extension/dev/ is developer tooling (the fix-in-doc spike and its browser
 # harness). rsync excludes it; this proves it stayed out, in either layout.
 [ "$(count '(^|/)dev/')" = 0 ] || fail "the zip contained extension/dev/ (developer tooling)"
+# Same for the folder's markdown (CLAUDE.md, README.md): notes, not extension.
+[ "$(count '\.md$')" = 0 ] || fail "the zip contained a .md file (developer documentation)"
 
 if [ "$BETA" = 1 ]; then
   MANIFEST_ENTRY="$NAME/manifest.json"
