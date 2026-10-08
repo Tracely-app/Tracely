@@ -1,0 +1,439 @@
+{
+  "_note": "Trimmed from the LIVE APIs on 2026-10-07 (api.crossref.org/works/{doi}, api.openalex.org/works/doi:{doi}, NCBI esummary). Only the fields the retraction check reads are kept, verbatim. Re-fetch before changing what the parser reads.",
+  "crossref": {
+    "wakefield1998": {
+      "status": "ok",
+      "message-type": "work",
+      "message": {
+        "DOI": "10.1016/s0140-6736(97)11096-0",
+        "type": "journal-article",
+        "title": [
+          "RETRACTED: Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children"
+        ],
+        "issued": {
+          "date-parts": [
+            [
+              1998,
+              2
+            ]
+          ]
+        },
+        "updated-by": [
+          {
+            "DOI": "10.1016/s0140-6736(04)15715-2",
+            "type": "correction",
+            "label": "Correction",
+            "source": "retraction-watch",
+            "updated": {
+              "date-parts": [
+                [
+                  2004,
+                  3,
+                  6
+                ]
+              ],
+              "date-time": "2004-03-06T00:00:00Z",
+              "timestamp": 1078531200000
+            },
+            "record-id": "17269"
+          },
+          {
+            "DOI": "10.1016/s0140-6736(10)60175-4",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "retraction-watch",
+            "updated": {
+              "date-parts": [
+                [
+                  2010,
+                  2,
+                  6
+                ]
+              ],
+              "date-time": "2010-02-06T00:00:00Z",
+              "timestamp": 1265414400000
+            },
+            "record-id": "4036"
+          }
+        ],
+        "relation": {}
+      }
+    },
+    "wakefieldNotice2010": {
+      "status": "ok",
+      "message-type": "work",
+      "message": {
+        "DOI": "10.1016/s0140-6736(10)60175-4",
+        "type": "journal-article",
+        "title": [
+          "Retraction—Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children"
+        ],
+        "issued": {
+          "date-parts": [
+            [
+              2010,
+              2
+            ]
+          ]
+        },
+        "update-to": [
+          {
+            "DOI": "10.1016/s0140-6736(97)11096-0",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "retraction-watch",
+            "updated": {
+              "date-parts": [
+                [
+                  2010,
+                  2,
+                  6
+                ]
+              ],
+              "date-time": "2010-02-06T00:00:00Z",
+              "timestamp": 1265414400000
+            },
+            "record-id": "4036"
+          }
+        ],
+        "relation": {}
+      }
+    },
+    "surgisphere2020": {
+      "status": "ok",
+      "message-type": "work",
+      "message": {
+        "DOI": "10.1016/s0140-6736(20)31180-6",
+        "type": "journal-article",
+        "title": [
+          "RETRACTED: Hydroxychloroquine or chloroquine with or without a macrolide for treatment of COVID-19: a multinational registry analysis"
+        ],
+        "issued": {
+          "date-parts": [
+            [
+              2020,
+              5
+            ]
+          ]
+        },
+        "updated-by": [
+          {
+            "DOI": "10.1016/s0140-6736(20)31290-3",
+            "type": "expression_of_concern",
+            "label": "Expression of concern",
+            "source": "retraction-watch",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  6,
+                  3
+                ]
+              ],
+              "date-time": "2020-06-03T00:00:00Z",
+              "timestamp": 1591142400000
+            },
+            "record-id": "23527"
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31249-6",
+            "type": "correction",
+            "label": "Correction",
+            "source": "retraction-watch",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  30
+                ]
+              ],
+              "date-time": "2020-05-30T00:00:00Z",
+              "timestamp": 1590796800000
+            },
+            "record-id": "23528"
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31324-6",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "retraction-watch",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  6,
+                  5
+                ]
+              ],
+              "date-time": "2020-06-05T00:00:00Z",
+              "timestamp": 1591315200000
+            },
+            "record-id": "23529"
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31174-0",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  22
+                ]
+              ],
+              "date-time": "2020-05-22T00:00:00Z",
+              "timestamp": 1590105600000
+            }
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31324-6",
+            "type": "erratum",
+            "label": "Erratum",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  6,
+                  13
+                ]
+              ],
+              "date-time": "2020-06-13T00:00:00Z",
+              "timestamp": 1592006400000
+            }
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31528-2",
+            "type": "erratum",
+            "label": "Erratum",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  7,
+                  18
+                ]
+              ],
+              "date-time": "2020-07-18T00:00:00Z",
+              "timestamp": 1595030400000
+            }
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31249-6",
+            "type": "erratum",
+            "label": "Erratum",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  30
+                ]
+              ],
+              "date-time": "2020-05-30T00:00:00Z",
+              "timestamp": 1590796800000
+            }
+          }
+        ],
+        "update-to": [
+          {
+            "DOI": "10.1016/s0140-6736(20)31174-0",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  22
+                ]
+              ],
+              "date-time": "2020-05-22T00:00:00Z",
+              "timestamp": 1590105600000
+            }
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31290-3",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  22
+                ]
+              ],
+              "date-time": "2020-05-22T00:00:00Z",
+              "timestamp": 1590105600000
+            }
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31324-6",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  22
+                ]
+              ],
+              "date-time": "2020-05-22T00:00:00Z",
+              "timestamp": 1590105600000
+            }
+          },
+          {
+            "DOI": "10.1016/s0140-6736(20)31528-2",
+            "type": "retraction",
+            "label": "Retraction",
+            "source": "publisher",
+            "updated": {
+              "date-parts": [
+                [
+                  2020,
+                  5,
+                  22
+                ]
+              ],
+              "date-time": "2020-05-22T00:00:00Z",
+              "timestamp": 1590105600000
+            }
+          }
+        ],
+        "relation": {
+          "has-review": [
+            {
+              "id-type": "doi",
+              "id": "10.3410/f.737996380.793574823",
+              "asserted-by": "object"
+            }
+          ]
+        }
+      }
+    },
+    "winnebeck2019": {
+      "status": "ok",
+      "message-type": "work",
+      "message": {
+        "DOI": "10.1093/sleep/zsz307",
+        "type": "journal-article",
+        "title": [
+          "Later school start times in a flexible system improve teenage sleep"
+        ],
+        "issued": {
+          "date-parts": [
+            [
+              2019,
+              12,
+              16
+            ]
+          ]
+        },
+        "relation": {}
+      }
+    }
+  },
+  "openalex": {
+    "wakefield1998": {
+      "id": "https://openalex.org/W2117847125",
+      "doi": "https://doi.org/10.1016/s0140-6736(97)11096-0",
+      "title": "RETRACTED: Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children",
+      "publication_year": 1998,
+      "is_retracted": true,
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "best_oa_location": null,
+      "abstract_inverted_index": null
+    },
+    "wakefieldNotice2010": {
+      "id": "https://openalex.org/W4245876183",
+      "doi": "https://doi.org/10.1016/s0140-6736(10)60175-4",
+      "title": "Retraction—Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children",
+      "publication_year": 2010,
+      "is_retracted": true,
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "best_oa_location": null,
+      "abstract_inverted_index": null
+    },
+    "surgisphere2020": {
+      "id": "https://openalex.org/W3027680906",
+      "doi": "https://doi.org/10.1016/s0140-6736(20)31180-6",
+      "title": "RETRACTED: Hydroxychloroquine or chloroquine with or without a macrolide for treatment of COVID-19: a multinational registry analysis",
+      "publication_year": 2020,
+      "is_retracted": true,
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "bronze",
+        "oa_url": "http://www.thelancet.com/article/S0140673620311806/pdf",
+        "any_repository_has_fulltext": true
+      },
+      "best_oa_location": {
+        "is_oa": true,
+        "landing_page_url": "https://doi.org/10.1016/s0140-6736(20)31180-6",
+        "pdf_url": "http://www.thelancet.com/article/S0140673620311806/pdf"
+      },
+      "abstract_inverted_index": null
+    },
+    "winnebeck2019": {
+      "id": "https://openalex.org/W2994705018",
+      "doi": "https://doi.org/10.1093/sleep/zsz307",
+      "title": "Later school start times in a flexible system improve teenage sleep",
+      "publication_year": 2019,
+      "is_retracted": false,
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null,
+        "any_repository_has_fulltext": false
+      },
+      "best_oa_location": null,
+      "abstract_inverted_index": "(present in the live record; omitted here)"
+    }
+  },
+  "esummary": {
+    "wakefield1998": {
+      "uid": "9500320",
+      "title": "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children.",
+      "pubdate": "1998 Feb 28",
+      "fulljournalname": "Lancet (London, England)",
+      "pubtype": [
+        "Journal Article",
+        "Research Support, Non-U.S. Gov't",
+        "Retracted Publication"
+      ],
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "value": "9500320"
+        },
+        {
+          "idtype": "doi",
+          "value": "10.1016/s0140-6736(97)11096-0"
+        },
+        {
+          "idtype": "pii",
+          "value": "S0140673697110960"
+        }
+      ]
+    }
+  }
+}

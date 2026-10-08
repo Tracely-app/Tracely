@@ -5,6 +5,15 @@
  * The route is frozen to ADDITIVE changes while an extension build is in
  * review (CLAUDE.md): the five fields every client reads keep their names,
  * types and meaning, and the citation fields ride alongside, optional.
+ *
+ * Source receipts (2026-10-07) added three more optional fields, after the
+ * citation fields: `verified` (did Tracely read the source and judge it),
+ * `readFrom` ("abstract" | "page") and `quote` (the source's own words that
+ * back or contradict the sentence; only with "supports"/"refutes"). The
+ * field list below is widened deliberately, and the expected sources now
+ * carry `verified: false` where the stubbed network read nothing: an unread
+ * source is never "supports" any more, which is the change — every shipped
+ * extension offers only "supports" (and "refutes" for a false sentence).
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -27,12 +36,18 @@ test.after(() => setHostResolver(null));
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OLD_FIELDS = ["title", "url", "publisher", "snippet", "stance"];
 const CITE_FIELDS = ["kind", "authors", "groupAuthor", "year", "date", "container", "editors", "doi"];
+const RECEIPT_FIELDS = ["verified", "readFrom", "quote"];
 
 function assertSourceShape(s, label) {
   assert.deepEqual(Object.keys(s).slice(0, 5), OLD_FIELDS, `${label}: the five old fields, first`);
   for (const k of ["title", "url", "publisher", "snippet"]) assert.equal(typeof s[k], "string", `${label}.${k}`);
   assert.ok(["supports", "refutes", "context"].includes(s.stance), `${label}.stance`);
-  for (const k of Object.keys(s).slice(5)) assert.ok(CITE_FIELDS.includes(k), `${label}: unexpected field ${k}`);
+  for (const k of Object.keys(s).slice(5)) assert.ok(CITE_FIELDS.includes(k) || RECEIPT_FIELDS.includes(k), `${label}: unexpected field ${k}`);
+  if ("verified" in s) assert.equal(typeof s.verified, "boolean", `${label}.verified`);
+  if ("readFrom" in s) assert.ok(s.verified === true && ["abstract", "page"].includes(s.readFrom), `${label}.readFrom`);
+  if ("quote" in s) assert.ok(s.verified === true && typeof s.quote === "string" && s.quote.length <= 301 && ["supports", "refutes"].includes(s.stance), `${label}.quote`);
+  // The rule: nothing unread is ever backing.
+  if (s.verified === false) assert.equal(s.stance, "context", `${label}: unverified yet ${s.stance}`);
   if ("kind" in s) assert.ok(SOURCE_KINDS.includes(s.kind), `${label}.kind`);
   if ("authors" in s) assert.ok(Array.isArray(s.authors) && s.authors.every((a) => typeof a === "string"), `${label}.authors`);
   if ("groupAuthor" in s) assert.equal(typeof s.groupAuthor, "string", `${label}.groupAuthor`);
@@ -90,23 +105,27 @@ test("findSources validates what the model wrote; harvested citations carry no c
   r.sources.forEach((s, i) => assertSourceShape(s, `sources[${i}]`));
   const [iom, npr, harvested] = r.sources;
   // The organisation filed as a person became the group author; 2020 is the
-  // CMS date the title contradicts.
+  // CMS date the title contradicts. Nothing could be read here (the stub
+  // answers every page with the model's JSON and no verdicts), so the
+  // search's "supports" is "context", verified: false — never backing unread.
   assert.deepEqual(iom, {
-    title: "World Migration Report 2024: Chapter 2", url: "https://publications.iom.int/books/world-migration-report-2024-chapter-2", publisher: "International Organization for Migration", snippet: "About 281 million international migrants in 2020.", stance: "supports",
+    title: "World Migration Report 2024: Chapter 2", url: "https://publications.iom.int/books/world-migration-report-2024-chapter-2", publisher: "International Organization for Migration", snippet: "About 281 million international migrants in 2020.", stance: "context",
     kind: "book", authors: [], groupAuthor: "International Organization for Migration", year: null, container: "World Migration Report 2024", editors: ["Marie McAuliffe", "Linda Adhiambo Oucho"],
+    verified: false,
   });
   // A year and a date that disagree: neither. Editors of no container: none.
   assert.deepEqual(npr, {
     title: "Composting", url: "https://www.npr.org/2020/04/07/828918397/how-to-compost-at-home", publisher: "npr.org", snippet: "s", stance: "context",
     kind: "news", authors: ["Julia Simon"], groupAuthor: "", year: null, doi: "10.1000/xyz123",
+    verified: false,
   });
-  assert.deepEqual(harvested, { title: "Migration | United Nations", url: "https://www.un.org/en/global-issues/migration", publisher: "un.org", snippet: "", stance: "context" });
+  assert.deepEqual(harvested, { title: "Migration | United Nations", url: "https://www.un.org/en/global-issues/migration", publisher: "un.org", snippet: "", stance: "context", verified: false });
 });
 
-test("findSources still reads an old-shaped answer (no citation fields) exactly as before", async () => {
+test("findSources still reads an old-shaped answer (no citation fields) — and an unread 'supports' is not backing", async () => {
   openai({ output_text: JSON.stringify({ sources: [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }] }) });
   const r = await findSources({ claim: "Water boils at 100 degrees Celsius at sea level.", model: "gpt-5.6-luna" });
-  assert.deepEqual(r.sources, [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "supports" }]);
+  assert.deepEqual(r.sources, [{ title: "A", url: "https://a.example/", publisher: "a", snippet: "s", stance: "context", verified: false }]);
 });
 
 test("the mock answers in the real shape, through the same validation", async () => {
@@ -120,6 +139,9 @@ test("the mock answers in the real shape, through the same validation", async ()
   }
   assert.deepEqual(r.sources.map((s) => s.kind), ["reference", "institutional", "news"]);
   assert.equal(r.sources[1].groupAuthor, "NASA");
+  // Every receipt state, keyless: two read and quoted, one unread.
+  assert.deepEqual(r.sources.map((s) => [s.stance, s.verified, s.readFrom ?? null, Boolean(s.quote)]), [["refutes", true, "page", true], ["refutes", true, "page", true], ["context", false, null, false]]);
+  assert.equal(r.sources[0].snippet, `[mock] “${r.sources[0].quote}”`);
 });
 
 // ── the route, over HTTP, in TRACELY_MOCK ──────────────────────────────
@@ -161,6 +183,8 @@ test("TRACELY_MOCK /api/sources answers the citation fields alongside the old on
   for (const k of ["sources", "model", "usage", "modelUsed", "plan", "ms"]) assert.ok(k in r.body, `missing ${k}`);
   r.body.sources.forEach((s, i) => assertSourceShape(s, `route[${i}]`));
   assert.ok(r.body.sources.every((s) => "kind" in s && "year" in s));
+  assert.ok(r.body.sources.every((s) => typeof s.verified === "boolean"), "every source carries its receipt flag");
+  for (const k of ["verified", "retracted", "enriched", "dropped", "webSearchCalls"]) assert.ok(!(k in r.body), `the search's tally ${k} stays off the response`);
 
   // /api/cite-url is wired to the moved function, with its messages unchanged.
   const bad = await post("/api/cite-url", { url: "http://127.0.0.1:1/private" });
