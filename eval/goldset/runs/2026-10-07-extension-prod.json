@@ -168,6 +168,272 @@
     }
    ],
    "shown": 4
+  },
+  "01-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 11098,
+   "claim": "The consequence is not subtle: pushing start times later has been shown to increase how long students sleep, and districts that made the change saw fewer car crashes among teen drivers.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Adolescent Sleep, School Start Times, and Teen Motor Vehicle Crashes",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2603528/",
+     "publisher": "American Academy of Sleep Medicine",
+     "snippet": "A one-hour delay increased adolescents’ sleep, while average teen-driver crash rates fell 16.5% in the study county and rose 7.8% elsewhere in the state.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null,
+     "container": "Journal of Clinical Sleep Medicine"
+    },
+    {
+     "title": "Association of Delaying School Start Time With Sleep Duration, Timing, and Quality Among Adolescents",
+     "url": "https://jamanetwork.com/journals/jamapediatrics/fullarticle/2765038",
+     "publisher": "JAMA Network",
+     "snippet": "Students at schools with delayed starts obtained approximately 43 additional minutes of objectively measured sleep on school nights.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null,
+     "container": "JAMA Pediatrics"
+    },
+    {
+     "title": "School Start Times and Teenage Driver Motor Vehicle Crashes",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/29706226/",
+     "publisher": "Elsevier BV",
+     "snippet": "Later high school start times appear associated with lower adolescent driver crash rates, although additional research is needed to confirm the relationship and its mechanism.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Robert D. Foss",
+      "Richard L. Smith",
+      "Natalie P. O'Brien"
+     ],
+     "groupAuthor": "",
+     "year": 2019,
+     "container": "Accident Analysis &amp; Prevention",
+     "doi": "10.1016/j.aap.2018.03.031",
+     "volume": "126",
+     "pages": "54-63",
+     "editors": []
+    },
+    {
+     "title": "School Start Times | NHTSA",
+     "url": "https://www.nhtsa.gov/book/countermeasures-that-work/drowsy-driving/countermeasures/other-strategies-behavior-change",
+     "publisher": "National Highway Traffic Safety Administration",
+     "snippet": "“research also shows that there is a reduction of teen driver motor vehicle crashes when high school start times are delayed”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "National Highway Traffic Safety Administration",
+     "year": null
+    }
+   ],
+   "shown": 2
+  },
+  "01-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 10684,
+   "claim": "Studies show that this sleep debt is the primary driver of the adolescent mental health crisis, and experts agree that smartphones have made it worse.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Sleep",
+     "url": "https://www.cdc.gov/yrbs/youth-health-in-focus/sleep.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "The CDC states that insufficient adolescent sleep can affect mental health, but does not identify sleep debt as the primary cause of the mental-health crisis.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": null
+    },
+    {
+     "title": "Digital Behaviors and Health",
+     "url": "https://www.cdc.gov/healthy-schools/digital-behaviors/index.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "The CDC says digital behaviors can influence sleep and mental well-being, without concluding that smartphones are the main cause of adolescent mental-health problems.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": null
+    },
+    {
+     "title": "School Start Times for Adolescents",
+     "url": "https://doi.org/10.1542/peds.2014-1697",
+     "publisher": "American Academy of Pediatrics (AAP)",
+     "snippet": "The American Academy of Pediatrics links adequate adolescent sleep with better mental health and urges later school start times, but does not call sleep the primary driver of the crisis.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Rhoda Au",
+      "Mary Carskadon",
+      "Richard Millman",
+      "Amy Wolfson",
+      "Paula K. Braverman",
+      "William P. Adelman",
+      "Cora C. Breuner",
+      "David A. Levine",
+      "Arik V. Marcell",
+      "Pamela J. Murray",
+      "Rebecca F. O’Brien",
+      "Cynthia D. Devore",
+      "Mandy Allison",
+      "Richard Ancona",
+      "FAAP Stephen E. Barnett",
+      "Robert Gunther",
+      "Breena Holmes",
+      "Jeffrey H. Lamont",
+      "Mark Minier",
+      "Jeffrey K. Okamoto",
+      "Lani S.M. Wheeler",
+      "Thomas Young"
+     ],
+     "groupAuthor": "",
+     "year": 2014,
+     "doi": "10.1542/peds.2014-1697",
+     "container": "Pediatrics",
+     "date": "2014-09-01",
+     "volume": "134",
+     "issue": "3",
+     "pages": "642-649",
+     "editors": []
+    },
+    {
+     "title": "School Start Times, Sleep, Behavioral, Health, and Academic Outcomes: A Review of the Literature",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/27040474/",
+     "publisher": "Wiley",
+     "snippet": "This review reports associations between insufficient adolescent sleep and poor mental health and evaluates delayed school start times as a possible intervention.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Anne G. Wheaton",
+      "Daniel P. Chapman",
+      "Janet B. Croft"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1111/josh.12388",
+     "container": "Journal of School Health",
+     "date": "2016-04-03",
+     "volume": "86",
+     "issue": "5",
+     "pages": "363-381",
+     "editors": []
+    },
+    {
+     "title": "Associations Between Screen Time Use and Health Outcomes Among US Teenagers",
+     "url": "https://www.cdc.gov/pcd/issues/2025/24_0537.htm",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "The study reports associations between high screen time, later bedtimes, insufficient sleep, and adverse mental-health outcomes among U.S. teenagers.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2025,
+     "container": "Preventing Chronic Disease"
+    }
+   ],
+   "shown": 0
+  },
+  "01-c5": {
+   "ok": true,
+   "status": 200,
+   "ms": 12931,
+   "claim": "If schools do not act, depression rates among teenagers will double within the next decade.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Mental Health and Suicide Risks",
+     "url": "https://www.cdc.gov/yrbs/youth-health-in-focus/mental-health.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reports that persistent sadness or hopelessness worsened over the 10-year period from 2015 to 2025, but does not project that depression rates will double within the next decade.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2026-09-18",
+     "year": 2026
+    },
+    {
+     "title": "Key Substance Use and Mental Health Indicators in the United States: Results from the 2024 National Survey on Drug Use and Health",
+     "url": "https://www.samhsa.gov/data/sites/default/files/reports/rpt56287/2024-nsduh-annual-national/2024-nsduh-annual-national-html-071425-edited/2024-nsduh-annual-national.htm",
+     "publisher": "Substance Abuse and Mental Health Services Administration",
+     "snippet": "The report presents adolescent major depressive episode estimates through 2024 and trend information, but does not forecast a doubling during the following decade.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Substance Abuse and Mental Health Services Administration",
+     "year": 2025
+    },
+    {
+     "title": "Depression and Anxiety Among US Children and Young Adults",
+     "url": "https://doi.org/10.1001/jamanetworkopen.2024.36906",
+     "publisher": "American Medical Association (AMA)",
+     "snippet": "The study found increases in depression prevalence over time, including an increase from 4.13% in 2017 to 6.88% in 2021 among young adults aged 18.0 to 22.9 years.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Anny H. Xiang",
+      "Mayra P. Martinez",
+      "Ting Chow",
+      "Sarah A. Carter",
+      "Sonya Negriff",
+      "Breda Velasquez",
+      "Joseph Spitzer",
+      "Juan Carlos Zuberbuhler",
+      "Ashley Zucker",
+      "Sid Kumar"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1001/jamanetworkopen.2024.36906",
+     "date": "2024-10-01",
+     "container": "JAMA Network Open",
+     "volume": "7",
+     "issue": "10",
+     "pages": "e2436906",
+     "editors": []
+    },
+    {
+     "title": "Child, Adolescent and Youth Mental Health in the 21st Century",
+     "url": "https://www.oecd.org/en/publications/child-adolescent-and-youth-mental-health-in-the-21st-century_1092c3cb-en.html",
+     "publisher": "Organisation for Economic Co-operation and Development",
+     "snippet": "The OECD describes worsening youth mental health across many countries over the past decade while emphasizing multiple contributing factors and the need to evaluate interventions rigorously.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Organisation for Economic Co-operation and Development",
+     "year": 2026
+    },
+    {
+     "title": "U.S. Teen Girls Experiencing Increased Sadness and Violence",
+     "url": "https://www.cdc.gov/media/releases/2023/p0213-yrbs.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reported that 57% of U.S. teen girls felt persistently sad or hopeless in 2021, nearly 60% higher than a decade earlier, not a forecast of doubling among all teenagers.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2023-02-13",
+     "year": 2023
+    }
+   ],
+   "shown": 0
   }
  }
 }
