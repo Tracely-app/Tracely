@@ -1654,14 +1654,56 @@
      topic, but not saying this — is dropped and only counted, so the card
      can say the search found reading on the subject and none of it backs
      the sentence as written. A source with no stance is one the writer
-     pasted themselves, and is theirs to keep. */
+     pasted themselves, and is theirs to keep (so is /api/cite-url's
+     "manual" one, which a reload used to drop).
+     Receipts (2.21.25, server of 2026-10-07): a server that read a source
+     says so — `verified`, and for a backing source the `quote` from its own
+     text and where it read it (`readFrom`). A source it could NOT read
+     (`verified: false`) is never backing, whatever its stance: it goes to
+     `unread`, shown collapsed with Open only — never Cite or Copy cite. An
+     older server sends no `verified`, and its sources behave as before. */
   function backingSources(list, verdict) {
     const all = Array.isArray(list) ? list : [];
-    const keep = all.filter((s) => s && (s.stance === undefined || s.stance === "supports" ||
+    const unread = all.filter((s) => s && s.verified === false);
+    const keep = all.filter((s) => s && s.verified !== false && (s.stance === undefined || s.stance === "manual" || s.stance === "supports" ||
       (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
-    return { list: keep, unbacked: all.length - keep.length };
+    return { list: keep, unbacked: all.length - keep.length - unread.length, unread };
   }
   const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
+  const RECEIPT_COPY = {
+    says: "The source says:",
+    from: { abstract: "from the abstract", page: "from the page" },
+    unread: "Couldn't read these — check them yourself",
+    unreadOnly: (n) => `The search found ${n} source${n === 1 ? "" : "s"}, but Tracely couldn't open ${n === 1 ? "it" : "them"} to check what ${n === 1 ? "it says" : "they say"}. Read ${n === 1 ? "it" : "them"} yourself before citing, or search again.`,
+    open: "Open ↗",
+  };
+  /* What a source shows under its title: the receipt — "The source says:
+     “…”" and where it was read — when the server read it, else the
+     search's snippet, as before. */
+  function sourceSaysHtml(src) {
+    if (src?.quote) {
+      const from = RECEIPT_COPY.from[src.readFrom];
+      return `<div class="src-says">${esc(RECEIPT_COPY.says)} “${esc(src.quote)}”</div>${from ? `<div class="src-from">${esc(from)}</div>` : ""}`;
+    }
+    return src?.snippet ? `<div class="src-snip">${esc(src.snippet)}</div>` : "";
+  }
+  /* The sources the server could not read, collapsed under one toggle (the
+     panel re-renders every few seconds, so the open state lives in the
+     sources entry: `open`). Open only — nobody is told to cite a source
+     nothing read. */
+  function unreadSourcesHtml(hash, unread, open) {
+    const list = Array.isArray(unread) ? unread.filter(Boolean) : [];
+    if (!list.length) return "";
+    const rows = open ? list.map((src) => `
+        <div class="src src-unread-row">
+          <div class="src-body">
+            <span class="src-title">${esc(src.title || src.url)}</span>
+            <div class="src-meta">${esc(src.publisher || "")}</div>
+            <div class="src-actions"><a class="src-open" href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(RECEIPT_COPY.open)}</a></div>
+          </div>
+        </div>`).join("") : "";
+    return `<div class="src-unread"><button class="src-unread-toggle" data-unread-toggle="${esc(hash)}" aria-expanded="${open ? "true" : "false"}">${open ? "▾" : "▸"} ${esc(RECEIPT_COPY.unread)} (${list.length})</button>${rows}</div>`;
+  }
 
   /* Sentences a citation LATER in the same paragraph covers: writers state an
      idea across a sentence or two and cite once at the close. The desktop's
@@ -2699,6 +2741,13 @@
     .src-meta { font-size: 11px; color: var(--label); }
     .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    /* The receipt: the source's own words, and where they were read. */
+    .src-says { font-size: 12px; line-height: 16.8px; color: var(--ink); margin-top: 2px; user-select: text; }
+    .src-from { font-size: 10.5px; color: var(--label); margin-top: 2px; }
+    .src-unread { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+    .src-unread-toggle { align-self: flex-start; background: none; border: none; padding: 2px 0; font: inherit; font-size: 12px; color: var(--label); cursor: pointer; text-align: left; }
+    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; }
+    .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
     .loading { font-size: 13px; color: var(--body); }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
@@ -2823,7 +2872,7 @@
     const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", []));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
-      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -2924,7 +2973,7 @@
       }
       const src = [...sourcesMap]
         .filter(([, st]) => st.list?.length)
-        .map(([h, st]) => [h, { list: st.list.slice(0, 5), citedUrl: st.citedUrl ?? null }]);
+        .map(([h, st]) => [h, { list: st.list.slice(0, 5), unread: (st.unread ?? []).slice(0, 5), citedUrl: st.citedUrl ?? null }]);
       let ok = lsSet(VCACHE_KEY, JSON.stringify(keep));
       ok = lsSet(SCACHE_KEY, JSON.stringify(src.slice(-20))) && ok;
       if (!ok) {
@@ -4180,7 +4229,7 @@
       appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
       couldNot: "Could not apply",
       searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
-      noSources: "No sources found", noBacking: "Nothing backs this as written", searchFailed: "Search failed", searchAgain: "Search again",
+      noSources: "No sources found", noBacking: "Nothing backs this as written", couldntRead: "Couldn't read the sources", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
       copyEntry: "Copy entry",
@@ -4330,6 +4379,21 @@
       const stance = STANCE_LABEL[src.stance] ?? "Context";
       sub.appendChild(el("span", { color: src.stance === "supports" ? DM.green : src.stance === "refutes" ? DM.red : DM.body, fontWeight: "500", whiteSpace: "nowrap", flexShrink: "0" }, stance));
       meta.appendChild(sub);
+      // The receipt (backingSources): the source's own words, two lines
+      // until the row is picked, then whole — and where they were read.
+      if (src.quote) {
+        const says = el("span", { fontSize: "12px", lineHeight: "1.4", color: DM.ink, whiteSpace: "normal", marginTop: "2px" }, `${RECEIPT_COPY.says} “${src.quote}”`);
+        says.setAttribute("data-pop-receipt", "");
+        if (!selected) {
+          says.style.display = "-webkit-box";
+          says.style.setProperty("-webkit-line-clamp", "2");
+          says.style.setProperty("-webkit-box-orient", "vertical");
+          says.style.overflow = "hidden";
+        }
+        meta.appendChild(says);
+        const from = RECEIPT_COPY.from[src.readFrom];
+        if (from) meta.appendChild(el("span", { fontSize: "11px", color: DM.hint }, from));
+      }
       const trusted = TRUSTED_KINDS.has(src.kind);
       meta.appendChild(el("span", { alignSelf: "flex-start", fontSize: "10.5px", fontWeight: "600", letterSpacing: "0.3px", borderRadius: "999px", padding: "2px 7px", marginTop: "3px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
       row.appendChild(meta);
@@ -4339,6 +4403,33 @@
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
       return row;
+    }
+    /* The sources the server could not read (backingSources' `unread`),
+       behind one toggle, closed until asked: Open only, never Cite. */
+    function dmUnread(unread, open, onToggle) {
+      if (!Array.isArray(unread) || !unread.length) return null;
+      const w = el("div", { display: "flex", flexDirection: "column", gap: "4px", flex: "0 0 auto" });
+      const t = dmLink(`${open ? "▾" : "▸"} ${RECEIPT_COPY.unread} (${unread.length})`);
+      Object.assign(t.style, { marginLeft: "0", alignSelf: "flex-start" });
+      t.setAttribute("aria-expanded", open ? "true" : "false");
+      t.setAttribute("data-pop-unread", "");
+      t.addEventListener("click", onToggle);
+      w.appendChild(t);
+      if (open) {
+        for (const src of unread) {
+          const row = el("div", { display: "flex", alignItems: "center", gap: "10px", padding: "4px 8px" });
+          row.appendChild(dmSourceIcon(src));
+          const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
+          meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
+          meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.publisher || ""));
+          row.appendChild(meta);
+          const go = dmBtn(RECEIPT_COPY.open, false, { title: src.url });
+          go.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
+          row.appendChild(go);
+          w.appendChild(row);
+        }
+      }
+      return w;
     }
     function dmStyles(current, onSet) {
       const w = el("div", { display: "flex", alignItems: "center", gap: "6px", flex: "0 0 auto" });
@@ -4917,11 +5008,21 @@
         return;
       }
       const list = s.list ?? [];
+      const unread = s.unread ?? [];
+      const unreadEl = () => dmUnread(unread, st.unreadOpen === true, () => setStep(stepKey, { unreadOpen: !st.unreadOpen }));
       const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(stepKey, { searched: true, selected: null }); p.catch(() => {}); };
       if (list.length === 0) {
         if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
+        else if (unread.length) put(dmHead(DM.amber, POP_COPY.couldntRead), dmBody(RECEIPT_COPY.unreadOnly(unread.length)));
         else put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
         put(noteEl());
+        // Opened, the unread list scrolls; the buttons below never move.
+        const unreadBlock = unreadEl();
+        if (unreadBlock) {
+          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column" });
+          box.appendChild(unreadBlock);
+          put(box);
+        }
         const again = dmBtn(POP_COPY.searchAgain, true);
         again.addEventListener("click", searchAgain);
         const dis = dmBtn(POP_COPY.dismiss, false);
@@ -4943,6 +5044,8 @@
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(stepKey, { selected: item.url })));
       scroll.appendChild(rows);
+      const unreadBlock = unreadEl();
+      if (unreadBlock) scroll.appendChild(unreadBlock);
       // The style pills and the preview scroll with the list. The app keeps
       // them outside its scroll region, in an editor tall enough not to
       // notice; in a browser window the card is often capped to the room
@@ -5341,8 +5444,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        const { list, unbacked } = backingSources(data.sources, f?.verdict);
-        sourcesMap.set(hash, { loading: false, list, unbacked, copiedUrl: null });
+        const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
         persistCaches();
       } catch (err) {
         sourcesMap.delete(hash);
@@ -6324,8 +6427,8 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
-          } else if (st?.unbacked && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(UNBACKED_NOTE(st.unbacked))}</div></div>`;
+          } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
@@ -6335,14 +6438,14 @@
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
                     <div class="src-meta">${esc(src.publisher)}</div>
-                    ${src.snippet ? `<div class="src-snip">${esc(src.snippet)}</div>` : ""}
+                    ${sourceSaysHtml(src)}
                     <div class="src-actions">
                       ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
                     </div>
                     ${editNoteHtml(`cite:${seg.hash}:${src.url}`)}
                   </div>
-                </div>`).join("") + `</div>`;
+                </div>`).join("") + unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen) + `</div>`;
           }
           return sourcesHtml;
         };
@@ -6478,6 +6581,13 @@
             const st = sourcesMap.get(btn.dataset.copySrc);
             const src = st?.list?.[Number(btn.dataset.i)];
             if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
+          });
+        }
+        // "Couldn't read these" opens and closes; the state lives in the entry (unreadSourcesHtml).
+        for (const btn of shadow.querySelectorAll("[data-unread-toggle]")) {
+          btn.addEventListener("click", () => {
+            const st = sourcesMap.get(btn.dataset.unreadToggle);
+            if (st) { st.unreadOpen = !st.unreadOpen; render(); }
           });
         }
         for (const btn of shadow.querySelectorAll("[data-doc-fix]")) {
@@ -7226,8 +7336,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        const { list, unbacked } = backingSources(data.sources, f?.verdict);
-        sourcesMap.set(hash, { loading: false, list, unbacked, copiedUrl: null });
+        const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
@@ -7629,8 +7739,8 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
-          } else if (st?.unbacked && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(UNBACKED_NOTE(st.unbacked))}</div></div>`;
+          } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
@@ -7640,13 +7750,13 @@
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
                     <div class="src-meta">${esc(src.publisher)}</div>
-                    ${src.snippet ? `<div class="src-snip">${esc(src.snippet)}</div>` : ""}
+                    ${sourceSaysHtml(src)}
                     <div class="src-actions">
                       ${replaceFor(seg.hash) ? `<button class="act primary" data-src-replace="${seg.hash}" data-i="${i}">${esc(CITED_COPY.replace)}</button>` : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
                     </div>
                   </div>
-                </div>`).join("") + `</div>`;
+                </div>`).join("") + unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen) + `</div>`;
           }
           return sourcesHtml;
         };
@@ -7768,6 +7878,13 @@
             const st = sourcesMap.get(btn.dataset.copySrc);
             const src = st?.list?.[Number(btn.dataset.i)];
             if (src) copyText(formatCitation(src, settings.citationStyle || "mla").ref, btn.dataset.copySrc, src.url);
+          });
+        }
+        // "Couldn't read these" opens and closes; the state lives in the entry (unreadSourcesHtml).
+        for (const btn of shadow.querySelectorAll("[data-unread-toggle]")) {
+          btn.addEventListener("click", () => {
+            const st = sourcesMap.get(btn.dataset.unreadToggle);
+            if (st) { st.unreadOpen = !st.unreadOpen; render(); }
           });
         }
         // "Find the cited work" and what it offers (decorateCard), and a
