@@ -1,5 +1,5 @@
 import { CheckError } from "./errors.js";
-import { enrichSources, doiOf } from "./sourceEnrich.js";
+import { enrichSources, doiOf, DOI_REJECTED } from "./sourceEnrich.js";
 import { fetchUrlMetadata } from "./citeMeta.js";
 import { verifySources } from "./sourceVerify.js";
 import {
@@ -469,18 +469,25 @@ export async function findSources({ claim, correction, context, model, effort, m
   // the citation fields itself — Crossref for anything with a DOI, the page's
   // own metadata for the rest — under one short deadline, and drops a link
   // that answers 404. Off for a mock answer and whenever a caller asks.
-  const { enriched, dropped } = enrich === false ? { enriched: 0, dropped: 0 } : await completeSources(merged, { now: new Date() });
+  const { enriched, dropped, retracted: retractedByRecord } = enrich === false ? { enriched: 0, dropped: 0, retracted: 0 } : await completeSources(merged, { now: new Date() });
 
-  // Then the second look (lib/sourceVerify.js): read what each "supports" /
-  // "refutes" source itself says and judge it against the claim, so a source
-  // only on the topic is relabelled "context" and never offered to cite.
-  // Never fails the search; its tokens are added to what the route records.
-  const verified = enrich === false ? { checked: 0, changed: 0, usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel });
+  // Then the receipts (lib/sourceVerify.js): read what every source itself
+  // says and judge it against the claim. A source is "supports"/"refutes"
+  // only with a verbatim quote from its own text (`quote`, `readFrom`,
+  // `verified: true`); one on the topic is "context"; one that could not be
+  // read is "context" with `verified: false` — never backing. Never fails the
+  // search; its tokens are added to what the route records.
+  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel });
+  // OpenAlex's is_retracted, read on the same call as the abstract.
+  const gone = new Set(verified.retracted ?? []);
+  for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
+  const retracted = (retractedByRecord ?? 0) + gone.size;
 
   // `webSearchCalls`: what the search tool billed, per call — the route
   // records it and keeps it out of the response. `enriched`/`dropped`/
-  // `verified` are for the route's log line.
-  return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, verified: { checked: verified.checked, changed: verified.changed } };
+  // `verified`/`retracted` are for the route's log line.
+  return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
+    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, unread: verified.unread ?? 0 } };
 }
 
 /* The part of the document the search should see: the claim's own
@@ -517,7 +524,9 @@ export function claimWindow(context, claim, { radius = 1_200, head = 3_000 } = {
  *      /api/cite-url (lib/citeMeta.js fetchUrlMetadata), which answers for
  *      .gov/.org pages and most publishers that do not wall off bots.
  * Both run in parallel under PAGE_DEADLINE_MS, and a page that answers 404 or
- * 410 is removed from the list in place: a dead link is not a citation.
+ * 410 is removed from the list in place: a dead link is not a citation. So is
+ * a retracted work, and a link whose registered work is not the one its
+ * title names (sourceEnrich.js: sameWork, retractedInCrossref).
  * Nothing here throws; a lookup that fails leaves the model's fields alone.
  *
  * Measured 2026-10-02 before shipping: Crossref answers a DOI in ~0.5 s with
@@ -527,7 +536,13 @@ export function claimWindow(context, claim, { radius = 1_200, head = 3_000 } = {
 export const PAGE_DEADLINE_MS = 2_500;
 async function completeSources(list, { now = new Date(), fetchImpl = globalThis.fetch, deadlineMs = PAGE_DEADLINE_MS } = {}) {
   const t0 = Date.now();
-  const { enriched } = await enrichSources(list, { fetchImpl, deadlineMs });
+  const { enriched, mixed, retracted } = await enrichSources(list, { fetchImpl, deadlineMs });
+  // Gone before anything reads them (source receipts, 2026-10-07): a link
+  // that is another work than its title (sourceEnrich sameWork), and a work
+  // the registrar or PubMed records as retracted — never offered, even when
+  // that leaves nothing.
+  const gone = new Set([...mixed, ...retracted]);
+  for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i])) list.splice(i, 1);
   const left = Math.max(400, deadlineMs - (Date.now() - t0));
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), left);
@@ -553,6 +568,8 @@ async function completeSources(list, { now = new Date(), fetchImpl = globalThis.
         const v = page[k];
         const empty = s[k] == null || s[k] === "" || (Array.isArray(s[k]) && s[k].length === 0);
         const has = v != null && v !== "" && !(Array.isArray(v) && v.length === 0);
+        // Never the DOI the registrar just showed to be another work's.
+        if (k === "doi" && has && s[DOI_REJECTED] && String(v).toLowerCase() === String(s[DOI_REJECTED]).toLowerCase()) continue;
         if (empty && has) { s[k] = v; changed = true; }
       }
       if (changed) filled++;
@@ -560,11 +577,11 @@ async function completeSources(list, { now = new Date(), fetchImpl = globalThis.
   } finally {
     clearTimeout(timer);
   }
-  let dropped = 0;
+  let dropped = mixed.length;
   if (dead.size && dead.size < list.length) {
     for (let i = list.length - 1; i >= 0; i--) if (dead.has(list[i])) { list.splice(i, 1); dropped++; }
   }
-  return { enriched: enriched + filled, dropped };
+  return { enriched: enriched + filled, dropped, retracted: retracted.length };
 }
 
 /* De-duplicated by URL, at most six, each with the five fields every client
@@ -1066,8 +1083,20 @@ function mockSources(claim, model) {
     { title: "China's Wall Less Great in View from Space", url: "https://www.nasa.gov/vision/space/workinginspace/great_wall.html", publisher: "nasa.gov", snippet: "NASA explains the Great Wall is generally invisible to the unaided eye from orbit.", stance: "refutes", ...none, kind: "institutional", groupAuthor: "NASA", year: 2005 },
     { title: "Is the Great Wall of China visible from space?", url: "https://www.scientificamerican.com/article/is-chinas-great-wall-visible-from-space/", publisher: "scientificamerican.com", snippet: "Reviews the myth and what astronauts actually report seeing from orbit.", stance: "context", ...none, kind: "news" },
   ].map((s) => ({ ...s, snippet: `[mock] ${s.snippet}` }));
+  // The receipts (lib/sourceVerify.js), in the real shape: two sources read
+  // and quoted, one that could not be read — so every state of the source
+  // card is reachable keyless.
+  const receipts = [
+    { verified: true, readFrom: "page", quote: "The Great Wall is not visible to the naked eye from low Earth orbit." },
+    { verified: true, readFrom: "page", quote: "The Great Wall is generally invisible to the unaided eye from orbit." },
+    { verified: false },
+  ];
+  const sources = mergeSources(raw).map((s, i) => {
+    const r = receipts[i] ?? { verified: false };
+    return { ...s, ...r, ...(r.quote ? { snippet: `[mock] “${r.quote}”` } : {}) };
+  });
   return {
-    sources: mergeSources(raw),
+    sources,
     model: `${model} (mock)`,
     usage: { input: 0, output: 0, cached: 0 },
   };

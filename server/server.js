@@ -1288,7 +1288,11 @@ const server = http.createServer(async (req, res) => {
       // (lib/seenClaims.js) — a hash, never the claim, never on disk — so the
       // hit rate is known before anyone decides whether to build the cache.
       const wouldHit = noteClaimSeen(claim);
-      const { webSearchCalls, webSearchActions, enriched, dropped, verified, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK }); // verified: the log line only — /api/sources is frozen
+      // `verified` and `retracted` here are the search's tallies, for the log
+      // line only — /api/sources is frozen. Each SOURCE carries its own
+      // receipt (verified, readFrom, quote: additive optional fields,
+      // lib/sourceVerify.js), and those do reach the client.
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1297,7 +1301,7 @@ const server = http.createServer(async (req, res) => {
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
       const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
-      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
+      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can

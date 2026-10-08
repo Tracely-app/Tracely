@@ -3,7 +3,10 @@
  * opens were 3 of every 8 billed web_search_call items on 2026-10-02. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { doiOf, pmidOf, fieldsFromCrossref, fieldsFromEsummary, enrichSources } from "../lib/sourceEnrich.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { doiOf, pmidOf, fieldsFromCrossref, fieldsFromEsummary, enrichSources, titlesMatch, sameWork, retractedInCrossref, retractedInEsummary } from "../lib/sourceEnrich.js";
 import { findSources } from "../lib/factcheck.js";
 
 // The page reader resolves every hostname before fetching (citeMeta.js
@@ -54,10 +57,13 @@ test("enrichSources fills every DOI-bearing source from Crossref, replaces what 
   assert.equal(list[1].year, null, "no DOI, not touched");
 });
 
-test("enrichSources refuses a DOI whose registered title shares no word with the source's, survives failures, and honours its deadline", async () => {
+test("enrichSources refuses a DOI whose registered title is another work's, survives failures, and honours its deadline", async () => {
   const wrong = [{ title: "Finland literacy rate", url: "https://x.org/a", doi: "10.1093/sleep/zsz307", authors: [], year: null }];
   let r = await enrichSources(wrong, { fetchImpl: async () => ({ ok: true, json: async () => CR() }) });
   assert.equal(r.enriched, 0); assert.equal(wrong[0].year, null, "a DOI that resolves to another work is not trusted");
+  assert.equal(r.rejected, 1);
+  assert.ok(!("doi" in wrong[0]), "and the DOI that led there is dropped (source receipts, 2026-10-07)");
+  assert.equal(doiOf(wrong[0]), "");
   const failing = [{ title: "t", url: "https://doi.org/10.1/abc", authors: [], year: null }];
   r = await enrichSources(failing, { fetchImpl: async () => { throw new Error("ECONNRESET"); } });
   assert.equal(r.enriched, 0);
@@ -67,7 +73,115 @@ test("enrichSources refuses a DOI whose registered title shares no word with the
   const t0 = Date.now();
   r = await enrichSources(slow, { deadlineMs: 50, fetchImpl: (url, { signal }) => new Promise((_, rej) => signal.addEventListener("abort", () => rej(new Error("aborted")))) });
   assert.equal(r.enriched, 0); assert.ok(Date.now() - t0 < 1000, "the deadline, not the lookup, decides");
-  assert.deepEqual(await enrichSources([], {}), { sources: [], enriched: 0 });
+  // The result grew three fields with the receipts (rejected, mixed,
+  // retracted): the caller drops the last two. Pinned deliberately.
+  assert.deepEqual(await enrichSources([], {}), { sources: [], enriched: 0, rejected: 0, mixed: [], retracted: [] });
+});
+
+// ── the DOI guard: is the registered record this source's work? ───────────
+
+test("titlesMatch: the main title, a truncated title and a light paraphrase pass; a neighbour on the same topic and an unrelated work do not", () => {
+  const REG = "Later school start times in a flexible system improve teenage sleep";
+  assert.equal(titlesMatch("Later school start times improve teenage sleep", REG), true, "the main idea, words dropped: 100% / 78%");
+  assert.equal(titlesMatch("Later school start times in a…", REG), true, "a search engine's truncation: 100% / 44%");
+  assert.equal(titlesMatch("School start times and teen sleep", REG), true, "a light paraphrase: 80% / 44%");
+  assert.equal(titlesMatch("Later School Start Times in a Flexible System Improve Teenage Sleep: Evidence from a German High School", REG), true, "the subtitle the registrar keeps elsewhere");
+  assert.equal(titlesMatch("Sleep duration and school start times in adolescents", REG), false, "a different paper sharing four topical words: 67% of its title");
+  assert.equal(titlesMatch("Teenage sleep", REG), false, "two words of a long title: 22% of it");
+  assert.equal(titlesMatch("Finland literacy rate", REG), false);
+  assert.equal(titlesMatch("Sueño adolescente y horarios escolares", "Sueno adolescente y horarios escolares"), true, "accents folded");
+  // What the old rule (one shared word of five letters or more) would have said:
+  const oldRule = (a, b) => { const w = (t) => new Set(String(t).toLowerCase().match(/[a-z0-9]{5,}/g) ?? []); const wb = w(b); return [...w(a)].some((x) => wb.has(x)); };
+  assert.equal(oldRule("Sleep duration and school start times in adolescents", REG), true, "the neighbour used to pass");
+});
+
+test("sameWork: titles AND years — within one year when both are stated; a placeholder title is 'unknown'", () => {
+  const reg = { title: "Later school start times in a flexible system improve teenage sleep", year: 2019 };
+  assert.equal(sameWork({ title: "Later school start times improve teenage sleep", year: 2020 }, reg), true, "online-first vs print: one year apart");
+  assert.equal(sameWork({ title: "Later school start times improve teenage sleep", year: 2016 }, reg), false, "the same words, three years apart: another work");
+  assert.equal(sameWork({ title: "Later school start times improve teenage sleep", year: null }, reg), true, "missing year: the title decides");
+  assert.equal(sameWork({ title: "Later school start times improve teenage sleep" }, { title: reg.title }), true, "no registered year: the title decides");
+  assert.equal(sameWork({ title: "https://doi.org/10.1093/sleep/zsz307" }, reg), "unknown", "a harvested citation's title is its URL");
+  assert.equal(sameWork({ title: "Finland literacy rate", year: 2019 }, reg), false);
+});
+
+test("enrichSources: a mismatched record is not applied; a doi.org or PubMed link to that other work is returned to be dropped; a year apart is a mismatch too", async () => {
+  const fetchImpl = async () => ({ ok: true, json: async () => CR() });
+  const linkIsOther = { title: "Finland literacy rate", url: "https://doi.org/10.1093/sleep/zsz307", authors: [], year: null };
+  const fieldOnly = { title: "Finland literacy rate", url: "https://www.oph.fi/literacy", doi: "10.1093/sleep/zsz307", authors: [], year: null };
+  const yearOff = { title: "Later school start times improve teenage sleep", url: "https://example.org/sleep", doi: "10.1093/sleep/zsz307", authors: [], year: 2015 };
+  const r = await enrichSources([linkIsOther, fieldOnly, yearOff], { fetchImpl });
+  assert.equal(r.enriched, 0); assert.equal(r.rejected, 3);
+  assert.deepEqual(r.mixed, [linkIsOther], "the link IS the other work: no title can be cited over it");
+  assert.equal(doiOf(fieldOnly), "", "the page stays; the DOI is gone");
+  assert.equal(yearOff.year, 2015, "nothing of the record applied");
+  assert.equal(JSON.stringify(fieldOnly).includes("zsz307"), false, "the rejection marker never serialises");
+  const harvested = { title: "https://doi.org/10.1093/sleep/zsz307", url: "https://doi.org/10.1093/sleep/zsz307", publisher: "doi.org", snippet: "", stance: "context" };
+  const h = await enrichSources([harvested], { fetchImpl });
+  assert.equal(h.enriched, 1); assert.equal(harvested.title, "Later school start times in a flexible system improve teenage sleep", "a URL-for-a-title takes the registered one");
+});
+
+// ── retractions: the live records, pinned ────────────────────────────────
+
+const LIVE = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "retraction", "live-2026-10-07.json"), "utf8"));
+
+test("retractedInCrossref reads updated-by / update-to retraction entries exactly as the live API returned them", () => {
+  const cr = LIVE.crossref;
+  assert.equal(retractedInCrossref(cr.wakefield1998.message), true, "updated-by: [{ type: 'retraction', source: 'retraction-watch' }] beside a correction");
+  assert.equal(retractedInCrossref(cr.surgisphere2020.message), true, "update-to and updated-by, publisher and Retraction Watch");
+  assert.equal(retractedInCrossref(cr.wakefieldNotice2010.message), true, "the notice itself: update-to retraction");
+  assert.equal(retractedInCrossref(cr.winnebeck2019.message), false, "an ordinary paper: relation {} and nothing else");
+  const correctedOnly = { ...cr.wakefield1998.message, "updated-by": cr.wakefield1998.message["updated-by"].filter((u) => u.type !== "retraction") };
+  assert.equal(retractedInCrossref(correctedOnly), false, "a correction is not a retraction");
+  assert.equal(retractedInCrossref({ "updated-by": [{ type: "expression_of_concern" }] }), false, "nor an expression of concern");
+  assert.equal(retractedInCrossref({ relation: { "is-retracted-by": [{ id: "10.1/x" }] } }), true, "a relation naming a retraction");
+  assert.equal(retractedInCrossref({ "update-to": [{ type: "Withdrawal" }] }), true);
+  assert.equal(retractedInCrossref(null), false);
+  assert.deepEqual(Object.keys(cr.wakefield1998.message).filter((k) => /update|relation/.test(k)), ["updated-by", "relation"], "the field names the live record used");
+});
+
+test("retractedInEsummary reads PubMed's 'Retracted Publication' type (live, PMID 9500320)", () => {
+  assert.equal(retractedInEsummary(LIVE.esummary.wakefield1998), true);
+  assert.equal(retractedInEsummary({ pubtype: ["Journal Article"] }), false);
+  assert.equal(retractedInEsummary(null), false);
+});
+
+test("enrichSources returns a retracted work to be dropped, by DOI and by PubMed link, and applies nothing of it", async () => {
+  const fetchImpl = async (url) => {
+    const u = String(url);
+    if (u.includes("esummary")) return { ok: true, json: async () => ({ result: { 9500320: LIVE.esummary.wakefield1998 } }) };
+    if (u.includes("crossref")) return { ok: true, json: async () => LIVE.crossref.wakefield1998 };
+    throw new Error("unexpected " + u);
+  };
+  const byDoi = { title: "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children", url: "https://doi.org/10.1016/S0140-6736(97)11096-0", authors: [], year: 1998 };
+  const byPmid = { title: "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children", url: "https://pubmed.ncbi.nlm.nih.gov/9500320/", authors: [], year: null };
+  const r = await enrichSources([byDoi, byPmid], { fetchImpl });
+  assert.deepEqual(r.retracted, [byDoi, byPmid]);
+  assert.equal(r.enriched, 0);
+  assert.deepEqual(byDoi.authors, [], "nothing applied");
+});
+
+test("findSources drops a retracted source, whichever registry said so, even when it leaves fewer", async () => {
+  const realFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "sk-test";
+  const none = { kind: "journal", authors: [], groupAuthor: "", year: null, date: "", container: "", editors: [], doi: "" };
+  const model = { sources: [
+    { ...none, title: "Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children", url: "https://doi.org/10.1016/S0140-6736(97)11096-0", publisher: "The Lancet", snippet: "s", stance: "supports" },
+    { ...none, title: "Hydroxychloroquine or chloroquine with or without a macrolide for treatment of COVID-19: a multinational registry analysis", url: "https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(20)31180-6/fulltext", doi: "10.1016/S0140-6736(20)31180-6", publisher: "The Lancet", snippet: "s", stance: "supports" },
+  ] };
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes("api.openai.com")) return new Response(JSON.stringify({ status: "completed", model: "gpt-5.6-luna", usage: { input_tokens: 10, output_tokens: 10 }, output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(model), annotations: [] }] }] }), { status: 200 });
+    // Crossref answers only for Wakefield; OpenAlex is what catches the other.
+    if (u.includes("api.crossref.org") && u.includes("97")) return new Response(JSON.stringify(LIVE.crossref.wakefield1998), { status: 200 });
+    if (u.includes("api.openalex.org")) return new Response(JSON.stringify(LIVE.openalex.surgisphere2020), { status: 200 });
+    return new Response("", { status: 404 });
+  };
+  try {
+    const r = await findSources({ claim: "Hydroxychloroquine raised mortality in hospitalised COVID-19 patients.", model: "gpt-5.6-luna" });
+    assert.deepEqual(r.sources, [], "both gone: a retracted paper is never offered");
+    assert.equal(r.retracted, 2);
+  } finally { globalThis.fetch = realFetch; }
 });
 
 /* findSources end to end with a stubbed network: the model's answer (one
@@ -169,16 +283,19 @@ test("completeSources also reads the page for a source that has a year but no au
   process.env.OPENAI_API_KEY = "sk-test";
   const model = { sources: [{ title: "About Sleep", url: "https://www.cdc.gov/sleep/about/index.html", publisher: "CDC", snippet: "s", stance: "context", kind: "institutional", authors: [], groupAuthor: "", year: 2024, date: "", container: "", editors: [], doi: "" }] };
   const html = `<html><head><title>About Sleep | CDC</title><meta property="og:site_name" content="CDC"><meta name="citation_author" content="Centers for Disease Control and Prevention"></head></html>`;
-  let pageReads = 0;
-  globalThis.fetch = async (url) => {
+  let pageReads = 0, receiptReads = 0;
+  globalThis.fetch = async (url, init) => {
     const u = String(url);
     if (u.includes("api.openai.com")) return new Response(JSON.stringify({ status: "completed", model: "gpt-5.6-luna", usage: { input_tokens: 10, output_tokens: 10 }, output: [{ type: "web_search_call", status: "completed", action: { type: "search" } }, { type: "web_search_call", status: "completed", action: { type: "open_page" } }, { type: "message", content: [{ type: "output_text", text: JSON.stringify(model), annotations: [] }] }] }), { status: 200 });
-    if (u.includes("cdc.gov")) { pageReads++; return new Response(html, { status: 200, headers: { "content-type": "text/html" } }); }
+    // The citation reader sends no Accept header; the receipt check
+    // (lib/sourceVerify.js) reads every source's page too, with one.
+    if (u.includes("cdc.gov")) { if (init?.headers?.Accept) receiptReads++; else pageReads++; return new Response(html, { status: 200, headers: { "content-type": "text/html" } }); }
     throw new Error("unexpected " + u);
   };
   try {
     const r = await findSources({ claim: "Adults need seven or more hours of sleep.", model: "gpt-5.6-luna", effort: "low" });
     assert.equal(pageReads, 1, "the dated-but-unattributed page was read");
+    assert.equal(receiptReads, 1, "and read once more for its receipt");
     assert.equal(r.sources[0].groupAuthor, "Centers for Disease Control and Prevention");
     assert.equal(r.sources[0].year, 2024, "the model's year stands");
     assert.deepEqual(r.webSearchActions, { search: 1, open_page: 1 }, "actions are reported by type");
