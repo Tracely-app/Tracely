@@ -245,6 +245,63 @@ test("find-sources: the relay's found_sources shape", async () => {
   for (const k of ["searchesRun", "assertions", "sources", "claimProblem", "revisedClaim", "disputed", "note"]) assert.ok(k in r.body, `missing ${k}`);
 });
 
+// ── the desktop's receipts (/api/verify-sources) ────────────────────────
+// A writer opening a source list in the desktop must not move anything the
+// extension sees: not its per-minute limiter, not the source allowance it
+// shares with /api/find-sources, not its model, not its response shape.
+
+const VERIFY = (i) => ({
+  claim: `Anxiety rose 40% among teenagers since 2012. ${i}`,
+  sources: [
+    { id: "s1", title: "Teen anxiety trends", abstract: "Anxiety among teenagers rose by 40 percent between 2012 and 2020. Heavy users reported most." },
+    { id: "s2", title: "Screen time and sleep", abstract: "Evening screen use was associated with shorter sleep. The effect was small." },
+    { id: "s3", title: "A page nothing has read", url: "https://example.org/never-fetched-in-mock" },
+  ],
+});
+
+test("verify-sources: receipts in the real shape, one per source, in order", async () => {
+  const r = await post("/api/verify-sources", VERIFY("shape"), "verify-shape");
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.receipts.map((x) => [x.id, x.verdict]), [["s1", "backs"], ["s2", "topic"], ["s3", "unread"]]);
+  assert.equal(r.body.receipts[0].quote, "Anxiety among teenagers rose by 40 percent between 2012 and 2020.");
+  assert.equal(r.body.receipts[0].readFrom, "abstract");
+  assert.equal(r.body.tally, undefined);
+  assert.equal((await post("/api/verify-sources", {}, "verify-shape")).status, 400);
+});
+
+test("a burst of desktop receipts does not rate-limit, re-model or re-shape the same user's extension", async () => {
+  const baseline = await post("/api/check", CHECK, "verify-burst");
+  assert.equal(baseline.status, 200);
+  // 25: over the extension's 20 a minute, under the app's 30.
+  for (let i = 0; i < 25; i++) {
+    const r = await post("/api/verify-sources", VERIFY(i), "verify-burst");
+    assert.equal(r.status, 200, `receipts call ${i + 1} was refused: ${JSON.stringify(r.body)}`);
+  }
+  const after = await post("/api/check", CHECK, "verify-burst");
+  assert.equal(after.status, 200, `the extension was rate-limited by desktop receipts: ${JSON.stringify(after.body)}`);
+  assert.equal(after.body.modelUsed, baseline.body.modelUsed, "the extension's model moved");
+  assert.deepEqual(Object.keys(after.body).sort(), Object.keys(baseline.body).sort(), "the extension's response shape moved");
+});
+
+test("desktop receipts never spend the source allowance the extension's /api/sources draws on", async () => {
+  // Free is 5 source searches a day. Eight opened lists, then a search: if a
+  // receipt were metered as a source search, the search would be refused.
+  for (let i = 0; i < 8; i++) assert.equal((await post("/api/verify-sources", VERIFY(`q${i}`), "verify-allowance")).status, 200);
+  const search = await post("/api/sources", { claim: "Anxiety rose 40% among teenagers since 2012." }, "verify-allowance");
+  assert.equal(search.status, 200, `the extension's source search was refused after desktop receipts: ${JSON.stringify(search.body)}`);
+});
+
+test("desktop receipts are on the APP limiter, which refuses on its own", async () => {
+  let refused = null;
+  for (let i = 0; i < 40 && !refused; i++) {
+    const r = await post("/api/verify-sources", VERIFY(`lim${i}`), "verify-limit");
+    if (r.status === 429) refused = r;
+  }
+  assert.ok(refused, "40 receipts calls in a minute were all admitted");
+  assert.equal(refused.body.error.kind, "rate_limit");
+  assert.equal((await post("/api/check", CHECK, "verify-limit")).status, 200, "the extension is still open to that caller");
+});
+
 test("find-sources draws on the free source allowance, not the AI one", async () => {
   // Five a day on the free plan, shared with the extension's /api/sources.
   let refused = null;

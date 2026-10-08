@@ -191,6 +191,9 @@ export function clampModel(requested, plan) {
  *   sources      /api/sources                                       luna low
  *                (the vendor default — what every source search was measured at)
  *   findSources  /api/find-sources                                  luna low
+ *   verifySources /api/verify-sources (the desktop's receipts)      luna low
+ *                (lib/sourceVerify.js, the extension's verifier, which
+ *                pins low itself; 2026-10-07)
  *   detect, structure, tracer, correction                           luna low
  *   critique     /api/critique                                      astra low / luna low
  *   grade        /api/grade                                         luna low (see GRADE_ON_THOROUGH)
@@ -198,7 +201,7 @@ export function clampModel(requested, plan) {
  * luna@medium on /api/check measured 100% (0 harmful verdicts) against 90% at
  * low; nothing else was measured at medium, so everything else is low (the
  * lib/llm.js default). astra was measured at low only. */
-export const ROUTES = ["check", "checkDeep", "flow", "review", "sources", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"];
+export const ROUTES = ["check", "checkDeep", "flow", "review", "sources", "findSources", "verifySources", "detect", "structure", "tracer", "correction", "critique", "grade"];
 
 /* astra grading was never measured. Flip only if the grade eval shows a gain. */
 export const GRADE_ON_THOROUGH = false;

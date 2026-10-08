@@ -41,6 +41,7 @@ import { STRUCTURE_SYSTEM_PROMPT, STRUCTURE_SCHEMA } from "./prompts/structure.j
 import { GRADE_SYSTEM_PROMPT, GRADE_SCHEMA } from "./prompts/grade.js";
 import { TRACER_SYSTEM_PROMPT } from "./prompts/tracer.js";
 import { SOURCE_SEARCH_SYSTEM_PROMPT, SOURCE_SEARCH_SCHEMA } from "./prompts/sources.js";
+import { verifySources as readAndJudge, MAX_QUOTE_CHARS } from "./sourceVerify.js";
 import { normalizeCritique } from "../shared/normalizeCritique.js";
 import { verifyGrade, buildGradePrompt } from "../shared/gradedDraft.js";
 import { splitSentences } from "../shared/sentenceSplit.js";
@@ -411,6 +412,123 @@ export async function findSources({ claim, context, model, effort }) {
   return { ...out.parsed, model: out.model, usage: out.usage, webSearchCalls: out.webSearchCalls };
 }
 
+/* ── verify-sources: the desktop's receipts ───────────────────────────────
+ * Not a relay endpoint — the relay never had one. It is here because this file
+ * is the desktop's contract home: one export per desktop route.
+ *
+ * The desktop's source lists (the editor's citation flow, Screen Watch's
+ * "Find a source") were ranked by topical relevance alone, and on 2026-10-07
+ * three independent judges found 15 of the 145 sources they showed across 36
+ * claims (10%) back their sentence. So when the writer OPENS a list, the
+ * desktop sends it here and every source is read and judged by THE verifier
+ * the extension's /api/sources already runs (lib/sourceVerify.js — not a
+ * second one): its abstract or page, the best passages, one call on the fast
+ * model, and a verbatim quote checked against the text. A source is "backs" or
+ * "contradicts" only with that quote; "topic" when it was read and says
+ * something else; "unread" when it could not be read (paywall, PDF, bot wall,
+ * the 4-second deadline). Retracted works come back `retracted: true` for the
+ * desktop to drop.
+ *
+ * Request:  { claim, context?, sources: [{ id, title, url?, doi?, abstract?, venue?, year? }] }
+ *           at most VERIFY_LIMITS.sources; every string clamped, never refused for length.
+ * Response: { receipts: [{ id, verdict, quote?, readFrom?, retracted? }], model, usage }
+ *           one receipt per source, in the order sent.
+ *
+ * `abstract` must be the work's OWN abstract (what a scholarly index returned
+ * for it). It is read only when OpenAlex has none for the DOI, or there is no
+ * DOI. `context` is accepted and NOT sent to the judge: VERIFY_SYSTEM is
+ * measured on the claim alone, and a field that changed what it reads would be
+ * an unmeasured prompt change. */
+export const VERIFY_LIMITS = {
+  sources: 8,
+  idChars: 200,
+  titleChars: 400,
+  urlChars: 2000,
+  doiChars: 200,
+  abstractChars: 4000,
+  venueChars: 300,
+  contextChars: 1200,
+};
+
+const clip = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+/** The request, validated and clamped. Throws a 400 before anything is counted or read. */
+export function verifySourcesInput(body = {}) {
+  const claim = clip(body?.claim, LIMITS.claimTextChars);
+  if (!claim) throw new CheckError("bad_request", "claim required");
+  const raw = body?.sources;
+  if (!Array.isArray(raw) || raw.length === 0) throw new CheckError("bad_request", "sources required (1 to 8)");
+  if (raw.length > VERIFY_LIMITS.sources) throw new CheckError("bad_request", `at most ${VERIFY_LIMITS.sources} sources`);
+  const seen = new Set();
+  const sources = raw.map((s) => {
+    const id = clip(s?.id, VERIFY_LIMITS.idChars);
+    if (!id) throw new CheckError("bad_request", "every source needs an id");
+    if (seen.has(id)) throw new CheckError("bad_request", "source ids must be unique");
+    seen.add(id);
+    const url = clip(s?.url, VERIFY_LIMITS.urlChars);
+    return {
+      id,
+      title: clip(s?.title, VERIFY_LIMITS.titleChars),
+      url: /^https?:\/\//i.test(url) ? url : "",
+      doi: clip(s?.doi, VERIFY_LIMITS.doiChars),
+      abstract: clip(s?.abstract, VERIFY_LIMITS.abstractChars),
+      venue: clip(s?.venue, VERIFY_LIMITS.venueChars),
+      year: Number.isInteger(s?.year) && s.year > 0 && s.year < 3000 ? s.year : null,
+    };
+  });
+  return { claim, context: clip(body?.context, VERIFY_LIMITS.contextChars), sources };
+}
+
+/* One receipt, from what lib/sourceVerify.js wrote onto the source. */
+function receiptOf(id, s, retracted) {
+  if (retracted) return { id, verdict: "unread", retracted: true };
+  if (s.verified !== true) return { id, verdict: "unread" };
+  const from = s.readFrom === "page" ? "page" : "abstract";
+  if (s.stance === "supports" && s.quote) return { id, verdict: "backs", quote: s.quote, readFrom: from };
+  if (s.stance === "refutes" && s.quote) return { id, verdict: "contradicts", quote: s.quote, readFrom: from };
+  return { id, verdict: "topic", readFrom: from };
+}
+
+/* The route's log line, never the response: how many were read and what they said. */
+function tallyOf(receipts, extra = {}) {
+  const t = { read: 0, backs: 0, contradicts: 0, topic: 0, unread: 0, retracted: 0, unquoted: 0, ...extra };
+  for (const r of receipts) {
+    if (r.retracted) t.retracted++;
+    t[r.verdict]++;
+    if (r.verdict !== "unread") t.read++;
+  }
+  return t;
+}
+
+/**
+ * `call`, `fetchImpl` and `deadlineMs` are lib/sourceVerify.js's own seams,
+ * passed through for tests; left undefined they are its defaults.
+ */
+export async function verifySources({ claim, context, sources, model, call, fetchImpl, deadlineMs }) {
+  const input = verifySourcesInput({ claim, context, sources });
+  if (isMock()) {
+    const receipts = mockReceipts(input.sources);
+    return { receipts, model: mockModel(model), usage: zeroUsage(), tally: tallyOf(receipts) };
+  }
+  // The verifier writes its verdicts onto the objects it is given; these are
+  // fresh ones, so nothing the caller sent is mutated.
+  const list = input.sources.map((s) => ({ title: s.title, url: s.url, doi: s.doi, venue: s.venue, year: s.year, stance: "context" }));
+  const own = new Map(list.map((s, i) => [s, input.sources[i].abstract]));
+  const out = await readAndJudge({ claim: input.claim, sources: list, model, call, fetchImpl, deadlineMs, abstractOf: (s) => own.get(s) ?? "" });
+  if (out.error) {
+    // Read but never judged. Not "unread" — that would tell the writer every
+    // source was unreadable when the judge was what failed — so the desktop
+    // falls back to its honest "Tracely couldn't check these" list. Billed if
+    // the model answered: the central handler charges what this carries.
+    const err = new CheckError("server", "Tracely could not check these sources just now.", { status: 502 });
+    Object.defineProperty(err, "llm", { value: { model, usage: out.usage }, enumerable: false, configurable: true });
+    throw err;
+  }
+  const gone = new Set(out.retracted ?? []);
+  const receipts = list.map((s, i) => receiptOf(input.sources[i].id, s, gone.has(s)));
+  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0 }) };
+}
+
 /* ── mocks: deterministic, same shapes, no key ─────────────────────────── */
 
 function zeroUsage() {
@@ -515,4 +633,24 @@ function mockSources(claim) {
     disputed: false,
     note: "Mock source search.",
   };
+}
+
+/* Receipts in the real shape, decided by position so every state of the
+ * desktop's list is reachable keyless. The mock reads only what it was
+ * handed: a source with no abstract is "unread" (nothing is fetched), one
+ * whose title mentions a retraction comes back retracted, and the rest cycle
+ * backs → topic → contradicts → backs. A quote is always the abstract's own
+ * first sentence, so it is verbatim text from the source, exactly as the real
+ * verifier guarantees. */
+const MOCK_CYCLE = ["backs", "topic", "contradicts", "backs"];
+function mockReceipts(sources) {
+  let k = 0;
+  return sources.map((s) => {
+    if (/retract/i.test(s.title)) return { id: s.id, verdict: "unread", retracted: true };
+    const first = s.abstract.split(/(?<=[.!?])\s+/).find((x) => x.length >= 15 && x.split(/\s+/).length >= 3) ?? "";
+    if (!first) return { id: s.id, verdict: "unread" };
+    const verdict = MOCK_CYCLE[k++ % MOCK_CYCLE.length];
+    if (verdict === "topic") return { id: s.id, verdict, readFrom: "abstract" };
+    return { id: s.id, verdict, quote: first.slice(0, MAX_QUOTE_CHARS), readFrom: "abstract" };
+  });
 }

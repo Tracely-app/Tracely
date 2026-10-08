@@ -196,7 +196,7 @@ test("modelForRoute: effort and output ceiling per route — the client's effort
   assert.deepEqual(modelForRoute("check", "pro"), { model: HAIKU, effort: "medium", maxTokens: undefined, thorough: false });
   assert.equal(modelForRoute("checkDeep", "student", { requested: OPUS, thoroughAvailable: true }).effort, "medium");
   assert.equal(modelForRoute("sources", "pro").effort, "low", "sources: low — half the latency of the vendor default, same sources, fewer billed searches (2026-10-01)");
-  for (const route of ["flow", "findSources", "detect", "structure", "tracer", "correction", "critique", "grade"]) {
+  for (const route of ["flow", "findSources", "verifySources", "detect", "structure", "tracer", "correction", "critique", "grade"]) {
     assert.equal(modelForRoute(route, "pro").effort, "low", route);
   }
   assert.deepEqual(modelForRoute("checkDeep", "pro", { requested: OPUS, thoroughAvailable: true }),

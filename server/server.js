@@ -191,10 +191,13 @@ const PAID_ROUTES = new Set([
  * 503 every extension user's /api/check. They now have their own pool, their
  * own limiter, their own daily quota kind, and their own model choice — so the
  * desktop can exhaust only the desktop. None of them is extension-reachable
- * (they are not in EXTENSION_API), which is what makes changing them safe. */
+ * (they are not in EXTENSION_API), which is what makes changing them safe.
+ * /api/verify-sources (2026-10-07) is the desktop's receipts: the extension's
+ * verifier (lib/sourceVerify.js) behind the desktop's gate, so reading the
+ * sources in a list a writer opened can never spend the extension's day. */
 const APP_AI_ROUTES = new Set([
   "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
-  "/api/correction", "/api/find-sources",
+  "/api/correction", "/api/find-sources", "/api/verify-sources",
 ]);
 
 /* Routes whose failures are MODEL failures, logged by the central error
@@ -402,8 +405,8 @@ const critiqueCounter = rollingCounter(60);
 const H = MODEL_TIERS.fast;
 const T = MODEL_TIERS.thorough;
 const TIERS = {
-  economy: { detect: H, structure: H, tracer: H, critique: H, correction: H, grade: H, sources: H, check: H, checkDeep: H },
-  smart:   { detect: H, structure: H, tracer: H, critique: T, correction: H, grade: H, sources: H, check: H, checkDeep: T },
+  economy: { detect: H, structure: H, tracer: H, critique: H, correction: H, grade: H, sources: H, verify: H, check: H, checkDeep: H },
+  smart:   { detect: H, structure: H, tracer: H, critique: T, correction: H, grade: H, sources: H, verify: H, check: H, checkDeep: T },
 };
 function pickModel(task) {
   const p = store.prefs.get();
@@ -1662,6 +1665,38 @@ const server = http.createServer(async (req, res) => {
         },
         run: (model, effort) => reasoning.findSources({ claim: body.claim, context: body.context, model, effort }),
       });
+      json(res, 200, result, cors);
+      return;
+    }
+
+    /* The desktop's receipts (lib/reasoning.js verifySources → the
+     * extension's verifier, lib/sourceVerify.js). Called only when a writer
+     * OPENS a source list — the editor's citation flow or Screen Watch's "Find
+     * a source" — never by passive watching. Desktop-only: the app pool,
+     * limiter and AI quota (appGate/appCall), one AI action per list; NOT the
+     * source-search allowance, because nothing is searched for. The fast model
+     * at low, whatever the client asks (shared/plan.js "verifySources"). No
+     * server cache: a page that missed the 4-second deadline must not be
+     * frozen as unread here for a day — the desktop caches, with a short TTL
+     * for exactly that case. */
+    if (req.method === "POST" && url.pathname === "/api/verify-sources") {
+      loadEnvFile();
+      requireKey();
+      const body = (await parseJsonBody(req)) ?? {};
+      // A bad body is a 400 BEFORE appCall counts it against the quota.
+      const input = reasoning.verifySourcesInput(body);
+      const started = Date.now();
+      const { tally, ...result } = await appCall(gate, {
+        task: "verify",
+        route: "verifySources",
+        requested: body.model,
+        run: (model) => reasoning.verifySources({ ...input, model }),
+      });
+      Object.assign(trace, { model: result.model });
+      // One line, no text (PRIVACY.md: routes and outcomes only): how many of
+      // the list were read and what they said — the number that says whether
+      // receipts are working.
+      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} ms=${Date.now() - started}`);
       json(res, 200, result, cors);
       return;
     }
