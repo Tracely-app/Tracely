@@ -669,6 +669,186 @@
     }
    ],
    "shown": 2
+  },
+  "03-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 9015,
+   "claim": "Johannes Gutenberg introduced movable-type printing to Europe around 1450, and within fifty years printing presses were operating in more than two hundred European cities.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Information technology and economic change: The impact of the printing press",
+     "url": "https://cepr.org/voxeu/columns/information-technology-and-economic-change-impact-printing-press",
+     "publisher": "Centre for Economic Policy Research",
+     "snippet": "The movable-type printing press was developed by Johannes Gutenberg and partners in Mainz around 1450, with presses established in 205 cities from 1450 to 1500.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centre for Economic Policy Research",
+     "year": 2010
+    },
+    {
+     "title": "European Printing Revolution",
+     "url": "https://commons.princeton.edu/rbwg/wp-content/uploads/sites/141/2019/09/The-European-Printing-Revolution.pdf",
+     "publisher": "Princeton University",
+     "snippet": "Typographic printing was introduced by Johann Gutenberg around 1450 in Mainz, after which printing offices developed across Europe under varied local conditions.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Princeton University",
+     "year": 2019
+    },
+    {
+     "title": "Printing, Protestants, and Economic Growth",
+     "url": "https://mpra.ub.uni-muenchen.de/34294/3/",
+     "publisher": "Munich Personal RePEc Archive",
+     "snippet": "The first movable-type printing press was invented circa 1450 by Johann Gutenberg, and during the following fifty years the technology diffused widely across Europe.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Munich Personal RePEc Archive",
+     "year": 2012
+    }
+   ],
+   "shown": 3
+  },
+  "03-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 16562,
+   "claim": "Movable type had already existed in Korea and China for centuries before Gutenberg, which complicates any account that treats the technology itself as the decisive variable.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "The Rise of Printing in Medieval East Asia, c. 700–1500",
+     "url": "https://academic.oup.com/edited-volume/61799/chapter-abstract/546324464",
+     "publisher": "Oxford University Press",
+     "snippet": "East Asians used woodblock printing after 700 CE, while Chinese movable type was used by 1298 for gazetteers and paper money.",
+     "stance": "supports",
+     "kind": "reference",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2024,
+     "container": "Oxford Research Encyclopedia of Asian History"
+    },
+    {
+     "title": "Korean type printing",
+     "url": "https://mediengeschichte.dnb.de/DBSMZBN/Content/EN/Printing/04-koreanischer-typendruck-en.html",
+     "publisher": "German National Library",
+     "snippet": "China experimented with movable type from the eleventh century, and Korea produced the metal-type Jikji in 1377.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "German National Library",
+     "year": null
+    },
+    {
+     "title": "Printing",
+     "url": "https://afe.easia.columbia.edu/songdynasty-module/tech-printing.html",
+     "publisher": "Columbia University",
+     "snippet": "Movable type was invented in China in the eleventh century, while cast-metal movable type began in Korea during the early thirteenth century.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Columbia University",
+     "year": null
+    },
+    {
+     "title": "The great divergence and the economics of printing",
+     "url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/ehr.12337",
+     "publisher": "Wiley",
+     "snippet": "“While China's invention of printing took place several centuries ahead of Europe's, it was in Europe where the more advanced printing technology of movable type took hold”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Luis Angeles"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1111/ehr.12337",
+     "container": "The Economic History Review",
+     "date": "2016-06-24",
+     "volume": "70",
+     "issue": "1",
+     "pages": "30-51",
+     "editors": []
+    }
+   ],
+   "shown": 4
+  },
+  "03-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 14977,
+   "claim": "The Protestant Reformation depended on cheap pamphlets, and so did an enormous volume of witch-hunting literature.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Pamphlets, Propaganda and Witch-Hunting in Germany c.1560-c.1630",
+     "url": "https://www.tandfonline.com/doi/abs/10.1179/ref_2002_6_1_004",
+     "publisher": "Informa UK Limited",
+     "snippet": "Pamphlets used Reformation-style propaganda techniques, popular songs, and woodcuts to communicate witchcraft ideas to largely illiterate audiences.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Robert Walinski-Kiehl"
+     ],
+     "groupAuthor": "",
+     "year": 2002,
+     "doi": "10.1179/ref_2002_6_1_004",
+     "container": "Reformation",
+     "volume": "6",
+     "issue": "1",
+     "pages": "49-74",
+     "editors": []
+    },
+    {
+     "title": "Printing, Propaganda, and Martin Luther",
+     "url": "https://publishing.cdlib.org/ucpressebooks/public/book/printing-propaganda-and-martin-luther.html",
+     "publisher": "University of California Press",
+     "snippet": "“The medium of multiple copies of cheap agitatory pamphlets reinforced the message of lay involvement”",
+     "stance": "supports",
+     "kind": "book",
+     "authors": [
+      "Mark U. Edwards Jr."
+     ],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Book printing and reformation",
+     "url": "https://mediengeschichte.dnb.de/DBSMZBN/Content/EN/Printing/04-buchdruck-und-reformation-en.html",
+     "publisher": "German Museum of Books and Writing",
+     "snippet": "Printing trade activity increased in regions experiencing Reformation changes, while Luther’s Bible translation reached 100,000 copies by his death.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "German Museum of Books and Writing",
+     "year": null
+    },
+    {
+     "title": "The Role of Printing in Medieval and Reformation Europe",
+     "url": "https://exhibits.lib.arizona.edu/exhibits/show/reformation/role-of-printing",
+     "publisher": "University of Arizona Libraries",
+     "snippet": "Reformation publishing expanded beyond religious controversy into popular literature, while authorities responded to the widespread circulation of printed material.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Arizona Libraries",
+     "year": null
+    }
+   ],
+   "shown": 1
   }
  }
 }
