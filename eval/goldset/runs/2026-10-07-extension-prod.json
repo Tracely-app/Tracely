@@ -849,6 +849,1025 @@
     }
    ],
    "shown": 1
+  },
+  "03-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13151,
+   "claim": "Cities that adopted printing early experienced faster economic growth in the following century, though disentangling that from the fact that wealthier cities could afford presses in the first place is genuinely difficult.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Information Technology and Economic Change: The Impact of The Printing Press",
+     "url": "https://doi.org/10.1093/qje/qjr035",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "“Cities that adopted printing in the 1400s had no prior advantage, and the association between adoption and subsequent growth was not due to printers choosing auspicious locations.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "date": "2011-08-01",
+     "year": 2011,
+     "doi": "10.1093/qje/qjr035",
+     "container": "The Quarterly Journal of Economics",
+     "volume": "126",
+     "issue": "3",
+     "pages": "1133-1172",
+     "editors": []
+    },
+    {
+     "title": "Information Technology and Economic Change: The Impact of The Printing Press",
+     "url": "https://cepr.org/voxeu/columns/information-technology-and-economic-change-impact-printing-press?trk=article-ssr-frontend-pulse_little-text-block",
+     "publisher": "Centre for Economic Policy Research",
+     "snippet": "Cities that adopted print media had no prior growth advantage but subsequently grew faster than similar cities without printing presses.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "year": 2011
+    },
+    {
+     "title": "How the medium shapes the message: Printing and the rise of the arts and sciences",
+     "url": "https://arxiv.org/abs/1512.05020",
+     "publisher": "arXiv",
+     "snippet": "The study uses distance from Mainz as an instrument for printing adoption to address endogeneity and examines later scientific and artistic prominence.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Jara-Figueroa, C.",
+      "Yu, Amy Z.",
+      "Hidalgo, Cesar A."
+     ],
+     "groupAuthor": "",
+     "year": 2015,
+     "date": "2015-12-16"
+    },
+    {
+     "title": "Information Technology and Economic Change: The Impact of The Printing Press",
+     "url": "https://ideas.repec.org/a/oup/qjecon/v126y2011i3p1133-1172.html",
+     "publisher": "RePEc",
+     "snippet": "“Cities that adopted printing in the 1400s had no prior advantage, and the association between adoption and subsequent growth was not due to printers choosing auspicious locations.”",
+     "stance": "refutes",
+     "kind": "reference",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "year": 2011,
+     "container": "The Quarterly Journal of Economics"
+    }
+   ],
+   "shown": 1
+  },
+  "03-c5": {
+   "ok": true,
+   "status": 200,
+   "ms": 16692,
+   "claim": "What distinguished the European case was the alphabet's small character set, an existing paper industry, and a merchant class with money to spend on books.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Information Technology and Economic Change: The Impact of the Printing Press",
+     "url": "https://doi.org/10.1093/qje/qjr035",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "European cities that adopted printing presses in the 1400s grew 60% faster than otherwise similar cities between 1500 and 1600.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "date": "2011-08-01",
+     "year": 2011,
+     "doi": "10.1093/qje/qjr035",
+     "container": "The Quarterly Journal of Economics",
+     "volume": "126",
+     "issue": "3",
+     "pages": "1133-1172",
+     "editors": []
+    },
+    {
+     "title": "New media and competition: printing and Europe's transformation after Gutenberg",
+     "url": "https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=6130",
+     "publisher": "London School of Economics and Political Science",
+     "snippet": "The study examines printing output and competition in European cities and documents positive relationships between business education content and city growth.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [
+      "Jeremiah Dittmar",
+      "Skipper Seabold"
+     ],
+     "groupAuthor": "",
+     "year": 2019,
+     "date": "2019-01-31"
+    },
+    {
+     "title": "The great divergence and the economics of printing",
+     "url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/ehr.12337",
+     "publisher": "Wiley",
+     "snippet": "Although China invented printing centuries before Europe, Europe adopted advanced movable type and achieved much higher levels of book production.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Luis Angeles"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1111/ehr.12337",
+     "container": "The Economic History Review",
+     "date": "2016-06-24",
+     "volume": "70",
+     "issue": "1",
+     "pages": "30-51",
+     "editors": []
+    },
+    {
+     "title": "New media, firms, ideas",
+     "url": "https://eprints.lse.ac.uk/53569/1/__libfile_repository_Content_Dittmar%2C%20J_New%20media%2C%20firms%2C%20ideas_Dittmar_New_media_firms_ideas_2013.pdf",
+     "publisher": "London School of Economics and Political Science",
+     "snippet": "Printing required substantial wealth or financial backing because equipment, paper, and book production involved significant fixed and upfront costs.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "year": 2013
+    }
+   ],
+   "shown": 1
+  },
+  "04-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 11665,
+   "claim": "Roughly half the population of Sub-Saharan Africa still lacks access to electricity, a share that has barely improved in two decades even as the region's population has grown.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Financing Electricity Access in Africa",
+     "url": "https://iea.blob.core.windows.net/assets/e87bd556-d740-4374-bcb0-bd617b8e3efe/FinancingElectricityAccessinAfrica.pdf",
+     "publisher": "International Energy Agency",
+     "snippet": "Half of Sub-Saharan Africa’s population—around 600 million people—still needed an electricity connection in 2024, while population growth stalled the absolute access gap.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "International Energy Agency",
+     "year": 2025
+    },
+    {
+     "title": "Affordable & clean energy | SDG 7: Affordable & clean energy",
+     "url": "https://datatopics.worldbank.org/sdgatlas/goal-7-affordable-and-clean-energy/",
+     "publisher": "World Bank",
+     "snippet": "“electricity access rising from 26 percent in 2000 to 51 percent in 2021”",
+     "stance": "refutes",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2023
+    },
+    {
+     "title": "Tracking SDG 7 – The Energy Progress Report 2025",
+     "url": "https://www.worldbank.org/en/topic/energy/publication/tracking-sdg-7-the-energy-progress-report-2025?intcid=ecr_hp_sidekick2_en_ext",
+     "publisher": "World Bank",
+     "snippet": "In 2023, 35 million people in Sub-Saharan Africa gained electricity access, but population growth reduced the number without electricity by only 5 million, from 570 million to 565 million.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2025
+    },
+    {
+     "title": "World Bank Document",
+     "url": "https://documents1.worldbank.org/curated/en/099553309152269024/pdf/IDU00e5aa1b90b69004af9091170d002a3219ee9.pdf",
+     "publisher": "World Bank",
+     "snippet": "Population growth caused the absolute electricity-access deficit in Sub-Saharan Africa to grow since 2010, reaching 570 million people without access in 2019.",
+     "stance": "refutes",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2023
+    }
+   ],
+   "shown": 1
+  },
+  "04-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13724,
+   "claim": "But a solar home system delivers on the order of tens of watts, while a refrigerator, a welding shop, or an irrigation pump needs kilowatts.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Solar-Powered Livestock Watering Systems",
+     "url": "https://www.ncat.org/publication/solar-powered-livestock-watering-systems/",
+     "publisher": "National Center for Appropriate Technology",
+     "snippet": "The publication describes 100-watt panels and solar pumping systems ranging from 128 to 420 watts, while noting that many pressurized irrigation systems require too much power.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "National Center for Appropriate Technology",
+     "year": 2012
+    },
+    {
+     "title": "Energy Saver Consumer Guide to Residential Renewable Energy",
+     "url": "https://www.govinfo.gov/content/pkg/GOVPUB-E-PURL-gpo224735/pdf/GOVPUB-E-PURL-gpo224735.pdf",
+     "publisher": "U.S. Department of Energy",
+     "snippet": "The guide states that individual solar panels range from 10 to 400 watts and that multiple panels are combined into arrays.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "U.S. Department of Energy",
+     "year": 2022
+    },
+    {
+     "title": "Working on Solar Design and System Sizing",
+     "url": "https://www.extension.umd.edu/resource/working-solar-design-and-system-sizing-fs-2023-0655",
+     "publisher": "University of Maryland Extension",
+     "snippet": "The guidance identifies refrigerators and well pumps as motor loads requiring attention to brief startup power surges when sizing off-grid systems.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Maryland Extension",
+     "year": 2023
+    },
+    {
+     "title": "Solar-Powered Groundwater Pumping Systems for Livestock Watering",
+     "url": "https://accessibility.extension.msstate.edu/publications/solar-powered-groundwater-pumping-systems-for-livestock-watering",
+     "publisher": "Mississippi State University Extension Service",
+     "snippet": "The source gives a 325-watt solar module as an example and emphasizes that multiple modules may be needed to supply household or pumping loads.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Mississippi State University Extension Service",
+     "year": null
+    },
+    {
+     "title": "Solar-Powered Groundwater Pumping Systems",
+     "url": "https://extension.colostate.edu/resource/solar-powered-groundwater-pumping-systems/",
+     "publisher": "Colorado State University Extension",
+     "snippet": "The source gives an example of a groundwater pump requiring 160 watts at specified head and flow conditions.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Colorado State University Extension",
+     "year": 2012
+    }
+   ],
+   "shown": 1
+  },
+  "04-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 12100,
+   "claim": "Critics of grid investment point out that centralized generation in low-income countries has a poor record: transmission and distribution losses in some national grids exceed twenty percent of all electricity generated, and state utilities often cannot collect enough revenue to maintain what they have already built.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Strong Electric Utilities Critical to Clean Energy for All",
+     "url": "https://www.worldbank.org/en/news/press-release/2024/06/18/strong-electric-utilities-critical-to-clean-energy-for-all",
+     "publisher": "World Bank",
+     "snippet": "“Low-income and lower-middle-income countries face the most acute challenges as high costs, low tariffs, transmission and distribution losses, inefficient payment collection”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "date": "2024-06-18",
+     "year": 2024
+    },
+    {
+     "title": "The Critical Link: Empowering Utilities for the Energy Transition",
+     "url": "https://www.worldbank.org/en/topic/energy/publication/the-critical-link-empowering-utilities-for-the-energy-transition",
+     "publisher": "World Bank",
+     "snippet": "“only 40% of utilities in low- and middle-income countries can cover their operating and debt service costs”",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2024,
+     "date": "2024-07-24"
+    },
+    {
+     "title": "India aims to reduce high electricity transmission and distribution system losses",
+     "url": "https://www.eia.gov/todayinenergy/detail.cfm?id=23452",
+     "publisher": "U.S. Energy Information Administration",
+     "snippet": "India’s transmission and distribution losses are almost 20% of generation, and utilities lose significant electricity-related revenue because of poor collection efficiency.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "U.S. Energy Information Administration",
+     "year": 2015
+    },
+    {
+     "title": "Systemic change and economy-wide decarbonisation: Equitable Framework and Finance for Extractive-based Countries in Transition (EFFECT)",
+     "url": "https://www.oecd.org/en/publications/equitable-framework-and-finance-for-extractive-based-countries-in-transition-effect_7871c0ad-en/full-report/component-7.html",
+     "publisher": "OECD",
+     "snippet": "High transmission and distribution losses and low payment collection rates account for over half of turnover deficits in many African utilities.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "OECD",
+     "year": null,
+     "container": "Equitable Framework and Finance for Extractive-based Countries in Transition (EFFECT)"
+    },
+    {
+     "title": "Energy Efficiency for Affordability",
+     "url": "https://www.oecd.org/content/dam/oecd/en/publications/reports/2023/12/energy-efficiency-for-affordability_3dde31d9/dc9f0a60-en.pdf",
+     "publisher": "OECD",
+     "snippet": "Almost a quarter of Kenya’s total electricity generation is lost through system losses, creating pressure on utilities and consumers as demand grows.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "OECD",
+     "year": 2023
+    }
+   ],
+   "shown": 4
+  },
+  "04-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 17047,
+   "claim": "The result is that the absolute number of people without power has stayed nearly flat while the percentage slowly falls, which is the kind of statistic that lets everyone claim progress.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "SDG Indicators: Goal 7",
+     "url": "https://unstats.un.org/sdgs/report/2025/Goal-07/",
+     "publisher": "United Nations Statistics Division",
+     "snippet": "“Global electricity access reached 92 per cent in 2023, up from 84 per cent in 2010, with the number of people without electricity dropping to 666.4 million”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "United Nations Statistics Division",
+     "year": 2025
+    },
+    {
+     "title": "SDG Indicators: Goal 7",
+     "url": "https://unstats.un.org/sdgs/report/2023/Goal-07/",
+     "publisher": "United Nations Statistics Division",
+     "snippet": "Due to population growth, the number of people without electricity in sub-Saharan Africa remained stubbornly stagnant since 2010, reaching 567 million in 2021.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "United Nations Statistics Division",
+     "year": 2023
+    },
+    {
+     "title": "Figure of the week: Increasing access to electricity in sub-Saharan Africa",
+     "url": "https://www.brookings.edu/articles/figure-of-the-week-increasing-access-to-electricity-in-sub-saharan-africa/",
+     "publisher": "Brookings Institution",
+     "snippet": "The number without access increased from 556 million in 2010 to 570 million in 2019, while the share without access declined as the population grew.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Brookings Institution",
+     "year": 2020
+    },
+    {
+     "title": "Access to electricity – SDG7: Data and Projections – Analysis",
+     "url": "https://www.iea.org/reports/sdg7-data-and-projections/access-to-electricity",
+     "publisher": "International Energy Agency",
+     "snippet": "In sub-Saharan Africa, population growth outpaced efforts to extend access during the compounded effects of the pandemic and energy crisis.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "International Energy Agency",
+     "year": 2023,
+     "container": "SDG7: Data and Projections"
+    },
+    {
+     "title": "WDI - In Sub-Saharan Africa, more than half the population still lack access to electricity",
+     "url": "https://datatopics.worldbank.org/world-development-indicators/stories/in-sub-saharan-africa-more-than-half-the-population-still-lack-access-to-electricity.html",
+     "publisher": "World Bank",
+     "snippet": "“the number of people without access to electricity rose from about 430 million to 590 million”",
+     "stance": "refutes",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2018
+    }
+   ],
+   "shown": 1
+  },
+  "04-c5": {
+   "ok": true,
+   "status": 200,
+   "ms": 12618,
+   "claim": "Household solar systems can now power lighting, phone charging, and a radio for under a hundred dollars, and adoption across East Africa has been rapid.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Rural energy access through solar home systems: Use patterns and opportunities for improvement",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0973082616310067",
+     "publisher": "ScienceDirect",
+     "snippet": "The study examines solar home systems in rural East Africa, including household lighting and phone charging, and finds no increase in income-generating activities after adoption.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2016
+    },
+    {
+     "title": "Shedding light on the last mile: A study on the diffusion of Pay As You Go Solar Home Systems in Central East Africa",
+     "url": "https://www.sciencedirect.com/science/article/abs/pii/S0301421517303002",
+     "publisher": "ScienceDirect",
+     "snippet": "PAYG solar systems in Central East Africa required about $10 upfront and provided lighting and phone charging, with rapid adoption reported in the study.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2017
+    },
+    {
+     "title": "World Development Report 2017: Governance and the Law — Replicating East Africa’s Pay-as-You-Go Success Story",
+     "url": "https://documents1.worldbank.org/curated/en/364571494517675149/pdf/114841-REVISED-JUNE12-FINAL-SEAR-web-REV-optimized.pdf",
+     "publisher": "World Bank",
+     "snippet": "Off-grid solar product sales in Kenya and neighboring East African countries expanded rapidly, reaching almost two million units in Sub-Saharan Africa in 2016.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2017,
+     "container": "World Development Report 2017: Governance and the Law"
+    },
+    {
+     "title": "Solar home systems adoption in Sub-Saharan African countries: Household economic and environmental benefits assessment",
+     "url": "https://www.sciencedirect.com/science/article/abs/pii/S0960148122003068",
+     "publisher": "ScienceDirect",
+     "snippet": "The study analyzes 10–30-watt solar home systems used for lighting and phone charging across 11 Sub-Saharan African countries and defines Tier 1 access as lighting, phone charging, and radio listening.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2022
+    },
+    {
+     "title": "How solar home systems temporally stimulate increasing power demands in rural households of Sub-Saharan Africa",
+     "url": "https://link.springer.com/article/10.1007/s41825-020-00028-9",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "The article reports that more than 600,000 rural East African households gained basic electricity access through solar home systems and describes systems ranging from 8 to 50 watts.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Nicholas Nixon Opiyo"
+     ],
+     "groupAuthor": "",
+     "year": 2020,
+     "doi": "10.1007/s41825-020-00028-9",
+     "date": "2020-06-22",
+     "container": "Energy Transitions",
+     "volume": "4",
+     "issue": "2",
+     "pages": "141-153",
+     "editors": []
+    }
+   ],
+   "shown": 3
+  },
+  "05-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 12187,
+   "claim": "Orben and Przybylski (2019) analyzed data from over 350,000 adolescents and concluded that social media use is a primary driver of declining teen well-being.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "The association between adolescent well-being and digital technology use",
+     "url": "https://www.nature.com/articles/s41562-018-0506-1",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "“The association we find between digital technology use and adolescent well-being is negative but small, explaining at most 0.4% of the variation in well-being.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Amy Orben",
+      "Andrew K. Przybylski"
+     ],
+     "groupAuthor": "",
+     "date": "2019-01-14",
+     "year": 2019,
+     "doi": "10.1038/s41562-018-0506-1",
+     "container": "Nature Human Behaviour",
+     "volume": "3",
+     "issue": "2",
+     "pages": "173-182",
+     "editors": []
+    },
+    {
+     "title": "Social media’s enduring effect on adolescent life satisfaction",
+     "url": "https://doi.org/10.1073/pnas.1902058116",
+     "publisher": "National Academy of Sciences",
+     "snippet": "“social media use is not, in and of itself, a strong predictor of life satisfaction across the adolescent population.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Amy Orben",
+      "Tobias Dienlin",
+      "Andrew K. Przybylski"
+     ],
+     "groupAuthor": "",
+     "year": 2019,
+     "doi": "10.1073/pnas.1902058116",
+     "date": "2019-05-06",
+     "container": "Proceedings of the National Academy of Sciences",
+     "volume": "116",
+     "issue": "21",
+     "pages": "10226-10228",
+     "editors": []
+    },
+    {
+     "title": "Screens, Teens, and Psychological Well-Being: Evidence From Three Time-Use-Diary Studies",
+     "url": "https://journals.sagepub.com/doi/10.1177/0956797619830329",
+     "publisher": "SAGE Publications",
+     "snippet": "Across three time-use-diary studies, the authors found little clear evidence that digital-screen engagement decreases adolescent well-being.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Amy Orben",
+      "Andrew K. Przybylski"
+     ],
+     "groupAuthor": "",
+     "date": "2019-04-02",
+     "year": 2019,
+     "doi": "10.1177/0956797619830329",
+     "container": "Psychological Science",
+     "volume": "30",
+     "issue": "5",
+     "pages": "682-696",
+     "editors": []
+    },
+    {
+     "title": "Specification Analysis for Technology Use and Teenager Well-Being: Statistical Validity and a Bayesian Proposal",
+     "url": "https://academic.oup.com/jrsssc/article/71/5/1330/7073288",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "The article revisits Orben and Przybylski’s specification curve analysis and argues that statistical methodology can produce different conclusions about technology and teenager well-being.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Christoph Semken",
+      "David Rossell"
+     ],
+     "groupAuthor": "",
+     "year": 2022,
+     "doi": "10.1111/rssc.12578",
+     "date": "2022-07-13",
+     "container": "Journal of the Royal Statistical Society Series C: Applied Statistics",
+     "volume": "71",
+     "issue": "5",
+     "pages": "1330-1355",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "05-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 14920,
+   "claim": "Since smartphones became widespread around 2012, rates of anxiety and depression among teenagers have climbed steeply, and no other explanation fits the timing as well.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Increases in Depression, Self-Harm, and Suicide Among U.S. Adolescents After 2012 and Links to Technology Use: Possible Mechanisms",
+     "url": "https://psychiatryonline.org/doi/full/10.1176/appi.prcp.20190015",
+     "publisher": "American Psychiatric Association Publishing",
+     "snippet": "“These trends included sharp increases in depression, anxiety, loneliness, self-harm, suicidal ideation, suicide attempts, and suicide”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Jean M. Twenge"
+     ],
+     "groupAuthor": "",
+     "year": 2020,
+     "doi": "10.1176/appi.prcp.20190015",
+     "container": "Psychiatric Research and Clinical Practice",
+     "date": "2020-06-01",
+     "volume": "2",
+     "issue": "1",
+     "pages": "19-25",
+     "editors": []
+    },
+    {
+     "title": "Decreases in psychological well-being among American adolescents after 2012 and links to screen time during the rise of smartphone technology",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/29355336/",
+     "publisher": "American Psychological Association (APA)",
+     "snippet": "The study finds lower adolescent well-being among heavier screen users and reports that unemployment was not significantly correlated with the decline.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Jean M. Twenge",
+      "Gabrielle N. Martin",
+      "W. Keith Campbell"
+     ],
+     "groupAuthor": "",
+     "year": 2018,
+     "container": "Emotion",
+     "doi": "10.1037/emo0000403",
+     "volume": "18",
+     "issue": "6",
+     "pages": "765-780",
+     "editors": []
+    },
+    {
+     "title": "Digital Ecosystems, Children, and Adolescents: Technical Report",
+     "url": "https://publications.aap.org/pediatrics/article/157/2/e2025075321/206128/Digital-Ecosystems-Children-and-Adolescents",
+     "publisher": "American Academy of Pediatrics",
+     "snippet": "The report notes that passive social-media use does not consistently predict adolescent anxiety or depression and that individual predispositions may explain some associations.",
+     "stance": "refutes",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "American Academy of Pediatrics",
+     "year": null,
+     "container": "Pediatrics"
+    },
+    {
+     "title": "Impact of mobile phones and wireless devices use on children and adolescents’ mental health: a systematic review",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9200624/",
+     "publisher": "National Library of Medicine",
+     "snippet": "The review finds associations between some forms of mobile-phone and social-media use and adolescent depression or anxiety, while noting mixed findings across specific technologies and measures.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 1
+  },
+  "05-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 11773,
+   "claim": "Some researchers argue the effect is small.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Social Media and Anxiety: 14 Questions, Answered",
+     "url": "https://www.myfreud.com/anxiety/social-media-anxiety-study-2025-faq-evidence/",
+     "publisher": "MyFreud",
+     "snippet": "“others argue that effect sizes this small do not survive the bar for serious policy intervention.”",
+     "stance": "supports",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "MyFreud Editorial",
+     "date": "2026-05-20",
+     "year": 2026
+    },
+    {
+     "title": "Teen Social Media and Anxiety: What the Longitudinal Studies Show",
+     "url": "https://www.bebetteroffline.com/learn/teen-social-media-and-anxiety-what-the-longitudinal-studies?depth=2",
+     "publisher": "Be Better Offline",
+     "snippet": "“Others point out that the effect sizes are too small to support that claim on their own.”",
+     "stance": "supports",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "BBO Team",
+     "year": 2026,
+     "date": "2026-07-15"
+    },
+    {
+     "title": "PsychPraxis — Digital Psychology Laboratory v4.1",
+     "url": "https://www.digitalpsychology.net/",
+     "publisher": "Digital Psychology Laboratory",
+     "snippet": "The site summarizes research finding that associations between screen time and well-being are real but quite small, with effects varying by type of use.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Digital Psychology Laboratory",
+     "year": null
+    },
+    {
+     "title": "The Welfare System and Its Effects on Family Formation",
+     "url": "https://www.ncbi.nlm.nih.gov/books/n/nap6133/pdf/",
+     "publisher": "National Academies Press",
+     "snippet": "The report notes that researchers disagree about whether the effect under review is small or sizable, while describing its magnitude as uncertain.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "National Research Council",
+     "year": null
+    }
+   ],
+   "shown": 3
+  },
+  "05-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13491,
+   "claim": "But small average effects can hide large effects in vulnerable subgroups, and anyone who has watched a fourteen-year-old scroll for four hours straight knows what they are looking at.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Social Media and Adolescent Health",
+     "url": "https://www.ncbi.nlm.nih.gov/books/NBK603435/pdf/Bookshelf_NBK603435.pdf",
+     "publisher": "National Academies of Sciences, Engineering, and Medicine",
+     "snippet": "The report notes small or mixed population-level effects alongside substantial heterogeneity, making conclusions about particular subgroups important.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "National Academies of Sciences, Engineering, and Medicine",
+     "year": null
+    },
+    {
+     "title": "Annual Research Review: Adolescent social media use is not a monolith: toward the study of specific social media components and individual differences",
+     "url": "https://acamh.onlinelibrary.wiley.com/doi/10.1111/jcpp.14085",
+     "publisher": "Wiley",
+     "snippet": "“other preexisting vulnerabilities to mental health concerns”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Anne J. Maheux",
+      "Kaitlyn Burnell",
+      "Maria T. Maza",
+      "Kara A. Fox",
+      "Eva H. Telzer",
+      "Mitchell J. Prinstein"
+     ],
+     "groupAuthor": "",
+     "date": "2024-12-23",
+     "year": 2024,
+     "doi": "10.1111/jcpp.14085",
+     "container": "Journal of Child Psychology and Psychiatry",
+     "volume": "66",
+     "issue": "4",
+     "pages": "440-459",
+     "editors": []
+    },
+    {
+     "title": "Adolescents' differential responses to social media browsing: Exploring causes and consequences for intervention",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0747563217304600",
+     "publisher": "Elsevier",
+     "snippet": "The experimental study found that adolescents were differentially affected by browsing social-media highlight reels, with negative comparison predicting immediate emotional effects.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Emily Weinstein"
+     ],
+     "groupAuthor": "",
+     "year": 2017,
+     "container": "Computers in Human Behavior"
+    },
+    {
+     "title": "Adolescent social media use and mental health in the Environmental influences on Child Health Outcomes (ECHO) Study",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11930604/",
+     "publisher": "National Library of Medicine",
+     "snippet": "Adolescents averaged 3.52 hours of daily social-media use, while associations with worse mental health were small and the study could not fully analyze vulnerable symptomatic subgroups.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "The Effects of Social Media Consumption on Adolescent Psychological Well-Being",
+     "url": "https://www.journals.uchicago.edu/doi/10.1086/728739",
+     "publisher": "University of Chicago Press",
+     "snippet": "The article reviews methodological limitations and emphasizes that research findings on social media’s effects on adolescent well-being require careful interpretation.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Elena Fumagalli",
+      "L. J. Shrum",
+      "Tina M. Lowrey"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1086/728739",
+     "container": "Journal of the Association for Consumer Research",
+     "date": "2024-04-01",
+     "volume": "9",
+     "issue": "2",
+     "pages": "119-130",
+     "editors": []
+    }
+   ],
+   "shown": 2
+  },
+  "06-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 11545,
+   "claim": "The novel was published anonymously in 1818, and the revised 1831 edition carries a new preface in which Shelley describes the book's origin during a stay at the Villa Diodati.",
+   "essay": "06-frankenstein.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Frankenstein; or, The modern Prometheus",
+     "url": "https://www.loc.gov/item/53051218/",
+     "publisher": "Library of Congress",
+     "snippet": "The Library of Congress catalogs Frankenstein; or, The modern Prometheus as published in 1818 and identifies Mary Wollstonecraft Shelley as its creator.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Library of Congress",
+     "year": 1818
+    },
+    {
+     "title": "How I wrote Frankenstein",
+     "url": "https://www.open.edu/openlearn/history-the-arts/culture/literature-and-creative-writing/literature/how-i-wrote-frankenstein",
+     "publisher": "The Open University",
+     "snippet": "This extract from the 1831 preface presents Mary Shelley’s account of how she came to write Frankenstein during the summer of 1816 near Geneva.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "The Open University",
+     "year": 1831
+    },
+    {
+     "title": "Frankenstein chronology",
+     "url": "https://shelleygodwinarchive.org/contents/frankenstein/frankenstein-chronology/",
+     "publisher": "Shelley-Godwin Archive",
+     "snippet": "The chronology explains that the publisher received the manuscript without Mary Shelley’s authorship being revealed and discusses the publication history of the novel.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Shelley-Godwin Archive",
+     "year": 1818
+    },
+    {
+     "title": "Frankenstein, or the Modern Prometheus (1831)",
+     "url": "https://frankensteinvariorum.github.io/fv-collation/Frankenstein_1831.html",
+     "publisher": "Frankenstein Variorum",
+     "snippet": "The digital 1831 edition includes Mary Shelley’s account of the story’s origin, beginning with the publishers’ request for an explanation of its genesis.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Frankenstein Variorum",
+     "year": 1831
+    },
+    {
+     "title": "Did Mary Shelley write Frankenstein? A stylometric analysis",
+     "url": "https://academic.oup.com/dsh/article/38/2/750/6773078",
+     "publisher": "Oxford University Press",
+     "snippet": "The article states that Frankenstein was published anonymously in 1818 and first credited Mary Shelley in a French translation of 1821.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2023,
+     "container": "Digital Scholarship in the Humanities"
+    }
+   ],
+   "shown": 3
+  },
+  "06-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 10767,
+   "claim": "The moment of animation takes up barely a paragraph.",
+   "essay": "06-frankenstein.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "A Phantom Fidelity: Frankenstein Monster’s Creation",
+     "url": "https://www.robertmitchellevans.com/2022/01/27/a-phantom-fidelity-frankenstein-monsters-creation/",
+     "publisher": "Robert Mitchell Evans",
+     "snippet": "The article states that one paragraph, comprising 98 words out of approximately 75,000, depicts the creature’s creation.",
+     "stance": "supports",
+     "kind": "other",
+     "authors": [
+      "Bob Evans"
+     ],
+     "groupAuthor": "",
+     "date": "2022-01-27",
+     "year": 2022
+    },
+    {
+     "title": "Frankenstein",
+     "url": "https://www.encyclopedia.com/literature-and-arts/performing-arts/film-and-television/frankenstein",
+     "publisher": "Encyclopedia.com",
+     "snippet": "The entry explains that the creature leaves Victor’s apartment within hours of animation and subsequently experiences rejection, violence, and abandonment.",
+     "stance": "context",
+     "kind": "reference",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Frankenstein",
+     "url": "https://www.readiq.app/books/mary-shelley/frankenstein",
+     "publisher": "ReadIQ",
+     "snippet": "The summary describes Victor’s immediate abandonment of the creature and the creature’s subsequent rejection by humanity as central developments.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 1
+  },
+  "06-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 12528,
+   "claim": "When the creature finally speaks, he speaks in the register of the books he found, which is why his eloquence startles readers who came expecting a monster.",
+   "essay": "06-frankenstein.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Frankenstein, or the Modern Prometheus (First Edition, 1818), Volume 2, Chapter 7",
+     "url": "https://en.wikisource.org/wiki/Frankenstein%2C_or_the_Modern_Prometheus_%28First_Edition%2C_1818%29/Volume_2/Chapter_7",
+     "publisher": "Wikisource",
+     "snippet": "The creature says the books taught him language, elevated his thoughts, and produced profound emotions, including through Plutarch and Paradise Lost.",
+     "stance": "context",
+     "kind": "archive",
+     "authors": [
+      "Mary Shelley"
+     ],
+     "groupAuthor": "",
+     "year": 1818
+    },
+    {
+     "title": "Humanity 101: The Syllabus of Frankenstein’s Monster",
+     "url": "https://publicdomainreview.org/collection/frankenstein-monster-reading-list",
+     "publisher": "The Public Domain Review",
+     "snippet": "The creature learns language by observing Felix teach Safie and reads Paradise Lost, Plutarch’s Lives, and The Sorrows of Young Werther.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "The Public Domain Review",
+     "year": 2024
+    },
+    {
+     "title": "The monster's reading: Plutarch, Milton and Goethe",
+     "url": "https://crossref-it.info/textguide/frankenstein/7/339",
+     "publisher": "Crossref-it.info",
+     "snippet": "The creature acquires language through the De Lacey family and uses three books to develop his understanding of the world and human society.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Frankenstein",
+     "url": "https://www.encyclopedia.com/literature-and-arts/performing-arts/film-and-television/frankenstein",
+     "publisher": "Encyclopedia.com",
+     "snippet": "The creature’s early reading shapes his worldview, teaching him about human virtue, vice, social life, and the limits of human goodness.",
+     "stance": "context",
+     "kind": "reference",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Frankenstein Friday: Vol. 2 Ch. 7",
+     "url": "https://indianahumanities.org/2018/05/25/frankenfridaychap14/",
+     "publisher": "Indiana Humanities",
+     "snippet": "The creature describes the books as treasures that he studied continually and says they produced new images, feelings, speculation, and astonishment.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Indiana Humanities",
+     "date": "2018-05-25",
+     "year": 2018
+    }
+   ],
+   "shown": 0
   }
  }
 }
