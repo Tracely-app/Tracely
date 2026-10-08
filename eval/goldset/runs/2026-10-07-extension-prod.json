@@ -1880,6 +1880,76 @@
    "error": "Source search is limited to a few dozen an hour — try again later.",
    "sources": [],
    "shown": 0
+  },
+  "07-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13447,
+   "claim": "Roughly 30 percent of antibiotic prescriptions written in American outpatient settings are unnecessary, and that overprescription is the main reason resistant infections have risen inside hospitals.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Core Elements of Outpatient Antibiotic Stewardship",
+     "url": "https://www.cdc.gov/mmwr/volumes/65/rr/rr6506a1.htm",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC states that at least 30% of outpatient antibiotic prescriptions in the United States are unnecessary.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2016,
+     "container": "Morbidity and Mortality Weekly Report"
+    },
+    {
+     "title": "CDC: 1 in 3 antibiotic prescriptions unnecessary",
+     "url": "https://archive.cdc.gov/www_cdc_gov/media/releases/2016/p0503-unnecessary-prescriptions.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reports that at least 30% of antibiotics prescribed in the United States are unnecessary, based on national outpatient visit data.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2016-05-03",
+     "year": 2016
+    },
+    {
+     "title": "Antimicrobial Resistance in Health Care: Causes and How It Spreads",
+     "url": "https://www.cdc.gov/antimicrobial-resistance/causes/healthcare.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC identifies unnecessary antibiotic use as important to resistance while also describing resistant germs spreading between healthcare settings and communities.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2023
+    },
+    {
+     "title": "Antibiotic Use in the United States, 2017: Progress and Opportunities",
+     "url": "https://archive.cdc.gov/www_cdc_gov/antibiotic-use/stewardship-report/2017.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reports that at least 30% of outpatient antibiotic prescriptions were unnecessary and that hospitals also had substantial potential prescribing problems.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2017
+    },
+    {
+     "title": "Core elements of hospital antibiotic stewardship programs",
+     "url": "https://stacks.cdc.gov/view/cdc/25302",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC states that 20–50% of antibiotics prescribed in U.S. acute-care hospitals are unnecessary or inappropriate and that stewardship reduces resistance.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2014
+    }
+   ],
+   "shown": 0
   }
  }
 }
