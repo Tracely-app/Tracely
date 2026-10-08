@@ -37,8 +37,10 @@ import type {
   ResolvedCitedWork,
   ScreenWatchSourceCandidate,
   ScreenWatchStatus,
-  SettingsSetRequest
+  SettingsSetRequest,
+  SourcesVerifyResponse
 } from '@shared/ipc-contract'
+import { receiptsInOrder, settleReceipts, verifyRequestBody } from '@shared/sourceReceipts'
 import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { parseReferences } from '@shared/citedReference'
@@ -515,6 +517,24 @@ export function createHttpApi(): TracelyApi {
           }
         }
         return { icons }
+      },
+      // The same route the Electron app calls (/api/verify-sources), with the
+      // same request built by the same leaf, and the same fallback: any
+      // failure is `unavailable`, never an error card.
+      verify: async (req): Promise<SourcesVerifyResponse> => {
+        const body = verifyRequestBody(req.claimText, req.sources)
+        if (!body.sources.length) return { status: 'checked', receipts: [] }
+        const sentIds = body.sources.map((s) => s.id)
+        let settled: ReturnType<typeof settleReceipts>
+        try {
+          settled = settleReceipts({ ok: true, body: await post<unknown>('/api/verify-sources', body) }, sentIds)
+        } catch (err) {
+          settled = settleReceipts({ ok: false, reason: err instanceof Error ? err.message : String(err) }, sentIds)
+        }
+        const { answer } = settled
+        return answer.status === 'checked'
+          ? { status: 'checked', receipts: receiptsInOrder(req.sources.map((s) => s.id), answer.receipts) }
+          : answer
       }
     },
     citation: {

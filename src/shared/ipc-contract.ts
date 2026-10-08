@@ -28,6 +28,7 @@ import type {
 } from './types'
 import type { ModelTier, Plan } from './plan'
 import type { ScreenWatchProblemKind } from './problemKind'
+import type { SourceReceipt, VerifySourceInput } from './sourceReceipts'
 import type { CitationDefectKind } from './citationShape'
 import type { Credibility } from './sourceCredibility'
 
@@ -619,6 +620,14 @@ export interface ScreenWatchSourceCandidate {
    * cannot reach different verdicts about one source.
    */
   credibility: Credibility
+  /**
+   * What the overlay sends back for this row's receipt (sources:verify) —
+   * the DOI, so the server reads OpenAlex's abstract, and the abstract the
+   * search returned, which shared/sourceReceipts.ts forwards only when it is
+   * the work's own. Optional: Home's finder fills neither and verifies nothing.
+   */
+  doi?: string | null
+  abstract?: string | null
 }
 /**
  * Sources for a piece of text the user typed, with no document behind it.
@@ -1235,3 +1244,31 @@ export interface SourcesFaviconsResponse {
   /** Keyed by the URL as passed in, so the caller needs no hostname parsing. */
   icons: Record<string, string | null>
 }
+
+/**
+ * Receipts for the source list a surface is SHOWING — see
+ * shared/sourceReceipts.ts for the rule and the measurement behind it.
+ *
+ * Sent by the renderer when the writer opens a list (the editor's citation
+ * flow, Screen Watch's "Find a source"): a click, so the one paid call it
+ * makes is one the writer asked for. Main reads the cache, else asks the
+ * server's /api/verify-sources. One channel for both surfaces, carrying the
+ * list itself, because the two hold their sources in different places (SQLite
+ * rows in the editor, in-memory search results over Screen Watch) and the
+ * renderer already has the list it is drawing.
+ */
+export interface SourcesVerifyRequest {
+  claimText: string
+  /** At most MAX_VERIFY_SOURCES are checked; any beyond are answered `unread`. */
+  sources: VerifySourceInput[]
+}
+
+/**
+ * `checked`: one receipt per source sent, in the order sent. `unavailable`:
+ * nothing was decided about any source — the server could not be reached, is
+ * older than the route, refused, or its judge failed — and the surface falls
+ * back to the list as it was before receipts, saying so.
+ */
+export type SourcesVerifyResponse =
+  | { status: 'checked'; receipts: SourceReceipt[] }
+  | { status: 'unavailable'; reason: string }

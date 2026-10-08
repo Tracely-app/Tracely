@@ -17,9 +17,18 @@ import type {
   DocCitationFlowState,
   DocCitedWorkState,
   DocFixState,
-  DocProseFix
+  DocProseFix,
+  DocSourceCandidate
 } from '../components/DocumentMarkLayer'
 import { aboutTheCitation } from '@shared/citationAction'
+import {
+  firstInsertable,
+  groupByReceipt,
+  mayInsert,
+  receiptsById,
+  type ReceiptsState,
+  type VerifySourceInput
+} from '@shared/sourceReceipts'
 import { citationUsedElsewhere } from '@shared/citedWork'
 import { tangentQuestion } from '../components/fixFlowCopy'
 import type { ProseMark } from '../components/documentMarks'
@@ -1311,7 +1320,9 @@ function DocumentEditor({
             venue: item.source.venue,
             venueType: item.source.venueType,
             doi: item.source.doi
-          })
+          }),
+          // What a row's Open button opens: the source itself.
+          pageUrl: item.source.url
         })),
         (c) => c.credibility.tier
       )
@@ -1328,12 +1339,18 @@ function DocumentEditor({
               state: {
                 step: 'picking',
                 candidates,
-                selectedId: candidates[0]?.sourceId ?? null,
+                // Nothing is pre-selected until the receipts say what may be
+                // cited — see checkReceipts.
+                selectedId: null,
+                receipts: candidates.length ? { status: 'checking' } : { status: 'checked', byId: {} },
                 style: citationStyle,
                 preview: null
               }
             }
       )
+      // The writer opened this list, which is the click that pays for reading
+      // it. Not awaited: the card is already drawing its checking state.
+      if (candidates.length) void checkReceipts(claim, candidates)
     } catch (err) {
       setCitationFlow((prev) =>
         prev?.claimId !== claim.id
@@ -1348,6 +1365,60 @@ function DocumentEditor({
             }
       )
     }
+  }
+
+  /**
+   * Receipts for the list just drawn: what each source SAYS about the sentence
+   * (shared/sourceReceipts.ts). One paid server call, made because the writer
+   * opened this list — and cached in main, so re-opening it costs nothing.
+   *
+   * Lands only on the list it was asked about: a "Search again" or a closed
+   * card in the meantime replaced `candidates`, and a stale answer must not
+   * decide what the new list may insert. When it lands, the first row Insert
+   * may take is selected — never one the button would then refuse.
+   */
+  async function checkReceipts(claim: Claim, candidates: DocSourceCandidate[]): Promise<void> {
+    const sources: VerifySourceInput[] = []
+    for (const c of candidates) {
+      const s = flowSourcesRef.current.get(c.sourceId)
+      if (!s) continue
+      sources.push({
+        id: s.id,
+        title: s.title,
+        url: s.url,
+        doi: s.doi,
+        abstract: s.abstract,
+        venue: s.venue,
+        year: s.year,
+        provider: s.provider
+      })
+    }
+    let receipts: ReceiptsState = { status: 'unavailable' }
+    try {
+      const res = await window.tracely.sources.verify({ claimText: claim.text, sources })
+      if (res.status === 'checked') receipts = { status: 'checked', byId: receiptsById(res.receipts) }
+    } catch (err) {
+      // The fallback, not an error card: the list works exactly as it did
+      // before receipts, under a line saying nothing was checked.
+      console.warn('[receipts] verification failed', err)
+    }
+    setCitationFlow((prev) => {
+      if (prev?.claimId !== claim.id || prev.state.step !== 'picking' || prev.state.candidates !== candidates) return prev
+      // In receipt order, so the pre-selected row is the first one drawn.
+      const order =
+        receipts.status === 'checked'
+          ? Object.values(groupByReceipt(candidates, (c) => c.sourceId, receipts.byId)).flat()
+          : candidates
+      return {
+        ...prev,
+        state: {
+          ...prev.state,
+          receipts,
+          selectedId: prev.readOnly ? null : firstInsertable(order.map((c) => c.sourceId), receipts),
+          preview: null
+        }
+      }
+    })
   }
 
   /**
@@ -1420,6 +1491,9 @@ function DocumentEditor({
   ): Promise<void> {
     const flow = citationFlow
     if (flow?.state.step !== 'picking' || !flow.state.selectedId) return
+    // The receipts rule, enforced here as well as on the button: only a source
+    // quoted backing the sentence is written into the draft.
+    if (!mayInsert(flow.state.receipts, flow.state.selectedId)) return
     const { selectedId, style } = flow.state
     const source = flowSourcesRef.current.get(selectedId)
     if (!source) return

@@ -197,3 +197,58 @@ test("the two detect gates give the same answer on the same history", { skip: SK
     assert.equal(server, desktop, `disagree on ${JSON.stringify({ len: c.text.length, last: c.last?.length ?? null, gap: c.at === null ? null : c.now - c.at })}`);
   }
 });
+
+/* ── receipts (/api/verify-sources) ──────────────────────────────────────
+ * The desktop builds the request (src/shared/sourceReceipts.ts) and re-checks
+ * the answer; the server validates and answers (lib/reasoning.js). Pinned so
+ * the desktop never sends a list the server refuses or clamps differently, and
+ * so every receipt the server can produce survives the desktop's re-check. */
+const deskReceipts = await load("shared/sourceReceipts.ts");
+
+test("receipts: the desktop's request is one the server takes exactly as sent", { skip: SKIP }, async () => {
+  const { verifySourcesInput, VERIFY_LIMITS } = await import("../lib/reasoning.js");
+  assert.equal(deskReceipts.MAX_VERIFY_SOURCES, VERIFY_LIMITS.sources);
+  const long = "x".repeat(10_000);
+  const sources = Array.from({ length: 12 }, (_, i) => ({
+    id: `id-${i}-${long}`, title: long, url: `https://example.org/${i}/${long}`, doi: `10.1234/${long}`,
+    abstract: long, venue: long, year: 2020, provider: "openalex",
+  }));
+  const body = deskReceipts.verifyRequestBody(long, sources);
+  const input = verifySourcesInput(body); // throws on anything the server refuses
+  assert.equal(input.claim, body.claim);
+  assert.equal(input.sources.length, body.sources.length);
+  input.sources.forEach((s, i) => {
+    const sent = body.sources[i];
+    assert.deepEqual([s.id, s.title, s.url, s.doi, s.abstract, s.venue, s.year], [sent.id, sent.title, sent.url, sent.doi, sent.abstract, sent.venue, sent.year], `source ${i} was re-clamped by the server`);
+  });
+});
+
+test("receipts: every state the server's mock answers survives the desktop's re-check", { skip: SKIP }, async () => {
+  const { verifySources } = await import("../lib/reasoning.js");
+  const abs = (n) => `Finding number ${n} is stated plainly here. More follows.`;
+  const sent = [
+    { id: "1", title: "One", abstract: abs(1), provider: "openalex" },
+    { id: "2", title: "Two", abstract: abs(2), provider: "crossref" },
+    { id: "3", title: "Three", abstract: abs(3), provider: "semanticscholar" },
+    { id: "4", title: "Page only", url: "https://example.org/p", provider: "web", abstract: "the search model's summary" },
+    { id: "5", title: "A retracted paper", abstract: abs(5), provider: "pubmed" },
+  ].map((s) => ({ url: null, doi: null, venue: null, year: null, ...s }));
+  const body = deskReceipts.verifyRequestBody("A claim.", sent);
+  assert.equal(body.sources[3].abstract, undefined, "a web source's model summary is never sent as its abstract");
+  const prev = process.env.TRACELY_MOCK;
+  process.env.TRACELY_MOCK = "1";
+  try {
+    const answer = await verifySources({ ...body, model: "gpt-5.6-luna" });
+    const parsed = deskReceipts.parseReceipts(JSON.parse(JSON.stringify(answer)), body.sources.map((s) => s.id));
+    assert.deepEqual(parsed.map((r) => [r.id, r.verdict, Boolean(r.quote), r.readFrom, r.retracted]), [
+      ["1", "backs", true, "abstract", false],
+      ["2", "topic", false, "abstract", false],
+      ["3", "contradicts", true, "abstract", false],
+      ["4", "unread", false, null, false],
+      ["5", "unread", false, null, true],
+    ]);
+  } finally {
+    if (prev === undefined) delete process.env.TRACELY_MOCK;
+    else process.env.TRACELY_MOCK = prev;
+  }
+});

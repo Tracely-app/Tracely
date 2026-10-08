@@ -104,6 +104,18 @@ import { paragraphNames } from './components/paragraphNames'
 // The citation flow's wording, shared with the document editor's popover — see
 // the note at the top of that file.
 import {
+  CHECKING_TITLE,
+  OPEN_SOURCE,
+  RECEIPTS_UNAVAILABLE,
+  SOURCE_SAYS,
+  checkingBody,
+  contradictsGroupLabel,
+  quoted,
+  readFromLabel,
+  receiptsBody,
+  receiptsTitle,
+  topicGroupLabel,
+  unreadGroupLabel,
   CITATION_STYLE_LABEL,
   CITED_WORK_EMPTY_TITLE,
   CITED_WORK_RESULTS_BODY_EXTERNAL,
@@ -122,10 +134,17 @@ import {
   EXTERNAL_REFERENCE_LABEL,
   pasteOverLabel,
   readOnlyTitle,
-  resultsBody,
   resultsTitle,
   searchingBody
 } from './components/citationFlowCopy'
+import {
+  firstInsertable,
+  groupByReceipt,
+  mayInsert,
+  receiptsById,
+  type ReceiptsState,
+  type SourceReceipt
+} from '@shared/sourceReceipts'
 
 const FONT_STACK = "'Instrument Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif"
 
@@ -2571,6 +2590,15 @@ type CitationFlowState =
        */
       cited: ResolvedCitedWork | null
       selectedRef: string | null
+      /**
+       * What each source SAYS (shared/sourceReceipts.ts), asked for when this
+       * list opens — the writer's click, never passive watching, because it
+       * is a paid call. `checking` draws the checking step and allows no
+       * insert; `checked` allows Insert, Copy citation and Copy entry only on
+       * a source quoted backing the sentence; `unavailable` is the list from
+       * before receipts, under a line saying nothing was checked.
+       */
+      receipts: ReceiptsState
       style: CitationStyle
       /**
        * What "Insert citation" would write, once Preview has been pressed.
@@ -2675,36 +2703,53 @@ function Radio({ selected }: { selected: boolean }): JSX.Element {
   )
 }
 
+/**
+ * One source in the list, with its receipt — the overlay's DocSourceRow
+ * (components/DocumentMarkLayer.tsx): the same two shapes, inline styles.
+ *
+ * `pickable` (shared/sourceReceipts.ts `mayInsert`) is the radio button it
+ * always was. Anything else — topic, unread, says otherwise, or any row in a
+ * read-only list — is not selectable and offers only Open, which opens the
+ * page in the writer's browser (this window takes no focus and hosts no page).
+ */
 function CandidateRow({
   candidate,
   selected,
-  onSelect
+  onSelect,
+  receipt = null,
+  pickable = true,
+  showMatch = true
 }: {
   candidate: ScreenWatchSourceCandidate
   selected: boolean
   onSelect: () => void
+  receipt?: SourceReceipt | null
+  pickable?: boolean
+  /** Off once the list has been read: a match percentage measured the topic, not support. */
+  showMatch?: boolean
 }): JSX.Element {
   const meta = [candidate.venue, candidate.year ? String(candidate.year) : null].filter(Boolean).join(' · ')
-  return (
-    <button
-      onClick={onSelect}
-      style={{
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: 8,
-        borderRadius: 10,
-        // The unselected row keeps a transparent border of the same width, so
-        // selecting one does not shift the row's contents by a pixel.
-        border: `1px solid ${selected ? '#e5e5e5' : 'transparent'}`,
-        background: selected ? SELECTED_BG : 'transparent',
-        textAlign: 'left',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        color: 'inherit'
-      }}
-    >
+  const rowStyle: CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    display: 'flex',
+    // Top-aligned once a receipt wraps under the title, so the icon stays
+    // beside the title it names rather than drifting to the middle of a quote.
+    alignItems: receipt?.quote ? 'flex-start' : 'center',
+    gap: 10,
+    padding: 8,
+    borderRadius: 10,
+    // The unselected row keeps a transparent border of the same width, so
+    // selecting one does not shift the row's contents by a pixel.
+    border: `1px solid ${selected && pickable ? '#e5e5e5' : 'transparent'}`,
+    background: selected && pickable ? SELECTED_BG : 'transparent',
+    textAlign: 'left',
+    cursor: pickable ? 'pointer' : 'default',
+    fontFamily: 'inherit',
+    color: 'inherit'
+  }
+  const body = (
+    <>
       <SourceIcon provider={candidate.provider} faviconDataUrl={candidate.faviconDataUrl} />
       {/* `overflow: hidden` as well as `minWidth: 0`. The min-width lets this
           shrink below its content; without the overflow it shrinks and its
@@ -2742,10 +2787,20 @@ function CandidateRow({
               {meta}
             </span>
           ) : null}
-          <span style={{ color: POSITIVE, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {candidate.matchPercent}% match
-          </span>
+          {showMatch ? (
+            <span style={{ color: POSITIVE, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {candidate.matchPercent}% match
+            </span>
+          ) : null}
         </div>
+        {/* The receipt: the source's own words, verbatim, and where they were
+            read. Wraps — the quote is why the row is here. */}
+        {receipt?.quote ? (
+          <div style={{ fontSize: 12, lineHeight: 1.4, color: INK, whiteSpace: 'normal', wordBreak: 'break-word', userSelect: 'text' }}>
+            <span style={{ color: MUTED, fontWeight: 500 }}>{SOURCE_SAYS}</span> {quoted(receipt.quote)}{' '}
+            <span style={{ color: DIM }}>· {readFromLabel(receipt.readFrom)}</span>
+          </div>
+        ) : null}
         {/* What a marker would make of the publisher — see
             shared/sourceCredibility.ts. Grey, never red, for `unvetted`: it
             means "Tracely does not recognise this publisher", which is a fact
@@ -2767,8 +2822,30 @@ function CandidateRow({
           {candidate.credibility.label}
         </span>
       </div>
-      <Radio selected={selected} />
-    </button>
+    </>
+  )
+  if (pickable) {
+    return (
+      <button onClick={onSelect} style={rowStyle}>
+        {body}
+        <Radio selected={selected} />
+      </button>
+    )
+  }
+  return (
+    <div style={rowStyle}>
+      {body}
+      {candidate.url ? (
+        <button
+          className="tracely-btn-secondary"
+          onClick={() => openUrl(candidate.url)}
+          title={candidate.url}
+          style={{ ...SECONDARY_BTN_STYLE, flexShrink: 0, padding: '5px 10px', fontSize: 12 }}
+        >
+          {OPEN_SOURCE}
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -3166,6 +3243,10 @@ function CitationFlowCard({
    */
   showCancel: boolean
 }): JSX.Element {
+  // "Related, but they don't say this" starts folded. Declared before every
+  // early return below, so the hook order never changes between steps.
+  const [topicOpen, setTopicOpen] = useState(false)
+
   // "Find a Source (Searching)" — 294:343.
   if (state.step === 'searching') {
     return (
@@ -3304,7 +3385,7 @@ function CitationFlowCard({
   }
 
   // "Find a Source (Results)" — 295:349.
-  const { candidates, cited, selectedRef, style, preview } = state
+  const { candidates, cited, selectedRef, style, preview, receipts } = state
   if (candidates.length === 0) {
     return (
       <>
@@ -3325,19 +3406,82 @@ function CitationFlowCard({
     )
   }
 
+  // "Checking what each source says…" — between the search and the list. The
+  // rows are not drawn yet: a list on screen before it is read reads as
+  // recommended, and nothing in it may be inserted yet.
+  if (receipts.status === 'checking') {
+    return (
+      <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Grey: the "still checking" colour, not a finding. */}
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: PROBLEM_COLOR.searching, flexShrink: 0 }} />
+          <div style={POPOVER_TITLE}>{CHECKING_TITLE}</div>
+        </div>
+        <div style={POPOVER_BODY}>{checkingBody(candidates.length, claimText)}</div>
+        <div className="tracely-progress-track">
+          <div className="tracely-progress-fill" />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {SKELETON_ROWS.map(([wide, narrow], i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="tracely-skeleton" style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="tracely-skeleton" style={{ width: wide, height: 9, borderRadius: 999 }} />
+                <div className="tracely-skeleton-faint" style={{ width: narrow, height: 8, borderRadius: 999 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
+            Cancel
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  // Checked: grouped by what each source SAYS. Unavailable: the list from
+  // before receipts, Insert and all, under a line saying nothing was checked.
+  const checked = receipts.status === 'checked'
+  const groups = checked ? groupByReceipt(candidates, (c) => c.sourceRef, receipts.byId) : null
+  const backing = groups?.backs.length ?? 0
+  // A row may be picked only where Insert / Copy may take it.
+  const pickable = (ref: string): boolean => mode !== 'read-only' && mayInsert(receipts, ref)
+  const anyPickable = candidates.some((c) => pickable(c.sourceRef))
+  const canAct = pickable(selectedRef ?? '')
+  const row = (candidate: ScreenWatchSourceCandidate): JSX.Element => (
+    <CandidateRow
+      key={candidate.sourceRef}
+      candidate={candidate}
+      selected={candidate.sourceRef === selectedRef}
+      onSelect={() => onSelectCandidate(candidate.sourceRef)}
+      receipt={checked ? receipts.byId[candidate.sourceRef] ?? null : null}
+      pickable={pickable(candidate.sourceRef)}
+      showMatch={!checked}
+    />
+  )
+  const groupLabel: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6, textTransform: 'uppercase', padding: '6px 8px 2px' }
+  const column: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }
+
   return (
     <>
-      {/* Green, titled with the COUNT, and the chosen style stated in a chip
-          opposite — the frame's header, read left to right: something was
-          found, this many, and it will be written in this style. */}
+      {/* Titled with what BACKS the sentence once the list has been read —
+          green when something does, amber when nothing does — and with the
+          count found when it could not be read (the frame's header). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: POSITIVE, flexShrink: 0 }} />
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: checked && backing === 0 ? DESIGN_AMBER : POSITIVE, flexShrink: 0 }} />
         <div style={POPOVER_TITLE}>
-          {mode === 'read-only' ? readOnlyTitle(candidates.length) : resultsTitle(candidates.length)}
+          {checked
+            ? receiptsTitle(backing)
+            : mode === 'read-only'
+              ? readOnlyTitle(candidates.length)
+              : resultsTitle(candidates.length)}
         </div>
-        {/* No style chip on a list opened to be read: a citation style is a
-            question about a citation nobody is about to write. */}
-        {mode === 'read-only' ? null : (
+        {/* No style chip on a list opened to be read, or one with nothing in
+            it that may be cited: a citation style is a question about a
+            citation nobody is about to write. */}
+        {mode === 'read-only' || !anyPickable ? null : (
           <span
             style={{
               flexShrink: 0,
@@ -3353,23 +3497,51 @@ function CitationFlowCard({
           </span>
         )}
       </div>
-      <div style={POPOVER_BODY}>{resultsBody(claimText)}</div>
+      <div style={POPOVER_BODY}>{checked ? receiptsBody(claimText, backing) : RECEIPTS_UNAVAILABLE}</div>
       <CitedSourceBlock cited={cited} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
-        {candidates.map((candidate) => (
-          <CandidateRow
-            key={candidate.sourceRef}
-            candidate={candidate}
-            selected={candidate.sourceRef === selectedRef}
-            onSelect={() => onSelectCandidate(candidate.sourceRef)}
-          />
-        ))}
-      </div>
+      {groups ? (
+        <>
+          {groups.backs.length ? <div style={column}>{groups.backs.map(row)}</div> : null}
+          {groups.contradicts.length ? (
+            <div style={column}>
+              <div style={groupLabel}>{contradictsGroupLabel(groups.contradicts.length)}</div>
+              {groups.contradicts.map(row)}
+            </div>
+          ) : null}
+          {groups.topic.length ? (
+            <div style={column}>
+              <button
+                onClick={() => setTopicOpen((open) => !open)}
+                aria-expanded={topicOpen}
+                style={{
+                  ...groupLabel,
+                  textAlign: 'left',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit'
+                }}
+              >
+                <span aria-hidden="true">{topicOpen ? '▾' : '▸'}</span> {topicGroupLabel(groups.topic.length)}
+              </button>
+              {topicOpen ? groups.topic.map(row) : null}
+            </div>
+          ) : null}
+          {groups.unread.length ? (
+            <div style={column}>
+              <div style={groupLabel}>{unreadGroupLabel(groups.unread.length)}</div>
+              {groups.unread.map(row)}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div style={column}>{candidates.map(row)}</div>
+      )}
       {/* The style row from the Choose Source frame. Three pills rather than
           the one cycling button this used to be: the design shows every option
           at once, and a button that had to be clicked twice to discover
           Chicago was hiding two thirds of the control. */}
-      {mode === 'read-only' ? null : (
+      {mode === 'read-only' || !anyPickable ? null : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: MUTED }}>Style</span>
         {CITATION_STYLES.map((option) => {
@@ -3423,7 +3595,10 @@ function CitationFlowCard({
           here in a way it would not in Tracely's own editor: this writes into
           someone else's document over UIA, where the only way to see what is
           about to land is to be shown it first. */}
-      {mode === 'read-only' ? (
+      {mode === 'read-only' || !anyPickable ? (
+        // Nothing here may be cited — read-only, or no source was quoted
+        // backing the sentence. Insert or Copy that can never enable is a
+        // button promising what the card has just said not to do.
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="tracely-btn-primary" onClick={onDone} style={PRIMARY_BTN_STYLE}>
             Done
@@ -3431,7 +3606,7 @@ function CitationFlowCard({
         </div>
       ) : mode === 'copy' ? (
         <>
-          <CopyButtons disabled={!selectedRef} copied={copied} onCopy={(which) => onCopy?.(which)} />
+          <CopyButtons disabled={!canAct} copied={copied} onCopy={(which) => onCopy?.(which)} />
           <div style={{ ...POPOVER_BODY, fontSize: 11.5 }}>{PASTE_OVER_NOTE}</div>
         </>
       ) : (
@@ -3439,11 +3614,11 @@ function CitationFlowCard({
         <button
           className="tracely-btn-primary"
           onClick={onInsert}
-          disabled={inserting || !selectedRef}
+          disabled={inserting || !canAct}
           style={{
             ...PRIMARY_BTN_STYLE,
-            opacity: inserting || !selectedRef ? 0.6 : 1,
-            cursor: inserting || !selectedRef ? 'default' : 'pointer'
+            opacity: inserting || !canAct ? 0.6 : 1,
+            cursor: inserting || !canAct ? 'default' : 'pointer'
           }}
         >
           {inserting ? 'Inserting…' : 'Insert citation'}
@@ -3451,11 +3626,11 @@ function CitationFlowCard({
         <button
           className="tracely-btn-secondary"
           onClick={onPreview}
-          disabled={previewing || !selectedRef}
+          disabled={previewing || !canAct}
           style={{
             ...SECONDARY_BTN_STYLE,
-            opacity: previewing || !selectedRef ? 0.6 : 1,
-            cursor: previewing || !selectedRef ? 'default' : 'pointer'
+            opacity: previewing || !canAct ? 0.6 : 1,
+            cursor: previewing || !canAct ? 'default' : 'pointer'
           }}
         >
           {previewing ? 'Formatting…' : 'Preview'}
@@ -3607,6 +3782,16 @@ export default function OverlayApp(): JSX.Element {
   const [flowModeByClaimId, setFlowModeByClaimId] = useState<Map<string, FlowMode>>(new Map())
   /** Copy mode's last copy, per claim, so the button can say so. */
   const [flowCopiedByClaimId, setFlowCopiedByClaimId] = useState<Map<string, Copied>>(new Map())
+  // For code that runs after an await (checkReceipts, and the search that
+  // precedes it): which cards are open — kept in step by setFlow, the one
+  // path that opens or closes one — and, as of the last render, what each is
+  // for and the claim's text. A closure from before the await would read the
+  // world as it was when the button was pressed.
+  const openFlowIdsRef = useRef(new Set<string>())
+  const flowModeRef = useRef(flowModeByClaimId)
+  flowModeRef.current = flowModeByClaimId
+  const widgetRef = useRef(widget)
+  widgetRef.current = widget
   /**
    * "Find the cited work", per claim — the same per-claim keying as the source
    * list, for the same reason: nothing pins the hover here.
@@ -3864,6 +4049,10 @@ export default function OverlayApp(): JSX.Element {
   }
 
   function setFlow(claimId: string, state: CitationFlowState | null): void {
+    // Synchronously, unlike the state below: a search that resolves before
+    // React renders must still see that its card is open (or was closed).
+    if (state === null) openFlowIdsRef.current.delete(claimId)
+    else openFlowIdsRef.current.add(claimId)
     setCitationFlowByClaimId((prev) => {
       const next = new Map(prev)
       if (state === null) next.delete(claimId)
@@ -3889,7 +4078,9 @@ export default function OverlayApp(): JSX.Element {
     try {
       const { candidates, cited } = await window.tracely.screenWatch.findSource({ claimId })
       // The user may have cancelled (flow entry removed) while this was in
-      // flight — a stale result landing after that shouldn't reopen it.
+      // flight — a stale result landing after that shouldn't reopen it, and
+      // nothing should be paid for on a card nobody is looking at.
+      const stillOpen = openFlowIdsRef.current.has(claimId)
       setCitationFlowByClaimId((prev) => {
         if (!prev.has(claimId)) return prev
         const next = new Map(prev)
@@ -3897,12 +4088,19 @@ export default function OverlayApp(): JSX.Element {
           step: 'picking',
           candidates,
           cited,
-          selectedRef: candidates[0]?.sourceRef ?? null,
+          // Nothing is pre-selected until the receipts say what may be cited.
+          selectedRef: null,
+          receipts: candidates.length ? { status: 'checking' } : { status: 'checked', byId: {} },
           style: defaultStyle,
           preview: null
         })
         return next
       })
+      // Reached only through this function, which only a click reaches ("Find
+      // a source", "Add citation", "Search again", the grade panel's "Find
+      // evidence") — so the paid read behind the receipts is one the writer
+      // asked for. Nothing on Screen Watch's passive path calls it.
+      if (stillOpen && candidates.length) void checkReceipts(claimId, candidates)
     } catch (err) {
       setCitationFlowByClaimId((prev) => {
         if (!prev.has(claimId)) return prev
@@ -3911,6 +4109,55 @@ export default function OverlayApp(): JSX.Element {
         return next
       })
     }
+  }
+
+  /**
+   * Receipts for the list just drawn — what each source SAYS about the
+   * sentence (shared/sourceReceipts.ts). Main caches them, so hovering back
+   * onto this sentence and reopening costs nothing. Lands only on the list it
+   * was asked about; a "Search again" in between replaced `candidates`.
+   */
+  async function checkReceipts(claimId: string, candidates: ScreenWatchSourceCandidate[]): Promise<void> {
+    // Main answers `unavailable` for an empty sentence, which is the fallback —
+    // never "nothing backs it".
+    const claimText = widgetRef.current?.claims.find((c) => c.id === claimId)?.text ?? ''
+    let receipts: ReceiptsState = { status: 'unavailable' }
+    try {
+      const res = await window.tracely.sources.verify({
+        claimText,
+        sources: candidates.map((c) => ({
+          id: c.sourceRef,
+          title: c.title,
+          url: c.url,
+          doi: c.doi ?? null,
+          abstract: c.abstract ?? null,
+          venue: c.venue,
+          year: c.year,
+          provider: c.provider
+        }))
+      })
+      if (res.status === 'checked') receipts = { status: 'checked', byId: receiptsById(res.receipts) }
+    } catch (err) {
+      // The fallback, not an error card: the list as it was before receipts.
+      console.warn('[receipts] verification failed', err)
+    }
+    setCitationFlowByClaimId((prev) => {
+      const current = prev.get(claimId)
+      if (current?.step !== 'picking' || current.candidates !== candidates) return prev
+      const order =
+        receipts.status === 'checked'
+          ? Object.values(groupByReceipt(candidates, (c) => c.sourceRef, receipts.byId)).flat()
+          : candidates
+      const mode = flowModeRef.current.get(claimId) ?? 'insert'
+      const next = new Map(prev)
+      next.set(claimId, {
+        ...current,
+        receipts,
+        selectedRef: mode === 'read-only' ? null : firstInsertable(order.map((c) => c.sourceRef), receipts),
+        preview: null
+      })
+      return next
+    })
   }
 
   // Both drop `preview`: it was formatted from the source and style being
@@ -3969,7 +4216,9 @@ export default function OverlayApp(): JSX.Element {
 
   async function insertCitation(claimId: string): Promise<void> {
     const flow = citationFlowByClaimId.get(claimId)
-    if (flow?.step !== 'picking' || !flow.selectedRef) return
+    // The receipts rule, enforced here as well as on the button: only a source
+    // quoted backing the sentence goes into someone's document.
+    if (flow?.step !== 'picking' || !flow.selectedRef || !mayInsert(flow.receipts, flow.selectedRef)) return
     setCitationBusyIds((prev) => new Set(prev).add(claimId))
     try {
       const { citation } = await window.tracely.screenWatch.insertCitation({
@@ -4004,6 +4253,8 @@ export default function OverlayApp(): JSX.Element {
    * to the watched document, which is the whole point of the mode.
    */
   async function copyFlowCitation(claimId: string, which: 'marker' | 'entry'): Promise<void> {
+    const flow = citationFlowByClaimId.get(claimId)
+    if (flow?.step !== 'picking' || !mayInsert(flow.receipts, flow.selectedRef)) return
     const citation = await previewCitation(claimId)
     if (!citation) return
     const ok = await copyToClipboard(which === 'marker' ? citation.inTextCitation : citation.worksCitedEntry)

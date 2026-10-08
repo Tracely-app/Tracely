@@ -1349,6 +1349,82 @@ textarea:disabled {
   white-space: normal;
 }
 
+/* ── Receipts (shared/sourceReceipts.ts) ─────────────────────────────────
+   The source's own words under its title, and where they were read. It wraps:
+   the quote is why the row is in the list, and an ellipsis that cut it would
+   cut the evidence. Ink, not a colour — colour on this surface means a finding,
+   and the receipt is the reason for one, not one itself. */
+.docmark-receipt {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1c1c1c;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.docmark-receipt-lead {
+  font-weight: 500;
+  color: #737373;
+}
+
+.docmark-receipt-from {
+  color: #9a9ba1;
+}
+
+/* A row with a receipt is top-aligned, so the icon stays beside the title it
+   names rather than drifting to the middle of the quote. */
+.docmark-row.has-receipt {
+  align-items: flex-start;
+}
+
+/* A row that may not be cited: not a button, not selectable — Open only. */
+.docmark-row-static {
+  cursor: default;
+}
+
+.docmark-open {
+  flex-shrink: 0;
+  align-self: center;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fff;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1c1c1c;
+  cursor: pointer;
+}
+
+.docmark-open:hover {
+  background: #f8f8f8;
+}
+
+/* "Says otherwise", "Related, but they don't say this", "Couldn't read these":
+   the block-label voice, so a group reads as a heading over rows, not a row. */
+.docmark-group-label,
+.docmark-group-toggle {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #9a9ba1;
+  padding: 6px 8px 2px;
+}
+
+.docmark-group-toggle {
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.docmark-group-toggle:hover {
+  color: #737373;
+}
+
 .docmark-radio {
   width: 18px;
   height: 18px;
@@ -7246,6 +7322,11 @@ textarea:disabled {
 :root[data-theme='dark'] .docmark-row-title { color: var(--text); }
 :root[data-theme='dark'] .docmark-match { color: var(--score-good); }
 :root[data-theme='dark'] .docmark-year-note { color: var(--muted); }
+:root[data-theme='dark'] .docmark-receipt { color: var(--text); }
+:root[data-theme='dark'] .docmark-receipt-lead { color: var(--muted); }
+:root[data-theme='dark'] .docmark-open { background: var(--surface); border-color: var(--border); color: var(--text); }
+:root[data-theme='dark'] .docmark-open:hover { background: rgba(255, 255, 255, 0.06); }
+:root[data-theme='dark'] .docmark-group-toggle:hover { color: var(--muted); }
 :root[data-theme='dark'] .docmark-radio { border-color: rgba(255, 255, 255, 0.3); background: var(--surface); }
 :root[data-theme='dark'] .docmark-radio.on {
   background: var(--ink);
@@ -7292,6 +7373,11 @@ textarea:disabled {
   :root:not([data-theme='light']) .docmark-row-title { color: var(--text); }
   :root:not([data-theme='light']) .docmark-match { color: var(--score-good); }
   :root:not([data-theme='light']) .docmark-year-note { color: var(--muted); }
+  :root:not([data-theme='light']) .docmark-receipt { color: var(--text); }
+  :root:not([data-theme='light']) .docmark-receipt-lead { color: var(--muted); }
+  :root:not([data-theme='light']) .docmark-open { background: var(--surface); border-color: var(--border); color: var(--text); }
+  :root:not([data-theme='light']) .docmark-open:hover { background: rgba(255, 255, 255, 0.06); }
+  :root:not([data-theme='light']) .docmark-group-toggle:hover { color: var(--muted); }
   :root:not([data-theme='light']) .docmark-radio { border-color: rgba(255, 255, 255, 0.3); background: var(--surface); }
   :root:not([data-theme='light']) .docmark-radio.on {
     background: var(--ink);

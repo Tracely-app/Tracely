@@ -1347,7 +1347,14 @@ export async function findSourceForClaim(claimId: string, query?: string): Promi
         venue: item.venue,
         venueType: item.venueType,
         doi: item.doi
-      })
+      }),
+      // For the receipts the overlay asks for once this list is on screen
+      // (sources:verify). Carried, not fetched: the search already returned
+      // them, and nothing is sent anywhere until the writer has opened the
+      // list. shared/sourceReceipts.ts decides whether the abstract is the
+      // work's own words before it leaves the machine.
+      doi: item.doi,
+      abstract: item.abstract
     }))
   )
   // Most citable first, the same order the editor's picker uses. Stable, so

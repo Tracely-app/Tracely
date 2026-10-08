@@ -32,6 +32,8 @@ import type {
   EvidenceGetForClaimResponse,
   SourcesFaviconsRequest,
   SourcesFaviconsResponse,
+  SourcesVerifyRequest,
+  SourcesVerifyResponse,
   FloatingClipboardCapturedEvent,
   HistoryClearRequest,
   HistoryClearResponse,
@@ -132,7 +134,10 @@ const api = {
   },
   sources: {
     favicons: (req: SourcesFaviconsRequest): Promise<SourcesFaviconsResponse> =>
-      ipcRenderer.invoke(IPC.SOURCES_FAVICONS, req)
+      ipcRenderer.invoke(IPC.SOURCES_FAVICONS, req),
+    /** Receipts for the list being shown. Paid: call it only when the writer opened that list. */
+    verify: (req: SourcesVerifyRequest): Promise<SourcesVerifyResponse> =>
+      ipcRenderer.invoke(IPC.SOURCES_VERIFY, req)
   },
   citation: {
     generate: (req: CitationGenerateRequest): Promise<CitationGenerateResponse> =>

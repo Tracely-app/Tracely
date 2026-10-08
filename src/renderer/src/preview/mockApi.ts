@@ -1,5 +1,6 @@
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
+import { MAX_VERIFY_SOURCES, abstractToSend, type SourceReceipt } from '@shared/sourceReceipts'
 import { DEFAULT_WIDGET_VIEW_MODE } from '@shared/ipc-contract'
 import type { Plan } from '@shared/plan'
 import type {
@@ -292,7 +293,36 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
                   btoa('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" rx="3" fill="#ff5900"/></svg>')
             ])
           )
+        }),
+      /**
+       * Receipts in the real shape, so every group of the list is on screen
+       * at once: sources with an abstract are quoted from it (its first
+       * sentence — verbatim, as the server guarantees), first as backing, then
+       * as saying otherwise, then as topic; sources without one alternate
+       * topic and unread. "Fail relay" is the fallback: `unavailable`, which
+       * is what main answers for any failure — it never rejects.
+       */
+      verify: async (req) => {
+        log('sources.verify')
+        if (latency > 0) await new Promise((r) => setTimeout(r, latency))
+        if (scenario.failRelay) return { status: 'unavailable' as const, reason: 'Could not reach the Tracely server (preview scenario).' }
+        let quotedCount = 0
+        let plainCount = 0
+        const receipts = req.sources.slice(0, MAX_VERIFY_SOURCES).map((s): SourceReceipt => {
+          const first = (abstractToSend(s.provider, s.abstract) ?? '').split(/(?<=[.!?])\s+/)[0] ?? ''
+          if (first.length >= 15) {
+            const verdict: SourceReceipt['verdict'] = quotedCount === 0 ? 'backs' : quotedCount === 1 ? 'contradicts' : 'topic'
+            quotedCount++
+            return verdict === 'topic'
+              ? { id: s.id, verdict, quote: null, readFrom: 'abstract', retracted: false }
+              : { id: s.id, verdict, quote: first, readFrom: 'abstract', retracted: false }
+          }
+          return plainCount++ % 2 === 0
+            ? { id: s.id, verdict: 'topic', quote: null, readFrom: 'page', retracted: false }
+            : { id: s.id, verdict: 'unread', quote: null, readFrom: null, retracted: false }
         })
+        return { status: 'checked' as const, receipts }
+      }
     },
     evidence: {
       // Records the result against the claim, so the Structure rail's
@@ -719,7 +749,10 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
                 venue: s.venue,
                 venueType: s.venueType,
                 doi: s.doi
-              })
+              }),
+              // What main carries for the overlay's receipts call.
+              doi: s.doi,
+              abstract: s.abstract
             })),
             (c) => c.credibility.tier
           )
