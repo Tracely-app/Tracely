@@ -29,6 +29,20 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   when no reference lookup ran) and `verifyGrade` (a finding whose quote is not
   in the draft is dropped), in `server/shared/`. The desktop still runs its own
   copies on the answer; both are idempotent.
+- **A source search shows its receipts** (`lib/sourceVerify.js`, 2026-10-07;
+  three judges found 16 of 51 "relevant" sources backed the sentence). Every
+  source `/api/sources` returns is READ — the OpenAlex abstract, its
+  open-access copy when the abstract does not settle it, else the page; never
+  a PDF — and judged in the one existing verify call. It is
+  `supports`/`refutes` only with a verbatim `quote` from that text, checked
+  by `matchQuote` (whitespace, quote marks, dashes, case folded; word
+  boundaries kept), and carries `verified`, `readFrom`, `quote` — additive,
+  optional. Unread or unjudged is `context` + `verified: false`, never
+  backing, which every installed extension already honours. Retracted works
+  (Crossref `updated-by`/`update-to`, PubMed, OpenAlex `is_retracted`) are
+  dropped; a DOI whose registered title or year is another work's is not
+  applied (`lib/sourceEnrich.js` `sameWork`). The route's `verified` and
+  `retracted` tallies are log-line only.
 - **`server/lib/reasoning.js`** is the desktop's reasoning, one export per
   route, on the relay's request/response contract — which is why the desktop's
   request builders and parsers did not change when it moved.

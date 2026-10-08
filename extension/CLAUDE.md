@@ -47,6 +47,18 @@ Supabase project, the plan names, the Stripe `PORTAL_URL`. Changing any of
 them is an extension release coordinated with a deploy, never a server-only
 change (`server/CLAUDE.md`, "Two products on one server").
 
+## Sources: only what backs the sentence, with its receipt
+
+`backingSources` (content.js) offers a search result only when it backs the
+sentence: `supports`, and `refutes` for a sentence flagged false or
+incoherent. Since 2.21.25 it also never offers a source the server could not
+read (`verified: false`): those sit under a collapsed "Couldn't read these —
+check them yourself" with Open only. A backing source shows its receipt —
+"The source says: “…”" and "from the abstract" / "from the page" — in both
+panels and the Docs hover card; Cite in doc and Copy cite exist only on the
+backing list. A server without receipts (no `verified`) behaves as before.
+The server half is `server/lib/sourceVerify.js` (`server/CLAUDE.md`).
+
 ## Colours and marks
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI

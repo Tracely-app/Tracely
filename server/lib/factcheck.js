@@ -477,7 +477,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   // `verified: true`); one on the topic is "context"; one that could not be
   // read is "context" with `verified: false` — never backing. Never fails the
   // search; its tokens are added to what the route records.
-  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel });
+  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel });
   // OpenAlex's is_retracted, read on the same call as the abstract.
   const gone = new Set(verified.retracted ?? []);
   for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
@@ -487,7 +487,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   // records it and keeps it out of the response. `enriched`/`dropped`/
   // `verified`/`retracted` are for the route's log line.
   return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
-    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unread: verified.unread ?? 0 } };
+    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, unread: verified.unread ?? 0 } };
 }
 
 /* The part of the document the search should see: the claim's own

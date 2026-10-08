@@ -53,6 +53,51 @@ on subtle claims; retired ids from old builds are translated to their tier
 (`usage.input_tokens_details.cache_write_tokens`, 1.25x input on all three
 models); the free check cap stays 400.
 
+## 2026-10-07: source receipts — what the verify call reads, and what it costs
+
+Why: three independent judges labelled 120 recorded sentence→source pairs;
+of the 51 sources the pipeline ranked "relevant", 16 (31%) back the sentence,
+mostly on-topic sources stating something different. `lib/sourceVerify.js`
+now reads EVERY source (not only the search's "supports"/"refutes"), sends
+the judge the best ~3 × 600-character passages from the whole text (an
+OpenAlex abstract, its open-access copy when the abstract lacks the claim's
+figures or most of its words, else the page), and accepts backs/contradicts
+only with a verbatim quote it then finds in those passages. Unread is
+`context` + `verified: false`. VERIFY_SYSTEM was rewritten to say so (not
+SHA-pinned; this section is its record). Still ONE model call per search.
+
+Measured, free (no model call: the judge was a stub that recorded its
+input), five claims, 13 hand-picked real sources, main against the branch,
+each run twice in alternating order:
+
+| | sources read | mean read time | judge input (chars/4) |
+|---|---|---|---|
+| main (supports/refutes only, one 1,400-char selection, 3 s) | 6 of 13 | 0.16-0.27 s | ~730 tokens |
+| receipts (every source, 3 × 600, OA copy, 4 s) | 9 of 13 | 0.14-0.15 s | ~1,290 tokens |
+
+Unread on the branch: Britannica and Smithsonian (bot walls), one Wikipedia
+URL that does not exist; the Wakefield DOI came back `is_retracted` and was
+dropped. Reads finish far inside the deadline, so the added latency is the
+judge's larger input (~+0.3-0.5 s expected) plus, where main made NO call
+(the search had labelled nothing supports/refutes, e.g. the honey claim), a
+whole judge call (~1-3 s). The deadline moved 3 → 4 s, so the worst case is
++1 s on reads.
+
+Cost (prices.js, gpt-5.6-luna): ~1.3-5k input tokens and ~0.3-1k output
+(reasoning included) is 0.07-0.2 cents per search, against main's
+~0.05-0.15 and the search's ~1.3 — well inside WORST_CALL["/api/sources"]
+(input 40k, output 6k; the verify cap went 1,500 → 2,000 tokens).
+
+NOT measured here: the judge's accuracy with the new prompt and the quote
+rule. No OpenAI key is available outside the Linode, so the 120 labelled
+pairs were not re-run. Do that before reading anything into the precision
+number: expect fewer "supports" (an unread source and a quote that is not in
+the text both fall to context) and watch for over-strictness — a correct
+"backs" lost because the judge paraphrased its quote is counted as
+`unquoted` on the `/api/sources` log line (`verified=checked/changed
+quoted=… unquoted=… unread=… retracted=…`); a high `unquoted` against
+`quoted` means the quote rule, not the sources, is what is failing.
+
 ## 2026-10-02: what a source search costs, and why
 
 The production ledger (`entitlement_usage`, micro-cents) said a source search

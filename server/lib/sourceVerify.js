@@ -504,7 +504,9 @@ export function applyVerdicts(sources, evidence, verdicts) {
 
 export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS }) {
   const list = Array.isArray(sources) ? sources : [];
-  const out = { checked: 0, changed: 0, quoted: 0, unread: 0, retracted: [], usage: null };
+  // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
+  // not (fell to topic) — the number that says whether the rule is too strict.
+  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null };
   const unverify = (s) => {
     if (!s || typeof s !== "object") return;
     const before = s.stance;
@@ -529,6 +531,7 @@ export async function verifySources({ claim, correction, sources, model, call = 
     out.checked = evidence.length;
     out.changed += t.changed;
     out.quoted = t.quoted;
+    out.unquoted = t.unquoted;
     out.unread += t.unjudged;
     out.usage = raw?.usage ?? null;
     return out;

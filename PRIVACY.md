@@ -122,10 +122,13 @@ removes the rest.
   publishers of the sources we find** — after a source search, our server
   looks up each source's DOI at Crossref and reads the source's own web page
   to complete its citation (authors, date, journal), and reads a scholarly
-  source's abstract from OpenAlex, or the page's text, to check that the
-  source really says what the sentence claims before offering it (that check
-  is made by OpenAI, above). They receive that source's DOI or address, never
-  your text or the sentence being cited. When you click "Find the cited work",
+  source's abstract from OpenAlex — and the open-access copy OpenAlex lists
+  for it, which may be on a university or repository site — or the page's
+  text, to check that the source really says what the sentence claims before
+  offering it (that check is made by OpenAI, above), and whether the work has
+  been retracted. A PubMed source is looked up the same way at NCBI
+  (eutils.ncbi.nlm.nih.gov). They receive that source's DOI, PubMed id or
+  address, never your text or the sentence being cited. When you click "Find the cited work",
   our server sends that citation's words (author, title words, year), or the
   matching entry from your reference list, to Crossref and Open Library
   (openlibrary.org) to look the work up.
