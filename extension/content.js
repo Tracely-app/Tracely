@@ -165,6 +165,7 @@
     essayFeedback: true,  // on an essay or paper: /api/review reads it against its rubric (a DBQ's, for one) — essayFeedbackTips
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
+    typePreview: true,    // Docs: every in-doc edit is typed as a private preview first, sent only on Accept (the "Type preview" block, previewDocEdit)
   };
 
   /* How a flagged sentence is drawn and how it moves, carried across from the
@@ -3491,6 +3492,73 @@
       return bars;
     }
 
+    /* PART of a sentence, for the Type preview: chars [a, b) of nrm(text) —
+       the whitespace-free count svgLocate matches in — as `pieces` {node, f0,
+       f1} (each a share of one annotation run, zoom-proof; barTextRect reads
+       them live), and `at` {node, f}: where char a starts or, for an empty
+       range (an insertion), where char a-1 ends — right after the kept word,
+       not after the space that follows it. The visible lines are grouped and
+       joined exactly as svgLocate groups them (keep the two in step;
+       ext-type-preview.test.js checks the bucket). Null when there is no
+       annotation layer, the sentence is not rendered whole, or it is rendered
+       more than once and `near` (a viewport rect on one copy) does not say
+       which: a copy is never guessed at. */
+    function svgRangeRects(text, a, b, near = null) {
+      const S = nrm(String(text ?? ""));
+      if (!S || !(a >= 0 && b >= a && b <= S.length)) return null;
+      const nodes = svgLineNodes();
+      if (!nodes.length) return null;
+      const buckets = new Map();
+      for (const node of nodes) {
+        const r = node.getBoundingClientRect();
+        if (r.width === 0) continue;
+        const key = Math.round(r.top / 4) * 4;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push({ node, r, raw: node.getAttribute("aria-label"), font: node.getAttribute("data-font-css") || "" });
+      }
+      const runs = []; // [start, end, run] in the joined visible text, reading order
+      let flat = "";
+      const lines = [...buckets.values()].map((rs) => rs.sort((x, y) => x.r.left - y.r.left)).sort((x, y) => x[0].r.top - y[0].r.top);
+      for (const line of lines) {
+        for (const run of line) {
+          const n = nrm(run.raw);
+          runs.push([flat.length, flat.length + n.length, run]);
+          flat += n;
+        }
+      }
+      const frac = (run, k) => svgFrac(run.node, run.raw, run.font, k);
+      const piecesOf = (lo, hi) => {
+        const out = [];
+        for (const [s, e, run] of runs) {
+          if (e <= lo || s >= hi) continue;
+          const f0 = lo > s ? frac(run, svgRawIndexAt(run.raw, lo - s)) : 0;
+          const f1 = hi < e ? frac(run, svgRawIndexAt(run.raw, hi - s)) : 1;
+          if (f1 - f0 > 0.005) out.push({ node: run.node, f0, f1 });
+        }
+        return out;
+      };
+      const hits = [];
+      for (let i = flat.indexOf(S); i >= 0; i = flat.indexOf(S, i + 1)) hits.push(i);
+      let at = hits.length === 1 ? hits[0] : null;
+      if (at == null && hits.length > 1 && near) {
+        const cx = near.left + (near.width || 0) / 2, cy = near.top + (near.height || 0) / 2;
+        at = hits.find((h) => piecesOf(h, h + S.length).some((p) => {
+          const r = p.node.getBoundingClientRect();
+          const l = r.left + p.f0 * r.width, rt = r.left + p.f1 * r.width;
+          return cx >= l - 2 && cx <= rt + 2 && cy >= r.top - 4 && cy <= r.top + r.height + 4;
+        })) ?? null;
+      }
+      if (at == null) return null;
+      const lo = at + a;
+      let point = null;
+      for (const [s, e, run] of runs) {
+        if (a === b && a > 0) {
+          if (lo - 1 >= s && lo - 1 < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - 1 - s) + 1) }; break; }
+        } else if (lo >= s && lo < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - s)) }; break; }
+      }
+      return point ? { pieces: piecesOf(lo, at + b), at: point } : null;
+    }
+
     /* Bars are carried by the COMPOSITOR wherever that is possible, and glued
        to the document by a per-frame loop only where it is not:
          - SVG mode  → a <rect> beside Docs' own annotation rect (in-tree);
@@ -6108,12 +6176,29 @@
       return note ? `<div class="edit-note">${esc(note)}</div>` : "";
     }
 
+    /* The Type preview (its own block, after this section) puts itself here
+       when FEATURES.typePreview is on: runDocEdit awaits it before a single
+       step is sent, and false sends nothing at all. null — the switch off,
+       and server/test's slices of this section — sends straight away, as
+       before. Undo and a failed group's rollback never come through here. */
+    let previewDocEdit = null;
+
     /* Run one edit — or a GROUP of edits that must land together — and settle
        the button. A group that fails part-way is taken back, newest first, so
        the doc is exactly as it was; then the text is copied instead. */
     async function runDocEdit(key, job) {
       if (docBusy) return false;
       docBusy = true;
+      if (previewDocEdit && !job.previewed) {
+        let accepted = false;
+        try { accepted = await previewDocEdit(key, job); } catch { accepted = false; }
+        if (!accepted) {
+          // Rejected (or the preview could not be shown): nothing reached the Doc.
+          docBusy = false;
+          setEditState(key, null);
+          return false;
+        }
+      }
       setEditState(key, { state: "applying" });
       const path = editPath();
       const tokens = []; // newest first
@@ -6186,7 +6271,7 @@
          (nothing stuck), and only once. */
       if (job.retry && fail.action === "insertLineBefore" && !fail.stuck) {
         console.debug(`[tracely] cite: in-order insert refused (${fail.reason ?? "?"}) — appending instead`);
-        return runDocEdit(key, { ...job, steps: job.retry, retry: null });
+        return runDocEdit(key, { ...job, steps: job.retry, retry: null, previewed: true }); // already accepted
       }
       const copied = await copyFallback(job.copy);
       const note = fail.stuck
@@ -6627,6 +6712,459 @@
 
     // (the bridge "highlight in doc" feature was removed — real overlay
     //  underlines replaced background tints)
+
+    /* ── Type preview ─────────────────────────────────────────────────────
+       Owner, 2026-10-08: "tracely can be a cursor that moves around and can
+       type in there … then you confirm the changes and other people can only
+       see it once you click yes". Every in-doc edit goes through runDocEdit,
+       and with FEATURES.typePreview on it first awaits previewDocEdit: nothing
+       is sent to Docs until the writer accepts, so collaborators see nothing
+       until then — nothing has touched the Doc. (Docs' Suggesting mode would
+       show them the suggestion, which is why it is not used.) No model call,
+       no server: it is all local DOM.
+
+       The DOM is Tracely's own fixed layer, never kix's tiles (the marks
+       layer's lesson). A caret flagged "Tracely" — ink, because colour only
+       ever means a finding — glides from the button that was pressed (or the
+       underline) to the change, strikes the words it replaces over their
+       exact runs (svgRangeRects), and types the new words into a bubble under
+       that line; then Accept (Enter) or Reject (Esc, or a click anywhere
+       else). A click on the bubble while it types skips to the end, and
+       prefers-reduced-motion shows the end at once. A sentence that is not
+       on screen is never scrolled to — the hook promises the view never
+       moves — so the same bubble is pinned beside the card instead, with the
+       change written inline. The harness only sees it when it opts in
+       (window.__tracelyHarness.typePreview === true), so a test page never
+       waits on a click. */
+    const TP_GLIDE_MS = 350, TP_STRIKE_MS = 200, TP_FADE_MS = 120, TP_CHAR_MS = 30, TP_TYPE_MAX_MS = 1200;
+    const TP_COPY = {
+      typing: "Typing a preview — click it to skip", ready: "Only you can see this until you accept",
+      accept: "Accept", reject: "Reject", keys: "Enter · Esc",
+      deletes: "Deletes the struck-out words.", same: "Nothing in this sentence changes.",
+      offscreen: "Not on screen, so it's shown here — your view stays put.",
+      label: "Tracely's edit — a private preview, not in the document yet",
+    };
+    // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
+    const TP_TOKEN = /\s+|[\p{L}\p{N}\p{M}]+(?:['’][\p{L}\p{N}\p{M}]+)*|[\s\S]/gu;
+    /* What an edit changes, for showing it: whole tokens (words, runs of
+       space, single marks — docs-hook.js planDiff's tokens) kept at each end,
+       the middle removed and inserted. keepBefore + removed + keepAfter is the
+       old text; keepBefore + inserted + keepAfter the new. A deletion arrives
+       as a replace whose replacement is the neighbour it spans ("Off-topic
+       line. Next sentence." → "Next sentence."): all strike, nothing typed.
+       Display only — the hook plans its own paste. */
+    function previewDiff(oldText, newText) {
+      const A = String(oldText ?? "").match(TP_TOKEN) || [];
+      const B = String(newText ?? "").match(TP_TOKEN) || [];
+      let p = 0;
+      while (p < A.length && p < B.length && A[p] === B[p]) p++;
+      let s = 0;
+      while (s < A.length - p && s < B.length - p && A[A.length - 1 - s] === B[B.length - 1 - s]) s++;
+      return {
+        keepBefore: A.slice(0, p).join(""), removed: A.slice(p, A.length - s).join(""),
+        inserted: B.slice(p, B.length - s).join(""), keepAfter: A.slice(A.length - s).join(""),
+      };
+    }
+    /* A job's steps as the preview shows them: the text edits (replace, and
+       insertAfter — the hook's sugar for `find` → `find` + `text`), the lines
+       a citation adds to the reference list, and a count of anything else. */
+    function previewPlan(job) {
+      const edits = [], lines = [];
+      let other = 0;
+      for (const st of Array.isArray(job?.steps) ? job.steps : []) {
+        const find = String(st?.find ?? "");
+        if (st?.action === "replace") edits.push({ find, next: String(st.replacement ?? ""), hint: st.hint ?? null });
+        else if (st?.action === "insertAfter") edits.push({ find, next: find.replace(/\s+$/, "") + String(st.text ?? "").replace(/\s+$/, ""), hint: st.hint ?? null });
+        else if (st?.action === "appendLine" || st?.action === "insertLineBefore") lines.push({ line: String(st.line ?? ""), before: st.before == null ? null : String(st.before) });
+        else other++;
+      }
+      return { edits, lines, other };
+    }
+    // "Also adds to Works Cited: …" — the reference-list half of a citation.
+    function previewLineRows(lines, text) {
+      const heads = new Set([...Object.values(REF_HEADINGS), "Bibliography"].map((h) => h.toLowerCase()));
+      const head = lines.find((l) => heads.has(l.line.trim().replace(/:$/, "").toLowerCase())) ?? null;
+      const list = head ? null : worksCitedBlock(String(text ?? ""))?.heading ?? null;
+      const name = head ? head.line.trim().replace(/:$/, "") : list ? list.replace(/\b\w/g, (c) => c.toUpperCase()) : null;
+      const rest = lines.filter((l) => l !== head);
+      if (head && !rest.length) return [{ label: "Also adds the heading", text: name }];
+      return rest.map((l) => ({ label: head ? `Also starts ${name} with` : name ? `Also adds to ${name}` : "Also adds at the end", text: l.line }));
+    }
+
+    /* Where the caret starts: the last press (or Enter / Space) on Tracely's
+       own UI — the popover, or the panel — and the card it sits in, which
+       the off-screen bubble is pinned beside. Noted only while the switch is
+       on; nothing but two rects and a time is kept. */
+    let tpPress = null;
+    function tpNotePress(e) {
+      try {
+        if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+        const t = typeof e.composedPath === "function" ? e.composedPath()[0] : e.target;
+        if (!t || typeof t.getBoundingClientRect !== "function") return;
+        const pop = t.closest?.("[data-tracely-docs-popover]") ?? null;
+        const host = t.getRootNode?.()?.host;
+        const panel = !pop && host?.id === "tracely-host" ? host.shadowRoot?.querySelector(".root") ?? null : null;
+        if (!pop && !panel) return;
+        tpPress = { rect: t.getBoundingClientRect(), box: (pop ?? panel).getBoundingClientRect(), at: Date.now() };
+      } catch { /* nothing to note */ }
+    }
+    function tpActive() {
+      let a = document.activeElement;
+      while (a?.shadowRoot?.activeElement) a = a.shadowRoot.activeElement;
+      return a ?? null;
+    }
+    const tpStop = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+    const tpClamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const tpClip = (s, n, fromEnd) => (s.length <= n ? s : fromEnd ? `…${s.slice(s.length - n).replace(/^\S*\s/, "")}` : `${s.slice(0, n).replace(/\s\S*$/, "")}…`);
+
+    let tpOpen = null; // the preview on screen — only ever one
+    let tpSeq = 0;
+
+    // Resolves true on Accept, false on Reject (or when it cannot be shown —
+    // never an edit the writer did not accept).
+    function showTypePreview(key, job) {
+      if (tpOpen) tpOpen.finish(false);
+      return new Promise((resolve) => {
+        try {
+          tpOpen = tpShow(previewPlan(job), resolve);
+        } catch (err) {
+          console.debug(`[tracely] type preview could not be shown (${err?.message ?? err}) — nothing was sent`);
+          resolve(false);
+        }
+      });
+    }
+
+    function tpShow(plan, resolve) {
+      const main = plan.edits[0] ?? null;
+      const diff = main ? previewDiff(main.find, main.next) : null;
+      const near = main?.hint?.rects?.[0] ?? null;
+      const a = diff ? nrm(diff.keepBefore).length : 0;
+      const span = diff ? [a, a + nrm(diff.removed).length] : null;
+      const under = plan.lines.find((l) => l.before) ?? null; // an entry going in above another
+      const locateMain = () => (main ? svgRangeRects(main.find, span[0], span[1], near) : null);
+      const locateUnder = () => (under ? svgRangeRects(under.before, 0, nrm(under.before).length) : null);
+      const scroller = document.querySelector(".kix-appview-editor");
+      const clip = () => {
+        const r = scroller && scroller.isConnected ? scroller.getBoundingClientRect() : null;
+        return { top: Math.max(0, r ? r.top : 0), bottom: Math.min(innerHeight, r ? r.bottom : innerHeight) };
+      };
+      const pointOf = (g) => {
+        const r = g.at.node.getBoundingClientRect();
+        return { x: r.left + g.at.f * r.width, y: r.top, h: r.height || 18 };
+      };
+      const onScreen = (g) => {
+        if (!g) return false;
+        const p = pointOf(g), c = clip();
+        return p.x >= 0 && p.x <= innerWidth && p.y >= c.top && p.y + p.h <= c.bottom;
+      };
+      let geo = locateMain();
+      let geoUnder = locateUnder();
+      // In the document when the change is on screen (or, with no sentence
+      // change, the entry's place is); otherwise pinned beside the card.
+      const inDoc = main ? onScreen(geo) : onScreen(geoUnder);
+      const target = () => (main ? geo : geoUnder);
+      // (Cite in doc asks the hook a few dry-run questions first: up to ~10 s.)
+      const press = tpPress && Date.now() - tpPress.at < 15_000 ? tpPress : null;
+      const from = press?.rect ?? near;
+      const fontCss = inDoc ? target().at.node.getAttribute("data-font-css") || "" : "";
+      const family = fontCss.match(/\d[\d.]*px(?:\/\S+)?\s+(.+)$/)?.[1] ?? null;
+
+      /* ── build (detached, so a failure here leaves nothing behind) ── */
+      const layer = el("div", { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "902" });
+      layer.setAttribute("data-tracely-type-preview", "");
+      const caret = el("div", { position: "absolute", left: "0", top: "0", width: "2px", height: "18px", background: DM.ink, borderRadius: "1px", display: "none" });
+      caret.setAttribute("aria-hidden", "true");
+      caret.setAttribute("data-tracely-type-caret", "");
+      caret.appendChild(el("div", {
+        position: "absolute", left: "0", bottom: "100%", marginBottom: "1px", background: DM.ink, color: "#fff", fontFamily: APP.font,
+        fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px 4px 4px 0", whiteSpace: "nowrap",
+      }, "Tracely"));
+      const strikes = [];
+      const strikeEl = () => {
+        const box = el("div", { position: "absolute", background: "rgba(28,28,28,0.07)", borderRadius: "2px", opacity: "0", display: "none" });
+        const line = el("div", { position: "absolute", left: "0", width: "100%", top: "56%", height: "2px", marginTop: "-1px", background: DM.ink, borderRadius: "1px", transformOrigin: "0 50%", transform: "scaleX(0)" });
+        box.setAttribute("aria-hidden", "true");
+        box.setAttribute("data-tracely-type-strike", "");
+        box.appendChild(line);
+        layer.appendChild(box);
+        return { box, line };
+      };
+      const mark = el("div", { position: "absolute", height: "2px", background: DM.ink, borderRadius: "1px", opacity: "0.7", display: "none" });
+      mark.setAttribute("aria-hidden", "true");
+      mark.setAttribute("data-tracely-type-mark", "");
+      layer.appendChild(mark);
+
+      const bubble = el("div", {
+        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
+        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
+        borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", fontFamily: APP.font, color: DM.ink,
+        display: "none", flexDirection: "column", gap: "8px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
+      });
+      bubble.setAttribute("role", "dialog");
+      bubble.setAttribute("aria-label", TP_COPY.label);
+      bubble.setAttribute("data-tracely-type-bubble", "");
+      bubble.tabIndex = -1;
+      const head = el("div", { display: "flex", alignItems: "center", gap: "8px" });
+      head.appendChild(el("span", { background: DM.ink, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
+      const status = el("span", { fontSize: "11.5px", color: DM.body }, TP_COPY.typing);
+      head.appendChild(status);
+      bubble.appendChild(head);
+
+      const ins = Array.from(diff?.inserted ?? "");
+      const text = el("div", { fontSize: "15px", lineHeight: "1.45", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: family ? `${family}, ${APP.font}` : "inherit" });
+      text.setAttribute("aria-hidden", "true"); // read whole from the description, not letter by letter
+      const typed = el("span", { color: DM.ink });
+      typed.setAttribute("data-tracely-type-typed", "");
+      const typingCaret = el("span", { display: "inline-block", width: "2px", height: "1.1em", marginLeft: "1px", verticalAlign: "text-bottom", background: DM.ink, borderRadius: "1px" });
+      const struck = (s) => el("span", { textDecoration: "line-through", textDecorationThickness: "2px", color: DM.body, background: "rgba(28,28,28,0.07)", borderRadius: "2px" }, s);
+      if (diff && !inDoc) {
+        // Off screen: the change written inline, between a few kept words.
+        if (diff.keepBefore) text.appendChild(el("span", { color: DM.body }, tpClip(diff.keepBefore, 60, true)));
+        if (diff.removed) text.appendChild(struck(diff.removed));
+        text.appendChild(typed);
+        if (ins.length) text.appendChild(typingCaret);
+        if (diff.keepAfter) text.appendChild(el("span", { color: DM.body }, tpClip(diff.keepAfter, 40, false)));
+      } else if (diff && ins.length) {
+        text.appendChild(typed);
+        text.appendChild(typingCaret);
+      } else if (diff) {
+        text.appendChild(el("span", { fontSize: "13px", color: DM.body }, diff.removed ? TP_COPY.deletes : TP_COPY.same));
+      }
+      if (diff) bubble.appendChild(text);
+      if (main && !inDoc) bubble.appendChild(el("div", { fontSize: "11.5px", color: DM.body }, TP_COPY.offscreen));
+      const change = (d) => {
+        const out = tpClip(d.removed.trim(), 80, false), put = tpClip(d.inserted.trim(), 120, false);
+        return out && put ? `“${out}” → “${put}”` : out ? `deletes “${out}”` : put ? `adds “${put}”` : "nothing";
+      };
+      const rows = [
+        ...plan.edits.slice(1).map((e) => ({ label: "Also changes", text: change(previewDiff(e.find, e.next)) })),
+        ...previewLineRows(plan.lines, docText),
+        ...(plan.other ? [{ label: "And", text: `${plan.other} more change${plan.other === 1 ? "" : "s"} not shown here` }] : []),
+      ];
+      for (const r of rows) {
+        const row = el("div", { display: "flex", flexDirection: "column", gap: "2px" });
+        row.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.body, letterSpacing: "0.4px", textTransform: "uppercase" }, r.label));
+        row.appendChild(el("div", { fontSize: "12.5px", lineHeight: "1.4", color: DM.ink, wordBreak: "break-word" }, tpClip(String(r.text), 220, false)));
+        bubble.appendChild(row);
+      }
+      const accept = dmBtn(TP_COPY.accept, true);
+      const reject = dmBtn(TP_COPY.reject, false);
+      accept.setAttribute("data-tracely-type-accept", "");
+      reject.setAttribute("data-tracely-type-reject", "");
+      // Our own focus ring, in ink: the browser's can be amber, which means a missing citation.
+      for (const btn of [accept, reject]) {
+        btn.addEventListener("focus", () => { btn.style.outline = `2px solid ${DM.ink}`; btn.style.outlineOffset = "2px"; });
+        btn.addEventListener("blur", () => { btn.style.outline = ""; btn.style.outlineOffset = ""; });
+      }
+      const actions = dmActions(accept, reject, el("span", { fontSize: "11.5px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
+      actions.style.display = "none";
+      bubble.appendChild(actions);
+      const summary = !diff ? "" : diff.removed.trim() && ins.length ? `Replaces “${diff.removed.trim()}” with “${diff.inserted.trim()}”.`
+        : diff.removed.trim() ? `Deletes “${diff.removed.trim()}”.` : ins.length ? `Adds “${diff.inserted.trim()}”.` : TP_COPY.same;
+      const desc = el("div", { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
+        [summary, ...rows.map((r) => `${r.label}: ${r.text}.`)].filter(Boolean).join(" "));
+      desc.id = `tracely-type-preview-${++tpSeq}`;
+      bubble.setAttribute("aria-describedby", desc.id);
+      bubble.appendChild(desc);
+      layer.appendChild(caret);
+      layer.appendChild(bubble);
+
+      /* ── timeline: glide → strike → bubble → typing → Accept / Reject ── */
+      const glideMs = inDoc && from ? TP_GLIDE_MS : 0;
+      const strikeMs = inDoc && span && span[1] > span[0] ? TP_STRIKE_MS : 0;
+      const showAt = glideMs + strikeMs;
+      const perChar = ins.length ? Math.min(TP_CHAR_MS, TP_TYPE_MAX_MS / ins.length) : 0;
+      const typeAt = showAt + (ins.length ? TP_FADE_MS : 0);
+      const readyAt = typeAt + ins.length * perChar;
+      const t0 = performance.now();
+      const path0 = location.pathname;
+      let skipped = reducedMotion();
+      let ready = false, done = false, typedN = -1, raf = 0, tmr = 0, relocAt = 0, shownOnce = false;
+      const prevFocus = tpActive();
+      // The popover would sit on top of the bubble: out of the way while the
+      // change is shown in the document, back as it was afterwards.
+      const pop = inDoc && popEl && popEl.isConnected ? popEl : null;
+      const popVis = pop ? pop.style.visibility : "";
+      const skip = () => { skipped = true; frame(); };
+
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        if (raf) cancelAnimationFrame(raf);
+        if (tmr) clearTimeout(tmr);
+        window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("pointerdown", onDown, true);
+        window.removeEventListener("pagehide", onHide);
+        layer.remove();
+        if (pop) pop.style.visibility = popVis;
+        if (tpOpen === handle) tpOpen = null;
+        try { if (prevFocus?.isConnected && typeof prevFocus.focus === "function") prevFocus.focus({ preventScroll: true }); } catch { /* best effort */ }
+        console.debug(`[tracely] type preview ${ok ? "accepted" : "rejected"}`);
+        resolve(Boolean(ok));
+      };
+      const handle = { finish };
+      const onKey = (e) => {
+        if (e.key === "Escape") { tpStop(e); finish(false); return; }
+        if (e.key === "Enter" && !e.isComposing) {
+          tpStop(e);
+          if (!ready) skip(); // see it whole before it can be accepted
+          else finish(tpActive() !== reject);
+          return;
+        }
+        if (e.key === "Tab" && ready) { tpStop(e); (tpActive() === accept ? reject : accept).focus({ preventScroll: true }); }
+      };
+      const onDown = (e) => {
+        const path = typeof e.composedPath === "function" ? e.composedPath() : [e.target];
+        if (path.includes(bubble)) { if (!ready) skip(); return; }
+        // A press on a scrollbar scrolls; it is not a "no".
+        const t = e.target;
+        if (t && t.clientWidth > 0 && (t.scrollHeight > t.clientHeight || t.scrollWidth > t.clientWidth)
+          && (e.offsetX >= t.clientWidth || e.offsetY >= t.clientHeight)) return;
+        finish(false);
+      };
+      const onHide = () => finish(false);
+      accept.addEventListener("click", () => finish(true));
+      reject.addEventListener("click", () => finish(false));
+
+      const placeCaret = (t) => {
+        const g = target();
+        if (!inDoc || !g) { caret.style.display = "none"; return; }
+        const p = pointOf(g), c = clip();
+        let x = p.x, y = p.y;
+        if (from && t < glideMs) {
+          const k = 1 - (1 - t / glideMs) ** 3; // ease-out
+          x += (1 - k) * (from.left + (from.width || 0) / 2 - p.x);
+          y += (1 - k) * (from.top + (from.height || 0) / 2 - p.h / 2 - p.y);
+        }
+        const off = t >= glideMs && (p.y + p.h < c.top || p.y > c.bottom);
+        caret.style.display = off ? "none" : "block";
+        caret.style.height = `${p.h}px`;
+        caret.style.transform = `translate(${x}px, ${y}px)`;
+      };
+      const placeStrikes = (t) => {
+        const pieces = inDoc && main && geo ? geo.pieces : [];
+        while (strikes.length < pieces.length) strikes.push(strikeEl());
+        const rects = pieces.map((p) => barTextRect(p));
+        const total = rects.reduce((n, r) => n + (r ? r.width : 0), 0) || 1;
+        const k = strikeMs ? tpClamp((t - glideMs) / strikeMs, 0, 1) : 1;
+        const c = clip();
+        let run = 0;
+        strikes.forEach((s, i) => {
+          const r = rects[i];
+          if (!r || r.top + r.height < c.top || r.top > c.bottom) { s.box.style.display = "none"; return; }
+          const share = r.width / total;
+          Object.assign(s.box.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, opacity: String(tpClamp(k * 2, 0, 1)) });
+          s.line.style.transform = `scaleX(${share ? tpClamp((k - run) / share, 0, 1) : 1})`;
+          run += share;
+        });
+      };
+      const placeMark = () => {
+        const g = geoUnder;
+        if (!g || !g.pieces.length) { mark.style.display = "none"; return; }
+        const rects = g.pieces.map((p) => barTextRect(p)).filter(Boolean);
+        const top = Math.min(...rects.map((r) => r.top));
+        const first = rects.filter((r) => Math.abs(r.top - top) <= 2);
+        const left = Math.min(...first.map((r) => r.left)), right = Math.max(...first.map((r) => r.left + r.width));
+        const c = clip();
+        if (top < c.top || top > c.bottom) { mark.style.display = "none"; return; }
+        Object.assign(mark.style, { display: "block", left: `${left}px`, top: `${top - 4}px`, width: `${Math.max(24, right - left)}px` });
+      };
+      const placeBubble = (t) => {
+        if (t < showAt) { bubble.style.display = "none"; return; }
+        bubble.style.display = "flex";
+        if (!shownOnce) {
+          shownOnce = true;
+          // Keys come to this page, not to Docs' editor frame.
+          try { bubble.focus({ preventScroll: true }); } catch { /* best effort */ }
+        }
+        bubble.style.opacity = String(skipped ? 1 : tpClamp((t - showAt) / TP_FADE_MS, 0, 1));
+        const w = bubble.offsetWidth || 260, h = bubble.offsetHeight || 120;
+        let left, top;
+        if (inDoc && target()) {
+          const p = pointOf(target());
+          const rects = (main && geo ? geo.pieces : []).map((q) => barTextRect(q)).filter(Boolean);
+          const firstTop = Math.min(p.y, ...rects.map((r) => r.top));
+          const lastBottom = Math.max(p.y + p.h, ...rects.map((r) => r.top + r.height));
+          left = p.x - 14;
+          top = lastBottom + 10;
+          if (top + h > innerHeight - 8 && firstTop - 10 - h >= clip().top) top = firstTop - 10 - h;
+        } else {
+          // Beside the card: the open popover, else the panel card that was pressed.
+          const box = popEl && popEl.isConnected && popEl.style.visibility !== "hidden" ? popEl.getBoundingClientRect() : press?.box ?? press?.rect ?? null;
+          if (box) {
+            const right = box.left + box.width + 12;
+            left = right + w <= innerWidth - 8 ? right : box.left - 12 - w >= 8 ? box.left - 12 - w : box.left;
+            top = left === box.left ? box.top - 12 - h : box.top;
+          } else {
+            left = innerWidth - w - 24;
+            top = innerHeight - h - 96;
+          }
+        }
+        bubble.style.left = `${tpClamp(left, 8, Math.max(8, innerWidth - w - 8))}px`;
+        bubble.style.top = `${tpClamp(top, 8, Math.max(8, innerHeight - h - 8))}px`;
+      };
+      const paintText = (t) => {
+        const n = t >= readyAt ? ins.length : Math.max(0, Math.floor((t - typeAt) / (perChar || 1)));
+        if (n !== typedN) { typedN = n; typed.textContent = ins.slice(0, n).join(""); }
+        if (!ready && t >= readyAt && shownOnce) {
+          ready = true;
+          typingCaret.remove();
+          text.removeAttribute("aria-hidden");
+          status.textContent = TP_COPY.ready;
+          actions.style.display = "flex";
+          try { accept.focus({ preventScroll: true }); } catch { /* best effort */ }
+          if (!reducedMotion() && typeof caret.animate === "function") {
+            caret.animate([{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }], { duration: 1060, iterations: Infinity });
+          }
+        }
+      };
+      function frame() {
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        if (tmr) { clearTimeout(tmr); tmr = 0; }
+        if (done) return;
+        if (orphaned || location.pathname !== path0) { finish(false); return; }
+        try {
+          const t = skipped ? Infinity : performance.now() - t0;
+          // Docs recycles a tile's annotation rects as it scrolls: find the
+          // sentence again (a few times a second at most) when ours went.
+          const gone = (g) => g && (!g.at.node.isConnected || g.pieces.some((p) => !p.node.isConnected));
+          if ((gone(geo) || gone(geoUnder)) && performance.now() - relocAt > 250) {
+            relocAt = performance.now();
+            if (gone(geo)) geo = locateMain();
+            if (gone(geoUnder)) geoUnder = locateUnder();
+          }
+          placeCaret(t);
+          placeStrikes(t);
+          placeMark();
+          placeBubble(t);
+          paintText(t);
+        } catch (err) {
+          console.debug(`[tracely] type preview frame: ${err?.message ?? err}`);
+        }
+        // A frame, or 50 ms, whichever comes first: a pane that is not
+        // compositing never runs rAF (renderer/src/frameScheduler.ts).
+        raf = requestAnimationFrame(frame);
+        tmr = setTimeout(frame, 50);
+      }
+
+      /* ── on screen ── */
+      if (pop) pop.style.visibility = "hidden";
+      // Out of Docs' editor frame, whose keystrokes this page never hears.
+      if (document.activeElement?.tagName === "IFRAME") document.activeElement.blur();
+      document.documentElement.appendChild(layer);
+      window.addEventListener("keydown", onKey, true);
+      window.addEventListener("pointerdown", onDown, true);
+      window.addEventListener("pagehide", onHide);
+      console.debug(`[tracely] type preview · ${inDoc ? "in the document" : "pinned beside the card"} · ${main ? `${nrm(diff.removed).length} struck, ${ins.length} typed` : "no sentence change"} · ${plan.lines.length} line(s)`);
+      frame();
+      return handle;
+    }
+
+    if (FEATURES.typePreview) {
+      previewDocEdit = (key, job) => (harness && harness.typePreview !== true ? Promise.resolve(true) : showTypePreview(key, job));
+      window.addEventListener("pointerdown", tpNotePress, true);
+      window.addEventListener("keydown", tpNotePress, true);
+    }
 
     // ── widget UI ──
     const { shadow, root } = makeWidget();
