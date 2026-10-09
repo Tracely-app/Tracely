@@ -8500,7 +8500,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline", "", flagged - issues.length)}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || (flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -9861,7 +9861,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline", "", flagged - issues.length)}
           <div class="list">
-            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || (tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`)}${evidenceHtml}
+            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
