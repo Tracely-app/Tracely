@@ -402,7 +402,14 @@ Citation fields. A student's reference list is built from these, so copy ONLY wh
 - "editors": the editors of that container as the source names them, else [].
 - "doi": the DOI when shown (10.xxxx/...), else "".`;
 
-export async function findSources({ claim, correction, context, model, effort, mock = false, enrich = true }) {
+/* `onProgress`, optional (POST /api/sources/stream, the live search): what
+ * is happening as it happens, never what anything says — { type: "found",
+ * sources: [{ title, url, publisher }] } when the search returns; { type:
+ * "links", urls } once dead links are dropped; { type: "read", url, read,
+ * from } as each source's reading settles; { type: "judging", count } before
+ * the verdicts. A model's stance is never in it: nothing is "supports" until
+ * the receipts say so. Watching only — a throwing callback changes nothing. */
+export async function findSources({ claim, correction, context, model, effort, mock = false, enrich = true, onProgress = null }) {
   const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
   if (mock) return mockSources(claim, chosenModel);
 
@@ -456,6 +463,8 @@ export async function findSources({ claim, correction, context, model, effort, m
   }));
 
   const merged = mergeSources([...sources, ...harvested]);
+  const tell = (ev) => { if (typeof onProgress === "function") { try { onProgress(ev); } catch { /* watching only */ } } };
+  if (merged.length) tell({ type: "found", sources: merged.map((s) => ({ title: String(s.title ?? ""), url: String(s.url ?? ""), publisher: String(s.publisher ?? "") })) });
 
   if (merged.length === 0) {
     // Answered, so billed — tokens and every search — like any failure the
@@ -470,6 +479,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   // own metadata for the rest — under one short deadline, and drops a link
   // that answers 404. Off for a mock answer and whenever a caller asks.
   const { enriched, dropped, retracted: retractedByRecord } = enrich === false ? { enriched: 0, dropped: 0, retracted: 0 } : await completeSources(merged, { now: new Date() });
+  tell({ type: "links", urls: merged.map((s) => String(s.url ?? "")) });
 
   // Then the receipts (lib/sourceVerify.js): read what every source itself
   // says and judge it against the claim. A source is "supports"/"refutes"
@@ -477,7 +487,8 @@ export async function findSources({ claim, correction, context, model, effort, m
   // `verified: true`); one on the topic is "context"; one that could not be
   // read is "context" with `verified: false` — never backing. Never fails the
   // search; its tokens are added to what the route records.
-  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel });
+  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel,
+    onProgress: (ev) => tell(ev.type === "read" ? { type: "read", url: String(merged[ev.i]?.url ?? ""), read: ev.read, from: ev.from } : ev) });
   // OpenAlex's is_retracted, read on the same call as the abstract.
   const gone = new Set(verified.retracted ?? []);
   for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);

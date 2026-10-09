@@ -393,49 +393,60 @@ export function openAccessPage(work) {
  * for, is still read. The caller vouches that it is the source's own words
  * (the desktop never passes a search model's summary here). The extension's
  * /api/sources passes none and is unchanged. */
-export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null } = {}) {
+/* `onRead(i, { read, from, retracted })`, optional: called as each source's
+ * reading settles, for the live search (POST /api/sources/stream). It only
+ * watches — a throwing callback is ignored and changes nothing read. */
+export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onRead = null } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), deadlineMs);
   const evidence = [];
   const retracted = [];
   const signal = ctrl.signal;
+  const told = (i, r) => { if (typeof onRead === "function") { try { onRead(i, r); } catch { /* a watcher never changes the reading */ } } };
   try {
     await Promise.allSettled((Array.isArray(sources) ? sources : []).map(async (s, i) => {
       if (!s || typeof s !== "object") return;
-      const texts = [];
-      const doi = doiOf(s);
-      let oa = "";
-      if (doi) {
-        try {
-          const res = await fetchImpl(OPENALEX_WORK + encodeURIComponent(doi), { signal, headers: { "User-Agent": API_UA, Accept: "application/json" } });
-          const work = res.ok ? await res.json() : null;
-          if (work?.is_retracted === true) { retracted.push(s); return; }
-          const abstract = abstractFromIndex(work?.abstract_inverted_index);
-          if (abstract.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: abstract });
-          oa = openAccessPage(work);
-        } catch { /* fall through to the page */ }
+      try { await readOne(s, i); } finally {
+        const got = evidence.find((e) => e.i === i) ?? null;
+        told(i, { read: Boolean(got), from: got?.passages?.[0]?.from ?? null, retracted: retracted.includes(s) });
       }
-      if (!texts.length && typeof abstractOf === "function") {
-        const own = String(abstractOf(s) ?? "").replace(/\s+/g, " ").trim();
-        if (own.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: own });
-      }
-      if (!texts.length || !abstractSettles(texts[0].text, claim)) {
-        // The open-access copy first; the source's own page only when there is
-        // no abstract (a publisher's page for a paywalled article is usually
-        // the abstract again, behind a wall).
-        const tries = [...new Set([oa, texts.length ? "" : s.url].filter(Boolean))];
-        for (const url of tries) {
-          const text = await readPage(url, { signal, fetchImpl });
-          if (text) { texts.push({ from: "page", text }); break; }
-        }
-      }
-      const passages = selectExcerpts(texts, claim);
-      if (passages.reduce((n, p) => n + p.text.length, 0) >= MIN_TEXT_CHARS) evidence.push({ i, passages });
     }));
   } finally {
     clearTimeout(timer);
   }
   return { evidence: evidence.sort((a, b) => a.i - b.i), retracted };
+
+  async function readOne(s, i) {
+    const texts = [];
+    const doi = doiOf(s);
+    let oa = "";
+    if (doi) {
+      try {
+        const res = await fetchImpl(OPENALEX_WORK + encodeURIComponent(doi), { signal, headers: { "User-Agent": API_UA, Accept: "application/json" } });
+        const work = res.ok ? await res.json() : null;
+        if (work?.is_retracted === true) { retracted.push(s); return; }
+        const abstract = abstractFromIndex(work?.abstract_inverted_index);
+        if (abstract.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: abstract });
+        oa = openAccessPage(work);
+      } catch { /* fall through to the page */ }
+    }
+    if (!texts.length && typeof abstractOf === "function") {
+      const own = String(abstractOf(s) ?? "").replace(/\s+/g, " ").trim();
+      if (own.length >= MIN_TEXT_CHARS) texts.push({ from: "abstract", text: own });
+    }
+    if (!texts.length || !abstractSettles(texts[0].text, claim)) {
+      // The open-access copy first; the source's own page only when there is
+      // no abstract (a publisher's page for a paywalled article is usually
+      // the abstract again, behind a wall).
+      const tries = [...new Set([oa, texts.length ? "" : s.url].filter(Boolean))];
+      for (const url of tries) {
+        const text = await readPage(url, { signal, fetchImpl });
+        if (text) { texts.push({ from: "page", text }); break; }
+      }
+    }
+    const passages = selectExcerpts(texts, claim);
+    if (passages.reduce((n, p) => n + p.text.length, 0) >= MIN_TEXT_CHARS) evidence.push({ i, passages });
+  }
 }
 
 export const VERIFY_SCHEMA = {
@@ -515,7 +526,10 @@ export function applyVerdicts(sources, evidence, verdicts) {
   return tally;
 }
 
-export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null }) {
+/* `onProgress`, optional (the live search): { type: "read", i, read, from }
+ * as each source's reading settles, then { type: "judging", count } before
+ * the one judge call. Watching only; a throwing callback changes nothing. */
+export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onProgress = null }) {
   const list = Array.isArray(sources) ? sources : [];
   // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
   // not (fell to topic) — the number that says whether the rule is too strict.
@@ -529,12 +543,14 @@ export async function verifySources({ claim, correction, sources, model, call = 
   };
   let evidence = [];
   try {
-    ({ evidence, retracted: out.retracted } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf }));
+    const onRead = typeof onProgress === "function" ? (i, r) => onProgress({ type: "read", i, ...r }) : null;
+    ({ evidence, retracted: out.retracted } = await gatherEvidence(list, claim, { fetchImpl, deadlineMs, abstractOf, onRead }));
   } catch { /* nothing read */ }
   const read = new Set(evidence.map((e) => e.i));
   const gone = new Set(out.retracted);
   list.forEach((s, i) => { if (!read.has(i) && !gone.has(s)) unverify(s); });
   if (!evidence.length) return out;
+  if (typeof onProgress === "function") { try { onProgress({ type: "judging", count: evidence.length }); } catch { /* watching only */ } }
   try {
     const user = `CLAIM:\n${claim}\n` + (correction ? `\nPROPOSED CORRECTION:\n${correction}\n` : "") +
       evidence.map((e) => `\nSOURCE ${e.i}: ${list[e.i].title}\n` + e.passages.map((p) => `"""\n${p.text}\n"""`).join("\n")).join("\n") +

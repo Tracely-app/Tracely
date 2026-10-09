@@ -360,6 +360,7 @@ function renderDocsPanel(tier) {
     const undoLastDocEdit = () => {};
     const docFix = () => {}, docCite = () => {}, addTransition = () => {};
     const renderPopDeep = () => {};
+    const readyPingHtml = () => ""; // the live search's "Sources ready" note (ext-live-search.test.js)
     ${SHARED()}
     ${content('    function render() {\n      if (orphaned)', "    function saveSettings() {")}
     ({ render, explainSentence })`;

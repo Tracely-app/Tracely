@@ -434,8 +434,10 @@ test("every settings read and write in both widgets goes through the helpers", (
 test("every model route names the fast model and sends no effort — the server decides", () => {
   const src = read("content.js");
   assert.match(src, /const CHECK_MODEL = "gpt-5\.6-luna";/);
-  const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)"/g)];
-  assert.equal(sites.length, 6, "docs + field /api/check, Explain in depth, docs /api/flow, docs + field /api/sources");
+  // A call site sends its own object; searchSources' fallback passes the
+  // Docs search's object on, so it is that object (searchSources({) that counts.
+  const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)", \{|searchSources\(\{/g)];
+  assert.equal(sites.length, 6, "docs + field /api/check, Explain in depth, docs /api/flow, docs (live) + field /api/sources");
   for (const m of sites) {
     const body = src.slice(m.index, src.indexOf("});", m.index));
     assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);

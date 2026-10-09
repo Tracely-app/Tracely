@@ -46,7 +46,9 @@ let SERVER = LOCAL_SERVER;
 // was how you enabled a site.
 chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
 
-const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source"]);
+const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream"]);
+// The routes that answer as a stream of events (relayStream, over a port).
+const STREAM_PATHS = new Set(["/api/sources/stream"]);
 
 const PROBE_INTERVAL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1500;
@@ -491,9 +493,9 @@ function installId() {
   return installIdPromise;
 }
 
-async function relay(path, body, { token = "", retried = false, method = "" } = {}) {
+async function relayHeaders(token, withBody) {
   const headers = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (withBody) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   const install = await installId();
   if (install) headers["X-Tracely-Install"] = install;
@@ -501,6 +503,11 @@ async function relay(path, body, { token = "", retried = false, method = "" } = 
   // it, not only /api/entitlement — the plan is decided per request.
   const beta = await betaToken();
   if (beta) headers["X-Tracely-Beta"] = beta;
+  return { headers, beta };
+}
+
+async function relay(path, body, { token = "", retried = false, method = "" } = {}) {
+  const { headers, beta } = await relayHeaders(token, body !== undefined);
   const res = await fetch(`${SERVER}${path}`, body === undefined
     ? (token || beta || method ? { method: method || "GET", headers } : undefined)
     : { method: method || "POST", headers, body: JSON.stringify(body) });
@@ -520,6 +527,62 @@ async function relay(path, body, { token = "", retried = false, method = "" } = 
     return { ok: false, status: res.status, message: data?.error?.message ?? `HTTP ${res.status}`, kind: data?.error?.kind };
   }
   return { ok: true, data };
+}
+
+/* The live source search (POST /api/sources/stream): the same envelope as
+   relay(), and `onEvent` gets each progress event as the server sends it —
+   server-sent events, "data: {json}" blocks. The final "done" event is the
+   /api/sources body; an "error" event is its error. `started` says whether
+   the server took the search on (it answered 200): one that did not — an
+   older server answers 404, or 403 for a route it does not know — can be
+   asked again the old way without paying for a second search. Mirrored in
+   content.js (sseEvents); test/ext-live-search.test.js runs both. */
+function sseEvents(buffer) {
+  const events = [];
+  let k;
+  while ((k = buffer.indexOf("\n\n")) >= 0) {
+    const block = buffer.slice(0, k);
+    buffer = buffer.slice(k + 2);
+    const line = block.split("\n").find((l) => l.startsWith("data: "));
+    if (!line) continue;
+    try { events.push(JSON.parse(line.slice(6))); } catch { /* a garbled event is skipped, never fatal */ }
+  }
+  return { events, rest: buffer };
+}
+async function relayStream(path, body, onEvent, state, { token = "", retried = false } = {}) {
+  const { headers } = await relayHeaders(token, true);
+  const res = await fetch(`${SERVER}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  if (res.status === 401 && token && !retried) {
+    const fresh = await refreshAccessToken();
+    if (fresh) return relayStream(path, body, onEvent, state, { token: fresh, retried: true });
+    await clearAuth();
+    return relayStream(path, body, onEvent, state, { token: "", retried: true });
+  }
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, status: res.status, message: data?.error?.message ?? `HTTP ${res.status}`, kind: data?.error?.kind, started: false };
+  }
+  state.started = true;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", done = null, failed = null;
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    const parsed = sseEvents(buffer + decoder.decode(value, { stream: true }));
+    buffer = parsed.rest;
+    for (const ev of parsed.events) {
+      if (ev?.type === "done") done = ev;
+      else if (ev?.type === "error") failed = ev;
+      else onEvent(ev);
+    }
+  }
+  if (done) {
+    const { type: _t, ...data } = done;
+    return { ok: true, data, started: true };
+  }
+  if (failed) return { ok: false, status: failed.status, message: failed.error?.message ?? "Source search failed", kind: failed.error?.kind, retryAfter: failed.error?.retryAfter, started: true };
+  return { ok: false, status: 502, kind: "server", message: "The search stopped before it finished — try again.", started: true };
 }
 
 /* The STANDALONE ENGINE used to live here: ~360 lines that called
@@ -689,7 +752,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async sendResponse
   }
 
-  if (msg?.type !== "tracely-api" || typeof msg.path !== "string" || !API_PATHS.has(msg.path)) {
+  if (msg?.type !== "tracely-api" || typeof msg.path !== "string" || !API_PATHS.has(msg.path) || STREAM_PATHS.has(msg.path)) {
     return false;
   }
   (async () => {
@@ -717,4 +780,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
   })();
   return true; // async sendResponse
+});
+
+/* The live source search, relayed over a port ("tracely-stream"): a one-shot
+   message can answer once, and this answers as the search goes — { type:
+   "event", event } per progress event, then { type: "end", result } with
+   relay()'s envelope plus `started`. One request per port. A content script
+   that goes away (the tab closed or navigated) disconnects the port; the
+   search it started still finishes on the server and is billed there. */
+chrome.runtime.onConnect?.addListener((port) => {
+  if (port.name !== "tracely-stream") return;
+  let used = false, gone = false;
+  port.onDisconnect.addListener(() => { gone = true; });
+  const post = (m) => { if (gone) return; try { port.postMessage(m); } catch { gone = true; } };
+  port.onMessage.addListener((msg) => {
+    if (used || msg?.type !== "tracely-api-stream" || typeof msg.path !== "string" || !STREAM_PATHS.has(msg.path)) return;
+    used = true;
+    (async () => {
+      const state = { started: false };
+      try {
+        if (!(await serverReachable())) {
+          post({ type: "end", result: { ok: false, offline: true, kind: "no_engine", started: false, message: "Tracely is offline — the server did not answer. Checks will run again when it is back." } });
+          return;
+        }
+        const { authToken } = await getAuth();
+        post({ type: "end", result: await relayStream(msg.path, msg.body, (event) => post({ type: "event", event }), state, { token: authToken }) });
+      } catch (err) {
+        if (!state.started) { serverUp = false; lastProbeAt = Date.now(); } // the server died between probe and call
+        post({ type: "end", result: { ok: false, kind: err?.kind ?? "server", message: err?.message ?? String(err), started: state.started } });
+      }
+    })();
+  });
 });
