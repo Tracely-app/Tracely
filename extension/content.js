@@ -1149,6 +1149,64 @@
     return prev[b.length] <= max;
   }
 
+  /* Underlines hold while the text holds. Owner, 2026-10-08: "I can use
+     tracely at night have it underline things and wake up and different
+     things are underlined … I want it to be consistently underlining the
+     same thing yet maintaining efficiency and accuracy". The fact verdicts
+     were already kept per sentence with the doc (VCACHE_KEY) and never asked
+     again while the sentence stands. The review was not: it lived in the
+     page, so any reload — a tab Chrome put to sleep overnight, Docs
+     reconnecting, an extension update — paid for a new review of the same
+     text, and a model never picks or words its notes the same way twice.
+     Now the last review is kept with the doc too (reviewSnapshot /
+     restoreReview), so the same text reads back the same notes, for free. */
+  const REVIEW_KEEP_CHARS = 60_000; // a longer document is reviewed again after a reload rather than filling the page's storage
+  function reviewSnapshot(review) {
+    if (review.lastText == null || review.lastText.length > REVIEW_KEEP_CHARS || !review.kind) return null;
+    return { v: 1, kind: review.kind, lastText: review.lastText, findings: review.findings, okAt: review.okAt, serving: review.serving, seen: [...review.seen].slice(-40) };
+  }
+  // Fills `review` from a stored snapshot; anything malformed is ignored (the page's storage is shared with the site).
+  function restoreReview(review, raw) {
+    let snap = null;
+    try { snap = JSON.parse(raw ?? "null"); } catch { return false; }
+    if (!snap || snap.v !== 1 || typeof snap.kind !== "string" || typeof snap.lastText !== "string" || !Array.isArray(snap.findings)) return false;
+    const okAt = Number.isFinite(snap.okAt) ? snap.okAt : 0;
+    Object.assign(review, {
+      kind: snap.kind, lastText: snap.lastText, findings: snap.findings.filter((f) => f && typeof f === "object"),
+      okAt, at: okAt, serving: typeof snap.serving === "boolean" ? snap.serving : null,
+      seen: new Map((Array.isArray(snap.seen) ? snap.seen : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && typeof e[1] === "object")),
+    });
+    return true;
+  }
+  /* And after an edit, a review re-reads the whole essay and could move notes
+     off paragraphs the edit never touched. A note about one sentence — its
+     evidence, its analysis, a quotation, a citation, a resume bullet or typo
+     — stays while its paragraph is word for word what the last review read,
+     unless the new review says something else about that same sentence. A
+     paragraph that changed gets the new review's word, and so do the notes
+     an edit anywhere can settle: the thesis, the structure, how parts relate
+     (relevance, contradiction) and the DBQ's documents, sourcing and
+     complexity. Dismissed notes stay dismissed (essayFeedbackTips). */
+  const LOCAL_NOTE_KINDS = ["evidence", "analysis", "quotation", "citation", "source", "bibliography", "reasoning", "bullet", "typo"];
+  const REVIEW_NOTE_CAP = 10; // what a panel can hold: the new review's own notes first
+  function carryReviewNotes(prevFindings, prevText, nextFindings, nextText) {
+    const norm = (x) => String(x ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+    const paragraphs = (t) => String(t ?? "").split(/\n+/).map(norm).filter(Boolean);
+    const before = new Set(paragraphs(prevText));
+    const now = paragraphs(nextText);
+    const fresh = (Array.isArray(nextFindings) ? nextFindings : []).filter((f) => f && typeof f === "object");
+    const spoken = new Set(fresh.filter((f) => f.quote).map((f) => norm(f.quote)));
+    const carried = [];
+    for (const f of Array.isArray(prevFindings) ? prevFindings : []) {
+      if (!f || !LOCAL_NOTE_KINDS.includes(f.kind) || !f.quote) continue;
+      const q = norm(f.quote);
+      if (!q || spoken.has(q)) continue;
+      const para = now.find((x) => x.includes(q));
+      if (para && before.has(para)) { carried.push(f); spoken.add(q); }
+    }
+    return [...fresh, ...carried].slice(0, Math.max(REVIEW_NOTE_CAP, fresh.length));
+  }
+
   /* Reusing a verdict after a trivial edit. Cost idea 2, 2026-10-04: any
      change to a sentence gave it a new hash, so fixing "recieve" or adding a
      comma paid for a fresh check of a sentence already judged. Now the new
@@ -3186,7 +3244,7 @@
      results, not verdicts, and dismissals are the user's own: both are kept.
      Bump CACHE_GEN when a model change should invalidate verdicts again. */
   const CACHE_GEN = "2";
-  const VERDICT_CACHE = /^tracely\.widget\.(?:vcache|fcache)(\d*)\./; // group 1: the generation, "" before 2
+  const VERDICT_CACHE = /^tracely\.widget\.(?:vcache|fcache|rcache)(\d*)\./; // group 1: the generation, "" before 2
   function sweepRetiredCaches() {
     if (lsGet("tracely.widget.cacheGen") === CACHE_GEN) return;
     try {
@@ -3218,6 +3276,7 @@
     const VCACHE_KEY = `tracely.widget.vcache${CACHE_GEN}.${DOC_ID}`;
     const SCACHE_KEY = `tracely.widget.scache.${DOC_ID}`;
     const FCACHE_KEY = `tracely.widget.fcache${CACHE_GEN}.${DOC_ID}`;
+    const RCACHE_KEY = `tracely.widget.rcache${CACHE_GEN}.${DOC_ID}`; // the last review (reviewSnapshot)
     sweepRetiredCaches(); // before anything reads a cache
 
     /* ── consent: a Doc is checked only after the user turns Docs on ──────
@@ -3364,7 +3423,7 @@
         // Tracely caches, then retry once at reduced size. Never throw.
         try {
           for (const k of Object.keys(localStorage)) {
-            if (/^tracely\.widget\.(vcache\d*|scache)\./.test(k) && k !== VCACHE_KEY && k !== SCACHE_KEY) lsDel(k);
+            if (/^tracely\.widget\.(vcache\d*|scache|rcache\d*)\./.test(k) && k !== VCACHE_KEY && k !== SCACHE_KEY && k !== RCACHE_KEY) lsDel(k);
           }
         } catch { /* sandboxed */ }
         lsSet(VCACHE_KEY, JSON.stringify(keep.slice(-100)));
@@ -3383,6 +3442,7 @@
         lsDel(`tracely.widget.vcache${CACHE_GEN}.${old}`);
         lsDel(`tracely.widget.scache.${old}`);
         lsDel(`tracely.widget.fcache${CACHE_GEN}.${old}`); // flow issues were never collected here
+        lsDel(`tracely.widget.rcache${CACHE_GEN}.${old}`);
         lsDel(`tracely.widget.dismissed.${old}`);
       }
       lsSet(REG_KEY, JSON.stringify(reg));
@@ -3404,6 +3464,11 @@
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
+    restoreReview(review, lsGet(RCACHE_KEY)); // the same text reads back the same notes, without a new review
+    function persistReview() {
+      const snap = reviewSnapshot(review);
+      if (snap) lsSet(RCACHE_KEY, JSON.stringify(snap)); // full storage: the next reload reviews again, as before
+    }
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
        resume, only once the text has been still REVIEW_IDLE_MS, only when a
@@ -3422,11 +3487,13 @@
       render();
       try {
         const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL, kind });
-        review.findings = Array.isArray(data?.findings) ? data.findings : [];
+        const found = Array.isArray(data?.findings) ? data.findings : [];
+        review.findings = review.lastText == null ? found : carryReviewNotes(review.findings, review.lastText, found, text); // untouched paragraphs keep their notes
         if (kind === "essay") for (const t of essayFeedbackTips(text, review.findings, new Set())) review.seen.set(t.id, t);
         review.lastText = text;
         review.okAt = Date.now();
         review.serving = data?.genre === "resume"; // the model disagrees that it is one: back to the check
+        persistReview();
       } catch (err) {
         review.serving = false; // until a review answers again, the check covers the resume
         if (err?.kind === "not_found") review.unavailable = true;
@@ -8828,6 +8895,7 @@
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
+    const persistReview = () => {}; // a field has no identity a later page load could find it by
     let copiedTipId = null;
     /* Ask /api/review for this resume's bullet and typo notes — only for a
        resume, only once the text has been still REVIEW_IDLE_MS, only when a
@@ -8846,11 +8914,13 @@
       render();
       try {
         const data = await api("/api/review", { text: text.slice(0, REVIEW_MAX_CHARS), model: CHECK_MODEL, kind });
-        review.findings = Array.isArray(data?.findings) ? data.findings : [];
+        const found = Array.isArray(data?.findings) ? data.findings : [];
+        review.findings = review.lastText == null ? found : carryReviewNotes(review.findings, review.lastText, found, text); // untouched paragraphs keep their notes
         if (kind === "essay") for (const t of essayFeedbackTips(text, review.findings, new Set())) review.seen.set(t.id, t);
         review.lastText = text;
         review.okAt = Date.now();
         review.serving = data?.genre === "resume"; // the model disagrees that it is one: back to the check
+        persistReview();
       } catch (err) {
         review.serving = false; // until a review answers again, the check covers the resume
         if (err?.kind === "not_found") review.unavailable = true;

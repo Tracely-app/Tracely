@@ -114,6 +114,21 @@ citation notes too. A citation that is only a surname after a reported claim
 ("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
 author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
 
+## Underlines hold while the text holds
+
+Owner, 2026-10-08: "use tracely at night … wake up and different things are
+underlined". Fact verdicts are kept per sentence with the doc (`VCACHE_KEY`)
+and never asked again while the sentence stands. Since 2.21.32 the review
+(the writing-feedback notes) is kept with the doc too (`RCACHE_KEY`,
+`reviewSnapshot` / `restoreReview`): a reload reads back the same notes and
+makes no call. After an edit, a note about one sentence stays while its
+paragraph is word for word what the last review read (`carryReviewNotes`);
+a changed paragraph, and whole-essay or relational notes (thesis, structure,
+relevance, contradiction, the DBQ's), get the new review's answer. Fields keep
+nothing across loads. Never re-ask the model about text it has already
+answered for: a second answer is a different answer. Tests:
+`server/test/ext-stable-marks.test.js`.
+
 ## Colours and marks
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI
