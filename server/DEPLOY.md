@@ -42,14 +42,21 @@ backup first:
 ```sh
 git -C ~/tracely-repo fetch -q origin
 git -C ~/tracely-repo worktree add --detach /tmp/tracely-deploy origin/main   # clean snapshot
+SHA=$(git -C /tmp/tracely-deploy rev-parse HEAD)
+printf '{"commit":"%s","deployedAt":"%s"}\n' "$SHA" "$(date -u +%FT%TZ)" > /tmp/tracely-deploy/server/release.json   # /api/status.release
 ssh root@45.56.92.67 'cp -a /srv/tracely/app /srv/tracely/app.bak-$(date +%Y%m%d-%H%M%S)'
 rsync -az --delete \
   --exclude node_modules --exclude data --exclude .env \
   --exclude test --exclude .git --exclude '*.log' \
   /tmp/tracely-deploy/server/ root@45.56.92.67:/srv/tracely/app/
 ssh root@45.56.92.67 'chown -R tracely:tracely /srv/tracely/app && systemctl restart tracely'
+server/scripts/healthcheck.sh https://api.jointracely.com --commit "$SHA"
+git -C ~/tracely-repo tag "server/$(date -u +%Y%m%d)-${SHA:0:7}" "$SHA" && git -C ~/tracely-repo push -q origin "server/$(date -u +%Y%m%d)-${SHA:0:7}"
 git -C ~/tracely-repo worktree remove /tmp/tracely-deploy
 ```
+
+`git tag -l 'server/*'` then answers what has been deployed and when, and
+`curl -s https://api.jointracely.com/api/status` carries `release.commit`.
 
 `--delete` is safe: `.env` and `data` are both excluded, so rsync will not
 remove them. The database is outside the target anyway.
