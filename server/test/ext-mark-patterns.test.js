@@ -83,7 +83,9 @@ test("the margin icon: one a line, the most serious kind on it, left of where th
   const lineA1 = rect("The Mongols invented", 96, 100, 18, "matrix(1 0 0 1 0 0)");
   const lineA2 = rect(" the dollar (Smith).", 240, 100, 18, "matrix(1 0 0 1 0 0)");
   const lineB = rect("Trade grew.", 96, 130);
-  const lastVerdictByHash = new Map([["s1", "needs_citation"], ["s2", "false"], ["s3", "note_tip"]]);
+  const lineC = rect("It grew because roads were", 96, 160);
+  const lineD = rect("safe for merchants.", 96, 190);
+  const lastVerdictByHash = new Map([["s1", "needs_citation"], ["s2", "false"], ["s3", "note_tip"], ["s4", "questionable"]]);
   const X = vm.runInContext(`
     ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
     ${sliceBetween(SRC, "  const TALLY_ICON = {", "\n  };\n")}
@@ -93,9 +95,11 @@ test("the margin icon: one a line, the most serious kind on it, left of where th
     ${sliceBetween(SRC, "    function drawMarginIcons(svgBars) {", "    // Docs' small scrolls blit pixels")}
     ({ drawMarginIcons })`, vm.createContext({ document, lastVerdictByHash }));
   // Line A carries a citation note and a wrong fact; line B a writing note.
-  X.drawMarginIcons([{ hash: "s1", node: lineA2 }, { hash: "s2", node: lineA1 }, { hash: "s3", node: lineB }]);
+  // …and s4 is one sentence wrapped over lines C and D.
+  X.drawMarginIcons([{ hash: "s1", node: lineA2 }, { hash: "s2", node: lineA1 }, { hash: "s3", node: lineB }, { hash: "s4", node: lineD }, { hash: "s4", node: lineC }]);
   const icons = parent.children.filter((n) => n.tagName === "svg");
-  assert.equal(icons.length, 2, "one icon a line");
+  assert.equal(icons.length, 3, "one icon a line, and a wrapped sentence gets one, beside its first line");
+  assert.equal(icons[2].attrs.y, String(160 + (18 - 12) / 2));
   const [a, b] = icons;
   assert.equal(a.attrs["data-tracely-margin-icon"], "wrong", "the most serious kind on the line");
   assert.equal(a.style.color, "#d93636");

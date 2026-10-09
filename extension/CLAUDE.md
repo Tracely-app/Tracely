@@ -157,9 +157,33 @@ answered for: a second answer is a different answer. Tests:
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI
 decisions"): red `#d93636` wrong or incoherent, orange `#ff5900`
-questionable, amber `#ffb800` missing citation, grey dotted still checking —
-and never colour alone (`MARK_PATTERN`: solid / dashed / double, one legend).
-Colour only ever means a finding.
+questionable, amber `#ffb800` missing citation, a faint grey still checking —
+and never colour alone. Since 2.21.34 every line is one solid line (owner,
+2026-10-09: "make them all solid and straight line"); the kind is an icon in
+the page's left margin beside the line where each mark starts (`MARK_ICON`,
+`drawMarginIcons`: one a line, the most serious; drawn in Docs' SVG so it
+scrolls and zooms with the text) and in the legend. Colour only ever means a
+finding. Tests: `server/test/ext-mark-patterns.test.js`.
+
+## The hover card, and fix-all's suggestions in the doc
+
+Since 2.21.34 (owner, 2026-10-09: the card "compacts when it is under the
+screen … jumps around"): the card's FULL height decides where it goes
+(`popNaturalHeight` — it used to be measured after its own cap, so near the
+bottom it was squeezed and then judged by the squeezed size); below when it
+fits, else above when it fits, else the roomier side; it keeps its side while
+it fits and always while the pointer is on it (`popHeld`). Tests:
+`server/test/ext-hover-card.test.js`.
+
+"Let Tracely fix these" ("go do all of them and then disappear and just leave
+the accept reject"): the press closes the panel; as each change is ready the
+cursor goes to its underline (only when on screen — never a scroll) and leaves
+a suggestion in the page's right margin, Docs-suggestion style (`fixCardEl`,
+`placeFixCards`: before → after, the source, ✓ Accept / ✕ Reject, stacked and
+following the scroll). The cursor leaves with the last one; a note above the
+launcher has Accept all / Reject all (`fixPingHtml`). The notes above the
+launcher are wired with the chrome, not the panel — they only show while it is
+closed. Tests: `server/test/ext-fix-all.test.js`.
 
 ## Measuring
 

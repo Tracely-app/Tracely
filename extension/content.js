@@ -4674,9 +4674,9 @@
       }
     }
 
-    /* The margin icon (MARK_ICON): one per line that carries a mark — the
-       most serious kind on it — in the page's left margin, level with the
-       line. Drawn like the bars, inside the SVG that holds the line's own
+    /* The margin icon (MARK_ICON): one beside the line where each mark
+       STARTS (a sentence that wraps gets one, not one a line), and one a line
+       — the most serious kind starting there — in the page's left margin. Drawn like the bars, inside the SVG that holds the line's own
        text geometry (left of its leftmost run), so the compositor carries it
        with the text and it scales with the zoom. Marked as ours
        (data-tracely-bar): the next draw's sweep takes it away, and the
@@ -4684,7 +4684,13 @@
        Docs' fallback paths have no margin to put it in. */
     function drawMarginIcons(svgBars) {
       const lines = new Map(); // a line (its SVG parent and baseline) → { parent, ry, rh, tf, kind }
+      const first = new Map(); // each mark's first piece: its top line, then its leftmost
       for (const sb of svgBars) {
+        const y = parseFloat(sb.node.getAttribute("y")), x = parseFloat(sb.node.getAttribute("x"));
+        const cur = first.get(sb.hash);
+        if (!cur || y < cur.y - 1 || (Math.abs(y - cur.y) <= 1 && x < cur.x)) first.set(sb.hash, { sb, y, x });
+      }
+      for (const { sb } of first.values()) {
         const kind = MARK_ICON[lastVerdictByHash.get(sb.hash)];
         const parent = sb.node.parentNode;
         const ry = parseFloat(sb.node.getAttribute("y")), rh = parseFloat(sb.node.getAttribute("height"));
