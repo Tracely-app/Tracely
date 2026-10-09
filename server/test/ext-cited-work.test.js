@@ -396,12 +396,16 @@ test("Docs panel: nothing resolves — the server's note, then the sentence's ow
   assert.equal(w.replaceFor(h), "(Genghis Khan and the, 2022)");
 });
 
-test("Docs panel: the owner's excuse offers both — the cited work before it, and a source for that claim", async () => {
+test("Docs panel: the owner's excuse is deleted, and the citation it excuses looked up — never a search to cite the excuse", async () => {
+  // Owner, 2026-10-08: "tracely is trying to cite this instead of remove it".
+  // Find the cited work still falls into the claim's search when nothing
+  // resolves (below), so no separate Find a source sits beside it.
   const { w, fetched } = loadDocsCited(OWNER, {}, RESOLVED);
   const excuse = w.allTips().find((t) => t.kind === "excuse");
   const card = fakeCard(excuse.id, { tip: true });
   w.decorateCard(card, () => "");
-  assert.match(card.html(), /class="act primary" data-cited="[^"]+">Find the cited work<\/button><button class="act" data-claim-src="[^"]+">Find a source</);
+  assert.match(card.html(), /<button data-tip-del="[^"]+">Delete this sentence<\/button><button class="act" data-cited="[^"]+">Find the cited work<\/button>/);
+  assert.ok(!/data-claim-src=/.test(card.html()), "no search to cite the excuse");
   w.findClaimSource(excuse.id);
   const claim = w.segments.find((s) => s.text === CITED).hash;
   assert.deepEqual(fetched, [claim], "the claim the note excuses, not the note");
