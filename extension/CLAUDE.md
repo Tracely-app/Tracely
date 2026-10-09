@@ -59,6 +59,20 @@ panels and the Docs hover card; Cite in doc and Copy cite exist only on the
 backing list. A server without receipts (no `verified`) behaves as before.
 The server half is `server/lib/sourceVerify.js` (`server/CLAUDE.md`).
 
+## Every card ends in a fix
+
+Owner, 2026-10-08: a card with only Dismiss is a comment, not help. Since
+2.21.26 each note offers the edit it asks for, made in the Doc with Undo:
+an unnamed source is **named** from a backing source ("Some researchers have
+argued" → "Lee (2021) has argued", `nameTheSource`, the style's own marker);
+a line that doesn't belong, a correction left in, a reference listed twice or
+cited nowhere gets **Delete** (asks once more first; `deleteEditFor` replaces
+the passage and a neighbouring sentence with that sentence, because the hook
+never deletes outright); a quote without its page gets a **page box**
+(`pageEditFor`; the writer types the number, Tracely never supplies it); a
+review note with a rewrite gets **Rewrite in doc**. Tests:
+`server/test/ext-card-fixes.test.js`.
+
 ## Colours and marks
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI
