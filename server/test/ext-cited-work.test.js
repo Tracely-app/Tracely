@@ -417,6 +417,29 @@ test("Docs panel: the owner's excuse offers both — the cited work before it, a
   assert.ok(!/data-cited=/.test(v.html()));
 });
 
+test("Docs panel: a note whose fix is taking words out gets Delete; a quote missing its page gets the page box", () => {
+  // Owner, 2026-10-08: "when there is an unamed source, there is only a
+  // dismiss button when there should be one to fix it" (ext-card-fixes.test.js).
+  const { w } = loadDocsCited(ESSAY, {}, RESOLVED);
+  const uncited = w.allTips().find((t) => t.kind === "refuncited");
+  const card = fakeCard(uncited.id, { tip: true });
+  w.decorateCard(card, () => "");
+  assert.match(card.html(), /^<div class="row"><button data-tip-del="[^"]+">Remove from list<\/button>/, "the note's own fix comes first");
+  const stray = "Trade grew under the Mongols across Eurasia. This does not prove anything about trade.\nMerchants carried paper money along the Silk Road.";
+  const s = loadDocsCited(stray, {}, RESOLVED);
+  const key = "This does not prove anything about trade.|residue"; // offTopicTips' id, under HELPERS' hashText
+  const residue = fakeCard(`tip:h${key.length}${key.slice(0, 24)}`, { tip: true });
+  s.w.decorateCard(residue, () => "");
+  assert.match(residue.html(), /data-tip-del="[^"]+">Delete it</, "a panel-only note (no underline) is found too");
+  const quoted = 'Gatsby believed in "the orgastic future that year by year recedes before us" (Fitzgerald).';
+  const g = loadDocsCited(quoted, {}, RESOLVED);
+  const page = g.w.allTips().find((t) => t.kind === "page");
+  const pc = fakeCard(page.id, { tip: true });
+  g.w.decorateCard(pc, () => "");
+  assert.match(pc.html(), /<input type="text" inputmode="numeric" placeholder="Page number, e\.g\. 45" aria-label="Page number" data-page-input="[^"]+" value="" \/><button data-tip-page="[^"]+">Add page<\/button>/);
+  assert.ok(!/data-tip-del=/.test(pc.html()), "a missing page is added, never deleted");
+});
+
 test("Docs panel: an incomplete entry is looked up by its own text and offers Complete entry", async () => {
   const { w, ctx } = loadDocsCited(ESSAY, {}, { resolved: true, matches: [{ ...OL_MATCH, title: "The Travels of Marco Polo", authors: ["Marco Polo"], year: 1958 }] });
   const polo = w.allTips().find((t) => t.kind === "refincomplete");
