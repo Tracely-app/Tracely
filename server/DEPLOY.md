@@ -371,6 +371,17 @@ every request 403.
 `/.well-known/acme-challenge/` is excluded from the proxy so certbot can
 answer HTTP-01 without going through the app.
 
+**The live source search streams** (`POST /api/sources/stream`, server-sent
+events, 2026-10-08): its events must reach the browser as they are written.
+The route sends `Cache-Control: no-cache, no-transform`, which keeps
+`mod_deflate` from compressing (and so holding) them. To check after a deploy:
+`curl -N -X POST https://api.jointracely.com/api/sources/stream -H 'Content-Type: application/json' -d '{"claim":"Water boils at 100 C at sea level."}'`
+should print `data: {"type":"searching"}` at once and the rest over ~10 s
+(it is one real, metered search). If it all arrives at the end, add
+`SetEnvIf Request_URI "^/api/sources/stream" no-gzip` and `flushpackets=on` on
+the `ProxyPass` line. Nothing breaks either way: a buffered stream is just a
+search that looks like the old one.
+
 ## Open ops debt
 
 Everything that was outstanding at launch is done (DNS, TLS, the key, the

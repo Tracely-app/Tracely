@@ -315,9 +315,10 @@ test("the judge works from the text alone, defaults to topic, is told topic incl
 });
 
 test("wired: after the page lookups, billed with the search, retracted dropped, tallies kept out of the frozen response", () => {
-  assert.match(FACTCHECK, /await verifySources\(\{ claim, correction, sources: merged, model: chosenModel \}\)/);
+  assert.match(FACTCHECK, /await verifySources\(\{ claim, correction, sources: merged, model: chosenModel,\s+onProgress:/); // the live search watches it (ext-live-search.test.js)
   assert.match(FACTCHECK, /usage: verified\.usage \? addUsage\(usage, verified\.usage\) : usage/);
   assert.match(FACTCHECK, /const gone = new Set\(verified\.retracted \?\? \[\]\);/);
-  assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, \.\.\.result \} = await findSources/, "the tallies never reach the extension");
+  assert.match(SERVER, /answer = await findSources\(/);
+  assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, \.\.\.result \} = answer;/, "the tallies never reach the extension");
   assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
 });

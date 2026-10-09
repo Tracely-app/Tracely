@@ -2528,6 +2528,99 @@
     return Boolean(err?.offline) || err instanceof TypeError || /failed to fetch/i.test(String(err?.message));
   }
 
+  /* The live source search (POST /api/sources/stream, server 2026-10-08+).
+     Owner, 2026-10-08: "make the search for articles faster or at least
+     ways to make it seem faster". It is the same search and the same final
+     answer as /api/sources, with what is happening sent as it happens:
+     onEvent gets { type: "searching" }, { type: "found", sources: [{ title,
+     url, publisher }] } (real sites, never a stance), { type: "links", urls }
+     (dead links dropped), { type: "read", url, read, from } per source, and
+     { type: "judging", count }. Resolves /api/sources' own body. */
+  // "data: {json}" blocks out of a buffer. A copy of background.js
+  // sseEvents; test/ext-live-search.test.js runs the two side by side.
+  function sseEvents(buffer) {
+    const events = [];
+    let k;
+    while ((k = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, k);
+      buffer = buffer.slice(k + 2);
+      const line = block.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try { events.push(JSON.parse(line.slice(6))); } catch { /* a garbled event is skipped, never fatal */ }
+    }
+    return { events, rest: buffer };
+  }
+  async function apiStream(path, body, onEvent) {
+    const emit = (ev) => { try { onEvent?.(ev); } catch { /* the card's trouble, never the search's */ } };
+    const fail = (r) => Object.assign(new Error(r?.message ?? `HTTP ${r?.status}`), { kind: r?.kind, offline: r?.offline, status: r?.status, started: r?.started !== false });
+    if (useRelay) {
+      let port;
+      try {
+        port = chrome.runtime.connect({ name: "tracely-stream" });
+      } catch {
+        throw new Error("Tracely extension was reloaded — refresh this page");
+      }
+      const result = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (r) => {
+          if (settled) return;
+          settled = true;
+          resolve(r);
+          try { port.disconnect(); } catch { /* already gone */ }
+        };
+        port.onMessage.addListener((m) => {
+          if (m?.type === "event") emit(m.event);
+          else if (m?.type === "end") finish(m.result);
+        });
+        // The worker went away mid-search: whether the server took it on is
+        // unknown, so it is never asked again on its own (that could pay twice).
+        port.onDisconnect.addListener(() => finish({ ok: false, kind: "server", message: "No reply from the Tracely background worker" }));
+        port.postMessage({ type: "tracely-api-stream", path, body });
+      });
+      if (!result?.ok) throw fail(result);
+      return result.data;
+    }
+    // The harness and plain test pages: the server directly.
+    const res = await fetch(`${SERVER}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw fail({ status: res.status, message: data?.error?.message, kind: data?.error?.kind, started: false });
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", done = null, failed = null;
+    for (;;) {
+      const { value, done: end } = await reader.read();
+      if (end) break;
+      const parsed = sseEvents(buffer + decoder.decode(value, { stream: true }));
+      buffer = parsed.rest;
+      for (const ev of parsed.events) {
+        if (ev?.type === "done") done = ev;
+        else if (ev?.type === "error") failed = ev;
+        else emit(ev);
+      }
+    }
+    if (done) { const { type: _t, ...data } = done; return data; }
+    throw fail(failed ? { status: failed.status, message: failed.error?.message, kind: failed.error?.kind } : { status: 502, kind: "server", message: "The search stopped before it finished — try again." });
+  }
+  /* A server from before the live search refuses its route before searching
+     (404, or 403 for a route it does not know) — asked the old way then, and
+     from then on, so a writer never waits on the deploy. A search the server
+     took on and lost is an error like any other: asking again would pay twice. */
+  let liveSearchMissing = false;
+  async function searchSources(body, onEvent) {
+    if (!liveSearchMissing) {
+      try {
+        return await apiStream("/api/sources/stream", body, onEvent);
+      } catch (err) {
+        const missing = err?.started === false && (err.status === 404 || (err.status === 403 && err.kind === "forbidden"));
+        if (!missing) throw err;
+        liveSearchMissing = true;
+      }
+    }
+    return api("/api/sources", body);
+  }
+
   /* "Find the cited work": one /api/compare-source call (citedLookupPlan
      says what is sent). Resolves { resolved, matches, note } and never
      throws. A server from before 2.21.24 refuses the route by origin (403),
@@ -2817,6 +2910,19 @@
       border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
     }
     .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
+    /* The live search: its sites' icons in the panel card, and the "Sources
+       ready" note over the launcher (ink only — colour is for findings). */
+    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .live-strip img { width: 16px; height: 16px; border-radius: 4px; background: var(--surface-2); }
+    .live-strip img.faded { opacity: .35; }
+    .ready-ping {
+      display: flex; align-items: center; gap: 8px; margin: 0 0 10px auto; max-width: 320px;
+      font-size: 12px; font-weight: 500; color: var(--ink);
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-btn);
+      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-lg);
+    }
+    .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -4417,7 +4523,7 @@
       noEdit: "Paste it over the sentence yourself — this document isn't editable from here.",
       appliedTitle: "Sentence fixed", appliedBody: "Your sentence now says what the check found. Undo — or ⌘Z — puts it back exactly as it was.",
       couldNot: "Could not apply",
-      searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
+      searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel", keepWriting: "Keep writing",
       noSources: "No sources found", noBacking: "Nothing backs this as written", couldntRead: "Couldn't read the sources", searchFailed: "Search failed", searchAgain: "Search again",
       insert: "Cite in doc", inserting: "Citing…", name: "Name it in your sentence", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
@@ -4797,6 +4903,7 @@
       }
       if (findSrc) {
         src = dmBtn(POP_COPY.findSource, !target, { wide: Boolean(target) });
+        src.addEventListener("pointerdown", () => prestartClaim(tip.id));
         src.addEventListener("click", () => { findClaimSource(tip.id); });
       }
       const dismiss = dmBtn("Dismiss", false);
@@ -4981,6 +5088,7 @@
       put(dmActions(primary, copy));
       if (t?.segHash) {
         const more = dmBtn(CITED_COPY.different, false, { wide: true });
+        more.addEventListener("pointerdown", () => { fetchSources(t.segHash).catch(() => {}); });
         more.addEventListener("click", () => { startClaimSources(key, t.segHash, t.sentence); });
         put(more);
       }
@@ -5088,6 +5196,7 @@
         started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       };
       const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : POP_COPY.findSource, true);
+      if (!hasRevision && !citedHere) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
       action.addEventListener("click", () => {
         if (hasRevision) { setStep(hash, { step: "fix" }); return; }
         if (citedHere) { findCitedWork(hash); return; }
@@ -5105,6 +5214,7 @@
       put(dmActions(action, dis));
       if (citedHere) {
         const more = dmBtn(hasRevision ? CITED_COPY.find : POP_COPY.findSource, false, { wide: true });
+        if (!hasRevision) more.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
         more.addEventListener("click", () => { if (hasRevision) findCitedWork(hash); else findSource(); });
         put(more);
       }
@@ -5258,11 +5368,18 @@
           put(dmActions(again, cancel));
           return;
         }
-        // Grey: the colour the marks already use for "still checking".
-        put(dmHead(MARK_PENDING, POP_COPY.searching), noteEl(), dmBody(`Searching the web for a source that supports “${truncateClaim(seg.text)}.”`), dmProgress(), dmSkeletons());
-        const cancel = dmBtn(POP_COPY.cancel, false);
-        cancel.addEventListener("click", back);
-        put(dmActions(cancel, dmHint(POP_COPY.searchHint)));
+        // Grey: the colour the marks already use for "still checking". The
+        // live search fills it in as it goes (dmLive): the sites it found and
+        // where each one's reading is.
+        const live = s?.live ?? null;
+        put(dmHead(MARK_PENDING, live ? liveTitle(live) : POP_COPY.searching), noteEl(), dmBody(live ? liveBody(live, seg) : `Searching the web for a source that supports “${truncateClaim(seg.text)}.”`));
+        if (live?.found?.length) put(dmLive(live));
+        else put(dmProgress(), dmSkeletons());
+        // The search goes on with the card closed and says when it is done
+        // (noteSourcesReady); it is never cancelled from here.
+        const keep = dmBtn(POP_COPY.keepWriting, false);
+        keep.addEventListener("click", () => { popPinned = false; hideDocsPopover(); });
+        put(dmActions(keep, dmHint(liveHint(live))));
         return;
       }
       const list = s.list ?? [];
@@ -5690,26 +5807,50 @@
       // the slot, or the sentence vanished) so callers can restore their UI
       // instead of pretending a search is running.
       if (sourcesMap.get(hash)?.list?.length) return true; // cached — never re-search
+      if (sourcesMap.get(hash)?.loading) return true; // already running: started on the press (prestartSearch)
       if (sourcesInflight) return false;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return false;
       const f = cache.get(hash);
       sourcesInflight = true;
-      sourcesMap.set(hash, { loading: true, list: null, copiedUrl: null });
+      // What the live search has said so far (searchSources' events), drawn
+      // by the card while it runs (dmLive, liveSourcesHtml). `shown`: the
+      // sites already animated in, so a repaint never replays their entrance.
+      const live = { stage: "searching", t0: Date.now(), found: [], kept: null, read: {}, shown: new Set() };
+      sourcesMap.set(hash, { loading: true, list: null, copiedUrl: null, live });
       render();
       renderPopSources(hash); // the hover card shows the search as it runs
+      let repaint = 0;
+      const onEvent = (ev) => {
+        if (sourcesMap.get(hash)?.live !== live) return;
+        if (ev?.type === "found" && Array.isArray(ev.sources)) {
+          live.found = ev.sources.filter((x) => x && typeof x.url === "string" && /^https?:/i.test(x.url)).slice(0, 10)
+            .map((x) => ({ title: String(x.title || x.url).slice(0, 200), url: x.url, publisher: String(x.publisher ?? "") }));
+          live.stage = "found";
+        } else if (ev?.type === "links" && Array.isArray(ev.urls)) {
+          live.kept = new Set(ev.urls);
+          live.stage = "reading";
+        } else if (ev?.type === "read" && typeof ev.url === "string") {
+          live.read[ev.url] = ev.read ? (ev.from === "abstract" ? "abstract" : "page") : "unread";
+          live.stage = "reading";
+        } else if (ev?.type === "judging") {
+          live.stage = "judging";
+        } else return;
+        if (!repaint) repaint = (typeof requestAnimationFrame === "function" ? requestAnimationFrame : setTimeout)(() => { repaint = 0; render(); renderPopSources(hash); });
+      };
       try {
-        const data = await api("/api/sources", {
+        const data = await searchSources({
           claim: seg.text,
           correction: f?.revision || undefined,
           context: docText.slice(0, 6000),
           // The model and no effort — the server ignores a client's effort
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
-        });
+        }, onEvent);
         const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
         sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
         persistCaches();
+        noteSourcesReady(hash, list.length, auto);
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
@@ -5720,6 +5861,121 @@
         renderPopSources(hash); // popover may be waiting on this claim
       }
       return true;
+    }
+
+    /* "Keep writing": a search goes on with its card closed, and says so when
+       it is done — a small "Sources ready" note over the launcher, with Show
+       (showSourcesFor). Not for a search the writer is watching, and not for
+       auto-sources (nobody asked). It lets go after 15 seconds. */
+    let readyPing = null; // { hash, n, at }
+    function noteSourcesReady(hash, n, auto) {
+      if (auto) return;
+      const watching = Boolean(popEl?.isConnected) && (popHash === hash || stepOf(popHash).claim === hash);
+      if (watching) return;
+      const at = Date.now();
+      readyPing = { hash, n, at };
+      setTimeout(() => { if (readyPing?.at === at) { readyPing = null; render(); } }, 15_000);
+    }
+    function readyPingHtml() {
+      const seg = readyPing ? segments.find((x) => x.hash === readyPing.hash) : null;
+      if (!seg || expanded) return "";
+      const n = readyPing.n;
+      const what = n ? `${n} source${n === 1 ? "" : "s"} ready` : "Search finished";
+      return `<div class="ready-ping" role="status"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
+    }
+    // Show: the claim's card over its underline when it is on screen, else the panel.
+    function showSourcesFor(hash) {
+      const key = [...popSteps.entries()].find(([, st]) => st.step === "sources" && st.claim === hash)?.[0] ?? hash;
+      if (!popSteps.has(key)) popSteps.set(key, { step: "sources", searched: true });
+      const bar = docsBars.find((b) => b.hash === key && b.el?.isConnected);
+      const rb = bar ? bar.el.getBoundingClientRect() : null;
+      if (rb && rb.width > 0 && rb.top >= 0 && rb.bottom <= innerHeight) {
+        showDocsPopover(bar.hash, { left: rb.left, top: rb.top, bottom: rb.bottom, size: bar.size, centerX: rb.left + rb.width / 2 }, bar);
+        if (popEl && popHash === bar.hash) popPinned = true;
+        render();
+        return;
+      }
+      expanded = true;
+      render();
+      widgetCard(key)?.scrollIntoView({ block: "nearest" });
+    }
+    function widgetCard(key) {
+      try { return root.getRootNode().querySelector(`[data-card="${CSS.escape(key)}"]`); } catch { return null; }
+    }
+    /* "Find a source" starts its search on the press, not the release — the
+       few hundred milliseconds between them are the search's, not the wait's.
+       The click that follows finds it running (fetchSources is idempotent). */
+    function prestartClaim(tipId) {
+      const tip = tipById(tipId);
+      const i = tip ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      if (i >= 0) fetchSources(segments[i].hash).catch(() => {});
+    }
+    /* The live search, as the hover card draws it: each real site it found,
+       its icon, and where its reading is — "Reading…", "Read the abstract",
+       "Read the page", "Couldn't read", "Link is dead". Nothing here says a
+       source backs anything: that is the receipts' answer, after "done". */
+    function liveTitle(live) {
+      if (!live || live.stage === "searching") return "Searching the web";
+      const n = live.kept ? live.kept.size : live.found.length;
+      if (live.stage === "judging") return "Checking which back your sentence";
+      if (live.stage === "reading") return `Reading ${n} source${n === 1 ? "" : "s"}`;
+      return `Found ${n} site${n === 1 ? "" : "s"}`;
+    }
+    function liveBody(live, seg) {
+      if (!live?.found?.length) return `Looking for a source that backs “${truncateClaim(seg.text)}.”`;
+      return "Reading what each one actually says. Only a source whose own words back your sentence is offered.";
+    }
+    const LIVE_STATUS = { found: "", reading: "Reading…", abstract: "✓ Read the abstract", page: "✓ Read the page", unread: "Couldn't read", dead: "Link is dead" };
+    const liveState = (live, url) => (live.kept && !live.kept.has(url) ? "dead" : live.read[url] ?? (live.kept ? "reading" : "found"));
+    const hostName = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
+    function dmLive(live) {
+      const box = el("div", { display: "flex", flexDirection: "column", gap: "4px", flex: "1 1 auto", minHeight: "0", overflowY: "auto" });
+      const motion = !reducedMotion();
+      live.found.forEach((src, i) => {
+        const state = liveState(live, src.url);
+        const faded = state === "dead" || state === "unread";
+        const row = el("div", { display: "flex", alignItems: "center", gap: "10px", padding: "4px 2px", flex: "0 0 auto", opacity: faded ? "0.5" : "1" });
+        const ico = faviconUrl(src.url);
+        let icon;
+        if (ico) {
+          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#f2f2f2" });
+          icon.src = ico;
+          icon.alt = "";
+          icon.referrerPolicy = "no-referrer";
+          icon.addEventListener("error", () => { icon.style.visibility = "hidden"; });
+        } else {
+          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#ebebeb", fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+        }
+        const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column" });
+        meta.appendChild(el("span", { fontSize: "13px", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, src.title));
+        meta.appendChild(el("span", { fontSize: "11.5px", color: DM.hint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, hostName(src.url)));
+        const status = el("span", { fontSize: "12px", color: state === "abstract" || state === "page" ? DM.ink : DM.hint, whiteSpace: "nowrap", flexShrink: "0" }, LIVE_STATUS[state]);
+        row.append(icon, meta, status);
+        box.appendChild(row);
+        if (motion && typeof row.animate === "function") {
+          if (!live.shown.has(src.url)) row.animate([{ opacity: 0, transform: "translateY(6px) scale(.98)" }, { opacity: faded ? 0.5 : 1, transform: "none" }], { duration: 240, delay: i * 70, easing: "ease-out", fill: "backwards" });
+          if (state === "reading") status.animate([{ opacity: 1 }, { opacity: 0.35 }, { opacity: 1 }], { duration: 1100, delay: (i % 4) * 140, iterations: Infinity, easing: "ease-in-out" });
+        }
+        live.shown.add(src.url);
+      });
+      return box;
+    }
+    function liveHint(live) {
+      if (!live) return POP_COPY.searchHint;
+      const sec = Math.max(0, Math.round((Date.now() - live.t0) / 1000));
+      return live.found.length ? `${sec} s` : `${sec} s · usually 10–15`;
+    }
+    // The panel's card while the search runs: the stage, and the sites' icons.
+    function liveSourcesHtml(live) {
+      const line = `<div class="loading">${esc(liveTitle(live))}…</div>`;
+      if (!live?.found?.length) return line;
+      const icons = live.found.map((src) => {
+        const state = liveState(live, src.url);
+        const ico = faviconUrl(src.url);
+        const cls = state === "dead" || state === "unread" ? "faded" : state === "abstract" || state === "page" ? "read" : "";
+        return ico ? `<img class="${cls}" src="${esc(ico)}" alt="" title="${esc(hostName(src.url))}${LIVE_STATUS[state] ? ` — ${esc(LIVE_STATUS[state])}` : ""}" referrerpolicy="no-referrer" />` : "";
+      }).join("");
+      return `${line}<div class="live-strip">${icons}</div>`;
     }
 
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
@@ -7955,7 +8211,7 @@
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
           if (st?.loading) {
-            sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+            sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
@@ -8044,6 +8300,7 @@
       const caret = typing ? shadow.activeElement.selectionStart : null;
       root.innerHTML = `
         ${panelHtml}
+        ${readyPingHtml()}
         ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
@@ -8112,8 +8369,12 @@
           });
         }
         for (const btn of shadow.querySelectorAll("[data-sources]")) {
+          btn.addEventListener("pointerdown", () => { fetchSources(btn.dataset.sources).catch(() => {}); });
           btn.addEventListener("click", () => fetchSources(btn.dataset.sources));
         }
+        // The live search's "Sources ready" note (noteSourcesReady).
+        shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
+        shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
         for (const btn of shadow.querySelectorAll("[data-flow-go]")) {
           btn.addEventListener("click", async () => {
             const fi = activeFlowIssues().find((x) => flowHashOf(x) === btn.dataset.flowGo);
@@ -8160,7 +8421,10 @@
         }
         // "Find the cited work" and what it offers (decorateCard).
         for (const btn of shadow.querySelectorAll("[data-cited]")) btn.addEventListener("click", () => findCitedWork(btn.dataset.cited));
-        for (const btn of shadow.querySelectorAll("[data-claim-src]")) btn.addEventListener("click", () => findClaimSource(btn.dataset.claimSrc));
+        for (const btn of shadow.querySelectorAll("[data-claim-src]")) {
+          btn.addEventListener("pointerdown", () => prestartClaim(btn.dataset.claimSrc));
+          btn.addEventListener("click", () => findClaimSource(btn.dataset.claimSrc));
+        }
         for (const btn of shadow.querySelectorAll("[data-cited-more]")) {
           btn.addEventListener("click", () => {
             const t = citedMap.get(btn.dataset.citedMore)?.target;

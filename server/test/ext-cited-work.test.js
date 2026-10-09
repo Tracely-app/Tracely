@@ -297,7 +297,8 @@ test("wired: the Docs card and panel, and the field panel, offer it; Cite replac
   for (const [name, mode] of [["docs", docs], ["field", field]]) {
     assert.match(mode, /for \(const card of shadow\.querySelectorAll\("\.card\[data-card\]"\)\) decorateCard\(card, cardSources\);/, name);
     assert.match(mode, /shadow\.querySelectorAll\("\[data-cited\]"\)\) btn\.addEventListener\("click", \(\) => findCitedWork\(btn\.dataset\.cited\)\)/, name);
-    assert.match(mode, /shadow\.querySelectorAll\("\[data-claim-src\]"\)\) btn\.addEventListener\("click", \(\) => findClaimSource\(btn\.dataset\.claimSrc\)\)/, name);
+    // (Docs also starts the search on the press: ext-live-search.test.js.)
+    assert.match(mode, /shadow\.querySelectorAll\("\[data-claim-src\]"\)\)(?: \{\s+btn\.addEventListener\("pointerdown", \(\) => prestartClaim\(btn\.dataset\.claimSrc\)\);\s+| )btn\.addEventListener\("click", \(\) => findClaimSource\(btn\.dataset\.claimSrc\)\)/, name);
     assert.match(mode, /if \(!r\.resolved && target\.segHash\) startClaimSources\(key, target\.segHash, target\.sentence\);/, `${name}: an unresolved lookup falls into the sentence's search`);
   }
   assert.match(docs, /docCite\(btn\.dataset\.docCite, btn\.dataset\.i, null, replaceFor\(btn\.dataset\.docCite\)\)/, "the panel's Cite in doc replaces the faulty citation");
@@ -509,7 +510,7 @@ test("the route is on the extension's surface, gated as a lookup, and relayed by
   assert.match(SERVER, /const rate = kind === "sources" \? sourceRate : kind === "lookup" \? lookupRate : checkRate;/);
   assert.match(BG, /const API_PATHS = new Set\(\[[^\]]*"\/api\/compare-source"/, "or api() fails with 'No reply from the Tracely background worker'");
   // Appended at the end: the frozen routes keep their place and their meaning.
-  assert.match(SERVER, /"\/api\/entitlement", "\/api\/account", "\/api\/compare-source"\]\);/);
+  assert.match(SERVER, /"\/api\/entitlement", "\/api\/account", "\/api\/compare-source"(?:, "\/api\/sources\/stream")?\]\);/); // append-only: later routes follow it
 });
 
 const freePort = () => new Promise((resolve, reject) => {

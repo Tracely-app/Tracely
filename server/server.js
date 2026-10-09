@@ -163,7 +163,7 @@ function originAllowed(origin) {
  *   MODEL_ROUTES   — whose failures are logged as model failures
  * server/test/ext-api-paths.test.js keeps background.js's API_PATHS inside
  * EXTENSION_API. */
-const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account", "/api/compare-source"]);
+const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account", "/api/compare-source", "/api/sources/stream"]);
 
 /* Every route that can reach a model, and therefore spend money.
  *
@@ -180,7 +180,7 @@ const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/r
  */
 const PAID_ROUTES = new Set([
   "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/evidence", "/api/compare-source",
-  "/api/watch/critique", "/api/watch/fix", "/api/cite-url",
+  "/api/watch/critique", "/api/watch/fix", "/api/cite-url", "/api/sources/stream",
 ]);
 
 /* The desktop app's AI routes. They are gated by appGate, NOT spendGate, and
@@ -207,14 +207,14 @@ const APP_AI_ROUTES = new Set([
  * handler (lib/failureLog.js): the extension's three model routes, the one
  * paid watch route, and every desktop AI route. A fixed set, so the logged
  * `route` can never be a path carrying an id. */
-const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources", "/api/watch/critique", ...APP_AI_ROUTES]);
+const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources", "/api/sources/stream", "/api/watch/critique", ...APP_AI_ROUTES]);
 
 /* The extension's model routes, which record their spend into `gate.pool`.
  * A call on one of them that fails AFTER the vendor answered (truncated,
  * refused, unparseable) was still billed; the central handler records that
  * cost from the error's tag into the same pool, so the ceiling sees it. The
  * app routes keep their own accounting (appCall), untouched. */
-const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources"]);
+const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources", "/api/sources/stream"]);
 
 // Source searches by one IDENTIFIED caller ("user:" / "install:") on a hosted
 // server: a rolling hourly window per caller, shared by the desktop's
@@ -223,7 +223,9 @@ const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review"
 // extension pool, whatever the caller id, since an install id rotates freely);
 // only the paid pool, which reserves every call, has no global window.
 const callerSearchRate = keyedRateLimiter(SPEND.appCallerSearchesPerHour, 3_600_000);
-const SOURCE_ROUTES = new Set(["/api/sources"]);
+// /api/sources/stream is /api/sources with its progress sent as it happens:
+// one search, one count, one window — every set below names both.
+const SOURCE_ROUTES = new Set(["/api/sources", "/api/sources/stream"]);
 /* Routes that LOOK SOMETHING UP and reach no model: /api/compare-source asks
  * Crossref and Open Library for the writer's own citation and scores the
  * answers lexically. It used to ride as a "sources" route, which was harmless
@@ -629,6 +631,7 @@ const WORST_CALL = {
   // prompt and schema; maxTokens 6,000 in runReview.
   "/api/review": { input: 6_000, output: 6_000, webSearchCalls: 0 },
   "/api/sources": { input: 40_000, output: 6_000, webSearchCalls: 3 },
+  "/api/sources/stream": { input: 40_000, output: 6_000, webSearchCalls: 3 },
 };
 function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
@@ -1235,7 +1238,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/sources") {
+    if (req.method === "POST" && (url.pathname === "/api/sources" || url.pathname === "/api/sources/stream")) {
+      const live = url.pathname === "/api/sources/stream";
       loadEnvFile();
       if (!hasApiKey() && !MOCK) {
         json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
@@ -1297,11 +1301,40 @@ const server = http.createServer(async (req, res) => {
       // (lib/seenClaims.js) — a hash, never the claim, never on disk — so the
       // hit rate is known before anyone decides whether to build the cache.
       const wouldHit = noteClaimSeen(claim);
+      /* The live search (POST /api/sources/stream, extension 2.21.29+): the
+       * same search and the same final answer, with what is happening sent as
+       * it happens — server-sent events, because Apache passes them through
+       * unbuffered; no-transform keeps compression from holding them. Every
+       * refusal above (bad request, the windows, the quota) has already
+       * answered as plain JSON with its status, exactly as /api/sources does.
+       * Events: searching → found (titles and links only) → links → read (one
+       * per source) → judging → done ({ ...the /api/sources body }) or error
+       * ({ status, error }). Never a stance before the receipts. */
+      let send = null, foundSent = false;
+      if (live) {
+        res.on("error", () => {}); // a reader that left mid-search: the search still finishes and is billed
+        res.writeHead(200, { ...cors, "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
+        send = (ev) => { if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(ev)}\n\n`); };
+        send({ type: "searching" });
+      }
+      const onProgress = live ? (ev) => { if (ev.type === "found") foundSent = true; send(ev); } : null;
+      let answer;
+      try {
+        answer = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK, onProgress });
+      } catch (err) {
+        if (!live) throw err;
+        // The headers are out: the failure goes down the stream in
+        // /api/sources' own error shape, and the central handler below still
+        // logs it and records any billed cost.
+        send({ type: "error", status: err instanceof CheckError ? err.status : 500, error: err instanceof CheckError ? { kind: err.kind, message: err.message, retryAfter: err.retryAfter } : { kind: "server", message: "Internal server error" } });
+        res.end();
+        throw err;
+      }
       // `verified` and `retracted` here are the search's tallies, for the log
       // line only — /api/sources is frozen. Each SOURCE carries its own
       // receipt (verified, readFrom, quote: additive optional fields,
       // lib/sourceVerify.js), and those do reach the client.
-      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, ...result } = await findSources({ claim, correction, context, model: modelUsed, effort: level, mock: MOCK });
+      const { webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, ...result } = answer;
       // For the log line only: what the tool billed and what the server filled
       // in afterwards — the two numbers that say what a search costs and
       // whether the citation fields are coming from pages or from us.
@@ -1310,13 +1343,19 @@ const server = http.createServer(async (req, res) => {
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
       const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
-      console.log(`[tracely] /api/sources ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
       // search more than once per answer, so the calls are counted.
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, webSearchCalls: searchFee(webSearchCalls), pool: gate.pool });
-      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started }, cors);
+      const body = { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started };
+      if (!live) { json(res, 200, body, cors); return; }
+      // A mock answer (and any path that skipped the search's progress) still
+      // says what it found before it says it is done.
+      if (!foundSent) send({ type: "found", sources: result.sources.map((x) => ({ title: String(x.title ?? ""), url: String(x.url ?? ""), publisher: String(x.publisher ?? "") })) });
+      send({ type: "done", ...body });
+      res.end();
       return;
     }
 
@@ -1868,7 +1907,8 @@ const server = http.createServer(async (req, res) => {
         console.error("[tracely] could not record a failed call's spend:", e?.message);
       }
     }
-    if (res.headersSent) { res.destroy(); return; }
+    // A live search that failed has already sent its error and ended.
+    if (res.headersSent) { if (!res.writableEnded) res.destroy(); return; }
     if (err instanceof CheckError) {
       json(res, err.status, { error: { kind: err.kind, message: err.message, retryAfter: err.retryAfter } }, cors);
     } else {
