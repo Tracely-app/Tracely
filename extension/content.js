@@ -7330,7 +7330,21 @@
         // carries — so what it covers reads as underneath, not gone.
         const flowBottom = flow[flow.length - 1].top + para.h;
         if (flowBottom > g.bottom + 1) {
-          const sx = g.left - 6, sw = g.right - g.left + 12, sy = g.bottom + 1, sh = flowBottom + 3 - sy;
+          const sx = g.left - 6, sw = g.right - g.left + 12, sy = g.bottom + 1;
+          // Its bottom snaps past every Docs line it touches — and Tracely's own underline under that
+          // line — so a line is under it whole, never cut in half.
+          let bottom = flowBottom + 2;
+          const marks = docsBars.filter((b) => b.el?.isConnected && b.el.style.display !== "none").map((b) => {
+            const r = b.el.getBoundingClientRect();
+            return { left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height };
+          });
+          for (let grew = true; grew;) {
+            grew = false;
+            for (const r of [...visibleRuns(), ...marks]) {
+              if (r.top < bottom && r.bottom > sy && r.right > sx && r.left < sx + sw && r.bottom + 2 > bottom) { bottom = r.bottom + 2; grew = true; }
+            }
+          }
+          const sh = bottom - sy;
           ctx.save();
           ctx.beginPath();
           ctx.rect(sx, sy, sw, sh + 16); // clipped to its own width and below its top: the shadow falls under it only

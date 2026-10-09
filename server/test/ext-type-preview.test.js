@@ -647,9 +647,17 @@ test("inline: the new words are typed IN the line, in the document's font, and t
   // The text caret at the end of what was typed; the cursor parked beside where it began.
   assert.deepEqual(at(t.byAttr("data-tracely-type-caret")), [startX + 17 * CHAR_W, 130]);
   // Past the paragraph, the overflow line is a sheet lifted over the page: opaque, a shadow under it,
-  // from the paragraph's last line (bottom 208) to the overflow line's bottom (238) + 3, no taller.
-  assert.ok(d.some((r) => r.op === "rect" && r.fill === "#fff" && r.shadow === 8 && r.x === 94 && r.y === 209 && r.w === 348 && r.h === 32), "the sheet");
+  // from the paragraph's last line (bottom 208) down past the overflow line (238) — and snapped past the
+  // Docs line it touches ("Next paragraph.", 230–248) + 2, so that line is under it whole, not cut in half.
+  const sheet = d.find((r) => r.op === "rect" && r.shadow);
+  assert.deepEqual([sheet.fill, sheet.shadow, sheet.x, sheet.y, sheet.w, sheet.h], ["#fff", 8, 94, 209, 348, 248 + 2 - 209]);
   assert.equal(d.filter((r) => r.shadow).length, 1, "only the sheet casts a shadow");
+  for (const n of t.svg) {
+    const r = n.getBoundingClientRect();
+    const touches = r.top < sheet.y + sheet.h && r.bottom > sheet.y;
+    const whole = r.top >= sheet.y && r.bottom <= sheet.y + sheet.h;
+    assert.ok(!touches || whole, `no Docs line partly covered: "${n.getAttribute("aria-label")}" (${r.top}–${r.bottom})`);
+  }
   // The card in the right margin — the column's right edge (436) + 16 — level with the first changed line.
   const bar = t.bubble();
   assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [436 + 16, 130]);
@@ -672,6 +680,24 @@ test("inline: at another zoom the font is scaled by the run's drawn width over i
   assert.equal(first.font, "20.000px Georgia", "16px drawn 25% wider is 20px");
   assert.equal(Math.round(first.x * 10) / 10, 100 + 14 * 10 + 0.6 * 10, "after the strike, in the zoomed run's own units");
   assert.equal(first.y, 130 * 1.25 + ((22.5 - 20) / 2 + 16), "baseline from the zoomed box");
+  t.fire("keydown", { key: "Escape" });
+  await p;
+});
+
+test("the overflow sheet never cuts a Docs line in half — it grows past every line it touches, one after another", async () => {
+  // Two lines below, staggered so covering the first reaches into the second.
+  const lines = [...PARA_LINES.slice(0, 4), { text: "Next paragraph.", top: 225 }, { text: "And one more line.", top: 244 }, { text: "Far below.", top: 300 }];
+  const t = loadPreview({ lines, docText: PARA_DOC });
+  // Tracely's own underline under the second line (just below its text box) goes under with it.
+  t.w.setBars([{ hash: "x", size: 18, el: Object.assign(t.doc.body.appendChild(new FakeEl(t.doc, "div")), { rect: { left: 100, top: 263, width: 120, height: 2 } }) }]);
+  const p = t.w.showTypePreview("fix:a", fixJob());
+  const sheet = t.drawn().find((r) => r.op === "rect" && r.shadow);
+  assert.equal(sheet.y + sheet.h, 263 + 2 + 2, "past the second line it touched and its underline, + 2");
+  for (const n of t.svg) {
+    const r = n.getBoundingClientRect();
+    const touches = r.top < sheet.y + sheet.h && r.bottom > sheet.y;
+    assert.ok(!touches || (r.top >= sheet.y && r.bottom <= sheet.y + sheet.h), `"${n.getAttribute("aria-label")}" partly covered`);
+  }
   t.fire("keydown", { key: "Escape" });
   await p;
 });
