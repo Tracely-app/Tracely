@@ -3226,6 +3226,7 @@
     }
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -8476,6 +8477,7 @@
     function fixSettle(item, status, why = "") {
       item.status = status;
       item.why = why;
+      if (status === "ready" && !item.dropped) fixTourPush(item);
       render();
     }
     async function prepareFix(item, b) {
@@ -8505,13 +8507,20 @@
     function prepareFixes() {
       if (fixBatch?.preparing || fixBatch?.applying || docBusy || !walkOffered()) return;
       const plan = walkInputs();
-      const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "" })), left: plan.left, preparing: true, stopped: false, applying: false };
+      const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "", dropped: false })), left: plan.left, preparing: true, stopped: false, applying: false };
       fixBatch = b;
+      fixTour = { queue: [], running: false };
+      expanded = false; // the panel gets out of the way: the suggestions go in the doc
       render();
       Promise.allSettled(b.items.map((it) => prepareFix(it, b).catch((err) => {
         console.debug(`[tracely] fix-all: ${err?.message ?? err}`);
         fixSettle(it, "none", "something went wrong");
-      }))).then(() => { if (fixBatch === b) { b.preparing = false; render(); } });
+      }))).then(() => {
+        if (fixBatch !== b) return;
+        b.preparing = false;
+        if (!fixTour?.running) tcCursorHide();
+        render();
+      });
     }
     function stopFixes() {
       const b = fixBatch;
@@ -8525,6 +8534,12 @@
       if (fixBatch?.applying) return;
       if (fixBatch) fixBatch.stopped = true;
       fixBatch = null;
+      fixTour = null;
+      tcCursorHide();
+      render();
+    }
+    function rejectAllFixes() {
+      for (const it of fixBatch?.items ?? []) if (it.status === "ready") { it.status = "skipped"; it.why = ""; }
       render();
     }
     function skipFix(i) {
@@ -8598,6 +8613,180 @@
           ${it.status === "ready" ? `<div class="row"><button class="act primary" data-fx-accept="${i}"${docBusy || fixBatch?.applying ? " disabled" : ""}>${FIX_COPY.accept}</button><button class="act" data-fx-skip="${i}">${FIX_COPY.skip}</button></div>`
             : state ? `<div class="fx-state">${busy ? `<span class="deep-spin"></span>` : ""}${esc(state)}</div>` : ""}
         </div>`;
+    }
+    /* ── the suggestions, in the doc ──────────────────────────────────────
+       Owner, 2026-10-09: "the let tracely fix these it should go do all of
+       them and then disappear and just leave the accept reject multiple
+       times instead of waiting after each turn". So the press closes the
+       panel, and as each change is ready Tracely's cursor goes to its
+       underline (when it is on screen — the doc is never scrolled for it),
+       and leaves a suggestion there, in the page's right margin the way
+       Docs' own suggestions sit: what changes, its source, ✓ Accept and
+       ✕ Reject. The cursor goes when the last one is down; the suggestions
+       stay, stacked beside their lines and following the scroll, until the
+       writer answers each — or all, from the note above the launcher. Accept
+       is acceptFix, the panel list's own (it lists the same changes). */
+    const FIX_CARD_W = 248;
+    let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
+    let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
+    let fixCardsRaf = 0;
+    function fixBarFor(key) {
+      let best = null, top = Infinity;
+      for (const b of docsBars) {
+        if (b.hash !== key || !b.el?.isConnected || b.el.style.display === "none" || b.el.style.opacity === "0") continue;
+        const t = b.el.getBoundingClientRect().top;
+        if (t < top) { top = t; best = b; }
+      }
+      return best;
+    }
+    function fixTourPush(item) {
+      if (!fixTour) { item.dropped = true; return; }
+      fixTour.queue.push(item);
+      if (!fixTour.running) runFixTour(fixTour);
+    }
+    async function fixGlide(x, y) {
+      const c = tcCursor();
+      const x0 = c.x < 0 ? innerWidth - 60 : c.x, y0 = c.y < 0 ? innerHeight - 60 : c.y; // from the launcher the first time
+      if (reducedMotion()) { tcCursorAt(x, y); return; }
+      const steps = Math.round(tpClamp(Math.hypot(x - x0, y - y0) / 40, 6, 16));
+      for (let k = 1; k <= steps; k++) {
+        const e = tpEase(k / steps);
+        tcCursorAt(x0 + (x - x0) * e, y0 + (y - y0) * e);
+        await tcSleep(18);
+      }
+    }
+    async function runFixTour(t) {
+      t.running = true;
+      try {
+        while (t.queue.length && fixTour === t) {
+          const it = t.queue.shift();
+          if (it.status !== "ready" || it.dropped) continue;
+          const bar = fixBarFor(it.key);
+          const r = bar?.el.getBoundingClientRect();
+          const seen = Boolean(r && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && !document.hidden);
+          if (seen) {
+            await fixGlide(r.left + Math.min(r.width / 2, 30), r.top - (bar.size || 14) * 0.45);
+            for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
+          }
+          it.dropped = true;
+          paintFixCards();
+          if (seen) await tcSleep(140);
+        }
+      } finally {
+        t.running = false;
+        if (fixTour === t && !fixBatch?.preparing) tcCursorHide();
+      }
+    }
+    // One suggestion: the change in the writer's words, and its two answers.
+    function fixCardEl(it, i) {
+      const color = it.verdict ? MARK_COLORS[it.verdict] : MARK_COLORS[CITE_TIP_KINDS.includes(it.kind) ? "cite_tip" : "note_tip"];
+      const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
+      const card = el("div", {
+        position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "10px 12px 12px",
+        background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
+        pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "6px", fontFamily: APP.font, color: DM.ink,
+        fontSize: "12.5px", lineHeight: "1.45", visibility: "hidden", WebkitFontSmoothing: "antialiased",
+      });
+      card.setAttribute("data-tracely-fix-card", "");
+      card.dataset.key = it.key;
+      const top = el("div", { display: "flex", alignItems: "center", gap: "7px", fontWeight: "600", fontSize: "12px" });
+      top.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" }), el("span", {}, `${FIX_ACT[it.act]} · ${flag}`));
+      card.appendChild(top);
+      const plan = it.job ? previewPlan(it.job) : { edits: [], lines: [] };
+      const e = plan.edits[0];
+      if (e) {
+        const d = previewDiff(e.find, e.next);
+        const diff = el("div", { color: DM.body });
+        diff.append(document.createTextNode(tpClip(d.keepBefore, 46, true)));
+        if (d.removed.trim()) diff.appendChild(el("span", { textDecoration: "line-through", color: "#8a8b90" }, d.removed));
+        if (d.inserted.trim()) diff.appendChild(el("span", { fontWeight: "600", color: DM.ink, background: "#efeff2", borderRadius: "3px", padding: "0 2px" }, d.inserted));
+        diff.append(document.createTextNode(tpClip(d.keepAfter, 30, false)));
+        card.appendChild(diff);
+      }
+      for (const l of plan.lines) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px" }, `+ ${tpClip(l.line, 80, false)}`));
+      if (it.src) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, `Source: ${it.src.title}`));
+      if (it.status === "ready") {
+        const row = el("div", { display: "flex", gap: "6px", marginTop: "2px" });
+        const busy = docBusy || Boolean(fixBatch?.applying);
+        const yes = dmBtn("✓ Accept", true, { disabled: busy });
+        const no = dmBtn("✕ Reject", false, { disabled: busy });
+        for (const b of [yes, no]) Object.assign(b.style, { padding: "5px 11px", fontSize: "12px" });
+        yes.addEventListener("click", () => acceptFix(i));
+        no.addEventListener("click", () => skipFix(i));
+        row.append(yes, no);
+        card.appendChild(row);
+      } else {
+        const why = it.status === "applying" ? FIX_COPY.applying : it.why;
+        const row = el("div", { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", color: DM.body, fontSize: "12px" }, why);
+        if (it.status === "failed") {
+          const x = dmBtn("✕", false);
+          Object.assign(x.style, { padding: "3px 8px", fontSize: "11px" });
+          x.addEventListener("click", () => { it.status = "skipped"; render(); });
+          row.appendChild(x);
+        }
+        card.appendChild(row);
+      }
+      return card;
+    }
+    // Built when what they show changes; placed every frame (placeFixCards).
+    function paintFixCards() {
+      const b = fixBatch;
+      const items = b ? b.items.map((it, i) => [it, i]).filter(([it]) => it.dropped && ["ready", "applying", "failed"].includes(it.status)) : [];
+      if (!items.length) {
+        fixCardsEl?.remove();
+        fixCardsEl = null;
+        if (fixCardsRaf) { cancelAnimationFrame(fixCardsRaf); fixCardsRaf = 0; }
+        return;
+      }
+      if (!fixCardsEl?.isConnected) {
+        fixCardsEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "901", pointerEvents: "none" });
+        fixCardsEl.setAttribute("data-tracely-fix-cards", "");
+        document.documentElement.appendChild(fixCardsEl);
+      }
+      const sig = items.map(([it, i]) => `${i}:${it.status}:${it.why}`).join("|") + (docBusy || b.applying ? "|busy" : "");
+      if (fixCardsEl.dataset.sig !== sig) {
+        fixCardsEl.dataset.sig = sig;
+        fixCardsEl.textContent = "";
+        for (const [it, i] of items) fixCardsEl.appendChild(fixCardEl(it, i));
+      }
+      if (!fixCardsRaf) fixCardsRaf = requestAnimationFrame(placeFixCards);
+    }
+    // Beside each line, in the page's right margin; stacked so none covers another; only while its line is in view.
+    function placeFixCards() {
+      fixCardsRaf = 0;
+      if (!fixCardsEl?.isConnected || !fixCardsEl.children.length) return;
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+      const placed = [];
+      for (const card of fixCardsEl.children) {
+        const bar = fixBarFor(card.dataset.key);
+        const r = bar ? bar.el.getBoundingClientRect() : null;
+        if (!r || r.bottom < clip.top || r.top > clip.bottom) { card.style.visibility = "hidden"; continue; }
+        const page = bar.el.closest?.(".kix-page-paginated");
+        const right = page ? page.getBoundingClientRect().right : r.right;
+        placed.push({ card, x: Math.max(8, Math.min(right + 14, innerWidth - FIX_CARD_W - 12)), want: r.top - 10 });
+      }
+      placed.sort((a, b) => a.want - b.want);
+      let floor = clip.top + 6;
+      for (const p of placed) {
+        const top = Math.max(p.want, floor);
+        const h = p.card.offsetHeight;
+        p.card.style.visibility = top + Math.min(h, 60) > clip.bottom ? "hidden" : "visible";
+        p.card.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(top)}px)`;
+        floor = top + h + 8;
+      }
+      fixCardsRaf = requestAnimationFrame(placeFixCards);
+    }
+    // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
+    function fixPingHtml() {
+      const b = fixBatch;
+      if (!b || expanded) return "";
+      const ready = b.items.filter((it) => it.status === "ready").length;
+      if (!ready && !b.preparing) return "";
+      const busy = docBusy || b.applying ? " disabled" : "";
+      const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
+      return `<div class="ready-ping fix-ping" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
+        + `${ready > 1 ? `<button class="act primary" data-fxp-all="1"${busy}>Accept all</button>` : ""}${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
     }
     function walkStripHtml() {
       const b = fixBatch;
@@ -8813,7 +9002,7 @@
       const caret = typing ? shadow.activeElement.selectionStart : null;
       root.innerHTML = `
         ${panelHtml}
-        ${readyPingHtml()}
+        ${readyPingHtml()}${typeof fixPingHtml === "function" ? fixPingHtml() : "" /* (absent from server/test's slices of render) */}
         ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
@@ -8831,6 +9020,14 @@
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       wireChrome(shadow, () => { expanded = false; render(); }, render);
+      // The notes above the launcher show while the panel is CLOSED, so they are
+      // wired here, not with the panel: the live search's "Sources ready"
+      // (noteSourcesReady) and Let Tracely fix these's suggestions (fixPingHtml).
+      shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
+      shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
+      shadow.querySelector("[data-fxp-all]")?.addEventListener("click", () => acceptAllFixes());
+      shadow.querySelector("[data-fxp-none]")?.addEventListener("click", () => rejectAllFixes());
+      if (typeof paintFixCards === "function") paintFixCards(); // the suggestions in the doc follow every change of state
       if (expanded) {
         shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);
         // "Let Tracely fix these" (the Type preview block): start, and Stop.
@@ -8890,9 +9087,6 @@
           btn.addEventListener("pointerdown", () => { fetchSources(btn.dataset.sources).catch(() => {}); });
           btn.addEventListener("click", () => fetchSources(btn.dataset.sources));
         }
-        // The live search's "Sources ready" note (noteSourcesReady).
-        shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
-        shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
         for (const btn of shadow.querySelectorAll("[data-flow-go]")) {
           btn.addEventListener("click", async () => {
             const fi = activeFlowIssues().find((x) => flowHashOf(x) === btn.dataset.flowGo);

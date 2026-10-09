@@ -29,12 +29,48 @@ const REV = "The Mongols used paper money.";
 const CITES = ["Trade grew by 40 percent under the Mongols.", "Merchants paid 3 percent tax.", "Exactly 98% of trade passed through Mongol cities.", "Paper money circulated in 1260."];
 const STRAY = "Pizza originated in Italy.";
 
+/* The page, as far as the suggestions in the doc can see it: elements with
+ * styles, children and click listeners; nothing is laid out. */
+function fakeNode(tag) {
+  const n = {
+    tagName: tag, style: {}, dataset: {}, attrs: {}, children: [], listeners: {}, parent: null, _text: "", disabled: false, type: "",
+    get isConnected() { return Boolean(this.parent); },
+    get textContent() { return this._text + this.children.map((c) => c.textContent).join(""); },
+    set textContent(v) { this._text = String(v); for (const c of this.children) c.parent = null; this.children = []; },
+    get offsetHeight() { return 90; },
+    setAttribute(k, v) { this.attrs[k] = v; }, hasAttribute(k) { return k in this.attrs; },
+    appendChild(c) { c.parent = this; this.children.push(c); return c; },
+    append(...cs) { for (const c of cs) this.appendChild(c); },
+    remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); this.parent = null; },
+    addEventListener(t, fn) { (this.listeners[t] ??= []).push(fn); },
+    click() { for (const fn of this.listeners.click ?? []) fn(); },
+  };
+  return n;
+}
+function fakeDocument() {
+  const root = fakeNode("html");
+  root.parent = { children: [] }; // connected
+  return {
+    documentElement: root, hidden: false,
+    createElement: (t) => fakeNode(t),
+    createTextNode: (t) => Object.assign(fakeNode("#text"), { _text: String(t) }),
+    querySelector: () => null,
+  };
+}
+const allNodes = (n) => [n, ...n.children.flatMap(allNodes)];
+
 function load() {
   const clock = { t: 1_000_000 };
-  const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0 };
+  const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0 };
+  const document = fakeDocument();
+  // Every flag's underline on screen, one line apart, on a page whose right edge is at 900px.
+  const page = { getBoundingClientRect: () => ({ right: 900 }) };
+  const bar = (hash, i) => ({ hash, size: 18, el: { isConnected: true, style: {}, closest: () => page, getBoundingClientRect: () => ({ left: 100, right: 400, width: 300, top: 100 + i * 40, bottom: 103 + i * 40 }) } });
+  const docsBars = ["s1", "c0", "c1", "c2", "c3", "tip:x"].map(bar);
   const ctx = vm.createContext({
-    clock, log, console,
+    clock, log, console, document, docsBars, innerWidth: 1400, innerHeight: 900,
     Date: { now: () => clock.t },
+    requestAnimationFrame: () => 1, cancelAnimationFrame: () => {},
     // A timer jumps the clock and fires on the next turn: nothing here really waits.
     setTimeout: (fn, ms = 0) => { clock.t += ms; setImmediate(fn); return 0; },
   });
@@ -42,6 +78,15 @@ function load() {
   const X = vm.runInContext(`
     const harness = null;
     const FEATURES = { typePreview: true };
+    const APP = { font: "Test Sans" };
+    let expanded = true, docsScroller = null;
+    const reducedMotion = () => true;
+    // Tracely's cursor, as far as the tour can see it.
+    const tcCur = { x: -100, y: -100 };
+    function tcCursor() { return tcCur; }
+    function tcCursorAt(x, y) { tcCur.x = x; tcCur.y = y; log.cursor.push([Math.round(x), Math.round(y)]); }
+    function tcCursorPress() {}
+    function tcCursorHide() { tcCur.x = tcCur.y = -100; log.hides++; }
     ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
     ${sliceBetween(SRC, "  const VERDICT_LABEL =", "\n")}
     function hashText(s) { return "h" + s.length; }
@@ -51,6 +96,11 @@ function load() {
     ${sliceBetween(SRC, "    function previewDiff(", "    function previewLineRows(")}
     ${sliceBetween(SRC, "    function walkPlan(", "    /* Where the cursor starts")}
     ${sliceBetween(SRC, "    const tpClip =", "\n")}
+    ${sliceBetween(SRC, "    const tpClamp =", "\n")}
+    ${sliceBetween(SRC, "    const tpEase =", "\n")}
+    ${sliceBetween(SRC, "    const DM = { // index.css .docmark-*", "    /* The app's copy")}
+    ${sliceBetween(SRC, "    function el(tag, style, text) {", "    function dmHead(")}
+    ${sliceBetween(SRC, "    function dmBtn(", "    /* A hint-styled control")}
     ${sliceBetween(SRC, "    const editGate =", "\n")}
 
     // The doc, and what the batch reads of it.
@@ -70,7 +120,7 @@ function load() {
     const docEditState = new Map();
     const setEditState = () => {};
     let renders = 0;
-    const render = () => { renders++; };
+    const render = () => { renders++; paintFixCards(); }; // as the Docs render does
     let previewDocEdit = async (key) => { log.previews.push(key); return false; };
 
     // Searches: c2 finds nothing that backs it.
@@ -107,9 +157,10 @@ function load() {
       reseg();
     }
     ${sliceBetween(SRC, '    /* ── "Let Tracely fix these": everything prepared', "    if (FEATURES.typePreview) {")}
-    ({ prepareFixes, stopFixes, closeFixes, acceptFix, acceptAllFixes, skipFix, walkStripHtml, runDocEdit,
-       batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; } })`, ctx);
-  return { X, log, clock };
+    ({ prepareFixes, stopFixes, closeFixes, acceptFix, acceptAllFixes, skipFix, rejectAllFixes, walkStripHtml, fixPingHtml, placeFixCards, runDocEdit,
+       batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
+       cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null })`, ctx);
+  return { X, log, clock, document };
 }
 // Let every chain of jumps run out.
 const drain = async (cond = () => false, n = 4000) => { for (let i = 0; i < n && !cond(); i++) await new Promise((r) => setImmediate(r)); };
@@ -119,7 +170,8 @@ test("one press prepares every change: searches at once, nothing reaches the doc
   const { X, log } = load();
   assert.match(X.walkStripHtml(), /Tracely can prepare 6 of these fixes at once — then you choose what goes in.*data-walk-go="1">Let Tracely fix these</s);
   X.prepareFixes();
-  assert.match(X.walkStripHtml(), /Preparing 6 fixes · 0 ready/);
+  assert.equal(X.expanded(), false, "the panel gets out of the way");
+  assert.match(X.walkStripHtml(), /Preparing 6 fixes · 0 ready/, "(and lists the same changes when it is opened)");
   await drain(() => !X.batch().preparing);
   assert.deepEqual(statuses(X), ["s1:ready", "c0:ready", "c1:ready", "c2:none (no source backs it)", "c3:ready", "tip:x:ready"]);
   assert.equal(log.sent.length, 0, "nothing reached the doc");
@@ -202,4 +254,43 @@ test("Stop leaves what is ready and prepares nothing more; a change whose senten
   assert.equal(await b.X.acceptFix(0), false);
   assert.match(statuses(b.X)[0], /^gone:failed \(the doc changed — use its card\)$/);
   assert.equal(b.log.sent.length, 0);
+});
+
+test("it goes to each one, then leaves: a suggestion beside every change in the doc, each with Accept and Reject", async () => {
+  const { X, log } = load();
+  X.prepareFixes();
+  assert.match(X.fixPingHtml(), /Preparing fixes · 0 ready/, "the note above the launcher says it is working");
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  // The cursor went to each underline, in the order the changes got ready, and left.
+  const visits = log.cursor.map(([x, y]) => `${x},${y}`);
+  assert.equal(new Set(visits).size, 5, `one visit per prepared change: ${visits}`);
+  assert.ok(log.hides >= 1, "and it is gone once the last one is down");
+  // Five suggestions in the doc (c2 had no source that backs it), each its change and its two answers.
+  const layer = X.cards();
+  assert.ok(layer, "the suggestions are in the page");
+  const cards = layer.children;
+  assert.deepEqual(plain(cards.map((c) => c.dataset.key)), ["s1", "c0", "c1", "c3", "tip:x"]);
+  const first = allNodes(cards[0]).map((n) => n._text).join("|");
+  assert.match(first, /Fix · Contradicted — check this fact/);
+  assert.match(first, /invented the American dollar\|used paper money/, "what goes, what comes in");
+  assert.match(allNodes(cards[1]).map((n) => n._text).join("|"), /Source: Backs c0/);
+  const buttons = (c) => allNodes(c).filter((n) => n.tagName === "button");
+  assert.deepEqual(plain(buttons(cards[0]).map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
+  assert.match(X.fixPingHtml(), /5 suggestions in your doc.*data-fxp-all="1">Accept all<.*data-fxp-none="1">Reject all</s);
+  // Placed beside their lines, in the page's right margin, none on another.
+  X.placeFixCards();
+  const ys = cards.map((c) => Number(c.style.transform.match(/translate\((\d+)px, (\d+)px\)/)[2]));
+  assert.ok(cards.every((c) => c.style.transform.startsWith("translate(914px,")), "right of the page (900px) + 14");
+  for (let i = 1; i < ys.length; i++) assert.ok(ys[i] >= ys[i - 1] + 90 + 8, `stacked, not overlapping: ${ys}`);
+  // Accept one from its suggestion: in, with no preview; Reject another; then Reject all.
+  buttons(cards[0])[0].click();
+  await drain(() => X.batch().items[0].status === "applied");
+  assert.deepEqual(plain(log.sent.map((x) => x.key)), ["fix:s1"]);
+  assert.equal(log.previews.length, 0);
+  buttons(X.cards().children[0])[1].click(); // c0's Reject
+  assert.equal(X.batch().items[1].status, "skipped");
+  X.rejectAllFixes();
+  assert.equal(X.cards(), null, "nothing left to answer: the suggestions are gone");
+  assert.equal(X.fixPingHtml(), "");
 });
