@@ -78,6 +78,30 @@ test("previewDiff: a deletion (a replace down to the neighbour it spans) is all 
   }
 });
 
+/* The Delete buttons (#311) send exactly this shape: deleteEditFor's plan. */
+const CARDS = vm.runInContext(`const CHECK_INTERVAL_MS = 10000; const FEATURES = { citeHintsToggle: false };
+  ${slice("  const ISSUE_VERDICTS =", "  /* Card titles")}
+  ${slice("  // Bibliography block", "  function wireChrome(")}
+  ({ deleteEditFor })`, vm.createContext({}));
+
+test("previewDiff: every Delete a card makes (deleteEditFor) previews as a pure strike of exactly the doomed text", () => {
+  const cases = [
+    ["sentence with a neighbour after it", "Trade grew under the Mongols. Pizza is delicious. Silk moved west.", "Pizza is delicious.", false, "Pizza is delicious. "],
+    ["last sentence of its line", "Trade grew under the Mongols. Pizza is delicious.\n\nSilk moved west.", "Pizza is delicious.", false, " Pizza is delicious."],
+    ["a line of its own", "Trade grew under the Mongols.\n\nPizza is delicious.\n\nSilk moved west.", "Pizza is delicious.", false, "\n\nPizza is delicious."],
+    ["the later of two copies", "Works Cited\nLee, Jordan. A Life. Penguin, 2021.\nLee, Jordan. A Life. Penguin, 2021.\nSmith, Ann. Wars. Knopf, 2020.", "Lee, Jordan. A Life. Penguin, 2021.", true, null],
+  ];
+  for (const [name, body, quote, last, removed] of cases) {
+    const plan = plain(CARDS.deleteEditFor(body, quote, last));
+    assert.ok(plan, `${name}: deleteEditFor plans it`);
+    const d = diff(plan.find, plan.replacement);
+    assert.equal(d.inserted, "", `${name}: nothing typed`);
+    assert.equal(d.removed.trim(), quote, `${name}: exactly the doomed text struck`);
+    if (removed != null) assert.equal(d.removed, removed, name);
+    assert.deepEqual(rebuilt(d), [plan.find, plan.replacement], name);
+  }
+});
+
 test("previewDiff: identical text changes nothing", () => {
   const s = "The human body has 206 bones.";
   assert.deepEqual(diff(s, s), { keepBefore: s, removed: "", inserted: "", keepAfter: "" });
@@ -518,6 +542,20 @@ test("a deletion: struck, nothing typed; a reference line reads 'Also adds to �
   assert.equal(t.byAttr("data-tracely-type-typed"), null, "nothing typed");
   const mark = t.byAttr("data-tracely-type-mark");
   assert.deepEqual([mark.style.display, t.px(mark.style.top), t.px(mark.style.left)], ["block", 330 - 4, 100], "a thin line above the entry it goes before");
+  t.fire("keydown", { key: "Escape" });
+  assert.equal(await p, false);
+});
+
+test("a Delete across a paragraph break strikes only the doomed paragraph, on its own line", async () => {
+  const body = "Trade grew under the Mongols.\n\nPizza is delicious.\n\nSilk moved west.";
+  const plan = plain(CARDS.deleteEditFor(body, "Pizza is delicious."));
+  const t = loadPreview({ lines: [{ text: "Trade grew under the Mongols.", top: 100 }, { text: "Pizza is delicious.", top: 150 }, { text: "Silk moved west.", top: 200 }] });
+  const p = t.w.showTypePreview("del:x", { steps: [{ action: "replace", find: plan.find, replacement: plan.replacement, hint: { occurrence: plan.occurrence, occurrences: plan.occurrences } }] });
+  const strike = t.byAttr("data-tracely-type-strike");
+  assert.deepEqual([t.px(strike.style.left), t.px(strike.style.top), t.px(strike.style.width)], [100, 150, 19 * CHAR_W]);
+  assert.equal(t.byAttr("data-tracely-type-caret").style.transform, "translate(100px, 150px)", "the caret at the start of what goes");
+  assert.match(t.bubble().textContent, /Deletes the struck-out words\./);
+  assert.equal(t.find((n) => n.id === t.bubble().getAttribute("aria-describedby")).textContent, "Deletes “Pizza is delicious.”.");
   t.fire("keydown", { key: "Escape" });
   assert.equal(await p, false);
 });

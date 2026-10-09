@@ -6951,6 +6951,11 @@
       const reject = dmBtn(TP_COPY.reject, false);
       accept.setAttribute("data-tracely-type-accept", "");
       reject.setAttribute("data-tracely-type-reject", "");
+      // Our own focus ring, in ink: the browser's can be amber, which means a missing citation.
+      for (const btn of [accept, reject]) {
+        btn.addEventListener("focus", () => { btn.style.outline = `2px solid ${DM.ink}`; btn.style.outlineOffset = "2px"; });
+        btn.addEventListener("blur", () => { btn.style.outline = ""; btn.style.outlineOffset = ""; });
+      }
       const actions = dmActions(accept, reject, el("span", { fontSize: "11.5px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
       actions.style.display = "none";
       bubble.appendChild(actions);
@@ -7066,9 +7071,9 @@
       };
       const placeBubble = (t) => {
         if (t < showAt) { bubble.style.display = "none"; return; }
+        bubble.style.display = "flex";
         if (!shownOnce) {
           shownOnce = true;
-          bubble.style.display = "flex";
           // Keys come to this page, not to Docs' editor frame.
           try { bubble.focus({ preventScroll: true }); } catch { /* best effort */ }
         }
