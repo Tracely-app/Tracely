@@ -101,13 +101,39 @@ PubMed 3, World Bank 1. By tier: scholarly 75, unvetted 64, official 6.
 3 claims would have called the paid web fallback (`03-c2`, `03-c5`, `06-c3`).
 No OpenAlex 429s; MiniLM up throughout. Cost $0.
 
-**2026-10-07, extension: not recorded.** There was no OpenAI key on the
-machine that ran this (no `server/.env`, nothing in the shell). The runner was
-exercised end to end against a stubbed model (real Crossref, OpenAlex and page
-fetches) and is ready; run it with a key as above.
+**2026-10-07, extension, production** (`run-extension-prod.mjs`): with no
+OpenAI key on the laptop, the same 36 claims went to `api.jointracely.com`
+`POST /api/sources` (live `618188c`, before receipts) through the beta pool
+(`X-Tracely-Beta`, read from the beta zip's `beta.json`, never printed),
+paced under the beta pool's 30 searches an hour and resumable. 36/36 answered,
+155 sources, 59 shown as backing (stance `supports`). The response strips the
+server's `verified`, so this records what the extension is shown.
+
+## Judged: does a source back its sentence? (AI-consensus)
+
+`judged/` holds three blind AI judges' verdicts (Claude Opus, Sonnet, Fable)
+on every source of both runs, majority vote, labels backs / topic / offtopic /
+contradicts / unsure (`eval/RUBRIC.md`'s ladder; the brief is in each file's
+`meta`). No human checked these — call them AI-consensus.
+
+| | Desktop (145 shown) | Extension (59 shown as backing) |
+|---|---|---|
+| Shown sources that back their sentence | **15 (10%)** | **24 (41%)**; 22 of 30 (73%) where ≥2 judges could read the page |
+| Claims with at least one backing source shown | 11 of 36 | 16 of 36 |
+| First source shown backs | 7 of 36 | 12 of 25 claims with any shown |
+| Judges, backs vs not (Cohen's κ) | 0.52–0.67 (all labels) | 0.43–0.81 |
+
+Read the extension's 41% as a floor: the judges could open about 60% of its
+pages (403s, logins, captchas), and a page judged from its title alone is
+"backs" only when the title states the claim. The extension also filed 22
+sources the judges say back their sentence under `context`, where they are not
+offered. **The "after"**: once `main` (receipts, #309/#310) is deployed, run
+both runners again to new files and judge them the same way.
 
 ## Files
 
 - `claims.mjs` — the 36 claims with their paragraphs; `--claims` filtering.
 - `run-extension.mjs` — Run 1. `run-desktop.mjs` + `desktop-entry.ts` — Run 2.
+- `run-extension-prod.mjs` — Run 1 against production, through the beta pool.
 - `runs/` — results, committed: they are the baseline.
+- `judged/` — the three judges' verdicts on each run, with the majority.
