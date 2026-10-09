@@ -86,6 +86,19 @@ closes the card without cancelling, and a "Sources ready" note says when it
 is done. Nothing in the live view says a source backs anything — that is the
 receipts' answer. Tests: `server/test/ext-live-search.test.js`.
 
+## Citations in context
+
+Since 2.21.30: a citation that names only a person ("(Shiraishi)") asks
+`/api/compare-source` with `author` + the essay's subject words and shows that
+author's works on the subject (`authorWorks`), saying when no title is about
+the sentence's claim; an older server answers as before. A sentence excusing a
+missing detail ("does not need a publication date because…") is the writer's
+note: never a verdict on it, its card offers Delete and Find the cited work,
+never a search to cite it. **One underline per span:** a note over the whole
+of a flagged sentence rides on that sentence's mark ("Also here" in its card);
+one on its citation sits beside it (`tipCoversSentence`, `factSpanOf`). Tests:
+`server/test/ext-citation-context.test.js`.
+
 ## Colours and marks
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI

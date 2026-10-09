@@ -469,6 +469,53 @@ async function openLibrarySearch(ref) {
 // excluded from scoring.
 export const COMPARE_RESOLVE_FLOOR = 0.5;
 
+/* ── authorWorks: who "(Shiraishi)" could mean ───────────────────────────
+ * A citation that names only a person names no work, and no lookup can say
+ * which work it meant. Owner, 2026-10-08, on "(Shiraishi)" in a Mongol
+ * Empire essay: what can still be said is whether that person has published
+ * on the essay's SUBJECT, and what. Crossref (query.author, ranked by
+ * query.bibliographic = the subject words) and Open Library (author + q),
+ * kept only where one of the work's authors has that FAMILY name (accents and
+ * case folded — Crossref's author search is fuzzy), and only where the title
+ * or its venue shares a subject word (a common surname has works on every
+ * subject). Word match is by the first five letters, so "Mongol" finds
+ * "Mongoru" and "Mongolian". At most five records, each the index's own; none
+ * of this says a work backs the sentence — the extension says which titles
+ * share the claim's own words, and nothing more. */
+const foldName = (s) => String(s ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const stem5 = (w) => w.slice(0, 5);
+// Words too general to tie a namesake's work to the essay on their own: a
+// "Trade Credit" paper and an "Empire, Rogue States" paper are not the Mongol
+// Empire essay's subject. They still count beside a specific word.
+const GENERAL_SUBJECT = new Set("empire empires trade history histories world people state states society culture cultures economy economic government power century period region country nation nations policy politics religion science health education school schools students language languages war wars city cities land family women children life".split(" ").map(stem5));
+function subjectHit(text, subject) {
+  const have = new Set((foldName(text).match(/\p{L}{4,}/gu) ?? []).map(stem5));
+  const shared = subject.map(stem5).filter((w) => have.has(w));
+  return shared.some((w) => !GENERAL_SUBJECT.has(w)) || new Set(shared).size >= 2;
+}
+export async function authorWorks({ author, topic } = {}) {
+  const name = String(author ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const subject = [...new Set(foldName(topic).match(/\p{L}{4,}/gu) ?? [])].slice(0, 6);
+  if (!name) return { author: "", subject, works: [] };
+  const want = foldName(name);
+  const q = subject.join(" ");
+  const [cr, ol] = await Promise.all([
+    fetchJson(`https://api.crossref.org/works?query.author=${encodeURIComponent(name)}${q ? `&query.bibliographic=${encodeURIComponent(q)}` : ""}&rows=20&select=DOI,title,author,issued,container-title,type,URL,publisher`)
+      .then((d) => (d.message?.items ?? []).filter((it) => (it.author ?? []).some((a) => foldName(a.family) === want)).map(crossrefItemToSource))
+      .catch(() => []),
+    fetchJson(`https://openlibrary.org/search.json?author=${encodeURIComponent(name)}${q ? `&q=${encodeURIComponent(q)}` : ""}&limit=10&fields=title,author_name,first_publish_year,key`)
+      .then((d) => (d.docs ?? []).filter((x) => (x.author_name ?? []).some((a) => foldName(String(a).split(/\s+/).pop()) === want)).map((x) => ({
+        doi: null, title: x.title ?? "", authors: x.author_name ?? [], year: x.first_publish_year ?? null, venue: null, venueType: "book",
+        url: x.key ? `https://openlibrary.org${x.key}` : null, abstract: null, provider: "openlibrary", oaUrl: null,
+      })))
+      .catch(() => []),
+  ]);
+  const works = dedupeSources([...cr, ...ol])
+    .filter((w) => w.title && (!subject.length || subjectHit(`${w.title} ${w.venue ?? ""}`, subject)))
+    .slice(0, 5);
+  return { author: name, subject, works };
+}
+
 // Crossref holds journal articles (and some books); Open Library holds books.
 // Government reports, news pages, and most websites are in NEITHER index, so
 // a no-confident-match result must NEVER be reported as "this source is fake"

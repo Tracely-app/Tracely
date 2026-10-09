@@ -67,9 +67,11 @@ test("one line for the citation family: amber double, and the legend says so", (
 
 test("wired in Docs: located beside the findings, the fact mark stops before a noted citation, its own card", () => {
   assert.match(SRC, /citeMarks: true,/);
-  assert.match(SRC, /const tips = \[\.\.\.\(FEATURES\.citeMarks && isArgumentGenre\(docGenre\) \? citationMarks\(docText, settings\.citationStyle, dismissed\) : \[\]\), \.\.\.notes\]/);
+  assert.match(SRC, /const allTips = \[\.\.\.\(FEATURES\.citeMarks && isArgumentGenre\(docGenre\) \? citationMarks\(docText, settings\.citationStyle, dismissed\) : \[\]\), \.\.\.notes\]/);
+  // One underline per span (ext-card-fixes.test.js pins the rule itself).
+  assert.match(SRC, /const host = issues\.find\(\(\{ seg \}\) => tipCoversSentence\(seg\.text, t\.mark\)\);/);
   assert.match(SRC, /for \(const t of tips\) lastVerdictByHash\.set\(t\.id, t\.markKind \?\? "cite_tip"\);/);
-  assert.match(SRC, /return t \? seg\.text\.slice\(0, seg\.text\.lastIndexOf\(t\.mark\)\)\.trimEnd\(\) : seg\.text;/);
+  assert.match(SRC, /const \{ start, end \} = factSpanOf\(seg\.text, tips\);\s+return seg\.text\.slice\(start, end\);/);
   assert.match(SRC, /seg: \{ hash: t\.id, text: t\.mark, lastCopy: t\.lastCopy \}/);
   assert.match(SRC, /if \(!cache\.get\(hash\) && !tipMarkById\.has\(hash\)\) return;/);
   assert.match(SRC, /if \(tip\) \{ paintCiteTip\(tip, put\); requestPlace\(\); return; \}/);
@@ -79,6 +81,7 @@ test("wired in Docs: located beside the findings, the fact mark stops before a n
 test("wired in field mode: painted with the sentence marks' own code, and the sentence stops short", () => {
   assert.match(SRC, /const tips = \[\.\.\.\(FEATURES\.citeMarks && isArgumentGenre\(docGenre\) \? citationMarks\(liveText, settings\.citationStyle, dismissed\) : \[\]\), \.\.\.notes\];/);
   assert.match(SRC, /if \(rects\.length\) paintMark\(layer, tip\.id, rects, MARK_COLORS\[tip\.markKind \?\? "cite_tip"\], MARK_PATTERN\[tip\.markKind \?\? "cite_tip"\]\);/);
-  assert.match(SRC, /const end = cut \? seg\.start \+ liveText\.slice\(seg\.start, cut\.start\)\.trimEnd\(\)\.length : seg\.end;/);
+  assert.match(SRC, /const span = factSpanOf\(seg\.text, tips\.filter\(\(t\) => t\.start >= seg\.start && t\.end <= seg\.end\)\);/);
+  assert.match(SRC, /if \(flaggedText\.some\(\(t\) => tipCoversSentence\(t, tip\.mark\)\)\) continue;/);
   assert.match(SRC, /if \(!pending\) \{ paintMark\(layer, seg\.hash, rects, color, pattern\); continue; \}/);
 });

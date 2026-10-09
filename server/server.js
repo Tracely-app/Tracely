@@ -1751,9 +1751,19 @@ const server = http.createServer(async (req, res) => {
       // Called by the desktop and, since extension 2.21.24, by "Find the cited
       // work" (EXTENSION_API). A citation or one reference entry is a few
       // hundred characters; anything past 1,000 is not one, and is not sent on.
-      const { citedRef } = (await parseJsonBody(req)) ?? {};
+      const { citedRef, author, topic } = (await parseJsonBody(req)) ?? {};
       if (typeof citedRef !== "string" || !citedRef.trim()) throw new CheckError("bad_request", "citedRef required");
       if (typeof evidence.compareSource !== "function") throw new CheckError("server", "compare not built yet", { status: 501 });
+      // A citation that names only a person (extension 2.21.30+ sends
+      // `author`, the family name, and `topic`, the essay's subject words):
+      // that author's works on the subject instead of a lookup of one word,
+      // which would match any namesake. Additive: `authorWorks` is a new
+      // field, and a request without `author` is answered exactly as before.
+      if (typeof author === "string" && author.trim()) {
+        const works = await evidence.authorWorks({ author: author.slice(0, 60), topic: typeof topic === "string" ? topic.slice(0, 200) : "" });
+        json(res, 200, { matches: [], nearMisses: [], resolved: false, authorWorks: works }, cors);
+        return;
+      }
       json(res, 200, await evidence.compareSource({ citedRef: citedRef.slice(0, 1000) }), cors);
       return;
     }

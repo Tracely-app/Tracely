@@ -90,7 +90,16 @@
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
-    && !(f.verdict === "questionable" && (genre === "resume" || genre === "letter"));
+    && !(f.verdict === "questionable" && (genre === "resume" || genre === "letter"))
+    // A sentence excusing a missing citation detail ("The study does not need
+    // a publication date because Harvard is a famous institution") is the
+    // writer's note, not a claim: owner, 2026-10-08, "tracely is trying to
+    // cite this instead of remove it". Its own note (kind "excuse") offers
+    // Delete; a verdict here would offer to find it a source.
+    && !(typeof text === "string" && EXCUSE_SENTENCE.test(text));
+  // PRESTIGE_EXCUSE's pattern (citationHygieneTips), here because flagShown is
+  // read without that section; ext-card-fixes.test.js keeps the two the same.
+  const EXCUSE_SENTENCE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
   /* First person, but not the generic "we" of an argument ("we know", "we
      all", "we should"): that "we" is the reader and the world, and a figure
      in it still needs its source. "I" as a Roman numeral is not the author:
@@ -1424,7 +1433,7 @@
       if (s.length < 12) continue;
       const bracket = s.match(BAD_INLINE);
       if (bracket) out.push({ quote: bracket[0], kind: "badcite", message: "This cannot lead a reader to a source: name one source with its author, title and date (or n.d. if it truly has none), and cite it in your style. Do not guess missing details." });
-      else if (PRESTIGE_EXCUSE.test(s)) out.push({ quote: s, kind: "excuse", message: "A source's reputation never excuses missing citation details. Give the date, or n.d. if the source truly has none — never leave it out." });
+      else if (PRESTIGE_EXCUSE.test(s)) out.push({ quote: s, kind: "excuse", message: "A source's reputation never excuses missing citation details. This sentence is a note about your citation, not part of your argument: delete it, then give the cited source's date (or n.d. if it truly has none) — Find the cited work looks it up." });
       else if (VERIFY_NOTE.test(s)) out.push({ quote: s, kind: "placeholder", message: "A note to yourself is not support. Verify the claim and cite where you found it, or remove it." });
       else if (VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) out.push({ quote: s, kind: "vague", message: "An unnamed source is not a citation: say which researchers or study, and cite it — or remove the claim." });
       if (out.length >= 8) break;
@@ -1914,6 +1923,29 @@
     for (let i = body.indexOf(r); i >= 0; i = body.indexOf(r, i + r.length)) n++;
     return n;
   }
+  /* A citation that names only a person — "(Shiraishi)", "(Khan, 2022)",
+     "(Lee 45)" — names no work, and no lookup can say which one it meant.
+     Owner, 2026-10-08, on "(Shiraishi)" in a Mongol Empire essay: what can
+     still be said is whether that person has published on the essay's
+     subject, and what (the server's authorWorks). `author` is the family
+     name; `topic` the essay's subject — its most repeated words; `claimTerms`
+     the sentence's own rarer words, which a title about THIS claim would
+     share ("literacy", where "empire" is the whole essay's). */
+  const NAME_ONLY = /^([\p{Lu}][\p{L}'’-]+)(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.)?(?:,?\s*(?:(?:1[5-9]|20)\d\d[a-z]?|n\.\s?d\.))?(?:,?\s*(?:pp?\.\s*)?\d{1,4}(?:\s*[-–]\s*\d{1,4})?)?$/u;
+  const citedAuthorOnly = (inner) => String(inner ?? "").trim().match(NAME_ONLY)?.[1] ?? null;
+  const GENERIC_WORDS = new Set("researchers scholars historians experts scientists studies study research argued argue argues claim claimed claims suggest suggested suggests found shown show shows think believe believed some many several most parts part extent remains remain uncertain however although because which while whether there these those other others also more less very much have been were they them their would could should".split(" "));
+  function subjectWords(text, n = 4) {
+    const counts = new Map();
+    for (const w of refWords(text)) if (w.length >= 4 && !GENERIC_WORDS.has(w)) counts.set(w, (counts.get(w) ?? 0) + 1);
+    return [...counts.entries()].filter(([, c]) => c >= 3).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, n).map(([w]) => w);
+  }
+  function claimTermsOf(sentence, text) {
+    const all = new Map();
+    for (const w of refWords(text)) all.set(w, (all.get(w) ?? 0) + 1);
+    return [...new Set(refWords(sentence))].filter((w) => w.length >= 5 && !GENERIC_WORDS.has(w) && (all.get(w) ?? 0) <= 2).slice(0, 3);
+  }
+  // Whether a record's marker is the citation already there (MLA's "(Shiraishi)" for Shiraishi's work).
+  const sameCitation = (raw, marker, style) => Boolean(raw) && markerWithPage(marker, citationPage(String(raw).slice(1, -1)), style) === raw;
   /* The lookup one card makes. `target` (tipCitedTarget, or a verdict card's
      sentence) says what the card is about; the matching reference entry is
      sent when there is one, because it is richer than the in-text form. */
@@ -1922,8 +1954,11 @@
     const isEntry = target.kind === "entry";
     const entry = isEntry ? target.entry : referenceEntryFor(target.inner, text);
     const { query, thin } = citedRefQuery(entry ?? target.inner);
+    const author = thin && !isEntry && !entry ? citedAuthorOnly(target.inner) : null;
     return {
       citedRef: query, thin, entry,
+      author, topic: author ? subjectWords(text).join(" ") : "",
+      claimTerms: author && target.sentence ? claimTermsOf(target.raw ? target.sentence.replace(target.raw, " ") : target.sentence, text) : [],
       noEntry: !isEntry && !entry && Boolean(worksCitedBlock(String(text ?? ""))),
       citedYear: citedYearOf(isEntry ? target.entry : target.inner) ?? (entry ? citedYearOf(entry) : null),
       display: String(target.inner ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
@@ -2044,8 +2079,8 @@
      copies. null when the passage is not in the text, does not begin and end
      on a sentence boundary (deleting more than the note quotes is not its
      fix), or has nothing beside it to anchor on. */
-  const DELETE_KINDS = ["refdup", "refuncited", "offtopic", "residue"];
-  const DELETE_LABEL = { refdup: "Delete this copy", refuncited: "Remove from list", offtopic: "Delete this line", residue: "Delete it" };
+  const DELETE_KINDS = ["refdup", "refuncited", "offtopic", "residue", "excuse"];
+  const DELETE_LABEL = { refdup: "Delete this copy", refuncited: "Remove from list", offtopic: "Delete this line", residue: "Delete it", excuse: "Delete this sentence" };
   const tipDeletes = (tip) => Boolean(tip?.quote) && (DELETE_KINDS.includes(tip.kind) || tip.action === "delete");
   function deleteEditFor(text, quote, last = false) {
     const t = String(text ?? ""), q = String(quote ?? "").trim();
@@ -2159,6 +2194,11 @@
     many: (n) => `${n} records match your citation`,
     intro: (c) => `From Crossref and Open Library, for “${c}”. Check it is the work you meant: this is where your citation points, not proof the sentence is true.`,
     thin: (c) => `“${c}” doesn't name enough of a work — an author and a title — to look it up.`,
+    byAuthorTitle: (name) => `Works by ${name} on this subject`,
+    byAuthorIntro: (name, c) => `“${c}” names a person, not a work. These are ${name}'s works on your essay's subject in Crossref and Open Library. If you read one of them, pick it to complete your citation — and check it says your sentence. If you didn't, remove the citation.`,
+    offClaim: (terms) => `None of these titles mentions ${terms.length > 1 ? `${terms.slice(0, -1).map((t) => `“${t}”`).join(", ")} or “${terms[terms.length - 1]}”` : `“${terms[0]}”`} — what your sentence claims.`,
+    noAuthorWorks: (name, c) => `No work by ${name} on your essay's subject turned up in Crossref or Open Library, so a reader can't find this source from “${c}”. Name the work — its title and year — or remove the citation and cite a source you can name.`,
+    addEntry: "Add its entry", adding: "Adding…",
     notFound: "Not found in Crossref or Open Library. These indexes hold journal articles and books, so no match does not mean the source doesn't exist. Verify it by hand instead.",
     noEntry: "Nothing in your reference list matches this citation.",
     fallback: "Sources for the sentence instead:",
@@ -2394,6 +2434,32 @@
     return out;
   }
 
+  /* One underline per span of text. Owner, 2026-10-08: "sometimes a sentence
+     is underlined with two different problems and it becomes jumbled" — two
+     translucent bands on the same words read as neither. A note over the
+     whole of a flagged sentence (an unnamed source, an excuse, a review note
+     on that sentence) is not drawn: the sentence's own mark carries it, and
+     its card lists it ("Also here", Docs) or the panel does (fields). A note
+     on part of the sentence — a citation, a bracket — is drawn beside the
+     fact mark, which stops short of it (factSpanOf). */
+  function tipCoversSentence(sentence, mark) {
+    const s = String(sentence ?? ""), m = String(mark ?? "");
+    return Boolean(s && m) && (s === m || (m.length >= s.length * 0.8 && (s.includes(m) || m.includes(s))));
+  }
+  // The part of a flagged sentence its own mark covers, as [start, end) in
+  // it: all of it, or — beside a smaller note's span — the longer side of it
+  // (a citation at the end leaves the words before it).
+  function factSpanOf(sentence, tips) {
+    const s = String(sentence ?? "");
+    const t = (Array.isArray(tips) ? tips : []).find((x) => x?.mark && s.includes(x.mark) && !tipCoversSentence(s, x.mark));
+    if (!t) return { start: 0, end: s.length };
+    const at = s.lastIndexOf(t.mark);
+    const before = s.slice(0, at).trimEnd().length;
+    const tail = s.slice(at + t.mark.length);
+    const after = at + t.mark.length + (tail.length - tail.trimStart().length);
+    return before >= s.length - after ? { start: 0, end: before } : { start: after, end: s.length };
+  }
+
   /* Where each citation note goes on the page (cite_tip marks). Owner,
      2026-10-04: "what if it needs to flag for two different things, say wrong
      information and wrong citation" — so a citation note is underlined on
@@ -2466,8 +2532,10 @@
           </div>
         </div>`;
     }).join("");
-    return `<div class="sources"><div class="sources-title">${esc(c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
-      + `<div class="src-snip">${esc(CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
+    const by = c.byAuthor;
+    return `<div class="sources"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
+      + `<div class="src-snip">${esc(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
+      + `${by?.offClaim?.length ? `<div class="src-snip"><b>${esc(CITED_COPY.offClaim(by.offClaim))}</b></div>` : ""}`
       + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
   }
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
@@ -2629,6 +2697,7 @@
      each passed through citedWorkSource so only its own fields travel on. */
   async function lookupCitedWork(plan) {
     if (!plan) return { resolved: false, matches: [], note: CITED_COPY.notFound };
+    if (plan.thin && plan.author) return lookupAuthorWorks(plan);
     if (plan.thin) return { resolved: false, matches: [], note: CITED_COPY.thin(plan.display) };
     try {
       const data = await api("/api/compare-source", { citedRef: plan.citedRef });
@@ -2637,6 +2706,30 @@
       if (data?.resolved === true && matches.length) return { resolved: true, matches, note: "" };
       const note = typeof data?.resolvedNote === "string" && data.resolvedNote.trim() ? data.resolvedNote.trim() : CITED_COPY.notFound;
       return { resolved: false, matches: [], note };
+    } catch (err) {
+      return { resolved: false, matches: [], note: citedFailureNote(offlineError(err) ? { ...err, kind: err?.kind, offline: true } : err), failed: true };
+    }
+  }
+
+  /* A surname-only citation's lookup: that author's works on the essay's
+     subject (/api/compare-source with `author`, server 2026-10-08+). The
+     records come back as the card's matches, marked `byAuthor`, so picking
+     the one the writer read completes the citation the usual way. None of
+     them is offered as the work the writer meant — the card says to pick the
+     one they read and to check it says the sentence — and when no title shares
+     the claim's own words, it says so. A server from before this answers
+     without `authorWorks`, and the card says what it said before. */
+  async function lookupAuthorWorks(plan) {
+    try {
+      const data = await api("/api/compare-source", { citedRef: plan.author, author: plan.author, topic: plan.topic });
+      const aw = data?.authorWorks;
+      if (!aw || !Array.isArray(aw.works)) return { resolved: false, matches: [], note: CITED_COPY.thin(plan.display) };
+      const matches = aw.works.filter((m) => m && typeof m.title === "string" && m.title.trim()).slice(0, 5).map(citedWorkSource);
+      if (!matches.length) return { resolved: false, matches: [], note: CITED_COPY.noAuthorWorks(plan.author, plan.display) };
+      const terms = Array.isArray(plan.claimTerms) ? plan.claimTerms : [];
+      const titled = (m) => new Set(refWords(`${m.title} ${m.container}`).map((w) => w.slice(0, 5)));
+      const onClaim = !terms.length || matches.some((m) => { const t = titled(m); return terms.some((w) => t.has(w.slice(0, 5))); });
+      return { resolved: true, matches, note: "", byAuthor: { name: plan.author, offClaim: onClaim ? [] : terms } };
     } catch (err) {
       return { resolved: false, matches: [], note: citedFailureNote(offlineError(err) ? { ...err, kind: err?.kind, offline: true } : err), failed: true };
     }
@@ -3456,6 +3549,7 @@
     let locateSeq = 0;
     let lastVerdictByHash = new Map();
     let tipMarkById = new Map(); // cite_tip marks drawn on the last locate: id → citationMarks entry
+    let coTipsByHash = new Map(); // a flagged sentence's hash → the notes it carries instead of drawing them (tipCoversSentence)
 
     /* ── PRIMARY position source: Docs' SVG annotation layer ──────────────
        Modern Docs keeps an invisible SVG beside each canvas tile: one
@@ -4371,12 +4465,21 @@
       const issues = currentIssues().slice(0, 40);
       const flows = activeFlowIssues();
       // Citation notes get their own marks, on the citation (citationMarks).
-      const flaggedText = new Set(issues.map(({ seg }) => seg.text));
       const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
-        ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed)).filter((t) => !flaggedText.has(t.mark)) // a fact mark already holds that sentence
+        ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed))
         : [];
-      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes].slice(0, Math.max(0, 40 - issues.length));
-      tipMarkById = new Map(tips.map((t) => [t.id, t]));
+      const allTips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes];
+      // One underline per span: a note over the whole of a flagged sentence
+      // rides on that sentence's mark and card ("Also here"), not on a second
+      // band over the same words (tipCoversSentence).
+      coTipsByHash = new Map();
+      const tips = [];
+      for (const t of allTips) {
+        const host = issues.find(({ seg }) => tipCoversSentence(seg.text, t.mark));
+        if (host) coTipsByHash.set(host.seg.hash, [...(coTipsByHash.get(host.seg.hash) ?? []), t]);
+        else if (tips.length < Math.max(0, 40 - issues.length)) tips.push(t);
+      }
+      tipMarkById = new Map([...tips, ...[...coTipsByHash.values()].flat()].map((t) => [t.id, t])); // a carried note's card still opens by its id
       if (issues.length === 0 && flows.length === 0 && tips.length === 0) {
         clearDocsMarks();
         // A card that just fixed the last issue stays up to show "Applied ✓ ·
@@ -4392,8 +4495,8 @@
       // A flagged sentence whose citation carries its own note stops before
       // it, so the two marks sit side by side instead of on top of each other.
       const factText = (seg) => {
-        const t = tips.find((x) => x.kind === "page" && seg.text.includes(x.mark));
-        return t ? seg.text.slice(0, seg.text.lastIndexOf(t.mark)).trimEnd() : seg.text;
+        const { start, end } = factSpanOf(seg.text, tips);
+        return seg.text.slice(start, end);
       };
       const located = [...issues.map(({ seg }) => ({ seg: { hash: seg.hash, text: factText(seg) } })), ...tips.map((t) => ({ seg: { hash: t.id, text: t.mark, lastCopy: t.lastCopy } }))];
       // PRIMARY: the SVG annotation layer — complete and live-positioned.
@@ -4889,12 +4992,37 @@
       if (tip.kind === "badcite") return "CITATION";
       return "REFERENCE";
     }
+    /* "Also here": the notes a flagged sentence carries on its own underline
+       (coTipsByHash), one row each, opening that note's card in this one —
+       with a way back to the sentence's. The dot is the note's own finding
+       colour; the words say what it is. */
+    function dmAlso(tips, backTo, backLabel) {
+      const box = el("div", { display: "flex", flexDirection: "column", gap: "4px", flex: "0 0 auto" });
+      for (const t of tips) {
+        const b = el("button", { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${DM.rowBorder}`, background: DM.blockBg, font: "inherit", fontSize: "12.5px", color: DM.ink, cursor: "pointer", textAlign: "left", boxSizing: "border-box" });
+        b.type = "button";
+        b.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: MARK_COLORS[t.markKind ?? "cite_tip"], flexShrink: "0" }), el("span", { flex: "1", minWidth: "0" }, `Also here: ${TIP_LABEL[t.kind] ?? "a note"}`), el("span", { color: DM.hint }, "›"));
+        b.addEventListener("click", () => { popPinned = true; popSteps.set(t.id, { ...stepOf(t.id), backTo, backLabel }); popHash = t.id; paintPop(); });
+        box.appendChild(b);
+      }
+      return box;
+    }
     function paintCiteTip(tip, put) {
+      const from = stepOf(tip.id);
+      if (from.backTo) {
+        const back = dmLink(`‹ ${from.backLabel ?? POP_COPY.back}`);
+        Object.assign(back.style, { marginLeft: "0", alignSelf: "flex-start" });
+        back.addEventListener("click", () => { popPinned = true; popHash = from.backTo; paintPop(); });
+        put(back);
+      }
       put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], TIP_LABEL[tip.kind] ?? "Citation"));
       put(dmBody(tip.message));
       put(dmBlock(citeTipBlockLabel(tip), dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
       const target = tipCitedTarget(tip, segments);
-      const findSrc = (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
+      // An excuse's fix is deleting it and dating the citation it excuses
+      // (Find the cited work, which searches for the claim when nothing
+      // resolves): a search beside those read as citing the excuse itself.
+      const findSrc = (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && !(tip.kind === "excuse" && target) && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
       const fix = tipFixControls(tip, put);
       let cited = null, src = null;
       if (target) {
@@ -5057,10 +5185,14 @@
       const sel = Math.min(Math.max(0, c.selected ?? 0), list.length - 1);
       const src = list[sel];
       const styleChip = dmChip(CITE_STYLE_LABEL[style]);
-      put(dmHead(DM.green, list.length === 1 ? CITED_COPY.one : CITED_COPY.many(list.length), styleChip));
+      const by = c.byAuthor;
+      // Amber, not green: works by the author the citation names are not the
+      // work it meant until the writer picks the one they read.
+      put(dmHead(by ? DM.amber : DM.green, by ? CITED_COPY.byAuthorTitle(by.name) : list.length === 1 ? CITED_COPY.one : CITED_COPY.many(list.length), styleChip));
       styleChip.style.marginLeft = "0";
       const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
-      scroll.appendChild(dmBody(CITED_COPY.intro(c.plan?.display ?? "")));
+      scroll.appendChild(dmBody(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? "")));
+      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
       if (c.plan?.noEntry) scroll.appendChild(dmHint(CITED_COPY.noEntry));
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       list.forEach((m, i) => rows.appendChild(dmWorkRow(m, i === sel, () => { c.selected = i; paintPop(); })));
@@ -5070,13 +5202,16 @@
       scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; saveSettings(); paintPop(); render(); }));
       const { marker, entry } = citedWorkEntry(src, style);
       const swapped = t?.kind === "sentence" && t.raw ? swapCitation(t.sentence, t.raw, marker, style) : null;
+      // The sentence already cites it as the style would ("(Shiraishi)" in
+      // MLA): what is missing is the entry, and that is what the button adds.
+      const same = !swapped && t?.kind === "sentence" && sameCitation(t.raw, marker, style);
       scroll.appendChild(dmBlock(swapped ? "YOUR SENTENCE WILL READ" : "REFERENCE", swapped ? dmBlockBody(swapped) : null, dmBlockBody(entry)));
       put(scroll);
       const repKey = `recite:${key}:${sel}`, entKey = `entry:${key}:${sel}`;
       let primary = null;
-      if (canEditDoc() && swapped && t.segHash) {
+      if (canEditDoc() && (swapped || same) && t.segHash) {
         const busy = editState(repKey) === "applying";
-        primary = dmBtn(busy ? CITED_COPY.replacing : CITED_COPY.replace, true, { disabled: busy || docBusy });
+        primary = dmBtn(busy ? (same ? CITED_COPY.adding : CITED_COPY.replacing) : same ? CITED_COPY.addEntry : CITED_COPY.replace, true, { disabled: busy || docBusy });
         primary.addEventListener("click", () => { popPinned = true; docReplaceCitation(key, sel, popAnchor); });
       } else if (canEditDoc() && t?.kind === "entry") {
         const busy = editState(entKey) === "applying";
@@ -5186,6 +5321,8 @@
       // find the cited work: first when there is no fix to suggest, else
       // under the row (two buttons to a row; a third pushes Dismiss off).
       put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      const also = (coTipsByHash.get(hash) ?? []).filter((t) => !dismissed.has(t.id));
+      if (also.length) put(dmAlso(also, hash, VERDICT_LABEL[f.verdict] ?? f.verdict));
       put(dmBody(f.explanation || f.basis || seg.text));
       const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
       const findSource = () => {
@@ -6144,7 +6281,7 @@
       const isTip = key.startsWith("tip:");
       const tip = isTip ? anyTipById(key) : null;
       const target = citedTargetFor(key);
-      const ci = tip && (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      const ci = tip && (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && !(tip.kind === "excuse" && target) ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
       const st = stepOf(key);
       const c = citedMap.get(key);
       const buttons = [];
@@ -6183,8 +6320,9 @@
       if (c.done?.i === i && !editState(k)) {
         // Settled: the doc shows it, and the Undo is on the panel's strip.
         edit = `<button class="act primary" disabled>${t?.kind === "entry" ? "Completed ✓" : "Replaced ✓"}</button>`;
-      } else if (canEditDoc() && t?.kind === "sentence" && t.segHash && t.raw && swapCitation(t.sentence, t.raw, formatCitation(src, style).marker, style)) {
-        edit = editBtnHtml(k, CITED_COPY.replace, `data-cited-replace="${esc(key)}" data-i="${i}"`) + editNoteHtml(k);
+      } else if (canEditDoc() && t?.kind === "sentence" && t.segHash && t.raw && (swapCitation(t.sentence, t.raw, formatCitation(src, style).marker, style) || sameCitation(t.raw, formatCitation(src, style).marker, style))) {
+        const label = swapCitation(t.sentence, t.raw, formatCitation(src, style).marker, style) ? CITED_COPY.replace : CITED_COPY.addEntry;
+        edit = editBtnHtml(k, label, `data-cited-replace="${esc(key)}" data-i="${i}"`) + editNoteHtml(k);
       } else if (canEditDoc() && t?.kind === "entry") {
         edit = editBtnHtml(k, CITED_COPY.complete, `data-cited-entry="${esc(key)}" data-i="${i}"`) + editNoteHtml(k);
       }
@@ -6884,7 +7022,10 @@
       const style = settings.citationStyle || "mla";
       const styled = formatCitation(src, style);
       const swapped = swapCitation(seg.text, t.raw, styled.marker, style);
-      if (!swapped) {
+      // Already cited as the style would: only the entry is added (a
+      // surname-only citation completed with the work the writer picked).
+      const same = !swapped && sameCitation(t.raw, styled.marker, style);
+      if (!swapped && !same) {
         statusKind = "idle";
         statusMsg = "that citation is no longer in the sentence exactly once — nothing was changed";
         render();
@@ -6892,12 +7033,19 @@
       }
       const shown = markerWithPage(styled.marker, citationPage(t.raw.slice(1, -1)), style);
       const oldEntry = c.plan?.entry && citationUses(docText, t.raw) <= 1 ? c.plan.entry : null;
-      const plan = await citePlan(seg, styled, src, { anchor, swapped, entryLine: citedWorkEntry(src, style).entry, oldEntry, listOnly: true });
+      const plan = await citePlan(seg, styled, src, { anchor, swapped, entryLine: citedWorkEntry(src, style).entry, oldEntry, listOnly: !same });
+      if (!plan.steps.length) {
+        statusKind = "idle";
+        statusMsg = same ? `${plan.listName} already has this work's entry` : "nothing to change";
+        render();
+        return true;
+      }
       return runDocEdit(`recite:${key}:${i}`, {
         steps: plan.steps,
         retry: plan.retry,
-        copy: swapped,
-        doneMsg: plan.pasteEntry ? `replaced the citation with ${shown} — paste its reference into ${plan.listName}` : `replaced the citation with ${shown}`,
+        copy: same ? citedWorkEntry(src, style).entry : swapped,
+        doneMsg: same ? (plan.pasteEntry ? `copied the entry for ${shown} — paste it into ${plan.listName}` : `added the entry for ${shown} to ${plan.listName}`)
+          : plan.pasteEntry ? `replaced the citation with ${shown} — paste its reference into ${plan.listName}` : `replaced the citation with ${shown}`,
         notes: plan.hint.occurrences > 1 && !(anchor && anchor.hash === seg.hash) ? { ambiguous: REPEATED_NOTE.replace("Fix in doc", "Replace citation") } : null,
         onApplied: () => {
           if (!(plan.hint.occurrences > 1)) markEdited(seg.hash); // the new sentence is checked afresh
@@ -6905,7 +7053,9 @@
             : plan.entryLine && !plan.pasteEntry ? `, and its entry is in your ${plan.listName}` : "";
           c.done = {
             i: Number(i), key: `recite:${key}:${i}`,
-            message: `Your sentence now cites ${shown}${where}.${plan.pasteEntry ? " Docs didn't let Tracely add the reference itself — paste it from below." : ""}`,
+            message: same
+              ? `${plan.pasteEntry ? `The entry for ${shown} is ready to paste into your ${plan.listName}` : `Your ${plan.listName} now has the entry for ${shown}`}.${plan.pasteEntry ? " Docs didn't let Tracely add it itself — paste it from below." : ""}`
+              : `Your sentence now cites ${shown}${where}.${plan.pasteEntry ? " Docs didn't let Tracely add the reference itself — paste it from below." : ""}`,
             paste: plan.pasteEntry, list: plan.listName,
           };
           if (plan.pasteEntry) copyFallback(plan.pasteEntry);
@@ -8892,12 +9042,17 @@
         : [];
       const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : []), ...notes];
       const seen = new Set();
+      const liveSegs = segmentText(liveText);
+      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      // One underline per span (tipCoversSentence): a note over the whole of a
+      // flagged sentence is not drawn — the sentence's mark opens the panel,
+      // where both cards are.
+      const flaggedText = liveSegs.filter((seg) => seg.checkable && !dismissed.has(seg.hash) && flagShown(cache.get(seg.hash), settings, docGenre, seg.text, liveCovered.has(seg.hash))).map((seg) => seg.text);
       for (const tip of tips) {
+        if (flaggedText.some((t) => tipCoversSentence(t, tip.mark))) continue;
         const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
         if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS[tip.markKind ?? "cite_tip"], MARK_PATTERN[tip.markKind ?? "cite_tip"]);
       }
-      const liveSegs = segmentText(liveText);
-      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
       for (const seg of liveSegs) {
         if (!seg.checkable || seen.has(seg.hash) || dismissed.has(seg.hash)) continue;
         seen.add(seg.hash);
@@ -8914,9 +9069,9 @@
         } else {
           continue;
         }
-        const cut = tips.find((t) => t.kind === "page" && t.start > seg.start && t.start < seg.end);
-        const end = cut ? seg.start + liveText.slice(seg.start, cut.start).trimEnd().length : seg.end;
-        const rects = isTa ? taRects(tracked, seg.start, end) : ceRects(tracked, index, seg.start, end);
+        // Beside a note on part of it (a citation), the sentence's mark stops short of it.
+        const span = factSpanOf(seg.text, tips.filter((t) => t.start >= seg.start && t.end <= seg.end));
+        const rects = isTa ? taRects(tracked, seg.start + span.start, seg.start + span.end) : ceRects(tracked, index, seg.start + span.start, seg.start + span.end);
         if (rects.length === 0) continue;
         if (!pending) { paintMark(layer, seg.hash, rects, color, pattern); continue; }
         for (const r of rects) {
@@ -9286,7 +9441,7 @@
       const isTip = key.startsWith("tip:");
       const tip = isTip ? tipById(key) : null;
       const target = citedTargetFor(key);
-      const ci = tip && TIP_FIND_SOURCE.includes(tip.kind) ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      const ci = tip && TIP_FIND_SOURCE.includes(tip.kind) && !(tip.kind === "excuse" && target) ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
       const c = citedMap.get(key);
       const buttons = [];
       if (target) buttons.push(`<button class="act${isTip ? " primary" : ""}" data-cited="${esc(key)}"${c?.loading ? " disabled" : ""}>${esc(CITED_COPY.find)}</button>`);
