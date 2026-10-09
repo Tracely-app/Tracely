@@ -99,6 +99,21 @@ of a flagged sentence rides on that sentence's mark ("Also here" in its card);
 one on its citation sits beside it (`tipCoversSentence`, `factSpanOf`). Tests:
 `server/test/ext-citation-context.test.js`.
 
+## The panel
+
+Since 2.21.31 (owner, 2026-10-08: "make this more organized polished …
+restructure it") the panel is one list, most serious first: **Claims**, then
+**Citations** (the citation notes and the reference list's), then **Writing
+feedback** (the review's notes and the stray lines), then the folded
+evidence. `foldCards` keeps one card open — the underline last clicked or the
+card last opened (`focusCard`), else the first, kept open while the writer
+works in it — and folds the rest to a title and one line. The header counts
+the notes beside the claims ("2 notes · no claims flagged", "3 claims flagged
+· + 2 notes"), never "all clear" over open notes; the launcher counts the
+citation notes too. A citation that is only a surname after a reported claim
+("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
+author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
+
 ## Colours and marks
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI

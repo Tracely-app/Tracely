@@ -23,7 +23,7 @@ function load() {
   assert.ok(a > 0 && b > a && c > b, "content.js: the slices moved");
   return vm.runInContext(`const CHECK_INTERVAL_MS = 10000; function hashText(s) { return "h" + s.length + s.slice(0, 16); }
     ${SRC.slice(a, c)}
-    ({ offTopicSentences, offTopicTips, offTopicHtml })`, vm.createContext({}));
+    ({ offTopicSentences, offTopicTips, essayFeedbackHtml })`, vm.createContext({}));
 }
 const X = load();
 
@@ -71,15 +71,16 @@ test("the tip: dismissable by id, in its own section, and only when there is one
   assert.equal(tips[0].kind, "offtopic");
   assert.match(tips[0].message, /Nothing in this line connects to the rest of your writing/);
   assert.equal(X.offTopicTips(PAPER, new Set([tips[0].id])).length, 0, "dismissed");
-  assert.match(X.offTopicHtml(tips, null), /Off topic \(1\)/);
-  assert.match(X.offTopicHtml(tips, null), /Doesn't seem to belong/);
-  assert.equal(X.offTopicHtml([], null), "");
+  // In the Writing feedback group since the panel restructure (2026-10-08).
+  assert.match(X.essayFeedbackHtml(tips, false, null), /Writing feedback \(1\)/);
+  assert.match(X.essayFeedbackHtml(tips, false, null), /Doesn't seem to belong/);
+  assert.equal(X.essayFeedbackHtml([], false, null), "");
 });
 
 test("wired: essays and papers only, in both panels, and counted on the launcher", () => {
   assert.match(SRC, /offTopic: true,/);
   assert.equal((SRC.match(/const offTopic = FEATURES\.offTopic && isArgumentGenre\(docGenre\) \? offTopicTips\((?:docText|fieldText), dismissed\) : \[\];/g) || []).length, 2, "never on a resume or a letter");
-  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length;/g) || []).length, 2, "a ✓ never sits over a stray line");
+  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length \+ citeTips\.length;/g) || []).length, 2, "a ✓ never sits over a stray line");
 });
 
 /* The gate: no false alarm on any real essay in eval/, and most stray lines

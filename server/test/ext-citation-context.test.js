@@ -149,7 +149,8 @@ test("excuse: never a verdict on it; its note deletes it, the citation it excuse
   assert.equal(X.flagShown({ verdict: "false" }, {}, "prose", "The Mongols invented the American dollar."), true, "other sentences as before");
   const tip = X.citationTips(ESSAY, "mla", new Set()).find((t) => t.kind === "excuse");
   assert.ok(tip && X.tipDeletes(tip));
-  assert.match(tip.message, /note about your citation, not part of your argument: delete it/);
+  assert.match(tip.message, /a note to yourself, not part of your argument: delete it/);
+  assert.ok(!/Find the cited work/.test(tip.message), "never names a button the card may not have");
   assert.ok(X.deleteEditFor(ESSAY, tip.quote), "Delete can be planned for it");
   const bySrc = (re) => sliceBetween(SRC, re, "\n").replace(/^\s*const \w+ = /, "");
   assert.equal(bySrc("  const EXCUSE_SENTENCE ="), bySrc("  const PRESTIGE_EXCUSE ="), "the excuse is one pattern, in two places");

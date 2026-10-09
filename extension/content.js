@@ -1419,6 +1419,23 @@
   const VERIFY_NOTE = /\b(?:requires?|needs?|pending|awaiting) (?:further )?verification\b|\b(?:citation|source) needed\b|\bto be verified\b/i;
   const PRESTIGE_EXCUSE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
   const BAD_INLINE = /\[[^\]\n]{3,120}\/[^\]\n]{1,120}\]|\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i;
+  /* "(Shiraishi)" at the end of a sentence reporting what someone argued or
+     found: a surname (or two, or "et al."), no year, no page, and no entry
+     in a reference list to say which work it is. Owner, 2026-10-08: the
+     panel called it an "Unnamed source" — but it names a person; what it
+     leaves out is the work. MLA allows a bare name for an unpaginated source
+     WITH its Works Cited entry, so a matching entry means no note. An
+     all-capitals parenthetical is an acronym — (NATO) — never a name. */
+  const NAME_CITE_END = /\(([^()\n]{2,60})\)\s*[.!?]?["”’]?\s*$/;
+  const BARE_NAME = /^[\p{Lu}][\p{L}'’-]+(?:\s+(?:and|&)\s+[\p{Lu}][\p{L}'’-]+|\s+et al\.)?$/u;
+  const REPORTS = /\b(?:argue[sd]?|found|finds|show(?:s|n|ed)?|suggest(?:s|ed)?|claim(?:s|ed)?|state[sd]?|note[sd]?|wrote|writes?|report(?:s|ed)?|contend(?:s|ed)?|maintain(?:s|ed)?|according to)\b/i;
+  function nameOnlyCitation(sentence, text) {
+    const m = String(sentence ?? "").match(NAME_CITE_END);
+    const inner = m ? m[1].trim() : "";
+    if (!m || !BARE_NAME.test(inner) || /^[\p{Lu}\s&.]+$/u.test(inner) || CITED_NOT_A_WORK.test(`${inner} `) || !REPORTS.test(sentence)) return null;
+    if (referenceEntryFor(inner, text)) return null;
+    return { raw: `(${m[1]})`, inner, name: inner.split(/\s+(?:and|&)\s+|\s+et al\./)[0] };
+  }
   function citationHygieneTips(text) {
     const out = [];
     const body = (() => { const wc = worksCitedBlock(String(text ?? "")); return wc ? String(text).slice(0, wc.headStart) : String(text ?? ""); })();
@@ -1433,8 +1450,12 @@
       if (s.length < 12) continue;
       const bracket = s.match(BAD_INLINE);
       if (bracket) out.push({ quote: bracket[0], kind: "badcite", message: "This cannot lead a reader to a source: name one source with its author, title and date (or n.d. if it truly has none), and cite it in your style. Do not guess missing details." });
-      else if (PRESTIGE_EXCUSE.test(s)) out.push({ quote: s, kind: "excuse", message: "A source's reputation never excuses missing citation details. This sentence is a note about your citation, not part of your argument: delete it, then give the cited source's date (or n.d. if it truly has none) — Find the cited work looks it up." });
+      else if (PRESTIGE_EXCUSE.test(s)) out.push({ quote: s, kind: "excuse", message: "A source's reputation never excuses missing citation details. This line is a note to yourself, not part of your argument: delete it, and give the cited source's date (or n.d. if it truly has none)." });
       else if (VERIFY_NOTE.test(s)) out.push({ quote: s, kind: "placeholder", message: "A note to yourself is not support. Verify the claim and cite where you found it, or remove it." });
+      else if (nameOnlyCitation(s, text)) {
+        const { raw, name } = nameOnlyCitation(s, text);
+        out.push({ quote: s, kind: "nameonly", message: `${raw} names a person, not which of their works you mean. Find the cited work lists what ${name} has published on this subject — cite the one that makes this point, with its year.` });
+      }
       else if (VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) out.push({ quote: s, kind: "vague", message: "An unnamed source is not a citation: say which researchers or study, and cite it — or remove the claim." });
       if (out.length >= 8) break;
     }
@@ -2170,6 +2191,10 @@
       const i = claimSentenceIndex("excuse", tip.quote, list);
       seg = i >= 0 ? list[i] : null;
       c = seg ? lookupableCitation(seg.text) : null;
+    } else if (tip.kind === "nameonly") {
+      const m = String(tip.quote).match(NAME_CITE_END);
+      c = m ? { raw: `(${m[1]})`, inner: m[1].trim() } : null;
+      if (c) seg = list.find((s) => s.text.includes(tip.quote) || tip.quote.includes(s.text)) ?? null;
     } else if (tip.kind === "citation" || tip.kind === "source") {
       c = lookupableCitation(tip.quote);
       if (c) seg = list.find((s) => s.text.includes(c.raw) && (s.text.includes(tip.quote) || tip.quote.includes(s.text))) ?? null;
@@ -2243,8 +2268,7 @@
      web_accessible_resources. A page whose policy refuses data: images gets
      the plane glyph instead (wireChrome), never an empty circle. */
   const MARK_PNG = "data:image/png;base64,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";
-  let showAllCards = false; // "Show all (N)" — off until asked, per page
-  let focusCard = null;     // the card single view shows: the underline last clicked
+  let focusCard = null;     // the open card (foldCards): the underline last clicked, or the card last opened
   function launcherHtml(countCls, countTxt, title) {
     return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
       <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
@@ -2254,10 +2278,16 @@
   // The header: "N claims flagged" and the round close. The status line is
   // shown only when it says something the title does not — an error, or
   // "all clear" with nothing flagged — never "3 issues found" under "3 claims
-  // flagged".
-  function panelHeadHtml(n, statusMsg, statusErr, extra = "") {
-    const title = n > 0 ? `${n} claim${n === 1 ? "" : "s"} flagged` : "Tracely";
-    const status = statusErr || n === 0 ? statusMsg : "";
+  // flagged". `notes` are the panel's other cards (citations, writing): owner,
+  // 2026-10-08, "all clear" sat over two citation notes. With no claim
+  // flagged the notes are the title and the status says only what is true of
+  // the claims; with both, the notes ride beside the claims.
+  function panelHeadHtml(n, statusMsg, statusErr, extra = "", notes = 0) {
+    const count = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
+    const title = n > 0 ? `${count(n, "claim")} flagged` : notes > 0 ? count(notes, "note") : "Tracely";
+    const status = statusErr ? statusMsg
+      : n > 0 ? (notes > 0 ? `+ ${count(notes, "note")}` : "")
+        : notes > 0 && statusMsg === "all clear" ? "no claims flagged" : statusMsg;
     return `<div class="head" id="dragHead">
       <span class="name">${title}</span>
       ${extra}
@@ -2265,13 +2295,13 @@
       <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
     </div>`;
   }
-  // One card, or all of them. `cards` pairs each hash with its HTML.
+  // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
-    if (showAllCards || cards.length <= 1) {
-      return cards.map((c) => c.html).join("") + (cards.length > 1 ? `<button class="show-all" id="showAll">Show fewer</button>` : "");
-    }
-    const one = cards.find((c) => c.hash === focusCard) ?? cards[0];
-    return one.html + `<button class="show-all" id="showAll">Show all (${cards.length})</button>`;
+    return cards.map((c) => c.html).join("");
+  }
+  // A group of the list under its name and count — "Claims (2)", "Citations (1)".
+  function groupHtml(title, n, inner) {
+    return `<div class="tips"><div class="tips-head">${title}${n ? ` (${n})` : ""}</div>${inner}</div>`;
   }
   /* The panel's evidence section (see evidenceCandidates). Folded until
      opened; neutral, never a finding colour (CLAUDE.md "Colour only ever
@@ -2301,7 +2331,7 @@
     documents: "Document evidence (DBQ)", sourcing: "Sourcing (DBQ)", complexity: "Complexity (DBQ)",
     relevance: "Doesn't support the argument", source: "Source problem", quotation: "Quotation problem", citation: "Citation problem",
     bibliography: "Works Cited problem", reasoning: "Reasoning", contradiction: "Contradiction",
-    vague: "Unnamed source", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
+    vague: "Unnamed source", nameonly: "Citation names no work", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
   const NOTE_ACTION = { delete: "Delete this", rewrite: "Rewrite", cite: "Add a real source", needs_info: "Needs more information" };
   const NOTE_STATUS = { confirmed: "confirmed", unsupported: "unsupported", unverified: "unverified", possible: "possible" };
   function resumeTips(text, modelFindings, dismissed) {
@@ -2343,8 +2373,9 @@
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
       .filter((t) => !dismissed.has(t.id));
   }
+  // The citation notes and the reference list's, as one group: both are about citing.
   function citationTipsHtml(tips, copiedId) {
-    return tips.length ? tipsSectionHtml("Citation tips", tips, "", copiedId) : "";
+    return tips.length ? tipsSectionHtml("Citations", tips, "", copiedId) : "";
   }
   // Lines that share no word with the rest of the essay (offTopicSentences): shown only when there is one.
   const OFF_TOPIC_MESSAGE = "Nothing in this line connects to the rest of your writing. If it doesn't belong, delete it; if it does, tie it to your point.";
@@ -2371,9 +2402,6 @@
       ...correctionResidue(text).map((quote) => ({ id: "tip:" + hashText(quote + "|residue"), quote, kind: "residue", message: RESIDUE_MESSAGE, suggestion: "" })),
     ].filter((t) => !dismissed.has(t.id));
   }
-  function offTopicHtml(tips, copiedId) {
-    return tips.length ? tipsSectionHtml("Off topic", tips, "", copiedId) : "";
-  }
   // The reference list's two notes (referenceListIssues): shown only when there is one.
   const REF_MESSAGES = {
     refdup: "This source is listed twice. Delete this copy.",
@@ -2383,9 +2411,6 @@
   function referenceTips(text, dismissed) {
     return referenceListIssues(text).map((r) => ({ id: "tip:" + hashText(r.quote + "|" + r.kind), quote: r.quote, kind: r.kind, message: r.missing ? `${REF_MESSAGES[r.kind]} Missing: ${r.missing.join("; ")}.` : REF_MESSAGES[r.kind], suggestion: "" }))
       .filter((t) => !dismissed.has(t.id));
-  }
-  function referenceTipsHtml(tips, copiedId) {
-    return tips.length ? tipsSectionHtml("Reference list", tips, "", copiedId) : "";
   }
   /* Writing feedback (owner, 2026-10-05, on an AP World DBQ whose facts were
      all right: "it flags things too little … It should of flagged these
@@ -2490,10 +2515,16 @@
     if (genre === "homework") return `<div class="genre-line">This looks like homework questions. Tracely checks essays and other writing, so it is staying quiet here.</div>`;
     return GENRE_LABEL[genre] ? `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}</div>` : "";
   }
+  /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
+     a citation (cite_tip), orange for one on the writing (note_tip). A note
+     with no underline — a resume line, a stray line — has none: colour only
+     ever means a finding someone can see in the text. */
+  const CITE_TIP_KINDS = ["page", "vague", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete"];
+  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-quest" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}">
-        <div class="top"><span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
@@ -2538,10 +2569,35 @@
       + `${by?.offClaim?.length ? `<div class="src-snip"><b>${esc(CITED_COPY.offClaim(by.offClaim))}</b></div>` : ""}`
       + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
   }
+  /* One card open at a time. Owner, 2026-10-08, on the panel: "make this
+     more organized polished … restructure it" — every card open at once read
+     as a wall. The open card is the underline last clicked or the card last
+     opened (focusCard), else the first, which is then kept open while the
+     writer works in it even if a new card lands above it. The rest fold to
+     their title and the first line of their sentence and open on a click or
+     Enter. A card's own buttons are only in the open card. Evidence cards
+     sit in their own fold and are left as they are. */
+  function foldCards(shadow, rerender) {
+    const cards = [...shadow.querySelectorAll(".list .card[data-card]:not(.ev-card)")];
+    if (cards.length < 2) return;
+    if (!cards.some((c) => c.dataset.card === focusCard)) focusCard = cards[0].dataset.card;
+    for (const card of cards) {
+      card.setAttribute("aria-expanded", String(card.dataset.card === focusCard));
+      if (card.dataset.card === focusCard) continue;
+      card.classList.add("shut");
+      card.tabIndex = 0;
+      const open = (e) => {
+        if (e.target.closest?.("button, a, input")) return; // its ✕ still dismisses
+        focusCard = card.dataset.card;
+        rerender();
+      };
+      card.addEventListener("click", open);
+      card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } });
+    }
+  }
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
-    shadow.getElementById("showAll")?.addEventListener("click", () => { showAllCards = !showAllCards; rerender(); });
     for (const img of shadow.querySelectorAll(".src-ico img")) img.addEventListener("error", () => img.remove(), { once: true });
     const mark = shadow.querySelector(".launch-mark");
     mark?.addEventListener("error", () => { mark.outerHTML = `<span class="launch-plane">${PLANE_SVG}</span>`; }, { once: true });
@@ -2893,12 +2949,6 @@
       display: flex; align-items: center; justify-content: center;
     }
     .close:hover { background: #e7e7e7; }
-    .show-all {
-      width: 100%; flex-shrink: 0; padding: 12px; border-radius: 999px;
-      border: 1.5px solid #e2e2e2; background: var(--surface); color: #1a1a1f;
-      font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
-    }
-    .show-all:hover { border-color: #c9c9c9; }
     /* The one legend (never colour alone): what each underline's LINE means. */
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
@@ -2909,8 +2959,11 @@
     .ev-toggle:hover { text-decoration: underline; }
     .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
-    .tips { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
-    .tips-head { font-size: 13px; font-weight: 600; color: #1a1a1f; padding: 2px 2px 0; }
+    /* The list's groups — Claims, Citations, Writing feedback — each a name
+       and its cards; the name is chrome, so ink, never a finding colour. */
+    .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+    .tips + .tips { margin-top: 6px; }
+    .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
     .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
@@ -2924,17 +2977,23 @@
       padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
     .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
-    /* The frame draws the claim on the panel itself, not in a box inside it;
-       under "Show all" a hairline separates one claim from the next. */
+    /* Each card is its own box, so where one ends is never a guess; the
+       open one (foldCards) is drawn a shade firmer, the folded ones are a
+       title and one line of their sentence. */
     .card {
-      background: var(--surface); border-radius: 12px;
-      display: flex; flex-direction: column; gap: 10px;
+      background: var(--surface); border: 1px solid #ececec; border-radius: 12px;
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
     }
-    .card + .card { border-top: 1px solid #e7e7e7; border-top-left-radius: 0; border-top-right-radius: 0; padding-top: 16px; }
+    .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
+    .card.shut:hover { background: #fafafa; border-color: #dcdcdf; }
+    .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .card.shut > :not(.top):not(.quote) { display: none; }
+    .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .top { display: flex; align-items: center; gap: 8px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
@@ -2950,11 +3009,12 @@
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 15px; font-weight: 700; color: #1a1a1f; }
+    .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
     .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
     .x:hover { color: var(--text); }
-    .quote { font-size: 14.5px; line-height: 1.4; color: #55565c; }
-    .expl { font-size: 13.5px; line-height: 1.4; color: var(--body); }
+    /* The writer's own words, set off by a rule; the advice under it is the body. */
+    .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
+    .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
@@ -2993,8 +3053,10 @@
     .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .row > button.act { flex: 1 1 0; min-width: max-content; }
+    /* A card's actions sit at their own width, the one it asks for first and
+       filled: a full-width bar per button outweighed the advice. */
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > button.act { flex: 0 0 auto; }
     .edit-note { font-size: 11px; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -3029,8 +3091,8 @@
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
     button.act {
       border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
-      border-radius: 999px; padding: 9px 16px;
-      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
+      border-radius: 999px; padding: 7px 14px;
+      font-size: 12.5px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
       transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
     }
     button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
@@ -8323,9 +8385,10 @@
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(docText, settings.citationStyle, dismissed) : [];
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
-      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length;
+      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -8414,9 +8477,15 @@
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        /* The list, most serious first (owner, 2026-10-08: "make this more
+           organized … restructure it"): the claims, then the citations (the
+           citation notes and the reference list's), then the writing (the
+           review's notes and the stray lines), then evidence you could add —
+           one card open at a time (foldCards). */
+        const claimsHtml = cardsHtml ? groupHtml("Claims", cards.length, cardsHtml) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
           : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
-            ? essayFeedbackHtml(essayNotes, review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : []) + (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(docText, settings.citationStyle, dismissed), copiedTipId) : "")
+            ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : [])
             : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
@@ -8429,9 +8498,9 @@
           : "";
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
+          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline", "", flagged - issues.length)}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${tipsHtml}${flowCards}${cardsHtml || (flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`)}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -8457,6 +8526,7 @@
       if (cardSources) {
         for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
         if (undoShown) shadow.querySelector(".undo-strip")?.remove(); // a card carries the Undo now
+        foldCards(shadow, render);
       }
       if (typing) {
         const box = [...shadow.querySelectorAll("[data-page-input]")].find((i) => i.dataset.pageInput === typing);
@@ -9699,10 +9769,11 @@
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(fieldText, settings.citationStyle, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
-      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length;
+      const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -9766,9 +9837,15 @@
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        /* The list, most serious first (owner, 2026-10-08: "make this more
+           organized … restructure it"): the claims, then the citations (the
+           citation notes and the reference list's), then the writing (the
+           review's notes and the stray lines), then evidence you could add —
+           one card open at a time (foldCards). */
+        const claimsHtml = cardsHtml ? groupHtml("Claims", cards.length, cardsHtml) : "";
         const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
           : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
-            ? essayFeedbackHtml(essayNotes, review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : []) + (offTopic.length ? offTopicHtml(offTopic, copiedTipId) : "") + (refTips.length ? referenceTipsHtml(refTips, copiedTipId) : "") + (FEATURES.quoteTips ? citationTipsHtml(citationTips(fieldText, settings.citationStyle, dismissed), copiedTipId) : "")
+            ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : [])
             : "");
         const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
@@ -9782,9 +9859,9 @@
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline")}
+          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline", "", flagged - issues.length)}
           <div class="list">
-            ${genreHtml}${tipsHtml}${cardsHtml || (tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`)}${evidenceHtml}
+            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -9805,7 +9882,10 @@
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
-      if (cardSources) for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
+      if (cardSources) {
+        for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
+        foldCards(shadow, render);
+      }
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 

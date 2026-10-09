@@ -91,7 +91,7 @@ test("not a citation, not a quote: left alone", () => {
 test("citation tips: one section only when there is something to say, dismissable", () => {
   const tips = X.citationTips(LITERARY, "mla", new Set());
   assert.equal(tips.length, 1);
-  assert.match(X.citationTipsHtml(tips, null), /Citation tips \(1\)/);
+  assert.match(X.citationTipsHtml(tips, null), /Citations \(1\)/);
   assert.match(X.citationTipsHtml(tips, null), /Add the page number/);
   assert.ok(!X.citationTipsHtml(tips, null).includes("“\"Gatsby"), "the quote keeps its own marks, not doubled ones");
   assert.equal(X.citationTipsHtml([], null), "", "no tips, no section");
@@ -100,6 +100,7 @@ test("citation tips: one section only when there is something to say, dismissabl
 
 test("wired into both panels, beside Resume tips", () => {
   assert.match(SRC, /quoteTips: true,/);
-  assert.equal((SRC.match(/\(FEATURES\.offTopic \|\| FEATURES\.refList \|\| FEATURES\.quoteTips \|\| FEATURES\.essayFeedback\) && isArgumentGenre\(docGenre\)\n\s+\? essayFeedbackHtml\(essayNotes, review\.inflight && review\.kind === \"essay\", copiedTipId, review\.kind === \"essay\" \? resolvedNotes\(review\.seen, essayNotes, (?:docText|fieldText)\) : \[\]\) \+ \(offTopic\.length \? offTopicHtml\(offTopic, copiedTipId\) : ""\) \+ \(refTips\.length \? referenceTipsHtml\(refTips, copiedTipId\) : ""\) \+ \(FEATURES\.quoteTips \? citationTipsHtml\(citationTips\((?:docText|fieldText), settings\.citationStyle, dismissed\), copiedTipId\) : ""\)/g) || []).length, 2);
+  assert.equal((SRC.match(/\(FEATURES\.offTopic \|\| FEATURES\.refList \|\| FEATURES\.quoteTips \|\| FEATURES\.essayFeedback\) && isArgumentGenre\(docGenre\)\n\s+\? citationTipsHtml\(\[\.\.\.citeTips, \.\.\.refTips\], copiedTipId\) \+ essayFeedbackHtml\(\[\.\.\.essayNotes, \.\.\.offTopic\], review\.inflight && review\.kind === \"essay\", copiedTipId, review\.kind === \"essay\" \? resolvedNotes\(review\.seen, essayNotes, (?:docText|fieldText)\) : \[\]\)/g) || []).length, 2);
+  assert.equal((SRC.match(/const citeTips = FEATURES\.quoteTips && isArgumentGenre\(docGenre\) \? citationTips\((?:docText|fieldText), settings\.citationStyle, dismissed\) : \[\];/g) || []).length, 2);
   assert.equal((SRC.match(/const genreHtml = FEATURES\.resumeTips \|\| FEATURES\.quoteTips \? genreLineHtml\(docGenre\) : "";/g) || []).length, 2);
 });
