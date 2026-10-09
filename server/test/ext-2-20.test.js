@@ -48,7 +48,8 @@ const content = (from, to) => slice("content.js", from, to);
 
 // The shared pieces every widget/deep test needs: esc, the deep module, and
 // the guard a revision passes (usableRevision) — a deep answer's too, since 2.21.24.
-const SHARED = () => content("  function esc(s) {", "  // Carry [n] citation markers")
+const SHARED = () => content("  const MARK_COLORS =", "\n") // the header's counts draw their icons in the findings' colours
+  + content("  function esc(s) {", "  // Carry [n] citation markers")
   + content('  /* ── "Explain in depth" (2.20.0)', "  /* ── shared helpers")
   + content("  const FIX_NEGATION", "  /* Citations that cannot lead a reader");
 

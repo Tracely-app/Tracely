@@ -341,8 +341,11 @@ test("undo never shows a preview, and neither does the in-order retry of an acce
 
 test("the gate sits before the steps loop, and the preview is installed only by the switch", () => {
   const run = slice("    async function runDocEdit(key, job) {", "    async function undoLastDocEdit() {");
-  const gate = run.indexOf("if (previewDocEdit && !job.previewed) {");
+  const gate = run.indexOf("if (previewDocEdit && !job.previewed && !editGate.approved.has(key)) {");
   assert.ok(gate > 0 && gate < run.indexOf("setEditState(key, { state: \"applying\" });"), "asked before Applying…");
+  // "Let Tracely fix these" (ext-fix-all.test.js): while preparing, an edit is only recorded — before docBusy, before any step.
+  const collect = run.indexOf("if (editGate.collect && key.startsWith(editGate.collect.prefix)) {");
+  assert.ok(collect > 0 && collect < run.indexOf("docBusy = true;") && collect < gate, "recorded before anything is held or sent");
   assert.ok(gate < run.indexOf("for (const step of job.steps)"), "asked before any step is sent");
   assert.match(run, /return runDocEdit\(key, \{ \.\.\.job, steps: job\.retry, retry: null, previewed: true \}\);/);
   const undo = slice("    async function undoLastDocEdit() {", "    // A repeated sentence from the panel");
@@ -358,17 +361,16 @@ test("svgRangeRects groups the visible lines exactly as svgLocate does", () => {
   }
 });
 
-test("the walkthrough never answers a preview, and clicks only Tracely's own card buttons", () => {
+test("Let Tracely fix these never answers a preview, never clicks anything, and approves only what the writer accepted", () => {
   const walk = slice("    /* ── \"Let Tracely fix these\"", "    if (FEATURES.typePreview) {");
-  for (const banned of ["data-tracely-type-accept", "data-tracely-type-reject", "finish(", "tpOpen.finish", "resolve(true"]) {
-    assert.ok(!walk.includes(banned), `the walkthrough touches ${banned}`);
+  for (const banned of ["data-tracely-type-accept", "data-tracely-type-reject", "finish(", "tpOpen", "resolve(true", ".click()", "showTypePreview", "showDocsPopover"]) {
+    assert.ok(!walk.includes(banned), `the batch touches ${banned}`);
   }
-  const clicks = [...walk.matchAll(/(\w+)\.click\(\)/g)].map((m) => m[1]);
-  assert.deepEqual(clicks, ["btn"], "one .click(), in walkPress");
-  assert.match(walk, /const btn = popCard \? \[\.\.\.popCard\.querySelectorAll\("button"\)\]/, "a button of the open Tracely card, nothing else");
-  // The switch off: no walkthrough on offer, and the hover is untouched.
+  assert.equal((walk.match(/editGate\.approved\.add\(/g) || []).length, 1, "one approval");
+  assert.match(walk, /async function acceptFix\(i\) \{[\s\S]*?editGate\.approved\.add\(it\.editKey\);/, "…in acceptFix, the writer's Accept");
+  // The switch off: nothing on offer.
   assert.match(SRC, /const walkOffered = \(\) => Boolean\(FEATURES\.typePreview && previewDocEdit && canEditDoc\(\)/);
-  assert.match(SRC, /function hoverHit\(\) \{\n\s+hoverRafBusy = false;\n\s+if \(tcWalk\) return;/);
+  assert.match(SRC, /function hoverHit\(\) \{\n\s+hoverRafBusy = false;\n/);
 });
 
 /* ── the preview itself, in a fake DOM ──────────────────────────────────── */
@@ -940,118 +942,7 @@ test("the harness's gate: no opt-in, no preview; opted in, the preview", async (
   assert.equal(await p, false);
 });
 
-/* ── the walkthrough, over a stand-in card ──────────────────────────────── */
-
-/* A flagged sentence (s1, a fix) and a missing citation (s2), each with an
- * underline. The card is a stand-in with the real buttons' labels; its
- * buttons do what the real ones do: Suggest fix → the fix card; Apply
- * revision and Cite in doc → an edit through previewDocEdit. */
-function walkSetup({ sources = null } = {}) {
-  const log = [];
-  const times = []; // { ev, at }: when the card opened, when each button was clicked (fake clock)
-  let t = null;
-  const env = {
-    canEdit: true,
-    issues: () => [
-      { seg: { hash: "s1", start: 0, text: SENTENCE }, f: { verdict: "false", revision: FIXED } },
-      { seg: { hash: "s2", start: 400, text: "The human body has 206 bones." }, f: { verdict: "needs_citation" } },
-    ],
-    card(hash) {
-      const card = new FakeEl(t.doc, "div");
-      times.push({ ev: "open", hash, at: t.now() });
-      card.rect = { left: 300, top: 300, width: 320, height: 200 };
-      const button = (label, onClick, i = 0) => {
-        const b = card.appendChild(new FakeEl(t.doc, "button"));
-        b.textContent = label;
-        b.rect = { left: 320 + i * 120, top: 440, width: 110, height: 34 };
-        b.addEventListener("click", () => { log.push(`${hash}:${label}`); times.push({ ev: label, hash, at: t.now() }); onClick(); });
-      };
-      const P = t.w.POP_COPY;
-      const paint = () => {
-        card.textContent = "";
-        const st = t.w.steps.get(hash) ?? { step: "problem" };
-        if (hash === "s1") {
-          if (st.step === "fix") button(P.apply, () => { t.w.run("fix:s1", fixJob()); });
-          else button(P.suggestFix, () => { t.w.steps.set("s1", { step: "fix" }); paint(); });
-        } else if (st.step === "sources") {
-          const s = t.w.sources.get("s2");
-          if (s && !s.loading) button(P.insert, () => { log.push(`cite:${st.selected ?? s.list[0]?.url}`); t.w.run(`cite:s2:${st.selected ?? s.list[0]?.url}`, { steps: [{ action: "replace", find: "The human body has 206 bones.", replacement: "The human body has 206 bones (Lee, 2021)." }] }); });
-        } else {
-          button(P.findSource, () => {
-            t.w.sources.set("s2", { loading: true });
-            t.w.steps.set("s2", { step: "sources", selected: null });
-            setTimeout(() => { t.w.sources.set("s2", { loading: false, list: sources ?? [] }); paint(); }, 0);
-            paint();
-          });
-        }
-      };
-      env.paint = () => paint();
-      paint();
-      return card;
-    },
-  };
-  t = loadPreview({ lines: [...TWO_LINES, { text: "The human body has 206 bones.", top: 400 }], env });
-  t.w.setBars([
-    { hash: "s1", size: 18, el: Object.assign(t.doc.body.appendChild(new FakeEl(t.doc, "div")), { rect: { left: 100, top: 118, width: 336, height: 3 } }) },
-    { hash: "s2", size: 18, el: Object.assign(t.doc.body.appendChild(new FakeEl(t.doc, "div")), { rect: { left: 100, top: 418, width: 232, height: 3 } }) },
-  ]);
-  return { t, log, times };
-}
-const until = async (t, cond, n = 400) => { for (let i = 0; i < n && !cond(); i++) await t.settle(1, 50); return cond(); };
-
-test("walkthrough: it opens each card, clicks Tracely's own buttons, and waits — only the writer accepts", async () => {
-  const { t, log } = walkSetup({ sources: [{ url: "ctx", stance: "context" }, { url: "lee", stance: "supports" }] });
-  assert.equal(t.w.offered(), true);
-  assert.match(t.w.strip(), /Tracely can make 2 of these fixes.*data-walk-go="1">Let Tracely fix these</);
-  t.w.walk();
-  assert.ok(await until(t, () => Boolean(t.layer())), "the first fix reaches its preview");
-  assert.deepEqual(log, ["s1:Suggest fix", "s1:Apply revision"], "the card's own buttons, in the writer's order");
-  assert.ok(cursorOf(t), "the cursor drives");
-  assert.match(t.w.strip(), /Tracely is on 1 of 2.*data-walk-stop/);
-  // However long it waits, the walkthrough never answers the preview.
-  await t.settle(80, 100);
-  assert.ok(t.layer(), "still waiting for the writer");
-  assert.equal(t.w.edits.size, 0, "nothing applied");
-  t.fire("keydown", { key: "Enter" }); // the writer accepts
-  assert.ok(await until(t, () => log.some((l) => l.startsWith("cite:"))), "on to the citation");
-  assert.deepEqual(log.slice(2), ["s2:Find a source", "s2:Cite in doc", "cite:lee"], "the top BACKING source, not the first one listed");
-  assert.ok(await until(t, () => Boolean(t.layer())));
-  t.fire("keydown", { key: "Escape" }); // the writer rejects this one — Esc inside a preview is its Reject, not Stop
-  assert.ok(await until(t, () => !t.w.walking()));
-  assert.equal(t.w.walkDone(), "Done: 1 applied, 1 rejected.");
-  assert.deepEqual([...t.w.edits.keys()], ["fix:s1"]);
-  assert.equal(cursorOf(t), null, "the cursor leaves when it is done");
-});
-
-test("walkthrough: no source backs the sentence → skipped with a note, never cited; Esc outside a preview stops it", async () => {
-  const { t, log } = walkSetup({ sources: [{ url: "ctx", stance: "context" }] });
-  t.w.walk();
-  assert.ok(await until(t, () => Boolean(t.layer())));
-  t.fire("keydown", { key: "Enter" });
-  assert.ok(await until(t, () => !t.w.walking()));
-  assert.ok(!log.some((l) => l.startsWith("cite:")), "nothing cited");
-  assert.equal(t.w.walkDone(), "Done: 1 applied, 0 rejected, 1 skipped (no source backs it).");
-
-  const s = walkSetup();
-  s.t.w.walk();
-  await s.t.settle(3, 20);
-  s.t.fire("keydown", { key: "Escape" }); // no preview open: Esc stops the walkthrough
-  assert.ok(await until(s.t, () => !s.t.w.walking()));
-  assert.match(s.t.w.walkDone(), /^Stopped/);
-  assert.equal(s.t.w.edits.size, 0);
-});
-
-test("walkthrough pacing: a beat on the underline while the card opens, and a beat over each button before its real click", async () => {
-  const { t, times } = walkSetup({ sources: [] }); // reduced motion: no glides or ripples, the beats stay
-  t.w.walk();
-  assert.ok(await until(t, () => times.some((x) => x.ev === "Apply revision")));
-  const at = (ev) => times.find((x) => x.ev === ev).at;
-  assert.ok(at("Suggest fix") - at("open") >= 800, `card opened at ${at("open")}, first click at ${at("Suggest fix")}: 400 ms with the card open, then 400 ms over the button`);
-  assert.ok(at("Apply revision") - at("Suggest fix") >= 400, "a beat over the next button too");
-  t.w.walkEnd();
-  t.fire("keydown", { key: "Escape" });
-  assert.ok(await until(t, () => !t.w.walking()));
-});
+/* ── "Let Tracely fix these": what it offers (the batch itself: ext-fix-all.test.js) ── */
 
 test("walkthrough: not offered with the switch off, without an editable Doc, or with nothing it can do", () => {
   const off = loadPreview({ features: { typePreview: false }, env: { canEdit: true, issues: () => [{ seg: { hash: "s1", start: 0, text: SENTENCE }, f: { verdict: "false", revision: FIXED } }] } });

@@ -1577,13 +1577,32 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
   // Every caller of an edit is a click/keydown handler (or the pasted-URL
   // flow those start), never page load or a message from the page.
   const code = docs.replace(/\/\*[\s\S]*?\*\//g, (c) => " ".repeat(c.length)).replace(/\/\/.*$/gm, (c) => " ".repeat(c.length));
+  // "Let Tracely fix these" reaches them through fixMake alone (checked below).
+  const makeAt = code.indexOf("function fixMake(");
+  const makeEnd = code.indexOf("\n    }\n", makeAt);
+  assert.ok(makeAt > 0 && makeEnd > makeAt, "fixMake");
   for (const name of ["docFix", "docCite", "addTransition", "undoLastDocEdit", "citeUrlWidget"]) {
     const calls = [...code.matchAll(new RegExp(`(?<!function )\\b${name}\\(`, "g"))];
     assert.ok(calls.length > 0, name);
     for (const c of calls) {
+      if (c.index > makeAt && c.index < makeEnd) continue;
       const before = code.slice(Math.max(0, c.index - 700), c.index);
       assert.ok(/addEventListener\("(click|keydown)"|popEditBtn\(|async function citeUrlWidget\(/.test(before),
         `${name}( is reachable from something other than a click:\n${before.slice(-200)}`);
+    }
+  }
+  // fixMake runs twice: while preparing, when runDocEdit only records (editGate.collect)
+  // and sends nothing — and for a change the writer accepted from the list.
+  const makes = [...code.matchAll(/(?<!function )\bfixMake\(/g)];
+  assert.equal(makes.length, 2);
+  assert.match(code.slice(makes[0].index - 200, makes[0].index), /editGate\.collect = \{ prefix: fixPrefix\(item\)/);
+  assert.match(code.slice(makes[1].index - 200, makes[1].index), /editGate\.approved\.add\(it\.editKey\);/);
+  // …and the batch starts, and is accepted, only on a click (Accept all is a loop of Accepts).
+  const owner = (i) => [...code.slice(Math.max(0, i - 4000), i).matchAll(/(?:async )?function (\w+)\(/g)].pop()?.[1];
+  for (const [name, from] of [["prepareFixes", []], ["acceptAllFixes", []], ["acceptFix", ["acceptAllFixes"]], ["fixCollect", ["prepareFix"]], ["prepareFix", ["prepareFixes"]]]) {
+    for (const c of code.matchAll(new RegExp(`(?<!function )\\b${name}\\(`, "g"))) {
+      const clicked = /addEventListener\("click"/.test(code.slice(Math.max(0, c.index - 300), c.index));
+      assert.ok(clicked || from.includes(owner(c.index)), `${name}( is reachable from something other than a click (in ${owner(c.index)})`);
     }
   }
 });
