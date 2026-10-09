@@ -73,6 +73,19 @@ never deletes outright); a quote without its page gets a **page box**
 review note with a rewrite gets **Rewrite in doc**. Tests:
 `server/test/ext-card-fixes.test.js`.
 
+## The live source search
+
+Since 2.21.29 the Docs search runs through `searchSources` →
+`POST /api/sources/stream` (server-sent events, relayed by `background.js`
+over a `tracely-stream` port) and the card shows what is happening: the real
+sites found, each one's reading, then the same answer `/api/sources` gives.
+A server without the route (404, or 403 for an unknown route) is asked the old
+way; a search the server took on and lost is never asked again (it would pay
+twice). The search starts on the press of "Find a source", "Keep writing"
+closes the card without cancelling, and a "Sources ready" note says when it
+is done. Nothing in the live view says a source backs anything — that is the
+receipts' answer. Tests: `server/test/ext-live-search.test.js`.
+
 ## Colours and marks
 
 The verdict vocabulary is the desktop's (`docs/design-file.md`, "UI
