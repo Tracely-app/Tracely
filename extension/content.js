@@ -2434,6 +2434,32 @@
     return out;
   }
 
+  /* One underline per span of text. Owner, 2026-10-08: "sometimes a sentence
+     is underlined with two different problems and it becomes jumbled" — two
+     translucent bands on the same words read as neither. A note over the
+     whole of a flagged sentence (an unnamed source, an excuse, a review note
+     on that sentence) is not drawn: the sentence's own mark carries it, and
+     its card lists it ("Also here", Docs) or the panel does (fields). A note
+     on part of the sentence — a citation, a bracket — is drawn beside the
+     fact mark, which stops short of it (factSpanOf). */
+  function tipCoversSentence(sentence, mark) {
+    const s = String(sentence ?? ""), m = String(mark ?? "");
+    return Boolean(s && m) && (s === m || (m.length >= s.length * 0.8 && (s.includes(m) || m.includes(s))));
+  }
+  // The part of a flagged sentence its own mark covers, as [start, end) in
+  // it: all of it, or — beside a smaller note's span — the longer side of it
+  // (a citation at the end leaves the words before it).
+  function factSpanOf(sentence, tips) {
+    const s = String(sentence ?? "");
+    const t = (Array.isArray(tips) ? tips : []).find((x) => x?.mark && s.includes(x.mark) && !tipCoversSentence(s, x.mark));
+    if (!t) return { start: 0, end: s.length };
+    const at = s.lastIndexOf(t.mark);
+    const before = s.slice(0, at).trimEnd().length;
+    const tail = s.slice(at + t.mark.length);
+    const after = at + t.mark.length + (tail.length - tail.trimStart().length);
+    return before >= s.length - after ? { start: 0, end: before } : { start: after, end: s.length };
+  }
+
   /* Where each citation note goes on the page (cite_tip marks). Owner,
      2026-10-04: "what if it needs to flag for two different things, say wrong
      information and wrong citation" — so a citation note is underlined on
@@ -3523,6 +3549,7 @@
     let locateSeq = 0;
     let lastVerdictByHash = new Map();
     let tipMarkById = new Map(); // cite_tip marks drawn on the last locate: id → citationMarks entry
+    let coTipsByHash = new Map(); // a flagged sentence's hash → the notes it carries instead of drawing them (tipCoversSentence)
 
     /* ── PRIMARY position source: Docs' SVG annotation layer ──────────────
        Modern Docs keeps an invisible SVG beside each canvas tile: one
@@ -4438,12 +4465,21 @@
       const issues = currentIssues().slice(0, 40);
       const flows = activeFlowIssues();
       // Citation notes get their own marks, on the citation (citationMarks).
-      const flaggedText = new Set(issues.map(({ seg }) => seg.text));
       const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
-        ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed)).filter((t) => !flaggedText.has(t.mark)) // a fact mark already holds that sentence
+        ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed))
         : [];
-      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes].slice(0, Math.max(0, 40 - issues.length));
-      tipMarkById = new Map(tips.map((t) => [t.id, t]));
+      const allTips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes];
+      // One underline per span: a note over the whole of a flagged sentence
+      // rides on that sentence's mark and card ("Also here"), not on a second
+      // band over the same words (tipCoversSentence).
+      coTipsByHash = new Map();
+      const tips = [];
+      for (const t of allTips) {
+        const host = issues.find(({ seg }) => tipCoversSentence(seg.text, t.mark));
+        if (host) coTipsByHash.set(host.seg.hash, [...(coTipsByHash.get(host.seg.hash) ?? []), t]);
+        else if (tips.length < Math.max(0, 40 - issues.length)) tips.push(t);
+      }
+      tipMarkById = new Map([...tips, ...[...coTipsByHash.values()].flat()].map((t) => [t.id, t])); // a carried note's card still opens by its id
       if (issues.length === 0 && flows.length === 0 && tips.length === 0) {
         clearDocsMarks();
         // A card that just fixed the last issue stays up to show "Applied ✓ ·
@@ -4459,8 +4495,8 @@
       // A flagged sentence whose citation carries its own note stops before
       // it, so the two marks sit side by side instead of on top of each other.
       const factText = (seg) => {
-        const t = tips.find((x) => x.kind === "page" && seg.text.includes(x.mark));
-        return t ? seg.text.slice(0, seg.text.lastIndexOf(t.mark)).trimEnd() : seg.text;
+        const { start, end } = factSpanOf(seg.text, tips);
+        return seg.text.slice(start, end);
       };
       const located = [...issues.map(({ seg }) => ({ seg: { hash: seg.hash, text: factText(seg) } })), ...tips.map((t) => ({ seg: { hash: t.id, text: t.mark, lastCopy: t.lastCopy } }))];
       // PRIMARY: the SVG annotation layer — complete and live-positioned.
@@ -4956,7 +4992,29 @@
       if (tip.kind === "badcite") return "CITATION";
       return "REFERENCE";
     }
+    /* "Also here": the notes a flagged sentence carries on its own underline
+       (coTipsByHash), one row each, opening that note's card in this one —
+       with a way back to the sentence's. The dot is the note's own finding
+       colour; the words say what it is. */
+    function dmAlso(tips, backTo, backLabel) {
+      const box = el("div", { display: "flex", flexDirection: "column", gap: "4px", flex: "0 0 auto" });
+      for (const t of tips) {
+        const b = el("button", { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${DM.rowBorder}`, background: DM.blockBg, font: "inherit", fontSize: "12.5px", color: DM.ink, cursor: "pointer", textAlign: "left", boxSizing: "border-box" });
+        b.type = "button";
+        b.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: MARK_COLORS[t.markKind ?? "cite_tip"], flexShrink: "0" }), el("span", { flex: "1", minWidth: "0" }, `Also here: ${TIP_LABEL[t.kind] ?? "a note"}`), el("span", { color: DM.hint }, "›"));
+        b.addEventListener("click", () => { popPinned = true; popSteps.set(t.id, { ...stepOf(t.id), backTo, backLabel }); popHash = t.id; paintPop(); });
+        box.appendChild(b);
+      }
+      return box;
+    }
     function paintCiteTip(tip, put) {
+      const from = stepOf(tip.id);
+      if (from.backTo) {
+        const back = dmLink(`‹ ${from.backLabel ?? POP_COPY.back}`);
+        Object.assign(back.style, { marginLeft: "0", alignSelf: "flex-start" });
+        back.addEventListener("click", () => { popPinned = true; popHash = from.backTo; paintPop(); });
+        put(back);
+      }
       put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], TIP_LABEL[tip.kind] ?? "Citation"));
       put(dmBody(tip.message));
       put(dmBlock(citeTipBlockLabel(tip), dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
@@ -5263,6 +5321,8 @@
       // find the cited work: first when there is no fix to suggest, else
       // under the row (two buttons to a row; a third pushes Dismiss off).
       put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      const also = (coTipsByHash.get(hash) ?? []).filter((t) => !dismissed.has(t.id));
+      if (also.length) put(dmAlso(also, hash, VERDICT_LABEL[f.verdict] ?? f.verdict));
       put(dmBody(f.explanation || f.basis || seg.text));
       const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
       const findSource = () => {
@@ -8982,12 +9042,17 @@
         : [];
       const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : []), ...notes];
       const seen = new Set();
+      const liveSegs = segmentText(liveText);
+      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      // One underline per span (tipCoversSentence): a note over the whole of a
+      // flagged sentence is not drawn — the sentence's mark opens the panel,
+      // where both cards are.
+      const flaggedText = liveSegs.filter((seg) => seg.checkable && !dismissed.has(seg.hash) && flagShown(cache.get(seg.hash), settings, docGenre, seg.text, liveCovered.has(seg.hash))).map((seg) => seg.text);
       for (const tip of tips) {
+        if (flaggedText.some((t) => tipCoversSentence(t, tip.mark))) continue;
         const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
         if (rects.length) paintMark(layer, tip.id, rects, MARK_COLORS[tip.markKind ?? "cite_tip"], MARK_PATTERN[tip.markKind ?? "cite_tip"]);
       }
-      const liveSegs = segmentText(liveText);
-      const liveCovered = coveredByLaterCitation(liveText, liveSegs);
       for (const seg of liveSegs) {
         if (!seg.checkable || seen.has(seg.hash) || dismissed.has(seg.hash)) continue;
         seen.add(seg.hash);
@@ -9004,9 +9069,9 @@
         } else {
           continue;
         }
-        const cut = tips.find((t) => t.kind === "page" && t.start > seg.start && t.start < seg.end);
-        const end = cut ? seg.start + liveText.slice(seg.start, cut.start).trimEnd().length : seg.end;
-        const rects = isTa ? taRects(tracked, seg.start, end) : ceRects(tracked, index, seg.start, end);
+        // Beside a note on part of it (a citation), the sentence's mark stops short of it.
+        const span = factSpanOf(seg.text, tips.filter((t) => t.start >= seg.start && t.end <= seg.end));
+        const rects = isTa ? taRects(tracked, seg.start + span.start, seg.start + span.end) : ceRects(tracked, index, seg.start + span.start, seg.start + span.end);
         if (rects.length === 0) continue;
         if (!pending) { paintMark(layer, seg.hash, rects, color, pattern); continue; }
         for (const r of rects) {

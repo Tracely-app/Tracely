@@ -112,5 +112,5 @@ test("extension wiring: the request names its kind, notes count on the launcher,
   assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length;/g) || []).length, 2);
   assert.match(SRC, /cite_tip: "#ffb800", note_tip: "#ff5900" \};/);
   assert.match(SRC, /cite_tip: "double", note_tip: "dashed" \};/);
-  assert.match(SRC, /\.filter\(\(t\) => !flaggedText\.has\(t\.mark\)\)/, "never on top of a fact mark");
+  assert.match(SRC, /const host = issues\.find\(\(\{ seg \}\) => tipCoversSentence\(seg\.text, t\.mark\)\);/, "never on top of a fact mark: carried by it instead (Also here)");
 });
