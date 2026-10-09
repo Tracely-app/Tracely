@@ -5,7 +5,8 @@
   "startedAt": "2026-10-08T04:01:44.318Z",
   "install": "2010c141-8822-41cd-9d3e-ea3d94611f76",
   "harnessCommit": "4f0ca39",
-  "shownRule": "stance === \"supports\" (sentence not flagged false)"
+  "shownRule": "stance === \"supports\" (sentence not flagged false)",
+  "finishedAt": "2026-10-09T00:35:31.479Z"
  },
  "results": {
   "01-c1": {
@@ -2297,6 +2298,414 @@
     }
    ],
    "shown": 0
+  },
+  "08-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13769,
+   "claim": "Their sample was large and the effect held across grade levels, so the usual complaints about small studies do not apply here.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "How Does Artificial Intelligence Compare to Human Feedback? A Meta-Analysis of Performance, Feedback Perception, and Learning Dispositions",
+     "url": "https://doi.org/10.1080/01443410.2025.2553639",
+     "publisher": "Informa UK Limited",
+     "snippet": "The meta-analysis includes separate studies comparing AI feedback with human feedback and studies measuring performance change after feedback interventions.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Rogers Kaliisa",
+      "Kamila Misiejuk",
+      "Sonsoles López-Pernas",
+      "Mohammed Saqr"
+     ],
+     "groupAuthor": "",
+     "year": 2025,
+     "doi": "10.1080/01443410.2025.2553639",
+     "date": "2025-09-24",
+     "container": "Educational Psychology",
+     "volume": "46",
+     "issue": "1",
+     "pages": "80-111",
+     "editors": []
+    },
+    {
+     "title": "The Effects of AI-Assisted Feedback on Students’ Perceptions, Emotions, and Learning Outcomes in L2 Writing: A Three-Level Meta-Analysis",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0346251X26000497",
+     "publisher": "ScienceDirect",
+     "snippet": "The study warns that a substantial effect from a single pilot study highlights an efficacy-effectiveness gap in AI-feedback research.",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2026
+    },
+    {
+     "title": "Automated Feedback and Writing: A Multi-Level Meta-Analysis of Effects on Students' Performance",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10351274/",
+     "publisher": "National Library of Medicine",
+     "snippet": "The meta-analysis examines whether effects of automated writing feedback are moderated by sample, intervention, and outcome characteristics.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2023
+    },
+    {
+     "title": "Can Students Judge Like Experts? A Large-Scale Study on the Pedagogical Quality of AI and Human Personalized Formative Feedback",
+     "url": "https://doi.org/10.1016/j.caeai.2025.100533",
+     "publisher": "Elsevier BV",
+     "snippet": "The study compares AI-generated and human-authored feedback in higher education using 979 feedback samples and a 472-student user study.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Tanya Nazaretsky",
+      "Hagit Gabbay",
+      "Tanja Käser"
+     ],
+     "groupAuthor": "",
+     "year": 2026,
+     "doi": "10.1016/j.caeai.2025.100533",
+     "container": "Computers and Education: Artificial Intelligence",
+     "volume": "10",
+     "pages": "100533",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "08-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 8742,
+   "claim": "GPT-5 class models now score above the median human rater on the AP English Language essay rubric, according to the vendor's own published evaluation.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Introducing GPT-5",
+     "url": "https://openai.com/index/introducing-gpt-5/?content_language=English&facet3=pdf",
+     "publisher": "OpenAI",
+     "snippet": "OpenAI reports GPT-5 evaluation results across capabilities including visual reasoning, agentic coding, and graduate-level scientific problem solving, but the result shown does not mention AP English Language essays.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "OpenAI",
+     "year": 2025
+    },
+    {
+     "title": "Appendix A Exam Benchmark Methodology",
+     "url": "https://3dvar.com/OpenAI2023GPT.pdf",
+     "publisher": "OpenAI",
+     "snippet": "The methodology says AP English Language and Composition essays were graded by one or two qualified third-party contractors with relevant essay-grading experience.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "OpenAI",
+     "year": 2023
+    },
+    {
+     "title": "Grading the Graders: Comparing Generative AI and Human Assessment in Essay Evaluation",
+     "url": "https://journals.sagepub.com/doi/full/10.1177/00986283241282696",
+     "publisher": "SAGE Publications",
+     "snippet": "The study compares two ChatGPT versions with eight human instructors grading 186 deidentified student essays using a detailed rubric.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Elizabeth L. Wetzler",
+      "Kenneth S. Cassidy",
+      "Margaret J. Jones",
+      "Chelsea R. Frazier",
+      "Nickalous A. Korbut",
+      "Chelsea M. Sims",
+      "Shari S. Bowen",
+      "Michael Wood"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1177/00986283241282696",
+     "date": "2024-09-19",
+     "container": "Teaching of Psychology",
+     "volume": "52",
+     "issue": "3",
+     "pages": "298-304",
+     "editors": []
+    },
+    {
+     "title": "Comparing GPT and human raters in essay assessment: Variability, bias, and the potential of LLM-based scoring",
+     "url": "https://doi.org/10.1016/j.caeo.2026.100341",
+     "publisher": "Elsevier BV",
+     "snippet": "The study analyzes ratings by 20 human raters and a GPT-based automated essay-scoring system on 181 university second-language essays using a standardized rubric.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Hsiang-Ning Wu",
+      "Man-Ni Chu",
+      "Jia-Lien Hsu"
+     ],
+     "groupAuthor": "",
+     "year": 2026,
+     "doi": "10.1016/j.caeo.2026.100341",
+     "container": "Computers and Education Open",
+     "volume": "10",
+     "pages": "100341",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "08-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13937,
+   "claim": "Every English teacher I know is quietly worried that AI will grade essays better than they do, and the research says they are right to worry.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "AI not yet good enough to mark university essays, rewarding ‘style over substance’",
+     "url": "https://www.cam.ac.uk/stories/ai-university-essay-grading",
+     "publisher": "University of Cambridge",
+     "snippet": "Researchers found AI matched human-awarded degree classifications only around half the time and often rewarded length, vocabulary, and sentence complexity over academic quality.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Cambridge",
+     "year": 2026
+    },
+    {
+     "title": "Can AI provide useful holistic essay scoring?",
+     "url": "https://www.sciencedirect.com/science/article/pii/S2666920X24000584",
+     "publisher": "Elsevier",
+     "snippet": "The study compares minimally prompted language-model scores with trained human ratings and reports that human scoring was generally more reliable, especially for English learners.",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2024
+    },
+    {
+     "title": "Can AI grade your essays? A comparative analysis of large language models and teacher ratings in multidimensional essay scoring",
+     "url": "https://arxiv.org/abs/2411.16337",
+     "publisher": "arXiv",
+     "snippet": "LLM assessment could support teachers, particularly for language-related criteria, but models tended to give higher scores and struggled to capture content quality.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Seßler, Kathrin",
+      "Fürstenberg, Maurice",
+      "Bühler, Babette",
+      "Kasneci, Enkelejda"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "date": "2024-11-25"
+    },
+    {
+     "title": "Large Language Models in Student Assessment: Comparing ChatGPT and Human Graders",
+     "url": "https://arxiv.org/abs/2406.16510",
+     "publisher": "arXiv",
+     "snippet": "GPT-4 grades primarily reflected generic language quality and did not reliably adapt to nuanced grading criteria compared with university teachers.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Lundgren, Magnus"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "date": "2024-06-24"
+    },
+    {
+     "title": "EFL teachers’ perceptions of the use of an AI grading tool (CoGrader) in English writing assessment",
+     "url": "https://www.tandfonline.com/doi/pdf/10.1080/2331186X.2024.2430865",
+     "publisher": "Informa UK Limited",
+     "snippet": "The study examines English teachers’ concerns about AI grading and reports that teachers strongly supported maintaining control and receiving training when using such tools.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Mashael Salem Alsalem"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1080/2331186x.2024.2430865",
+     "date": "2024-11-21",
+     "container": "Cogent Education",
+     "volume": "11",
+     "issue": "1",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "09-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 9694,
+   "claim": "The council voted last year to remove parking minimums for new downtown apartments, and rents have not moved since.",
+   "essay": "09-parking-minimums.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Introductions Appropriate To Purpose And Context - AP English Language and Composition",
+     "url": "https://internal.varsitytutors.com/practice/subjects/ap-english-language-and-composition/quiz/introductions-appropriate-to-purpose-and-context",
+     "publisher": "Varsity Tutors",
+     "snippet": "“the city council is voting on whether to eliminate minimum parking requirements”",
+     "stance": "refutes",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Parking and the City",
+     "url": "https://www.scribd.com/document/934041473/Parrking-and-the-City-by-Donald-Shoup-full-PDF-it-is-that",
+     "publisher": "",
+     "snippet": "The book discusses removing parking requirements and reports that bundled parking was associated with about $200 more monthly rent for downtown Los Angeles apartments.",
+     "stance": "context",
+     "kind": "book",
+     "authors": [
+      "Donald Shoup"
+     ],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Introductions Appropriate To Purpose And Context - AP English Language and Composition",
+     "url": "https://www.varsitytutors.com/practice/subjects/ap-english-language-and-composition/flashcards/introductions-appropriate-to-purpose-and-context?type=recall",
+     "publisher": "Varsity Tutors",
+     "snippet": "The example frames Riverside's parking-minimum decision as affecting whether new downtown apartments remain affordable or become more expensive for renters.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 0
+  },
+  "09-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 11966,
+   "claim": "A two-bedroom apartment within walking distance of downtown now lists for more than $2,400 a month, and the vacancy rate downtown has been under two percent for three straight years.",
+   "essay": "09-parking-minimums.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Apartments for Rent in Downtown Los Angeles, Los Angeles, CA - 416 Rentals in Downtown Los Angeles, Los Angeles, CA",
+     "url": "https://www.redfin.com/neighborhood/290722/CA/Los-Angeles/Downtown-Los-Angeles/2-bedroom-apartments-for-rent",
+     "publisher": "Redfin",
+     "snippet": "Current Downtown Los Angeles two-bedroom rental listings include asking prices of $2,400 or more per month.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Downtown living at its finest! 2 bed 1 bath Apartments - 612&618 N 3rd Street San Jose CA",
+     "url": "https://www.zumper.com/apartment-buildings/1657147/downtown-living-at-its-finest-2-bed-1-bath-downtown-san-jose-san-jose-ca",
+     "publisher": "Zumper",
+     "snippet": "Zumper reports a September 2026 median rent of $3,845 for two-bedroom apartments in Downtown San Jose.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Market Feasibility Analysis",
+     "url": "https://s-www.virginiahousing.com/-/media/docs/partners/rental-housing/historical-tax-credits-data/2023/market-studies/1025-a-park-street-market-study.pdf?hash=4782D5C0090BDC7079FB2FD6E7775C1E&sc_lang=en",
+     "publisher": "Virginia Housing",
+     "snippet": "The report states that surveyed rental communities had a combined stabilized vacancy rate of 1.8 percent and average two-bedroom market-rate rents of $2,342.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Virginia Housing",
+     "year": 2023
+    },
+    {
+     "title": "Condo Market Report, Fourth Quarter 2017",
+     "url": "https://eugenepalermo.com/_media/Documents/condo_report_2017-Q4.pdf",
+     "publisher": "Toronto Real Estate Board",
+     "snippet": "The report says condominium vacancy was below one percent in fall 2017 and the average two-bedroom condominium rent was $2,627.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Toronto Real Estate Board",
+     "year": 2017
+    }
+   ],
+   "shown": 0
+  },
+  "09-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 9813,
+   "claim": "Cities that removed parking requirements have seen developers build smaller and cheaper units, and researchers estimate that each structured parking space adds tens of thousands of dollars to the cost of the apartment above it.",
+   "essay": "09-parking-minimums.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "The Impacts of Minimum Parking Requirements: A Research Synthesis",
+     "url": "https://its.ucla.edu/publication/impacts-minimum-parking-requirements-research-synthesis/",
+     "publisher": "UCLA Institute of Transportation Studies",
+     "snippet": "Research finds that eliminating parking minimums expands housing options by enabling smaller units and facilitates more affordable cities.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "UCLA Institute of Transportation Studies",
+     "year": 2026
+    },
+    {
+     "title": "No Such Thing as Free Parking: Construction Costs in 17 U.S. Cities",
+     "url": "https://its.ucla.edu/publication/no-such-thing-as-free-parking/",
+     "publisher": "UCLA Institute of Transportation Studies",
+     "snippet": "Required parking can add tens of thousands of dollars per housing unit and sometimes increase total construction costs by more than 50%.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "UCLA Institute of Transportation Studies",
+     "year": 2026
+    },
+    {
+     "title": "Parking policy: The effects of residential minimum parking requirements in Seattle",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0264837718312870",
+     "publisher": "Elsevier",
+     "snippet": "The study finds that reducing parking requirements leads to less parking provision, presumed developer cost savings, and lower housing prices for consumers.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2018,
+     "container": "Cities"
+    },
+    {
+     "title": "What Happens When Cities Eliminate Minimum Parking Requirements?",
+     "url": "https://rosap.ntl.bts.gov/view/dot/91845/dot_91845_DS1.pdf",
+     "publisher": "U.S. Department of Transportation",
+     "snippet": "Evidence from cities removing minimums shows that more affordable units were offered with no on-site parking, while other projects provided larger units and more parking.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "U.S. Department of Transportation",
+     "year": 2026
+    }
+   ],
+   "shown": 4
   }
  }
 }
