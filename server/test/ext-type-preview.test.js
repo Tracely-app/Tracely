@@ -407,6 +407,9 @@ class FakeEl {
   getBoundingClientRect() { const r = this.rect ?? { left: 0, top: 0, width: 0, height: 0 }; return { ...r, right: r.left + r.width, bottom: r.top + r.height }; }
   get offsetWidth() { return 260; }
   get offsetHeight() { return 120; }
+  // The preview's fixed layer is the viewport less a 15px page scrollbar (innerWidth is 1280).
+  get clientWidth() { return this.hasAttribute("data-tracely-type-preview") ? 1265 : 0; }
+  get clientHeight() { return this.hasAttribute("data-tracely-type-preview") ? 800 : 0; }
   closest() { return null; }
   querySelectorAll(sel) {
     const out = [];
@@ -615,6 +618,8 @@ test("inline: the new words are typed IN the line, in the document's font, and t
     ["point here.", 100, 220], // one line more than the paragraph had: over what is below, on white
   ]);
   assert.equal(texts[1].fill, "#000", "the kept words in the page's ink");
+  // The bitmap is the layer's own size, not innerWidth's: a squeezed canvas puts every x a little off.
+  assert.deepEqual([t.byAttr("data-tracely-type-flow").width, t.byAttr("data-tracely-type-flow").height], [1265, 800]);
   // Page white over every original run after the change — and a band under the overflow line.
   const white = d.filter((x) => x.op === "rect" && x.fill === "#fff");
   for (const top of [130, 160, 190]) assert.ok(white.some((r) => r.y <= top && r.y + r.h >= top + 18), `masked at ${top}`);
@@ -765,7 +770,8 @@ test("a deletion: struck, nothing typed, the cursor stays beside the strike; a r
   assert.deepEqual(at(cursorOf(t)), [100 + 16 * CHAR_W + 6, 100 + 18 * 0.35], "the cursor stays, beside the strike's end");
   const mark = t.byAttr("data-tracely-type-mark");
   assert.deepEqual([mark.style.display, t.px(mark.style.top), t.px(mark.style.left)], ["block", 330 - 4, 100], "a thin line above the entry it goes before");
-  assert.deepEqual([t.px(b.style.left), t.px(b.style.top)], [100, 118 + 8], "the bar under the struck line");
+  // The bar under the struck line — and below the parked cursor's name pill (tip + 19 + 18), never under it.
+  assert.deepEqual([t.px(b.style.left), t.px(b.style.top)], [100, 100 + 18 * 0.35 + 19 + 18 + 6]);
   t.fire("keydown", { key: "Escape" });
   assert.equal(await p, false);
 });

@@ -7020,8 +7020,16 @@
       const right = Math.max(...lines.map((l) => l.right), tpColumnRight(left, h));
       const diffs = lines.slice(1).map((l, i) => l.top - lines[i].top).sort((x, y) => x - y);
       const pitch = diffs.length ? diffs[Math.floor(diffs.length / 2)] : tpPitch(h);
+      // The runs just below the paragraph, which re-flowed lines may run over: hidden whole, never half a glyph.
+      const last = lines[lines.length - 1].top + lines[lines.length - 1].height;
+      const mine = new Set(whole.pieces.map((p) => p.node));
+      const below = svgLineNodes().filter((n) => {
+        if (mine.has(n)) return false;
+        const r = n.getBoundingClientRect();
+        return r.width > 0 && r.top >= last - 1 && r.top < last + pitch * 8;
+      });
       return {
-        rest: P.slice(at), pieces: whole.pieces, mask: rest.pieces, end: end.at, font, base: (h - (asc + desc)) / 2 + asc, h, pitch,
+        rest: P.slice(at), pieces: whole.pieces, mask: rest.pieces, below, end: end.at, font, base: (h - (asc + desc)) / 2 + asc, h, pitch,
         leftOff: left - lines[0].left, rightOff: right - lines[0].left,
         gap: diff.removed.trim() ? Math.max(2, m.measureText(" ").width * 0.6) : 0,
       };
@@ -7230,6 +7238,7 @@
       let skipped = reducedMotion();
       let ready = false, done = false, typedN = -1, raf = 0, tmr = 0, relocAt = 0, shownOnce = false;
       let flowNow = null; // the last layout drawn: where the caret and the bar go
+      let parkedBox = null; // the parked cursor and its pill, on screen
       const prevFocus = tpActive();
       // The popover would sit on top of the change: out of the way while it
       // is drawn in the document, back as it was afterwards.
@@ -7295,11 +7304,14 @@
         flowNow = null;
         if (!cv) return;
         const dpr = typeof devicePixelRatio === "number" && devicePixelRatio > 0 ? devicePixelRatio : 1;
-        const W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+        // The layer's own box, not innerWidth: a page scrollbar narrows it, and a
+        // bitmap sized to innerWidth would be squeezed to fit — every x off a little.
+        const cw = layer.clientWidth || innerWidth, ch = layer.clientHeight || innerHeight;
+        const W = Math.round(cw * dpr), H = Math.round(ch * dpr);
         if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
         const ctx = cv.getContext("2d");
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, innerWidth, innerHeight);
+        ctx.clearRect(0, 0, cw, ch);
         if (t < tl.showAt) return; // the original line, untouched, until the click lands
         const g = paraLive();
         if (!g) return;
@@ -7314,11 +7326,20 @@
         // Page white over the original words after the change, and under every line drawn
         // (lines past the paragraph's own overlay what is below it).
         ctx.fillStyle = "#fff";
-        for (const r of g.mask) ctx.fillRect(r.left - 1, r.top - 1, r.width + 2, r.height + 2);
+        for (const r of g.mask) ctx.fillRect(r.left - 1, r.top - 1, r.width + 2, r.height + 5); // its underline too: marks do not re-flow
         flow.forEach((l, i) => {
           if (i === 0) ctx.fillRect(l.x - 1, l.top - 1, Math.max(0, g.right - l.x + 2), para.h + 2);
           else ctx.fillRect(g.left - 1, flow[i - 1].top + para.h, g.right - g.left + 2, l.top - flow[i - 1].top + 1);
         });
+        // Past the paragraph's own last line: what is below goes under white, run by run (its underline too).
+        const flowBottom = flow[flow.length - 1].top + para.h;
+        if (flowBottom > g.bottom + 1) {
+          for (const n of para.below) {
+            if (!n.isConnected) continue;
+            const r = n.getBoundingClientRect();
+            if (r.top < flowBottom + 2 && r.bottom > g.bottom) ctx.fillRect(r.left - 1, r.top - 1, r.width + 2, r.height + 5);
+          }
+        }
         ctx.font = para.font;
         ctx.textBaseline = "alphabetic";
         for (const l of flow) {
@@ -7372,6 +7393,8 @@
         tcCursorAt(x, y);
         const off = t >= tl.glideMs && (y < c.top || y > c.bottom);
         tcCursor().root.style.visibility = off ? "hidden" : "visible";
+        // Parked: where its name pill sits, so the bar can keep clear of it.
+        parkedBox = !off && t >= tl.clickAt + tl.clickMs ? { left: x, top: y, right: x + 13 + (tcCur.pill.getBoundingClientRect().width || 60), bottom: y + 19 + 18 } : null;
       };
       const placeCaret = (t) => {
         if (!inDoc || mode === "strike" || t < tl.showAt) { caret.style.display = "none"; return; }
@@ -7439,6 +7462,9 @@
             left = Math.min(...rects.map((r) => r.left), p.x);
           }
           top = lastBottom + (compact ? 8 : 10);
+          // Below the parked cursor's pill, not under it.
+          const k = parkedBox;
+          if (compact && k && left < k.right && left + w > k.left && top < k.bottom + 4 && top + h > k.top) top = k.bottom + 6;
           if (top + h > innerHeight - 8 && firstTop - 10 - h >= clip().top) top = firstTop - 10 - h;
         } else {
           // Beside the card: the open popover, else the panel card that was pressed.
@@ -7495,8 +7521,8 @@
           placeStrikes(t);
           placeMark();
           placeCaret(t);
-          placeBubble(t);
           placeCursor(t);
+          placeBubble(t);
           markReady(t);
         } catch (err) {
           console.debug(`[tracely] type preview frame: ${err?.message ?? err}`);
