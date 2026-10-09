@@ -22,6 +22,26 @@ export const ANCHORS = {
     "  const MARK_PATTERN =", // used by 2 slices
     "  const MARK_LINE_RADIUS", // used by 2 slices
     "    function svgLocate(issues) {", // used by 2 slices
+    // ext-type-preview.test.js: the Type preview block, its gate, and what it reuses.
+    "    /* ── editing the document ──",
+    "    // (the bridge \"highlight in doc\" feature was removed",
+    "    const TP_GLIDE_MS",
+    "    const TP_TOKEN =",
+    "    function tpNotePress(",
+    "    if (FEATURES.typePreview) {",
+    "    // ── widget UI ──",
+    "    const nrm = (s) =>",
+    "    /* Bars are carried by the COMPOSITOR",
+    "    function svgRangeRects(",
+    "    function barTextRect(b) {",
+    "    // A sentence we just rewrote",
+    "    const DM = { // index.css .docmark-*",
+    "    /* A hint-styled control",
+    "  const REF_HEADINGS =",
+    "  // ── citation formatting ──",
+    "    async function runDocEdit(key, job) {",
+    "    async function undoLastDocEdit() {",
+    "    // A repeated sentence from the panel",
   ],
   "server/server.js": [
     "async function spendGate(", // used by 2 slices
