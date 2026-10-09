@@ -1988,6 +1988,119 @@
     const out = s.slice(0, at) + markerWithPage(marker, citationPage(r.slice(1, -1)), style) + s.slice(at + r.length);
     return out === s ? null : out;
   }
+  /* "Some researchers have argued" with the source that backs it named in
+     their place: "Lee (2021) has argued". Owner, 2026-10-08: "when there is
+     an unnamed source, there is only a dismiss button when there should be
+     one to fix it." The name and year are formatCitation's own marker, never
+     typed from anywhere else; MLA names the author and adds no parenthesis (a
+     page is the writer's to give). The check counts a named author as cited
+     ("X reported…", factcheck.js). null — cite it the ordinary way — when the
+     source has no author to name (its marker leads with a title), when the
+     sentence already cites something, when the words are not an unnamed
+     source a name can stand in for ("people believe", "experts agree", "it
+     is widely believed" are claims about how many think so, which one author
+     is not), or when a determiner owns them ("the studies show"). */
+  const NAMEABLE_SOURCE = /\b(?:(?:some|many|several|most|certain) (?:researchers|scholars|historians|experts|scientists|studies|sources)|experts|studies|research|scientists|historians|scholars|researchers)( (?:have|has))? (argued|argues|argue|said|says|say|claimed|claims|claim|believed|believes|believe|suggested|suggests|suggest|found|shown|shows|show|think|thinks)\b/i;
+  // What may come right before the words: nothing, a clause break, or a word that opens a clause.
+  const NAME_SLOT_BEFORE = /(?:^|[,;:(—–-]|\b(?:and|but|as|while|although|though|because|since|yet|so|that|however|indeed|moreover|furthermore|in fact))\s*["“]?$/i;
+  const VERB_BASE = { argues: "argue", says: "say", claims: "claim", believes: "believe", suggests: "suggest", shows: "show", thinks: "think" };
+  const VERB_THIRD = { argue: "argues", say: "says", claim: "claims", believe: "believes", suggest: "suggests", show: "shows", think: "thinks" };
+  function narrativeCitation(src, style) {
+    const inner = String(formatCitation(src, style).marker ?? "").replace(/^\(|\)$/g, "");
+    let lead = inner, year = null;
+    if (style !== "mla") {
+      const m = inner.match(style === "apa" ? /^(.+), ((?:1[5-9]|20)\d\d[a-z]?|n\.d\.)$/ : /^(.+) ((?:1[5-9]|20)\d\d[a-z]?|n\.d\.)$/);
+      if (!m) return null;
+      [, lead, year] = m;
+    }
+    const title = citeStr(src.title || src.url).replace(/[.]\s*$/, "");
+    if (!lead || /^["“]/.test(lead) || lead === citeShortTitle(title)) return null;
+    lead = lead.replace(/ & /g, " and ");
+    return { name: year ? `${lead} (${year})` : lead, plural: / and |\bet al\.$/.test(lead) };
+  }
+  function nameTheSource(sentence, src, style) {
+    const s = String(sentence ?? "");
+    if (!src || inTextCitationsOf(s).length || /\[\d+(?:[,–-]\s?\d+)*\]/.test(s)) return null;
+    const m = s.match(NAMEABLE_SOURCE);
+    if (!m || !NAME_SLOT_BEFORE.test(s.slice(0, m.index))) return null;
+    const n = narrativeCitation(src, style);
+    if (!n) return null;
+    const verb = m[2].toLowerCase();
+    const said = m[1] ? `${n.plural ? "have" : "has"} ${verb}` : n.plural ? VERB_BASE[verb] ?? verb : VERB_THIRD[VERB_BASE[verb] ?? verb] ?? verb;
+    return s.slice(0, m.index) + `${n.name} ${said}` + s.slice(m.index + m[0].length);
+  }
+  /* Notes whose fix is taking the words out get a Delete that does it: a
+     line that doesn't belong, a correction left in, a reference listed twice
+     or cited nowhere, an essay note marked "Delete this". The engine never
+     deletes a sentence outright (docs-hook.js: every edit selects something
+     and pastes something), so the edit replaces the passage AND a sentence
+     beside it with that sentence alone — the next one on its line, else the
+     one before it, else (a passage that is its whole paragraph, like a
+     reference entry) the last sentence of the paragraph above, across the
+     line break, or the first of the one below. Both ends are whole sentences
+     of the export, which is how the engine finds them; the edit is read back,
+     and Undo puts the passage back where it was. `last`: the later of two
+     copies. null when the passage is not in the text, does not begin and end
+     on a sentence boundary (deleting more than the note quotes is not its
+     fix), or has nothing beside it to anchor on. */
+  const DELETE_KINDS = ["refdup", "refuncited", "offtopic", "residue"];
+  const DELETE_LABEL = { refdup: "Delete this copy", refuncited: "Remove from list", offtopic: "Delete this line", residue: "Delete it" };
+  const tipDeletes = (tip) => Boolean(tip?.quote) && (DELETE_KINDS.includes(tip.kind) || tip.action === "delete");
+  function deleteEditFor(text, quote, last = false) {
+    const t = String(text ?? ""), q = String(quote ?? "").trim();
+    if (!q) return null;
+    const at = last ? t.lastIndexOf(q) : t.indexOf(q);
+    if (at < 0) return null;
+    const end = at + q.length;
+    // A line's sentences as [start, end) offsets into t, trimmed.
+    const spans = (s, e) => splitLineSentences(t.slice(s, e)).map(([a, b]) => {
+      const raw = t.slice(s + a, s + b);
+      const lead = raw.length - raw.trimStart().length;
+      return [s + a + lead, s + a + lead + raw.trim().length];
+    }).filter(([a, b]) => b > a);
+    const lineStart = t.lastIndexOf("\n", at - 1) + 1;
+    const lineEnd = t.indexOf("\n", end) < 0 ? t.length : t.indexOf("\n", end);
+    const line = spans(lineStart, lineEnd);
+    if (!line.some(([a]) => a === at) || !line.some(([, b]) => b === end)) return null;
+    let from = null, to = null, keep = null;
+    const next = line.find(([a]) => a >= end);
+    const prev = [...line].reverse().find(([, b]) => b <= at);
+    if (next) [from, to, keep] = [at, next[1], t.slice(next[0], next[1])];
+    else if (prev) [from, to, keep] = [prev[0], end, t.slice(prev[0], prev[1])];
+    else {
+      for (let e = lineStart - 1; e > 0 && from == null;) {
+        const s = t.lastIndexOf("\n", e - 1) + 1;
+        const sp = spans(s, e);
+        if (sp.length) { const [a, b] = sp[sp.length - 1]; [from, to, keep] = [a, end, t.slice(a, b)]; }
+        e = s - 1;
+      }
+      for (let s = lineEnd + 1; s < t.length && from == null;) {
+        const e = t.indexOf("\n", s) < 0 ? t.length : t.indexOf("\n", s);
+        const sp = spans(s, e);
+        if (sp.length) [from, to, keep] = [at, sp[0][1], t.slice(sp[0][0], sp[0][1])];
+        s = e + 1;
+      }
+    }
+    if (from == null || !keep.trim()) return null;
+    const find = t.slice(from, to);
+    const hits = [];
+    for (let i = t.indexOf(find); i >= 0; i = t.indexOf(find, i + 1)) hits.push(i);
+    return { find, replacement: keep, occurrence: Math.max(0, hits.indexOf(from)), occurrences: Math.max(1, hits.length) };
+  }
+  /* "Add the page number": the writer types the page and it goes into the
+     quote's own citation, in the style's form — (Fitzgerald 45), (Smith,
+     2019, p. 45), (Smith 2019, 45). Tracely never supplies the number. */
+  const PAGE_INPUT = /^(?:\d{1,5}(?:\s*[-–]\s*\d{1,5})?|[ivxlcdm]{1,8}(?:\s*[-–]\s*[ivxlcdm]{1,8})?)$/i;
+  function pageEditFor(passage, quote, page, style) {
+    const s = String(passage ?? ""), q = String(quote ?? "");
+    const p = String(page ?? "").trim();
+    if (!PAGE_INPUT.test(p) || !q.endsWith(")")) return null;
+    const qa = s.indexOf(q), open = q.lastIndexOf("(");
+    if (qa < 0 || open < 0) return null;
+    const raw = q.slice(open), at = qa + open;
+    const out = s.slice(0, at) + markerWithPage(raw, p.replace(/\s*[-–]\s*/, "–"), style) + s.slice(at + raw.length);
+    return out === s ? null : out;
+  }
   /* The sentence a citation note is about, as an index into segs
      (segmentText's), or -1. An unusable citation, an unnamed source, a note
      to self are about their own sentence — unless the note is all the
@@ -4230,7 +4343,7 @@
       couldNot: "Could not apply",
       searching: "Searching for a source", searchHint: "Usually 10–15 seconds", cancel: "Cancel",
       noSources: "No sources found", noBacking: "Nothing backs this as written", couldntRead: "Couldn't read the sources", searchFailed: "Search failed", searchAgain: "Search again",
-      insert: "Cite in doc", inserting: "Citing…", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
+      insert: "Cite in doc", inserting: "Citing…", name: "Name it in your sentence", copyCite: "Copy citation", openArticle: "Open article ↗", style: "Style",
       preview: "Preview", hidePreview: "Hide preview",
       copyEntry: "Copy entry",
       willInsert: "WILL BE INSERTED", added: "ADDED TO SOURCES", citedTitle: "Citation added", resolved: "Claim resolved",
@@ -4599,7 +4712,8 @@
       put(dmBody(tip.message));
       put(dmBlock(citeTipBlockLabel(tip), dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
       const target = tipCitedTarget(tip, segments);
-      const findSrc = TIP_FIND_SOURCE.includes(tip.kind) && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
+      const findSrc = (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
+      const fix = tipFixControls(tip, put);
       let cited = null, src = null;
       if (target) {
         cited = dmBtn(CITED_COPY.find, true);
@@ -4618,8 +4732,73 @@
         requestDocsMarks();
       });
       // Two to a row: a third button would push Dismiss past the card's edge.
-      put(dmActions(cited ?? src, dismiss));
-      if (cited && src) put(src);
+      const first = fix ?? cited ?? src;
+      put(dmActions(first, dismiss));
+      for (const b of [cited, src]) if (b && b !== first) { b.style.width = "100%"; put(b); }
+    }
+    /* The note's own fix in the hover card (paintCiteTip): Delete, the page
+       box, or Rewrite in doc. Returns the button for the action row; a page
+       box goes in above it. null when the note has none the editor can make. */
+    function tipFixControls(tip, put) {
+      if (!canEditDoc()) return null;
+      if (canDeleteTip(tip)) {
+        const busy = editState(`del:${tip.id}`) === "applying";
+        const b = dmBtn(deleteLabel(tip), true, { disabled: busy || docBusy });
+        b.addEventListener("click", () => { popPinned = true; armOrDelete(tip.id); });
+        return b;
+      }
+      if (tip.kind === "page") {
+        const key = `page:${tip.id}`;
+        const busy = editState(key) === "applying";
+        const input = el("input", { flex: "1", minWidth: "0", padding: "8px 10px", borderRadius: "8px", border: "1px solid #d9d9d9", fontSize: "13px", fontFamily: "inherit", color: DM.ink });
+        input.placeholder = "Page number, e.g. 45";
+        input.inputMode = "numeric";
+        input.value = pageDrafts.get(tip.id) ?? "";
+        input.setAttribute("aria-label", "Page number");
+        const b = dmBtn(busy ? "Adding…" : "Add page", true, { disabled: busy || docBusy || !PAGE_INPUT.test(input.value.trim()) });
+        const go = () => { if (PAGE_INPUT.test(input.value.trim())) { popPinned = true; docAddPage(tip.id, input.value.trim()); } };
+        input.addEventListener("focus", () => { popPinned = true; });
+        input.addEventListener("input", () => {
+          pageDrafts.set(tip.id, input.value);
+          const ok = PAGE_INPUT.test(input.value.trim());
+          b.disabled = !ok || docBusy;
+          b.style.opacity = b.disabled ? ".6" : "1";
+        });
+        // The page is typed here, not into the Doc behind the card.
+        input.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") go(); });
+        b.addEventListener("click", go);
+        const row = el("div", { display: "flex", gap: "8px", alignItems: "center", flex: "0 0 auto" });
+        row.append(input, b);
+        put(row);
+        return null;
+      }
+      if (tipRewrite(tip)) {
+        put(dmBlock("SUGGESTED REWRITE", dmBlockBody(tipRewrite(tip))));
+        const busy = editState(`rw:${tip.id}`) === "applying";
+        const b = dmBtn(busy ? POP_COPY.applying : "Rewrite in doc", true, { disabled: busy || docBusy });
+        b.addEventListener("click", () => { popPinned = true; docRewriteTip(tip.id); });
+        return b;
+      }
+      return null;
+    }
+    // After a note's own fix: what happened, with Undo while it is the last edit.
+    function paintTipDone(tipId, pst, put) {
+      const key = pst.editKey ?? "";
+      const st = docEditState.get(key);
+      if (st?.state === "failed") {
+        put(dmHead(DM.red, POP_COPY.couldNot), dmBody(`${st.copied ? "Copied instead — " : ""}${st.note || "the editor couldn't make that edit"}.`));
+        const b = dmBtn(POP_COPY.back, true);
+        b.addEventListener("click", () => { setEditState(key, null); popSteps.delete(tipId); hideDocsPopover(); });
+        put(dmActions(b));
+        return;
+      }
+      const title = key.startsWith("del:") ? "Deleted" : key.startsWith("page:") ? "Page added" : "Rewritten";
+      put(dmHead(DM.green, title), dmBody(`${title === "Deleted" ? "It's out of your document" : "Your document has the change"}. Undo — or ⌘Z — puts it back exactly as it was.`));
+      const ok = dmBtn(POP_COPY.done, true);
+      ok.addEventListener("click", () => { popSteps.delete(tipId); hideDocsPopover(); });
+      const undo = dmBtn(st?.state === "undoing" ? POP_COPY.undoing : POP_COPY.undo, false, { disabled: st?.state === "undoing" || lastDocEdit?.key !== key });
+      undo.addEventListener("click", () => { popPinned = true; undoLastDocEdit(); });
+      put(dmActions(ok, undo));
     }
 
     /* "Find the cited work", card for card: looking it up, the record(s) with
@@ -4755,6 +4934,7 @@
       const pst = stepOf(hash);
       if (pst.step === "cited" && citedMap.has(hash)) { paintCited(hash, put); requestPlace(); return; }
       if (pst.step === "sources" && pst.claim) { paintClaimSources(hash, pst, put); requestPlace(); return; }
+      if (pst.step === "tipdone") { paintTipDone(hash, pst, put); requestPlace(); return; }
       const tip = tipMarkById.get(hash);
       if (tip) { paintCiteTip(tip, put); requestPlace(); return; }
       const f = cache.get(hash);
@@ -4958,6 +5138,8 @@
         const paste = s.pasteEntry || null;
         put(dmHead(DM.green, POP_COPY.citedTitle), dmBody(paste
           ? `${c ? c.marker : "The citation"} is in your sentence${s.replaced ? ", in place of the citation that couldn't be traced" : ""}. Docs didn't let Tracely add the reference itself — copy it below and paste it at the end of your document.`
+          : s.named
+            ? `Your sentence now names ${s.named} where it named no one. ${CITE_STYLE_LABEL[style]} citation.`
           : s.replaced
             ? `${c ? c.marker : "The source"} now stands where the citation that couldn't be traced was. ${CITE_STYLE_LABEL[style]} in-text citation.`
             : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
@@ -5053,6 +5235,10 @@
       // to nothing. Its own rule decides it: the header and the buttons
       // never move, everything between them gives.
       scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      // Naming the source rewrites the writer's words, so what the sentence
+      // will say is shown without asking, not behind Preview.
+      const named = src && !replace ? nameTheSource(seg.text, src, style) : null;
+      if (named && !st.preview) scroll.appendChild(dmBlock("YOUR SENTENCE WILL READ", dmBlockBody(named), dmBlockBody(formatCitation(src, style).ref)));
       // Behind "Preview", as in Figma "Find a Source (Results)": the card is
       // usually capped to the room under the line, and the citation is the
       // part a writer checks once, not on every source they click through.
@@ -5063,7 +5249,7 @@
         Object.assign(open.style, { marginLeft: "0", alignSelf: "flex-start" });
         open.title = src.url;
         open.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
-        const swapped = replace ? swapCitation(seg.text, replace, c.marker, style) : null;
+        const swapped = replace ? swapCitation(seg.text, replace, c.marker, style) : named;
         scroll.appendChild(swapped
           ? dmBlock("YOUR SENTENCE WILL READ", dmBlockBody(swapped), dmBlockBody(c.ref), open)
           : dmBlock(POP_COPY.willInsert, dmBlockMarker(c.marker), dmBlockBody(c.ref), open));
@@ -5075,7 +5261,7 @@
       let primary;
       if (canEditDoc()) {
         // In place of the sentence's faulty citation when a card found one; beside it otherwise.
-        primary = dmBtn(inserting ? POP_COPY.inserting : replace ? CITED_COPY.replace : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
+        primary = dmBtn(inserting ? POP_COPY.inserting : replace ? CITED_COPY.replace : named ? POP_COPY.name : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
         primary.addEventListener("click", () => { if (i >= 0) { popPinned = true; docCite(hash, i, popAnchor, replaceFor(hash)); } });
       } else {
         primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
@@ -5532,6 +5718,25 @@
       return list;
     }
     function tipById(id) { return tipMarkById.get(id) ?? allTips().find((t) => t.id === id) ?? null; }
+    /* A note's own fix (Delete, the page box, Rewrite in doc): the state its
+       buttons read, here beside the panel that draws them (decorateCard);
+       the edits themselves are with the others (docDeleteTip). */
+    const deleteArmed = new Map(); // tip id → when the second click stops counting
+    const pageDrafts = new Map();  // tip id → the page typed so far (the panel re-renders under it)
+    const DELETE_ARM_MS = 4000;
+    // Any note in either list: the citation and essay notes, off-topic lines, a resume's.
+    function anyTipById(id) {
+      return tipById(id)
+        ?? [...offTopicTips(docText, dismissed), ...(docGenre === "resume" ? resumeTips(docText, review.findings, dismissed) : [])].find((t) => t.id === id)
+        ?? null;
+    }
+    const deleteArmedNow = (id) => (deleteArmed.get(id) ?? 0) > Date.now();
+    function deleteLabel(tip) {
+      if (editState(`del:${tip.id}`) === "applying") return "Deleting…";
+      return deleteArmedNow(tip.id) ? "Click again to delete" : DELETE_LABEL[tip.kind] ?? "Delete this";
+    }
+    const canDeleteTip = (tip) => canEditDoc() && tipDeletes(tip) && Boolean(deleteEditFor(docText, tip.quote, tip.kind === "refdup"));
+    const tipRewrite = (tip) => (tip?.quote && tip.suggestion && tip.kind !== "page" ? usableRevision(tip.quote, tip.suggestion) : "");
     // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation.
     function citedTargetFor(key) {
       if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
@@ -5604,15 +5809,26 @@
       const key = card.dataset.card;
       if (!key || card.classList.contains("ev-card")) return;
       const isTip = key.startsWith("tip:");
-      const tip = isTip ? tipById(key) : null;
+      const tip = isTip ? anyTipById(key) : null;
       const target = citedTargetFor(key);
-      const ci = tip && TIP_FIND_SOURCE.includes(tip.kind) ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      const ci = tip && (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
       const st = stepOf(key);
       const c = citedMap.get(key);
       const buttons = [];
-      if (target) buttons.push(`<button class="act${isTip ? " primary" : ""}" data-cited="${esc(key)}"${c?.loading ? " disabled" : ""}>${esc(CITED_COPY.find)}</button>`);
-      if (ci >= 0) buttons.push(`<button class="act${target ? "" : " primary"}" data-claim-src="${esc(key)}">${esc(POP_COPY.findSource)}</button>`);
-      let html = "";
+      // The note's own fix comes first: it is what the note asks for.
+      const fixBtn = tip && canDeleteTip(tip) ? editBtnHtml(`del:${key}`, deleteLabel(tip), `data-tip-del="${esc(key)}"`) : "";
+      if (fixBtn) buttons.push(fixBtn);
+      if (target) buttons.push(`<button class="act${isTip && !fixBtn ? " primary" : ""}" data-cited="${esc(key)}"${c?.loading ? " disabled" : ""}>${esc(CITED_COPY.find)}</button>`);
+      if (ci >= 0) buttons.push(`<button class="act${target || fixBtn ? "" : " primary"}" data-claim-src="${esc(key)}">${esc(POP_COPY.findSource)}</button>`);
+      if (tip && canEditDoc() && tip.kind === "page") {
+        card.insertAdjacentHTML("beforeend", `<div class="cite-url"><input type="text" inputmode="numeric" placeholder="Page number, e.g. 45" aria-label="Page number" data-page-input="${esc(key)}" value="${esc(pageDrafts.get(key) ?? "")}" />${editBtnHtml(`page:${key}`, "Add page", `data-tip-page="${esc(key)}"`)}</div>${editNoteHtml(`page:${key}`)}`);
+      }
+      if (tip && canEditDoc() && tipRewrite(tip)) {
+        card.querySelector(".fix .row")?.insertAdjacentHTML("afterbegin", editBtnHtml(`rw:${key}`, "Rewrite in doc", `data-tip-rewrite="${esc(key)}"`));
+        const note = editNoteHtml(`rw:${key}`);
+        if (note) card.querySelector(".fix")?.insertAdjacentHTML("beforeend", note);
+      }
+      let html = fixBtn ? editNoteHtml(`del:${key}`) : "";
       if (c) html += citedWorkHtml(c, (i, src) => citedActionsHtml(key, c, i, src), c.resolved && c.target?.segHash ? `<div class="row"><button class="act" data-cited-more="${esc(key)}">${esc(CITED_COPY.different)}</button></div>` : "");
       const claim = st.claim ? segments.find((s) => s.hash === st.claim) : null;
       if (isTip && claim) html += sourcesFor(claim); // a verdict card already lists its own sentence's sources
@@ -6058,6 +6274,76 @@
       });
     }
 
+    /* A note's own fix, where the note has one the editor can make: Delete
+       (deleteEditFor), the writer's page number (pageEditFor), or the
+       review's rewrite. One replace each, read back by the engine, with Undo
+       like every other edit. A Delete asks again first — the button says
+       "Click again to delete" — unless the edit is previewed before it lands
+       (FEATURES.typePreview), where Accept is that confirmation. */
+    function armOrDelete(tipId) {
+      if (!FEATURES.typePreview && !deleteArmedNow(tipId)) {
+        deleteArmed.set(tipId, Date.now() + DELETE_ARM_MS);
+        setTimeout(() => { if (deleteArmed.has(tipId) && !deleteArmedNow(tipId)) { deleteArmed.delete(tipId); refreshEditViews(); } }, DELETE_ARM_MS + 50);
+        refreshEditViews();
+        return;
+      }
+      deleteArmed.delete(tipId);
+      docDeleteTip(tipId);
+    }
+    // The card stays up over an edit that removes its own underline, saying what happened.
+    const tipDone = (tipId, key) => () => { popSteps.set(tipId, { ...stepOf(tipId), step: "tipdone", editKey: key }); };
+    async function docDeleteTip(tipId) {
+      const tip = anyTipById(tipId);
+      const plan = tip && tipDeletes(tip) ? deleteEditFor(docText, tip.quote, tip.kind === "refdup") : null;
+      if (!plan || docBusy) return false;
+      const key = `del:${tipId}`;
+      return runDocEdit(key, {
+        steps: [{ action: "replace", find: plan.find, replacement: plan.replacement, hint: { occurrence: plan.occurrence, occurrences: plan.occurrences } }],
+        copy: null,
+        doneMsg: tip.kind === "refdup" ? "deleted the second copy" : tip.kind === "refuncited" ? "removed the entry from the list" : "deleted it from the doc",
+        notes: { "not-found": "the passage has changed since the last read — delete it in the doc yourself" },
+        onApplied: tipDone(tipId, key),
+        onUndone: () => popSteps.delete(tipId),
+      });
+    }
+    async function docAddPage(tipId, page) {
+      const tip = anyTipById(tipId);
+      if (!tip || tip.kind !== "page" || docBusy) return false;
+      const at = docText.indexOf(tip.quote);
+      // The whole sentence(s) the quote sits in — how the engine finds text.
+      const covering = at < 0 ? [] : segments.filter((s) => s.end > at && s.start < at + tip.quote.length);
+      if (!covering.length) return false;
+      const passage = docText.slice(covering[0].start, covering[covering.length - 1].end);
+      const replacement = pageEditFor(passage, tip.quote, page, settings.citationStyle || "mla");
+      if (!replacement) return false;
+      const hits = [];
+      for (let i = docText.indexOf(passage); i >= 0; i = docText.indexOf(passage, i + 1)) hits.push(i);
+      const key = `page:${tipId}`;
+      return runDocEdit(key, {
+        steps: [{ action: "replace", find: passage, replacement, hint: { occurrence: Math.max(0, hits.indexOf(covering[0].start)), occurrences: Math.max(1, hits.length) } }],
+        copy: replacement,
+        doneMsg: `added page ${String(page).trim()} to the citation`,
+        onApplied: () => { pageDrafts.delete(tipId); tipDone(tipId, key)(); },
+        onUndone: () => popSteps.delete(tipId),
+      });
+    }
+    async function docRewriteTip(tipId) {
+      const tip = anyTipById(tipId);
+      const rev = tipRewrite(tip);
+      if (!rev || docBusy) return false;
+      const hits = [];
+      for (let i = docText.indexOf(tip.quote); i >= 0; i = docText.indexOf(tip.quote, i + 1)) hits.push(i);
+      const key = `rw:${tipId}`;
+      return runDocEdit(key, {
+        steps: [{ action: "replace", find: tip.quote, replacement: rev, hint: hits.length > 1 ? { occurrences: hits.length } : { occurrence: 0, occurrences: 1 } }],
+        copy: rev,
+        doneMsg: "rewrote it in the doc",
+        notes: { ambiguous: "that sentence is in the doc more than once — paste the rewrite over the one you mean" },
+        onApplied: tipDone(tipId, key),
+        onUndone: () => popSteps.delete(tipId),
+      });
+    }
+
     // In-text marker + the Sources entry (and the heading, the first time),
     // as ONE group: all of it lands, or none of it stays. `replace`: the
     // sentence's citation a card found at fault (replaceFor) — the marker
@@ -6084,7 +6370,10 @@
       // Only where that citation is in the sentence exactly once; otherwise
       // the marker goes beside it, as it always did.
       const swapped = replace ? swapCitation(seg.text, replace, marker, style) : null;
-      const { steps, retry, hint, pasteEntry, listName, replacement } = await citePlan(seg, styled, src, { anchor, swapped });
+      // An unnamed source ("some researchers have argued") is named instead:
+      // the sentence then cites by its words, and no marker is added beside them.
+      const named = swapped ? null : nameTheSource(seg.text, src, style);
+      const { steps, retry, hint, pasteEntry, listName, replacement } = await citePlan(seg, styled, src, { anchor, swapped: swapped ?? named });
       if (!steps.length) {
         // Marker and entry are both in the doc already: nothing to change —
         // so no "Applied ✓", and the last real edit keeps its Undo.
@@ -6101,7 +6390,7 @@
         return true;
       }
       const prevCited = st.citedUrl ?? null;
-      const did = swapped ? `replaced ${replace} with ${markerWithPage(marker, citationPage(replace.slice(1, -1)), style)}` : `cited ${marker}`;
+      const did = swapped ? `replaced ${replace} with ${markerWithPage(marker, citationPage(replace.slice(1, -1)), style)}` : named ? `named ${narrativeCitation(src, style).name} as the source` : `cited ${marker}`;
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
         // If Docs refuses the in-order insert for real: the same group, the entry last.
@@ -6114,7 +6403,8 @@
             const newHash = hashText(replacement);
             // A swapped citation was what the verdict was about: the sentence
             // that cites a real source now is checked afresh, not told the same.
-            if (!swapped && cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
+            // So is one whose unnamed source is now named.
+            if (!swapped && !named && cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
             if (sourcesMap.has(hash) && !sourcesMap.has(newHash)) sourcesMap.set(newHash, sourcesMap.get(hash));
             if (!(hint.occurrences > 1)) markEdited(hash); // another copy keeps its underline
           }
@@ -6122,6 +6412,7 @@
           st.pasteEntry = pasteEntry;
           st.citedList = listName;
           st.replaced = Boolean(swapped);
+          st.named = named ? narrativeCitation(src, style).name : null;
           if (pasteEntry) copyFallback(pasteEntry);
           persistCaches();
         },
@@ -6130,6 +6421,7 @@
           st.citedUrl = prevCited;
           st.pasteEntry = null;
           st.replaced = false;
+          st.named = null;
           persistCaches();
         },
       });
@@ -6440,7 +6732,7 @@
                     <div class="src-meta">${esc(src.publisher)}</div>
                     ${sourceSaysHtml(src)}
                     <div class="src-actions">
-                      ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
+                      ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : nameTheSource(seg.text, src, settings.citationStyle || "mla") ? POP_COPY.name : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
                     </div>
                     ${editNoteHtml(`cite:${seg.hash}:${src.url}`)}
@@ -6510,6 +6802,9 @@
       }
 
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
+      // A page number being typed keeps its box and caret through the re-render.
+      const typing = shadow.activeElement?.dataset?.pageInput ?? null;
+      const caret = typing ? shadow.activeElement.selectionStart : null;
       root.innerHTML = `
         ${panelHtml}
         ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
@@ -6518,6 +6813,10 @@
       if (cardSources) {
         for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
         if (undoShown) shadow.querySelector(".undo-strip")?.remove(); // a card carries the Undo now
+      }
+      if (typing) {
+        const box = [...shadow.querySelectorAll("[data-page-input]")].find((i) => i.dataset.pageInput === typing);
+        if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch { /* not a text box */ } }
       }
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
@@ -6545,6 +6844,25 @@
             dismissed.add(btn.dataset.dismiss);
             lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
             render();
+          });
+        }
+        // A note's own fix (decorateCard): Delete, Rewrite in doc, the page box.
+        for (const btn of shadow.querySelectorAll("[data-tip-del]")) btn.addEventListener("click", () => armOrDelete(btn.dataset.tipDel));
+        for (const btn of shadow.querySelectorAll("[data-tip-rewrite]")) btn.addEventListener("click", () => docRewriteTip(btn.dataset.tipRewrite));
+        for (const input of shadow.querySelectorAll("[data-page-input]")) {
+          input.addEventListener("input", () => pageDrafts.set(input.dataset.pageInput, input.value));
+          // Typed into the box, never into the Doc behind it.
+          input.addEventListener("keydown", (e) => {
+            e.stopPropagation();
+            if (e.key === "Enter" && PAGE_INPUT.test(input.value.trim())) docAddPage(input.dataset.pageInput, input.value.trim());
+          });
+        }
+        for (const btn of shadow.querySelectorAll("[data-tip-page]")) {
+          btn.addEventListener("click", () => {
+            const box = [...shadow.querySelectorAll("[data-page-input]")].find((i) => i.dataset.pageInput === btn.dataset.tipPage);
+            const v = box?.value.trim() ?? "";
+            if (PAGE_INPUT.test(v)) docAddPage(btn.dataset.tipPage, v);
+            else box?.focus();
           });
         }
         for (const btn of shadow.querySelectorAll("[data-copy-fix]")) {
