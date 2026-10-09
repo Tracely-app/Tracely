@@ -22,8 +22,8 @@
 
    Field mode also draws Grammarly-style overlay underlines: flagged
    sentences get a 2px solid underline (3px hovered) in their verdict's
-   colour from MARK_COLORS below (the app's red / orange / amber); 2px grey
-   dotted while pending; clicking one
+   colour from MARK_COLORS below (the app's red / orange / amber), every one
+   solid; a faint solid grey while pending; clicking one
    opens the panel and flashes that verdict's card. */
 /* FILE MAP — one file, no build step, two developers editing it at once.
    Sections, by the line their anchor sits on (regenerate the numbers with
@@ -152,7 +152,7 @@
   const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#ff5900" };
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
-  const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
+  const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
 
   /* The bare-bones build: fact-checking (underline, card, suggested fix) and
      citations (find a source, cite it), in Docs and in any text field.
@@ -196,80 +196,38 @@
   /* Never colour alone (CLAUDE.md "UI decisions"). Amber #ffb800 is 1.73:1 on
      white, under WCAG's 3:1 for graphics, and red and orange are close under
      tritanopia, so the colour cannot be the only thing that says which
-     finding a sentence carries. Each meaning also has a LINE: solid for
-     wrong, dashed for worth checking, double for a missing citation. Not
-     dotted for amber: grey dotted already means "still checking", and the two
-     would then differ by colour alone again. The panel's legend names all
-     three (legendHtml). */
+     finding a sentence carries. Until 2.21.34 the LINE said it too — solid,
+     dashed, double. Owner, 2026-10-09: "I don't like the dotted underline,
+     find a different way to differentiate underlines but make them all solid
+     and straight line." So every line is one solid line, and the kind is
+     said by an ICON in the page's left margin beside the line (MARK_ICON,
+     drawMarginIcons) — the same icons as the panel header's counts — and by
+     the legend, which shows each line with its icon (legendHtml). */
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double", note_tip: "dashed" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", cite_tip: "solid", note_tip: "solid" };
+  // Which header kind (TALLY_ICON) each mark's icon is: wrong, worth checking, a citation, the writing.
+  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", cite_tip: "cite", note_tip: "writing" };
+  const MARK_ICON_RANK = { wrong: 4, check: 3, cite: 2, writing: 1 }; // one icon a line: the most serious
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
-  // "needs specific evidence", "explain this evidence". Orange dashed: the
+  // "needs specific evidence", "explain this evidence". Orange: the
   // thin-evidence family ("Worth checking"), never red, which means wrong.
   // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
   // with no page, a reference listed twice or never cited — citationMarks),
   // drawn under the parenthetical or the entry rather than the sentence, so a
   // sentence can carry a red fact mark and an amber citation mark at once.
-  // Same family as needs_citation ("add or fix the attribution"), same line.
-  // CSS for a div-drawn line (field mode, and Docs' fallback bars).
-  function markFill(color, pattern) {
-    if (pattern === "dashed") return `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 9px)`;
-    if (pattern === "double") return `linear-gradient(to bottom, ${color} 0 1px, transparent 1px calc(100% - 1px), ${color} calc(100% - 1px))`;
-    return color;
-  }
-  // The panel's legend: one row per LINE, in the cards' own words.
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"]];
+  // Same family as needs_citation ("add or fix the attribution"), same colour.
+  // CSS for a div-drawn line (field mode, and Docs' fallback bars): solid.
+  const markFill = (color) => color;
+  /* The panel's legend: each kind's icon (as in the page margin and the
+     header) beside its solid line, in the cards' own words. */
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"], ["note_tip", "Writing note"]];
   function legendHtml() {
-    const items = LEGEND.map(([v, label]) => {
-      const p = MARK_PATTERN[v];
-      return `<span class="legend-item"><span class="legend-line" aria-hidden="true" style="background: ${markFill(MARK_COLORS[v], p)}; height: ${markLineHeight(p, false)}px"></span>${label}</span>`;
-    }).join("");
-    return `<div class="legend" role="note" aria-label="What the underlines mean">${items}</div>`;
+    const items = LEGEND.map(([v, label]) => `<span class="legend-item"><span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[MARK_ICON[v]]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: ${MARK_LINE_HEIGHT}px"></span>${label}</span>`).join("");
+    return `<div class="legend" role="note" aria-label="What the underlines and margin icons mean">${items}</div>`;
   }
-  // A double line needs room for two strokes and a gap, or it reads as solid.
-  const markLineHeight = (pattern, hovered) =>
-    pattern === "double" ? (hovered ? 4 : 3) : (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
-  /* The same patterns for the bars drawn INSIDE Docs' SVG layer, as fills
-     defined once in a hidden SVG of our own (url(#id) resolves across inline
-     SVGs in one document), so nothing is added to Docs' SVG but the rect. */
-  function svgMarkFill(color, pattern) {
-    if (pattern !== "dashed" && pattern !== "double") return color;
-    const id = `tracely-mark-${pattern}-${color.slice(1)}`;
-    if (!document.getElementById(id)) {
-      const NS = "http://www.w3.org/2000/svg";
-      let defs = document.getElementById("tracely-mark-defs");
-      if (!defs) {
-        const svg = document.createElementNS(NS, "svg");
-        svg.setAttribute("width", "0");
-        svg.setAttribute("height", "0");
-        svg.setAttribute("aria-hidden", "true");
-        svg.style.position = "absolute";
-        defs = document.createElementNS(NS, "defs");
-        defs.id = "tracely-mark-defs";
-        svg.appendChild(defs);
-        (document.body || document.documentElement).appendChild(svg);
-      }
-      const p = document.createElementNS(NS, "pattern");
-      p.id = id;
-      const stripe = (x, y, w, h) => {
-        const r = document.createElementNS(NS, "rect");
-        for (const [k, v] of Object.entries({ x, y, width: w, height: h, fill: color })) r.setAttribute(k, String(v));
-        p.appendChild(r);
-      };
-      if (pattern === "dashed") {
-        // Vertical stripes in the bar's own units, so the dashes do not stretch with it.
-        for (const [k, v] of Object.entries({ patternUnits: "userSpaceOnUse", width: 9, height: 1 })) p.setAttribute(k, String(v));
-        stripe(0, 0, 6, 1);
-      } else {
-        // Two strokes, top and bottom of whatever box the bar is.
-        for (const [k, v] of Object.entries({ patternUnits: "objectBoundingBox", patternContentUnits: "objectBoundingBox", width: 1, height: 1 })) p.setAttribute(k, String(v));
-        stripe(0, 0, 1, 0.36);
-        stripe(0, 0.64, 1, 0.36);
-      }
-      defs.appendChild(p);
-    }
-    return `url(#${id})`;
-  }
+  const markLineHeight = (pattern, hovered) => (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
+  // The bars drawn INSIDE Docs' SVG layer: solid, like every line.
+  const svgMarkFill = (color) => color;
   const MARK_LINE_RADIUS = 1;
   const MARK_BAND_TRANSITION = "opacity 110ms ease, transform 110ms cubic-bezier(0.22, 1, 0.36, 1), background 110ms ease";
   const MARK_LINE_TRANSITION = "height 110ms ease";
@@ -3141,6 +3099,8 @@
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
     .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
+    .legend-ico { display: inline-flex; width: 12px; height: 12px; }
+    .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
     .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
     .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
@@ -4636,7 +4596,7 @@
             bar.setAttribute("x", String(rx + sb.f0 * rw));
             bar.setAttribute("y", String(ry + rh - 2));
             bar.setAttribute("width", String(Math.max(2, (sb.f1 - sb.f0) * rw)));
-            bar.setAttribute("height", pattern === "double" ? "3.2" : "2.5"); // two strokes need room
+            bar.setAttribute("height", "2.5");
             bar.setAttribute("rx", "1.25");
             bar.setAttribute("fill", svgMarkFill(color, pattern));
             bar.setAttribute("pointer-events", "none");
@@ -4653,7 +4613,7 @@
             wash.setAttribute("aria-hidden", "true");
             wash.setAttribute("pointer-events", "none");
             wash.setAttribute("rx", "2");
-            wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above carries the pattern
+            wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above is the line
             if (tf) wash.setAttribute("transform", tf);
             wash.style.opacity = "0";
             sb.node.parentNode.insertBefore(wash, bar);
@@ -4684,6 +4644,7 @@
           }
         }
         joinBars();
+        drawMarginIcons(svgBars);
         /* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT.
            Placing them against Google's rendered text has now failed in five
            distinct ways — anchored to a title, to a table header, to a partial
@@ -4709,6 +4670,54 @@
         startGlue();
       } catch (err) {
         console.warn("[tracely] docs svg mark draw failed:", err);
+      }
+    }
+
+    /* The margin icon (MARK_ICON): one per line that carries a mark — the
+       most serious kind on it — in the page's left margin, level with the
+       line. Drawn like the bars, inside the SVG that holds the line's own
+       text geometry (left of its leftmost run), so the compositor carries it
+       with the text and it scales with the zoom. Marked as ours
+       (data-tracely-bar): the next draw's sweep takes it away, and the
+       annotation observer ignores it. Only in-tree lines get one; fields and
+       Docs' fallback paths have no margin to put it in. */
+    function drawMarginIcons(svgBars) {
+      const lines = new Map(); // a line (its SVG parent and baseline) → { parent, ry, rh, tf, kind }
+      for (const sb of svgBars) {
+        const kind = MARK_ICON[lastVerdictByHash.get(sb.hash)];
+        const parent = sb.node.parentNode;
+        const ry = parseFloat(sb.node.getAttribute("y")), rh = parseFloat(sb.node.getAttribute("height"));
+        if (!kind || !parent || ![ry, rh].every(Number.isFinite)) continue;
+        const per = lines.get(parent) ?? new Map();
+        lines.set(parent, per);
+        const key = Math.round((ry + rh) / 2);
+        const cur = per.get(key);
+        if (!cur || MARK_ICON_RANK[kind] > MARK_ICON_RANK[cur.kind]) per.set(key, { parent, ry, rh, tf: sb.node.getAttribute("transform"), kind });
+      }
+      const NS = "http://www.w3.org/2000/svg";
+      for (const per of lines.values()) {
+        for (const line of per.values()) {
+          // The line's leftmost run: where its text starts.
+          let left = Infinity;
+          for (const n of line.parent.children) {
+            if (n.tagName?.toLowerCase() !== "rect" || !n.hasAttribute("aria-label")) continue;
+            const y = parseFloat(n.getAttribute("y")), x = parseFloat(n.getAttribute("x"));
+            if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(y - line.ry) <= 1) left = Math.min(left, x);
+          }
+          if (!Number.isFinite(left)) continue;
+          const size = Math.max(8, Math.min(12, line.rh * 0.7));
+          const icon = document.createElementNS(NS, "svg");
+          icon.setAttribute("data-tracely-bar", "");
+          icon.setAttribute("data-tracely-margin-icon", line.kind);
+          icon.setAttribute("aria-hidden", "true");
+          icon.setAttribute("pointer-events", "none");
+          icon.setAttribute("viewBox", "0 0 12 12");
+          for (const [k, v] of Object.entries({ x: left - size - 8, y: line.ry + (line.rh - size) / 2, width: size, height: size })) icon.setAttribute(k, String(v));
+          if (line.tf) icon.setAttribute("transform", line.tf);
+          icon.style.color = MARK_COLORS[Object.keys(MARK_ICON).find((v) => MARK_ICON[v] === line.kind)];
+          icon.innerHTML = TALLY_ICON[line.kind].replace(/^<svg[^>]*>|<\/svg>$/g, "");
+          line.parent.appendChild(icon);
+        }
       }
     }
 
@@ -4873,6 +4882,8 @@
       popLostAt = 0;
       popPinned = false;
       popApex = null;
+      popSide = null;
+      popHeld = false;
       popEditSyncs.clear();
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
       paintDocsActive();
@@ -5148,7 +5159,27 @@
     function editState(key) { return docEditState.get(key)?.state ?? null; }
     const fixTitle = (verdict) => verdict === "questionable" ? "Narrow this claim" : verdict === "false" ? "What to check" : "What to change";
 
-    /* ── placement: the app's above/below rule, in viewport space ────────── */
+    /* ── placement: the app's above/below rule, in viewport space ──────────
+       Owner, 2026-10-09: "the underline overlay compacts when it is under the
+       screen … when I hover over underline and go to click the action button
+       such as delete this, it jumps around". The card was measured AFTER its
+       height had been capped to the room below the line, so near the bottom
+       of the screen it was squeezed — and then judged by the squeezed size,
+       so it stayed squeezed, or flipped above and back as its content changed
+       and moved out from under a pointer on its way to a button. Now the
+       card's FULL height decides (popNaturalHeight); it opens below when it
+       fits there, else above when it fits there, else on the roomier side;
+       it keeps that side while it still fits — and always while the pointer
+       is on it (popHeld) — and only a card taller than its side's room is
+       capped (its list scrolls). */
+    let popSide = null; // "above" | "below": the side the open card keeps
+    let popHeld = false; // the pointer is on the card: it does not change side under it
+    function popNaturalHeight() {
+      // What the scroll regions hide when the card is capped, added back.
+      let hidden = 0;
+      for (const d of popCard.querySelectorAll("div")) if (d.style.overflowY === "auto") hidden += Math.max(0, d.scrollHeight - d.clientHeight);
+      return popCard.offsetHeight + hidden + Math.max(0, popCard.scrollHeight - popCard.clientHeight);
+    }
     function placeDocsPopover(r) {
       if (!popEl || !popCard) return;
       const width = popWidth;
@@ -5156,12 +5187,16 @@
       const idealLeft = cx - width / 2;
       const left = Math.max(8, Math.min(idealLeft, innerWidth - width - 8));
       const markTop = r.top, markH = (r.bottom ?? r.top + 4) - r.top;
-      // The card's own height, tail excluded: what has to fit on one side.
-      const cardH = popCard.offsetHeight;
+      // The card's own height, uncapped and tail excluded: what has to fit on one side.
+      const cardH = popNaturalHeight();
       const below = markTop + markH + POP_GAP;
       const spaceBelow = innerHeight - below - 8;
       const spaceAbove = markTop - POP_GAP - 8;
-      const above = cardH > 0 && cardH > spaceBelow && cardH <= spaceAbove;
+      const fits = (side) => cardH <= (side === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+      if (!popSide || (!popHeld && !fits(popSide))) {
+        popSide = fits("below") ? "below" : fits("above") ? "above" : spaceAbove > spaceBelow ? "above" : "below";
+      }
+      const above = popSide === "above";
       if (above !== popAbove) {
         popAbove = above;
         const old = popEl.querySelector("[data-pop-arrow]");
@@ -5169,10 +5204,11 @@
         const tail = dmTail(above ? "down" : "up", above);
         if (above) popEl.appendChild(tail); else popEl.insertBefore(tail, popEl.firstChild);
       }
-      // Capped to the room on the side it sits, so the buttons never fall past
-      // the fold; the results list is the part that scrolls (.docmark-scroll).
+      // Capped only when it is taller than the room on its side, so the
+      // buttons never fall past the fold; then its list is what scrolls.
       const room = (above ? spaceAbove : spaceBelow) - TAIL_NET;
-      popCard.style.maxHeight = `${Math.max(MIN_CARD, room)}px`;
+      const cap = cardH > room ? `${Math.max(MIN_CARD, room)}px` : "";
+      if (popCard.style.maxHeight !== cap) popCard.style.maxHeight = cap;
       const top = above ? markTop - POP_GAP - popCard.offsetHeight - TAIL_NET : below;
       const leftPx = `${left}px`, topPx = `${Math.max(4, top)}px`;
       if (popEl.style.left !== leftPx) popEl.style.left = leftPx;
@@ -5229,12 +5265,16 @@
       popHash = hash;
       popWidth = width;
       popAbove = false;
+      popSide = null;
+      popHeld = false;
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
       popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
+      popEl.addEventListener("pointerenter", () => { popHeld = true; });
+      popEl.addEventListener("pointerleave", () => { popHeld = false; });
       popEditSyncs.add(paintPop); // every edit-state change repaints the card
       paintPop();
       popEl.style.visibility = "hidden";
@@ -9401,13 +9441,13 @@
         if (rects.length === 0) continue;
         if (!pending) { paintMark(layer, seg.hash, rects, color, pattern); continue; }
         for (const r of rects) {
-          // Provisional: a dotted rule, no band — nothing to point at yet.
+          // Provisional: a faint solid grey rule, no band — nothing to point at yet.
           const bar = document.createElement("div");
           Object.assign(bar.style, {
             position: "fixed", left: r.left + "px", top: r.top + "px",
             width: r.width + "px", height: r.height + "px",
             background: "transparent", pointerEvents: "none",
-            borderBottom: `2px dotted ${color}`, opacity: "0.7",
+            borderBottom: `2px solid ${color}`, opacity: "0.45",
           });
           layer.appendChild(bar);
         }
