@@ -23,7 +23,7 @@ function load() {
   assert.ok(a > 0 && b > a && c > b, "content.js: the slices moved");
   return vm.runInContext(`const CHECK_INTERVAL_MS = 10000; function hashText(s) { return "h" + s.length + s.slice(0, 16); }
     ${SRC.slice(a, c)}
-    ({ referenceListIssues, referenceTips, referenceTipsHtml })`, vm.createContext({}));
+    ({ referenceListIssues, referenceTips, citationTipsHtml })`, vm.createContext({}));
 }
 const X = load();
 const issues = (t) => Array.from(X.referenceListIssues(t)).map((i) => `${i.kind}: ${i.quote.slice(0, 40)}`);
@@ -109,19 +109,19 @@ test("no list, or a one-line list: nothing to check", () => {
   assert.deepEqual(issues("Some text (Smith, 2020).\n\nReferences\nJones, A. (2019). Other."), []);
 });
 
-test("the tips: own section, dismissable, the duplicate's note says which copy to delete", () => {
+test("the tips: in the Citations group, dismissable, the duplicate's note says which copy to delete", () => {
   const tips = Array.from(X.referenceTips(PAPER, new Set()));
   assert.deepEqual(tips.map((t) => t.kind), ["refdup", "refuncited"]);
   assert.match(tips[0].message, /listed twice/i);
   assert.match(tips[1].message, /Nothing in your text cites this source/);
   assert.equal(X.referenceTips(PAPER, new Set([tips[0].id])).length, 1, "dismissed");
-  assert.match(X.referenceTipsHtml(tips, null), /Reference list \(2\)/);
-  assert.equal(X.referenceTipsHtml([], null), "");
+  assert.match(X.citationTipsHtml(tips, null), /Citations \(2\)/, "the reference list's notes are citation notes (panel restructure, 2026-10-08)");
+  assert.equal(X.citationTipsHtml([], null), "");
 });
 
 test("wired: essays and papers, both panels, counted on the launcher", () => {
   assert.match(SRC, /refList: true,/);
   assert.equal((SRC.match(/const refTips = FEATURES\.refList && isArgumentGenre\(docGenre\) \? referenceTips\((?:docText|fieldText), dismissed\) : \[\];/g) || []).length, 2);
-  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length;/g) || []).length, 2);
-  assert.equal((SRC.match(/\(refTips\.length \? referenceTipsHtml\(refTips, copiedTipId\) : ""\)/g) || []).length, 2);
+  assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length \+ citeTips\.length;/g) || []).length, 2);
+  assert.equal((SRC.match(/citationTipsHtml\(\[\.\.\.citeTips, \.\.\.refTips\], copiedTipId\)/g) || []).length, 2);
 });
