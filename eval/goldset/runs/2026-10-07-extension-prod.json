@@ -4,7 +4,7 @@
   "base": "https://api.jointracely.com",
   "startedAt": "2026-10-08T04:01:44.318Z",
   "install": "2010c141-8822-41cd-9d3e-ea3d94611f76",
-  "harnessCommit": "57331fb",
+  "harnessCommit": "4f0ca39",
   "shownRule": "stance === \"supports\" (sentence not flagged false)"
  },
  "results": {
@@ -1870,16 +1870,109 @@
    "shown": 0
   },
   "07-c1": {
-   "ok": false,
-   "status": 429,
-   "ms": 104,
+   "ok": true,
+   "status": 200,
+   "ms": 17067,
    "claim": "A 2019 global analysis attributed 1.27 million deaths directly to bacterial antimicrobial resistance, more than either HIV or malaria caused that year.",
    "essay": "07-antibiotic-resistance.txt",
-   "model": null,
-   "plan": null,
-   "error": "Source search is limited to a few dozen an hour — try again later.",
-   "sources": [],
-   "shown": 0
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Global burden of bacterial antimicrobial resistance in 2019: a systematic analysis",
+     "url": "https://doi.org/10.1016/s0140-6736%2821%2902724-0",
+     "publisher": "Elsevier BV",
+     "snippet": "The analysis estimated 4.95 million deaths associated with bacterial AMR in 2019, including 1.27 million directly attributable deaths.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Christopher J L Murray",
+      "Kevin Shunji Ikuta",
+      "Fablina Sharara",
+      "Lucien Swetschinski",
+      "Gisela Robles Aguilar",
+      "Authia Gray",
+      "Chieh Han",
+      "Catherine Bisignano",
+      "Puja Rao",
+      "Eve Wool",
+      "Sarah C Johnson",
+      "Annie J Browne",
+      "Michael Give Chipeta",
+      "Frederick Fell",
+      "Sean Hackett",
+      "Georgina Haines-Woodhouse",
+      "Bahar H Kashef Hamadani",
+      "Emmanuelle A P Kumaran",
+      "Barney McManigal",
+      "Sureeruk Achalapong",
+      "Ramesh Agarwal",
+      "Samuel Akech",
+      "Samuel Albertson",
+      "John Amuasi",
+      "Jason Andrews",
+      "Aleskandr Aravkin",
+      "Elizabeth Ashley",
+      "François-Xavier Babin",
+      "Freddie Bailey",
+      "Stephen Baker"
+     ],
+     "groupAuthor": "",
+     "year": 2022,
+     "doi": "10.1016/s0140-6736(21)02724-0",
+     "container": "The Lancet",
+     "volume": "399",
+     "issue": "10325",
+     "pages": "629-655",
+     "editors": []
+    },
+    {
+     "title": "Global burden of bacterial antimicrobial resistance in 2019: a systematic analysis",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8841637/",
+     "publisher": "National Library of Medicine",
+     "snippet": "The study states that AMR would have ranked ahead of both HIV and malaria under the counterfactual of susceptible infection.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "An estimated 1.2 million people died in 2019 from antibiotic-resistant bacterial infections",
+     "url": "https://www.ox.ac.uk/news/2022-01-20-estimated-12-million-people-died-2019-antibiotic-resistant-bacterial-infections?s=09",
+     "publisher": "University of Oxford",
+     "snippet": "Oxford reports that resistance itself caused an estimated 1.27 million deaths in 2019, more than HIV/AIDS or malaria.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Oxford",
+     "year": null
+    },
+    {
+     "title": "Reckoning with the global toll of antimicrobial resistance",
+     "url": "https://fic.nih.gov/News/GlobalHealthMatters/may-june-2022/Pages/reckoning-global-toll-antimicrobial-resistance.aspx",
+     "publisher": "Fogarty International Center",
+     "snippet": "The NIH’s Fogarty Center reports that 1.27 million people died directly from AMR in 2019, exceeding deaths from HIV/AIDS or malaria.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Fogarty International Center",
+     "year": null
+    },
+    {
+     "title": "Global burden of bacterial antimicrobial resistance",
+     "url": "https://www.tropicalmedicine.ox.ac.uk/gram/research/global-burden-of-bacterial-antimicrobial-resistance",
+     "publisher": "Centre for Tropical Medicine and Global Health, University of Oxford",
+     "snippet": "GRAM reports that more than 1.27 million deaths were directly attributable to bacterial AMR, exceeding the burden of HIV/AIDS or malaria.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centre for Tropical Medicine and Global Health, University of Oxford",
+     "year": null
+    }
+   ],
+   "shown": 3
   },
   "07-c2": {
    "ok": true,
@@ -1947,6 +2040,260 @@
      "authors": [],
      "groupAuthor": "Centers for Disease Control and Prevention",
      "year": 2014
+    }
+   ],
+   "shown": 0
+  },
+  "07-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 15628,
+   "claim": "Resistance genes have been recovered from permafrost sediment tens of thousands of years older than any human medicine, which suggests resistance is an ordinary feature of bacterial life rather than something modern prescribing invented.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Antibiotic resistance is ancient",
+     "url": "https://www.nature.com/articles/nature10388",
+     "publisher": "Nature",
+     "snippet": "“30,000-year-old Beringian permafrost sediments and the identification of a highly diverse collection of genes encoding resistance”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "D’Costa, Vanessa M.",
+      "King, Christine E.",
+      "Kalan, Lindsay",
+      "Morar, Mariya",
+      "Sung, Wilson W. L.",
+      "Schwarz, Carsten",
+      "Froese, Duane",
+      "Zazula, Grant",
+      "Calmels, Fabrice",
+      "Debruyne, Regis",
+      "Golding, G. Brian",
+      "Poinar, Hendrik N.",
+      "Wright, Gerard D."
+     ],
+     "groupAuthor": "",
+     "year": 2011,
+     "container": "Nature",
+     "doi": "10.1038/nature10388"
+    },
+    {
+     "title": "Functional Characterization of Bacteria Isolated from Ancient Arctic Soil Exposes Diverse Resistance Mechanisms to Modern Antibiotics",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4373940/",
+     "publisher": "PLoS ONE",
+     "snippet": "Functional metagenomics showed that bacterial communities from Canadian Arctic permafrost harbored diverse resistance mechanisms at least 5,000 years ago.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "The Prehistory of Antibiotic Resistance",
+     "url": "https://perspectivesinmedicine.cshlp.org/content/6/6/a025197.full.pdf",
+     "publisher": "Cold Spring Harbor Perspectives in Medicine",
+     "snippet": "A review describes resistance genes encoding resistance to β-lactam, tetracycline, and glycopeptide antibiotics in 30,000-year-old permafrost metagenomes.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Ancient Resistome",
+     "url": "https://journals.asm.org/doi/10.1128/microbiolspec.poh-0008-2015",
+     "publisher": "American Society for Microbiology",
+     "snippet": "“Antibiotic resistance is an ancient biological mechanism in bacteria, although its proliferation in our contemporary world has been amplified through antimicrobial therapy.”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Abiola Olumuyiwa Olaitan",
+      "Jean-Marc Rolain"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1128/microbiolspec.poh-0008-2015",
+     "date": "2016-08-12",
+     "container": "Microbiology Spectrum",
+     "volume": "4",
+     "issue": "4",
+     "editors": []
+    },
+    {
+     "title": "Culturing Ancient Bacteria Carrying Resistance Genes from Permafrost and Comparative Genomics with Modern Isolates",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/33023015/",
+     "publisher": "MDPI AG",
+     "snippet": "The study reports that antibiotic resistance mechanisms are much older than human antibiotic use and examines bacteria from a 2.7-million-year-old Siberian permafrost sample.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Pamela Afouda",
+      "Grégory Dubourg",
+      "Anthony Levasseur",
+      "Pierre-Edouard Fournier",
+      "Jeremy Delerce",
+      "Oleg Mediannikov",
+      "Seydina M. Diene",
+      "Daniel Nahon",
+      "Didier Bourlès",
+      "Jean-Marc Rolain",
+      "Didier Raoult"
+     ],
+     "groupAuthor": "",
+     "year": 2020,
+     "container": "Microorganisms",
+     "doi": "10.3390/microorganisms8101522",
+     "date": "2020-10-03",
+     "volume": "8",
+     "issue": "10",
+     "pages": "1522",
+     "editors": []
+    }
+   ],
+   "shown": 3
+  },
+  "07-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13583,
+   "claim": "If nothing changes, routine surgery will become impossible within a decade, because the procedures we treat as safe are only safe on the assumption that an infection afterward can be cleared.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "CONSULTATION DOCUMENT (November 2023): WHO strategic and operational priorities to address drug-resistant bacterial infections, 2025-2035",
+     "url": "https://cdn.who.int/media/docs/default-source/antimicrobial-resistance/amr-spc-npm/people-centred-framework/amr-strategic-and-operational-priorities-consultation-document.pdf?sfvrsn=e259fd22_6",
+     "publisher": "World Health Organization",
+     "snippet": "WHO states that antimicrobial resistance increases risks that common infections become impossible to treat and routine medical procedures, including surgery, become unsafe.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Health Organization",
+     "year": null
+    },
+    {
+     "title": "Antimicrobial resistance: accelerating national and global responses",
+     "url": "https://apps.who.int/gb/ebwha/pdf_files/WHA77/A77_5-en.pdf",
+     "publisher": "World Health Organization",
+     "snippet": "WHO reports that antimicrobial resistance can make common infections impossible to treat and routine procedures such as surgery unsafe.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Health Organization",
+     "year": null
+    },
+    {
+     "title": "Confronting antimicrobial resistance 2024 to 2029",
+     "url": "https://cdn.who.int/media/docs/default-source/antimicrobial-resistance/amr-spc-npm/nap-library/uk-amr-nap-2024-2029.pdf?download=true",
+     "publisher": "Department of Health and Social Care",
+     "snippet": "The UK document states that without effective antibiotics, even minor surgery and routine operations could become high-risk if serious infections cannot be treated.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Department of Health and Social Care",
+     "year": null
+    },
+    {
+     "title": "The threat of antimicrobial resistance in surgical care: the surgeon’s role and ownership of antimicrobial stewardship",
+     "url": "https://academic.oup.com/bjs/article/110/12/1567/7284303",
+     "publisher": "British Journal of Surgery",
+     "snippet": "The article describes surgical-site infections as a major concern and reports that resistant organisms account for a substantial share of infections after gastrointestinal surgery.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Gabriel Birgand"
+     ],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 3
+  },
+  "08-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 12588,
+   "claim": "Ramirez and Doyle (2024) found that students who received AI-generated feedback improved their essay scores by 23 percent over a single semester, a larger effect than any human intervention has produced.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Comparing the quality of human and ChatGPT feedback of students’ writing",
+     "url": "https://doi.org/10.1016/j.learninstruc.2024.101894",
+     "publisher": "Elsevier BV",
+     "snippet": "“Human raters were better at providing high-quality feedback to students in all categories other than criteria-based.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Jacob Steiss",
+      "Tamara Tate",
+      "Steve Graham",
+      "Jazmin Cruz",
+      "Michael Hebert",
+      "Jiali Wang",
+      "Youngsun Moon",
+      "Waverly Tseng",
+      "Mark Warschauer",
+      "Carol Booth Olson"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1016/j.learninstruc.2024.101894",
+     "container": "Learning and Instruction",
+     "volume": "91",
+     "pages": "101894",
+     "editors": []
+    },
+    {
+     "title": "Automated feedback and writing: a multi-level meta-analysis of effects on students’ performance",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10351274/",
+     "publisher": "",
+     "snippet": "The meta-analysis reports substantial heterogeneity, indicating automated feedback cannot be treated as one consistent intervention.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2023
+    },
+    {
+     "title": "AI-generated feedback on writing: insights into efficacy and ENL student preference",
+     "url": "https://link.springer.com/article/10.1186/s41239-023-00425-2",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "The study examined GPT-4 feedback and student preferences, including pretesting during the first week of a semester.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Juan Escalante",
+      "Austin Pack",
+      "Alex Barrett"
+     ],
+     "groupAuthor": "",
+     "year": 2023,
+     "container": "International Journal of Educational Technology in Higher Education",
+     "date": "2023-10-27",
+     "doi": "10.1186/s41239-023-00425-2",
+     "volume": "20",
+     "issue": "1",
+     "editors": []
+    },
+    {
+     "title": "GPT-4 feedback increases student activation and learning outcomes in higher education",
+     "url": "https://www.sciencedirect.com/science/article/pii/S1560429226000168",
+     "publisher": "",
+     "snippet": "Over one semester, students answered eight open-ended questions and received lecturer, peer, or AI feedback depending on treatment.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2026
     }
    ],
    "shown": 0
