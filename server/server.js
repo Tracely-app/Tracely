@@ -1,5 +1,6 @@
 import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
+import { readReleaseStamp } from "./lib/release.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runFactCheck, findSources, runFlowCheck, runReview, hasApiKey, CheckError, checkPromptBytes, CHECK_SHARD_TIMEOUT_MS } from "./lib/factcheck.js";
@@ -27,6 +28,8 @@ import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus }
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
+// What is deployed, as the runbook stamped it (lib/release.js); null on a laptop.
+const RELEASE = readReleaseStamp(ROOT);
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4477;
 const MOCK = process.env.TRACELY_MOCK === "1";
 
@@ -1064,6 +1067,9 @@ const server = http.createServer(async (req, res) => {
         // of credit (seen in the last 15 minutes) — the one outage the spend
         // pools above can't show, because it is the account, not our ceiling.
         ...(upstreamStatus() ? { upstream: upstreamStatus() } : {}),
+        // `release` (optional): the deployed commit and time, from the
+        // release.json the deploy runbook writes. Additive; a laptop has none.
+        ...(RELEASE ? { release: RELEASE } : {}),
       }, cors);
       return;
     }

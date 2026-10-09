@@ -81,3 +81,5 @@ extension/dev/fix-in-doc/shots/
 extension/dev/fix-in-doc/profile-*
 # Fragments an editor left behind at the root once (#136); never source.
 .blk_*
+# Written by the deploy runbook into the snapshot, never committed (lib/release.js).
+server/release.json
