@@ -28,9 +28,10 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const X = vm.runInContext(`const CHECK_INTERVAL_MS = 10000; const FEATURES = { citeHintsToggle: false };
   function hashText(s) { return "h" + s.length + s.slice(0, 24); }
+  ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
   ${sliceBetween(SRC, "  const ISSUE_VERDICTS =", "  /* Card titles")}
   ${sliceBetween(SRC, "  // Bibliography block", "  function wireChrome(")}
-  ({ citationTips, tipCitedTarget, citedLookupPlan, segmentText, panelHeadHtml, tipsSectionHtml, citationTipsHtml, cardListHtml, groupHtml, foldCards,
+  ({ citationTips, tipCitedTarget, citedLookupPlan, segmentText, panelHeadHtml, tallyOf, tipsSectionHtml, citationTipsHtml, cardListHtml, groupHtml, foldCards,
      focus: () => focusCard, setFocus: (k) => { focusCard = k; } })`, vm.createContext({}));
 
 const SENT = "Some researchers have argued that literacy expanded in parts of the empire, but the extent remains uncertain (Shiraishi).";
@@ -68,20 +69,46 @@ test("the excuse card's text names no button the card may not show", () => {
   assert.ok(!/Find the cited work|Find a source/.test(tip.message));
 });
 
-test("the header says what the list holds, never 'all clear' over open notes", () => {
-  const head = (...a) => {
-    const h = X.panelHeadHtml(...a);
-    return [h.match(/<span class="name">([^<]*)</)[1], h.match(/<span class="status[^"]*">([^<]*)</)[1]];
-  };
-  assert.deepEqual(head(0, "all clear", false, "", 2), ["2 notes", "no claims flagged"], "the owner's screenshot");
-  assert.deepEqual(head(0, "all clear", false, "", 1), ["1 note", "no claims flagged"]);
-  assert.deepEqual(head(3, "3 issues found", false, "", 2), ["3 claims flagged", "+ 2 notes"]);
-  assert.deepEqual(head(1, "1 issue found", false, "", 0), ["1 claim flagged", ""], "never '1 issue found' under '1 claim flagged'");
-  assert.deepEqual(head(0, "all clear", false, "", 0), ["Tracely", "all clear"]);
-  assert.deepEqual(head(0, "checking…", false, "", 2), ["2 notes", "checking…"], "only 'no claims flagged' once the check says so");
-  assert.deepEqual(head(2, "Could not reach Tracely", true, "", 2), ["2 claims flagged", "Could not reach Tracely"], "an error always shows");
-  // Both panels pass the notes the list shows: everything counted on the launcher but the claims.
-  assert.equal((SRC.match(/panelHeadHtml\(issues\.length, statusMsg, statusKind === "error" \|\| statusKind === "offline", "", flagged - issues\.length\)/g) || []).length, 2);
+/* The header, since 2.21.33 (owner, 2026-10-08: "it says how many of each
+ * thing is wrong … 2 wrong citations with a little icon next to it, and 4
+ * wrong factual pieces with another little red icon"): one count per kind,
+ * each with its own icon in its finding's colour, and the words. */
+test("the header counts what is wrong, kind by kind, each with its icon — never 'all clear' over open notes", () => {
+  const chips = (h) => [...h.matchAll(/<button class="chip" data-jump="(\w+)"[^>]*><span class="chip-ico" style="color:([^"]+)"[^>]*><svg[\s\S]*?<\/svg><\/span>([^<]*)<\/button>/g)].map((m) => `${m[1]}|${m[2]}|${m[3]}`);
+  const status = (h) => h.match(/<span class="status[^"]*">([^<]*)</)[1];
+  const c = plain(X.tallyOf(["false", "incoherent", "false", "false", "questionable", "needs_citation"],
+    [{ kind: "vague" }, { kind: "refdup" }, { kind: "evidence" }, { kind: "offtopic" }, { kind: "bullet" }]));
+  assert.deepEqual(c, { wrong: 4, check: 1, cite: 3, writing: 3 }, "a missing citation counts with the citation notes; stray lines and resume tips are writing");
+  const h = X.panelHeadHtml(c, "6 issues found", false);
+  assert.deepEqual(chips(h), [
+    "wrong|#d93636|4 factual errors", "check|#ff5900|1 to double-check", "cite|#ffb800|3 citation issues", "writing|#ff5900|3 writing notes",
+  ], "the owner's '4 wrong factual pieces' with a red icon, '2 wrong citations' with its own");
+  assert.equal(status(h), "", "never '6 issues found' beside the counts");
+  assert.deepEqual(chips(X.panelHeadHtml({ cite: 2 }, "all clear", false)), ["cite|#ffb800|2 citation issues"], "the owner's screenshot: two citation notes, no 'all clear'");
+  assert.ok(!/All clear/.test(X.panelHeadHtml({ cite: 2 }, "all clear", false)));
+  assert.deepEqual(chips(X.panelHeadHtml({ wrong: 1 }, "1 issue found", false)), ["wrong|#d93636|1 factual error"]);
+  assert.match(X.panelHeadHtml({}, "all clear", false), /class="chip chip-clear">[\s\S]*All clear<\/span>/, "nothing open, check done");
+  assert.ok(!/All clear/.test(X.panelHeadHtml({}, "checking 3…", false)), "not before the check says so");
+  assert.equal(status(X.panelHeadHtml({}, "checking 3…", false)), "checking 3…");
+  assert.equal(status(X.panelHeadHtml({ wrong: 2 }, "Could not reach Tracely", true)), "Could not reach Tracely", "an error always shows");
+  // Both panels count what their list shows, and a chip opens the first card of its kind.
+  assert.equal((SRC.match(/const tally = tallyOf\(issues\.map\(\(\{ f \}\) => f\.verdict\), \[\.\.\.citeTips, \.\.\.refTips, \.\.\.essayNotes, \.\.\.offTopic, \.\.\.resumeList\]\);/g) || []).length, 2);
+  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline"\)\}/g) || []).length, 2);
+  assert.equal((SRC.match(/<div class="card" data-card="\$\{seg\.hash\}" data-cat="\$\{verdictCat\(f\.verdict\)\}">/g) || []).length, 2);
+  assert.match(SRC, /<div class="card tip-card" data-card="\$\{t\.id\}" data-cat="\$\{tipCat\(t\)\}">/);
+  assert.match(SRC, /const card = shadow\.querySelector\(`\.list \.card\[data-cat="\$\{chip\.dataset\.jump\}"\]`\);/);
+});
+
+test("no countdown in the panel; the header is the handle that moves it", () => {
+  assert.ok(!/countdownTxt|next check in/.test(SRC), "owner: 'remove the next check timer thing'");
+  assert.match(SRC, /function wireChrome\(shadow, close, rerender\) \{[\s\S]*?wireDrag\(shadow\);/);
+  assert.match(SRC, /head\.addEventListener\("pointerdown", \(e\) => \{\n\s+if \(e\.button !== 0 \|\| e\.target\.closest\?\.\("button, a, input, label, select"\)\) return;/, "dragged by the header, never by its buttons");
+  assert.match(SRC, /const PANEL_POS_KEY = "tracely\.widget\.panelPos";/, "remembered");
+  assert.match(SRC, /head\.addEventListener\("dblclick"/, "and put back by a double-click");
+  const X2 = vm.runInContext(`const innerWidth = 1000, innerHeight = 700; ${sliceBetween(SRC, "  const panelSpot =", "  function placePanel(")} ({ panelSpot })`, vm.createContext({}));
+  assert.deepEqual(plain(X2.panelSpot(-50, -50, 480, 600)), { x: 8, y: 8 }, "never off the top or the left");
+  assert.deepEqual(plain(X2.panelSpot(900, 600, 480, 600)), { x: 512, y: 92 }, "nor off the right or the bottom");
+  assert.deepEqual(plain(X2.panelSpot(100.4, 50.6, 480, 600)), { x: 100, y: 51 });
 });
 
 test("one list, most serious first: Claims, Citations, Writing feedback, then evidence", () => {

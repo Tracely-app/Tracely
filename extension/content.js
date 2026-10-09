@@ -2333,25 +2333,56 @@
       <span class="count ${countCls}">${esc(countTxt)}</span>
     </div>`;
   }
-  // The header: "N claims flagged" and the round close. The status line is
-  // shown only when it says something the title does not — an error, or
-  // "all clear" with nothing flagged — never "3 issues found" under "3 claims
-  // flagged". `notes` are the panel's other cards (citations, writing): owner,
-  // 2026-10-08, "all clear" sat over two citation notes. With no claim
-  // flagged the notes are the title and the status says only what is true of
-  // the claims; with both, the notes ride beside the claims.
-  function panelHeadHtml(n, statusMsg, statusErr, extra = "", notes = 0) {
-    const count = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
-    const title = n > 0 ? `${count(n, "claim")} flagged` : notes > 0 ? count(notes, "note") : "Tracely";
-    const status = statusErr ? statusMsg
-      : n > 0 ? (notes > 0 ? `+ ${count(notes, "note")}` : "")
-        : notes > 0 && statusMsg === "all clear" ? "no claims flagged" : statusMsg;
-    return `<div class="head" id="dragHead">
-      <span class="name">${title}</span>
-      ${extra}
+  /* The header counts what is wrong, kind by kind. Owner, 2026-10-08: "on
+     the widget overlay … it says how many of each thing is wrong. So for
+     example it would say 2 wrong citations with a little icon next to it,
+     and 4 wrong factual pieces with another little red icon". Four kinds,
+     each with its own shape AND its finding's colour, and the words — never
+     colour alone: facts that are wrong or make no sense (red), facts worth
+     checking (orange), citations (amber: a missing one, a citation note, the
+     reference list's), writing (orange: the review's notes, stray lines,
+     resume tips). A chip opens the first card of its kind. Nothing open and
+     the check done: "All clear". The status line says only what the chips
+     cannot — checking, an error. */
+  const TALLY_ICON = {
+    wrong: `<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="currentColor"/><rect x="5.2" y="2.5" width="1.6" height="4.6" rx=".8" fill="#fff"/><circle cx="6" cy="9" r=".95" fill="#fff"/></svg>`,
+    check: `<svg viewBox="0 0 12 12"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.7 7.7l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+    cite: `<svg viewBox="0 0 12 12"><rect width="12" height="12" rx="3" fill="currentColor"/><path d="M2.8 8.4V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7zm3.8 0V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7z" fill="#fff"/></svg>`,
+    writing: `<svg viewBox="0 0 12 12"><path d="M8.5 1.1l2.4 2.4-6.6 6.6-3.1.8.8-3.1z" fill="currentColor"/></svg>`,
+    clear: `<svg viewBox="0 0 12 12"><path d="M2.2 6.3l2.4 2.4 5.2-5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  };
+  // [kind, its MARK_COLORS key (read when drawn), its words]
+  const TALLY = [
+    ["wrong", "false", (n) => `${n} factual ${n === 1 ? "error" : "errors"}`],
+    ["check", "questionable", (n) => `${n} to double-check`],
+    ["cite", "needs_citation", (n) => `${n} citation ${n === 1 ? "issue" : "issues"}`],
+    ["writing", "note_tip", (n) => `${n} writing ${n === 1 ? "note" : "notes"}`],
+  ];
+  const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" ? "cite" : "wrong");
+  const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : "writing");
+  // The header's counts: the claims' verdicts, and every note the list shows.
+  function tallyOf(verdicts, tips) {
+    const c = { wrong: 0, check: 0, cite: 0, writing: 0 };
+    for (const v of verdicts ?? []) c[verdictCat(v)]++;
+    for (const t of tips ?? []) c[tipCat(t)]++;
+    return c;
+  }
+  const GRIP_SVG = `<svg viewBox="0 0 10 16" width="8" height="14"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>`;
+  function panelHeadHtml(counts, statusMsg, statusErr) {
+    const c = counts ?? {};
+    const total = TALLY.reduce((n, [k]) => n + (c[k] || 0), 0);
+    const chips = TALLY.filter(([k]) => c[k] > 0).map(([k, mark, label]) =>
+      `<button class="chip" data-jump="${k}" title="Show the first one"><span class="chip-ico" style="color:${MARK_COLORS[mark]}" aria-hidden="true">${TALLY_ICON[k]}</span>${esc(label(c[k]))}</button>`);
+    if (!total && !statusErr && statusMsg === "all clear") chips.push(`<span class="chip chip-clear"><span class="chip-ico" aria-hidden="true">${TALLY_ICON.clear}</span>All clear</span>`);
+    const quiet = /^(?:all clear|\d+ issues? found)$/.test(String(statusMsg ?? ""));
+    const status = statusErr || !quiet ? statusMsg : "";
+    return `<div class="head" id="dragHead" title="Drag to move · double-click to put it back">
+      <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
+      <span class="name">Tracely</span>
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
       <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
-    </div>`;
+    </div>
+    <div class="tally">${chips.join("")}</div>`;
   }
   // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
@@ -2581,7 +2612,7 @@
   const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-quest" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
-      <div class="card tip-card" data-card="${t.id}">
+      <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
         <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
@@ -2656,11 +2687,91 @@
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
+    // A count in the header opens the first card of its kind.
+    for (const chip of shadow.querySelectorAll("[data-jump]")) {
+      chip.addEventListener("click", () => {
+        const card = shadow.querySelector(`.list .card[data-cat="${chip.dataset.jump}"]`);
+        if (!card) return;
+        focusCard = card.dataset.card;
+        rerender();
+        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
+      });
+    }
+    wireDrag(shadow);
     for (const img of shadow.querySelectorAll(".src-ico img")) img.addEventListener("error", () => img.remove(), { once: true });
     const mark = shadow.querySelector(".launch-mark");
     mark?.addEventListener("error", () => { mark.outerHTML = `<span class="launch-plane">${PLANE_SVG}</span>`; }, { once: true });
     const pill = shadow.getElementById("pill");
     pill?.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pill.click(); } });
+  }
+
+  /* The panel goes where the writer puts it. Owner, 2026-10-08: "make the
+     overlay movable and draggable across the screen". Dragged by its header
+     (not by its buttons), kept wholly on screen, remembered for the site in
+     the page's own storage, and put back in its corner by a double-click on
+     the header. The panel is redrawn often, so the drag follows the pointer
+     on the window and places whichever panel is current. */
+  const PANEL_POS_KEY = "tracely.widget.panelPos";
+  let panelPos = (() => {
+    try {
+      const p = JSON.parse(localStorage.getItem(PANEL_POS_KEY) ?? "null");
+      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { x: p.x, y: p.y } : null;
+    } catch { return null; }
+  })();
+  const keepPanelPos = () => { try { if (panelPos) localStorage.setItem(PANEL_POS_KEY, JSON.stringify(panelPos)); else localStorage.removeItem(PANEL_POS_KEY); } catch { /* storage denied */ } };
+  // Where a panel w×h may sit: wholly inside the window, 8px in.
+  const panelSpot = (x, y, w, h) => ({
+    x: Math.round(Math.min(Math.max(8, x), Math.max(8, innerWidth - w - 8))),
+    y: Math.round(Math.min(Math.max(8, y), Math.max(8, innerHeight - h - 8))),
+  });
+  function placePanel(panel) {
+    if (!panel) return;
+    if (!panelPos) { Object.assign(panel.style, { position: "", left: "", top: "", right: "", bottom: "" }); return; }
+    const r = panel.getBoundingClientRect();
+    const at = panelSpot(panelPos.x, panelPos.y, r.width, r.height);
+    Object.assign(panel.style, { position: "fixed", left: `${at.x}px`, top: `${at.y}px`, right: "auto", bottom: "auto" });
+  }
+  let panelResizeWired = false;
+  function wireDrag(shadow) {
+    const head = shadow.getElementById("dragHead");
+    placePanel(shadow.querySelector(".panel"));
+    if (!panelResizeWired) {
+      panelResizeWired = true; // a smaller window keeps a moved panel on it
+      globalThis.window?.addEventListener("resize", () => { if (panelPos) placePanel(shadow.querySelector(".panel")); });
+    }
+    if (!head || head.dataset.drag) return;
+    head.dataset.drag = "1";
+    head.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest?.("button, a, input, label, select")) return;
+      const panel = shadow.querySelector(".panel");
+      if (!panel) return;
+      const r = panel.getBoundingClientRect();
+      const dx = e.clientX - r.left, dy = e.clientY - r.top;
+      e.preventDefault();
+      panel.classList.add("dragging");
+      const move = (ev) => {
+        const cur = shadow.querySelector(".panel");
+        const box = cur ? cur.getBoundingClientRect() : r;
+        panelPos = panelSpot(ev.clientX - dx, ev.clientY - dy, box.width, box.height);
+        if (cur) { cur.classList.add("dragging"); placePanel(cur); }
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", up, true);
+        window.removeEventListener("pointercancel", up, true);
+        shadow.querySelector(".panel")?.classList.remove("dragging");
+        keepPanelPos();
+      };
+      window.addEventListener("pointermove", move, true);
+      window.addEventListener("pointerup", up, true);
+      window.addEventListener("pointercancel", up, true);
+    });
+    head.addEventListener("dblclick", (e) => {
+      if (e.target.closest?.("button")) return;
+      panelPos = null;
+      keepPanelPos();
+      placePanel(shadow.querySelector(".panel"));
+    });
   }
 
   // Carry [n] citation markers from the original sentence into a revision that
@@ -2995,11 +3106,30 @@
       box-shadow: 0 8px 12px rgba(0,0,0,.18);
       display: flex; flex-direction: column; overflow: hidden;
     }
+    /* The header is the panel's handle (wireDrag): a grip, the name, and the
+       close; the counts sit under it (.tally) and carry the rule. */
     .head {
-      display: flex; align-items: center; gap: 10px;
-      margin: 0 24px; padding: 22px 0 16px; border-bottom: 1px solid #e7e7e7;
+      display: flex; align-items: center; gap: 8px;
+      margin: 0 24px; padding: 18px 0 10px; cursor: grab; user-select: none; touch-action: none;
     }
-    .head .name { font-weight: 600; font-size: 19px; color: #1a1a1f; white-space: nowrap; }
+    .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
+    .panel.dragging .head { cursor: grabbing; }
+    .grip { display: flex; color: #b9bac0; margin-left: -4px; }
+    .head:hover .grip { color: #6b6c72; }
+    .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
+    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
+      border-radius: 999px; border: 1px solid #e4e4e7; background: #fff;
+      font-family: inherit; font-size: 12.5px; font-weight: 600; color: #1a1a1f; cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .chip:hover { border-color: #c9c9ce; background: #fafafa; }
+    .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
+    .chip-ico svg { width: 13px; height: 13px; display: block; }
+    .chip-clear { cursor: default; font-weight: 500; color: #3a3b40; }
+    .chip-clear:hover { border-color: #e4e4e7; background: #fff; }
     .close {
       margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
       border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
@@ -3144,6 +3274,30 @@
       border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
     }
     .walk-strip button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    /* "Let Tracely fix these": the prepared changes, each waiting for the
+       writer. Ink only — a removed word struck through, an added one
+       underlined; the dot is the flag's own finding colour. */
+    .fixes { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+    .fixes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+    .fixes-acts { display: inline-flex; gap: 6px; }
+    .fixes-acts button.act { padding: 5px 12px; font-size: 12px; }
+    .fixes-note { font-size: 11.5px; color: #6b6c72; }
+    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #ececec; border-radius: 10px; background: var(--surface); }
+    .fx-top { display: flex; align-items: center; gap: 8px; }
+    .fx-title { font-size: 12.5px; font-weight: 600; color: #1a1a1f; }
+    .fx-diff { font-size: 12.5px; line-height: 1.5; color: #55565c; }
+    .fx-diff del { color: #8a8b90; text-decoration: line-through; }
+    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: #efeff2; border-radius: 3px; padding: 0 2px; }
+    .fx-line { font-size: 11.5px; color: #55565c; }
+    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #55565c; min-width: 0; }
+    .fx-src img { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    .fx-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6c72; }
+    .fx-applied { opacity: .75; }
+    .fx-applied .fx-state { color: var(--ink); font-weight: 500; }
+    .fx-skipped { opacity: .55; }
+    .fx .row button.act { padding: 5px 12px; font-size: 12px; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
@@ -5830,7 +5984,6 @@
     }
     function hoverHit() {
       hoverRafBusy = false;
-      if (tcWalk) return; // Tracely's cursor is driving the cards ("Let Tracely fix these")
       const { x, y } = hoverPt;
       const st = hoverState(x, y);
       const d = hoverIntent(st);
@@ -6068,17 +6221,20 @@
       standDown("extension reloaded");
     }, 900) : 0;
 
-    async function fetchSources(hash, auto = false) {
+    async function fetchSources(hash, auto = false, { batch = false } = {}) {
       // Returns false when NOTHING was started (another claim's search holds
       // the slot, or the sentence vanished) so callers can restore their UI
-      // instead of pretending a search is running.
+      // instead of pretending a search is running. `batch`: one of "Let
+      // Tracely fix these"'s searches, paced by fixSearch — it neither waits
+      // for nor holds the slot a card's search uses, and says nothing in the
+      // status line (the list says it).
       if (sourcesMap.get(hash)?.list?.length) return true; // cached — never re-search
       if (sourcesMap.get(hash)?.loading) return true; // already running: started on the press (prestartSearch)
-      if (sourcesInflight) return false;
+      if (sourcesInflight && !batch) return false;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return false;
       const f = cache.get(hash);
-      sourcesInflight = true;
+      if (!batch) sourcesInflight = true;
       // What the live search has said so far (searchSources' events), drawn
       // by the card while it runs (dmLive, liveSourcesHtml). `shown`: the
       // sites already animated in, so a repaint never replays their entrance.
@@ -6120,9 +6276,9 @@
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
-        statusMsg = err?.message ?? "source search failed";
+        if (!batch) statusMsg = err?.message ?? "source search failed";
       } finally {
-        sourcesInflight = false;
+        if (!batch) sourcesInflight = false;
         render();
         renderPopSources(hash); // popover may be waiting on this claim
       }
@@ -6714,14 +6870,24 @@
        and server/test's slices of this section — sends straight away, as
        before. Undo and a failed group's rollback never come through here. */
     let previewDocEdit = null;
+    /* "Let Tracely fix these" (fixBatch) prepares every change before any
+       reaches the Doc: while `collect` is set, an edit whose key starts with
+       its prefix is only handed to `take` — nothing is sent. A change the
+       writer accepted from that list is in `approved` and goes without a
+       second preview: the list was the preview. */
+    const editGate = { collect: null, approved: new Set() };
 
     /* Run one edit — or a GROUP of edits that must land together — and settle
        the button. A group that fails part-way is taken back, newest first, so
        the doc is exactly as it was; then the text is copied instead. */
     async function runDocEdit(key, job) {
       if (docBusy) return false;
+      if (editGate.collect && key.startsWith(editGate.collect.prefix)) {
+        editGate.collect.take(key, job); // recorded for the writer to choose; nothing is sent
+        return false;
+      }
       docBusy = true;
-      if (previewDocEdit && !job.previewed) {
+      if (previewDocEdit && !job.previewed && !editGate.approved.has(key)) {
         let accepted = false;
         try { accepted = await previewDocEdit(key, job); } catch { accepted = false; }
         if (!accepted) {
@@ -6992,6 +7158,7 @@
       const named = swapped ? null : nameTheSource(seg.text, src, style);
       const { steps, retry, hint, pasteEntry, listName, replacement } = await citePlan(seg, styled, src, { anchor, swapped: swapped ?? named });
       if (!steps.length) {
+        if (editGate.collect && `cite:${hash}:${src.url}`.startsWith(editGate.collect.prefix)) return false; // preparing: nothing to choose, and no copy
         // Marker and entry are both in the doc already: nothing to change —
         // so no "Applied ✓", and the last real edit keeps its Undo.
         if (st.citedUrl !== src.url) { st.citedUrl = src.url; persistCaches(); }
@@ -7287,9 +7454,9 @@
        any of it when it opts in (window.__tracelyHarness.typePreview ===
        true), so a test page never waits on a click.
 
-       "Let Tracely fix these" (the panel; tracelyWalk, below) drives the
-       same cursor through the flags: it opens each card, clicks Tracely's
-       own button in it, and every edit still stops here for the writer. */
+       "Let Tracely fix these" (the panel; prepareFixes, below) does not come
+       through here: it lists every change first, and the writer's Accept in
+       that list is the preview (editGate.approved). */
     const TP_GLIDE_MS = 350, TP_CLICK_MS = 300, TP_STRIKE_MS = 200, TP_FADE_MS = 120, TP_CHAR_MS = 30, TP_TYPE_MAX_MS = 1200;
     const TP_FLOW_MAX_LINES = 15;
     const TP_WASH = "rgba(28,28,28,0.07)"; // ink at 7%: the struck and the inserted words alike, never a hue
@@ -7643,8 +7810,7 @@
       // (Cite in doc asks the hook a few dry-run questions first: up to ~10 s.)
       const press = tpPress && Date.now() - tpPress.at < 15_000 ? tpPress : null;
       // From where the walkthrough's cursor is, else from the pressed button (or the underline).
-      const walking = Boolean(tcWalk && tcCur);
-      const from = walking ? { left: tcCur.x, top: tcCur.y, width: 0, height: 0 } : press?.rect ?? near;
+      const from = press?.rect ?? near;
       const fontCss = inDoc ? target().at.node.getAttribute("data-font-css") || "" : "";
       const family = fontCss.match(/\d[\d.]*px(?:\/\S+)?\s+(.+)$/)?.[1] ?? null;
       const tl = tpTimeline({ inDoc, glide: Boolean(from), strike: Boolean(span && span[1] > span[0]), chars: ins.length });
@@ -7785,8 +7951,7 @@
         window.removeEventListener("pagehide", onHide);
         layer.remove();
         if (pop) pop.style.visibility = popVis;
-        // The walkthrough keeps its cursor for the next flag; a single edit's goes with it.
-        if (tcWalk && tcCur) { tcCursorPress(1); tcCur.pill.style.opacity = "1"; tcCur.arrow.style.opacity = "1"; } else tcCursorHide();
+        tcCursorHide(); // the edit's cursor goes with it
         if (tpOpen === handle) tpOpen = null;
         try { if (prevFocus?.isConnected && typeof prevFocus.focus === "function") prevFocus.focus({ preventScroll: true }); } catch { /* best effort */ }
         console.debug(`[tracely] type preview ${ok ? "accepted" : "rejected"}`);
@@ -8165,32 +8330,48 @@
       return handle;
     }
 
-    /* ── "Let Tracely fix these": the cursor goes through the flags ────────
-       The writer asked for it, so Tracely's cursor drives: in reading order
-       (walkPlan) it glides to each flag's underline, clicks, opens its card
-       the way a hover opens it (showDocsPopover), glides to the card's own
-       button and clicks it for real (`.click()` — the button's handler runs,
-       exactly as the writer's click would). The edit then goes through
-       runDocEdit to the Type preview, and the WRITER accepts or rejects it:
-       nothing here ever answers a preview (walkSettle only waits for one).
-       Only Tracely's own buttons are ever clicked, never Docs' menus or
-       toolbar. Esc (outside a preview, where Esc is Reject), Stop, typing in
-       the Doc, or the tab going to the background ends it.
-
-       The one place Tracely scrolls Docs: the walkthrough brings the next
-       flag into view (smoothly), because the writer asked it to go through
-       them all. An edit, and its preview, still never move the view. */
-    let tcWalk = null;     // running: { stop, i, n, tally, why, left }
-    let tcWalkDone = "";   // what the last one did, for the panel
-    const WALK_COPY = {
-      go: "Let Tracely fix these", stop: "Stop",
-      offer: (n) => `Tracely can make ${n === 1 ? "this fix" : `${n} of these fixes`} — you accept or reject each one`,
-      running: (i, n) => `Tracely is on ${i} of ${n} — accept or reject each change`,
+    /* ── "Let Tracely fix these": everything prepared, then the writer picks ──
+       Owner, 2026-10-08: "it waits a while when it clicks find citations. It
+       also waits after each fix for you to confirm. I want to have it finish
+       everything and theres like multiple things waiting for you to choose."
+       (It used to drive the cursor flag by flag: each citation waited on its
+       own search, and each change on the writer's Accept, before the next.)
+       One press now prepares every change walkPlan can make, at once:
+         • the searches its citations need all start, FIX_SEARCHES at a time
+           and FIX_SEARCHES_PER_MIN a minute (the server allows a caller 4);
+         • each change is worked out by the very function its card's button
+           calls — docFix, docDeleteTip, docCite — against the doc as it is,
+           with runDocEdit only RECORDING it (editGate.collect): nothing
+           reaches the Doc.
+       Each lands in the panel the moment it is ready — what it changes, and
+       from which source — and the writer accepts it, skips it, or accepts
+       them all. An accepted change is made by that same function again, so it
+       is planned against the doc as it is THEN, and goes in without a second
+       preview (editGate.approved): one at a time, each after a read of the
+       doc the last one changed. Nothing here accepts anything for the
+       writer, and a source is only ever one that BACKS its sentence
+       (walkSource). */
+    const FIX_SEARCHES = 3;
+    const FIX_SEARCHES_PER_MIN = 3; // the server's callerSourcesPerMinute is 4: one is left for the writer's own
+    let fixBatch = null;        // { items, left, preparing, stopped, applying }
+    let fixQueue = Promise.resolve(); // collections run one at a time (runDocEdit's docBusy)
+    let fixSearchStarts = [];   // when this page's batch searches started (the minute's pace)
+    let fixSearchesRunning = 0;
+    const FIX_COPY = {
+      go: "Let Tracely fix these", stop: "Stop", done: "Done", accept: "Accept", skip: "Skip",
+      all: (n) => `Accept all ${n}`,
+      offer: (n) => `Tracely can prepare ${n === 1 ? "this fix" : `${n} of these fixes`} at once — then you choose what goes in`,
+      preparing: (ready, n) => `Preparing ${n} ${n === 1 ? "fix" : "fixes"} · ${ready} ready`,
+      ready: (n) => `${n} ${n === 1 ? "fix" : "fixes"} ready — accept what you want`,
+      finished: (n) => `${n} ${n === 1 ? "change" : "changes"} in your doc`,
+      nothing: "Nothing left to choose",
+      searching: "Finding a source that backs it…", working: "Working it out…", waiting: "Waiting its turn…",
+      applying: "Putting it in…", applied: "In your doc", skipped: "Skipped",
+      couldNot: (n, why) => `${n} couldn't be prepared (${why}) — ${n === 1 ? "its card is" : "their cards are"} still there`,
+      left: (n) => `${n} more ${n === 1 ? "needs" : "need"} you — open ${n === 1 ? "its card" : "their cards"}`,
     };
+    const FIX_ACT = { fix: "Fix", cite: "Cite", name: "Name the source", delete: "Delete" };
     const tcSleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    // A beat at each step — the card open, the cursor over its button — so every step can be
-    // watched. Not motion: kept under prefers-reduced-motion, where only the glides and ripples go.
-    const WALK_BEAT_MS = 400;
     function walkInputs() {
       const flags = currentIssues().map(({ seg, f }) => ({
         key: seg.hash, start: seg.start, verdict: f.verdict,
@@ -8203,195 +8384,201 @@
       return walkPlan(flags, notes);
     }
     const walkOffered = () => Boolean(FEATURES.typePreview && previewDocEdit && canEditDoc() && !(harness && harness.typePreview !== true) && walkInputs().items.length);
-    function walkStripHtml() {
-      if (tcWalk) return `<div class="walk-strip"><span>${esc(WALK_COPY.running(Math.max(1, tcWalk.i), tcWalk.n))}</span><button class="act" data-walk-stop="1">${WALK_COPY.stop}</button></div>`;
-      if (tcWalkDone) return `<div class="walk-strip"><span>${esc(tcWalkDone)}</span></div>`;
-      if (!walkOffered()) return "";
-      return `<div class="walk-strip"><span>${esc(WALK_COPY.offer(walkInputs().items.length))}</span><button class="act primary" data-walk-go="1"${docBusy ? " disabled" : ""}>${WALK_COPY.go}</button></div>`;
+
+    // The sentence a citation goes on: the flag's own, or the one an unnamed source is in.
+    function fixClaimOf(item) {
+      if (item.act === "cite") return segments.some((s) => s.hash === item.key) ? item.key : null;
+      const tip = tipById(item.key);
+      const i = tip ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
+      return i >= 0 ? segments[i].hash : null;
     }
-    function walkEnd() {
-      if (!tcWalk || tcWalk.stop) return;
-      tcWalk.stop = true;
+    // The card's own function for this change; the key prefix runDocEdit will see.
+    function fixMake(item) {
+      if (item.act === "fix") return docFix(item.key);
+      if (item.act === "delete") return docDeleteTip(item.key);
+      return docCite(item.claim, item.srcIndex, null, replaceFor(item.claim));
+    }
+    const fixPrefix = (item) => (item.act === "fix" ? `fix:${item.key}` : item.act === "delete" ? `del:${item.key}` : `cite:${item.claim}:`);
+    // The change, recorded and not sent: { key, job }, or null when there is none to make.
+    function fixCollect(item) {
+      const run = async () => {
+        while (docBusy) await tcSleep(200); // a card's own edit (and its preview) goes first
+        let got = null;
+        editGate.collect = { prefix: fixPrefix(item), take: (key, job) => { got ??= { key, job }; } };
+        try { await fixMake(item); } catch { got = null; } finally { editGate.collect = null; }
+        return got;
+      };
+      const p = fixQueue.then(run, run);
+      fixQueue = p.catch(() => null);
+      return p;
+    }
+    // One batch search, paced; resolves once the claim has an answer (or has none to give).
+    async function fixSearch(hash, b) {
+      for (let tries = 0; tries < 2; tries++) {
+        for (;;) {
+          if (fixBatch !== b || b.stopped) return;
+          fixSearchStarts = fixSearchStarts.filter((t) => Date.now() - t < 60_000);
+          if (fixSearchesRunning < FIX_SEARCHES && fixSearchStarts.length < FIX_SEARCHES_PER_MIN) break;
+          await tcSleep(500);
+        }
+        fixSearchesRunning++;
+        fixSearchStarts.push(Date.now());
+        try {
+          await fetchSources(hash, true, { batch: true });
+          const t0 = Date.now(); // a search the writer started on its card: wait for that one
+          while (sourcesMap.get(hash)?.loading && Date.now() - t0 < 90_000) await tcSleep(300);
+        } finally {
+          fixSearchesRunning--;
+        }
+        if (sourcesMap.get(hash)?.list) return;
+      }
+    }
+    function fixSettle(item, status, why = "") {
+      item.status = status;
+      item.why = why;
       render();
     }
-    // k from 0 to 1 over ms: a frame or 50 ms, whichever first (a hidden pane runs no rAF).
-    function tcAnimate(ms, step) {
-      return new Promise((resolve) => {
-        if (!ms || reducedMotion()) { step(1); resolve(); return; }
-        const t0 = performance.now();
-        let raf = 0, tmr = 0;
-        const tick = () => {
-          cancelAnimationFrame(raf);
-          clearTimeout(tmr);
-          const k = Math.min(1, (performance.now() - t0) / ms);
-          step(k);
-          if (k >= 1 || !tcWalk || tcWalk.stop) { resolve(); return; }
-          raf = requestAnimationFrame(tick);
-          tmr = setTimeout(tick, 50);
-        };
-        tick();
-      });
-    }
-    async function walkGlide(x, y) {
-      const c = tcCursor();
-      const x0 = c.x, y0 = c.y;
-      const ms = tpClamp(Math.hypot(x - x0, y - y0) * 0.8, 250, 600);
-      await tcAnimate(ms, (k) => tcCursorAt(x0 + (x - x0) * tpEase(k), y0 + (y - y0) * tpEase(k)));
-    }
-    const walkClick = () => tcAnimate(TP_CLICK_MS, (k) => tcCursorPress(k));
-    // The flag's underline, brought into view if it is not.
-    async function walkBar(key) {
-      const scroller = document.querySelector(".kix-appview-editor");
-      for (let tries = 0; tries < 4 && tcWalk && !tcWalk.stop; tries++) {
-        const c = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-        const bars = docsBars.filter((b) => b.hash === key && b.el?.isConnected && b.el.style.display !== "none" && b.el.style.opacity !== "0");
-        const bar = bars.sort((x, y) => x.el.getBoundingClientRect().top - y.el.getBoundingClientRect().top)[0] ?? null;
-        if (bar) {
-          const r = bar.el.getBoundingClientRect();
-          if (r.top >= c.top + 24 && r.bottom <= c.bottom - 140) return bar; // room under it for the card
-          if (!scroller) return r.bottom > 0 && r.top < innerHeight ? bar : null;
-          walkScroll(scroller, r.top - (c.top + (c.bottom - c.top) * 0.3));
-        } else if (scroller) {
-          walkScroll(scroller, (c.bottom - c.top) * 0.7); // reading order: the next one is further down
-        } else return null;
-        await tcSleep(reducedMotion() ? 250 : 700); // the scroll, then the marks' re-locate (scheduleDocsMarks)
+    async function prepareFix(item, b) {
+      if (item.act === "cite" || item.act === "name") {
+        item.claim = fixClaimOf(item);
+        if (!item.claim) return fixSettle(item, "none", "the sentence changed");
+        if (!sourcesMap.get(item.claim)?.list) {
+          fixSettle(item, "searching");
+          await fixSearch(item.claim, b);
+          if (fixBatch !== b || b.stopped) return;
+        }
+        const st = sourcesMap.get(item.claim);
+        if (!st?.list) return fixSettle(item, "none", "the search didn't answer");
+        const top = walkSource(st.list, cache.get(item.claim)?.verdict);
+        if (!top) return fixSettle(item, "none", "no source backs it");
+        item.srcIndex = st.list.indexOf(top);
+        item.src = top;
       }
-      return null;
+      fixSettle(item, "working");
+      const got = await fixCollect(item);
+      if (fixBatch !== b || b.stopped) return;
+      if (!got) return fixSettle(item, "none", item.src ? "already cited, or the sentence changed" : "the sentence changed");
+      item.editKey = got.key;
+      item.job = got.job;
+      fixSettle(item, "ready");
     }
-    // The walkthrough's scroll — the writer asked for it to go through them all (see above).
-    function walkScroll(scroller, dy) {
-      try { scroller.scrollBy({ top: dy, behavior: reducedMotion() ? "auto" : "smooth" }); } catch { scroller.scrollTop += dy; }
-    }
-    // Tracely's own button in the open card: glided to, hovered a beat, pressed, clicked for real.
-    async function walkPress(labels) {
-      const btn = popCard ? [...popCard.querySelectorAll("button")].find((b) => labels.includes(b.textContent.trim()) && !b.disabled) : null;
-      if (!btn) return false;
-      const r = btn.getBoundingClientRect();
-      await walkGlide(r.left + Math.min(r.width / 2, 36), r.top + r.height * 0.6);
-      if (!tcWalk || tcWalk.stop) return false;
-      await tcSleep(WALK_BEAT_MS); // over the button, so the writer sees what it is about to press
-      if (!tcWalk || tcWalk.stop || !btn.isConnected) return false;
-      await walkClick();
-      if (!tcWalk || tcWalk.stop || !btn.isConnected) return false;
-      btn.click();
-      await tcSleep(180); // the card repaints
-      return true;
-    }
-    // The press began an edit: wait while it plans, previews and lands. The
-    // writer answers the preview; this only waits for them. `mark`: tpShown
-    // before the press — a preview opened since is this edit's.
-    async function walkSettle(prefix, mark) {
-      const t0 = Date.now();
-      while (tpShown === mark && !docBusy && tcWalk && !tcWalk.stop && Date.now() - t0 < 15_000) await tcSleep(100); // Cite in doc asks the hook first
-      if (!tcWalk || tcWalk.stop) return null;
-      if (tpShown === mark && !docBusy) return { r: "skipped", why: "nothing to change" };
-      while ((docBusy || tpOpen) && tcWalk && !tcWalk.stop) await tcSleep(150);
-      if (!tcWalk || tcWalk.stop) return null;
-      const key = [...docEditState.keys()].find((k) => k.startsWith(prefix));
-      const st = key ? docEditState.get(key)?.state : null;
-      return { r: st === "applied" ? "applied" : st === "failed" ? "failed" : "rejected" };
-    }
-    async function walkOne(item) {
-      const bar = await walkBar(item.key);
-      if (!tcWalk || tcWalk.stop) return null;
-      if (!bar) return { r: "skipped", why: "not on screen" };
-      const rb = bar.el.getBoundingClientRect();
-      await walkGlide(rb.left + Math.min(rb.width / 2, 30), rb.top - (bar.size || 14) * 0.45);
-      if (!tcWalk || tcWalk.stop) return null;
-      // The click on the underline and its card opening under it, together — then a beat, so
-      // the writer sees which card it is before the cursor moves on.
-      const ripple = walkClick();
-      showDocsPopover(bar.hash, { left: rb.left, top: rb.top, bottom: rb.bottom, size: bar.size, centerX: rb.left + rb.width / 2 }, bar);
-      if (popEl && popHash === bar.hash) popPinned = true; // the card stays while its edit settles, as after a click
-      await Promise.all([ripple, tcSleep(WALK_BEAT_MS)]);
-      if (!tcWalk || tcWalk.stop) return null;
-      if (!popEl || popHash !== bar.hash) return { r: "skipped", why: "no card" };
-      if (item.act === "fix") {
-        await walkPress([POP_COPY.suggestFix]); // the problem card first, unless it is on the fix already
-        if (!tcWalk || tcWalk.stop) return null;
-        const mark = tpShown;
-        if (!(await walkPress([POP_COPY.apply]))) return tcWalk && !tcWalk.stop ? { r: "skipped", why: "no fix to apply" } : null;
-        return walkSettle(`fix:${item.key}`, mark);
-      }
-      if (item.act === "delete") {
-        const tip = anyTipById(item.key);
-        const mark = tpShown;
-        if (!tip || !(await walkPress([deleteLabel(tip)]))) return tcWalk && !tcWalk.stop ? { r: "skipped", why: "no Delete" } : null;
-        return walkSettle(`del:${item.key}`, mark);
-      }
-      // cite / name: a search, then the top source that backs the sentence — or nothing.
-      let claim = item.key, verdict = item.verdict;
-      if (item.act === "name") {
-        const tip = tipById(item.key);
-        const i = tip ? claimSentenceIndex(tip.kind, tip.quote, segments) : -1;
-        if (i < 0) return { r: "skipped", why: "the sentence changed" };
-        claim = segments[i].hash;
-        verdict = cache.get(claim)?.verdict;
-      }
-      // "Find a source" starts the search, or shows the one already made.
-      if (stepOf(item.key).step !== "sources" && !(await walkPress([POP_COPY.findSource]))) return tcWalk && !tcWalk.stop ? { r: "skipped", why: "no Find a source" } : null;
-      const t0 = Date.now();
-      while (tcWalk && !tcWalk.stop && Date.now() - t0 < 45_000) {
-        const s = sourcesMap.get(claim);
-        if (s ? !s.loading : Date.now() - t0 > 3000) break;
-        await tcSleep(250);
-      }
-      if (!tcWalk || tcWalk.stop) return null;
-      if (!sourcesMap.get(claim)) return { r: "skipped", why: "the search didn't answer" };
-      const top = walkSource(sourcesMap.get(claim).list, verdict);
-      if (!top) return { r: "skipped", why: "no source backs it" };
-      if ((stepOf(item.key).selected ?? sourcesMap.get(claim).list[0]?.url) !== top.url) setStep(item.key, { selected: top.url });
-      await tcSleep(150);
-      const mark = tpShown;
-      if (!(await walkPress([POP_COPY.name, POP_COPY.insert, CITED_COPY.replace]))) return tcWalk && !tcWalk.stop ? { r: "skipped", why: "no Cite button" } : null;
-      return walkSettle(`cite:${claim}:`, mark);
-    }
-    async function tracelyWalk() {
-      if (tcWalk || docBusy || !walkOffered()) return;
+    function prepareFixes() {
+      if (fixBatch?.preparing || fixBatch?.applying || docBusy || !walkOffered()) return;
       const plan = walkInputs();
-      tcWalk = { stop: false, i: 0, n: plan.items.length, tally: { applied: 0, rejected: 0, failed: 0, skipped: 0 }, why: new Set(), left: plan.left };
-      tcWalkDone = "";
-      // Esc outside a preview (inside one, Esc is that preview's Reject); the writer typing; the tab hidden.
-      const onKey = (e) => { if (e.key === "Escape" && !tpOpen) { tpStop(e); walkEnd(); } };
-      const onType = (e) => { if ((e.key && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") walkEnd(); };
-      const onVis = () => { if (document.hidden) walkEnd(); };
-      let frameDoc = null;
-      try { frameDoc = document.querySelector(".docs-texteventtarget-iframe")?.contentDocument ?? null; } catch { frameDoc = null; }
-      window.addEventListener("keydown", onKey, true);
-      frameDoc?.addEventListener("keydown", onType, true);
-      document.addEventListener("visibilitychange", onVis);
-      const start = tpPress && Date.now() - tpPress.at < 5000 ? tpPress.rect : null;
-      tcCursorAt(start ? start.left + start.width / 2 : innerWidth - 120, start ? start.top + start.height / 2 : innerHeight - 120);
+      const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "" })), left: plan.left, preparing: true, stopped: false, applying: false };
+      fixBatch = b;
+      render();
+      Promise.allSettled(b.items.map((it) => prepareFix(it, b).catch((err) => {
+        console.debug(`[tracely] fix-all: ${err?.message ?? err}`);
+        fixSettle(it, "none", "something went wrong");
+      }))).then(() => { if (fixBatch === b) { b.preparing = false; render(); } });
+    }
+    function stopFixes() {
+      const b = fixBatch;
+      if (!b) return;
+      b.stopped = true; // searches already running finish into the cache; nothing more is prepared
+      b.preparing = false;
+      for (const it of b.items) if (["waiting", "searching", "working"].includes(it.status)) { it.status = "none"; it.why = "stopped"; }
+      render();
+    }
+    function closeFixes() {
+      if (fixBatch?.applying) return;
+      if (fixBatch) fixBatch.stopped = true;
+      fixBatch = null;
+      render();
+    }
+    function skipFix(i) {
+      const it = fixBatch?.items[i];
+      if (it?.status === "ready") fixSettle(it, "skipped");
+    }
+    // Made by its card's own function, planned against the doc as it is now; no second preview.
+    async function acceptFix(i) {
+      const b = fixBatch;
+      const it = b?.items[i];
+      if (!it || it.status !== "ready" || docBusy) return false;
+      fixSettle(it, "applying");
+      editGate.approved.add(it.editKey);
+      let ok = false;
+      try { ok = Boolean(await fixMake(it)); } catch { ok = false; } finally { editGate.approved.delete(it.editKey); }
+      if (fixBatch !== b) return ok;
+      fixSettle(it, ok ? "applied" : "failed", ok ? "" : docEditState.get(it.editKey)?.note || "the doc changed — use its card");
+      return ok;
+    }
+    // After a change goes in, the next waits for the doc's export to show it (it lags a little).
+    async function fixFreshRead(before) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 8000) {
+        await tcSleep(600);
+        if (inflight) continue;
+        await cycle();
+        if (docText !== before) return true;
+      }
+      return false;
+    }
+    async function acceptAllFixes() {
+      const b = fixBatch;
+      if (!b || b.applying) return;
+      b.applying = true;
       render();
       try {
-        for (const item of plan.items) {
-          if (!tcWalk || tcWalk.stop || orphaned) break;
-          tcWalk.i++;
-          render();
-          let out = null;
-          try { out = await walkOne(item); } catch (err) {
-            console.debug(`[tracely] walkthrough: ${err?.message ?? err}`);
-            out = { r: "skipped", why: "something went wrong" };
-          }
-          if (!out) break; // stopped
-          tcWalk.tally[out.r] = (tcWalk.tally[out.r] ?? 0) + 1;
-          if (out.why) tcWalk.why.add(out.why);
-          await tcSleep(out.r === "applied" ? 700 : 250); // the result, seen
-          if (!tpOpen && popEl) hideDocsPopover();
+        for (let i = 0; i < b.items.length; i++) {
+          if (fixBatch !== b) break;
+          if (b.items[i].status !== "ready") continue;
+          const before = docText;
+          if (await acceptFix(i)) await fixFreshRead(before);
         }
       } finally {
-        window.removeEventListener("keydown", onKey, true);
-        frameDoc?.removeEventListener("keydown", onType, true);
-        document.removeEventListener("visibilitychange", onVis);
-        const w = tcWalk;
-        const t = w.tally;
-        const parts = [`${t.applied} applied`, `${t.rejected} rejected`, ...(t.failed ? [`${t.failed} couldn't apply`] : []), ...(t.skipped ? [`${t.skipped} skipped (${[...w.why].join("; ")})`] : [])];
-        tcWalkDone = `${w.stop ? "Stopped" : "Done"}: ${parts.join(", ")}.${w.left ? ` ${w.left} more need you.` : ""}`;
-        tcWalk = null;
-        if (!tpOpen) { tcCursorHide(); if (popEl && popPinned) hideDocsPopover(); }
+        b.applying = false;
         render();
-        setTimeout(() => { tcWalkDone = ""; render(); }, 15_000);
       }
+    }
+    // What a prepared change does, in the writer's words: the sentence before → after, and any line it adds.
+    function fixChangeHtml(job) {
+      const plan = previewPlan(job);
+      const e = plan.edits[0];
+      let html = "";
+      if (e) {
+        const d = previewDiff(e.find, e.next);
+        html += `<div class="fx-diff">${esc(tpClip(d.keepBefore, 70, true))}${d.removed.trim() ? `<del>${esc(d.removed)}</del>` : ""}${d.inserted.trim() ? `<ins>${esc(d.inserted)}</ins>` : ""}${esc(tpClip(d.keepAfter, 50, false))}</div>`;
+      }
+      for (const l of plan.lines) html += `<div class="fx-line"><span aria-hidden="true">+</span> ${esc(tpClip(l.line, 120, false))}</div>`;
+      return html;
+    }
+    function fixRowHtml(it, i) {
+      const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
+      const dot = it.verdict ? `d-${it.verdict === "false" ? "false" : it.verdict === "questionable" ? "quest" : it.verdict === "needs_citation" ? "cite" : "inco"}` : tipDot({ kind: it.kind });
+      const state = { waiting: FIX_COPY.waiting, searching: FIX_COPY.searching, working: FIX_COPY.working, applying: FIX_COPY.applying, applied: FIX_COPY.applied, skipped: FIX_COPY.skipped, failed: it.why }[it.status] ?? "";
+      const busy = ["waiting", "searching", "working", "applying"].includes(it.status);
+      const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
+      return `
+        <div class="fx fx-${it.status}" data-fx-row="${i}">
+          <div class="fx-top">${dot ? `<span class="dot ${dot}"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
+          ${it.job && it.status !== "failed" ? fixChangeHtml(it.job) : ""}
+          ${src}
+          ${it.status === "ready" ? `<div class="row"><button class="act primary" data-fx-accept="${i}"${docBusy || fixBatch?.applying ? " disabled" : ""}>${FIX_COPY.accept}</button><button class="act" data-fx-skip="${i}">${FIX_COPY.skip}</button></div>`
+            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin"></span>` : ""}${esc(state)}</div>` : ""}
+        </div>`;
+    }
+    function walkStripHtml() {
+      const b = fixBatch;
+      if (!b) {
+        if (!walkOffered()) return "";
+        return `<div class="walk-strip"><span>${esc(FIX_COPY.offer(walkInputs().items.length))}</span><button class="act primary" data-walk-go="1"${docBusy ? " disabled" : ""}>${FIX_COPY.go}</button></div>`;
+      }
+      const ready = b.items.filter((it) => it.status === "ready").length;
+      const applied = b.items.filter((it) => it.status === "applied").length;
+      const none = b.items.filter((it) => it.status === "none");
+      const rows = b.items.map((it, i) => (it.status === "none" ? "" : fixRowHtml(it, i))).join("");
+      const title = b.preparing ? FIX_COPY.preparing(ready, b.items.length) : ready ? FIX_COPY.ready(ready) : applied ? FIX_COPY.finished(applied) : FIX_COPY.nothing;
+      const lead = ready > 1 ? `<button class="act primary" data-fx-all="1"${docBusy || b.applying ? " disabled" : ""}>${FIX_COPY.all(ready)}</button>` : "";
+      const end = b.preparing ? `<button class="act" data-walk-stop="1">${FIX_COPY.stop}</button>` : `<button class="act" data-fx-close="1"${b.applying ? " disabled" : ""}>${FIX_COPY.done}</button>`;
+      const whys = [...new Set(none.map((it) => it.why).filter(Boolean))].join("; ");
+      return `<div class="fixes">
+        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
+        ${rows}
+        ${none.length ? `<div class="fixes-note">${esc(FIX_COPY.couldNot(none.length, whys))}</div>` : ""}
+        ${b.left ? `<div class="fixes-note">${esc(FIX_COPY.left(b.left))}</div>` : ""}
+      </div>`;
     }
 
     if (FEATURES.typePreview) {
@@ -8453,9 +8640,10 @@
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
       const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(docText, settings.citationStyle, dismissed) : [];
-      const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
+      const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(docText, review.findings, dismissed) : [];
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
       const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
+      const tally = tallyOf(issues.map(({ f }) => f.verdict), [...citeTips, ...refTips, ...essayNotes, ...offTopic, ...resumeList]);
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -8519,7 +8707,7 @@
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
           return { hash: seg.hash, html: `
-          <div class="card" data-card="${seg.hash}">
+          <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
@@ -8550,7 +8738,7 @@
            review's notes and the stray lines), then evidence you could add —
            one card open at a time (foldCards). */
         const claimsHtml = cardsHtml ? groupHtml("Claims", cards.length, cardsHtml) : "";
-        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(docText, review.findings, dismissed), review.inflight, copiedTipId)
+        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeList, review.inflight, copiedTipId)
           : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : [])
             : "");
@@ -8565,13 +8753,12 @@
           : "";
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline", "", flagged - issues.length)}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
             ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
-              <span id="countdownTxt">${inflight ? "checking…" : `next check in ${countdown}s`}</span>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
@@ -8607,8 +8794,12 @@
       if (expanded) {
         shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);
         // "Let Tracely fix these" (the Type preview block): start, and Stop.
-        shadow.querySelector("[data-walk-go]")?.addEventListener("click", () => { tracelyWalk(); });
-        shadow.querySelector("[data-walk-stop]")?.addEventListener("click", () => walkEnd());
+        shadow.querySelector("[data-walk-go]")?.addEventListener("click", () => prepareFixes());
+        shadow.querySelector("[data-walk-stop]")?.addEventListener("click", () => stopFixes());
+        shadow.querySelector("[data-fx-all]")?.addEventListener("click", () => acceptAllFixes());
+        shadow.querySelector("[data-fx-close]")?.addEventListener("click", () => closeFixes());
+        for (const b of shadow.querySelectorAll("[data-fx-accept]")) b.addEventListener("click", () => acceptFix(Number(b.dataset.fxAccept)));
+        for (const b of shadow.querySelectorAll("[data-fx-skip]")) b.addEventListener("click", () => skipFix(Number(b.dataset.fxSkip)));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
@@ -8787,12 +8978,7 @@
     setInterval(() => {
       if (orphaned) return;
       if (!inflight && !document.hidden && Date.now() >= exportPausedUntil && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
-        cycle();
-      } else if (expanded && !inflight) {
-        // Targeted countdown update — a full render() every second would reset
-        // the list scroll and close open dropdowns.
-        const el = shadow.getElementById("countdownTxt");
-        if (el) el.textContent = `next check in ${Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000))}s`;
+        cycle(); // the panel shows no countdown (owner, 2026-10-08: "remove the next check timer thing")
       }
     }, 1000);
     fetchServerStatus();
@@ -9840,10 +10026,11 @@
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
       const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(fieldText, settings.citationStyle, dismissed) : [];
+      const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(fieldText, review.findings, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
-      const countdown = Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000));
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
       const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
+      const tally = tallyOf(issues.map(({ f }) => f.verdict), [...citeTips, ...refTips, ...essayNotes, ...offTopic, ...resumeList]);
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -9883,7 +10070,7 @@
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
           return { hash: seg.hash, html: `
-          <div class="card" data-card="${seg.hash}">
+          <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
@@ -9913,7 +10100,7 @@
            review's notes and the stray lines), then evidence you could add —
            one card open at a time (foldCards). */
         const claimsHtml = cardsHtml ? groupHtml("Claims", cards.length, cardsHtml) : "";
-        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeTips(fieldText, review.findings, dismissed), review.inflight, copiedTipId)
+        const tipsHtml = (FEATURES.resumeTips && docGenre === "resume" ? resumeTipsHtml(resumeList, review.inflight, copiedTipId)
           : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : [])
             : "");
@@ -9929,13 +10116,12 @@
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(issues.length, statusMsg, statusKind === "error" || statusKind === "offline", "", flagged - issues.length)}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
             ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
-              <span id="countdownTxt">${inflight ? "checking…" : enabled ? `next check in ${countdown}s` : "off on this site"}</span>
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
@@ -10118,9 +10304,6 @@
       if (siteEnabled() && !inflight && !document.hidden && fieldEligible()
           && Date.now() - lastCheckEnd >= nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed)) {
         cycle(); // opted-in automatic path — nextReadGap (3 s while typing, 10 s idle or after a failure) + hash cache
-      } else if (expanded && !inflight) {
-        const el = widget.shadow.getElementById("countdownTxt");
-        if (el && siteEnabled()) el.textContent = `next check in ${Math.max(0, Math.ceil((nextReadGap(Date.now(), lastTextChangeAt, lastCheckFailed) - (Date.now() - lastCheckEnd)) / 1000))}s`;
       } else if (!expanded) {
         // Keep pill visibility fresh as the field grows/shrinks — no re-render.
         const show = Boolean(tracked && (fieldEligible() || segments.length > 0));
