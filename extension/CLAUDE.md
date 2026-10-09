@@ -107,12 +107,36 @@ restructure it") the panel is one list, most serious first: **Claims**, then
 feedback** (the review's notes and the stray lines), then the folded
 evidence. `foldCards` keeps one card open — the underline last clicked or the
 card last opened (`focusCard`), else the first, kept open while the writer
-works in it — and folds the rest to a title and one line. The header counts
-the notes beside the claims ("2 notes · no claims flagged", "3 claims flagged
-· + 2 notes"), never "all clear" over open notes; the launcher counts the
+works in it — and folds the rest to a title and one line. The header never
+says "all clear" over open notes (its counts: below); the launcher counts the
 citation notes too. A citation that is only a surname after a reported claim
 ("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
 author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
+
+## Let Tracely fix these, and the panel's header
+
+Since 2.21.33 (owner, 2026-10-08: "it waits a while when it clicks find
+citations. It also waits after each fix for you to confirm. I want to have it
+finish everything and theres like multiple things waiting for you to
+choose"): one press prepares every change `walkPlan` can make. The searches
+start together (`fetchSources { batch }`, 3 at a time and 3 a minute — the
+server allows a caller 4), and each change is planned by its card's own
+function (`docFix`, `docCite`, `docDeleteTip`) with `runDocEdit` only
+recording it (`editGate.collect`, nothing sent). The panel lists them as
+they are ready — before → after, the backing source — with Accept, Skip and
+Accept all; an accepted change is planned again against the doc as it is
+then and goes in without a second preview (`editGate.approved`), one at a
+time, each after a fresh read. The cursor still types a single card's edit;
+nothing drives it through the flags any more. Tests:
+`server/test/ext-fix-all.test.js`.
+
+The header counts each kind with its own icon in its finding's colour —
+factual errors (red), to double-check (orange), citation issues (amber),
+writing notes (orange) — and a count opens the first card of its kind; "All
+clear" only when nothing is open and the check is done. There is no "next
+check in" countdown. The panel drags by its header, stays on screen, is
+remembered per site (`tracely.widget.panelPos`), and a double-click puts it
+back. Tests: `server/test/ext-panel-layout.test.js`.
 
 ## Underlines hold while the text holds
 
