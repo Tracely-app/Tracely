@@ -421,15 +421,19 @@ class FakeEl {
   getContext() { return (this.ctx2d ??= recordingContext(this.drawn = [])); }
 }
 function recordingContext(log) {
+  const stack = [];
+  const KEYS = ["font", "fillStyle", "shadowBlur", "shadowColor", "shadowOffsetY"];
   return {
-    font: "16px Georgia", fillStyle: "#000", textBaseline: "alphabetic",
+    font: "16px Georgia", fillStyle: "#000", textBaseline: "alphabetic", shadowBlur: 0, shadowColor: "transparent", shadowOffsetY: 0,
     measureText(s) {
       const size = parseFloat(String(this.font).match(/(\d+(?:\.\d+)?)px/)?.[1] ?? "16");
       return { width: s.length * size * 0.5, fontBoundingBoxAscent: size * 0.8, fontBoundingBoxDescent: size * 0.2 };
     },
-    setTransform() {}, save() {}, restore() {}, beginPath() {}, rect() {}, clip() {},
+    setTransform() {}, beginPath() {}, rect() {}, clip() {},
+    save() { stack.push(Object.fromEntries(KEYS.map((k) => [k, this[k]]))); },
+    restore() { Object.assign(this, stack.pop() ?? {}); },
     clearRect() { log.length = 0; },
-    fillRect(x, y, w, h) { log.push({ op: "rect", fill: this.fillStyle, x, y, w, h }); },
+    fillRect(x, y, w, h) { log.push({ op: "rect", fill: this.fillStyle, x, y, w, h, shadow: this.shadowBlur }); },
     fillText(text, x, y) { log.push({ op: "text", fill: this.fillStyle, font: this.font, text, x, y }); },
   };
 }
@@ -440,7 +444,7 @@ const CHAR_W = 8; // "16px Georgia": 8px a character at 100% zoom
  * what the walkthrough reads (flags, bars, the card). `lines`: the simulated
  * annotation layer, one rect per visual line. Timers and frames run only on
  * pump(ms), which advances the clock and runs whatever is due. */
-function loadPreview({ reduced = true, lines = [], harness = null, docText = "", zoom = 1, features = { typePreview: true }, env = {} } = {}) {
+function loadPreview({ reduced = true, lines = [], harness = null, docText = "", zoom = 1, features = { typePreview: true }, env = {}, width = 1280 } = {}) {
   let clock = 1000;
   const queue = new Map();
   let seq = 0;
@@ -476,7 +480,7 @@ function loadPreview({ reduced = true, lines = [], harness = null, docText = "",
     return ev;
   };
   const ctx = vm.createContext({
-    window: win, document: doc, location: { pathname: "/document/d/abc/edit" }, innerWidth: 1280, innerHeight: 800, devicePixelRatio: 1,
+    window: win, document: doc, location: { pathname: "/document/d/abc/edit" }, innerWidth: width, innerHeight: 800, devicePixelRatio: 1,
     performance: { now: () => clock }, console: quiet, env,
     requestAnimationFrame: (fn) => { queue.set(++seq, { fn, due: 0 }); return seq; }, cancelAnimationFrame: (id) => { queue.delete(id); },
     setTimeout: (fn, ms = 0) => { queue.set(++seq, { fn, due: clock + ms }); return seq; }, clearTimeout: (id) => { queue.delete(id); },
@@ -552,7 +556,18 @@ function loadPreview({ reduced = true, lines = [], harness = null, docText = "",
   const clickOutside = () => fire("pointerdown", { target: outside, composedPath: () => [outside, doc.body, doc.documentElement] });
   const pressBubble = () => { const b = bubble(); return fire("pointerdown", { target: b.children[0], composedPath: () => [b.children[0], b, layer(), doc.documentElement] }); };
   const drawn = () => byAttr("data-tracely-type-flow")?.drawn ?? [];
-  return { w, doc, svg, addLine, fire, pump, settle, find, findAll, layer, bubble, byAttr, px, outside, clickOutside, pressBubble, winListeners, drawn };
+  // Does the parked cursor cover a word (a run of Docs text, or a line the re-flow drew)? Its pill counts only while shown.
+  const covers = () => {
+    const c = byAttr("data-tracely-cursor");
+    if (!c) return false;
+    const [x, y] = c.style.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\)/).slice(1).map(Number);
+    const boxes = [{ left: x - 1, top: y - 1, right: x + 15, bottom: y + 21 }];
+    if (c.children[2].style.opacity !== "0") boxes.push({ left: x + 13, top: y + 19, right: x + 73, bottom: y + 37 });
+    const words = svg.filter((n) => n.isConnected).map((n) => n.getBoundingClientRect());
+    const txt = drawn().filter((d) => d.op === "text" && d.text.trim()).map((d) => ({ left: d.x, top: d.y - 14, right: d.x + d.text.trimEnd().length * CHAR_W * zoom, bottom: d.y + 4 }));
+    return [...words, ...txt].some((r) => boxes.some((b) => b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top));
+  };
+  return { w, doc, svg, addLine, fire, pump, settle, find, findAll, layer, bubble, byAttr, px, outside, clickOutside, pressBubble, winListeners, drawn, covers, now: () => clock };
 }
 
 const SENTENCE = "Napoleon was famously short, standing well under five feet tall.";
@@ -580,7 +595,11 @@ test("bubble mode (the paragraph is not in the last read): struck over the exact
   const cur = cursorOf(t);
   assert.ok(cur, "Tracely's cursor is on the page");
   assert.equal(cur.textContent, "Tracely", "its name pill");
-  assert.deepEqual(at(cur), [100 + 13 * CHAR_W - 2, 100 + 18 + 3], "parked just below the caret");
+  // Parked where it covers no word: after its line's last word (436), above the bubble.
+  assert.deepEqual(at(cur), [436 + 2, 101], "parked off the words");
+  assert.equal(cur.children[2].style.opacity, "0", "its name would sit on the next line's words: hidden");
+  assert.equal(cur.children[1].style.opacity, "0.6", "settled, the arrow steps back");
+  assert.equal(t.covers(), false);
   const b = t.bubble();
   assert.equal(t.px(b.style.top), 118 + 10, "directly below the struck line");
   assert.equal(t.px(b.style.left), 100 + 13 * CHAR_W - 14, "at the caret's x");
@@ -627,10 +646,18 @@ test("inline: the new words are typed IN the line, in the document's font, and t
   assert.ok(d.some((x) => x.op === "rect" && x.fill === "rgba(28,28,28,0.07)" && x.x === startX), "the inserted words carry the ink wash, never a hue");
   // The text caret at the end of what was typed; the cursor parked beside where it began.
   assert.deepEqual(at(t.byAttr("data-tracely-type-caret")), [startX + 17 * CHAR_W, 130]);
-  assert.deepEqual(at(cursorOf(t)), [210, 130 + 18 + 3]);
-  // The compact bar under the paragraph's (re-flowed) last line, at its left.
+  // Past the paragraph, the overflow line is a sheet lifted over the page: opaque, a shadow under it,
+  // from the paragraph's last line (bottom 208) to the overflow line's bottom (238) + 3, no taller.
+  assert.ok(d.some((r) => r.op === "rect" && r.fill === "#fff" && r.shadow === 8 && r.x === 94 && r.y === 209 && r.w === 348 && r.h === 32), "the sheet");
+  assert.equal(d.filter((r) => r.shadow).length, 1, "only the sheet casts a shadow");
+  // The card in the right margin — the column's right edge (436) + 16 — level with the first changed line.
   const bar = t.bubble();
-  assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [100, 220 + 18 + 8]);
+  assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [436 + 16, 130]);
+  assert.deepEqual([bar.style.background, bar.style.opacity], ["#fff", "1"], "opaque: nothing shows through it");
+  // Typed in: the cursor parks after the end of the line the new words end on, beside the card, on no word.
+  assert.deepEqual(at(cursorOf(t)), [startX + 27 * CHAR_W + 2, 131]);
+  assert.equal(cursorOf(t).children[2].style.opacity, "0", "its name would sit on the card: hidden");
+  assert.equal(t.covers(), false);
   assert.match(bar.textContent, /Only you can see this until you accept/);
   assert.equal(t.doc.activeElement, t.byAttr("data-tracely-type-accept"));
   t.fire("keydown", { key: "Enter" });
@@ -649,6 +676,17 @@ test("inline: at another zoom the font is scaled by the run's drawn width over i
   await p;
 });
 
+test("the card falls back under the paragraph only when the right margin is too narrow — and stays opaque", async () => {
+  const t = loadPreview({ lines: PARA_LINES, docText: PARA_DOC, width: 700 });
+  const p = t.w.showTypePreview("fix:a", fixJob());
+  const bar = t.bubble();
+  assert.deepEqual([t.px(bar.style.left), t.px(bar.style.top)], [100, 220 + 18 + 8], "436 + 16 + 260 > 700 − 8: under the re-flowed last line");
+  assert.deepEqual([bar.style.background, bar.style.opacity], ["#fff", "1"]);
+  assert.equal(t.covers(), false);
+  t.fire("keydown", { key: "Escape" });
+  await p;
+});
+
 test("inline with motion: the original line stays until the click lands, then letters appear one by one, re-flowing as they come", async () => {
   const t = loadPreview({ reduced: false, lines: PARA_LINES, docText: PARA_DOC });
   t.w.press({ left: 600, top: 400, width: 100, height: 30 });
@@ -662,6 +700,7 @@ test("inline with motion: the original line stays until the click lands, then le
   assert.match(cursorOf(t).children[1].style.transform, /scale\(0\.9/);
   assert.notEqual(cursorOf(t).children[0].style.opacity, "0");
   t.pump(200); // 650: the click has landed
+  assert.equal(t.bubble().style.opacity, "1", "the card is opaque from its first frame — no fade for words to show through");
   t.pump(90);  // 740: typing began at 710, 30 ms a letter
   assert.equal(t.drawn().find((x) => x.op === "text").text, "o");
   assert.equal(t.byAttr("data-tracely-type-accept").parentNode.style.display, "none", "no Accept before it has been seen whole");
@@ -767,11 +806,13 @@ test("a deletion: struck, nothing typed, the cursor stays beside the strike; a r
   const strike = t.byAttr("data-tracely-type-strike");
   assert.deepEqual([t.px(strike.style.left), t.px(strike.style.width)], [100, 16 * CHAR_W], "\"Off-topic line. \" struck, up to where \"Next\" starts");
   assert.equal(t.byAttr("data-tracely-type-typed"), null, "nothing typed");
-  assert.deepEqual(at(cursorOf(t)), [100 + 16 * CHAR_W + 6, 100 + 18 * 0.35], "the cursor stays, beside the strike's end");
+  // The cursor stays, at the strike's end — just under it, between the lines, where there is no word; its name too.
+  assert.deepEqual(at(cursorOf(t)), [100 + 16 * CHAR_W + 1, 100 + 18 + 1]);
+  assert.equal(cursorOf(t).children[2].style.opacity, "1");
+  assert.equal(t.covers(), false);
   const mark = t.byAttr("data-tracely-type-mark");
   assert.deepEqual([mark.style.display, t.px(mark.style.top), t.px(mark.style.left)], ["block", 330 - 4, 100], "a thin line above the entry it goes before");
-  // The bar under the struck line — and below the parked cursor's name pill (tip + 19 + 18), never under it.
-  assert.deepEqual([t.px(b.style.left), t.px(b.style.top)], [100, 100 + 18 * 0.35 + 19 + 18 + 6]);
+  assert.deepEqual([t.px(b.style.left), t.px(b.style.top)], [380 + 16, 100], "the card in the right margin, level with the struck line");
   t.fire("keydown", { key: "Escape" });
   assert.equal(await p, false);
 });
@@ -783,7 +824,8 @@ test("a Delete across a paragraph break strikes only the doomed paragraph, on it
   const p = t.w.showTypePreview("del:x", { steps: [{ action: "replace", find: plan.find, replacement: plan.replacement, hint: { occurrence: plan.occurrence, occurrences: plan.occurrences } }] });
   const strike = t.byAttr("data-tracely-type-strike");
   assert.deepEqual([t.px(strike.style.left), t.px(strike.style.top), t.px(strike.style.width)], [100, 150, 19 * CHAR_W]);
-  assert.deepEqual(at(cursorOf(t)), [100 + 19 * CHAR_W + 6, 150 + 18 * 0.35], "beside the strike");
+  assert.deepEqual(at(cursorOf(t)), [100 + 19 * CHAR_W + 3, 151], "just after the strike's end, on no word");
+  assert.equal(t.covers(), false);
   assert.equal(t.find((n) => n.id === t.bubble().getAttribute("aria-describedby")).textContent, "Deletes “Pizza is delicious.”.");
   t.fire("keydown", { key: "Escape" });
   assert.equal(await p, false);
@@ -880,6 +922,7 @@ test("the harness's gate: no opt-in, no preview; opted in, the preview", async (
  * revision and Cite in doc → an edit through previewDocEdit. */
 function walkSetup({ sources = null } = {}) {
   const log = [];
+  const times = []; // { ev, at }: when the card opened, when each button was clicked (fake clock)
   let t = null;
   const env = {
     canEdit: true,
@@ -889,12 +932,13 @@ function walkSetup({ sources = null } = {}) {
     ],
     card(hash) {
       const card = new FakeEl(t.doc, "div");
+      times.push({ ev: "open", hash, at: t.now() });
       card.rect = { left: 300, top: 300, width: 320, height: 200 };
       const button = (label, onClick, i = 0) => {
         const b = card.appendChild(new FakeEl(t.doc, "button"));
         b.textContent = label;
         b.rect = { left: 320 + i * 120, top: 440, width: 110, height: 34 };
-        b.addEventListener("click", () => { log.push(`${hash}:${label}`); onClick(); });
+        b.addEventListener("click", () => { log.push(`${hash}:${label}`); times.push({ ev: label, hash, at: t.now() }); onClick(); });
       };
       const P = t.w.POP_COPY;
       const paint = () => {
@@ -925,7 +969,7 @@ function walkSetup({ sources = null } = {}) {
     { hash: "s1", size: 18, el: Object.assign(t.doc.body.appendChild(new FakeEl(t.doc, "div")), { rect: { left: 100, top: 118, width: 336, height: 3 } }) },
     { hash: "s2", size: 18, el: Object.assign(t.doc.body.appendChild(new FakeEl(t.doc, "div")), { rect: { left: 100, top: 418, width: 232, height: 3 } }) },
   ]);
-  return { t, log };
+  return { t, log, times };
 }
 const until = async (t, cond, n = 400) => { for (let i = 0; i < n && !cond(); i++) await t.settle(1, 50); return cond(); };
 
@@ -969,6 +1013,18 @@ test("walkthrough: no source backs the sentence → skipped with a note, never c
   assert.ok(await until(s.t, () => !s.t.w.walking()));
   assert.match(s.t.w.walkDone(), /^Stopped/);
   assert.equal(s.t.w.edits.size, 0);
+});
+
+test("walkthrough pacing: a beat on the underline while the card opens, and a beat over each button before its real click", async () => {
+  const { t, times } = walkSetup({ sources: [] }); // reduced motion: no glides or ripples, the beats stay
+  t.w.walk();
+  assert.ok(await until(t, () => times.some((x) => x.ev === "Apply revision")));
+  const at = (ev) => times.find((x) => x.ev === ev).at;
+  assert.ok(at("Suggest fix") - at("open") >= 800, `card opened at ${at("open")}, first click at ${at("Suggest fix")}: 400 ms with the card open, then 400 ms over the button`);
+  assert.ok(at("Apply revision") - at("Suggest fix") >= 400, "a beat over the next button too");
+  t.w.walkEnd();
+  t.fire("keydown", { key: "Escape" });
+  assert.ok(await until(t, () => !t.w.walking()));
 });
 
 test("walkthrough: not offered with the switch off, without an editable Doc, or with nothing it can do", () => {

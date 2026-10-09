@@ -7020,16 +7020,8 @@
       const right = Math.max(...lines.map((l) => l.right), tpColumnRight(left, h));
       const diffs = lines.slice(1).map((l, i) => l.top - lines[i].top).sort((x, y) => x - y);
       const pitch = diffs.length ? diffs[Math.floor(diffs.length / 2)] : tpPitch(h);
-      // The runs just below the paragraph, which re-flowed lines may run over: hidden whole, never half a glyph.
-      const last = lines[lines.length - 1].top + lines[lines.length - 1].height;
-      const mine = new Set(whole.pieces.map((p) => p.node));
-      const below = svgLineNodes().filter((n) => {
-        if (mine.has(n)) return false;
-        const r = n.getBoundingClientRect();
-        return r.width > 0 && r.top >= last - 1 && r.top < last + pitch * 8;
-      });
       return {
-        rest: P.slice(at), pieces: whole.pieces, mask: rest.pieces, below, end: end.at, font, base: (h - (asc + desc)) / 2 + asc, h, pitch,
+        rest: P.slice(at), pieces: whole.pieces, mask: rest.pieces, end: end.at, font, base: (h - (asc + desc)) / 2 + asc, h, pitch,
         leftOff: left - lines[0].left, rightOff: right - lines[0].left,
         gap: diff.removed.trim() ? Math.max(2, m.measureText(" ").width * 0.6) : 0,
       };
@@ -7148,10 +7140,13 @@
       caret.setAttribute("aria-hidden", "true");
       caret.setAttribute("data-tracely-type-caret", "");
 
+      // Typing in the line, Accept / Reject sit on a card in the right margin beside the change, the
+      // way Docs puts a suggestion's card in its margin: opaque, so nothing ever shows through it.
       const bubble = el("div", compact ? {
-        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", maxWidth: "560px",
-        padding: "6px 8px 6px 10px", background: "#fff", border: `1.5px dashed ${DM.ink}`, borderRadius: "10px", boxShadow: "0 4px 14px rgba(0,0,0,0.14)",
-        fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "6px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
+        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
+        padding: "8px 10px 10px", background: "#fff", border: "1px solid #dadce0", borderRadius: "8px",
+        boxShadow: "0 1px 3px rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
+        fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "8px", opacity: "1", outline: "none", WebkitFontSmoothing: "antialiased",
       } : {
         position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
         minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
@@ -7203,7 +7198,7 @@
         ...(plan.other ? [{ label: "And", text: `${plan.other} more change${plan.other === 1 ? "" : "s"} not shown here` }] : []),
       ];
       for (const r of rows) {
-        const row = el("div", compact ? { display: "flex", gap: "6px", alignItems: "baseline", flexWrap: "wrap" } : { display: "flex", flexDirection: "column", gap: "2px" });
+        const row = el("div", { display: "flex", flexDirection: "column", gap: "2px" });
         row.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.body, letterSpacing: "0.4px", textTransform: "uppercase", whiteSpace: "nowrap" }, r.label));
         row.appendChild(el("div", { fontSize: "12.5px", lineHeight: "1.4", color: DM.ink, wordBreak: "break-word" }, tpClip(String(r.text), 220, false)));
         bubble.appendChild(row);
@@ -7218,10 +7213,9 @@
         btn.addEventListener("focus", () => { btn.style.outline = `2px solid ${DM.ink}`; btn.style.outlineOffset = "2px"; });
         btn.addEventListener("blur", () => { btn.style.outline = ""; btn.style.outlineOffset = ""; });
       }
-      const actions = dmActions(accept, reject, el("span", { fontSize: "11.5px", color: DM.body, marginLeft: compact ? "0" : "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
+      const actions = dmActions(accept, reject, el("span", { fontSize: "11.5px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
       actions.style.display = "none";
-      // The bar puts them on the status line; the bubble under everything.
-      if (compact) { actions.style.marginLeft = "auto"; head.appendChild(actions); } else bubble.appendChild(actions);
+      bubble.appendChild(actions);
       const summary = !diff ? "" : diff.removed.trim() && ins.length ? `Replaces “${diff.removed.trim()}” with “${diff.inserted.trim()}”.`
         : diff.removed.trim() ? `Deletes “${diff.removed.trim()}”.` : ins.length ? `Adds “${diff.inserted.trim()}”.` : TP_COPY.same;
       const desc = el("div", { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
@@ -7238,7 +7232,7 @@
       let skipped = reducedMotion();
       let ready = false, done = false, typedN = -1, raf = 0, tmr = 0, relocAt = 0, shownOnce = false;
       let flowNow = null; // the last layout drawn: where the caret and the bar go
-      let parkedBox = null; // the parked cursor and its pill, on screen
+      let barBox = null;  // where the bar or bubble is: the parked cursor keeps off it
       const prevFocus = tpActive();
       // The popover would sit on top of the change: out of the way while it
       // is drawn in the document, back as it was afterwards.
@@ -7257,7 +7251,7 @@
         layer.remove();
         if (pop) pop.style.visibility = popVis;
         // The walkthrough keeps its cursor for the next flag; a single edit's goes with it.
-        if (tcWalk) tcCursorPress(1); else tcCursorHide();
+        if (tcWalk && tcCur) { tcCursorPress(1); tcCur.pill.style.opacity = "1"; tcCur.arrow.style.opacity = "1"; } else tcCursorHide();
         if (tpOpen === handle) tpOpen = null;
         try { if (prevFocus?.isConnected && typeof prevFocus.focus === "function") prevFocus.focus({ preventScroll: true }); } catch { /* best effort */ }
         console.debug(`[tracely] type preview ${ok ? "accepted" : "rejected"}`);
@@ -7331,14 +7325,22 @@
           if (i === 0) ctx.fillRect(l.x - 1, l.top - 1, Math.max(0, g.right - l.x + 2), para.h + 2);
           else ctx.fillRect(g.left - 1, flow[i - 1].top + para.h, g.right - g.left + 2, l.top - flow[i - 1].top + 1);
         });
-        // Past the paragraph's own last line: what is below goes under white, run by run (its underline too).
+        // Past the paragraph's own last line the re-flow is a sheet lifted over the page —
+        // opaque white, a soft shadow on its bottom edge only, no taller than the lines it
+        // carries — so what it covers reads as underneath, not gone.
         const flowBottom = flow[flow.length - 1].top + para.h;
         if (flowBottom > g.bottom + 1) {
-          for (const n of para.below) {
-            if (!n.isConnected) continue;
-            const r = n.getBoundingClientRect();
-            if (r.top < flowBottom + 2 && r.bottom > g.bottom) ctx.fillRect(r.left - 1, r.top - 1, r.width + 2, r.height + 5);
-          }
+          const sx = g.left - 6, sw = g.right - g.left + 12, sy = g.bottom + 1, sh = flowBottom + 3 - sy;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(sx, sy, sw, sh + 16); // clipped to its own width and below its top: the shadow falls under it only
+          ctx.clip();
+          ctx.shadowColor = "rgba(60,64,67,0.28)";
+          ctx.shadowBlur = 8;
+          ctx.shadowOffsetY = 2;
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(sx, sy, sw, sh);
+          ctx.restore();
         }
         ctx.font = para.font;
         ctx.textBaseline = "alphabetic";
@@ -7350,7 +7352,11 @@
           }
         }
         ctx.restore();
-        flowNow = { flow, g };
+        // The layout once every letter is in: where the parked cursor must not go, from the start.
+        const final = typed.textContent.length === diff.inserted.length ? flow
+          : previewFlow([{ text: diff.inserted, ins: true }, { text: para.rest, ins: false }], measure,
+            { startX: g.end.x + para.gap, left: g.left, right: g.right, top: g.end.y, pitch: para.pitch });
+        flowNow = { flow, final, g };
       };
       // Where the typed words end (the text caret), and the line it is on.
       const typedEnd = () => {
@@ -7365,36 +7371,91 @@
         const g = target();
         return g ? (() => { const p = pointOf(g); return { x: p.x, y: p.y }; })() : null;
       };
+      /* Parked, the cursor never covers a word. The words on screen: Docs' runs (re-read at
+         most every 300 ms), the re-flowed lines as they will be once typed, and the bar. */
+      let runsCache = null, runsAt = -Infinity;
+      const visibleRuns = () => {
+        const now = performance.now();
+        if (!runsCache || now - runsAt > 300) {
+          runsAt = now;
+          runsCache = svgLineNodes().map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0)
+            .map((r) => ({ left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height }));
+        }
+        return runsCache;
+      };
+      const colRight = () => Math.max(0, ...visibleRuns().map((r) => r.right));
+      const colLeft = () => Math.min(innerWidth, ...visibleRuns().map((r) => r.left));
+      const hits = (a, list) => list.some((b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+      const arrowBox = (q) => ({ left: q.x - 1, top: q.y - 1, right: q.x + 15, bottom: q.y + 21 });
+      const pillBox = (q) => ({ left: q.x + 13, top: q.y + 19, right: q.x + 13 + (tcCur?.pill.getBoundingClientRect().width || 60), bottom: q.y + 37 });
+      const solid = () => {
+        const list = [...visibleRuns()];
+        if (mode === "inline" && flowNow) for (const l of flowNow.final) list.push({ left: l.x, top: l.top, right: l.end, bottom: l.top + para.h });
+        if (barBox) list.push(barBox);
+        return list;
+      };
+      // Near `a` ({ x, y: its line's top, h }) and off every word: just after it, after its
+      // line's last word, below it between the lines, then the right or the left margin.
+      const freeSpot = (a, words) => {
+        const c = clip();
+        const lineEnd = Math.max(a.x, ...words.filter((r) => !r.bar && Math.abs(r.top - a.y) <= 3).map((r) => r.right));
+        const spots = [
+          { x: a.x + 3, y: a.y + 1 }, { x: lineEnd + 2, y: a.y + 1 }, { x: a.x + 1, y: a.y + a.h + 1 },
+          { x: colRight() + 6, y: a.y + 1 }, { x: colLeft() - 20, y: a.y + 1 },
+        ];
+        return spots.find((q) => {
+          const b = arrowBox(q);
+          return b.left >= 0 && b.right <= innerWidth && b.top >= c.top && b.bottom <= c.bottom && !hits(b, words);
+        }) ?? spots[spots.length - 1];
+      };
+      // Where it parks while the words go in (beside where they start), and once they are in
+      // (beside where they end); a deletion's both, beside the strike's end.
+      const anchors = () => {
+        const p = pointOf(target());
+        const struckRects = (main && geo ? geo.pieces : []).map((q) => barTextRect(q)).filter(Boolean);
+        const last = struckRects[struckRects.length - 1];
+        if (mode === "strike" && last) { const a = { x: last.left + last.width, y: last.top, h: last.height }; return [a, a]; }
+        if (mode === "inline" && flowNow) {
+          const start = { x: flowNow.g.end.x, y: flowNow.g.end.y, h: para.h };
+          const f = flowNow.final;
+          for (let i = f.length - 1; i >= 0; i--) {
+            const s = [...f[i].spans].reverse().find((x) => x.ins);
+            if (s) return [start, { x: s.x + measure(s.text.replace(/\s+$/, "")), y: f[i].top, h: para.h }];
+          }
+          return [start, start];
+        }
+        return [p, p];
+      };
       const placeCursor = (t) => {
         const g = target();
         if (!inDoc || !g) return;
         const p = pointOf(g), c = clip();
         const click = { x: p.x, y: p.y + p.h * 0.55 };
-        // Parked once it has clicked: beside the caret, below the line, off the words.
-        const struckRects = (main && geo ? geo.pieces : []).map((q) => barTextRect(q)).filter(Boolean);
-        const last = struckRects[struckRects.length - 1];
-        const park = mode === "strike" && last ? { x: last.left + last.width + 6, y: last.top + last.height * 0.35 }
-          : mode === "inline" && flowNow ? { x: flowNow.g.end.x - 2, y: flowNow.g.end.y + p.h + 3 }
-          : { x: p.x - 2, y: p.y + p.h + 3 };
-        let x, y;
+        const clickEnd = tl.clickAt + tl.clickMs;
+        const settle = Math.max(tl.readyAt, clickEnd + 150); // all typed, and off the click
+        const lerp = (a, b, k) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
+        let at, words = null, parked = false;
         if (from && t < tl.glideMs) {
-          const k = tpEase(t / tl.glideMs);
-          const fx = from.left + (from.width || 0) / 2, fy = from.top + (from.height || 0) / 2;
-          x = fx + (click.x - fx) * k;
-          y = fy + (click.y - fy) * k;
-        } else if (t < tl.clickAt + tl.clickMs) {
-          x = click.x; y = click.y;
+          const f = { x: from.left + (from.width || 0) / 2, y: from.top + (from.height || 0) / 2 };
+          at = lerp(f, click, tpEase(t / tl.glideMs));
+        } else if (t < clickEnd) {
+          at = click;
         } else {
-          const k = skipped ? 1 : tpEase((t - tl.clickAt - tl.clickMs) / 150);
-          x = click.x + (park.x - click.x) * k;
-          y = click.y + (park.y - click.y) * k;
+          words = solid();
+          const [startA, endA] = anchors();
+          const s1 = freeSpot(startA, words), s2 = freeSpot(endA, words);
+          if (t < settle) at = lerp(click, s1, skipped ? 1 : tpEase((t - clickEnd) / 150));
+          else at = lerp(s1, s2, skipped ? 1 : tpEase((t - settle) / 150));
+          parked = skipped || (t >= clickEnd + 150 && (t < settle || t >= settle + 150));
         }
-        tcCursorPress(t >= tl.clickAt && t < tl.clickAt + tl.clickMs ? (t - tl.clickAt) / tl.clickMs : 1);
-        tcCursorAt(x, y);
-        const off = t >= tl.glideMs && (y < c.top || y > c.bottom);
-        tcCursor().root.style.visibility = off ? "hidden" : "visible";
-        // Parked: where its name pill sits, so the bar can keep clear of it.
-        parkedBox = !off && t >= tl.clickAt + tl.clickMs ? { left: x, top: y, right: x + 13 + (tcCur.pill.getBoundingClientRect().width || 60), bottom: y + 19 + 18 } : null;
+        tcCursorPress(t >= tl.clickAt && t < clickEnd ? (t - tl.clickAt) / tl.clickMs : 1);
+        tcCursorAt(at.x, at.y);
+        const off = t >= tl.glideMs && (at.y < c.top || at.y > c.bottom);
+        const cur = tcCursor();
+        cur.root.style.visibility = off ? "hidden" : "visible";
+        // Its name shows only where it covers nothing; settled, the arrow steps back to 60%.
+        cur.pill.style.opacity = parked && hits(pillBox(at), words) ? "0" : "1";
+        cur.arrow.style.opacity = t >= settle + 1000 ? "0.6" : "1";
       };
       const placeCaret = (t) => {
         if (!inDoc || mode === "strike" || t < tl.showAt) { caret.style.display = "none"; return; }
@@ -7443,29 +7504,34 @@
           // Keys come to this page, not to Docs' editor frame.
           try { bubble.focus({ preventScroll: true }); } catch { /* best effort */ }
         }
-        bubble.style.opacity = String(skipped ? 1 : tpClamp((t - tl.showAt) / TP_FADE_MS, 0, 1));
+        // The bar is opaque from its first frame: no words may show through it, even fading in.
+        bubble.style.opacity = String(skipped || compact ? 1 : tpClamp((t - tl.showAt) / TP_FADE_MS, 0, 1));
         const w = bubble.offsetWidth || 260, h = bubble.offsetHeight || 120;
-        let left, top, firstTop;
+        let left, top;
         if (inDoc && target()) {
           const p = pointOf(target());
           const rects = (main && geo ? geo.pieces : []).map((q) => barTextRect(q)).filter(Boolean);
-          firstTop = Math.min(p.y, ...rects.map((r) => r.top));
+          let firstTop = Math.min(p.y, ...rects.map((r) => r.top)); // the first changed line
           let lastBottom = Math.max(p.y + p.h, ...rects.map((r) => r.top + r.height));
-          left = p.x - 14;
-          if (mode === "inline" && flowNow) {
-            // Under the paragraph's last line — its own, or the last one re-flowed.
-            const f = flowNow.flow;
-            lastBottom = Math.max(flowNow.g.bottom, f[f.length - 1].top + para.h);
-            firstTop = Math.min(firstTop, flowNow.g.lines[0].top);
-            left = flowNow.g.lines[0].left;
-          } else if (mode === "strike") {
-            left = Math.min(...rects.map((r) => r.left), p.x);
+          const margin = colRight() + 16;
+          if (compact && margin + w <= innerWidth - 8) {
+            // Beside the change, in the right margin, level with its first line.
+            left = margin;
+            top = firstTop;
+          } else {
+            left = p.x - 14;
+            if (mode === "inline" && flowNow) {
+              // No room in the margin: under the paragraph's last line — its own, or the last re-flowed.
+              const f = flowNow.flow;
+              lastBottom = Math.max(flowNow.g.bottom, f[f.length - 1].top + para.h);
+              firstTop = Math.min(firstTop, flowNow.g.lines[0].top);
+              left = flowNow.g.lines[0].left;
+            } else if (mode === "strike") {
+              left = Math.min(...rects.map((r) => r.left), p.x);
+            }
+            top = lastBottom + (compact ? 8 : 10);
+            if (top + h > innerHeight - 8 && firstTop - 10 - h >= clip().top) top = firstTop - 10 - h;
           }
-          top = lastBottom + (compact ? 8 : 10);
-          // Below the parked cursor's pill, not under it.
-          const k = parkedBox;
-          if (compact && k && left < k.right && left + w > k.left && top < k.bottom + 4 && top + h > k.top) top = k.bottom + 6;
-          if (top + h > innerHeight - 8 && firstTop - 10 - h >= clip().top) top = firstTop - 10 - h;
         } else {
           // Beside the card: the open popover, else the panel card that was pressed.
           const box = popEl && popEl.isConnected && popEl.style.visibility !== "hidden" ? popEl.getBoundingClientRect() : press?.box ?? press?.rect ?? null;
@@ -7478,8 +7544,11 @@
             top = innerHeight - h - 96;
           }
         }
-        bubble.style.left = `${tpClamp(left, 8, Math.max(8, innerWidth - w - 8))}px`;
-        bubble.style.top = `${tpClamp(top, 8, Math.max(8, innerHeight - h - 8))}px`;
+        left = tpClamp(left, 8, Math.max(8, innerWidth - w - 8));
+        top = tpClamp(top, 8, Math.max(8, innerHeight - h - 8));
+        bubble.style.left = `${left}px`;
+        bubble.style.top = `${top}px`;
+        barBox = { left, top, right: left + w, bottom: top + h, bar: true };
       };
       const paintText = (t) => {
         const n = t >= tl.readyAt ? ins.length : Math.max(0, Math.floor((t - tl.typeAt) / (tl.perChar || 1)));
@@ -7521,8 +7590,8 @@
           placeStrikes(t);
           placeMark();
           placeCaret(t);
-          placeCursor(t);
           placeBubble(t);
+          placeCursor(t); // after the bar: it parks off the bar too
           markReady(t);
         } catch (err) {
           console.debug(`[tracely] type preview frame: ${err?.message ?? err}`);
@@ -7570,6 +7639,9 @@
       running: (i, n) => `Tracely is on ${i} of ${n} — accept or reject each change`,
     };
     const tcSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // A beat at each step — the card open, the cursor over its button — so every step can be
+    // watched. Not motion: kept under prefers-reduced-motion, where only the glides and ripples go.
+    const WALK_BEAT_MS = 400;
     function walkInputs() {
       const flags = currentIssues().map(({ seg, f }) => ({
         key: seg.hash, start: seg.start, verdict: f.verdict,
@@ -7641,13 +7713,15 @@
     function walkScroll(scroller, dy) {
       try { scroller.scrollBy({ top: dy, behavior: reducedMotion() ? "auto" : "smooth" }); } catch { scroller.scrollTop += dy; }
     }
-    // Tracely's own button in the open card: glided to, pressed, clicked for real.
+    // Tracely's own button in the open card: glided to, hovered a beat, pressed, clicked for real.
     async function walkPress(labels) {
       const btn = popCard ? [...popCard.querySelectorAll("button")].find((b) => labels.includes(b.textContent.trim()) && !b.disabled) : null;
       if (!btn) return false;
       const r = btn.getBoundingClientRect();
       await walkGlide(r.left + Math.min(r.width / 2, 36), r.top + r.height * 0.6);
       if (!tcWalk || tcWalk.stop) return false;
+      await tcSleep(WALK_BEAT_MS); // over the button, so the writer sees what it is about to press
+      if (!tcWalk || tcWalk.stop || !btn.isConnected) return false;
       await walkClick();
       if (!tcWalk || tcWalk.stop || !btn.isConnected) return false;
       btn.click();
@@ -7675,12 +7749,14 @@
       const rb = bar.el.getBoundingClientRect();
       await walkGlide(rb.left + Math.min(rb.width / 2, 30), rb.top - (bar.size || 14) * 0.45);
       if (!tcWalk || tcWalk.stop) return null;
-      await walkClick();
-      if (!tcWalk || tcWalk.stop) return null;
+      // The click on the underline and its card opening under it, together — then a beat, so
+      // the writer sees which card it is before the cursor moves on.
+      const ripple = walkClick();
       showDocsPopover(bar.hash, { left: rb.left, top: rb.top, bottom: rb.bottom, size: bar.size, centerX: rb.left + rb.width / 2 }, bar);
+      if (popEl && popHash === bar.hash) popPinned = true; // the card stays while its edit settles, as after a click
+      await Promise.all([ripple, tcSleep(WALK_BEAT_MS)]);
+      if (!tcWalk || tcWalk.stop) return null;
       if (!popEl || popHash !== bar.hash) return { r: "skipped", why: "no card" };
-      popPinned = true; // the card stays while its edit settles, as after a click
-      await tcSleep(260);
       if (item.act === "fix") {
         await walkPress([POP_COPY.suggestFix]); // the problem card first, unless it is on the fix already
         if (!tcWalk || tcWalk.stop) return null;
