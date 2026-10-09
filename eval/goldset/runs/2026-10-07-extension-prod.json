@@ -1,0 +1,2711 @@
+{
+ "meta": {
+  "what": "extension /api/sources on production, beta pool",
+  "base": "https://api.jointracely.com",
+  "startedAt": "2026-10-08T04:01:44.318Z",
+  "install": "2010c141-8822-41cd-9d3e-ea3d94611f76",
+  "harnessCommit": "4f0ca39",
+  "shownRule": "stance === \"supports\" (sentence not flagged false)",
+  "finishedAt": "2026-10-09T00:35:31.479Z"
+ },
+ "results": {
+  "01-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 8569,
+   "claim": "The American Academy of Pediatrics recommended in 2014 that middle and high schools start no earlier than 8:30 a.m., yet the majority of public high schools in the United States still begin before that.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "School Start Times for Adolescents",
+     "url": "https://publications.aap.org/pediatrics/article/134/3/642/32591/School-Start-Times-for-Adolescents",
+     "publisher": "American Academy of Pediatrics (AAP)",
+     "snippet": "“The American Academy of Pediatrics strongly supports the efforts of school districts to optimize sleep in students and urges high schools and middle schools to aim for start times”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Rhoda Au",
+      "Mary Carskadon",
+      "Richard Millman",
+      "Amy Wolfson",
+      "Paula K. Braverman",
+      "William P. Adelman",
+      "Cora C. Breuner",
+      "David A. Levine",
+      "Arik V. Marcell",
+      "Pamela J. Murray",
+      "Rebecca F. O’Brien",
+      "Cynthia D. Devore",
+      "Mandy Allison",
+      "Richard Ancona",
+      "FAAP Stephen E. Barnett",
+      "Robert Gunther",
+      "Breena Holmes",
+      "Jeffrey H. Lamont",
+      "Mark Minier",
+      "Jeffrey K. Okamoto",
+      "Lani S.M. Wheeler",
+      "Thomas Young"
+     ],
+     "groupAuthor": "American Academy of Pediatrics",
+     "date": "2014-09-01",
+     "year": 2014,
+     "doi": "10.1542/peds.2014-1697",
+     "container": "Pediatrics",
+     "volume": "134",
+     "issue": "3",
+     "pages": "642-649",
+     "editors": []
+    },
+    {
+     "title": "School Start Times for Middle School and High School Students — United States, 2011–12 School Year",
+     "url": "https://www.cdc.gov/mmwr/preview/mmwrhtml/mm6430a1.htm",
+     "publisher": "Centers for Disease Control MMWR Office",
+     "snippet": "“AAP recommended that \"middle and high schools should aim for a starting time of no earlier than 8:30 a.m.”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Anne G. Wheaton",
+      "Gabrielle A. Ferro",
+      "Janet B. Croft"
+     ],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2015-08-07",
+     "year": 2015,
+     "doi": "10.15585/mmwr.mm6430a1",
+     "container": "MMWR. Morbidity and Mortality Weekly Report",
+     "volume": "64",
+     "issue": "30",
+     "pages": "809-813",
+     "editors": []
+    },
+    {
+     "title": "Start Time for U.S. Public High Schools",
+     "url": "https://nces.ed.gov/pubs2020/2020006/index.asp",
+     "publisher": "National Center for Education Statistics",
+     "snippet": "The report examines public high school start times and notes that the American Academy of Pediatrics recommended starting middle and high schools at 8:30 a.m. or later in 2014.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "National Center for Education Statistics",
+     "year": 2020
+    }
+   ],
+   "shown": 2
+  },
+  "01-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 9893,
+   "claim": "Teenagers require between eight and ten hours of sleep per night, and roughly 70 percent of them get less than seven.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Teen Sleep Duration Health Advisory - AASM Recommendation",
+     "url": "https://aasm.org/advocacy/position-statements/teen-sleep-duration-health-advisory/",
+     "publisher": "American Academy of Sleep Medicine",
+     "snippet": "“teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "American Academy of Sleep Medicine",
+     "year": 2018
+    },
+    {
+     "title": "Sleep and Health",
+     "url": "https://cdc.gov/physical-activity-education/staying-healthy/sleep.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "About 7 out of 10 high school students, or 72.7%, did not get enough sleep on school nights.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2024
+    },
+    {
+     "title": "Insufficient Sleep Among High School Students",
+     "url": "https://publications.aap.org/aapgrandrounds/article-pdf/24/2/26/807513/gr_0810_p26.pdf",
+     "publisher": "American Academy of Pediatrics",
+     "snippet": "Seventy percent of high school students were not getting enough sleep on school nights, according to cited surveillance findings.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [
+      "Eaton DK",
+      "McKnight-Eily LR",
+      "Lowry R"
+     ],
+     "groupAuthor": "",
+     "year": 2010,
+     "container": "AAP Grand Rounds"
+    },
+    {
+     "title": "Teens May Do Better When School Starts Later",
+     "url": "https://time.com/4741147/school-start-time/",
+     "publisher": "TIME",
+     "snippet": "The CDC reported that almost 70% of high-school students regularly slept seven hours or less, while teenagers are recommended to sleep eight to 10 hours nightly.",
+     "stance": "supports",
+     "kind": "news",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2017
+    },
+    {
+     "title": "Recommended Amount of Sleep for Pediatric Populations: A Consensus Statement of the American Academy of Sleep Medicine",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4877308/",
+     "publisher": "American Academy of Sleep Medicine",
+     "snippet": "The consensus statement recommends that teenagers aged 13 to 18 sleep eight to 10 hours per 24 hours regularly for optimal health.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2016,
+     "container": "Journal of Clinical Sleep Medicine"
+    }
+   ],
+   "shown": 4
+  },
+  "01-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 11098,
+   "claim": "The consequence is not subtle: pushing start times later has been shown to increase how long students sleep, and districts that made the change saw fewer car crashes among teen drivers.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Adolescent Sleep, School Start Times, and Teen Motor Vehicle Crashes",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2603528/",
+     "publisher": "American Academy of Sleep Medicine",
+     "snippet": "A one-hour delay increased adolescents’ sleep, while average teen-driver crash rates fell 16.5% in the study county and rose 7.8% elsewhere in the state.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null,
+     "container": "Journal of Clinical Sleep Medicine"
+    },
+    {
+     "title": "Association of Delaying School Start Time With Sleep Duration, Timing, and Quality Among Adolescents",
+     "url": "https://jamanetwork.com/journals/jamapediatrics/fullarticle/2765038",
+     "publisher": "JAMA Network",
+     "snippet": "Students at schools with delayed starts obtained approximately 43 additional minutes of objectively measured sleep on school nights.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null,
+     "container": "JAMA Pediatrics"
+    },
+    {
+     "title": "School Start Times and Teenage Driver Motor Vehicle Crashes",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/29706226/",
+     "publisher": "Elsevier BV",
+     "snippet": "Later high school start times appear associated with lower adolescent driver crash rates, although additional research is needed to confirm the relationship and its mechanism.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Robert D. Foss",
+      "Richard L. Smith",
+      "Natalie P. O'Brien"
+     ],
+     "groupAuthor": "",
+     "year": 2019,
+     "container": "Accident Analysis &amp; Prevention",
+     "doi": "10.1016/j.aap.2018.03.031",
+     "volume": "126",
+     "pages": "54-63",
+     "editors": []
+    },
+    {
+     "title": "School Start Times | NHTSA",
+     "url": "https://www.nhtsa.gov/book/countermeasures-that-work/drowsy-driving/countermeasures/other-strategies-behavior-change",
+     "publisher": "National Highway Traffic Safety Administration",
+     "snippet": "“research also shows that there is a reduction of teen driver motor vehicle crashes when high school start times are delayed”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "National Highway Traffic Safety Administration",
+     "year": null
+    }
+   ],
+   "shown": 2
+  },
+  "01-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 10684,
+   "claim": "Studies show that this sleep debt is the primary driver of the adolescent mental health crisis, and experts agree that smartphones have made it worse.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Sleep",
+     "url": "https://www.cdc.gov/yrbs/youth-health-in-focus/sleep.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "The CDC states that insufficient adolescent sleep can affect mental health, but does not identify sleep debt as the primary cause of the mental-health crisis.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": null
+    },
+    {
+     "title": "Digital Behaviors and Health",
+     "url": "https://www.cdc.gov/healthy-schools/digital-behaviors/index.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "The CDC says digital behaviors can influence sleep and mental well-being, without concluding that smartphones are the main cause of adolescent mental-health problems.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": null
+    },
+    {
+     "title": "School Start Times for Adolescents",
+     "url": "https://doi.org/10.1542/peds.2014-1697",
+     "publisher": "American Academy of Pediatrics (AAP)",
+     "snippet": "The American Academy of Pediatrics links adequate adolescent sleep with better mental health and urges later school start times, but does not call sleep the primary driver of the crisis.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Rhoda Au",
+      "Mary Carskadon",
+      "Richard Millman",
+      "Amy Wolfson",
+      "Paula K. Braverman",
+      "William P. Adelman",
+      "Cora C. Breuner",
+      "David A. Levine",
+      "Arik V. Marcell",
+      "Pamela J. Murray",
+      "Rebecca F. O’Brien",
+      "Cynthia D. Devore",
+      "Mandy Allison",
+      "Richard Ancona",
+      "FAAP Stephen E. Barnett",
+      "Robert Gunther",
+      "Breena Holmes",
+      "Jeffrey H. Lamont",
+      "Mark Minier",
+      "Jeffrey K. Okamoto",
+      "Lani S.M. Wheeler",
+      "Thomas Young"
+     ],
+     "groupAuthor": "",
+     "year": 2014,
+     "doi": "10.1542/peds.2014-1697",
+     "container": "Pediatrics",
+     "date": "2014-09-01",
+     "volume": "134",
+     "issue": "3",
+     "pages": "642-649",
+     "editors": []
+    },
+    {
+     "title": "School Start Times, Sleep, Behavioral, Health, and Academic Outcomes: A Review of the Literature",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/27040474/",
+     "publisher": "Wiley",
+     "snippet": "This review reports associations between insufficient adolescent sleep and poor mental health and evaluates delayed school start times as a possible intervention.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Anne G. Wheaton",
+      "Daniel P. Chapman",
+      "Janet B. Croft"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1111/josh.12388",
+     "container": "Journal of School Health",
+     "date": "2016-04-03",
+     "volume": "86",
+     "issue": "5",
+     "pages": "363-381",
+     "editors": []
+    },
+    {
+     "title": "Associations Between Screen Time Use and Health Outcomes Among US Teenagers",
+     "url": "https://www.cdc.gov/pcd/issues/2025/24_0537.htm",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "The study reports associations between high screen time, later bedtimes, insufficient sleep, and adverse mental-health outcomes among U.S. teenagers.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2025,
+     "container": "Preventing Chronic Disease"
+    }
+   ],
+   "shown": 0
+  },
+  "01-c5": {
+   "ok": true,
+   "status": 200,
+   "ms": 12931,
+   "claim": "If schools do not act, depression rates among teenagers will double within the next decade.",
+   "essay": "01-school-start-times.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Mental Health and Suicide Risks",
+     "url": "https://www.cdc.gov/yrbs/youth-health-in-focus/mental-health.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reports that persistent sadness or hopelessness worsened over the 10-year period from 2015 to 2025, but does not project that depression rates will double within the next decade.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2026-09-18",
+     "year": 2026
+    },
+    {
+     "title": "Key Substance Use and Mental Health Indicators in the United States: Results from the 2024 National Survey on Drug Use and Health",
+     "url": "https://www.samhsa.gov/data/sites/default/files/reports/rpt56287/2024-nsduh-annual-national/2024-nsduh-annual-national-html-071425-edited/2024-nsduh-annual-national.htm",
+     "publisher": "Substance Abuse and Mental Health Services Administration",
+     "snippet": "The report presents adolescent major depressive episode estimates through 2024 and trend information, but does not forecast a doubling during the following decade.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Substance Abuse and Mental Health Services Administration",
+     "year": 2025
+    },
+    {
+     "title": "Depression and Anxiety Among US Children and Young Adults",
+     "url": "https://doi.org/10.1001/jamanetworkopen.2024.36906",
+     "publisher": "American Medical Association (AMA)",
+     "snippet": "The study found increases in depression prevalence over time, including an increase from 4.13% in 2017 to 6.88% in 2021 among young adults aged 18.0 to 22.9 years.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Anny H. Xiang",
+      "Mayra P. Martinez",
+      "Ting Chow",
+      "Sarah A. Carter",
+      "Sonya Negriff",
+      "Breda Velasquez",
+      "Joseph Spitzer",
+      "Juan Carlos Zuberbuhler",
+      "Ashley Zucker",
+      "Sid Kumar"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1001/jamanetworkopen.2024.36906",
+     "date": "2024-10-01",
+     "container": "JAMA Network Open",
+     "volume": "7",
+     "issue": "10",
+     "pages": "e2436906",
+     "editors": []
+    },
+    {
+     "title": "Child, Adolescent and Youth Mental Health in the 21st Century",
+     "url": "https://www.oecd.org/en/publications/child-adolescent-and-youth-mental-health-in-the-21st-century_1092c3cb-en.html",
+     "publisher": "Organisation for Economic Co-operation and Development",
+     "snippet": "The OECD describes worsening youth mental health across many countries over the past decade while emphasizing multiple contributing factors and the need to evaluate interventions rigorously.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Organisation for Economic Co-operation and Development",
+     "year": 2026
+    },
+    {
+     "title": "U.S. Teen Girls Experiencing Increased Sadness and Violence",
+     "url": "https://www.cdc.gov/media/releases/2023/p0213-yrbs.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reported that 57% of U.S. teen girls felt persistently sad or hopeless in 2021, nearly 60% higher than a decade earlier, not a forecast of doubling among all teenagers.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2023-02-13",
+     "year": 2023
+    }
+   ],
+   "shown": 0
+  },
+  "02-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 11237,
+   "claim": "A randomized controlled trial at a Chinese travel agency found that employees working from home were roughly 13 percent more productive than their in-office counterparts, and that attrition fell by half.",
+   "essay": "02-remote-work.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://doi.org/10.1093/qje/qju032",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "“Call center employees who volunteered to WFH were randomly assigned either to work from home or in the office for nine months. Home working led to a 13% performance increase”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Nicholas Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2014,
+     "doi": "10.1093/qje/qju032",
+     "container": "The Quarterly Journal of Economics",
+     "date": "2014-11-20",
+     "volume": "130",
+     "issue": "1",
+     "pages": "165-218",
+     "editors": []
+    },
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://www.nber.org/papers/w18871",
+     "publisher": "National Bureau of Economic Research",
+     "snippet": "Call-center employees at CTrip were randomly assigned to work from home or in the office for nine months; home working increased performance by 13%.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [
+      "Nicholas Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2013,
+     "doi": "10.3386/w18871",
+     "container": "NBER Working Paper"
+    },
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://www.gsb.stanford.edu/faculty-research/publications/does-working-home-work-evidence-chinese-experiment",
+     "publisher": "Stanford Graduate School of Business",
+     "snippet": "“Call center employees who volunteered to WFH were randomly assigned either to work from home or in the office for nine months. … Home working led to a 13% performance increase”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [
+      "Nicholas A. Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2015,
+     "container": "The Quarterly Journal of Economics"
+    },
+    {
+     "title": "Does Working from Home Work? Evidence from a Chinese Experiment",
+     "url": "https://www.gsb.stanford.edu/faculty-research/working-papers/does-working-home-work-evidence-chinese-experiment",
+     "publisher": "Stanford Graduate School of Business",
+     "snippet": "The randomized experiment involved volunteer call-center employees at CTrip who were assigned to work from home or in the office for nine months.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [
+      "Nicholas Bloom",
+      "James Liang",
+      "John Roberts",
+      "Zhichun Jenny Ying"
+     ],
+     "groupAuthor": "",
+     "year": 2013,
+     "container": "Stanford Graduate School of Business Working Paper No. 3109"
+    }
+   ],
+   "shown": 2
+  },
+  "02-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13808,
+   "claim": "Meanwhile, commercial office vacancy rates in major American cities reached record highs after 2020, which has put real pressure on municipal tax bases that depend on commercial property assessments.",
+   "essay": "02-remote-work.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "With Revenue at Risk, Cities Seek to Overcome Office Vacancies",
+     "url": "https://www.pew.org/en/research-and-analysis/articles/2026/05/13/with-revenue-at-risk-cities-seek-to-overcome-office-vacancies",
+     "publisher": "The Pew Charitable Trusts",
+     "snippet": "Office vacancies remain 50% above pre-2020 rates, while declining office property taxes may become a less reliable source of city revenue.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "The Pew Charitable Trusts",
+     "date": "2026-05-13",
+     "year": 2026
+    },
+    {
+     "title": "The Future Of Commercial Real Estate And Big City Budgets",
+     "url": "https://taxpolicycenter.org/taxvox/future-commercial-real-estate-and-big-city-budgets",
+     "publisher": "Tax Policy Center",
+     "snippet": "The shift to remote work has put commercial real estate and potentially city government budgets on shaky ground, especially in major cities with large commercial districts.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Tax Policy Center",
+     "year": 2023
+    },
+    {
+     "title": "The Future of Commercial Real Estate",
+     "url": "https://taxpolicycenter.org/sites/default/files/publication/165853/the-future-of-commercial-real-estate_2024-05-01.pdf",
+     "publisher": "Urban-Brookings Tax Policy Center",
+     "snippet": "Declining office-building values after COVID-19 could reduce local property-tax revenues and alter how major cities and localities raise revenue and provide services.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Urban-Brookings Tax Policy Center",
+     "year": 2024
+    },
+    {
+     "title": "The Impact of the COVID-19 Pandemic on the Fiscal Health of American Central Cities",
+     "url": "https://www.lincolninst.edu/publications/working-papers/impact-covid-19-pandemic-fiscal-health-american-central-cities/",
+     "publisher": "Lincoln Institute of Land Policy",
+     "snippet": "Remote work reduces demand for office space, placing downward pressure on cities’ commercial-industrial property-tax bases and creating fiscal challenges without state aid.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Lincoln Institute of Land Policy",
+     "year": 2025
+    },
+    {
+     "title": "Declining Office Market Valuations and the Risk to Property Taxes",
+     "url": "https://www.kbra.com/publications/PcDcggbC/kbra-releases-research-declining-office-market-valuations-and-the-risk-to-property-taxes?format=web",
+     "publisher": "KBRA",
+     "snippet": "“record commercial office vacancies and rising loan delinquencies across many U.S.”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "KBRA",
+     "year": 2024
+    }
+   ],
+   "shown": 4
+  },
+  "02-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 10800,
+   "claim": "Research suggests that fully remote workers are less likely to be promoted than colleagues who come in, a gap sometimes attributed to reduced visibility rather than reduced output.",
+   "essay": "02-remote-work.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Working Remotely?",
+     "url": "https://www.newyorkfed.org/medialibrary/media/research/staff_reports/sr1061.pdf?sc_lang=en",
+     "publisher": "Federal Reserve Bank of New York",
+     "snippet": "A year after hiring, 44.0% of on-site hires had been promoted compared with 20.9% of remote hires; the study attributes differences partly to reduced skill acquisition and manager bonding.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Federal Reserve Bank of New York",
+     "year": 2023
+    },
+    {
+     "title": "Mechanisms Underlying the Effects of Work from Home on Careers in the Post-Covid Context",
+     "url": "https://journals.sagepub.com/doi/10.1177/09500170251325769",
+     "publisher": "SAGE Publications",
+     "snippet": "“Among full-time teleworkers, reduced career opportunities stem not only from managers’ perceptions of their job performance but also from assumptions that full-time teleworkers are less committed to work.”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Anna Matysiak",
+      "Agnieszka Kasperska",
+      "Ewa Cukrowska-Torzewska"
+     ],
+     "groupAuthor": "",
+     "year": 2025,
+     "doi": "10.1177/09500170251325769",
+     "container": "Work, Employment and Society",
+     "volume": "39",
+     "issue": "5",
+     "pages": "1103-1126",
+     "editors": []
+    },
+    {
+     "title": "Managerial (dis)preferences towards employees working from home: Post-pandemic experimental evidence",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11095720/",
+     "publisher": "PLOS ONE",
+     "snippet": "Experimental evidence suggests some workers who work from home are less likely to be promoted or receive raises, while managers may evaluate remote employees through output rather than observable face time.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2024
+    },
+    {
+     "title": "Hybrid working from home improves retention without damaging performance",
+     "url": "https://doi.org/10.1038/s41586-024-07500-2",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "A randomized trial found no difference in promotion rates between hybrid-work and control groups, contrasting with evidence that fully remote work can harm employee development and promotions.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Nicholas Bloom",
+      "Ruobing Han",
+      "James Liang"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1038/s41586-024-07500-2",
+     "date": "2024-06-12",
+     "container": "Nature",
+     "volume": "630",
+     "issue": "8018",
+     "pages": "920-925",
+     "editors": []
+    }
+   ],
+   "shown": 2
+  },
+  "03-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 9015,
+   "claim": "Johannes Gutenberg introduced movable-type printing to Europe around 1450, and within fifty years printing presses were operating in more than two hundred European cities.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Information technology and economic change: The impact of the printing press",
+     "url": "https://cepr.org/voxeu/columns/information-technology-and-economic-change-impact-printing-press",
+     "publisher": "Centre for Economic Policy Research",
+     "snippet": "The movable-type printing press was developed by Johannes Gutenberg and partners in Mainz around 1450, with presses established in 205 cities from 1450 to 1500.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centre for Economic Policy Research",
+     "year": 2010
+    },
+    {
+     "title": "European Printing Revolution",
+     "url": "https://commons.princeton.edu/rbwg/wp-content/uploads/sites/141/2019/09/The-European-Printing-Revolution.pdf",
+     "publisher": "Princeton University",
+     "snippet": "Typographic printing was introduced by Johann Gutenberg around 1450 in Mainz, after which printing offices developed across Europe under varied local conditions.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Princeton University",
+     "year": 2019
+    },
+    {
+     "title": "Printing, Protestants, and Economic Growth",
+     "url": "https://mpra.ub.uni-muenchen.de/34294/3/",
+     "publisher": "Munich Personal RePEc Archive",
+     "snippet": "The first movable-type printing press was invented circa 1450 by Johann Gutenberg, and during the following fifty years the technology diffused widely across Europe.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Munich Personal RePEc Archive",
+     "year": 2012
+    }
+   ],
+   "shown": 3
+  },
+  "03-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 16562,
+   "claim": "Movable type had already existed in Korea and China for centuries before Gutenberg, which complicates any account that treats the technology itself as the decisive variable.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "The Rise of Printing in Medieval East Asia, c. 700–1500",
+     "url": "https://academic.oup.com/edited-volume/61799/chapter-abstract/546324464",
+     "publisher": "Oxford University Press",
+     "snippet": "East Asians used woodblock printing after 700 CE, while Chinese movable type was used by 1298 for gazetteers and paper money.",
+     "stance": "supports",
+     "kind": "reference",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2024,
+     "container": "Oxford Research Encyclopedia of Asian History"
+    },
+    {
+     "title": "Korean type printing",
+     "url": "https://mediengeschichte.dnb.de/DBSMZBN/Content/EN/Printing/04-koreanischer-typendruck-en.html",
+     "publisher": "German National Library",
+     "snippet": "China experimented with movable type from the eleventh century, and Korea produced the metal-type Jikji in 1377.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "German National Library",
+     "year": null
+    },
+    {
+     "title": "Printing",
+     "url": "https://afe.easia.columbia.edu/songdynasty-module/tech-printing.html",
+     "publisher": "Columbia University",
+     "snippet": "Movable type was invented in China in the eleventh century, while cast-metal movable type began in Korea during the early thirteenth century.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Columbia University",
+     "year": null
+    },
+    {
+     "title": "The great divergence and the economics of printing",
+     "url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/ehr.12337",
+     "publisher": "Wiley",
+     "snippet": "“While China's invention of printing took place several centuries ahead of Europe's, it was in Europe where the more advanced printing technology of movable type took hold”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Luis Angeles"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1111/ehr.12337",
+     "container": "The Economic History Review",
+     "date": "2016-06-24",
+     "volume": "70",
+     "issue": "1",
+     "pages": "30-51",
+     "editors": []
+    }
+   ],
+   "shown": 4
+  },
+  "03-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 14977,
+   "claim": "The Protestant Reformation depended on cheap pamphlets, and so did an enormous volume of witch-hunting literature.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Pamphlets, Propaganda and Witch-Hunting in Germany c.1560-c.1630",
+     "url": "https://www.tandfonline.com/doi/abs/10.1179/ref_2002_6_1_004",
+     "publisher": "Informa UK Limited",
+     "snippet": "Pamphlets used Reformation-style propaganda techniques, popular songs, and woodcuts to communicate witchcraft ideas to largely illiterate audiences.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Robert Walinski-Kiehl"
+     ],
+     "groupAuthor": "",
+     "year": 2002,
+     "doi": "10.1179/ref_2002_6_1_004",
+     "container": "Reformation",
+     "volume": "6",
+     "issue": "1",
+     "pages": "49-74",
+     "editors": []
+    },
+    {
+     "title": "Printing, Propaganda, and Martin Luther",
+     "url": "https://publishing.cdlib.org/ucpressebooks/public/book/printing-propaganda-and-martin-luther.html",
+     "publisher": "University of California Press",
+     "snippet": "“The medium of multiple copies of cheap agitatory pamphlets reinforced the message of lay involvement”",
+     "stance": "supports",
+     "kind": "book",
+     "authors": [
+      "Mark U. Edwards Jr."
+     ],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Book printing and reformation",
+     "url": "https://mediengeschichte.dnb.de/DBSMZBN/Content/EN/Printing/04-buchdruck-und-reformation-en.html",
+     "publisher": "German Museum of Books and Writing",
+     "snippet": "Printing trade activity increased in regions experiencing Reformation changes, while Luther’s Bible translation reached 100,000 copies by his death.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "German Museum of Books and Writing",
+     "year": null
+    },
+    {
+     "title": "The Role of Printing in Medieval and Reformation Europe",
+     "url": "https://exhibits.lib.arizona.edu/exhibits/show/reformation/role-of-printing",
+     "publisher": "University of Arizona Libraries",
+     "snippet": "Reformation publishing expanded beyond religious controversy into popular literature, while authorities responded to the widespread circulation of printed material.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Arizona Libraries",
+     "year": null
+    }
+   ],
+   "shown": 1
+  },
+  "03-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13151,
+   "claim": "Cities that adopted printing early experienced faster economic growth in the following century, though disentangling that from the fact that wealthier cities could afford presses in the first place is genuinely difficult.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Information Technology and Economic Change: The Impact of The Printing Press",
+     "url": "https://doi.org/10.1093/qje/qjr035",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "“Cities that adopted printing in the 1400s had no prior advantage, and the association between adoption and subsequent growth was not due to printers choosing auspicious locations.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "date": "2011-08-01",
+     "year": 2011,
+     "doi": "10.1093/qje/qjr035",
+     "container": "The Quarterly Journal of Economics",
+     "volume": "126",
+     "issue": "3",
+     "pages": "1133-1172",
+     "editors": []
+    },
+    {
+     "title": "Information Technology and Economic Change: The Impact of The Printing Press",
+     "url": "https://cepr.org/voxeu/columns/information-technology-and-economic-change-impact-printing-press?trk=article-ssr-frontend-pulse_little-text-block",
+     "publisher": "Centre for Economic Policy Research",
+     "snippet": "Cities that adopted print media had no prior growth advantage but subsequently grew faster than similar cities without printing presses.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "year": 2011
+    },
+    {
+     "title": "How the medium shapes the message: Printing and the rise of the arts and sciences",
+     "url": "https://arxiv.org/abs/1512.05020",
+     "publisher": "arXiv",
+     "snippet": "The study uses distance from Mainz as an instrument for printing adoption to address endogeneity and examines later scientific and artistic prominence.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Jara-Figueroa, C.",
+      "Yu, Amy Z.",
+      "Hidalgo, Cesar A."
+     ],
+     "groupAuthor": "",
+     "year": 2015,
+     "date": "2015-12-16"
+    },
+    {
+     "title": "Information Technology and Economic Change: The Impact of The Printing Press",
+     "url": "https://ideas.repec.org/a/oup/qjecon/v126y2011i3p1133-1172.html",
+     "publisher": "RePEc",
+     "snippet": "“Cities that adopted printing in the 1400s had no prior advantage, and the association between adoption and subsequent growth was not due to printers choosing auspicious locations.”",
+     "stance": "refutes",
+     "kind": "reference",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "year": 2011,
+     "container": "The Quarterly Journal of Economics"
+    }
+   ],
+   "shown": 1
+  },
+  "03-c5": {
+   "ok": true,
+   "status": 200,
+   "ms": 16692,
+   "claim": "What distinguished the European case was the alphabet's small character set, an existing paper industry, and a merchant class with money to spend on books.",
+   "essay": "03-printing-press.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Information Technology and Economic Change: The Impact of the Printing Press",
+     "url": "https://doi.org/10.1093/qje/qjr035",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "European cities that adopted printing presses in the 1400s grew 60% faster than otherwise similar cities between 1500 and 1600.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "date": "2011-08-01",
+     "year": 2011,
+     "doi": "10.1093/qje/qjr035",
+     "container": "The Quarterly Journal of Economics",
+     "volume": "126",
+     "issue": "3",
+     "pages": "1133-1172",
+     "editors": []
+    },
+    {
+     "title": "New media and competition: printing and Europe's transformation after Gutenberg",
+     "url": "https://cep.lse.ac.uk/_NEW/PUBLICATIONS/abstract.asp?index=6130",
+     "publisher": "London School of Economics and Political Science",
+     "snippet": "The study examines printing output and competition in European cities and documents positive relationships between business education content and city growth.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [
+      "Jeremiah Dittmar",
+      "Skipper Seabold"
+     ],
+     "groupAuthor": "",
+     "year": 2019,
+     "date": "2019-01-31"
+    },
+    {
+     "title": "The great divergence and the economics of printing",
+     "url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/ehr.12337",
+     "publisher": "Wiley",
+     "snippet": "Although China invented printing centuries before Europe, Europe adopted advanced movable type and achieved much higher levels of book production.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Luis Angeles"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1111/ehr.12337",
+     "container": "The Economic History Review",
+     "date": "2016-06-24",
+     "volume": "70",
+     "issue": "1",
+     "pages": "30-51",
+     "editors": []
+    },
+    {
+     "title": "New media, firms, ideas",
+     "url": "https://eprints.lse.ac.uk/53569/1/__libfile_repository_Content_Dittmar%2C%20J_New%20media%2C%20firms%2C%20ideas_Dittmar_New_media_firms_ideas_2013.pdf",
+     "publisher": "London School of Economics and Political Science",
+     "snippet": "Printing required substantial wealth or financial backing because equipment, paper, and book production involved significant fixed and upfront costs.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [
+      "Jeremiah E. Dittmar"
+     ],
+     "groupAuthor": "",
+     "year": 2013
+    }
+   ],
+   "shown": 1
+  },
+  "04-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 11665,
+   "claim": "Roughly half the population of Sub-Saharan Africa still lacks access to electricity, a share that has barely improved in two decades even as the region's population has grown.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Financing Electricity Access in Africa",
+     "url": "https://iea.blob.core.windows.net/assets/e87bd556-d740-4374-bcb0-bd617b8e3efe/FinancingElectricityAccessinAfrica.pdf",
+     "publisher": "International Energy Agency",
+     "snippet": "Half of Sub-Saharan Africa’s population—around 600 million people—still needed an electricity connection in 2024, while population growth stalled the absolute access gap.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "International Energy Agency",
+     "year": 2025
+    },
+    {
+     "title": "Affordable & clean energy | SDG 7: Affordable & clean energy",
+     "url": "https://datatopics.worldbank.org/sdgatlas/goal-7-affordable-and-clean-energy/",
+     "publisher": "World Bank",
+     "snippet": "“electricity access rising from 26 percent in 2000 to 51 percent in 2021”",
+     "stance": "refutes",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2023
+    },
+    {
+     "title": "Tracking SDG 7 – The Energy Progress Report 2025",
+     "url": "https://www.worldbank.org/en/topic/energy/publication/tracking-sdg-7-the-energy-progress-report-2025?intcid=ecr_hp_sidekick2_en_ext",
+     "publisher": "World Bank",
+     "snippet": "In 2023, 35 million people in Sub-Saharan Africa gained electricity access, but population growth reduced the number without electricity by only 5 million, from 570 million to 565 million.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2025
+    },
+    {
+     "title": "World Bank Document",
+     "url": "https://documents1.worldbank.org/curated/en/099553309152269024/pdf/IDU00e5aa1b90b69004af9091170d002a3219ee9.pdf",
+     "publisher": "World Bank",
+     "snippet": "Population growth caused the absolute electricity-access deficit in Sub-Saharan Africa to grow since 2010, reaching 570 million people without access in 2019.",
+     "stance": "refutes",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2023
+    }
+   ],
+   "shown": 1
+  },
+  "04-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13724,
+   "claim": "But a solar home system delivers on the order of tens of watts, while a refrigerator, a welding shop, or an irrigation pump needs kilowatts.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Solar-Powered Livestock Watering Systems",
+     "url": "https://www.ncat.org/publication/solar-powered-livestock-watering-systems/",
+     "publisher": "National Center for Appropriate Technology",
+     "snippet": "The publication describes 100-watt panels and solar pumping systems ranging from 128 to 420 watts, while noting that many pressurized irrigation systems require too much power.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "National Center for Appropriate Technology",
+     "year": 2012
+    },
+    {
+     "title": "Energy Saver Consumer Guide to Residential Renewable Energy",
+     "url": "https://www.govinfo.gov/content/pkg/GOVPUB-E-PURL-gpo224735/pdf/GOVPUB-E-PURL-gpo224735.pdf",
+     "publisher": "U.S. Department of Energy",
+     "snippet": "The guide states that individual solar panels range from 10 to 400 watts and that multiple panels are combined into arrays.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "U.S. Department of Energy",
+     "year": 2022
+    },
+    {
+     "title": "Working on Solar Design and System Sizing",
+     "url": "https://www.extension.umd.edu/resource/working-solar-design-and-system-sizing-fs-2023-0655",
+     "publisher": "University of Maryland Extension",
+     "snippet": "The guidance identifies refrigerators and well pumps as motor loads requiring attention to brief startup power surges when sizing off-grid systems.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Maryland Extension",
+     "year": 2023
+    },
+    {
+     "title": "Solar-Powered Groundwater Pumping Systems for Livestock Watering",
+     "url": "https://accessibility.extension.msstate.edu/publications/solar-powered-groundwater-pumping-systems-for-livestock-watering",
+     "publisher": "Mississippi State University Extension Service",
+     "snippet": "The source gives a 325-watt solar module as an example and emphasizes that multiple modules may be needed to supply household or pumping loads.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Mississippi State University Extension Service",
+     "year": null
+    },
+    {
+     "title": "Solar-Powered Groundwater Pumping Systems",
+     "url": "https://extension.colostate.edu/resource/solar-powered-groundwater-pumping-systems/",
+     "publisher": "Colorado State University Extension",
+     "snippet": "The source gives an example of a groundwater pump requiring 160 watts at specified head and flow conditions.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Colorado State University Extension",
+     "year": 2012
+    }
+   ],
+   "shown": 1
+  },
+  "04-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 12100,
+   "claim": "Critics of grid investment point out that centralized generation in low-income countries has a poor record: transmission and distribution losses in some national grids exceed twenty percent of all electricity generated, and state utilities often cannot collect enough revenue to maintain what they have already built.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Strong Electric Utilities Critical to Clean Energy for All",
+     "url": "https://www.worldbank.org/en/news/press-release/2024/06/18/strong-electric-utilities-critical-to-clean-energy-for-all",
+     "publisher": "World Bank",
+     "snippet": "“Low-income and lower-middle-income countries face the most acute challenges as high costs, low tariffs, transmission and distribution losses, inefficient payment collection”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "date": "2024-06-18",
+     "year": 2024
+    },
+    {
+     "title": "The Critical Link: Empowering Utilities for the Energy Transition",
+     "url": "https://www.worldbank.org/en/topic/energy/publication/the-critical-link-empowering-utilities-for-the-energy-transition",
+     "publisher": "World Bank",
+     "snippet": "“only 40% of utilities in low- and middle-income countries can cover their operating and debt service costs”",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2024,
+     "date": "2024-07-24"
+    },
+    {
+     "title": "India aims to reduce high electricity transmission and distribution system losses",
+     "url": "https://www.eia.gov/todayinenergy/detail.cfm?id=23452",
+     "publisher": "U.S. Energy Information Administration",
+     "snippet": "India’s transmission and distribution losses are almost 20% of generation, and utilities lose significant electricity-related revenue because of poor collection efficiency.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "U.S. Energy Information Administration",
+     "year": 2015
+    },
+    {
+     "title": "Systemic change and economy-wide decarbonisation: Equitable Framework and Finance for Extractive-based Countries in Transition (EFFECT)",
+     "url": "https://www.oecd.org/en/publications/equitable-framework-and-finance-for-extractive-based-countries-in-transition-effect_7871c0ad-en/full-report/component-7.html",
+     "publisher": "OECD",
+     "snippet": "High transmission and distribution losses and low payment collection rates account for over half of turnover deficits in many African utilities.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "OECD",
+     "year": null,
+     "container": "Equitable Framework and Finance for Extractive-based Countries in Transition (EFFECT)"
+    },
+    {
+     "title": "Energy Efficiency for Affordability",
+     "url": "https://www.oecd.org/content/dam/oecd/en/publications/reports/2023/12/energy-efficiency-for-affordability_3dde31d9/dc9f0a60-en.pdf",
+     "publisher": "OECD",
+     "snippet": "Almost a quarter of Kenya’s total electricity generation is lost through system losses, creating pressure on utilities and consumers as demand grows.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "OECD",
+     "year": 2023
+    }
+   ],
+   "shown": 4
+  },
+  "04-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 17047,
+   "claim": "The result is that the absolute number of people without power has stayed nearly flat while the percentage slowly falls, which is the kind of statistic that lets everyone claim progress.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "SDG Indicators: Goal 7",
+     "url": "https://unstats.un.org/sdgs/report/2025/Goal-07/",
+     "publisher": "United Nations Statistics Division",
+     "snippet": "“Global electricity access reached 92 per cent in 2023, up from 84 per cent in 2010, with the number of people without electricity dropping to 666.4 million”",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "United Nations Statistics Division",
+     "year": 2025
+    },
+    {
+     "title": "SDG Indicators: Goal 7",
+     "url": "https://unstats.un.org/sdgs/report/2023/Goal-07/",
+     "publisher": "United Nations Statistics Division",
+     "snippet": "Due to population growth, the number of people without electricity in sub-Saharan Africa remained stubbornly stagnant since 2010, reaching 567 million in 2021.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "United Nations Statistics Division",
+     "year": 2023
+    },
+    {
+     "title": "Figure of the week: Increasing access to electricity in sub-Saharan Africa",
+     "url": "https://www.brookings.edu/articles/figure-of-the-week-increasing-access-to-electricity-in-sub-saharan-africa/",
+     "publisher": "Brookings Institution",
+     "snippet": "The number without access increased from 556 million in 2010 to 570 million in 2019, while the share without access declined as the population grew.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Brookings Institution",
+     "year": 2020
+    },
+    {
+     "title": "Access to electricity – SDG7: Data and Projections – Analysis",
+     "url": "https://www.iea.org/reports/sdg7-data-and-projections/access-to-electricity",
+     "publisher": "International Energy Agency",
+     "snippet": "In sub-Saharan Africa, population growth outpaced efforts to extend access during the compounded effects of the pandemic and energy crisis.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "International Energy Agency",
+     "year": 2023,
+     "container": "SDG7: Data and Projections"
+    },
+    {
+     "title": "WDI - In Sub-Saharan Africa, more than half the population still lack access to electricity",
+     "url": "https://datatopics.worldbank.org/world-development-indicators/stories/in-sub-saharan-africa-more-than-half-the-population-still-lack-access-to-electricity.html",
+     "publisher": "World Bank",
+     "snippet": "“the number of people without access to electricity rose from about 430 million to 590 million”",
+     "stance": "refutes",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2018
+    }
+   ],
+   "shown": 1
+  },
+  "04-c5": {
+   "ok": true,
+   "status": 200,
+   "ms": 12618,
+   "claim": "Household solar systems can now power lighting, phone charging, and a radio for under a hundred dollars, and adoption across East Africa has been rapid.",
+   "essay": "04-energy-access.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Rural energy access through solar home systems: Use patterns and opportunities for improvement",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0973082616310067",
+     "publisher": "ScienceDirect",
+     "snippet": "The study examines solar home systems in rural East Africa, including household lighting and phone charging, and finds no increase in income-generating activities after adoption.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2016
+    },
+    {
+     "title": "Shedding light on the last mile: A study on the diffusion of Pay As You Go Solar Home Systems in Central East Africa",
+     "url": "https://www.sciencedirect.com/science/article/abs/pii/S0301421517303002",
+     "publisher": "ScienceDirect",
+     "snippet": "PAYG solar systems in Central East Africa required about $10 upfront and provided lighting and phone charging, with rapid adoption reported in the study.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2017
+    },
+    {
+     "title": "World Development Report 2017: Governance and the Law — Replicating East Africa’s Pay-as-You-Go Success Story",
+     "url": "https://documents1.worldbank.org/curated/en/364571494517675149/pdf/114841-REVISED-JUNE12-FINAL-SEAR-web-REV-optimized.pdf",
+     "publisher": "World Bank",
+     "snippet": "Off-grid solar product sales in Kenya and neighboring East African countries expanded rapidly, reaching almost two million units in Sub-Saharan Africa in 2016.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Bank",
+     "year": 2017,
+     "container": "World Development Report 2017: Governance and the Law"
+    },
+    {
+     "title": "Solar home systems adoption in Sub-Saharan African countries: Household economic and environmental benefits assessment",
+     "url": "https://www.sciencedirect.com/science/article/abs/pii/S0960148122003068",
+     "publisher": "ScienceDirect",
+     "snippet": "The study analyzes 10–30-watt solar home systems used for lighting and phone charging across 11 Sub-Saharan African countries and defines Tier 1 access as lighting, phone charging, and radio listening.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2022
+    },
+    {
+     "title": "How solar home systems temporally stimulate increasing power demands in rural households of Sub-Saharan Africa",
+     "url": "https://link.springer.com/article/10.1007/s41825-020-00028-9",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "The article reports that more than 600,000 rural East African households gained basic electricity access through solar home systems and describes systems ranging from 8 to 50 watts.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Nicholas Nixon Opiyo"
+     ],
+     "groupAuthor": "",
+     "year": 2020,
+     "doi": "10.1007/s41825-020-00028-9",
+     "date": "2020-06-22",
+     "container": "Energy Transitions",
+     "volume": "4",
+     "issue": "2",
+     "pages": "141-153",
+     "editors": []
+    }
+   ],
+   "shown": 3
+  },
+  "05-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 12187,
+   "claim": "Orben and Przybylski (2019) analyzed data from over 350,000 adolescents and concluded that social media use is a primary driver of declining teen well-being.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "The association between adolescent well-being and digital technology use",
+     "url": "https://www.nature.com/articles/s41562-018-0506-1",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "“The association we find between digital technology use and adolescent well-being is negative but small, explaining at most 0.4% of the variation in well-being.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Amy Orben",
+      "Andrew K. Przybylski"
+     ],
+     "groupAuthor": "",
+     "date": "2019-01-14",
+     "year": 2019,
+     "doi": "10.1038/s41562-018-0506-1",
+     "container": "Nature Human Behaviour",
+     "volume": "3",
+     "issue": "2",
+     "pages": "173-182",
+     "editors": []
+    },
+    {
+     "title": "Social media’s enduring effect on adolescent life satisfaction",
+     "url": "https://doi.org/10.1073/pnas.1902058116",
+     "publisher": "National Academy of Sciences",
+     "snippet": "“social media use is not, in and of itself, a strong predictor of life satisfaction across the adolescent population.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Amy Orben",
+      "Tobias Dienlin",
+      "Andrew K. Przybylski"
+     ],
+     "groupAuthor": "",
+     "year": 2019,
+     "doi": "10.1073/pnas.1902058116",
+     "date": "2019-05-06",
+     "container": "Proceedings of the National Academy of Sciences",
+     "volume": "116",
+     "issue": "21",
+     "pages": "10226-10228",
+     "editors": []
+    },
+    {
+     "title": "Screens, Teens, and Psychological Well-Being: Evidence From Three Time-Use-Diary Studies",
+     "url": "https://journals.sagepub.com/doi/10.1177/0956797619830329",
+     "publisher": "SAGE Publications",
+     "snippet": "Across three time-use-diary studies, the authors found little clear evidence that digital-screen engagement decreases adolescent well-being.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Amy Orben",
+      "Andrew K. Przybylski"
+     ],
+     "groupAuthor": "",
+     "date": "2019-04-02",
+     "year": 2019,
+     "doi": "10.1177/0956797619830329",
+     "container": "Psychological Science",
+     "volume": "30",
+     "issue": "5",
+     "pages": "682-696",
+     "editors": []
+    },
+    {
+     "title": "Specification Analysis for Technology Use and Teenager Well-Being: Statistical Validity and a Bayesian Proposal",
+     "url": "https://academic.oup.com/jrsssc/article/71/5/1330/7073288",
+     "publisher": "Oxford University Press (OUP)",
+     "snippet": "The article revisits Orben and Przybylski’s specification curve analysis and argues that statistical methodology can produce different conclusions about technology and teenager well-being.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Christoph Semken",
+      "David Rossell"
+     ],
+     "groupAuthor": "",
+     "year": 2022,
+     "doi": "10.1111/rssc.12578",
+     "date": "2022-07-13",
+     "container": "Journal of the Royal Statistical Society Series C: Applied Statistics",
+     "volume": "71",
+     "issue": "5",
+     "pages": "1330-1355",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "05-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 14920,
+   "claim": "Since smartphones became widespread around 2012, rates of anxiety and depression among teenagers have climbed steeply, and no other explanation fits the timing as well.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Increases in Depression, Self-Harm, and Suicide Among U.S. Adolescents After 2012 and Links to Technology Use: Possible Mechanisms",
+     "url": "https://psychiatryonline.org/doi/full/10.1176/appi.prcp.20190015",
+     "publisher": "American Psychiatric Association Publishing",
+     "snippet": "“These trends included sharp increases in depression, anxiety, loneliness, self-harm, suicidal ideation, suicide attempts, and suicide”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Jean M. Twenge"
+     ],
+     "groupAuthor": "",
+     "year": 2020,
+     "doi": "10.1176/appi.prcp.20190015",
+     "container": "Psychiatric Research and Clinical Practice",
+     "date": "2020-06-01",
+     "volume": "2",
+     "issue": "1",
+     "pages": "19-25",
+     "editors": []
+    },
+    {
+     "title": "Decreases in psychological well-being among American adolescents after 2012 and links to screen time during the rise of smartphone technology",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/29355336/",
+     "publisher": "American Psychological Association (APA)",
+     "snippet": "The study finds lower adolescent well-being among heavier screen users and reports that unemployment was not significantly correlated with the decline.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Jean M. Twenge",
+      "Gabrielle N. Martin",
+      "W. Keith Campbell"
+     ],
+     "groupAuthor": "",
+     "year": 2018,
+     "container": "Emotion",
+     "doi": "10.1037/emo0000403",
+     "volume": "18",
+     "issue": "6",
+     "pages": "765-780",
+     "editors": []
+    },
+    {
+     "title": "Digital Ecosystems, Children, and Adolescents: Technical Report",
+     "url": "https://publications.aap.org/pediatrics/article/157/2/e2025075321/206128/Digital-Ecosystems-Children-and-Adolescents",
+     "publisher": "American Academy of Pediatrics",
+     "snippet": "The report notes that passive social-media use does not consistently predict adolescent anxiety or depression and that individual predispositions may explain some associations.",
+     "stance": "refutes",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "American Academy of Pediatrics",
+     "year": null,
+     "container": "Pediatrics"
+    },
+    {
+     "title": "Impact of mobile phones and wireless devices use on children and adolescents’ mental health: a systematic review",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9200624/",
+     "publisher": "National Library of Medicine",
+     "snippet": "The review finds associations between some forms of mobile-phone and social-media use and adolescent depression or anxiety, while noting mixed findings across specific technologies and measures.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 1
+  },
+  "05-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 11773,
+   "claim": "Some researchers argue the effect is small.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Social Media and Anxiety: 14 Questions, Answered",
+     "url": "https://www.myfreud.com/anxiety/social-media-anxiety-study-2025-faq-evidence/",
+     "publisher": "MyFreud",
+     "snippet": "“others argue that effect sizes this small do not survive the bar for serious policy intervention.”",
+     "stance": "supports",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "MyFreud Editorial",
+     "date": "2026-05-20",
+     "year": 2026
+    },
+    {
+     "title": "Teen Social Media and Anxiety: What the Longitudinal Studies Show",
+     "url": "https://www.bebetteroffline.com/learn/teen-social-media-and-anxiety-what-the-longitudinal-studies?depth=2",
+     "publisher": "Be Better Offline",
+     "snippet": "“Others point out that the effect sizes are too small to support that claim on their own.”",
+     "stance": "supports",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "BBO Team",
+     "year": 2026,
+     "date": "2026-07-15"
+    },
+    {
+     "title": "PsychPraxis — Digital Psychology Laboratory v4.1",
+     "url": "https://www.digitalpsychology.net/",
+     "publisher": "Digital Psychology Laboratory",
+     "snippet": "The site summarizes research finding that associations between screen time and well-being are real but quite small, with effects varying by type of use.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Digital Psychology Laboratory",
+     "year": null
+    },
+    {
+     "title": "The Welfare System and Its Effects on Family Formation",
+     "url": "https://www.ncbi.nlm.nih.gov/books/n/nap6133/pdf/",
+     "publisher": "National Academies Press",
+     "snippet": "The report notes that researchers disagree about whether the effect under review is small or sizable, while describing its magnitude as uncertain.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "National Research Council",
+     "year": null
+    }
+   ],
+   "shown": 3
+  },
+  "05-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13491,
+   "claim": "But small average effects can hide large effects in vulnerable subgroups, and anyone who has watched a fourteen-year-old scroll for four hours straight knows what they are looking at.",
+   "essay": "05-social-media.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Social Media and Adolescent Health",
+     "url": "https://www.ncbi.nlm.nih.gov/books/NBK603435/pdf/Bookshelf_NBK603435.pdf",
+     "publisher": "National Academies of Sciences, Engineering, and Medicine",
+     "snippet": "The report notes small or mixed population-level effects alongside substantial heterogeneity, making conclusions about particular subgroups important.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "National Academies of Sciences, Engineering, and Medicine",
+     "year": null
+    },
+    {
+     "title": "Annual Research Review: Adolescent social media use is not a monolith: toward the study of specific social media components and individual differences",
+     "url": "https://acamh.onlinelibrary.wiley.com/doi/10.1111/jcpp.14085",
+     "publisher": "Wiley",
+     "snippet": "“other preexisting vulnerabilities to mental health concerns”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Anne J. Maheux",
+      "Kaitlyn Burnell",
+      "Maria T. Maza",
+      "Kara A. Fox",
+      "Eva H. Telzer",
+      "Mitchell J. Prinstein"
+     ],
+     "groupAuthor": "",
+     "date": "2024-12-23",
+     "year": 2024,
+     "doi": "10.1111/jcpp.14085",
+     "container": "Journal of Child Psychology and Psychiatry",
+     "volume": "66",
+     "issue": "4",
+     "pages": "440-459",
+     "editors": []
+    },
+    {
+     "title": "Adolescents' differential responses to social media browsing: Exploring causes and consequences for intervention",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0747563217304600",
+     "publisher": "Elsevier",
+     "snippet": "The experimental study found that adolescents were differentially affected by browsing social-media highlight reels, with negative comparison predicting immediate emotional effects.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Emily Weinstein"
+     ],
+     "groupAuthor": "",
+     "year": 2017,
+     "container": "Computers in Human Behavior"
+    },
+    {
+     "title": "Adolescent social media use and mental health in the Environmental influences on Child Health Outcomes (ECHO) Study",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11930604/",
+     "publisher": "National Library of Medicine",
+     "snippet": "Adolescents averaged 3.52 hours of daily social-media use, while associations with worse mental health were small and the study could not fully analyze vulnerable symptomatic subgroups.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "The Effects of Social Media Consumption on Adolescent Psychological Well-Being",
+     "url": "https://www.journals.uchicago.edu/doi/10.1086/728739",
+     "publisher": "University of Chicago Press",
+     "snippet": "The article reviews methodological limitations and emphasizes that research findings on social media’s effects on adolescent well-being require careful interpretation.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Elena Fumagalli",
+      "L. J. Shrum",
+      "Tina M. Lowrey"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1086/728739",
+     "container": "Journal of the Association for Consumer Research",
+     "date": "2024-04-01",
+     "volume": "9",
+     "issue": "2",
+     "pages": "119-130",
+     "editors": []
+    }
+   ],
+   "shown": 2
+  },
+  "06-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 11545,
+   "claim": "The novel was published anonymously in 1818, and the revised 1831 edition carries a new preface in which Shelley describes the book's origin during a stay at the Villa Diodati.",
+   "essay": "06-frankenstein.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Frankenstein; or, The modern Prometheus",
+     "url": "https://www.loc.gov/item/53051218/",
+     "publisher": "Library of Congress",
+     "snippet": "The Library of Congress catalogs Frankenstein; or, The modern Prometheus as published in 1818 and identifies Mary Wollstonecraft Shelley as its creator.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Library of Congress",
+     "year": 1818
+    },
+    {
+     "title": "How I wrote Frankenstein",
+     "url": "https://www.open.edu/openlearn/history-the-arts/culture/literature-and-creative-writing/literature/how-i-wrote-frankenstein",
+     "publisher": "The Open University",
+     "snippet": "This extract from the 1831 preface presents Mary Shelley’s account of how she came to write Frankenstein during the summer of 1816 near Geneva.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "The Open University",
+     "year": 1831
+    },
+    {
+     "title": "Frankenstein chronology",
+     "url": "https://shelleygodwinarchive.org/contents/frankenstein/frankenstein-chronology/",
+     "publisher": "Shelley-Godwin Archive",
+     "snippet": "The chronology explains that the publisher received the manuscript without Mary Shelley’s authorship being revealed and discusses the publication history of the novel.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Shelley-Godwin Archive",
+     "year": 1818
+    },
+    {
+     "title": "Frankenstein, or the Modern Prometheus (1831)",
+     "url": "https://frankensteinvariorum.github.io/fv-collation/Frankenstein_1831.html",
+     "publisher": "Frankenstein Variorum",
+     "snippet": "The digital 1831 edition includes Mary Shelley’s account of the story’s origin, beginning with the publishers’ request for an explanation of its genesis.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Frankenstein Variorum",
+     "year": 1831
+    },
+    {
+     "title": "Did Mary Shelley write Frankenstein? A stylometric analysis",
+     "url": "https://academic.oup.com/dsh/article/38/2/750/6773078",
+     "publisher": "Oxford University Press",
+     "snippet": "The article states that Frankenstein was published anonymously in 1818 and first credited Mary Shelley in a French translation of 1821.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2023,
+     "container": "Digital Scholarship in the Humanities"
+    }
+   ],
+   "shown": 3
+  },
+  "06-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 10767,
+   "claim": "The moment of animation takes up barely a paragraph.",
+   "essay": "06-frankenstein.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "A Phantom Fidelity: Frankenstein Monster’s Creation",
+     "url": "https://www.robertmitchellevans.com/2022/01/27/a-phantom-fidelity-frankenstein-monsters-creation/",
+     "publisher": "Robert Mitchell Evans",
+     "snippet": "The article states that one paragraph, comprising 98 words out of approximately 75,000, depicts the creature’s creation.",
+     "stance": "supports",
+     "kind": "other",
+     "authors": [
+      "Bob Evans"
+     ],
+     "groupAuthor": "",
+     "date": "2022-01-27",
+     "year": 2022
+    },
+    {
+     "title": "Frankenstein",
+     "url": "https://www.encyclopedia.com/literature-and-arts/performing-arts/film-and-television/frankenstein",
+     "publisher": "Encyclopedia.com",
+     "snippet": "The entry explains that the creature leaves Victor’s apartment within hours of animation and subsequently experiences rejection, violence, and abandonment.",
+     "stance": "context",
+     "kind": "reference",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Frankenstein",
+     "url": "https://www.readiq.app/books/mary-shelley/frankenstein",
+     "publisher": "ReadIQ",
+     "snippet": "The summary describes Victor’s immediate abandonment of the creature and the creature’s subsequent rejection by humanity as central developments.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 1
+  },
+  "06-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 12528,
+   "claim": "When the creature finally speaks, he speaks in the register of the books he found, which is why his eloquence startles readers who came expecting a monster.",
+   "essay": "06-frankenstein.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Frankenstein, or the Modern Prometheus (First Edition, 1818), Volume 2, Chapter 7",
+     "url": "https://en.wikisource.org/wiki/Frankenstein%2C_or_the_Modern_Prometheus_%28First_Edition%2C_1818%29/Volume_2/Chapter_7",
+     "publisher": "Wikisource",
+     "snippet": "The creature says the books taught him language, elevated his thoughts, and produced profound emotions, including through Plutarch and Paradise Lost.",
+     "stance": "context",
+     "kind": "archive",
+     "authors": [
+      "Mary Shelley"
+     ],
+     "groupAuthor": "",
+     "year": 1818
+    },
+    {
+     "title": "Humanity 101: The Syllabus of Frankenstein’s Monster",
+     "url": "https://publicdomainreview.org/collection/frankenstein-monster-reading-list",
+     "publisher": "The Public Domain Review",
+     "snippet": "The creature learns language by observing Felix teach Safie and reads Paradise Lost, Plutarch’s Lives, and The Sorrows of Young Werther.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "The Public Domain Review",
+     "year": 2024
+    },
+    {
+     "title": "The monster's reading: Plutarch, Milton and Goethe",
+     "url": "https://crossref-it.info/textguide/frankenstein/7/339",
+     "publisher": "Crossref-it.info",
+     "snippet": "The creature acquires language through the De Lacey family and uses three books to develop his understanding of the world and human society.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Frankenstein",
+     "url": "https://www.encyclopedia.com/literature-and-arts/performing-arts/film-and-television/frankenstein",
+     "publisher": "Encyclopedia.com",
+     "snippet": "The creature’s early reading shapes his worldview, teaching him about human virtue, vice, social life, and the limits of human goodness.",
+     "stance": "context",
+     "kind": "reference",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Frankenstein Friday: Vol. 2 Ch. 7",
+     "url": "https://indianahumanities.org/2018/05/25/frankenfridaychap14/",
+     "publisher": "Indiana Humanities",
+     "snippet": "The creature describes the books as treasures that he studied continually and says they produced new images, feelings, speculation, and astonishment.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Indiana Humanities",
+     "date": "2018-05-25",
+     "year": 2018
+    }
+   ],
+   "shown": 0
+  },
+  "07-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 17067,
+   "claim": "A 2019 global analysis attributed 1.27 million deaths directly to bacterial antimicrobial resistance, more than either HIV or malaria caused that year.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Global burden of bacterial antimicrobial resistance in 2019: a systematic analysis",
+     "url": "https://doi.org/10.1016/s0140-6736%2821%2902724-0",
+     "publisher": "Elsevier BV",
+     "snippet": "The analysis estimated 4.95 million deaths associated with bacterial AMR in 2019, including 1.27 million directly attributable deaths.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Christopher J L Murray",
+      "Kevin Shunji Ikuta",
+      "Fablina Sharara",
+      "Lucien Swetschinski",
+      "Gisela Robles Aguilar",
+      "Authia Gray",
+      "Chieh Han",
+      "Catherine Bisignano",
+      "Puja Rao",
+      "Eve Wool",
+      "Sarah C Johnson",
+      "Annie J Browne",
+      "Michael Give Chipeta",
+      "Frederick Fell",
+      "Sean Hackett",
+      "Georgina Haines-Woodhouse",
+      "Bahar H Kashef Hamadani",
+      "Emmanuelle A P Kumaran",
+      "Barney McManigal",
+      "Sureeruk Achalapong",
+      "Ramesh Agarwal",
+      "Samuel Akech",
+      "Samuel Albertson",
+      "John Amuasi",
+      "Jason Andrews",
+      "Aleskandr Aravkin",
+      "Elizabeth Ashley",
+      "François-Xavier Babin",
+      "Freddie Bailey",
+      "Stephen Baker"
+     ],
+     "groupAuthor": "",
+     "year": 2022,
+     "doi": "10.1016/s0140-6736(21)02724-0",
+     "container": "The Lancet",
+     "volume": "399",
+     "issue": "10325",
+     "pages": "629-655",
+     "editors": []
+    },
+    {
+     "title": "Global burden of bacterial antimicrobial resistance in 2019: a systematic analysis",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8841637/",
+     "publisher": "National Library of Medicine",
+     "snippet": "The study states that AMR would have ranked ahead of both HIV and malaria under the counterfactual of susceptible infection.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "An estimated 1.2 million people died in 2019 from antibiotic-resistant bacterial infections",
+     "url": "https://www.ox.ac.uk/news/2022-01-20-estimated-12-million-people-died-2019-antibiotic-resistant-bacterial-infections?s=09",
+     "publisher": "University of Oxford",
+     "snippet": "Oxford reports that resistance itself caused an estimated 1.27 million deaths in 2019, more than HIV/AIDS or malaria.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Oxford",
+     "year": null
+    },
+    {
+     "title": "Reckoning with the global toll of antimicrobial resistance",
+     "url": "https://fic.nih.gov/News/GlobalHealthMatters/may-june-2022/Pages/reckoning-global-toll-antimicrobial-resistance.aspx",
+     "publisher": "Fogarty International Center",
+     "snippet": "The NIH’s Fogarty Center reports that 1.27 million people died directly from AMR in 2019, exceeding deaths from HIV/AIDS or malaria.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Fogarty International Center",
+     "year": null
+    },
+    {
+     "title": "Global burden of bacterial antimicrobial resistance",
+     "url": "https://www.tropicalmedicine.ox.ac.uk/gram/research/global-burden-of-bacterial-antimicrobial-resistance",
+     "publisher": "Centre for Tropical Medicine and Global Health, University of Oxford",
+     "snippet": "GRAM reports that more than 1.27 million deaths were directly attributable to bacterial AMR, exceeding the burden of HIV/AIDS or malaria.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centre for Tropical Medicine and Global Health, University of Oxford",
+     "year": null
+    }
+   ],
+   "shown": 3
+  },
+  "07-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13447,
+   "claim": "Roughly 30 percent of antibiotic prescriptions written in American outpatient settings are unnecessary, and that overprescription is the main reason resistant infections have risen inside hospitals.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Core Elements of Outpatient Antibiotic Stewardship",
+     "url": "https://www.cdc.gov/mmwr/volumes/65/rr/rr6506a1.htm",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC states that at least 30% of outpatient antibiotic prescriptions in the United States are unnecessary.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2016,
+     "container": "Morbidity and Mortality Weekly Report"
+    },
+    {
+     "title": "CDC: 1 in 3 antibiotic prescriptions unnecessary",
+     "url": "https://archive.cdc.gov/www_cdc_gov/media/releases/2016/p0503-unnecessary-prescriptions.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reports that at least 30% of antibiotics prescribed in the United States are unnecessary, based on national outpatient visit data.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "date": "2016-05-03",
+     "year": 2016
+    },
+    {
+     "title": "Antimicrobial Resistance in Health Care: Causes and How It Spreads",
+     "url": "https://www.cdc.gov/antimicrobial-resistance/causes/healthcare.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC identifies unnecessary antibiotic use as important to resistance while also describing resistant germs spreading between healthcare settings and communities.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2023
+    },
+    {
+     "title": "Antibiotic Use in the United States, 2017: Progress and Opportunities",
+     "url": "https://archive.cdc.gov/www_cdc_gov/antibiotic-use/stewardship-report/2017.html",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC reports that at least 30% of outpatient antibiotic prescriptions were unnecessary and that hospitals also had substantial potential prescribing problems.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2017
+    },
+    {
+     "title": "Core elements of hospital antibiotic stewardship programs",
+     "url": "https://stacks.cdc.gov/view/cdc/25302",
+     "publisher": "Centers for Disease Control and Prevention",
+     "snippet": "CDC states that 20–50% of antibiotics prescribed in U.S. acute-care hospitals are unnecessary or inappropriate and that stewardship reduces resistance.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "Centers for Disease Control and Prevention",
+     "year": 2014
+    }
+   ],
+   "shown": 0
+  },
+  "07-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 15628,
+   "claim": "Resistance genes have been recovered from permafrost sediment tens of thousands of years older than any human medicine, which suggests resistance is an ordinary feature of bacterial life rather than something modern prescribing invented.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Antibiotic resistance is ancient",
+     "url": "https://www.nature.com/articles/nature10388",
+     "publisher": "Nature",
+     "snippet": "“30,000-year-old Beringian permafrost sediments and the identification of a highly diverse collection of genes encoding resistance”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "D’Costa, Vanessa M.",
+      "King, Christine E.",
+      "Kalan, Lindsay",
+      "Morar, Mariya",
+      "Sung, Wilson W. L.",
+      "Schwarz, Carsten",
+      "Froese, Duane",
+      "Zazula, Grant",
+      "Calmels, Fabrice",
+      "Debruyne, Regis",
+      "Golding, G. Brian",
+      "Poinar, Hendrik N.",
+      "Wright, Gerard D."
+     ],
+     "groupAuthor": "",
+     "year": 2011,
+     "container": "Nature",
+     "doi": "10.1038/nature10388"
+    },
+    {
+     "title": "Functional Characterization of Bacteria Isolated from Ancient Arctic Soil Exposes Diverse Resistance Mechanisms to Modern Antibiotics",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4373940/",
+     "publisher": "PLoS ONE",
+     "snippet": "Functional metagenomics showed that bacterial communities from Canadian Arctic permafrost harbored diverse resistance mechanisms at least 5,000 years ago.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "The Prehistory of Antibiotic Resistance",
+     "url": "https://perspectivesinmedicine.cshlp.org/content/6/6/a025197.full.pdf",
+     "publisher": "Cold Spring Harbor Perspectives in Medicine",
+     "snippet": "A review describes resistance genes encoding resistance to β-lactam, tetracycline, and glycopeptide antibiotics in 30,000-year-old permafrost metagenomes.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Ancient Resistome",
+     "url": "https://journals.asm.org/doi/10.1128/microbiolspec.poh-0008-2015",
+     "publisher": "American Society for Microbiology",
+     "snippet": "“Antibiotic resistance is an ancient biological mechanism in bacteria, although its proliferation in our contemporary world has been amplified through antimicrobial therapy.”",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [
+      "Abiola Olumuyiwa Olaitan",
+      "Jean-Marc Rolain"
+     ],
+     "groupAuthor": "",
+     "year": 2016,
+     "doi": "10.1128/microbiolspec.poh-0008-2015",
+     "date": "2016-08-12",
+     "container": "Microbiology Spectrum",
+     "volume": "4",
+     "issue": "4",
+     "editors": []
+    },
+    {
+     "title": "Culturing Ancient Bacteria Carrying Resistance Genes from Permafrost and Comparative Genomics with Modern Isolates",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/33023015/",
+     "publisher": "MDPI AG",
+     "snippet": "The study reports that antibiotic resistance mechanisms are much older than human antibiotic use and examines bacteria from a 2.7-million-year-old Siberian permafrost sample.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Pamela Afouda",
+      "Grégory Dubourg",
+      "Anthony Levasseur",
+      "Pierre-Edouard Fournier",
+      "Jeremy Delerce",
+      "Oleg Mediannikov",
+      "Seydina M. Diene",
+      "Daniel Nahon",
+      "Didier Bourlès",
+      "Jean-Marc Rolain",
+      "Didier Raoult"
+     ],
+     "groupAuthor": "",
+     "year": 2020,
+     "container": "Microorganisms",
+     "doi": "10.3390/microorganisms8101522",
+     "date": "2020-10-03",
+     "volume": "8",
+     "issue": "10",
+     "pages": "1522",
+     "editors": []
+    }
+   ],
+   "shown": 3
+  },
+  "07-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13583,
+   "claim": "If nothing changes, routine surgery will become impossible within a decade, because the procedures we treat as safe are only safe on the assumption that an infection afterward can be cleared.",
+   "essay": "07-antibiotic-resistance.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "CONSULTATION DOCUMENT (November 2023): WHO strategic and operational priorities to address drug-resistant bacterial infections, 2025-2035",
+     "url": "https://cdn.who.int/media/docs/default-source/antimicrobial-resistance/amr-spc-npm/people-centred-framework/amr-strategic-and-operational-priorities-consultation-document.pdf?sfvrsn=e259fd22_6",
+     "publisher": "World Health Organization",
+     "snippet": "WHO states that antimicrobial resistance increases risks that common infections become impossible to treat and routine medical procedures, including surgery, become unsafe.",
+     "stance": "supports",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "World Health Organization",
+     "year": null
+    },
+    {
+     "title": "Antimicrobial resistance: accelerating national and global responses",
+     "url": "https://apps.who.int/gb/ebwha/pdf_files/WHA77/A77_5-en.pdf",
+     "publisher": "World Health Organization",
+     "snippet": "WHO reports that antimicrobial resistance can make common infections impossible to treat and routine procedures such as surgery unsafe.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "World Health Organization",
+     "year": null
+    },
+    {
+     "title": "Confronting antimicrobial resistance 2024 to 2029",
+     "url": "https://cdn.who.int/media/docs/default-source/antimicrobial-resistance/amr-spc-npm/nap-library/uk-amr-nap-2024-2029.pdf?download=true",
+     "publisher": "Department of Health and Social Care",
+     "snippet": "The UK document states that without effective antibiotics, even minor surgery and routine operations could become high-risk if serious infections cannot be treated.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Department of Health and Social Care",
+     "year": null
+    },
+    {
+     "title": "The threat of antimicrobial resistance in surgical care: the surgeon’s role and ownership of antimicrobial stewardship",
+     "url": "https://academic.oup.com/bjs/article/110/12/1567/7284303",
+     "publisher": "British Journal of Surgery",
+     "snippet": "The article describes surgical-site infections as a major concern and reports that resistant organisms account for a substantial share of infections after gastrointestinal surgery.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Gabriel Birgand"
+     ],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 3
+  },
+  "08-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 12588,
+   "claim": "Ramirez and Doyle (2024) found that students who received AI-generated feedback improved their essay scores by 23 percent over a single semester, a larger effect than any human intervention has produced.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Comparing the quality of human and ChatGPT feedback of students’ writing",
+     "url": "https://doi.org/10.1016/j.learninstruc.2024.101894",
+     "publisher": "Elsevier BV",
+     "snippet": "“Human raters were better at providing high-quality feedback to students in all categories other than criteria-based.”",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [
+      "Jacob Steiss",
+      "Tamara Tate",
+      "Steve Graham",
+      "Jazmin Cruz",
+      "Michael Hebert",
+      "Jiali Wang",
+      "Youngsun Moon",
+      "Waverly Tseng",
+      "Mark Warschauer",
+      "Carol Booth Olson"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1016/j.learninstruc.2024.101894",
+     "container": "Learning and Instruction",
+     "volume": "91",
+     "pages": "101894",
+     "editors": []
+    },
+    {
+     "title": "Automated feedback and writing: a multi-level meta-analysis of effects on students’ performance",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10351274/",
+     "publisher": "",
+     "snippet": "The meta-analysis reports substantial heterogeneity, indicating automated feedback cannot be treated as one consistent intervention.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2023
+    },
+    {
+     "title": "AI-generated feedback on writing: insights into efficacy and ENL student preference",
+     "url": "https://link.springer.com/article/10.1186/s41239-023-00425-2",
+     "publisher": "Springer Science and Business Media LLC",
+     "snippet": "The study examined GPT-4 feedback and student preferences, including pretesting during the first week of a semester.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Juan Escalante",
+      "Austin Pack",
+      "Alex Barrett"
+     ],
+     "groupAuthor": "",
+     "year": 2023,
+     "container": "International Journal of Educational Technology in Higher Education",
+     "date": "2023-10-27",
+     "doi": "10.1186/s41239-023-00425-2",
+     "volume": "20",
+     "issue": "1",
+     "editors": []
+    },
+    {
+     "title": "GPT-4 feedback increases student activation and learning outcomes in higher education",
+     "url": "https://www.sciencedirect.com/science/article/pii/S1560429226000168",
+     "publisher": "",
+     "snippet": "Over one semester, students answered eight open-ended questions and received lecturer, peer, or AI feedback depending on treatment.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2026
+    }
+   ],
+   "shown": 0
+  },
+  "08-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 13769,
+   "claim": "Their sample was large and the effect held across grade levels, so the usual complaints about small studies do not apply here.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "How Does Artificial Intelligence Compare to Human Feedback? A Meta-Analysis of Performance, Feedback Perception, and Learning Dispositions",
+     "url": "https://doi.org/10.1080/01443410.2025.2553639",
+     "publisher": "Informa UK Limited",
+     "snippet": "The meta-analysis includes separate studies comparing AI feedback with human feedback and studies measuring performance change after feedback interventions.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Rogers Kaliisa",
+      "Kamila Misiejuk",
+      "Sonsoles López-Pernas",
+      "Mohammed Saqr"
+     ],
+     "groupAuthor": "",
+     "year": 2025,
+     "doi": "10.1080/01443410.2025.2553639",
+     "date": "2025-09-24",
+     "container": "Educational Psychology",
+     "volume": "46",
+     "issue": "1",
+     "pages": "80-111",
+     "editors": []
+    },
+    {
+     "title": "The Effects of AI-Assisted Feedback on Students’ Perceptions, Emotions, and Learning Outcomes in L2 Writing: A Three-Level Meta-Analysis",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0346251X26000497",
+     "publisher": "ScienceDirect",
+     "snippet": "The study warns that a substantial effect from a single pilot study highlights an efficacy-effectiveness gap in AI-feedback research.",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2026
+    },
+    {
+     "title": "Automated Feedback and Writing: A Multi-Level Meta-Analysis of Effects on Students' Performance",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10351274/",
+     "publisher": "National Library of Medicine",
+     "snippet": "The meta-analysis examines whether effects of automated writing feedback are moderated by sample, intervention, and outcome characteristics.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2023
+    },
+    {
+     "title": "Can Students Judge Like Experts? A Large-Scale Study on the Pedagogical Quality of AI and Human Personalized Formative Feedback",
+     "url": "https://doi.org/10.1016/j.caeai.2025.100533",
+     "publisher": "Elsevier BV",
+     "snippet": "The study compares AI-generated and human-authored feedback in higher education using 979 feedback samples and a 472-student user study.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Tanya Nazaretsky",
+      "Hagit Gabbay",
+      "Tanja Käser"
+     ],
+     "groupAuthor": "",
+     "year": 2026,
+     "doi": "10.1016/j.caeai.2025.100533",
+     "container": "Computers and Education: Artificial Intelligence",
+     "volume": "10",
+     "pages": "100533",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "08-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 8742,
+   "claim": "GPT-5 class models now score above the median human rater on the AP English Language essay rubric, according to the vendor's own published evaluation.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Introducing GPT-5",
+     "url": "https://openai.com/index/introducing-gpt-5/?content_language=English&facet3=pdf",
+     "publisher": "OpenAI",
+     "snippet": "OpenAI reports GPT-5 evaluation results across capabilities including visual reasoning, agentic coding, and graduate-level scientific problem solving, but the result shown does not mention AP English Language essays.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "OpenAI",
+     "year": 2025
+    },
+    {
+     "title": "Appendix A Exam Benchmark Methodology",
+     "url": "https://3dvar.com/OpenAI2023GPT.pdf",
+     "publisher": "OpenAI",
+     "snippet": "The methodology says AP English Language and Composition essays were graded by one or two qualified third-party contractors with relevant essay-grading experience.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "OpenAI",
+     "year": 2023
+    },
+    {
+     "title": "Grading the Graders: Comparing Generative AI and Human Assessment in Essay Evaluation",
+     "url": "https://journals.sagepub.com/doi/full/10.1177/00986283241282696",
+     "publisher": "SAGE Publications",
+     "snippet": "The study compares two ChatGPT versions with eight human instructors grading 186 deidentified student essays using a detailed rubric.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Elizabeth L. Wetzler",
+      "Kenneth S. Cassidy",
+      "Margaret J. Jones",
+      "Chelsea R. Frazier",
+      "Nickalous A. Korbut",
+      "Chelsea M. Sims",
+      "Shari S. Bowen",
+      "Michael Wood"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1177/00986283241282696",
+     "date": "2024-09-19",
+     "container": "Teaching of Psychology",
+     "volume": "52",
+     "issue": "3",
+     "pages": "298-304",
+     "editors": []
+    },
+    {
+     "title": "Comparing GPT and human raters in essay assessment: Variability, bias, and the potential of LLM-based scoring",
+     "url": "https://doi.org/10.1016/j.caeo.2026.100341",
+     "publisher": "Elsevier BV",
+     "snippet": "The study analyzes ratings by 20 human raters and a GPT-based automated essay-scoring system on 181 university second-language essays using a standardized rubric.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Hsiang-Ning Wu",
+      "Man-Ni Chu",
+      "Jia-Lien Hsu"
+     ],
+     "groupAuthor": "",
+     "year": 2026,
+     "doi": "10.1016/j.caeo.2026.100341",
+     "container": "Computers and Education Open",
+     "volume": "10",
+     "pages": "100341",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "08-c4": {
+   "ok": true,
+   "status": 200,
+   "ms": 13937,
+   "claim": "Every English teacher I know is quietly worried that AI will grade essays better than they do, and the research says they are right to worry.",
+   "essay": "08-ai-grading.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "AI not yet good enough to mark university essays, rewarding ‘style over substance’",
+     "url": "https://www.cam.ac.uk/stories/ai-university-essay-grading",
+     "publisher": "University of Cambridge",
+     "snippet": "Researchers found AI matched human-awarded degree classifications only around half the time and often rewarded length, vocabulary, and sentence complexity over academic quality.",
+     "stance": "context",
+     "kind": "institutional",
+     "authors": [],
+     "groupAuthor": "University of Cambridge",
+     "year": 2026
+    },
+    {
+     "title": "Can AI provide useful holistic essay scoring?",
+     "url": "https://www.sciencedirect.com/science/article/pii/S2666920X24000584",
+     "publisher": "Elsevier",
+     "snippet": "The study compares minimally prompted language-model scores with trained human ratings and reports that human scoring was generally more reliable, especially for English learners.",
+     "stance": "refutes",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2024
+    },
+    {
+     "title": "Can AI grade your essays? A comparative analysis of large language models and teacher ratings in multidimensional essay scoring",
+     "url": "https://arxiv.org/abs/2411.16337",
+     "publisher": "arXiv",
+     "snippet": "LLM assessment could support teachers, particularly for language-related criteria, but models tended to give higher scores and struggled to capture content quality.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Seßler, Kathrin",
+      "Fürstenberg, Maurice",
+      "Bühler, Babette",
+      "Kasneci, Enkelejda"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "date": "2024-11-25"
+    },
+    {
+     "title": "Large Language Models in Student Assessment: Comparing ChatGPT and Human Graders",
+     "url": "https://arxiv.org/abs/2406.16510",
+     "publisher": "arXiv",
+     "snippet": "GPT-4 grades primarily reflected generic language quality and did not reliably adapt to nuanced grading criteria compared with university teachers.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Lundgren, Magnus"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "date": "2024-06-24"
+    },
+    {
+     "title": "EFL teachers’ perceptions of the use of an AI grading tool (CoGrader) in English writing assessment",
+     "url": "https://www.tandfonline.com/doi/pdf/10.1080/2331186X.2024.2430865",
+     "publisher": "Informa UK Limited",
+     "snippet": "The study examines English teachers’ concerns about AI grading and reports that teachers strongly supported maintaining control and receiving training when using such tools.",
+     "stance": "context",
+     "kind": "journal",
+     "authors": [
+      "Mashael Salem Alsalem"
+     ],
+     "groupAuthor": "",
+     "year": 2024,
+     "doi": "10.1080/2331186x.2024.2430865",
+     "date": "2024-11-21",
+     "container": "Cogent Education",
+     "volume": "11",
+     "issue": "1",
+     "editors": []
+    }
+   ],
+   "shown": 0
+  },
+  "09-c1": {
+   "ok": true,
+   "status": 200,
+   "ms": 9694,
+   "claim": "The council voted last year to remove parking minimums for new downtown apartments, and rents have not moved since.",
+   "essay": "09-parking-minimums.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Introductions Appropriate To Purpose And Context - AP English Language and Composition",
+     "url": "https://internal.varsitytutors.com/practice/subjects/ap-english-language-and-composition/quiz/introductions-appropriate-to-purpose-and-context",
+     "publisher": "Varsity Tutors",
+     "snippet": "“the city council is voting on whether to eliminate minimum parking requirements”",
+     "stance": "refutes",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Parking and the City",
+     "url": "https://www.scribd.com/document/934041473/Parrking-and-the-City-by-Donald-Shoup-full-PDF-it-is-that",
+     "publisher": "",
+     "snippet": "The book discusses removing parking requirements and reports that bundled parking was associated with about $200 more monthly rent for downtown Los Angeles apartments.",
+     "stance": "context",
+     "kind": "book",
+     "authors": [
+      "Donald Shoup"
+     ],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Introductions Appropriate To Purpose And Context - AP English Language and Composition",
+     "url": "https://www.varsitytutors.com/practice/subjects/ap-english-language-and-composition/flashcards/introductions-appropriate-to-purpose-and-context?type=recall",
+     "publisher": "Varsity Tutors",
+     "snippet": "The example frames Riverside's parking-minimum decision as affecting whether new downtown apartments remain affordable or become more expensive for renters.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    }
+   ],
+   "shown": 0
+  },
+  "09-c2": {
+   "ok": true,
+   "status": 200,
+   "ms": 11966,
+   "claim": "A two-bedroom apartment within walking distance of downtown now lists for more than $2,400 a month, and the vacancy rate downtown has been under two percent for three straight years.",
+   "essay": "09-parking-minimums.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "Apartments for Rent in Downtown Los Angeles, Los Angeles, CA - 416 Rentals in Downtown Los Angeles, Los Angeles, CA",
+     "url": "https://www.redfin.com/neighborhood/290722/CA/Los-Angeles/Downtown-Los-Angeles/2-bedroom-apartments-for-rent",
+     "publisher": "Redfin",
+     "snippet": "Current Downtown Los Angeles two-bedroom rental listings include asking prices of $2,400 or more per month.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Downtown living at its finest! 2 bed 1 bath Apartments - 612&618 N 3rd Street San Jose CA",
+     "url": "https://www.zumper.com/apartment-buildings/1657147/downtown-living-at-its-finest-2-bed-1-bath-downtown-san-jose-san-jose-ca",
+     "publisher": "Zumper",
+     "snippet": "Zumper reports a September 2026 median rent of $3,845 for two-bedroom apartments in Downtown San Jose.",
+     "stance": "context",
+     "kind": "other",
+     "authors": [],
+     "groupAuthor": "",
+     "year": null
+    },
+    {
+     "title": "Market Feasibility Analysis",
+     "url": "https://s-www.virginiahousing.com/-/media/docs/partners/rental-housing/historical-tax-credits-data/2023/market-studies/1025-a-park-street-market-study.pdf?hash=4782D5C0090BDC7079FB2FD6E7775C1E&sc_lang=en",
+     "publisher": "Virginia Housing",
+     "snippet": "The report states that surveyed rental communities had a combined stabilized vacancy rate of 1.8 percent and average two-bedroom market-rate rents of $2,342.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Virginia Housing",
+     "year": 2023
+    },
+    {
+     "title": "Condo Market Report, Fourth Quarter 2017",
+     "url": "https://eugenepalermo.com/_media/Documents/condo_report_2017-Q4.pdf",
+     "publisher": "Toronto Real Estate Board",
+     "snippet": "The report says condominium vacancy was below one percent in fall 2017 and the average two-bedroom condominium rent was $2,627.",
+     "stance": "context",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "Toronto Real Estate Board",
+     "year": 2017
+    }
+   ],
+   "shown": 0
+  },
+  "09-c3": {
+   "ok": true,
+   "status": 200,
+   "ms": 9813,
+   "claim": "Cities that removed parking requirements have seen developers build smaller and cheaper units, and researchers estimate that each structured parking space adds tens of thousands of dollars to the cost of the apartment above it.",
+   "essay": "09-parking-minimums.txt",
+   "model": "gpt-5.6-luna",
+   "plan": "pro",
+   "error": null,
+   "sources": [
+    {
+     "title": "The Impacts of Minimum Parking Requirements: A Research Synthesis",
+     "url": "https://its.ucla.edu/publication/impacts-minimum-parking-requirements-research-synthesis/",
+     "publisher": "UCLA Institute of Transportation Studies",
+     "snippet": "Research finds that eliminating parking minimums expands housing options by enabling smaller units and facilitates more affordable cities.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "UCLA Institute of Transportation Studies",
+     "year": 2026
+    },
+    {
+     "title": "No Such Thing as Free Parking: Construction Costs in 17 U.S. Cities",
+     "url": "https://its.ucla.edu/publication/no-such-thing-as-free-parking/",
+     "publisher": "UCLA Institute of Transportation Studies",
+     "snippet": "Required parking can add tens of thousands of dollars per housing unit and sometimes increase total construction costs by more than 50%.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "UCLA Institute of Transportation Studies",
+     "year": 2026
+    },
+    {
+     "title": "Parking policy: The effects of residential minimum parking requirements in Seattle",
+     "url": "https://www.sciencedirect.com/science/article/pii/S0264837718312870",
+     "publisher": "Elsevier",
+     "snippet": "The study finds that reducing parking requirements leads to less parking provision, presumed developer cost savings, and lower housing prices for consumers.",
+     "stance": "supports",
+     "kind": "journal",
+     "authors": [],
+     "groupAuthor": "",
+     "year": 2018,
+     "container": "Cities"
+    },
+    {
+     "title": "What Happens When Cities Eliminate Minimum Parking Requirements?",
+     "url": "https://rosap.ntl.bts.gov/view/dot/91845/dot_91845_DS1.pdf",
+     "publisher": "U.S. Department of Transportation",
+     "snippet": "Evidence from cities removing minimums shows that more affordable units were offered with no on-site parking, while other projects provided larger units and more parking.",
+     "stance": "supports",
+     "kind": "report",
+     "authors": [],
+     "groupAuthor": "U.S. Department of Transportation",
+     "year": 2026
+    }
+   ],
+   "shown": 4
+  }
+ }
+}
