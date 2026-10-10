@@ -2645,7 +2645,7 @@
      cannot — checking, an error. */
   const TALLY_ICON = {
     wrong: `<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="currentColor"/><rect x="5.2" y="2.5" width="1.6" height="4.6" rx=".8" fill="#fff"/><circle cx="6" cy="9" r=".95" fill="#fff"/></svg>`,
-    check: `<svg viewBox="0 0 12 12"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.7 7.7l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+    check: `<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="currentColor"/><circle cx="5.4" cy="5.4" r="2.2" fill="none" stroke="#fff" stroke-width="1.3"/><path d="M7.1 7.1l1.9 1.9" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></svg>`,
     cite: `<svg viewBox="0 0 12 12"><rect width="12" height="12" rx="3" fill="currentColor"/><path d="M2.8 8.4V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7zm3.8 0V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7z" fill="#fff"/></svg>`,
     writing: `<svg viewBox="0 0 12 12"><path d="M8.5 1.1l2.4 2.4-6.6 6.6-3.1.8.8-3.1z" fill="currentColor"/></svg>`,
     clear: `<svg viewBox="0 0 12 12"><path d="M2.2 6.3l2.4 2.4 5.2-5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,

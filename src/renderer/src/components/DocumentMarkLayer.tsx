@@ -495,6 +495,21 @@ export function ProseMarkLayer({
   const ghosts = useMarkDepartures(drawn)
   return (
     <>
+    {/* The prose hover bands, under the text, as for claim marks. */}
+    <div className="docmark-layer docmark-bands" aria-hidden="true">
+      {marks.map((mark) =>
+        mark.rects.map((rect, i) => (
+          <SpanMark
+            key={`${mark.issue.kind}-${mark.issue.start}-${i}`}
+            rect={rect}
+            color={mark.issue.severity === 'error' ? PROSE_ERROR : PROSE_STYLE}
+            hovered={isSameIssue(active?.mark.issue, mark.issue) || isSameIssue(preview ?? undefined, mark.issue)}
+            className="docmark-bandwrap"
+            part="band"
+          />
+        ))
+      )}
+    </div>
     <div className="docmark-layer docprose-layer">
       {marks.map((mark) =>
         mark.rects.map((rect, i) => (
@@ -504,6 +519,7 @@ export function ProseMarkLayer({
             color={mark.issue.severity === 'error' ? PROSE_ERROR : PROSE_STYLE}
             hovered={isSameIssue(active?.mark.issue, mark.issue) || isSameIssue(preview ?? undefined, mark.issue)}
             className={`docprose docprose-${mark.issue.severity}`}
+            part="line"
             data={{ 'data-prose-kind': mark.issue.kind }}
             dotted={mark.issue.severity === 'style'}
             enterDelay={arrivals.get(`${mark.issue.kind}-${mark.issue.start}-${i}`)}
@@ -685,7 +701,8 @@ function SpanMark({
   data,
   dotted = false,
   title,
-  enterDelay
+  enterDelay,
+  part = 'both'
 }: {
   rect: MarkRect
   color: string
@@ -698,6 +715,11 @@ function SpanMark({
   /** Set when this mark is new on the page (useMarkArrivals): its line draws
    *  itself in after this many ms. Read once, at mount. */
   enterDelay?: number
+  /** Which half to draw. The hover band is drawn in its own layer UNDER the
+   *  text (`.docmark-bands`), so it never tints the words it sits behind —
+   *  white text in dark went peach under the orange band; the line and the
+   *  popover stay in the layer above. */
+  part?: 'band' | 'line' | 'both'
 }): JSX.Element {
   const lineRef = useRef<HTMLSpanElement>(null)
   useDrawIn(lineRef, enterDelay)
@@ -711,8 +733,8 @@ function SpanMark({
     <span
       className={className}
       data-hovered={hovered ? 'true' : 'false'}
-      title={title}
-      {...data}
+      title={part === 'band' ? undefined : title}
+      {...(part === 'band' ? {} : data)}
       style={{
         position: 'absolute',
         left: 0,
@@ -725,6 +747,7 @@ function SpanMark({
         pointerEvents: 'none'
       }}
     >
+      {part === 'line' ? null : (
       <span
         className="docmark-band"
         style={{
@@ -738,6 +761,8 @@ function SpanMark({
           transition: BAND_TRANSITION
         }}
       />
+      )}
+      {part === 'band' ? null : (
       <span
         ref={lineRef}
         className="docmark-line"
@@ -757,6 +782,7 @@ function SpanMark({
             : { height: hovered ? LINE_HEIGHT_HOVERED : LINE_HEIGHT, background: color })
         }}
       />
+      )}
     </span>
   )
 }
@@ -848,6 +874,23 @@ export default function DocumentMarkLayer({
   const arrivals = useMarkArrivals(drawn)
   const ghosts = useMarkDepartures(drawn)
   return (
+    <>
+    {/* The hover bands, under the text (see SpanMark's `part`). No data
+        attributes: `.docmark` and [data-claim-id] stay one per mark rect. */}
+    <div className="docmark-layer docmark-bands" aria-hidden="true">
+      {marks.map((mark) =>
+        mark.rects.map((rect, i) => (
+          <SpanMark
+            key={`${mark.claim.id}:${i}`}
+            rect={rect}
+            color={PROBLEM_COLOR[mark.problemKinds[0]]}
+            hovered={active?.mark.claim.id === mark.claim.id || preview === mark.claim.id}
+            className="docmark-bandwrap"
+            part="band"
+          />
+        ))
+      )}
+    </div>
     <div className="docmark-layer" aria-hidden="true">
       {marks.map((mark) =>
         mark.rects.map((rect, i) => {
@@ -860,6 +903,7 @@ export default function DocumentMarkLayer({
               color={PROBLEM_COLOR[kind]}
               hovered={isActive || preview === mark.claim.id}
               className={`docmark${isActive ? ' active' : ''}`}
+              part="line"
               // Same attributes the overlay's marks carry, and for the same
               // reason: this layer renders no text, so without them its DOM is
               // unreadable when inspecting it or asserting on it from a test.
@@ -893,6 +937,7 @@ export default function DocumentMarkLayer({
         />
       ) : null}
     </div>
+    </>
   )
 }
 
@@ -1955,6 +2000,7 @@ function Tail({ left, pointing, above }: { left: number; pointing: 'up' | 'down'
       viewBox="0 0 13.8564 7.5"
       fill="none"
       aria-hidden="true"
+      className="docmark-notch"
       style={{
         position: 'relative',
         left,
@@ -1963,14 +2009,9 @@ function Tail({ left, pointing, above }: { left: number; pointing: 'up' | 'down'
         ...(above ? { marginTop: -2 } : { marginBottom: -2 })
       }}
     >
-      {/* The card's own surface and ink, so the tail stays one piece with the
-          2px border in both themes — a literal white/black tail was a white
-          notch on the dark card. */}
-      <path
-        d="M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z"
-        style={{ fill: 'var(--surface)', stroke: 'var(--ink)' }}
-        strokeWidth="2"
-      />
+      {/* The card's own surface and edge (`.docmark-notch path` in index.css),
+          so the tail stays one piece with the 2px border in both themes. */}
+      <path d="M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z" strokeWidth="2" />
     </svg>
   )
 }

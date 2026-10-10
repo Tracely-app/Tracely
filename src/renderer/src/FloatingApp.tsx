@@ -64,7 +64,7 @@ export default function FloatingApp(): JSX.Element {
     <div className="floating-app">
       <div className="floating-drag-region">
         <div className="floating-brand">
-          <Logo size={20} />
+          <Logo size={16} />
           <span>Tracely</span>
         </div>
         <div className="floating-controls">

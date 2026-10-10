@@ -154,7 +154,7 @@ export default function HomeView({
         <section className="home-card">
         <header className="home-top">
           <div className="home-brand">
-            <BrandMark size={28} />
+            <BrandMark size={24} />
             <span>Tracely</span>
           </div>
           {/*

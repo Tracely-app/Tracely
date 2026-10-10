@@ -80,15 +80,13 @@ import {
   DESIGN_ORANGE,
   DESIGN_RED,
   LEGEND,
-  MARK_PATTERN_BY_COLOR,
   PROBLEM_COLOR,
   PROBLEM_LABEL,
   bucketFor,
   popoverCopyFor
 } from './components/problemCopy'
-import type { MarkPattern } from './components/problemCopy'
 // The one icon set, as 16px SVG strings for this file's inline markup.
-import { ICON_SVG } from './components/icons'
+import { FindingKindIcon, ICON_SVG } from './components/icons'
 import { aboutTheCitation, popoverRoute } from '@shared/citationAction'
 // The fix card's wording, shared with the editor's DocumentMarkLayer for the
 // same reason citationFlowCopy.ts is.
@@ -446,21 +444,15 @@ function useStableUnderlines(underlines: Underlines, trackedIds: Set<string>): U
 }
 
 /**
- * How the line under a mark is drawn — by pattern as well as colour, so the
- * three finding groups read apart in greyscale (MARK_PATTERN_BY_COLOR in
- * problemCopy.ts, the editor's rule): red solid 2px, orange dashed 2px, amber
- * double 3px (1+1+1), and the grey checking state dotted. Hovered adds 1px.
- * The dashed, double and dotted lines are a border on a zero-height box,
- * because a filled box can only be solid.
+ * How the line under a mark is drawn: one solid line in the finding colour,
+ * the grey checking state included — 2px resting, 3px hovered, value for
+ * value with the editor (DocumentMarkLayer) and content.js markFill /
+ * MARK_LINE_HEIGHT. Owner, 2026-10-09: every underline solid and straight;
+ * the legend's icons say the kind, so colour is never the only channel.
  */
 function markLineStyle(color: string, hovered: boolean): CSSProperties {
-  const pattern: MarkPattern = MARK_PATTERN_BY_COLOR[color] ?? 'dotted'
   const weight = hovered ? LINE_HEIGHT_HOVERED : LINE_HEIGHT
-  if (pattern === 'solid') {
-    return { height: weight, borderRadius: LINE_RADIUS, background: color }
-  }
-  const width = pattern === 'double' ? weight + 1 : weight
-  return { height: 0, borderBottom: `${width}px ${pattern} ${color}` }
+  return { height: weight, borderRadius: LINE_RADIUS, background: color }
 }
 
 /**
@@ -1217,10 +1209,10 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
 }
 
 /**
- * What the three line patterns mean, at the panel's foot: a 24px sample of
- * each (LEGEND, problemCopy.ts — drawn by markLineStyle, so it is the line the
- * document actually carries) and its label, 11px. The editor's footer and the
- * extension's sticky strip draw the same row.
+ * What the three lines mean, at the panel's foot: the kind's icon, a 24px
+ * sample of the line (LEGEND, problemCopy.ts — drawn by markLineStyle, so it
+ * is the line the document actually carries) and its label, 11px, 6px apart.
+ * The editor's footer and the extension's sticky strip draw the same row.
  */
 function PanelLegend(): JSX.Element {
   return (
@@ -1230,6 +1222,9 @@ function PanelLegend(): JSX.Element {
     >
       {LEGEND.map((entry) => (
         <span key={entry.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <span style={{ display: 'inline-flex', color: entry.color }}>
+            <FindingKindIcon kind={entry.icon} knockout={PAPER} />
+          </span>
           <span aria-hidden style={{ display: 'block', width: 24, flexShrink: 0, ...markLineStyle(entry.color, false) }} />
           {entry.label}
         </span>

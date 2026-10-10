@@ -12,10 +12,13 @@ import type { ReactNode } from 'react'
 export default function SettingsField({
   label,
   full,
+  hint,
   children
 }: {
   label: string
   full?: boolean
+  /** One quiet line under the control, saying what the value changes. */
+  hint?: string
   children: ReactNode
 }): JSX.Element {
   const labelId = useId()
@@ -29,6 +32,7 @@ export default function SettingsField({
         {label}
       </span>
       {children}
+      {hint ? <span className="settings-field-hint">{hint}</span> : null}
     </div>
   )
 }

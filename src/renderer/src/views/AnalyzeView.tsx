@@ -67,7 +67,8 @@ import {
   AlignLeftIcon,
   MoreHorizontalIcon,
   ShareIcon,
-  CheckIcon
+  CheckIcon,
+  FindingKindIcon
 } from '../components/icons'
 import Spinner from '../components/Spinner'
 import { LEGEND } from '../components/problemCopy'
@@ -2907,13 +2908,10 @@ function DocumentEditor({
         {marks.length > 0 ? (
           <div className="docedit-legend" role="note" aria-label="What the underlines mean">
             {LEGEND.map((item) => (
-              <span key={item.label} className="docedit-legend-item">
-                <span
-                  className={`docedit-legend-line ${item.pattern}`}
-                  style={{ color: item.color }}
-                  aria-hidden="true"
-                />
-                {item.label}
+              <span key={item.label} className="docedit-legend-item" style={{ color: item.color }}>
+                <FindingKindIcon kind={item.icon} />
+                <span className="docedit-legend-line" aria-hidden="true" />
+                <span className="docedit-legend-label">{item.label}</span>
               </span>
             ))}
           </div>

@@ -492,19 +492,18 @@ export function isReasoningProblem(kind: ScreenWatchProblemKind): boolean {
 export { aboutTheCitation, insertsCitation, popoverRoute } from '@shared/citationAction'
 
 /**
- * How the mark is DRAWN, by what is wrong — the second channel beside colour,
- * so the three groups still read apart in greyscale and to anyone who does
- * not see red against orange. Grouped exactly like PROBLEM_COLOR: red kinds
- * solid, orange kinds dashed, amber kinds double, and the grey checking state
- * dotted. The same three patterns are drawn by DocumentMarkLayer, OverlayApp
- * and the extension's content.js.
+ * How the mark is DRAWN. Owner, 2026-10-09 (recorded in content.js above
+ * MARK_PATTERN): every finding line is one solid, straight line. Colour is
+ * never the only channel: the legend pairs each line with its kind's icon
+ * (FindingKindIcon, the extension's TALLY_ICON), in the extension's words.
+ * DocumentMarkLayer, OverlayApp and content.js all draw the same solid line.
  */
 export type MarkPattern = 'solid' | 'dashed' | 'double' | 'dotted'
 
 export const MARK_PATTERN_BY_COLOR: Record<string, MarkPattern> = {
   [DESIGN_RED]: 'solid',
-  [DESIGN_ORANGE]: 'dashed',
-  [DESIGN_AMBER]: 'double'
+  [DESIGN_ORANGE]: 'solid',
+  [DESIGN_AMBER]: 'solid'
 }
 
 export const MARK_PATTERN: Record<ScreenWatchProblemKind, MarkPattern> = Object.fromEntries(
@@ -514,9 +513,15 @@ export const MARK_PATTERN: Record<ScreenWatchProblemKind, MarkPattern> = Object.
   ])
 ) as Record<ScreenWatchProblemKind, MarkPattern>
 
-/** The legend row: one sample per colour, in severity order. */
-export const LEGEND: ReadonlyArray<{ color: string; pattern: MarkPattern; label: string }> = [
-  { color: DESIGN_RED, pattern: 'solid', label: 'contradicted' },
-  { color: DESIGN_ORANGE, pattern: 'dashed', label: 'thin evidence' },
-  { color: DESIGN_AMBER, pattern: 'double', label: 'needs citation' }
+/** The legend row: one sample per colour, in severity order, with the kind's
+ *  icon and the extension's own words (content.js LEGEND, which is pinned). */
+export const LEGEND: ReadonlyArray<{
+  color: string
+  pattern: MarkPattern
+  icon: 'wrong' | 'check' | 'cite'
+  label: string
+}> = [
+  { color: DESIGN_RED, pattern: 'solid', icon: 'wrong', label: "Contradicted or doesn't make sense" },
+  { color: DESIGN_ORANGE, pattern: 'solid', icon: 'check', label: 'Worth checking' },
+  { color: DESIGN_AMBER, pattern: 'solid', icon: 'cite', label: 'Missing or incomplete citation' }
 ]
