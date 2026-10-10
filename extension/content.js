@@ -3575,11 +3575,10 @@
     .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
     .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--label); max-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
-    .foot .act { padding: 5px 10px; font-size: 11px; }
-    .foot-left { display: flex; align-items: center; gap: 10px; }
+    .foot-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
     select {
       height: 32px; padding: 0 26px 0 10px; font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; line-height: 1;
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -3588,8 +3587,9 @@
       transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
-    .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
+    .list { overflow-y: auto; overscroll-behavior: contain; padding: 12px 24px 16px; display: flex; flex-direction: column; gap: 8px; }
+    /* Nothing to show: the app's dashed empty box, muted, one short measure. */
+    .empty { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; padding: 32px 16px; width: 100%; max-width: 300px; margin: 0 auto; border: 1px dashed var(--border); border-radius: 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
     /* Each card is its own box, so where one ends is never a guess; the
