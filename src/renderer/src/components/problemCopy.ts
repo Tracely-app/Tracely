@@ -490,3 +490,33 @@ export function isReasoningProblem(kind: ScreenWatchProblemKind): boolean {
 // leaf, so `npm test` can load it. This module value-imports @shared/problemKind
 // and cannot be.
 export { aboutTheCitation, insertsCitation, popoverRoute } from '@shared/citationAction'
+
+/**
+ * How the mark is DRAWN, by what is wrong — the second channel beside colour,
+ * so the three groups still read apart in greyscale and to anyone who does
+ * not see red against orange. Grouped exactly like PROBLEM_COLOR: red kinds
+ * solid, orange kinds dashed, amber kinds double, and the grey checking state
+ * dotted. The same three patterns are drawn by DocumentMarkLayer, OverlayApp
+ * and the extension's content.js.
+ */
+export type MarkPattern = 'solid' | 'dashed' | 'double' | 'dotted'
+
+export const MARK_PATTERN_BY_COLOR: Record<string, MarkPattern> = {
+  [DESIGN_RED]: 'solid',
+  [DESIGN_ORANGE]: 'dashed',
+  [DESIGN_AMBER]: 'double'
+}
+
+export const MARK_PATTERN: Record<ScreenWatchProblemKind, MarkPattern> = Object.fromEntries(
+  (Object.keys(PROBLEM_COLOR) as ScreenWatchProblemKind[]).map((kind) => [
+    kind,
+    MARK_PATTERN_BY_COLOR[PROBLEM_COLOR[kind]] ?? 'dotted'
+  ])
+) as Record<ScreenWatchProblemKind, MarkPattern>
+
+/** The legend row: one sample per colour, in severity order. */
+export const LEGEND: ReadonlyArray<{ color: string; pattern: MarkPattern; label: string }> = [
+  { color: DESIGN_RED, pattern: 'solid', label: 'contradicted' },
+  { color: DESIGN_ORANGE, pattern: 'dashed', label: 'thin evidence' },
+  { color: DESIGN_AMBER, pattern: 'double', label: 'needs citation' }
+]
