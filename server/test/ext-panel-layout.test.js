@@ -117,7 +117,7 @@ test("one list, most serious first: Claims, Citations, Writing feedback, then ev
   assert.equal((SRC.match(/const claimsHtml = cardsHtml \? groupHtml\("Claims", cards\.length, cardsHtml\) : "";/g) || []).length, 2);
   assert.equal((SRC.match(/\$\{genreHtml\}\$\{claimsHtml\}\$\{tipsHtml\}/g) || []).length, 2, "claims above the notes, in both panels");
   assert.equal((SRC.match(/\$\{claimsHtml\}/g) || []).length, 2, "and once each: the empty note only asks whether there is any");
-  assert.equal((SRC.match(/\$\{claimsHtml \|\| (?:flowCards \|\| )?tipsHtml (?:\|\| docGenre === "homework" )?\? "" : `<div class="empty">/g) || []).length, 2);
+  assert.equal((SRC.match(/\$\{claimsHtml \|\| (?:flowCards \|\| )?tipsHtml (?:\|\| GENRE_QUIET\.has\(docGenre\) )?\? "" : `<div class="empty">/g) || []).length, 2);
   assert.ok(!/showAllCards|id="showAll"/.test(SRC), "the one-card view and its Show all are gone: the fold replaces them");
   // A note's dot is its underline's colour; a note with no underline has none.
   const html = X.tipsSectionHtml("T", [

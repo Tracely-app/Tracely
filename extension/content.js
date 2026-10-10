@@ -61,12 +61,24 @@
 
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
+  /* What each kind of writing is checked for (detectGenre says which kind it
+     is). Quiet: homework, a poem, a story, a script — nothing in them is a
+     claim to check or a source to cite. The writer's own account: a resume,
+     a letter, an email, a cover letter, a personal essay, notes, an annotated
+     bibliography — a wrong public fact still shows, but nothing asks for a
+     source or calls the writer's own life "worth checking". A DBQ cites its
+     documents by number and its outside evidence needs no source (owner,
+     2026-10-09: "if it is world history DBQ, no need for citations and
+     worked cited"). */
+  const GENRE_QUIET = new Set(["homework", "poem", "story", "script"]);
+  const GENRE_OWN = new Set(["resume", "letter", "email", "coverletter", "personal", "notes", "annotated"]);
+  const GENRE_NO_SOURCE = new Set(["dbq"]);
   /* Whether a finding is shown — underlined, carded, counted. "Citation
      suggestions" (needs_citation: accurate, but a reader would want a source)
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && genre !== "homework" && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -74,7 +86,7 @@
     // ANY document a sentence about what the author did ("we sold 500 boxes",
     // "We surveyed 1,200 students" — their own study). The server stops asking
     // (its genre clause); this holds the line against a server from before it.
-    && !(f.verdict === "needs_citation" && (genre === "resume" || genre === "letter" || authorsOwnAccount(text)))
+    && !(f.verdict === "needs_citation" && (GENRE_OWN.has(genre) || GENRE_NO_SOURCE.has(genre) || authorsOwnAccount(text)))
     // A sentence that visibly carries a citation never reads "Missing
     // citation", whatever the model said: the check's own rule is that a
     // cited sentence is never needs_citation, and it broke it on "… modern
@@ -90,7 +102,7 @@
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
-    && !(f.verdict === "questionable" && (genre === "resume" || genre === "letter"))
+    && !(f.verdict === "questionable" && GENRE_OWN.has(genre))
     // A sentence excusing a missing citation detail ("The study does not need
     // a publication date because Harvard is a famous institution") is the
     // writer's note, not a claim: owner, 2026-10-08, "tracely is trying to
@@ -356,6 +368,9 @@
     // MLA by default (owner, 2026-10-03: research papers and school essays
     // alike). A style the writer picked is saved and wins.
     const settings = { citationStyle: "mla", citeHints: true, ...obj };
+    // Picked by the writer, it wins; otherwise each document's own style does
+    // (docCitationStyle). A style other than the default was a pick.
+    settings.styleChosen = obj.styleChosen ?? Boolean(obj.citationStyle && obj.citationStyle !== "mla");
     for (const k of RETIRED_SETTINGS) delete settings[k];
     return settings;
   }
@@ -1225,7 +1240,7 @@
   // Which review a document gets: resume tips, essay feedback, or none.
   function reviewKindFor(genre) {
     if (genre === "resume") return FEATURES.resumeTips ? "resume" : null;
-    if (isArgumentGenre(genre)) return FEATURES.essayFeedback ? "essay" : null;
+    if (isArgumentGenre(genre) && genre !== "lab") return FEATURES.essayFeedback ? "essay" : null;
     return null;
   }
   function reviewCoversCheck(genre, review) {
@@ -1310,8 +1325,9 @@
      no citation flags (flagShown). Checked before the length floor, because
      an email is often four lines. Both ends are required for anything longer
      than a short note: "Hi" alone opens plenty of blog posts. */
-  const SALUTATION = /^(?:dear|hi|hello|hey|good (?:morning|afternoon|evening)|to whom it may concern)\b[^!?\n]{0,60}[,:!]?$/i;
-  const SIGNOFF = /^(?:sincerely|best|best regards|best wishes|all the best|kind regards|warm regards|regards|thanks|thank you|many thanks|cheers|warmly|respectfully|yours(?: truly| sincerely| faithfully)?)[,.!]?$/i;
+  const SALUTATION = /^(?:dear|hi|hello|hey|greetings|good (?:morning|afternoon|evening)|to whom it may concern|to the (?:editor|editors|admissions committee|selection committee|hiring committee))\b[^!?\n]{0,60}[,:!]?$/i;
+  const SIGNOFF_WORDS = "sincerely|sincerely yours|best|best regards|best wishes|all the best|kind regards|warm regards|warmest regards|warm wishes|regards|respectfully|respectfully yours|thanks|thank you|thanks so much|thank you so much|thanks again|thank you again|many thanks|with gratitude|gratefully|cheers|warmly|love|with love|lots of love|take care|talk soon|see you soon|yours|yours truly|yours sincerely|yours faithfully|cordially";
+  const SIGNOFF = new RegExp(`^(?:${SIGNOFF_WORDS}|(?:thanks|thank you)(?: so much| again)? for [^,.!?]{2,40})[,.!]?$`, "i");
   /* Homework, not writing. Owner, 2026-10-04: Tracely "keeps trying to help
      me with other things such as my physics homework … only make it help on
      literature", on "3. Determine the net area under the velocity vs time
@@ -1338,20 +1354,213 @@
     const tasks = sentences.filter(isTask).length;
     const stem = sentences.filter((s) => STEM_TERM.test(s)).length;
     const numbered = sentences.filter((s) => NUMBERED_ITEM.test(s) && isTask(s)).length;
-    return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4);
+    // Numbered QUESTIONS with answers under them (a history worksheet): the answers are sentences, the items are not.
+    const items = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    const asked = items.filter((l) => NUMBERED_ITEM.test(l) && (TASK_START.test(l) || /\?["”’)]?$/.test(l))).length;
+    return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4) || (asked >= 3 && asked / items.length >= 0.25);
   }
 
+  /* What kind of writing this is, from its text alone — free, instant, and
+     the same answer for the same text (no model is asked). Owner, 2026-10-09:
+     "make it extremely good at type of literature detection. For example, if
+     it is world history DBQ, no need for citations and worked cited. If it is
+     a poem, cite this way. If it is a research paper, cite that way. Even
+     things i dont mention such as resumes or emails". The kind decides what
+     is checked and how a source is cited — GENRE_QUIET, GENRE_OWN and
+     GENRE_NO_SOURCE (flagShown), genreWantsList (a Works Cited), what the
+     panel says (genreLineHtml) — and the most distinctive shapes are looked
+     for first: a salutation and a sign-off, numbered tasks, a script's
+     speakers, a resume's headings, a DBQ's document numbers, an annotated
+     bibliography's entries, a speech's address to the room, a lab report's
+     sections, a poem's lines, notes' bullets; then a paper's headings or a
+     literary essay's quotations, a news story's attributions, and last the
+     voice — a story's dialogue, a personal essay's looking back. Anything
+     else is an essay ("prose"). Measured on
+     server/test/fixtures/writing-types.js (ext-writing-types.test.js). */
   function detectGenre(text) {
-    if (looksLikeHomework(text)) return "homework";
-    const lines = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length >= 2 && SALUTATION.test(lines[0]) && (lines.slice(-4).some((l) => SIGNOFF.test(l)) || lines.length <= 4)) return "letter";
-    if (lines.length < 6) return essayKind(text, lines); // too short to be a resume; a paragraph or two can still be a paper
+    const raw = String(text ?? "").replace(/[\u000b\u2028\u2029]/g, "\n");
+    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return "prose";
+    const letter = letterKind(raw, lines);
+    if (letter) return letter;
+    if (looksLikeHomework(raw)) return "homework";
+    if (looksLikeScript(lines)) return "script";
+    if (lines.length >= 6 && looksLikeResume(raw, lines)) return "resume";
+    if (looksLikeDbq(raw)) return "dbq";
+    if (looksLikeAnnotated(lines)) return "annotated";
+    if (looksLikeSpeech(raw, lines)) return "speech";
+    if (looksLikeLab(lines)) return "lab";
+    if (looksLikePoem(raw, lines)) return "poem";
+    if (looksLikeNotes(lines)) return "notes";
+    const kind = essayKind(raw, lines);
+    if (kind !== "prose") return kind;
+    if (looksLikeNews(raw, lines)) return "news";
+    return narrativeKind(raw) ?? "prose";
+  }
+  // A resume: two section headings of its own AND contact details or date ranges, and not mostly sentences.
+  function looksLikeResume(raw, lines) {
     const headings = lines.filter((l) => l.length <= 40 && RESUME_HEADING.test(l.replace(/[^\p{L}\s/&]/gu, " ").replace(/\s+/g, " ").trim())).length;
     const contact = /[\w.+-]+@[\w-]+|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(lines.slice(0, 6).join(" "));
-    const ranges = (String(text).match(DATE_RANGE) ?? []).length;
+    const ranges = (raw.match(DATE_RANGE) ?? []).length;
     const sentences = lines.filter((l) => /[.!?]["')\]]*$/.test(l) && l.split(/\s+/).length >= 12).length;
-    if (headings >= 2 && (contact || ranges >= 2) && sentences / lines.length < 0.6) return "resume";
-    return essayKind(text, lines);
+    return headings >= 2 && (contact || ranges >= 2) && sentences / lines.length < 0.6;
+  }
+  /* A letter, an email or a cover letter: a salutation — on the first line,
+     or under a short heading block (an address, a date, a Subject line) —
+     and a sign-off. An opening that addresses an AUDIENCE ("Good morning,
+     everyone") and ends "Thank you." is a speech: an address like that needs
+     a signature under it to be a letter ("Hi all, … Thanks, Sam"). */
+  const SIGNOFF_LEAD = new RegExp(`^(?:${SIGNOFF_WORDS})\\s*[,.!]\\s*[-–—]?\\s*(.+)$`, "i");
+  const SIGNATURE = /^[-–—~]?\s*(?:(?:Mr|Mrs|Ms|Mx|Dr|Prof)\.?\s+)?[A-Z][\p{L}'’-]*\.?(?:\s+[A-Z][\p{L}'’-]*\.?){0,3}$/u;
+  const AUDIENCE = /\b(?:everyone|everybody|y'all|all of you|ladies|gentlemen|fellow|class of|graduates|classmates|students|teachers|parents|families|delegates|judges|faculty|guests|members of)\b/i;
+  const COVER_CUE = /\b(?:position|internship|role|opening|job|application|apply|applying|candidate|résumé|resume|interview|qualifications?|qualified|employer|hire|hiring|join (?:your|the) team)\b/gi;
+  const EMAIL_CUE = /\b(?:hope (?:this|you)(?: email| message| note)? finds you|hope you(?:'re| are) (?:doing )?well|let me know|thanks in advance|attached|following up|quick question|get back to me|looking forward to hearing|extension|deadline|due (?:date|on|by)|office hours|meeting|zoom|tomorrow|this (?:week|weekend|friday|monday|tuesday|wednesday|thursday)|next (?:week|class|period)|assignment|absent|reschedule)\b/i;
+  function signOffLine(l) {
+    if (SIGNOFF.test(l)) return "bare";
+    const m = l.match(SIGNOFF_LEAD);
+    return m && SIGNATURE.test(m[1].trim()) ? "named" : null;
+  }
+  function letterKind(raw, lines) {
+    if (lines.length < 2) return null;
+    let at = -1;
+    for (let i = 0; i < Math.min(lines.length - 1, 14); i++) {
+      if (SALUTATION.test(lines[i])) { at = i; break; }
+      if (lines[i].split(/\s+/).length > 8) break; // body text before any salutation: no letter's head
+    }
+    if (at < 0) return null;
+    const sal = lines[at];
+    const tail = lines.slice(-4);
+    const offs = tail.map(signOffLine);
+    const named = offs.includes("named") || offs.some((o, i) => o === "bare" && tail.slice(i + 1).some((l) => SIGNATURE.test(l)));
+    // A formal letter may be signed with the name alone ("To the Editor: … Ruth Ellison / Westfield").
+    const last = lines[lines.length - 1];
+    const formal = /^(?:dear|to whom|to the)\b/i.test(sal) && SIGNATURE.test(last) && last.split(/\s+/).length <= 4;
+    if (AUDIENCE.test(sal) && !named) return null;
+    if (!named && !formal && !offs.includes("bare") && lines.length > 4) return null; // both ends, unless it is a short note
+    const head = lines.slice(0, at + 1).join("\n");
+    const body = lines.slice(at + 1).join(" ");
+    if (/\bhiring\b/i.test(sal) || (body.match(COVER_CUE) ?? []).length >= 3) return "coverletter";
+    if (/^(?:subject|re|fwd?)\s*:/im.test(head) || /^(?:hi|hello|hey)\b/i.test(sal) || EMAIL_CUE.test(body)) return "email";
+    return "letter";
+  }
+  /* A script: screenplay sluglines (INT. / EXT.), or the same few speakers
+     cued again and again — "MAYA: …" in a play, a capitalised name above
+     each speech in a screenplay. A label that is not a person ("Thesis:",
+     "Note:", "Q:") never counts. */
+  const NOT_A_SPEAKER = /^(?:thesis|claim|evidence|reasoning|note|notes|example|answer|question|hook|topic|source|summary|date|name|period|subject|re|to|from|cc|step|part|title|tip|warning|objective|purpose|hypothesis|conclusion|introduction|materials|procedure|data|results|analysis|q|a|definition|key|main idea|vocab|vocabulary|cause|causes|effect|effects|pro|pros|con|cons|ps|p\.s|education|experience|skills|projects|awards|summary)$/i;
+  function looksLikeScript(lines) {
+    if (lines.filter((l) => /^(?:INT|EXT|INT\.?\/EXT|I\/E)[.\s]/.test(l) || /^(?:FADE (?:IN|OUT)|CUT TO|DISSOLVE TO)\b/.test(l)).length >= 2) return true;
+    const speakers = new Map();
+    let cued = 0;
+    for (const l of lines) {
+      if (/^(?:[IVX]{1,4}|[A-Za-z]|\d{1,2})[.)]\s/.test(l)) continue; // an outline's or a list's point, not a speaker
+      const name = l.match(/^([A-Z][A-Za-z.'’-]+(?: [A-Z][A-Za-z.'’-]+)?)\s*(?:\([^)]{1,30}\))?\s*:\s*\S/)?.[1]
+        ?? (/^[A-Z][A-Z.'’ -]{1,24}(?:\s*\((?:V\.O\.|O\.S\.|O\.C\.|CONT'D|cont'd)\))?$/.test(l) && l.split(/\s+/).length <= 3 ? l.replace(/\s*\(.*$/, "") : null);
+      if (!name || NOT_A_SPEAKER.test(name.replace(/\.$/, ""))) continue;
+      const key = name.toUpperCase();
+      speakers.set(key, (speakers.get(key) ?? 0) + 1);
+      cued++;
+    }
+    return [...speakers.values()].filter((c) => c >= 2).length >= 2 && cued >= 5 && cued / lines.length >= 0.25;
+  }
+  /* A DBQ: the documents it was given, cited by number or letter — (Doc 3),
+     "Document A shows", IB's "Source B" — two different ones, or one with the
+     prompt's own words ("Using the documents …"). */
+  const DOC_REF = /\b[Dd]oc(?:ument)?s?\.?\s*#?\s*(\d{1,2}|[A-H])\b/g;
+  const IB_SOURCE = /\bSource\s+([A-H])\b/g;
+  const DBQ_PROMPT = /\b(?:DBQ|document[- ]based|(?:using|use) (?:the |all |at least \w+ (?:of the )?)?(?:\w+ )?documents|historical (?:context|situation)|contextuali[sz]ation)\b/i;
+  function looksLikeDbq(raw) {
+    const ids = new Set();
+    let refs = 0;
+    for (const m of raw.matchAll(DOC_REF)) { ids.add(m[1].toUpperCase()); refs++; }
+    for (const m of raw.matchAll(IB_SOURCE)) { ids.add(`S${m[1]}`); refs++; }
+    return ids.size >= 2 || (refs >= 1 && DBQ_PROMPT.test(raw));
+  }
+  /* An annotated bibliography: entries that open with a reference — "Lee,
+     Ana. …" or "Lee, A. (2019)." with its year — each followed by what the
+     writer says about it ("This article argues …"). An essay's Works Cited is
+     references back to back, with nothing said about them. */
+  const REF_START = /^[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’-]+)?,\s+(?:[\p{Lu}][\p{L}'’.-]*\s?){1,4}(?:,|\.|\()/u;
+  const SUMMARY_CUE = /\b(?:this (?:article|source|book|study|website|site|essay|report|chapter|piece|paper|author|text|film|documentary|video|podcast|interview|collection)|the (?:authors?|article|study|source|book|website|writer|researchers?) (?:argues?|explains?|describes?|discuss(?:es)?|shows?|claims?|suggests?|provides?|presents?|explores?|examines?|focus(?:es)?|uses?|offers?)|(?:will|would) (?:be|help)|is (?:useful|helpful|relevant|credible|reliable)|I (?:will|plan to|can) use)\b/i;
+  function looksLikeAnnotated(lines) {
+    if (lines.slice(0, 3).some((l) => /^annotated bibliography\b/i.test(l))) return true;
+    const isRef = (l) => REF_START.test(l) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l);
+    let refs = 0, said = 0;
+    lines.forEach((l, i) => {
+      if (!isRef(l)) return;
+      refs++;
+      if (SUMMARY_CUE.test(l.slice(60)) || (lines[i + 1] && !isRef(lines[i + 1]) && SUMMARY_CUE.test(lines[i + 1]))) said++;
+    });
+    return said >= 2 && refs / lines.length >= 0.25;
+  }
+  /* A speech: it addresses the people in the room ("Good morning,
+     everyone", "Fellow students", "Ladies and gentlemen"), talks to them
+     ("imagine", "vote for me", "all of you") and thanks them at the end. */
+  const SPEECH_OPEN = /^(?:(?:good (?:morning|afternoon|evening)|hello|hi|hey|greetings|welcome)\b[^.!?\n]{0,40}?\b(?:everyone|everybody|all|y'all|ladies|gentlemen|students|classmates|teachers|parents|families|graduates|class of|delegates|judges|members|friends|guests|faculty|staff|board)\b|(?:ladies and gentlemen|fellow (?:students|classmates|graduates|citizens|delegates|members|americans)|distinguished guests|honou?red guests|members of the (?:board|committee|class|jury|school board)|(?:madam|mister|mr\.?) (?:chair|speaker|president)))/i;
+  const SPEECH_CLOSE = /\bthank you\b[^.!?]{0,40}[.!]?$|\b(?:vote for me|god bless)\b/i;
+  const SPEECH_CUE = /\b(?:I stand (?:here|before you)|today,? I (?:want|would like|am here|'d like) to|I(?:'m| am) here (?:today )?to|let me (?:tell|ask|remind) you|imagine (?:a|if|for a moment|with me)|raise your hand|vote for me|please vote|my fellow|as your (?:president|representative|class president|treasurer|secretary)|ask yourselves?|look around (?:you|this room)|(?:each|all|many|some|most) of you|thank you (?:all )?for (?:listening|your (?:time|attention|support))|I ask you|together,? we)\b/gi;
+  const BLOG_CUE = /\b(?:blog|this post|in the comments|subscribe|newsletter|my channel|this video|link (?:below|in my bio)|follow me)\b/i;
+  function looksLikeSpeech(raw, lines) {
+    if (BLOG_CUE.test(raw)) return false; // "Hi everyone! Welcome back to the blog." greets readers, not a room
+    const open = lines.slice(0, 3).some((l) => SPEECH_OPEN.test(l));
+    const close = lines.slice(-3).some((l) => SPEECH_CLOSE.test(l));
+    const cues = (raw.match(SPEECH_CUE) ?? []).length;
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    const you = (raw.match(/\byou(?:r|rs|rself|rselves|'re|'ll|'ve)?\b/gi) ?? []).length;
+    return (open && (close || cues >= 1 || you / words >= 0.015)) || (close && cues >= 2) || cues >= 3;
+  }
+  /* A lab report: its sections — Hypothesis, Materials, Procedure, Data,
+     Observations, Calculations, Sources of error — as headings or as
+     "Hypothesis: …" lines. A paper's Abstract or Participants makes it a
+     research paper instead (APA's Method has Materials and Procedure too). */
+  const LAB_HEAD = /^(?:(?:\d+|[IVX]+)[.)]\s*)?(?:purpose|objective|aim|(?:research )?question|problem|hypothesis|background(?: information)?|materials(?: and methods| (?:and|&) equipment)?|equipment|apparatus|procedures?|methods?|methodology|variables|(?:independent|dependent|controlled|control) variables?|data(?: (?:and|&) observations| tables?| analysis)?|observations|results|calculations|analysis|discussion|error analysis|sources of error|conclusions?|references)\s*(?::|$)/i;
+  const LAB_CORE = /^(?:(?:\d+|[IVX]+)[.)]\s*)?(hypothesis|materials|equipment|apparatus|procedures?|variables|independent|dependent|controlled|control|data|observations|calculations|error analysis|sources of error)\b/i;
+  function looksLikeLab(lines) {
+    if (lines.some((l) => /^(?:abstract|participants|literature review|related work)\s*:?$/i.test(l))) return false;
+    const heads = lines.filter((l) => (l.length <= 40 || /^[^:]{2,40}:/.test(l)) && LAB_HEAD.test(l));
+    const core = new Set(heads.map((h) => h.match(LAB_CORE)?.[1]?.toLowerCase()).filter(Boolean)).size;
+    const titled = lines.slice(0, 4).some((l) => /\blab(?:oratory)?\b|\bexperiment\b/i.test(l) && l.split(/\s+/).length <= 12);
+    return (core >= 2 && heads.length >= 3) || (titled && core >= 1 && heads.length >= 2);
+  }
+  /* A poem is lines, not paragraphs: hardly a line holds two sentences or
+     runs to a paragraph's length, and its stanzas, its rhymes or its open
+     line-ends say so. A list, notes or an outline are short-lined too —
+     bullets, numbers, "Label:" lines and an outline's words rule them out. */
+  const OUTLINE_WORD = /^(?:[IVX]{1,4}\.\s*|[A-H][.)]\s*|\d{1,2}[.)]\s*)?(?:introduction|intro|body(?: paragraph)?(?: \d)?|conclusion|thesis(?: statement)?|hook|claim|evidence|reasoning|counter ?argument|counterclaim|rebuttal|topic sentence|transition|background|main idea|supporting (?:detail|evidence))\b/i;
+  const WEAK_RHYME = new Set(["ed", "ly", "es", "ng", "er", "al", "on", "ts", "ns", "rs", "ds", "st", "nt", "le", "ty", "ry", "re", "se", "ce", "te"]);
+  function looksLikePoem(raw, lines) {
+    let body = lines;
+    if (body.length >= 5 && body[0].split(/\s+/).length <= 8 && !/[.!?,;:]$/.test(body[0])) body = body.slice(1); // a title
+    if (body.length >= 5 && /^by\s+\S/i.test(body[0])) body = body.slice(1); // a byline
+    const n = body.length;
+    if (n < 4) return false;
+    const share = (pred) => body.filter(pred).length / n;
+    const avg = body.reduce((sum, l) => sum + l.split(/\s+/).length, 0) / n;
+    if (share((l) => /^(?:[-•●○■▪◦*–>]|\(?\d{1,2}[.)]|[A-Za-z][.)]\s|[IVX]{1,4}\.\s)/.test(l)) > 0.3) return false; // a list
+    if (share((l) => /^[^:.!?]{2,30}:\s*\S/.test(l) || OUTLINE_WORD.test(l)) > 0.25) return false; // notes, an outline
+    if (body.some((l) => RESEARCH_HEADING.test(l.replace(/[:.]$/, "")))) return false; // a paper's sections
+    const groups = raw.split(/\n[ \t]*\n/).map((g) => g.split("\n").map((l) => l.trim()).filter(Boolean)).filter((g) => g.length);
+    const stanzas = groups.filter((g) => g.length >= 2).length;
+    // Long lines, but verse: every stanza two lines or more, and its lines run on
+    // (a comma, a dash, no stop) into the next — prose breaks only at a paragraph.
+    const inner = groups.flatMap((g) => g.slice(0, -1));
+    if (stanzas >= 2 && stanzas === groups.length && inner.length >= 3
+      && inner.filter((l) => !/[.!?]["”’)]?$/.test(l) && l.split(/\s+/).length >= 6).length / inner.length >= 0.6) return true;
+    if (share((l) => /[.!?]["”’)]?\s+["“(]?[A-Z]/.test(l)) > 0.2 || avg > 14) return false; // paragraphs
+    const end = (l) => (l.toLowerCase().match(/([a-z]+)[^a-z]*$/) ?? [])[1] ?? "";
+    const rhymes = (a, b) => a.length >= 2 && b.length >= 2 && a !== b && (a.slice(-3) === b.slice(-3) || (a.slice(-2) === b.slice(-2) && !WEAK_RHYME.has(a.slice(-2))));
+    const rhymed = share((l, i) => [body[i + 1], body[i + 2]].some((o) => o && rhymes(end(l), end(o))));
+    const open = share((l) => !/[.!?]["”’)]?$/.test(l));
+    return (stanzas >= 2 && open >= 0.3) || rhymed >= 0.3 || (open >= 0.6 && n >= 6);
+  }
+  /* Notes or an outline: mostly bullets, numbered or lettered points,
+     "Label: …" lines or an outline's own words, and mostly fragments. */
+  function looksLikeNotes(lines) {
+    const n = lines.length;
+    if (n < 5) return false;
+    const pointed = lines.filter((l) => /^(?:[-•●○■▪◦*–>]\s*|\(?\d{1,2}[.)]\s+|[a-hA-H][.)]\s+|[IVX]{1,4}\.\s+)/.test(l) || /^[^.!?:]{2,40}:(?:\s|$)/.test(l) || OUTLINE_WORD.test(l)).length;
+    const fragments = lines.filter((l) => !/[.!?]["”’)]?$/.test(l) || l.split(/\s+/).length <= 6).length;
+    return pointed / n >= 0.5 && fragments / n >= 0.5;
   }
 
   /* Research paper, literary essay, or essay. Owner, 2026-10-04: "does it have
@@ -1359,22 +1568,106 @@
      number and stuff detection". All three keep every check and the same
      citation style; the type is shown in the panel ("Reading this as …") and
      changes what quoteCitationTips says. A research paper announces itself:
-     an Abstract, or a methods/results-style section beside another heading.
-     A literary essay quotes a text and talks about how it works. Anything
-     short of that is an essay — "prose", the default it always was. */
+     an Abstract, or a methods/results-style section beside another heading —
+     or, with no headings, a long reference list cited all through. A literary
+     essay quotes a text and talks about how it works. Anything short of that
+     is an essay — "prose", the default it always was. */
   const RESEARCH_HEADING = /^(?:abstract|introduction|background|literature review|related work|methods?|methodology|materials and methods|participants|procedure|data|results|findings|analysis|discussion|limitations|conclusions?|references|bibliography|works cited)$/i;
   const RESEARCH_CORE = /^(?:abstract|literature review|related work|methods?|methodology|materials and methods|participants|procedure|results|findings|discussion|limitations)$/i;
   const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*)\b/gi;
+  // An in-text citation of a work: (Lee, 2019), (Lee 2019, 45), (Lee 45).
+  const WORK_CITE = /\([^()\n]*\b(?:1[5-9]|20)\d\d[a-z]?\b[^()\n]*\)|\([\p{Lu}][\p{L}'’-]+(?: (?:and|&) [\p{Lu}][\p{L}'’-]+| et al\.)? \d{1,4}(?:[-–]\d{1,4})?\)/gu;
   function essayKind(text, lines) {
     const heads = lines.map((l) => l.replace(/^(?:\d+|[IVX]+)[.)]?\s+/, "").replace(/[:.]$/, "").trim()).filter((l) => l.length <= 40 && RESEARCH_HEADING.test(l));
     const core = heads.filter((h) => RESEARCH_CORE.test(h));
     if (heads.some((h) => /^abstract$/i.test(h)) || (core.length >= 1 && heads.length >= 2)) return "research";
     const quotes = (String(text).match(/[“"][^”"\n]{8,600}[”"]/g) ?? []).length;
     const cues = (String(text).match(LITERARY_CUE) ?? []).length;
-    return quotes >= 2 && cues >= 3 ? "literary" : "prose";
+    if (quotes >= 2 && cues >= 3) return "literary";
+    const wc = worksCitedBlock(String(text));
+    const cites = (String(text).slice(0, wc ? wc.headStart : undefined).match(WORK_CITE) ?? []).length;
+    return wc && wc.entries.length >= 5 && cites >= 6 ? "research" : "prose";
   }
-  const GENRE_LABEL = { resume: "a resume", letter: "a letter", research: "a research paper", literary: "a literary essay", homework: "homework questions" };
-  const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary";
+  /* A news story: a dateline ("SPRINGFIELD, Ill. — "), a byline with
+     attributions, or people quoted by name and role ("said Maya Chen, a
+     junior") — and never a parenthetical citation. */
+  const DATELINE = /^[A-Z][A-Z .'’-]{2,30}(?:,\s*[A-Z][A-Za-z.]+(?:\s[A-Z][A-Za-z.]+)?)?\s*(?:\([A-Z]{2,6}\)\s*)?[—–-]{1,2}\s*\S/;
+  const BYLINE = /^[Bb][Yy]\s+[A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}.'’-]*){0,3}(?:\s*[,|]\s*.{2,40})?$/u;
+  const ATTRIBUTION = /\b(?:said|says|told|stated|explained|added|noted|announced|according to)\b/gi;
+  function looksLikeNews(raw, lines) {
+    if ((raw.match(WORK_CITE) ?? []).length) return false;
+    if (lines.slice(0, 5).some((l) => DATELINE.test(l))) return true;
+    const said = (raw.match(ATTRIBUTION) ?? []).length;
+    if (lines.slice(0, 4).some((l) => BYLINE.test(l)) && said >= 2) return true;
+    const named = (raw.match(/\b(?:said|says|according to)\s+(?:[A-Z][\p{L}'’-]+\s){0,2}[A-Z][\p{L}'’-]+,\s+(?:a|an|the)\s/gu) ?? []).length
+      + (raw.match(/\b[A-Z][\p{L}'’-]+,\s+(?:a|an|the)\s+[^,.\n]{2,60},\s+(?:said|says|told)\b/gu) ?? []).length;
+    const pronounSaid = (raw.match(/\b(?:he|she|they|I|we)\s+(?:said|asked|whispered|replied|shouted|yelled|muttered|answered)\b/g) ?? []).length;
+    return named >= 2 && said >= 3 && pronounSaid <= named;
+  }
+  /* Fiction, or the writer's own story, by its voice: dialogue tagged "she
+     said" and narration ("he turned", "she whispered") make a story; the
+     first person looking back ("I learned", "taught me", "my grandmother")
+     makes a personal essay. Either one with citations in it is an essay. */
+  const SPEECH_VERB = "said|says|asked|asks|whispered|whispers|shouted|shouts|replied|replies|yelled|yells|muttered|mutters|called|calls|answered|answers|cried|cries|exclaimed|murmured|murmurs|snapped|snaps|laughed|laughs|sighed|sighs|added|adds|told|tells";
+  const DIALOGUE = new RegExp(`["”]\\s*,?\\s*(?:[A-Za-z]+\\s){0,2}(?:${SPEECH_VERB})\\b|\\b(?:${SPEECH_VERB})\\s*,\\s*["“]`, "gi");
+  const NARRATION = /\b(?:he|she|they|I) (?:walked|walks|looked|looks|turned|turns|smiled|smiles|laughed|whispered|ran|runs|stared|stares|glanced|glances|nodded|nods|shrugged|shrugs|frowned|frowns|wondered|opened|opens|closed|closes|stood|stands|sat|sits|grabbed|grabs|reached|reaches|pulled|pulls|pushed|pushes|noticed|notices|heard|hears|watched|watches|stepped|steps|waited|waits|sighed|froze|freezes|paused|pauses|hums|hands|scans|taps|washes|lets)\b/gi;
+  const REFLECTION = /\b(?:I (?:learned|realized|realised|discovered|understood|have (?:always|never|learned|come to|grown)|now (?:know|understand|see|realize)|grew up|was (?:born|raised)|will never forget|remember)|taught me|(?:this|that) experience|looking back|in hindsight|growing up|ever since|shaped (?:me|who I am)|who I am(?: today)?|I want to (?:study|become|pursue|major)|my (?:passion|goal|dream)s?|my (?:mom|dad|mother|father|parents|grandma|grandmother|grandpa|grandfather|family|abuela|abuelo|sister|brother|coach|best friend))\b/gi;
+  function narrativeKind(raw) {
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    if (words < 80 || (raw.match(WORK_CITE) ?? []).length) return null;
+    const dialogue = (raw.match(DIALOGUE) ?? []).length;
+    const narration = (raw.match(NARRATION) ?? []).length;
+    const reflection = (raw.match(REFLECTION) ?? []).length;
+    const unquoted = raw.replace(/["“][^"”]*["”]/g, " ");
+    const firstPerson = (unquoted.match(/\b(?:I|[Mm]y|[Mm]e|[Mm]ine|[Mm]yself)\b/g) ?? []).length / words;
+    if (reflection >= 2 && firstPerson >= 0.025 && reflection >= dialogue / 2) return "personal";
+    if (dialogue >= 3 || (narration >= 4 && dialogue >= 1) || narration >= 6) return "story";
+    if (firstPerson >= 0.04 && reflection >= 1) return "personal";
+    return null;
+  }
+  const GENRE_LABEL = {
+    resume: "a resume", letter: "a letter", email: "an email", coverletter: "a cover letter", research: "a research paper",
+    literary: "a literary essay", homework: "homework questions", dbq: "a DBQ", lab: "a lab report", speech: "a speech",
+    news: "a news article", personal: "a personal essay", notes: "notes", annotated: "an annotated bibliography",
+    poem: "a poem", story: "a story", script: "a script",
+  };
+  // The essay-like kinds: the citation notes, the essay review, the off-topic lines.
+  const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary" || g === "lab" || g === "dbq";
+  // A reference list is part of the writing — Works Cited, References — and a claim can be sent to find a source.
+  const genreWantsList = (g) => g === "prose" || g === "research" || g === "literary" || g === "lab";
+  /* What a literary essay is about, which says how its quotes are cited: a
+     poem by line, a play by act, scene and line, a novel or story by page. */
+  function literaryForm(text) {
+    const t = String(text ?? "");
+    const n = (re) => (t.match(re) ?? []).length;
+    const poem = n(/\b(?:poem|poet|poetry|stanzas?|speaker|verses?|rhyme[sd]?|sonnet|couplets?|quatrains?|enjambment|meter|iambic)\b/gi) + 2 * n(/\(\s*(?:[\p{L}'’-]+,?\s+)?lines?\s+\d/giu);
+    const play = n(/\b(?:play|playwright|act [IVX\d]+|scene [ivx\d]+|soliloquy|monologue|stage directions?|dramatic irony|tragedy)\b/gi) + 2 * n(/\(\s*(?:[\p{L}.'’-]+\s+)?[IVX\d]+\.\d+\.\d+/gu);
+    const prose = n(/\b(?:novel|novella|chapter|narrator|short story|memoir)\b/gi) + 2 * n(/\([\p{Lu}][\p{L}'’-]+ \d{1,4}\)/gu);
+    const best = Math.max(poem, play, prose);
+    return best === 0 || prose === best ? "prose" : poem === best ? "poem" : "play";
+  }
+  /* The citation style the document already uses, or null: its own in-text
+     citations — (Lee, 2019) is APA, (Lee 45) MLA, (Lee 2019, 45) and
+     footnote marks Chicago — and its list's heading. Tracely cites the way
+     the writer already does unless they picked a style themselves
+     (settings.styleChosen); with nothing to go on it is MLA (owner,
+     2026-10-03). */
+  function docCitationStyle(text) {
+    const t = String(text ?? "");
+    const wc = worksCitedBlock(t);
+    const body = wc ? t.slice(0, wc.headStart) : t;
+    const count = (re) => (body.match(re) ?? []).length;
+    let apa = count(/\([^()\n]*\b[\p{Lu}][\p{L}'’-]+(?: et al\.)?(?: (?:&|and) [\p{Lu}][\p{L}'’-]+)?, (?:1[5-9]|20)\d\d[a-z]?(?:, (?:pp?\.|para\.) ?\d+(?:[-–]\d+)?)?\)/gu)
+      + count(/\b[\p{Lu}][\p{L}'’-]+(?: et al\.)? \((?:1[5-9]|20)\d\d[a-z]?\)/gu);
+    let mla = count(/\([\p{Lu}][\p{L}'’-]+(?: (?:and|&) [\p{Lu}][\p{L}'’-]+| et al\.)? (?!(?:1[5-9]|20)\d\d\b)\d{1,4}(?:[-–]\d{1,4})?\)/gu);
+    let chicago = count(/\([\p{Lu}][\p{L}'’-]+(?: et al\.)? (?:1[5-9]|20)\d\d(?:, \d{1,4}(?:[-–]\d+)?)?\)/gu) + count(/[.!?,]["”’]?[¹²³⁴⁵⁶⁷⁸⁹]/g);
+    const head = wc?.heading.toLowerCase();
+    if (head === "works cited") mla += 3; else if (head === "references") apa += 3; else if (head === "bibliography") chicago += 3;
+    const best = Math.max(apa, mla, chicago);
+    if (best < 2) return null;
+    const tops = [["apa", apa], ["mla", mla], ["chicago", chicago]].filter(([, k]) => k === best);
+    return tops.length === 1 ? tops[0][0] : null;
+  }
 
   /* A direct quotation cited without the page it came from. Every common style
      wants the page for a quote — MLA (Ghosh 23), APA (Ghosh, 2020, p. 23),
@@ -1389,6 +1682,7 @@
     const raw = String(text ?? "");
     const wc = worksCitedBlock(raw);
     const out = [];
+    let form = null;
     for (const m of raw.matchAll(/([“"])([^”"\n]{12,600})([”"])\s*\(([^()\n]{1,80})\)/g)) {
       const inner = m[4].trim();
       if (!/[A-Z]|\d/.test(inner) || LOCATOR.test(inner)) continue; // not a citation, or it has its page
@@ -1400,9 +1694,20 @@
         if (entry && /https?:\/\/|\bwww\.|\.(?:com|org|net|gov|edu)\b/i.test(entry) && !/\bpp?\.\s*\d|\b\d+\s*[–-]\s*\d+\b/.test(entry)) continue; // a web page: no pages to cite
       }
       const who = author ?? "Author";
-      const example = style === "apa" ? `(${who}, ${year ?? "2020"}, p. 23)` : style === "chicago" ? `(${who} ${year ?? "2020"}, 23)` : `(${who} 23)`;
       const styleName = style === "apa" ? "APA" : style === "chicago" ? "Chicago" : "MLA";
-      out.push({ quote: m[0].slice(-Math.min(m[0].length, 160)), kind: "page", message: `A direct quote needs the page it came from — in ${styleName}, like ${example}. If the source has no page numbers, leave it as it is.` });
+      const quote = m[0].slice(-Math.min(m[0].length, 160));
+      // A poem is cited by its lines and a play by act, scene and line — not by page.
+      form ??= literaryForm(raw);
+      if (form === "poem") {
+        const ex = style === "apa" ? `(${who}, ${year ?? "1923"}, lines 5–8)` : style === "chicago" ? `(${who} ${year ?? "1923"}, lines 5–8)` : `(${who}, lines 5–8)`;
+        out.push({ quote, kind: "page", label: "Add the line numbers", message: `A quoted line of a poem needs its line numbers — in ${styleName}, like ${ex}.` });
+      } else if (form === "play") {
+        const ex = style === "apa" ? `(${who}, ${year ?? "1603"}, 3.1.56–58)` : `(${who} 3.1.56–58)`;
+        out.push({ quote, kind: "page", label: "Add act, scene and line", message: `A quote from a play needs its act, scene and line numbers — in ${styleName}, like ${ex}.` });
+      } else {
+        const example = style === "apa" ? `(${who}, ${year ?? "2020"}, p. 23)` : style === "chicago" ? `(${who} ${year ?? "2020"}, 23)` : `(${who} 23)`;
+        out.push({ quote, kind: "page", message: `A direct quote needs the page it came from — in ${styleName}, like ${example}. If the source has no page numbers, leave it as it is.` });
+      }
       if (out.length >= 6) break;
     }
     return out;
@@ -2433,8 +2738,10 @@
   }
   /* Page-number notes for an essay or paper: shown only when there is one —
      an essay with every quote paged gets no empty section. */
-  function citationTips(text, style, dismissed) {
-    return [...quoteCitationTips(text, style), ...citationHygieneTips(text)]
+  function citationTips(text, style, dismissed, genre = "prose") {
+    // A DBQ cites its documents by number: no page, no Works Cited entry, no source for its outside evidence.
+    const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague"].includes(t.kind);
+    return [...quoteCitationTips(text, style), ...citationHygieneTips(text)].filter(notInDbq)
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
       .filter((t) => !dismissed.has(t.id));
   }
@@ -2558,9 +2865,9 @@
      The fact mark keeps the sentence. start/end are offsets into `text`;
      `lastCopy` tells Docs, which locates by text, to underline only the
      later of two identical entries (the one the note says to delete). */
-  function citationMarks(text, style, dismissed) {
+  function citationMarks(text, style, dismissed, genre = "prose") {
     const out = [];
-    for (const t of citationTips(text, style, dismissed)) {
+    for (const t of citationTips(text, style, dismissed, genre)) {
       const at = text.indexOf(t.quote);
       if (at < 0) continue;
       if (t.kind !== "page") { out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false }); continue; }
@@ -2568,17 +2875,48 @@
       if (p < 0) continue;
       out.push({ ...t, start: at + p, end: at + t.quote.length, mark: t.quote.slice(p), lastCopy: false });
     }
-    for (const t of referenceTips(text, dismissed)) {
+    for (const t of referenceTips(text, dismissed, genre, style)) {
+      if (!t.quote) continue; // a note about the whole document has no line to underline
       const at = t.kind === "refdup" ? text.lastIndexOf(t.quote) : text.indexOf(t.quote);
       if (at < 0) continue;
       out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: t.kind === "refdup" });
     }
     return out;
   }
-  // "Reading this as a research paper" — the detected type, said plainly so a wrong guess is visible.
-  function genreLineHtml(genre) {
-    if (genre === "homework") return `<div class="genre-line">This looks like homework questions. Tracely checks essays and other writing, so it is staying quiet here.</div>`;
-    return GENRE_LABEL[genre] ? `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}</div>` : "";
+  /* "Reading this as a research paper" — the detected kind, said plainly so a
+     wrong guess is visible — and what that kind means for its citations. */
+  const GENRE_QUIET_LINE = {
+    homework: "This looks like homework questions. Tracely checks essays and other writing, so it is staying quiet here.",
+    poem: "This reads as a poem — nothing in it needs a source, so Tracely is staying quiet.",
+    story: "This reads as a story — fiction needs no sources, so Tracely is staying quiet.",
+    script: "This reads as a script — nothing in it needs a source, so Tracely is staying quiet.",
+  };
+  function genreCiteNote(genre, text, style) {
+    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    switch (genre) {
+      case "dbq": return "cite the documents by number, like (Doc 3); outside evidence needs no source, and a DBQ has no Works Cited";
+      case "research": return `every finding needs an in-text citation and an entry in your ${list}`;
+      case "lab": return `your own data needs no source; background facts do, with an entry in your ${list}`;
+      case "literary": {
+        const f = literaryForm(text);
+        return f === "poem" ? `quote the poem by its line numbers and list it in your ${list}`
+          : f === "play" ? `quote the play by act, scene and line, like (3.1.56), and list it in your ${list}`
+          : `quote with page numbers and list the book in your ${list}`;
+      }
+      case "speech": return "name each source out loud (“According to …”); a speech has no Works Cited";
+      case "news": return "name each source in the sentence (“…, according to …”); an article has no Works Cited";
+      case "personal": return "your own story needs no citations";
+      case "email": case "letter": case "coverletter": return "no citations needed";
+      case "notes": return "no citations needed; a wrong fact still shows";
+      case "annotated": return "each entry is your summary of its source — nothing more to cite";
+      default: return "";
+    }
+  }
+  function genreLineHtml(genre, text = "", style = "mla") {
+    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line">${GENRE_QUIET_LINE[genre]}</div>`;
+    if (!GENRE_LABEL[genre]) return "";
+    const how = genreCiteNote(genre, text, style);
+    return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
      a citation (cite_tip), orange for one on the writing (note_tip). A note
@@ -2589,7 +2927,7 @@
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
@@ -3707,7 +4045,7 @@
     }
 
     function uncheckedSegments() {
-      if (FEATURES.writingOnly && docGenre === "homework") return []; // not writing: nothing to check
+      if (FEATURES.writingOnly && GENRE_QUIET.has(docGenre)) return []; // homework, a poem, a story, a script: nothing to check
       if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
@@ -3743,6 +4081,7 @@
         citedLater = coveredByLaterCitation(docText, segments);
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
+        if (!settings.styleChosen) settings.citationStyle = docCitationStyle(docText) ?? "mla"; // cite the way the doc already does
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -4785,7 +5124,7 @@
       const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
         ? essayFeedbackMarks(docText, essayFeedbackTips(docText, review.findings, dismissed))
         : [];
-      const allTips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed) : []), ...notes];
+      const allTips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(docText, settings.citationStyle, dismissed, docGenre) : []), ...notes];
       // One underline per span: a note over the whole of a flagged sentence
       // rides on that sentence's mark and card ("Also here"), not on a second
       // band over the same words (tipCoversSentence).
@@ -5389,7 +5728,7 @@
         back.addEventListener("click", () => { popPinned = true; popHash = from.backTo; paintPop(); });
         put(back);
       }
-      put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], TIP_LABEL[tip.kind] ?? "Citation"));
+      put(dmHead(MARK_COLORS[tip.markKind ?? "cite_tip"], tip.label ?? TIP_LABEL[tip.kind] ?? "Citation"));
       put(dmBody(tip.message));
       put(dmBlock(citeTipBlockLabel(tip), dmQuote(tip.quote.length > 220 ? tip.quote.slice(0, 219) + "…" : tip.quote)));
       const target = tipCitedTarget(tip, segments);
@@ -5573,7 +5912,7 @@
       scroll.appendChild(rows);
       const yn = citedYearNote(src.year, c.plan?.citedYear);
       if (yn) scroll.appendChild(dmBlock("THE YEAR", dmBlockBody(yn)));
-      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; saveSettings(); paintPop(); render(); }));
+      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; settings.styleChosen = true; saveSettings(); paintPop(); render(); }));
       const { marker, entry } = citedWorkEntry(src, style);
       const swapped = t?.kind === "sentence" && t.raw ? swapCitation(t.sentence, t.raw, marker, style) : null;
       // The sentence already cites it as the style would ("(Shiraishi)" in
@@ -5939,7 +6278,7 @@
       // under the line, and with these fixed the list was what collapsed —
       // to nothing. Its own rule decides it: the header and the buttons
       // never move, everything between them gives.
-      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; settings.styleChosen = true; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
       // Naming the source rewrites the writer's words, so what the sentence
       // will say is shown without asking, not behind Preview.
       const named = src && !replace ? nameTheSource(seg.text, src, style) : null;
@@ -6584,8 +6923,8 @@
       const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
       const list = [
-        ...citationTips(docText, settings.citationStyle, dismissed),
-        ...(FEATURES.refList ? referenceTips(docText, dismissed) : []),
+        ...citationTips(docText, settings.citationStyle, dismissed, docGenre),
+        ...(FEATURES.refList ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : []),
         ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : []),
       ];
       tipsMemo = { k, list };
@@ -8944,9 +9283,9 @@
       if (!docsOn) { renderDocsConsent(); return; }
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
-      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed) : [];
+      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
-      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(docText, settings.citationStyle, dismissed) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(docText, settings.citationStyle, dismissed, docGenre) : [];
       const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(docText, review.findings, dismissed) : [];
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
       const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
@@ -9038,7 +9377,7 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, docText, settings.citationStyle) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
            citation notes and the reference list's), then the writing (the
@@ -9049,7 +9388,7 @@
           : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : [])
             : "");
-        const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
+        const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 
@@ -9062,7 +9401,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || docGenre === "homework" ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -9678,7 +10017,7 @@
       const notes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay"
         ? essayFeedbackMarks(liveText, essayFeedbackTips(liveText, review.findings, dismissed)).filter((t) => !(cache.get(hashText(t.mark)) && flagShown(cache.get(hashText(t.mark)), settings, docGenre, t.mark)))
         : [];
-      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed) : []), ...notes];
+      const tips = [...(FEATURES.citeMarks && isArgumentGenre(docGenre) ? citationMarks(liveText, settings.citationStyle, dismissed, docGenre) : []), ...notes];
       const seen = new Set();
       const liveSegs = segmentText(liveText);
       const liveCovered = coveredByLaterCitation(liveText, liveSegs);
@@ -9830,7 +10169,7 @@
     }
 
     function uncheckedSegments() {
-      if (FEATURES.writingOnly && docGenre === "homework") return []; // not writing: nothing to check
+      if (FEATURES.writingOnly && GENRE_QUIET.has(docGenre)) return []; // homework, a poem, a story, a script: nothing to check
       if (FEATURES.resumeTips && reviewCoversCheck(docGenre, review)) return []; // cost idea 5
       const out = [];
       const seen = new Set();
@@ -9872,6 +10211,7 @@
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
         docGenre = FEATURES.resumeTips ? detectGenre(fieldText) : "prose";
+        if (!settings.styleChosen) settings.citationStyle = docCitationStyle(fieldText) ?? "mla";
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
           statusMsg = `field under ${MIN_FIELD_CHARS} characters — keep writing`;
@@ -10019,8 +10359,8 @@
       const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
       const list = [
-        ...citationTips(fieldText, settings.citationStyle, dismissed),
-        ...(FEATURES.refList ? referenceTips(fieldText, dismissed) : []),
+        ...citationTips(fieldText, settings.citationStyle, dismissed, docGenre),
+        ...(FEATURES.refList ? referenceTips(fieldText, dismissed, docGenre, settings.citationStyle) : []),
         ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : []),
       ];
       tipsMemo = { k, list };
@@ -10335,9 +10675,9 @@
 
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
-      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed) : [];
+      const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed, docGenre, settings.citationStyle) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
-      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(fieldText, settings.citationStyle, dismissed) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(fieldText, settings.citationStyle, dismissed, docGenre) : [];
       const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(fieldText, review.findings, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
@@ -10405,7 +10745,7 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre) : "";
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, fieldText, settings.citationStyle) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
            citation notes and the reference list's), then the writing (the
@@ -10416,7 +10756,7 @@
           : (FEATURES.offTopic || FEATURES.refList || FEATURES.quoteTips || FEATURES.essayFeedback) && isArgumentGenre(docGenre)
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : [])
             : "");
-        const evidenceHtml = FEATURES.evidenceHints && isArgumentGenre(docGenre)
+        const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
           ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
           : "";
 

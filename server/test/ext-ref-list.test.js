@@ -121,7 +121,7 @@ test("the tips: in the Citations group, dismissable, the duplicate's note says w
 
 test("wired: essays and papers, both panels, counted on the launcher", () => {
   assert.match(SRC, /refList: true,/);
-  assert.equal((SRC.match(/const refTips = FEATURES\.refList && isArgumentGenre\(docGenre\) \? referenceTips\((?:docText|fieldText), dismissed\) : \[\];/g) || []).length, 2);
+  assert.equal((SRC.match(/const refTips = FEATURES\.refList && isArgumentGenre\(docGenre\) \? referenceTips\((?:docText|fieldText), dismissed, docGenre, settings\.citationStyle\) : \[\];/g) || []).length, 2);
   assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length \+ citeTips\.length;/g) || []).length, 2);
   assert.equal((SRC.match(/citationTipsHtml\(\[\.\.\.citeTips, \.\.\.refTips\], copiedTipId\)/g) || []).length, 2);
 });

@@ -83,7 +83,7 @@ const COVER_LETTER = [
 test("detects a resume, and not an essay with a heading called Experience", () => {
   assert.equal(X.detectGenre(RESUME), "resume");
   assert.equal(X.detectGenre(ESSAY), "prose", "one heading-like word and full sentences: an essay");
-  assert.equal(X.detectGenre(COVER_LETTER), "letter", "Dear … Sincerely: a letter, its own genre");
+  assert.equal(X.detectGenre(COVER_LETTER), "coverletter", "Dear … Sincerely, about a position: a cover letter, its own genre");
   assert.equal(X.detectGenre("EXPERIENCE\nSKILLS"), "prose", "too short to judge");
   assert.equal(X.detectGenre(""), "prose");
 });
@@ -162,6 +162,7 @@ test("wired: the background worker relays /api/review, and the call is gated", (
   assert.match(SRC, /Date\.now\(\) - lastTextChangeAt < REVIEW_IDLE_MS \|\| Date\.now\(\) - review\.at < REVIEW_FLOOR_MS/, "still text, and at most once a minute");
   assert.match(SRC, /if \(err\?\.kind === "not_found"\) review\.unavailable = true;/, "an older server without the route: quiet, not an error");
   assert.equal((SRC.match(/flagShown\(.*?, settings, docGenre, (?:seg|x)\.text, (?:citedLater|liveCovered)\.has\((?:seg|x)\.hash\)\)/g) || []).length, 5, "every place a verdict is shown knows the genre and the sentence (5: the field marks' one-underline rule asks too)");
-  assert.equal((SRC.match(/FEATURES\.evidenceHints && isArgumentGenre\(docGenre\)/g) || []).length, 2, "no evidence suggestions on a resume or a letter");
-  assert.match(SRC, /const isArgumentGenre = \(g\) => g === "prose" \|\| g === "research" \|\| g === "literary";/);
+  assert.equal((SRC.match(/FEATURES\.evidenceHints && genreWantsList\(docGenre\)/g) || []).length, 2, "no evidence suggestions on a resume, a letter, a DBQ or a speech");
+  assert.match(SRC, /const isArgumentGenre = \(g\) => g === "prose" \|\| g === "research" \|\| g === "literary" \|\| g === "lab" \|\| g === "dbq";/);
+  assert.match(SRC, /const genreWantsList = \(g\) => g === "prose" \|\| g === "research" \|\| g === "literary" \|\| g === "lab";/);
 });

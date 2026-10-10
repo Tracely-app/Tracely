@@ -37,8 +37,10 @@ const EMAIL = "Hi Ms. Lopez,\n\nThanks for the feedback on my lab report. I fixe
 const BLOG = ["Hi everyone, welcome back to the channel", "Today we are looking at why the ocean is salty.", "Rivers carry minerals from rocks into the sea every single day.", "Evaporation removes water but leaves the salt behind over time.", "Over millions of years the salt builds up to about 3.5 percent.", "That is why seawater tastes the way it does today."].join("\n");
 
 test("a letter or email is its own genre; a longer post that only opens with 'Hi' is not", () => {
-  assert.equal(X.detectGenre(COVER_LETTER), "letter");
-  assert.equal(X.detectGenre(EMAIL), "letter");
+  // Since 2.21.35 a cover letter and an email are named as such (ext-writing-types.test.js); all three are the writer's own account.
+  assert.equal(X.detectGenre(COVER_LETTER), "coverletter");
+  assert.equal(X.detectGenre(EMAIL), "email");
+  for (const g of ["letter", "email", "coverletter"]) assert.equal(X.flagShown({ verdict: "needs_citation" }, {}, g, "Last year I built a budgeting app that 2,000 students use."), false, g);
   assert.equal(X.detectGenre(BLOG), "prose", "no sign-off on a longer text: an opening 'Hi' is not a letter");
 });
 
