@@ -3570,7 +3570,7 @@ textarea:disabled {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: var(--score-good-wash);
