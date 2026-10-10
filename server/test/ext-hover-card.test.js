@@ -39,7 +39,8 @@ function load() {
     let popEl = null, popCard = null, popAbove = false, popWidth = POP_WIDTH;
     const dmTail = () => ({ style: {}, remove() {} });
     ${sliceBetween(SRC, "    let popSide = null;", "    /* Follow loop")}
-    ({ place: (r) => placeDocsPopover(r), open: (el, c) => { popEl = el; popCard = c; popSide = null; popHeld = false; popAbove = false; },
+    ({ place: (r) => placeDocsPopover(r), open: (el, c) => { popEl = el; popCard = c; popSide = null; popHeld = false; popAbove = false; popPlanned = false; },
+       repaint: () => { popPlanned = false; }, // what paintPop does when the card's content changes
        side: () => popSide, hold: (v) => { popHeld = v; } })`, ctx);
   return { X, card, pop };
 }
@@ -76,11 +77,13 @@ test("it keeps its place frame after frame, and while the pointer is on it — w
   // The pointer reaches the card; its content grows past the room above (a button's note, a list).
   X.hold(true);
   card.natural = 700;
+  X.repaint();
   X.place(line(600));
   assert.equal(X.side(), "above", "it does not flip out from under the pointer");
   assert.equal(card.style.maxHeight, `${582 - 8}px`, "it is capped where it is; its list scrolls");
   // Back to its size: uncapped again, still above.
   card.natural = 400;
+  X.repaint();
   X.place(line(600));
   assert.equal(card.style.maxHeight, "");
   assert.equal(X.side(), "above");
@@ -99,13 +102,45 @@ test("below when it fits there; the roomier side, capped, when it fits on neithe
   b.X.place(line(420)); // 358 below, 402 above
   assert.equal(b.X.side(), "above");
   assert.equal(b.card.style.maxHeight, `${402 - 8}px`);
-  // Unheld, it moves only when it no longer fits where it is.
+  // Repainted (new content) and no longer fitting where it is, it changes side then — never on a scroll.
   const c = load();
   c.card.natural = 300;
   c.X.open(c.pop, c.card);
   c.X.place(line(100));
-  c.X.place(line(560)); // scrolled: 222 below now, 542 above
-  assert.equal(c.X.side(), "above");
+  c.X.place(line(560)); // scrolled: 222 below now
+  assert.equal(c.X.side(), "below", "a scroll carries it; it does not flip");
+  c.X.repaint();
+  c.X.place(line(560));
+  assert.equal(c.X.side(), "above", "its content changed and it does not fit below: now it moves");
+});
+
+test("one piece: a scroll carries the card with its line, half out of view included — no flip, no squeeze, no pinning", () => {
+  // Owner, 2026-10-09: "make the whole overlay move as one piece … so when I scroll it to be half out of frame it moves accordingly".
+  const { X, card, pop } = load();
+  card.natural = 300;
+  X.open(pop, card);
+  const at = [];
+  for (const y of [400, 300, 150, 40, -60]) { X.place(line(y)); at.push(`${topOf(pop)}:${card.offsetHeight}:${card.style.maxHeight || "-"}`); }
+  assert.deepEqual(at, ["414:300:-", "314:300:-", "164:300:-", "54:300:-", "-46:300:-"], "it follows the line up and off the top, its size unchanged");
+  assert.equal(X.side(), "below");
+  const d = load();
+  d.card.natural = 300;
+  d.X.open(d.pop, d.card);
+  for (const y of [300, 500, 700, 780]) d.X.place(line(y));
+  assert.equal(topOf(d.pop), 780 + 4 + 10, "and down past the bottom");
+  assert.equal(d.card.style.maxHeight, "", "never squeezed on the way");
+});
+
+test("a row of buttons wraps instead of being cut off at the card's edge", () => {
+  // Owner, 2026-10-09: "Apply revision · Back · Explain in depth PRO" was clipped on both sides.
+  const made = [];
+  const X = vm.runInContext(`
+    ${sliceBetween(SRC, "    function dmActions(...kids) {", "    function dmBtn(")}
+    ({ dmActions })`, vm.createContext({ el: (tag, style) => { const n = { tag, style: { ...style }, kids: [], appendChild(k) { this.kids.push(k); } }; made.push(n); return n; } }));
+  const row = X.dmActions({ id: "apply" }, { id: "back" }, null, { id: "deep" });
+  assert.equal(row.style.flexWrap, "wrap");
+  assert.equal(row.style.display, "flex");
+  assert.deepEqual(row.kids.map((k) => k.id), ["apply", "back", "deep"], "an absent control leaves no gap");
 });
 
 test("wired: a new card starts with no side; the pointer on the card holds it", () => {
@@ -113,4 +148,9 @@ test("wired: a new card starts with no side; the pointer on the card holds it", 
   assert.match(SRC, /popEl\.addEventListener\("pointerenter", \(\) => \{ popHeld = true; \}\);/);
   assert.match(SRC, /popEl\.addEventListener\("pointerleave", \(\) => \{ popHeld = false; \}\);/);
   assert.ok(!/const cardH = popCard\.offsetHeight;/.test(SRC), "never the capped height");
+  assert.match(SRC, /popPlanned = false; \/\/ new content: its side and size are decided again/, "a repaint plans it again; a scroll never does");
+  assert.ok(!/topPx = `\$\{Math\.max\(4, top\)\}px`/.test(SRC), "never pinned to the screen's edge");
+  const follow = sliceBetween(SRC, "    function popFollowFrame() {", "    /* ── open / paint");
+  assert.match(follow, /popLastTop = r\.top;\n\s+placeDocsPopover\(/, "placed with its line even when the line is out of view");
+  assert.match(follow, /if \(!clip \|\| \(pb\.bottom > clip\.top \+ 8 && pb\.top < clip\.bottom - 8\)\) \{/, "lost only once the card itself has left the view");
 });

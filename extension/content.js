@@ -1784,13 +1784,30 @@
        and empty page closes the card after HOVER_HIDE_MS.
      s: { open, popHash, onCard, onOwn, inTri, under } → { act, hash?, ms?, rest? },
      act one of "none" | "stay" | "open" | "swap" | "hide". */
-  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 120, HOVER_REST_MS = 300, HOVER_HIDE_MS = 250;
+  /* And (owner, 2026-10-09: "if I am trying to move to the overlay and the
+     overlay happens to be over another underline, the overlay jumps"):
+     measured on a Docs stand-in, a pointer that went straight down from the
+     end of a long line — beside its card, which centres on the line — took
+     another sentence's card twice on the way. So while a card is open,
+     another underline takes over ONLY when the pointer stops on it (`rest`:
+     it has stayed within 3px) — HOVER_SWAP_MS outside the triangle,
+     HOVER_REST_MS inside it — never while it is moving, however slowly or
+     whichever way; and a pointer getting closer to the card (`approaching`)
+     is on its way there, whatever it is over. The same run showed the other
+     half of the jump: beside the card, between two lines, the card CLOSED
+     (empty page, 250 ms), and the pointer then reached the place it had been
+     — over another underline, whose card opened. So near the card
+     (`near`, within HOVER_NEAR_PX of it) it closes only when the pointer
+     stops there for HOVER_HIDE_NEAR_MS; only far from it does empty page
+     close it at once. */
+  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 300, HOVER_REST_MS = 650, HOVER_HIDE_MS = 250, HOVER_HIDE_NEAR_MS = 900, HOVER_NEAR_PX = 140;
   function hoverIntent(s) {
     if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
-    if (s.onCard || s.onOwn) return { act: "stay" };
+    if (s.onCard || s.onOwn || s.approaching) return { act: "stay" };
     const other = s.under && s.under !== s.popHash ? s.under : null;
     if (s.inTri) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "stay" };
-    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS };
+    if (s.near) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "hide", ms: HOVER_HIDE_NEAR_MS, rest: true };
+    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS, rest: true };
     return { act: "hide", ms: HOVER_HIDE_MS };
   }
   /* Is (x, y) on the way from `apex` to the card? The region is the convex
@@ -4969,8 +4986,13 @@
     function dmChip(text) {
       return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
     }
+    /* A card's row of buttons. It wraps: the card is 320px and clips what
+       overflows, and "Apply revision · Back · Explain in depth PRO" is wider
+       than that — the owner's screenshot, 2026-10-09, had the primary cut on
+       the left and PRO on the right. Now what does not fit drops to the next
+       line (the link keeps its marginLeft:auto, so it sits at the right). */
     function dmActions(...kids) {
-      const row = el("div", { display: "flex", gap: "8px", alignItems: "center", flex: "0 0 auto" });
+      const row = el("div", { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", flex: "0 0 auto" });
       for (const k of kids) if (k) row.appendChild(k);
       return row;
     }
@@ -5178,9 +5200,17 @@
        fits there, else above when it fits there, else on the roomier side;
        it keeps that side while it still fits — and always while the pointer
        is on it (popHeld) — and only a card taller than its side's room is
-       capped (its list scrolls). */
+       capped (its list scrolls).
+       And then it is ONE PIECE (owner, 2026-10-09: "make the whole overlay
+       move as one piece … so when I scroll it to be half out of frame it
+       moves accordingly"): its side and its size are decided when it opens
+       and when its content changes (popPlanned, reset by paintPop) — never
+       by a scroll. A scroll only carries it with its line, half out of view
+       if that is where the line takes it: no flip, no squeeze, no pinning to
+       the screen's edge. */
     let popSide = null; // "above" | "below": the side the open card keeps
     let popHeld = false; // the pointer is on the card: it does not change side under it
+    let popPlanned = false; // side and size decided for what the card shows now
     function popNaturalHeight() {
       // What the scroll regions hide when the card is capped, added back.
       let hidden = 0;
@@ -5194,14 +5224,22 @@
       const idealLeft = cx - width / 2;
       const left = Math.max(8, Math.min(idealLeft, innerWidth - width - 8));
       const markTop = r.top, markH = (r.bottom ?? r.top + 4) - r.top;
-      // The card's own height, uncapped and tail excluded: what has to fit on one side.
-      const cardH = popNaturalHeight();
       const below = markTop + markH + POP_GAP;
-      const spaceBelow = innerHeight - below - 8;
-      const spaceAbove = markTop - POP_GAP - 8;
-      const fits = (side) => cardH <= (side === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
-      if (!popSide || (!popHeld && !fits(popSide))) {
-        popSide = fits("below") ? "below" : fits("above") ? "above" : spaceAbove > spaceBelow ? "above" : "below";
+      if (!popPlanned) {
+        popPlanned = true;
+        // The card's own height, uncapped and tail excluded: what has to fit on one side.
+        const cardH = popNaturalHeight();
+        const spaceBelow = innerHeight - below - 8;
+        const spaceAbove = markTop - POP_GAP - 8;
+        const fits = (side) => cardH <= (side === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+        if (!popSide || (!popHeld && !fits(popSide))) {
+          popSide = fits("below") ? "below" : fits("above") ? "above" : spaceAbove > spaceBelow ? "above" : "below";
+        }
+        // Capped only when it is taller than the room on its side, so the
+        // buttons never fall past the fold; then its list is what scrolls.
+        const room = (popSide === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+        const cap = cardH > room ? `${Math.max(MIN_CARD, room)}px` : "";
+        if (popCard.style.maxHeight !== cap) popCard.style.maxHeight = cap;
       }
       const above = popSide === "above";
       if (above !== popAbove) {
@@ -5211,13 +5249,9 @@
         const tail = dmTail(above ? "down" : "up", above);
         if (above) popEl.appendChild(tail); else popEl.insertBefore(tail, popEl.firstChild);
       }
-      // Capped only when it is taller than the room on its side, so the
-      // buttons never fall past the fold; then its list is what scrolls.
-      const room = (above ? spaceAbove : spaceBelow) - TAIL_NET;
-      const cap = cardH > room ? `${Math.max(MIN_CARD, room)}px` : "";
-      if (popCard.style.maxHeight !== cap) popCard.style.maxHeight = cap;
+      // Carried with its line, wherever that is — half out of view included.
       const top = above ? markTop - POP_GAP - popCard.offsetHeight - TAIL_NET : below;
-      const leftPx = `${left}px`, topPx = `${Math.max(4, top)}px`;
+      const leftPx = `${left}px`, topPx = `${Math.round(top)}px`;
       if (popEl.style.left !== leftPx) popEl.style.left = leftPx;
       if (popEl.style.top !== topPx) popEl.style.top = topPx;
       const tail = popEl.querySelector("[data-pop-arrow]");
@@ -5250,10 +5284,14 @@
           docsScroller = document.querySelector(".kix-appview-editor");
         }
         const clip = docsScroller ? docsScroller.getBoundingClientRect() : null;
-        if (!clip || (r.bottom >= clip.top + 2 && r.top <= clip.bottom - 2)) {
-          popLastTop = r.top;
+        // Carried with its line wherever it goes — the line out of view and the
+        // card half out with it (owner, 2026-10-09). It is lost only once the
+        // CARD has left the view.
+        popLastTop = r.top;
+        placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
+        const pb = popEl.getBoundingClientRect();
+        if (!clip || (pb.bottom > clip.top + 8 && pb.top < clip.bottom - 8)) {
           popLostAt = 0;
-          placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
           placed = true;
         }
       }
@@ -5274,6 +5312,7 @@
       popAbove = false;
       popSide = null;
       popHeld = false;
+      popPlanned = false;
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
@@ -5572,6 +5611,7 @@
 
     function paintPop() {
       if (!popEl || !popCard) return;
+      popPlanned = false; // new content: its side and size are decided again (popHeld keeps the side)
       const hash = popHash;
       popCard.textContent = "";
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
@@ -5986,6 +6026,7 @@
        time; when its timer fires the pointer is looked at again, and the
        decision runs only if it still holds. */
     let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
+    let hoverPrev = { x: -1, y: -1 }; // where the pointer was at the last hover pass (approaching)
     function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
     function hoverState(x, y) {
       // Bars are DOM-anchored now — read their LIVE viewport rects, which
@@ -6012,15 +6053,19 @@
         const h = hitOf(b);
         if (h) { bar = b; hit = h; }
       }
-      let onCard = false, inTri = false;
+      let onCard = false, inTri = false, approaching = false, near = false;
       if (popEl) {
         const pb = popEl.getBoundingClientRect();
-        onCard = x >= pb.left - 8 && x <= pb.right + 8 && y >= pb.top - 8 && y <= pb.bottom + 8;
+        onCard = x >= pb.left - 12 && x <= pb.right + 12 && y >= pb.top - 12 && y <= pb.bottom + 12;
         if (!onCard && !onOwn) inTri = inSafeTriangle(popApex, (popCard ?? popEl).getBoundingClientRect(), x, y);
+        // Closer to the card than at the last move: on its way there.
+        const toCard = (px, py) => Math.hypot(Math.max(pb.left - px, 0, px - pb.right), Math.max(pb.top - py, 0, py - pb.bottom));
+        approaching = !onCard && hoverPrev.x >= 0 && toCard(x, y) < toCard(hoverPrev.x, hoverPrev.y) - 0.5;
+        near = !onCard && toCard(x, y) <= HOVER_NEAR_PX;
       }
       // Not while pinned: an edit from this card is still settling.
       if (popEl && popPinned) bar = null;
-      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, under: bar?.hash ?? null, bar, hit };
+      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, approaching, near, under: bar?.hash ?? null, bar, hit };
     }
     function runHoverDecision(d, st) {
       if (d.act === "hide") { hideDocsPopover(); return; }
@@ -6033,6 +6078,7 @@
       hoverRafBusy = false;
       const { x, y } = hoverPt;
       const st = hoverState(x, y);
+      hoverPrev = { x, y };
       const d = hoverIntent(st);
       if (st.onOwn) popApex = { x, y };
       // The sentence under a closed pointer lights up at once; its card follows.
