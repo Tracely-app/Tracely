@@ -81,36 +81,40 @@
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 44px 24px 72px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 24px 64px; }
 
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
   .plane {
-    width: 36px; height: 36px; border-radius: 10px;
+    width: 32px; height: 32px; border-radius: var(--r-btn);
     background: var(--accent-gradient);
     display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0;
   }
-  .plane svg { width: 19px; height: 19px; }
-  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
-  /* --body (#737373) is 4.16:1 on --bg; this is the one line that sits on the
-     page rather than a card, so it takes a darker grey (5.6:1). */
-  .tag { color: rgba(0,0,0,.66); font-size: 13px; line-height: 18.2px; margin: 4px 0 24px; }
-
-  .status {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 12px; font-weight: 500; color: var(--body);
-    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-    padding: 7px 14px; margin-bottom: 24px;
-  }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
-  .status.on .dot { background: var(--ok); }
-  .status.off .dot { background: var(--accent); }
+  .plane svg { width: 16px; height: 16px; }
+  h1 { font-size: 24px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--text); }
+  /* --body (#737373) is 4.16:1 on --bg; this is one of the lines that sit on
+     the page rather than a card, so it takes --muted (5.5:1). */
+  .tag { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 6px 0 28px; }
 
   section {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
-    padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+    padding: 20px 24px; margin-bottom: 16px; box-shadow: none;
   }
-  h2 { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
-  .hint { font-size: 13px; line-height: 18.2px; color: var(--body); margin-bottom: 14px; }
+  h2 { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ink); margin-bottom: 4px; }
+  .hint { font-size: 13px; line-height: 1.5; color: var(--body); margin-bottom: 12px; }
+
+  /* The page foot: the live server line, then the privacy sentence. A column
+     so the status line is a block-level item and no text strut pads it. */
+  .page-foot { display: flex; flex-direction: column; align-items: flex-start; margin-top: 24px; }
+  .status {
+    display: inline-flex; align-items: flex-start; gap: 8px;
+    font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--label);
+    background: none; border: 0; padding: 0; margin: 0 0 8px;
+  }
+  /* Centred on the first 18px line, so a status that wraps keeps its dot
+     beside the first line rather than between the two. */
+  .dot { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+  .status.on .dot { background: var(--ok); }
+  .status.off .dot { background: var(--accent); }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   input[type="password"], input[type="text"] {
     flex: 1; min-width: 0;
@@ -172,19 +176,17 @@
   li:last-child { border-bottom: none; }
   li .origin { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   li button { padding: 5px 12px; font-size: 11px; color: var(--body); }
-  .foot { font-size: 12px; line-height: 16.8px; color: var(--label); margin-top: 24px; }
+  .foot { font-size: 12px; line-height: 1.5; color: var(--label); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <span class="plane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>
+      <span class="plane"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>
       <h1>Tracely</h1>
     </header>
     <p class="tag">Live fact-checking while you write — anywhere on the web.</p>
-
-    <span id="serverStatus" class="status"><span class="dot"></span><span id="serverStatusText">Checking for a local Tracely server…</span></span>
 
     <section>
       <h2>Tracely account</h2>
@@ -248,7 +250,10 @@
       <p id="noSites" class="hint" style="margin-bottom:0">None yet — click into a text field on a site and flip “Auto-check on this site” in the Tracely widget.</p>
     </section>
 
-    <p class="foot">Tracely never sends your writing anywhere except the Tracely server that checks it. Google Docs checks read the doc through your own signed-in session.</p>
+    <footer class="page-foot">
+      <span id="serverStatus" class="status"><span class="dot"></span><span id="serverStatusText">Checking for a local Tracely server…</span></span>
+      <p class="foot">Tracely never sends your writing anywhere except the Tracely server that checks it. Google Docs checks read the doc through your own signed-in session.</p>
+    </footer>
   </div>
   <script src="options.js"></script>
 </body>
