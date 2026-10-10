@@ -1357,7 +1357,11 @@
     // Numbered QUESTIONS with answers under them (a history worksheet): the answers are sentences, the items are not.
     const items = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
     const asked = items.filter((l) => NUMBERED_ITEM.test(l) && (TASK_START.test(l) || /\?["”’)]?$/.test(l))).length;
-    return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4) || (asked >= 3 && asked / items.length >= 0.25);
+    // Worked math — "3x + y = 16" line after line — and a sheet that says what it is.
+    const mathy = items.filter((l) => /[=≈≤≥]/.test(l) && /\d/.test(l) && l.split(/\s+/).length <= 16).length;
+    const sheet = /^(?:directions?\s*:|worksheet\b|show (?:all )?(?:of )?your work|answer key\b)|\bworksheet\b/im.test(items.slice(0, 4).join("\n"));
+    return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4) || (asked >= 3 && asked / items.length >= 0.25)
+      || (mathy >= 4 && mathy / items.length >= 0.3) || (sheet && (asked >= 2 || mathy >= 3 || items.filter((l) => NUMBERED_ITEM.test(l)).length >= 3));
   }
 
   /* What kind of writing this is, from its text alone — free, instant, and
@@ -1425,13 +1429,14 @@
     let at = -1;
     for (let i = 0; i < Math.min(lines.length - 1, 14); i++) {
       if (SALUTATION.test(lines[i])) { at = i; break; }
-      if (lines[i].split(/\s+/).length > 8) break; // body text before any salutation: no letter's head
+      if (lines[i].split(/\s+/).length > 8 && !/^(?:subject|re|fwd?|to|from|date|cc|bcc|sent)\s*:/i.test(lines[i])) break; // body text before any salutation: no letter's head
     }
     if (at < 0) return null;
     const sal = lines[at];
-    const tail = lines.slice(-4);
+    const tail = lines.slice(-7); // a signature can carry a title, a school and a phone number under the name
     const offs = tail.map(signOffLine);
-    const named = offs.includes("named") || offs.some((o, i) => o === "bare" && tail.slice(i + 1).some((l) => SIGNATURE.test(l)));
+    const closing = (l, o) => o === "bare" || (/^[^.!?]{2,40},$/.test(l) && l.split(/\s+/).length <= 5);
+    const named = offs.includes("named") || offs.some((o, i) => closing(tail[i], o) && tail.slice(i + 1, i + 3).some((l) => SIGNATURE.test(l)));
     // A formal letter may be signed with the name alone ("To the Editor: … Ruth Ellison / Westfield").
     const last = lines[lines.length - 1];
     const formal = /^(?:dear|to whom|to the)\b/i.test(sal) && SIGNATURE.test(last) && last.split(/\s+/).length <= 4;
@@ -1481,10 +1486,10 @@
      writer says about it ("This article argues …"). An essay's Works Cited is
      references back to back, with nothing said about them. */
   const REF_START = /^[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’-]+)?,\s+(?:[\p{Lu}][\p{L}'’.-]*\s?){1,4}(?:,|\.|\()/u;
-  const SUMMARY_CUE = /\b(?:this (?:article|source|book|study|website|site|essay|report|chapter|piece|paper|author|text|film|documentary|video|podcast|interview|collection)|the (?:authors?|article|study|source|book|website|writer|researchers?) (?:argues?|explains?|describes?|discuss(?:es)?|shows?|claims?|suggests?|provides?|presents?|explores?|examines?|focus(?:es)?|uses?|offers?)|(?:will|would) (?:be|help)|is (?:useful|helpful|relevant|credible|reliable)|I (?:will|plan to|can) use)\b/i;
+  const SUMMARY_CUE = /\b(?:this (?:[\w-]+ ){0,2}(?:article|source|book|study|website|site|essay|report|chapter|piece|paper|author|text|film|documentary|video|podcast|interview|collection)|the (?:authors?|article|study|source|book|website|writer|researchers?) (?:argues?|explains?|describes?|discuss(?:es)?|shows?|claims?|suggests?|provides?|presents?|explores?|examines?|focus(?:es)?|uses?|offers?)|(?:will|would) (?:be|help)|is (?:useful|helpful|relevant|credible|reliable)|I (?:will|plan to|can) use)\b/i;
   function looksLikeAnnotated(lines) {
-    if (lines.slice(0, 3).some((l) => /^annotated bibliography\b/i.test(l))) return true;
-    const isRef = (l) => REF_START.test(l) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l);
+    if (lines.slice(0, 6).some((l) => /\bannotated bibliography\b/i.test(l) && l.split(/\s+/).length <= 12)) return true;
+    const isRef = (l) => (REF_START.test(l) || /^["“][^"”]{3,}["”]\s*[.,]?\s+\S/.test(l)) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l);
     let refs = 0, said = 0;
     lines.forEach((l, i) => {
       if (!isRef(l)) return;
@@ -1537,6 +1542,7 @@
     const share = (pred) => body.filter(pred).length / n;
     const avg = body.reduce((sum, l) => sum + l.split(/\s+/).length, 0) / n;
     if (share((l) => /^(?:[-•●○■▪◦*–>]|\(?\d{1,2}[.)]|[A-Za-z][.)]\s|[IVX]{1,4}\.\s)/.test(l)) > 0.3) return false; // a list
+    if (share((l) => /[=≈≤≥]/.test(l) && /\d/.test(l)) > 0.2) return false; // worked math
     if (share((l) => /^[^:.!?]{2,30}:\s*\S/.test(l) || OUTLINE_WORD.test(l)) > 0.25) return false; // notes, an outline
     if (body.some((l) => RESEARCH_HEADING.test(l.replace(/[:.]$/, "")))) return false; // a paper's sections
     const groups = raw.split(/\n[ \t]*\n/).map((g) => g.split("\n").map((l) => l.trim()).filter(Boolean)).filter((g) => g.length);
@@ -1586,7 +1592,7 @@
     if (quotes >= 2 && cues >= 3) return "literary";
     const wc = worksCitedBlock(String(text));
     const cites = (String(text).slice(0, wc ? wc.headStart : undefined).match(WORK_CITE) ?? []).length;
-    return wc && wc.entries.length >= 5 && cites >= 6 ? "research" : "prose";
+    return wc && wc.entries.length >= 4 && cites >= 8 ? "research" : "prose";
   }
   /* A news story: a dateline ("SPRINGFIELD, Ill. — "), a byline with
      attributions, or people quoted by name and role ("said Maya Chen, a
@@ -1594,11 +1600,19 @@
   const DATELINE = /^[A-Z][A-Z .'’-]{2,30}(?:,\s*[A-Z][A-Za-z.]+(?:\s[A-Z][A-Za-z.]+)?)?\s*(?:\([A-Z]{2,6}\)\s*)?[—–-]{1,2}\s*\S/;
   const BYLINE = /^[Bb][Yy]\s+[A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}.'’-]*){0,3}(?:\s*[,|]\s*.{2,40})?$/u;
   const ATTRIBUTION = /\b(?:said|says|told|stated|explained|added|noted|announced|according to)\b/gi;
+  const NEWS_SOURCE = /\b(?:officials?|spokes(?:person|man|woman)|police|department|mayor|principal|superintendent|chief|director|president|captain|coach|junior|senior|sophomore|freshman|organizers?|residents?|council|district|county|authorities)\b/i;
   function looksLikeNews(raw, lines) {
     if ((raw.match(WORK_CITE) ?? []).length) return false;
     if (lines.slice(0, 5).some((l) => DATELINE.test(l))) return true;
     const said = (raw.match(ATTRIBUTION) ?? []).length;
-    if (lines.slice(0, 4).some((l) => BYLINE.test(l)) && said >= 2) return true;
+    // Sentences that attribute to an official, a department, a role: "…, city officials said."
+    const attributed = raw.split(/(?<=[.!?]["”’)]?)\s+/).filter((x) => /\b(?:said|says|told|according to|announced|reported)\b/i.test(x) && NEWS_SOURCE.test(x)).length;
+    const pronouns = (raw.match(/\b(?:he|she|they|I|we)\s+(?:said|asked|whispered|replied|shouted|yelled|muttered|answered)\b/g) ?? []).length;
+    const firstPerson = (raw.replace(/["“][^"”]*["”]/g, " ").match(/\b(?:I|[Mm]y|[Mm]e|[Ww]e|[Oo]ur|[Uu]s)\b/g) ?? []).length;
+    const when = /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|yesterday|this (?:week|morning|afternoon|evening)|last (?:week|night))\b/.test(raw);
+    const headline = !/[.!?]["”’)]?$/.test(lines[0]) && lines[0].split(/\s+/).length <= 14;
+    if (lines.slice(0, 4).some((l) => BYLINE.test(l)) && said >= 2 && attributed >= 1 && pronouns <= 1) return true;
+    if (pronouns <= 1 && ((attributed >= 2 && firstPerson <= 1) || (attributed >= 1 && when && headline && firstPerson === 0))) return true;
     const named = (raw.match(/\b(?:said|says|according to)\s+(?:[A-Z][\p{L}'’-]+\s){0,2}[A-Z][\p{L}'’-]+,\s+(?:a|an|the)\s/gu) ?? []).length
       + (raw.match(/\b[A-Z][\p{L}'’-]+,\s+(?:a|an|the)\s+[^,.\n]{2,60},\s+(?:said|says|told)\b/gu) ?? []).length;
     const pronounSaid = (raw.match(/\b(?:he|she|they|I|we)\s+(?:said|asked|whispered|replied|shouted|yelled|muttered|answered)\b/g) ?? []).length;
@@ -1621,7 +1635,8 @@
     const unquoted = raw.replace(/["“][^"”]*["”]/g, " ");
     const firstPerson = (unquoted.match(/\b(?:I|[Mm]y|[Mm]e|[Mm]ine|[Mm]yself)\b/g) ?? []).length / words;
     if (reflection >= 2 && firstPerson >= 0.025 && reflection >= dialogue / 2) return "personal";
-    if (dialogue >= 3 || (narration >= 4 && dialogue >= 1) || narration >= 6) return "story";
+    const spokenLines = raw.split("\n").filter((l) => /^\s*["“]/.test(l)).length / Math.max(1, raw.split("\n").filter((l) => l.trim()).length);
+    if (dialogue >= 3 || (narration >= 4 && dialogue >= 1) || narration >= 6 || spokenLines >= 0.5) return "story";
     if (firstPerson >= 0.04 && reflection >= 1) return "personal";
     return null;
   }
