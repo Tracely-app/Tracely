@@ -2698,7 +2698,7 @@
     if (!open) return `<div class="evidence">${head}</div>`;
     const cards = candidates.map((seg) => `
       <div class="card ev-card" data-card="${seg.hash}">
-        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed" aria-label="Not needed">✕</button></div>
         <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
         <div class="expl">This holds up, but it is a point a reader may want backed. A study or official source would make it harder to argue with.</div>
         ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">Find evidence</button></div>`}
@@ -3708,7 +3708,7 @@
     .fixes { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
     .fixes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
     .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
-    .fixes-acts { display: inline-flex; gap: 6px; }
+    .fixes-acts { display: inline-flex; gap: 8px; }
     .fixes-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--surface); }
     .fx-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -9264,11 +9264,11 @@
       const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
       return `
         <div class="fx fx-${it.status}" data-fx-row="${i}">
-          <div class="fx-top">${dot ? `<span class="dot ${dot}"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
+          <div class="fx-top">${dot ? `<span class="dot ${dot}" aria-hidden="true"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
           ${it.job && it.status !== "failed" ? fixChangeHtml(it.job) : ""}
           ${src}
           ${it.status === "ready" ? `<div class="row"><button class="act primary" data-fx-accept="${i}"${docBusy || fixBatch?.applying ? " disabled" : ""}>${FIX_COPY.accept}</button><button class="act" data-fx-skip="${i}">${FIX_COPY.skip}</button></div>`
-            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin"></span>` : ""}${esc(state)}</div>` : ""}
+            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin" aria-hidden="true"></span>` : ""}${esc(state)}</div>` : ""}
         </div>`;
     }
     /* ── the suggestions, in the doc ──────────────────────────────────────
@@ -9466,7 +9466,7 @@
       const end = b.preparing ? `<button class="act" data-walk-stop="1">${FIX_COPY.stop}</button>` : `<button class="act" data-fx-close="1"${b.applying ? " disabled" : ""}>${FIX_COPY.done}</button>`;
       const whys = [...new Set(none.map((it) => it.why).filter(Boolean))].join("; ");
       return `<div class="fixes">
-        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
+        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin" aria-hidden="true"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
         ${rows}
         ${none.length ? `<div class="fixes-note">${esc(FIX_COPY.couldNot(none.length, whys))}</div>` : ""}
         ${b.left ? `<div class="fixes-note">${esc(FIX_COPY.left(b.left))}</div>` : ""}
