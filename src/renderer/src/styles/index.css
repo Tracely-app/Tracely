@@ -1967,6 +1967,14 @@ textarea:disabled {
   flex-wrap: wrap;
 }
 
+/* The card only renders in the 380px Floating popup, where "Refresh
+   Evidence" + "Re-check Argument" no longer fit on one row at 14px. Growing
+   the pair makes either outcome look intended: two equal halves, or two
+   full-width rows — never one short button hanging under another. */
+.claim-actions .btn {
+  flex: 1 1 auto;
+}
+
 /* The card's own status rows: the error sentence, and "no supporting
    evidence" in the shared dashed empty box. Scoped here so the global
    .muted / .error-text stay untouched. */
@@ -2154,7 +2162,9 @@ textarea:disabled {
   align-items: center;
   vertical-align: middle;
   height: 20px;
-  margin-left: 8px;
+  /* It is the card's first child, above a block title: a leading chip on its
+     own line, flush with the title's left edge. */
+  margin: 0 0 8px;
   padding: 0 8px;
   border-radius: 999px;
   font-size: 11px;
@@ -2218,12 +2228,14 @@ textarea:disabled {
 /* Reads as a property of the source rather than a badge competing with the
    stance chip above it — whether you can read the paper is useful context,
    not a verdict. */
+/* On its own line under the meta: inline, it wrapped onto a fresh line with
+   its left margin still on and sat indented from the text above. */
 .evidence-oa {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  vertical-align: middle;
+  width: fit-content;
   height: 20px;
-  margin-left: 8px;
+  margin: 8px 0 0;
   padding: 0 8px;
   border-radius: 999px;
   background: var(--score-good-wash);
@@ -2240,10 +2252,12 @@ textarea:disabled {
   margin: 8px 0;
 }
 
+/* Small ghost buttons, pulled left by their own padding so the labels line up
+   with the title and meta above. */
 .evidence-actions {
   display: flex;
   gap: 4px;
-  margin-top: 8px;
+  margin: 8px 0 0 -10px;
 }
 
 .citation-block {
