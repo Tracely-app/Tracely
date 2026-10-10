@@ -115,40 +115,55 @@
   .dot { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
   .status.on .dot { background: var(--ok); }
   .status.off .dot { background: var(--accent); }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type="password"], input[type="text"] {
-    flex: 1; min-width: 0;
-    border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 8px 12px;
-    font-size: 12px; color: var(--text); background: var(--surface); outline: none;
+    flex: 1; min-width: 0; height: 36px; padding: 0 12px;
+    border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+    font-size: 13px; color: var(--text); background: var(--surface); outline: none;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    transition: border-color .15s, box-shadow .15s;
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
   }
-  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+  input[type="password"]::placeholder, input[type="text"]::placeholder { color: var(--label); }
+  input[type="password"]:focus, input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
 
-  /* The app's .btn / .btn-primary, down to the 0.98 press. */
+  /* The app's one button recipe (index.css .btn / .btn-ghost / .btn-sm):
+     36px, radius 8, 14/500, the two neutral washes on hover and press.
+     Nothing scales or glows. */
   button {
-    border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-    border-radius: var(--r-btn); padding: 8px 16px; font-size: 12px; font-weight: 500; cursor: pointer;
-    font-family: inherit;
-    transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 36px; padding: 0 16px; flex-shrink: 0;
+    border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+    background: var(--surface); color: var(--text);
+    font-family: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease), opacity var(--dur) var(--ease);
   }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
-  button:active:not(:disabled) { transform: scale(.98); }
-  button:disabled { opacity: .5; cursor: default; }
-  button.ghost { color: var(--body); }
-  .saved { font-size: 12px; color: var(--ok); font-weight: 500; margin-top: 10px; min-height: 16px; }
+  button:hover:not(:disabled) { background-color: var(--hover); }
+  button:active:not(:disabled) { background-color: var(--pressed); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background-color: transparent; border-color: transparent; color: var(--muted); }
+  button.ghost:hover:not(:disabled) { background-color: var(--hover); color: var(--text); }
+  button.ghost:active:not(:disabled) { background-color: var(--pressed); color: var(--text); }
+  button.sm, li button { height: 28px; padding: 0 10px; font-size: 13px; }
+  /* A ghost text button on its own line: pulled left by its padding so its
+     label lines up with the text above it. */
+  button.flush { margin-left: -10px; }
+  .saved { font-size: 12px; line-height: 1.5; color: var(--ok); font-weight: 500; margin-top: 12px; min-height: 18px; }
   .saved.warn { color: var(--accent-ink); }
 
   /* account */
+  /* The page's one primary (.btn-primary): a flat accent fill. The gradient
+     and the orange glow belong to the brand mark alone. */
   .linkbtn {
-    display: inline-flex; align-items: center; text-decoration: none;
-    border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 600;
-    background: var(--accent-gradient); color: #fff; border: 1px solid transparent;
-    box-shadow: 0 4px 8px rgba(244,123,32,.35);
-    transition: filter .15s ease, box-shadow .15s ease, transform .1s ease;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 36px; padding: 0 18px; flex-shrink: 0;
+    border: 1px solid transparent; border-radius: var(--r-btn);
+    background: var(--accent); color: #fff; box-shadow: none;
+    font-size: 14px; font-weight: 600; line-height: 1; white-space: nowrap; text-decoration: none;
+    transition: filter var(--dur) var(--ease);
   }
-  .linkbtn:hover { filter: brightness(1.05); box-shadow: 0 5px 10px rgba(244,123,32,.4); }
-  .linkbtn:active { transform: scale(.98); }
+  .linkbtn:hover { filter: brightness(1.06); }
+  .linkbtn:active { filter: brightness(.94); }
   .acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .acct-email { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
   .plan {
@@ -192,7 +207,7 @@
       <h2>Tracely account</h2>
       <p class="hint" id="acctHint">Checking your account…</p>
       <div id="signedOut" hidden>
-        <div class="acct" id="betaPlanOut" hidden style="margin-bottom:14px">
+        <div class="acct" id="betaPlanOut" hidden style="margin-bottom:12px">
           <span class="plan paid" id="betaPlanLabel">Pro</span>
           <span class="beta-tag">beta</span>
         </div>
@@ -200,7 +215,7 @@
           <button id="signIn">Sign in</button>
           <a class="linkbtn" id="seePlans" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
         </div>
-        <p class="hint" style="margin:10px 0 0">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a class="upgrade-link" href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+        <p class="hint" style="margin:12px 0 0">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a class="upgrade-link" href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
       </div>
       <div id="signedIn" hidden>
         <div class="acct">
@@ -208,11 +223,12 @@
           <span class="plan" id="acctPlan"></span>
           <span class="beta-tag" id="acctBeta" hidden>beta</span>
         </div>
-        <div class="row" style="margin-top:14px">
+        <div class="row" style="margin-top:12px">
           <a class="linkbtn" id="manageLink" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">Upgrade</a>
           <button id="signOut" class="ghost">Sign out</button>
         </div>
-        <p class="hint" style="margin:12px 0 0">Your usage counts and payment record are kept with your account. <button id="deleteAccount" class="ghost" style="padding:5px 10px;font-size:11px">Delete my account and data</button></p>
+        <p class="hint" style="margin:12px 0 4px">Your usage counts and payment record are kept with your account.</p>
+        <button id="deleteAccount" class="ghost sm flush">Delete my account and data</button>
       </div>
       <p id="acctStatus" class="saved"></p>
     </section>
@@ -228,7 +244,7 @@
 
       <div id="thoroughPro" hidden>
         <h3 class="sub">Thorough explanations (Pro)</h3>
-        <p class="hint" style="margin-bottom:12px">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
+        <p class="hint">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
         <span class="meter" id="thoroughMeter" hidden><span class="meter-fill" id="thoroughFill"></span></span>
         <p class="model-note" id="thoroughMeterText" hidden></p>
       </div>
