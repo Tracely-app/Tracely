@@ -3633,8 +3633,8 @@ textarea:disabled {
   margin-top: 6px;
 }
 
-/* Metric chip (404:228): 11.5px Medium label, SemiBold value, on a #eaeaea
-   fully-rounded 4px track. */
+/* Metric chip (404:228): 12px Medium label, SemiBold tabular value, on a
+   fully-rounded 4px track in var(--border). */
 .argscore-bar-label { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted-2); }
 .argscore-bar-pct { font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 
@@ -3939,8 +3939,8 @@ textarea:disabled {
 .argscore-para-open { margin-top: 8px; }
 
 /* ---- Cohesion & flow (the block above the paragraph breakdown) ---------- */
-/* The frame's lavender block (449:165): #f6f3fe on a #d3c7f2 hairline at 16px
-   radius. It was surface-grey, which put it in the same visual class as the
+/* The frame's lavender block (449:165): #f6f3fe on a #d3c7f2 hairline, at the
+   tile radius (12). It was surface-grey, which put it in the same visual class as the
    paragraph cards below it — the frame separates the two deliberately, because
    one is about the joins between paragraphs and the other is about the
    paragraphs. */
