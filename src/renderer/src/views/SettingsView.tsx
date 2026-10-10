@@ -19,12 +19,17 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
 import SettingsField from '../components/SettingsField'
 import SettingsUnavailable from '../components/SettingsUnavailable'
-import { Bell, CreditCard, Link2, ShieldCheck } from 'lucide-react'
+import Spinner from '../components/Spinner'
 import {
   UserIcon,
   SunIcon,
   SlidersIcon,
   ShieldIcon,
+  ShieldCheckIcon,
+  BellIcon,
+  LinkIcon,
+  CardIcon,
+  CheckIcon,
   BackIcon
 } from '../components/icons'
 import { tracelyApi } from '../lib/api'
@@ -140,10 +145,10 @@ const NAV: { id: Section; label: string; icon: (props: { size?: number }) => JSX
   { id: 'profile', label: 'Profile', icon: UserIcon },
   { id: 'appearance', label: 'Appearance', icon: SunIcon },
   { id: 'preferences', label: 'Preferences', icon: SlidersIcon },
-  { id: 'notifications', label: 'Notifications', icon: (p) => <Bell size={p.size ?? 15} /> },
-  { id: 'security', label: 'Security', icon: (p) => <ShieldCheck size={p.size ?? 15} /> },
-  { id: 'integrations', label: 'Integrations', icon: (p) => <Link2 size={p.size ?? 15} /> },
-  { id: 'billing', label: 'Billing', icon: (p) => <CreditCard size={p.size ?? 15} /> },
+  { id: 'notifications', label: 'Notifications', icon: BellIcon },
+  { id: 'security', label: 'Security', icon: ShieldCheckIcon },
+  { id: 'integrations', label: 'Integrations', icon: LinkIcon },
+  { id: 'billing', label: 'Billing', icon: CardIcon },
   // NOT in the Figma frames, which list seven sections and no Privacy. Kept
   // anyway: it is the only way to reach "clear history" and "delete all local
   // data", both of which work. Deleting a real, reachable feature to match a
@@ -431,7 +436,13 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
 
 
   if (!settings) {
-    return <div className="settings-view">{error ? <p className="error-text">{error}</p> : <p>Loading…</p>}</div>
+    return (
+      <div className="settings-view">
+        <div className="settings-loading">
+          {error ? <p className="error-text" role="alert">{error}</p> : <Spinner label="Loading…" />}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -440,18 +451,19 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
         <aside className="settings-sidebar">
           <div className="settings-sidebar-header">
             <button className="settings-back-link" onClick={() => onNavigate('home')}>
-              <BackIcon /> Back
+              <BackIcon size={14} /> Back
             </button>
             <h2>Settings</h2>
           </div>
-          <nav className="settings-nav">
+          <nav className="settings-nav" aria-label="Settings sections">
             {NAV.map((n) => (
               <Fragment key={n.id}>
                 <button
                   className={`settings-nav-item ${section === n.id ? 'active' : ''}`}
+                  aria-current={section === n.id ? 'page' : undefined}
                   onClick={() => setSection(n.id)}
                 >
-                  <n.icon size={15} />
+                  <n.icon size={16} />
                   {n.label}
                 </button>
               </Fragment>
@@ -551,8 +563,8 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   invited someone to write something that goes nowhere.
                 */}
               </div>
-              {profileError ? <p className="error-text">{profileError}</p> : null}
-              <Button variant="dark" onClick={requestSaveProfile} disabled={profileSaving}>
+              {profileError ? <p className="error-text" role="alert">{profileError}</p> : null}
+              <Button variant="primary" onClick={requestSaveProfile} disabled={profileSaving}>
                 {profileSaving ? 'Saving…' : 'Save changes'}
               </Button>
             </div>
@@ -577,9 +589,12 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                     {ACCENT_COLORS.map((c) => (
                       <button
                         key={c.id}
+                        type="button"
                         className={`accent-swatch ${settings.accentColor === c.id ? 'accent-swatch-active' : ''}`}
                         style={{ background: c.swatch }}
                         title={c.label}
+                        aria-label={c.label}
+                        aria-pressed={settings.accentColor === c.id}
                         onClick={() => changeAccentColor(c.id)}
                       />
                     ))}
@@ -634,9 +649,9 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               </label>
               <div className="settings-app-grid">
                 {installedApps === null ? (
-                  <p className="muted">Scanning installed apps…</p>
+                  <Spinner label="Scanning installed apps…" />
                 ) : knownApps.length === 0 ? (
-                  <p className="muted">No apps found. Add one by name below.</p>
+                  <p className="settings-app-empty">No apps found. Add one by name below.</p>
                 ) : (
                   knownApps.map((app: ScannedApp) => {
                     const allowed = allowedApps.some((a) => a.toLowerCase() === app.exe.toLowerCase())
@@ -666,7 +681,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   Add
                 </Button>
               </div>
-              {prefsError ? <p className="error-text">{prefsError}</p> : null}
+              {prefsError ? <p className="error-text" role="alert">{prefsError}</p> : null}
               <p className="muted settings-app-note">
                 Screen Watch only reads text in apps you check below — nothing is enabled anywhere until you pick
                 it. Uncheck an app any time to stop it from being read.
@@ -811,7 +826,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   />
                 </SettingsField>
               </div>
-              {hotkeyError ? <p className="error-text">{hotkeyError}</p> : null}
+              {hotkeyError ? <p className="error-text" role="alert">{hotkeyError}</p> : null}
               <p className="muted settings-app-note">
                 Grading level moves the letter, not the score out of 100 — the rubric measures the same six
                 things at every level. The same draft that earns an A in grade 7 is a C in grade 12, because the
@@ -964,7 +979,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                       Deletes past analyses, their claims and evidence. Saved sources stay.
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => setClearConfirm('history')} disabled={clearing}>
+                  <Button variant="danger" onClick={() => setClearConfirm('history')} disabled={clearing}>
                     Clear history
                   </Button>
                 </div>
@@ -975,13 +990,18 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                       Everything above, plus every source you saved and every citation generated.
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => setClearConfirm('all')} disabled={clearing}>
+                  <Button variant="danger" onClick={() => setClearConfirm('all')} disabled={clearing}>
                     Clear everything
                   </Button>
                 </div>
               </div>
-              {clearError ? <p className="error-text">{clearError}</p> : null}
-              {clearDone ? <p className="muted">{clearDone}</p> : null}
+              {clearError ? <p className="error-text" role="alert">{clearError}</p> : null}
+              {clearDone ? (
+                <p className="settings-clear-done" role="status">
+                  <CheckIcon size={14} />
+                  {clearDone}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -1000,7 +1020,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
             three have not.
           */}
 
-          {error ? <p className="error-text">{error}</p> : null}
+          {error ? <p className="error-text" role="alert">{error}</p> : null}
         </div>
       </div>
     </div>

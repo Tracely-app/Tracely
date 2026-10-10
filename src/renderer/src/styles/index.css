@@ -2554,30 +2554,14 @@ textarea:disabled {
   }
 }
 
-.settings-panel input,
-.settings-panel select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  margin-top: 4px;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.settings-panel input:focus-visible,
-.settings-panel select:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--ring);
-}
-
 .settings-view {
   width: 100%;
   height: 100%;
+}
+
+/* Before settings arrive: the spinner where the pane's content will start. */
+.settings-loading {
+  padding: 44px 40px;
 }
 
 .settings-shell {
@@ -2592,7 +2576,7 @@ textarea:disabled {
 }
 
 .settings-sidebar {
-  width: 263px;
+  width: 240px;
   flex-shrink: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -2609,21 +2593,26 @@ textarea:disabled {
 }
 
 .settings-sidebar-header {
-  padding: 8px 18px 0;
+  /* 24px: the same left edge as the nav icons below (12px nav + 12px item). */
+  padding: 8px 24px 0;
 }
 
 .settings-back-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: 28px;
   border: none;
+  border-radius: var(--r-ctl);
   background: transparent;
-  color: var(--muted-2);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   cursor: pointer;
-  padding: 8px 0 0;
-  transition: color 0.15s ease;
+  padding: 0;
+  margin-top: 4px;
+  transition: color var(--dur) var(--ease);
 }
 
 .settings-back-link:hover {
@@ -2632,16 +2621,19 @@ textarea:disabled {
 
 .settings-sidebar-header h2 {
   margin: 0;
-  padding: 8px 0 18px;
-  font-size: 32px;
+  padding: 8px 0 16px;
+  font-family: var(--font-display);
+  font-size: 28px;
   font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
 .settings-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding: 0 12px;
   flex: 1;
 }
@@ -2650,87 +2642,75 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: 12px;
+  height: var(--ctl-h);
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
   border: none;
   background: transparent;
-  color: var(--muted-2);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   text-align: left;
   transition:
-    background 0.12s ease,
-    color 0.12s ease,
-    transform 0.08s ease;
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .settings-nav-item:hover {
-  background: var(--surface-2);
+  background: var(--hover);
   color: var(--text);
 }
 
 .settings-nav-item:active {
-  transform: scale(0.98);
+  background: var(--pressed);
 }
 
-/* The frame fills the selected item with the accent, not with ink (33:287:
-   `bg-[#f97316]`, 12px radius, white label). It was black here, which is the
-   "settings accents are black" report.
-
-   `var(--accent)` rather than the literal, so Settings > Appearance > Accent
-   color still moves it — the design's orange IS the default value of that
-   token now, so the frame is reproduced exactly until someone chooses
-   otherwise. */
+/* The selected section: an accent wash with a 3px accent rule on the leading
+   edge and an accent icon, rather than a solid orange slab — the accent still
+   marks "you are here" (and still follows Appearance > Accent color), but the
+   label stays in text colour so it reads at the same weight in both themes. */
 .settings-nav-item.active {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-wash);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
-/* Settings' primary action is a FLAT accent fill in the frame (33:364), not
-   the accent gradient `.btn-primary` carries elsewhere, and not ink. Scoped to
-   this view because `.btn-dark` is also the Library's "Save notes", which no
-   frame has asked to change. */
-.settings-view .btn-dark {
-  background: var(--accent);
-  color: #fff;
-}
-
-.settings-view .btn-dark:hover:not(:disabled) {
-  background: var(--accent);
-  filter: brightness(1.06);
-}
-
-/* Screen Watch's switch and every app checkbox. `accent-color` is the one-line
-   way to tint a native control, and native is worth keeping here: these are
-   real checkboxes with real keyboard behaviour, and a hand-built switch would
-   be re-implementing that to change a colour. */
-.settings-view input[type='checkbox'],
-.settings-view input[type='radio'] {
-  accent-color: var(--accent);
+.settings-nav-item.active svg {
+  color: var(--accent);
 }
 
 .settings-nav-item svg {
   flex-shrink: 0;
-  opacity: 0.85;
+  color: var(--muted);
+  transition: color var(--dur) var(--ease);
+}
+
+.settings-nav-item:not(.active):hover svg {
+  color: var(--text);
 }
 
 .settings-sidebar-footer {
-  border-top: 1px solid var(--border);
-  padding: 13px 12px 16px;
+  padding: 12px;
 }
 
 .settings-build-version {
   display: block;
-  padding: 8px 12px 0;
+  padding: 0 12px;
   font-size: 11px;
-  color: var(--muted-2);
+  line-height: 1.5;
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-panel {
   flex: 1;
   min-width: 0;
-  padding: 28px;
+  padding: 32px 40px;
   overflow-y: auto;
   /* .settings-shell (the drag handle for this window) marks its whole
      subtree as a drag region; Electron/Chromium blocks wheel scroll inside
@@ -2744,111 +2724,86 @@ textarea:disabled {
   margin-top: 12px;
 }
 
-/* Deliberately the one place in Settings that breaks the neutral palette —
-   red border/wash on both light and dark themes so "this is different from
-   everything else on this screen" reads instantly, matching how every
-   mainstream app marks irreversible account actions. */
-.danger-zone {
-  margin-top: 20px;
-  border: 1px solid var(--danger);
-  border-radius: 12px;
-  padding: 16px;
-  background: var(--score-low-wash);
-}
-
-.danger-zone-header {
-  margin-bottom: 12px;
-}
-
-.danger-zone-header h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--danger);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.danger-zone-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.danger-zone-row-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.danger-zone-row-subtitle {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--muted);
-  margin-top: 2px;
-  max-width: 320px;
-}
-
 .settings-panel-header {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .settings-panel-header h3 {
-  margin: 0 0 2px;
-  font-size: 15px;
+  margin: 0 0 4px;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .settings-panel-header p {
   margin: 0;
-  color: var(--label);
-  font-size: 11px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .settings-avatar-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .settings-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: var(--surface-2);
+  background: var(--bg);
   color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1;
   flex-shrink: 0;
 }
 
 .settings-avatar-meta {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
 }
 
+/* The secondary button recipe at 32px, beside a 56px avatar. */
 .settings-avatar-upload {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   color: var(--text);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
-  padding: 5px 12px;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.settings-avatar-upload:hover {
+  background-color: var(--hover);
+}
+
+.settings-avatar-upload:active {
+  background-color: var(--pressed);
 }
 
 .settings-avatar-meta p {
   margin: 0;
-  font-size: 10px;
-  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label);
 }
 
 .settings-avatar-photo {
@@ -2858,42 +2813,118 @@ textarea:disabled {
 
 .settings-toggle-row {
   display: flex;
-  align-items: center;
+  /* Top-aligned: the switch sits on the title's line, not adrift in the
+     middle of a four-line description. */
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
-  margin-bottom: 20px;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
   cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.settings-toggle-row:hover {
+  border-color: var(--border-strong);
+}
+
+/* As a grid cell the grid's own gap spaces it. */
+.settings-panel-grid > .settings-toggle-row {
+  margin-bottom: 0;
 }
 
 .settings-toggle-row-title {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.45;
   color: var(--text);
 }
 
 .settings-toggle-row-subtitle {
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
-/* Pro's Thorough allowance under the critique model: a thin native meter in
-   the theme's accent, full width of its field. */
+/* Pro's Thorough allowance under the critique model: a thin meter, full width
+   of its field — ink on var(--border) like every progress bar, var(--danger)
+   once it drops under the `low` mark (Chromium's native fill was a literal
+   green/yellow that ignored accent-color). */
 .settings-thorough-meter {
   display: block;
   width: 100%;
   height: 6px;
   margin-top: 6px;
-  accent-color: var(--accent);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  /* The track is the meter-bar below; a fill here would double its alpha. */
+  background: transparent;
+  overflow: hidden;
 }
 
+.settings-thorough-meter::-webkit-meter-bar {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.settings-thorough-meter::-webkit-meter-optimum-value {
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.settings-thorough-meter::-webkit-meter-suboptimum-value,
+.settings-thorough-meter::-webkit-meter-even-less-good-value {
+  border-radius: 999px;
+  background: var(--danger);
+}
+
+/* The row's checkbox drawn as a switch — still the native input, so the
+   label click, Space and the change handler are untouched: a 36x20 track and
+   a 16px knob that slides 16px when checked. Same specificity as the global
+   checkbox tick, later in the sheet, so the knob replaces the tick. */
 .settings-toggle-row input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
+  width: 36px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
   flex-shrink: 0;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.settings-toggle-row input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+  transition: transform var(--dur) var(--ease);
+}
+
+.settings-toggle-row input[type='checkbox']:checked {
+  background: var(--accent);
+}
+
+.settings-toggle-row input[type='checkbox']:checked::after {
+  transform: translateX(16px);
+}
+
+.settings-toggle-row input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
 /* Compact checklist — small checkbox + label pairs that wrap, rather than
@@ -2902,67 +2933,77 @@ textarea:disabled {
 .settings-app-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
+  gap: 4px 16px;
   max-height: 280px;
   overflow-y: auto;
-  margin-bottom: 20px;
+  /* 4px of room inside the scroller so a focused checkbox's ring is not
+     clipped at its edge, given back by the negative margin. */
+  padding: 4px;
+  margin: -4px -4px 12px;
 }
 
 .settings-app-check {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 28px;
   cursor: pointer;
-  width: calc(50% - 9px);
+  width: calc(50% - 8px);
   min-width: 0;
-}
-
-.settings-app-check input[type='checkbox'] {
-  width: 14px;
-  height: 14px;
 }
 
 .settings-app-check-name {
   font-size: 13px;
   font-weight: 500;
+  line-height: 1.45;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* The list's empty state: the shared dashed box. */
+.settings-app-empty {
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
+.settings-app-grid > .spinner-row {
+  margin: 4px 0;
+}
+
 .settings-app-add {
   display: flex;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
+/* The field recipe (with .settings-field, below) sizes it; here it only takes
+   the row's free width. */
 .settings-app-add input {
   flex: 1;
-  padding: 9px 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
-}
-
-.settings-app-add input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--ring);
+  min-width: 0;
 }
 
 .settings-app-note {
-  font-size: 11px;
+  margin: 0 0 12px;
+  font-size: 12px;
   line-height: 1.5;
+  color: var(--muted);
 }
 
 .settings-panel-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px 12px;
-  margin-bottom: 20px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .settings-panel-grid-full {
@@ -2972,95 +3013,116 @@ textarea:disabled {
 .settings-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .settings-field-label {
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--label);
-}
-
-.settings-field input,
-.settings-field select,
-.settings-field textarea {
-  width: 100%;
-  padding: 9px 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
   font-size: 12px;
-  margin-top: 0;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One field recipe for every text input and select in Settings: 36px, radius
+   8, 1px border-strong on surface, 13px. Scoped through :where() so it weighs
+   no more than a bare element selector (it wins over the base `input`/`select`
+   rules by source order) — the global focus ring (border accent + 3px ring),
+   the checkbox and range recipes and the select chevron still win without a
+   local copy. */
+:where(.settings-field, .settings-app-add) input:where(:not([type='checkbox'], [type='range'], [type='file'])),
+:where(.settings-field, .settings-app-add) select {
+  width: 100%;
+  height: var(--ctl-h);
+  padding: 0 12px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-ctl);
+  background-color: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
-.settings-field input:focus-visible,
-.settings-field select:focus-visible,
-.settings-field textarea:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--ring);
+:where(.settings-field, .settings-app-add) input::placeholder {
+  color: var(--label);
+  opacity: 1;
 }
 
-.settings-field input:disabled,
-.settings-field select:disabled,
-.settings-field textarea:disabled {
-  opacity: 0.55;
+:where(.settings-field, .settings-app-add) :where(input, select, textarea):disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.settings-field textarea {
-  resize: vertical;
-  min-height: 54px;
+:where(.settings-field) textarea {
+  min-height: 84px;
 }
 
 .settings-static-value {
-  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  height: var(--ctl-h);
+  padding: 0 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-static-value-good {
-  color: #00a63e;
+  color: var(--score-good);
 }
 
 /* The Figma Settings frames end each panel with one tall read-only box
    (Recent login activity, Available integrations, Billing history). */
 .settings-static-value-block {
+  height: auto;
   min-height: 100px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  white-space: normal;
 }
 
+/* As tall as the Theme select beside it, so the two cells line up. */
 .accent-swatch-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
+  align-items: center;
+  gap: 12px;
+  height: var(--ctl-h);
 }
 
+/* The four gradients are previews of each accent, so they stay as drawn.
+   Hovered or chosen, the 2px border turns surface-coloured — the gap — and a
+   2px ring sits outside it: border-strong on hover, text when chosen. */
 .accent-swatch {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
   transition:
-    transform 0.1s ease,
-    box-shadow 0.12s ease;
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .accent-swatch:hover {
-  transform: scale(1.08);
+  border-color: var(--surface);
+  box-shadow: 0 0 0 2px var(--border-strong);
 }
 
-.accent-swatch-active {
+.accent-swatch-active,
+.accent-swatch-active:hover {
   border-color: var(--surface);
   box-shadow: 0 0 0 2px var(--text);
 }
@@ -3281,7 +3343,8 @@ textarea:disabled {
 }
 
 .settings-panel-content {
-  animation: panel-fade-in 0.16s ease-out;
+  max-width: 560px;
+  animation: panel-fade-in 0.16s var(--ease);
 }
 
 /* Home — third quick link, matching the Settings/New Session pair above it.
@@ -3451,61 +3514,91 @@ textarea:disabled {
 /* Settings > Preferences — global-shortcut capture field. Reads as an input
    but is a button, because it captures a key chord rather than text. */
 .settings-hotkey {
+  display: flex;
+  align-items: center;
   width: 100%;
+  height: var(--ctl-h);
   text-align: left;
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
+  line-height: 1.45;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition:
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 .settings-hotkey:hover {
-  border-color: var(--accent);
+  background-color: var(--hover);
 }
+/* It reads as a field, so it takes the field's focus ring, not the button
+   outline; capturing is the same ring with the prompt in muted text. */
+.settings-hotkey:focus-visible,
 .settings-hotkey-capturing {
+  outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--ring);
+}
+.settings-hotkey-capturing,
+.settings-hotkey-capturing:hover {
+  background-color: var(--surface);
   color: var(--muted);
 }
 
 /* Extra breathing room where a grid follows body copy rather than a header. */
 .settings-panel-grid-spaced {
-  margin-top: 18px;
+  margin-top: 12px;
 }
 
-/* Settings > Privacy — one row per destructive action. */
+/* Settings > Privacy — one row per destructive action. The row stays
+   neutral; the danger button is what says irreversible. */
 .settings-danger-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .settings-danger-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--surface-2);
 }
 .settings-danger-row > div:first-child {
   min-width: 0;
+}
+.settings-clear-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.settings-clear-done svg {
+  flex-shrink: 0;
+  color: var(--score-good);
 }
 
 /* Settings > Billing — the plan the account is on, and the way up from it.
    Tokens only: this panel is read in both themes and a card built out of
    literal greys is the thing the dark-mode pass had to go back and undo. */
 .settings-plan-card {
-  padding: 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
   background: var(--surface-2);
   margin-bottom: 12px;
 }
@@ -3521,46 +3614,56 @@ textarea:disabled {
   font-family: var(--font-display);
   font-size: 20px;
   font-weight: 500;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .settings-plan-price {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Says which plan is being described, not that anything is wrong — so it takes
    the accent wash rather than a status colour. */
 .settings-plan-badge {
   flex-shrink: 0;
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   border: 1px solid var(--accent-border);
   border-radius: 999px;
   background: var(--accent-wash);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  line-height: 1;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
 }
 
 .settings-plan-includes {
   list-style: none;
-  margin: 14px 0 0;
+  margin: 16px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .settings-plan-includes li {
   position: relative;
   padding-left: 16px;
-  font-size: 12.5px;
-  color: var(--muted-2);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
+/* Centred on the first line: (19.5px line - 6px dot) / 2. */
 .settings-plan-includes li::before {
   content: '';
   position: absolute;
@@ -3578,9 +3681,9 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--surface-2);
   margin-bottom: 12px;
 }
@@ -3589,8 +3692,8 @@ textarea:disabled {
   min-width: 0;
 }
 
-/* The panel is 620px wide and the sentence beside it is two lines long, so
-   without this the button wraps to "See / plans". */
+/* The sentence beside it runs two lines, so without this the button would
+   wrap to "See / plans". .btn is already 36px and flex-shrink 0. */
 .settings-plan-upgrade .btn {
   flex-shrink: 0;
   white-space: nowrap;
@@ -5106,14 +5209,14 @@ textarea:disabled {
 
 /* The one line that says why a Figma-accurate settings page cannot be used. */
 .settings-unavailable-note {
-  margin: 0 0 18px;
-  padding: 10px 12px;
+  margin: 0 0 24px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   background: var(--surface-2);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--muted-2);
+  color: var(--muted);
 }
 
 .settings-static-value.is-unavailable {
