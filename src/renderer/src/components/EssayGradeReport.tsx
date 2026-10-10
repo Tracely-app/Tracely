@@ -305,7 +305,8 @@ export function gradeRingColor(score: number, palette: GradePalette = GRADE_LIGH
   return palette.ringLow
 }
 
-/** The header both frames draw: a 16/600 title left, a 28px icon close right. */
+/** The header both frames draw: an 18/600 title left (the modal's title size),
+ *  a 28px icon close right. */
 export function GradeHeader({ title, onClose }: { title: string; onClose: () => void }): JSX.Element {
   const P = useContext(GradePaletteContext)
   return (
@@ -320,7 +321,7 @@ export function GradeHeader({ title, onClose }: { title: string; onClose: () => 
         width: '100%'
       }}
     >
-      <div style={{ minWidth: 0, fontSize: 16, fontWeight: 600, lineHeight: 1.3, color: P.text }}>{title}</div>
+      <div style={{ minWidth: 0, fontSize: 18, fontWeight: 600, lineHeight: 1.3, color: P.text }}>{title}</div>
       <button
         className="tracely-btn-text"
         onClick={onClose}
@@ -417,7 +418,7 @@ export function GradeScoreSection({
         </div>
       </div>
 
-      <div style={{ position: 'absolute', left: 144, top: 22, width: 241, height: 72 }}>
+      <div style={{ position: 'absolute', left: 144, top: 22, right: 0, minWidth: 0, height: 72 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: P.dim, letterSpacing: '0.04em', lineHeight: '16px' }}>OVERALL SCORE</div>
         <div
           style={{
