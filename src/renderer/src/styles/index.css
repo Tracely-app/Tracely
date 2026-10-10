@@ -1118,15 +1118,24 @@ textarea:disabled {
 
 .docmark-card {
   /* Figma 288:309, read off get_design_context — not estimated. 2px here,
-     unlike the home sample (361:329) which the design draws at 1px. */
+     unlike the home sample (361:329) which the design draws at 1px. Ink and
+     surface are tokens, so the same rule is the dark card too: a light border
+     on the dark surface, never a white flashlight over a dark document. */
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #fff;
-  border: 2px solid #000;
-  border-radius: 16px;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-card);
   padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  line-height: 1.4;
+  box-shadow: var(--shadow-lg);
+}
+
+/* A finding surface focuses in ink, not the app-chrome accent. */
+.docmark-card :focus-visible,
+.docprose-card :focus-visible {
+  outline-color: var(--ink);
 }
 
 /* Everything in the card holds its size; `.docmark-scroll` is the one part that
@@ -1174,71 +1183,104 @@ textarea:disabled {
 .docmark-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1c1c1c;
+  line-height: 20px;
+  color: var(--text);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
+/* "2" — more problems wait behind this one. The chip recipe at its smallest. */
 .docmark-count {
   margin-left: auto;
   flex-shrink: 0;
-  min-width: 18px;
-  padding: 1px 6px;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.07);
-  font-size: 10px;
+  box-sizing: border-box;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
   font-weight: 600;
-  color: #55555c;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
   text-align: center;
 }
 
 .docmark-body {
   margin: 0;
   font-size: 13px;
-  line-height: 1.4;
-  color: #737373;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .docmark-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-/* No width, no height — the frame's buttons hug their text. */
+/* No width — the frame's buttons hug their text. The finding-surface recipe:
+   32px, radius 8, 13px; one ink primary beside one outlined secondary. No
+   scale on press — the fill says it. */
 .docmark-btn-primary,
 .docmark-btn-secondary {
-  padding: 8px 14px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
+  font-family: inherit;
   font-size: 13px;
+  line-height: 1;
   white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    filter var(--dur) var(--ease);
 }
 
 .docmark-btn-primary {
-  background: #1c1c1c;
-  border: 1px solid #1c1c1c;
-  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: var(--ink-contrast);
   font-weight: 600;
 }
 
-.docmark-btn-primary:hover {
-  background: #000;
+.docmark-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.docmark-btn-primary:active:not(:disabled) {
+  filter: brightness(0.85);
 }
 
 .docmark-btn-secondary {
-  background: #fff;
-  border: 1px solid #d9d9d9;
-  color: #1c1c1c;
-  font-weight: 400;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-weight: 500;
 }
 
-.docmark-btn-secondary:hover {
-  background: rgba(0, 0, 0, 0.04);
+.docmark-btn-secondary:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.docmark-btn-secondary:active:not(:disabled) {
+  background: var(--pressed);
 }
 
 .docmark-btn-primary:disabled,
 .docmark-btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- The citation flow inside the same card (Figma "Find a Source" /

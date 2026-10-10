@@ -1963,7 +1963,14 @@ function Tail({ left, pointing, above }: { left: number; pointing: 'up' | 'down'
         ...(above ? { marginTop: -2 } : { marginBottom: -2 })
       }}
     >
-      <path d="M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z" fill="white" stroke="black" strokeWidth="2" />
+      {/* The card's own surface and ink, so the tail stays one piece with the
+          2px border in both themes — a literal white/black tail was a white
+          notch on the dark card. */}
+      <path
+        d="M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z"
+        style={{ fill: 'var(--surface)', stroke: 'var(--ink)' }}
+        strokeWidth="2"
+      />
     </svg>
   )
 }
