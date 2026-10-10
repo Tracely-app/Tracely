@@ -4759,13 +4759,17 @@ export default function OverlayApp(): JSX.Element {
             // The badge counts UNDERLINES, which is what the launcher points
             // at. It counted sources once, so it read 8 over two marks.
             const hasInfo = widget.underlineCount > 0
+            // No count yet because the first read is still running: the same
+            // puck in the grey every mark uses for "still checking", with a
+            // dotted ring — the extension's `.launcher .count.off`.
+            const checking = !hasInfo && widget.analyzing
             // A solid black circle with the plain Tracely mark, plus a
-            // small solid-orange count badge overlapping its top-right
-            // edge once there's something to show — matches the Figma
-            // "Collapsed Launcher" mockup (not a colored ring around the
-            // whole circle).
+            // small ink count badge overlapping its top-right edge once
+            // there's something to show — matches the Figma "Collapsed
+            // Launcher" mockup (not a colored ring around the whole circle).
             return (
               <button
+                className="tracely-launcher"
                 // Opens the claims panel. Pointing this at `tracer.open`
                 // instead (39d238b) left the panel with no entry point at all:
                 // the only other way in required `claim.critiqueVerdict`, which
@@ -4779,6 +4783,7 @@ export default function OverlayApp(): JSX.Element {
                 // "Ask Tracer" already appears in three places.
                 onMouseDown={(e) => startWidgetDrag(e, { width: 56, height: 56 }, () => openWidgetPanel())}
                 title="Flagged claims — click to open, drag to move"
+                aria-label={`${widget.underlineCount} flagged claims — open the panel`}
                 style={{
                   position: 'absolute',
                   left: circlePos.x,
@@ -4791,8 +4796,11 @@ export default function OverlayApp(): JSX.Element {
                   cursor: 'pointer',
                   background: INK,
                   boxShadow: widgetHovered ? '0 6px 18px rgba(0, 0, 0, 0.25)' : '0 2px 10px rgba(0, 0, 0, 0.18)',
-                  transition: 'box-shadow 0.12s ease, transform 0.12s ease',
-                  transform: widgetHovered ? 'scale(1.06)' : 'scale(1)',
+                  transition: `box-shadow 150ms ${EASE}, transform 150ms ${EASE}`,
+                  // A 3% lift, not 6%: enough to say "this is live" under the
+                  // pointer without the circle jumping out of its corner.
+                  // The <style> block cancels it under reduced motion.
+                  transform: widgetHovered ? 'scale(1.03)' : 'scale(1)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -4809,33 +4817,41 @@ export default function OverlayApp(): JSX.Element {
                   WIDGET_SIZE in screenWatchService.ts and hoverTracking.ts's
                   hit-test region stay valid.
                 */}
-                <LogoBg size={46} />
-                {hasInfo ? (
-                  // 31px on a 56px launcher, sitting 8.5px above its top edge
-                  // and 3.5px past its right — the design's Badge/Badge Count
-                  // (267:121, 267:122) measured off the frame, not eyeballed.
-                  // It was a 22px puck at -4/-4 with 11.5px text, which read as
-                  // a notification dot rather than the count it is.
+                {/* Nudged 1px up and left: the mark's visual centre sits
+                    below and right of its box, so the box's centre is not
+                    the circle's. */}
+                <span style={{ display: 'flex', transform: 'translate(-1px, -1px)' }}>
+                  <LogoBg size={46} />
+                </span>
+                {hasInfo || checking ? (
+                  // 22px on the 56px launcher, 4px past its top and right
+                  // edges: the product's one count badge (the extension's
+                  // `.launcher .count` takes the same values). Ink, because a
+                  // count is not a finding — the marks carry the colour.
                   <span
+                    aria-hidden
                     style={{
                       position: 'absolute',
-                      top: -8.5,
-                      right: -3.5,
-                      minWidth: 31,
-                      height: 31,
-                      padding: '0 8px',
+                      top: -4,
+                      right: -4,
+                      boxSizing: 'border-box',
+                      minWidth: 22,
+                      height: 22,
+                      padding: '0 6px',
                       borderRadius: 999,
-                      background: DESIGN_ORANGE,
-                      color: '#fff',
-                      fontSize: 16,
+                      background: checking ? PROBLEM_COLOR.searching : INK,
+                      color: PAPER,
+                      fontSize: 12,
                       fontWeight: 600,
-                      border: '2px solid #fff',
+                      lineHeight: 1,
+                      fontVariantNumeric: 'tabular-nums',
+                      border: `2px ${checking ? 'dotted' : 'solid'} ${PAPER}`,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center'
                     }}
                   >
-                    {widget.underlineCount}
+                    {checking ? '…' : widget.underlineCount}
                   </span>
                 ) : null}
               </button>
