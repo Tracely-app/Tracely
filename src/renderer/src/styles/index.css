@@ -5945,10 +5945,10 @@ textarea:disabled {
 .home-action-text span { font-size: 13px; line-height: 1.4; color: var(--h-muted); }
 
 .home-section { display: flex; flex-direction: column; }
-.home-section + .home-section { margin-top: 26px; }
+.home-section + .home-section { margin-top: 32px; }
 /* The sections sit inside .home-lower, so `.home-actions + .home-section` (the
    rule this was) never matched and "Recent documents" sat on the action cards. */
-.home-actions + .home-lower { margin-top: 30px; }
+.home-actions + .home-lower { margin-top: 32px; }
 
 .home-section-head {
   display: flex;
@@ -5956,36 +5956,53 @@ textarea:disabled {
   justify-content: space-between;
   gap: 12px;
 }
-/* 15px for "Recent documents", 16px for "Resources" — the frame really does
-   differ by a point between the two. */
+/* One section-title size for both; the frame's one-point difference between
+   "Recent documents" and "Resources" read as a mistake rather than a choice. */
 .home-section-head h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--h-ink);
 }
-.home-section--resources .home-section-head h2 { font-size: 16px; }
 
 .home-section-sub {
-  margin: 5px 0 0;
-  font-size: 12.5px;
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--h-muted);
 }
 
+/* "View all documents" — ink text with the arrow icon, accent on hover. The
+   accent at rest made it the loudest thing on the row for a link to a list. */
 .home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
   border: 0;
   background: none;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--h-accent);
+  line-height: 1.45;
+  color: var(--h-ink);
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
 }
-.home-link:hover { text-decoration: underline; }
+.home-link svg { flex-shrink: 0; }
+.home-link:hover { color: var(--h-accent); }
 
+/* The empty state: one line of the muted grey, centred in a dashed box the
+   size of the row it stands in for. */
 .home-empty {
-  margin: 14px 0 0;
-  font-size: 12.5px;
+  margin: 16px 0 0;
+  padding: 24px;
+  border: 1px dashed var(--h-line);
+  border-radius: var(--r-tile);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
   color: var(--h-muted);
 }
 
@@ -5993,7 +6010,7 @@ textarea:disabled {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 /* 166 tall, 12 radius, outlined in the frame's line colour. */
@@ -6007,16 +6024,19 @@ textarea:disabled {
   min-height: 166px;
   padding: 0;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
   font: inherit;
   text-align: left;
   cursor: pointer;
   overflow: hidden;
+  transition: border-color var(--dur) var(--ease);
 }
-.home-doc:hover { border-color: var(--h-accent); }
+.home-doc:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-doc:active { box-shadow: none; }
 
-/* 100 tall, filled, with three 3px bars at 12/24/36 and the chip at 8,8. */
+/* 100 tall, filled, with four 3px bars on a 10px gap inside a 12px inset — the
+   same thumbnail the Documents grid draws — and the chip at 8,8. */
 .home-doc-thumb {
   position: relative;
   height: 100px;
@@ -6027,41 +6047,50 @@ textarea:disabled {
 .home-doc-thumb i {
   display: block;
   height: 3px;
-  margin-bottom: 9px;
+  margin-bottom: 10px;
   border-radius: 1.5px;
   background: var(--h-line);
 }
-/* 167.5 / 203.4 / 131.6 of the frame's 263.3 card. */
+/* 167.5 / 203.4 / 131.6 of the frame's 263.3 card, and a fourth short line. */
 .home-doc-thumb i:nth-child(1) { width: 68%; }
 .home-doc-thumb i:nth-child(2) { width: 83%; }
 .home-doc-thumb i:nth-child(3) { width: 53%; }
+.home-doc-thumb i:nth-child(4) { width: 40%; }
 
+/* The grade chip: the app's chip recipe (20px pill, 11/600 tabular) in the
+   frame's three tone pairs. Bands: >= 80 good, >= 65 mid, else low. */
 .home-doc-grade {
   position: absolute;
   top: 8px;
   right: 8px;
-  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
   height: 20px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-.home-doc-grade.tone-good { background: #e9f6ec; color: #168449; }
-.home-doc-grade.tone-mid { background: #fef5e9; color: #cb5c19; }
-.home-doc-grade.tone-low { background: #fdeceb; color: #c0392b; }
+.home-doc-grade.tone-good { background: var(--h-good-bg); color: var(--h-good); }
+.home-doc-grade.tone-mid { background: var(--h-mid-bg); color: var(--h-mid); }
+.home-doc-grade.tone-low { background: var(--h-low-bg); color: var(--h-low); }
 
+/* Two lines of title, then an ellipsis — a one-line clip lost the end of most
+   essay titles at the narrow sizes. */
 .home-doc-title {
-  padding: 11px 9px 0;
-  font-size: 12.5px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding: 12px 12px 0;
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1.4;
   color: var(--h-ink);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.home-doc-meta { padding: 8px 9px 0; font-size: 11px; color: var(--h-muted); }
+.home-doc-meta { padding: 6px 12px 12px; font-size: 12px; line-height: 1.45; color: var(--h-muted); }
 
 /* 189 wide, 144 tall, on a 16px gap. */
 .home-resources {
