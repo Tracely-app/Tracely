@@ -1812,8 +1812,8 @@ function ParagraphDetailPanel({
       <div
         style={{
           background: '#f8f9f8',
-          borderRadius: 10,
-          padding: '12px 14px',
+          borderRadius: 8,
+          padding: 12,
           width: '100%',
           boxSizing: 'border-box',
           fontSize: 13,
@@ -1884,7 +1884,7 @@ function ParagraphDetailPanel({
                     style={{
                       width: 32,
                       height: 32,
-                      borderRadius: 9,
+                      borderRadius: 8,
                       overflow: 'hidden',
                       background: article.faviconDataUrl ? PAPER : PROVIDER_COLOR[article.provider],
                       border: article.faviconDataUrl ? '1px solid #ededed' : 'none',
@@ -1959,11 +1959,16 @@ function ParagraphDetailPanel({
 function ComponentBar({ value, max, label }: { value: number; max: number; label: string }): JSX.Element {
   const pct = Math.max(0, Math.min(100, (value / max) * 100))
   return (
+    // Wraps: label and percentage on the first line, the bar (flex-basis
+    // 100%) on its own below. Without the wrap the bar squeezed the label to
+    // nothing and it painted underneath the percentage.
     <div
-      style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4 }}
       title={`${label}: ${Math.round(value)} of ${max}`}
     >
-      <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {label}
+      </span>
       <span style={{ fontSize: 11, fontWeight: 600, color: INK, fontVariantNumeric: 'tabular-nums' }}>
         {Math.round(pct)}%
       </span>
@@ -1972,7 +1977,7 @@ function ComponentBar({ value, max, label }: { value: number; max: number; label
           width: '100%',
           flexBasis: '100%',
           height: 4,
-          borderRadius: 2,
+          borderRadius: 999,
           background: '#eeeef1',
           overflow: 'hidden'
         }}
@@ -1982,7 +1987,7 @@ function ComponentBar({ value, max, label }: { value: number; max: number; label
             display: 'block',
             width: `${pct}%`,
             height: '100%',
-            borderRadius: 2,
+            borderRadius: 999,
             background: evidenceScoreColor(pct)
           }}
         />
@@ -2199,14 +2204,14 @@ function ArgumentScoreView({
             data-role={paragraph.role}
             style={{
               border: '1px solid #ececf0',
-              borderRadius: 10,
-              padding: '9px 11px',
+              borderRadius: 12,
+              padding: 12,
               display: 'flex',
               flexDirection: 'column',
-              gap: 7
+              gap: 8
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span
                 style={{
                   flex: 1,
@@ -2233,17 +2238,7 @@ function ArgumentScoreView({
                 {ROLE_LABEL[paragraph.role]}
               </span>
               {verdict ? (
-                <span
-                  style={{
-                    flexShrink: 0,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: verdict.color,
-                    background: `${verdict.color}14`,
-                    borderRadius: 20,
-                    padding: '2px 8px'
-                  }}
-                >
+                <span style={{ ...CHIP_STYLE, flexShrink: 0, color: verdict.color, background: `${verdict.color}14` }}>
                   {verdict.text}
                 </span>
               ) : null}
@@ -2291,7 +2286,7 @@ function ArgumentScoreView({
                     alignItems: 'flex-start',
                     background: '#fff7ed',
                     border: '1px solid #fed7aa',
-                    borderRadius: 7,
+                    borderRadius: 8,
                     padding: '6px 8px'
                   }}
                 >
@@ -2940,8 +2935,8 @@ function CitedSourceBlock({ cited }: { cited: ResolvedCitedWork | null }): JSX.E
         width: '100%',
         boxSizing: 'border-box',
         background: CHIP_BG,
-        borderRadius: 10,
-        padding: 10,
+        borderRadius: 8,
+        padding: 12,
         display: 'flex',
         flexDirection: 'column',
         gap: 4
@@ -3208,7 +3203,7 @@ function CitedWorkCard({
             width: '100%',
             boxSizing: 'border-box',
             background: SELECTED_BG,
-            borderRadius: 10,
+            borderRadius: 8,
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
@@ -3364,7 +3359,7 @@ function CitationFlowCard({
             width: '100%',
             boxSizing: 'border-box',
             background: SELECTED_BG,
-            borderRadius: 10,
+            borderRadius: 8,
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
@@ -3604,7 +3599,7 @@ function CitationFlowCard({
           style={{
             width: '100%',
             background: SELECTED_BG,
-            borderRadius: 10,
+            borderRadius: 8,
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
