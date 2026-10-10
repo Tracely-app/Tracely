@@ -2389,15 +2389,6 @@ textarea:disabled {
   color: var(--accent);
 }
 
-/* Screen Watch's switch and every app checkbox. `accent-color` is the one-line
-   way to tint a native control, and native is worth keeping here: these are
-   real checkboxes with real keyboard behaviour, and a hand-built switch would
-   be re-implementing that to change a colour. */
-.settings-view input[type='checkbox'],
-.settings-view input[type='radio'] {
-  accent-color: var(--accent);
-}
-
 .settings-nav-item svg {
   flex-shrink: 0;
   color: var(--muted);
@@ -2576,23 +2567,35 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
-  margin-bottom: 20px;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
   cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.settings-toggle-row:hover {
+  border-color: var(--border-strong);
+}
+
+/* As a grid cell the grid's own gap spaces it. */
+.settings-panel-grid > .settings-toggle-row {
+  margin-bottom: 0;
 }
 
 .settings-toggle-row-title {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.45;
   color: var(--text);
 }
 
 .settings-toggle-row-subtitle {
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 /* Pro's Thorough allowance under the critique model: a thin native meter in
@@ -2605,10 +2608,46 @@ textarea:disabled {
   accent-color: var(--accent);
 }
 
+/* The row's checkbox drawn as a switch — still the native input, so the
+   label click, Space and the change handler are untouched: a 36x20 track and
+   a 16px knob that slides 16px when checked. Same specificity as the global
+   checkbox tick, later in the sheet, so the knob replaces the tick. */
 .settings-toggle-row input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
+  width: 36px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
   flex-shrink: 0;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.settings-toggle-row input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+  transition: transform var(--dur) var(--ease);
+}
+
+.settings-toggle-row input[type='checkbox']:checked {
+  background: var(--accent);
+}
+
+.settings-toggle-row input[type='checkbox']:checked::after {
+  transform: translateX(16px);
+}
+
+.settings-toggle-row input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
 /* Compact checklist — small checkbox + label pairs that wrap, rather than
