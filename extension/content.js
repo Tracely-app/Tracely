@@ -3029,7 +3029,7 @@
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" aria-label="Dismiss" title="Dismiss">✕</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
@@ -3567,10 +3567,22 @@
     }
     .close:hover { background: var(--surface-2); color: var(--text); }
     .close:active { background: var(--chip-wash); color: var(--text); }
-    /* The one legend (never colour alone): what each underline's LINE means. */
-    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
+    /* The one legend (never colour alone): what each underline's LINE means.
+       A strip stuck to the list's bottom edge while the Claims group is in
+       view (sticky inside that group); the negative margins take it to the
+       list's edges and onto its 16px bottom padding, so it sits flush. */
+    .legend {
+      position: sticky; bottom: -16px; z-index: 1;
+      display: flex; flex-wrap: wrap; gap: 4px 12px; flex-shrink: 0;
+      margin: 2px -24px -16px; padding: 8px 24px;
+      background: var(--surface); border-top: 1px solid var(--border);
+      font-size: 11px; line-height: 16px; color: var(--label);
+    }
+    /* A card brought into view (a header chip, a clicked underline) stops
+       above the strip instead of under it. */
+    .tips:has(> .legend) > .card { scroll-margin-bottom: 64px; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-    .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
+    .legend-line { display: inline-block; width: 24px; border-radius: 1px; }
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
@@ -3582,9 +3594,9 @@
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
     .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-    .tips + .tips { margin-top: 6px; }
-    .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
-    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
+    .tips + .tips { margin-top: 8px; }
+    .tips-head { font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label); text-transform: uppercase; letter-spacing: .04em; padding: 4px 2px 0; font-variant-numeric: tabular-nums; }
+    .genre-line { font-size: 12px; line-height: 1.5; color: var(--label); padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--label); max-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
     .status.error { color: var(--danger); }
@@ -3605,33 +3617,36 @@
     /* ── Cards ────────────────────────────────────────────────────────── */
     /* Each card is its own box, so where one ends is never a guess; the
        open one (foldCards) is drawn a shade firmer, the folded ones are a
-       title and one line of their sentence. */
+       title and one line of why it was flagged (the sentence itself when a
+       card has no reason), so the writer can choose which to open. Focus is
+       the primitives' ink ring at the end of this sheet. */
     .card {
-      background: var(--surface); border: 1px solid #ececec; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
     }
-    .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .card[aria-expanded="true"] { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
     .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
-    .card.shut:hover { background: #fafafa; border-color: #dcdcdf; }
-    .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .card.shut > :not(.top):not(.quote) { display: none; }
-    .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card.shut:hover { background: var(--surface-2); border-color: var(--border-strong); }
+    .card.shut > :not(.top):not(.expl) { display: none; }
+    .card.shut .expl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+    .card.shut:not(:has(.expl)) > .quote { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .top { display: flex; align-items: center; gap: 8px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
     /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
     .d-quest { background: #ff5900; }
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
-    .d-flow { background: #7344f1; }
+    /* A flow issue is advice, not a finding: the pending grey (MARK_PENDING). */
+    .d-flow { background: #9a9ba1; }
     /* FEATURES: the switched-off controls are drawn and then hidden here, so
        render() stays the code server/test exercises. */
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
+    .ctitle { font-size: 14px; font-weight: 600; line-height: 20px; color: var(--ink); min-width: 0; }
     .x {
       margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; padding: 0;
       display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
@@ -3639,17 +3654,19 @@
       transition: color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .x:hover { color: var(--text); background: var(--surface-2); }
-    /* The writer's own words, set off by a rule; the advice under it is the body. */
-    .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
-    .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
+    /* The writer's own words in ink, set off by a rule; the reason under it is
+       muted — ink, muted and label are the card's only three greys. */
+    .quote { font-size: 13px; line-height: 1.5; color: var(--ink); padding-left: 10px; border-left: 2px solid var(--border); }
+    .expl { font-size: 13px; line-height: 1.5; color: var(--muted); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 10px 12px;
+      border-radius: var(--r-btn); padding: 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
-    .deep-row { margin: -2px 0 0; }
+    .deep-row { margin: 0; }
+    .deep-row .deep-note { margin-top: 6px; }
     .deep-btn {
       display: inline-flex; align-items: center; height: 32px; padding: 0 12px; line-height: 1;
       background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -3665,35 +3682,37 @@
       border-radius: var(--r-chip); background: var(--accent-wash); color: var(--accent-ink);
       font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
+    /* Every inset's label: the panel's one small-caps recipe. */
     .deep-label, .fix-label, .sources-title {
-      font-size: 11px; font-weight: 600; color: var(--label); letter-spacing: .01em;
+      font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label);
+      text-transform: uppercase; letter-spacing: .04em;
     }
     .deep .badge { align-self: flex-start; }
     .deep-prefix { font-size: 13px; font-weight: 600; color: var(--ink); }
-    .deep-sub { margin-top: 6px; }
-    .deep .row { margin-top: 4px; }
-    .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
-    .fix-text { white-space: normal; }
-    .deep-note { font-size: 11px; color: var(--label); }
+    .deep-sub { margin-top: 8px; }
+    /* The suggested text reads in ink (it is what goes into the writing); the
+       fuller answer's prose is muted, like a card's reason. */
+    .deep-text, .fix-text { font-size: 13px; line-height: 1.5; color: var(--muted); white-space: pre-line; }
+    .fix-text { color: var(--ink); white-space: normal; }
+    .deep-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .deep-note.err { color: var(--danger); }
-    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
-    .deep-note a:hover { text-decoration: underline; }
-    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--body); }
-    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
+    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+    .deep-note a:hover { text-decoration-thickness: 2px; }
+    /* Progress is not a finding: an ink arc on the border grey. */
+    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--ink); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     /* A card's actions sit at their own width, the one it asks for first and
        filled: a full-width bar per button outweighed the advice. */
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
     .row > button.act { flex: 0 0 auto; }
-    .edit-note { font-size: 11px; color: var(--label); }
+    .edit-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
       border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
     }
-    .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
     .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
@@ -3830,7 +3849,7 @@
       from { opacity: 0; transform: translateY(8px) scale(.98); }
       to { opacity: 1; transform: none; }
     }
-    .card.flash { animation: tracely-flash 1.2s ease-out; }
+    .card.flash { animation: tracely-flash 900ms ease-out; }
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px var(--ring); }
       100% { box-shadow: none; }
@@ -9624,7 +9643,7 @@
             : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
             <div class="card">
-              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
+              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}" aria-label="Dismiss" title="Dismiss">✕</button></div>
               <div class="quote">${esc(fi.passage.slice(0, 160))}</div>
               <div class="fix">
                 <div class="fix-label">Why it jumps</div>
@@ -9670,7 +9689,7 @@
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              <button class="x" data-dismiss="${seg.hash}" aria-label="Dismiss" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
@@ -11045,7 +11064,7 @@
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              <button class="x" data-dismiss="${seg.hash}" aria-label="Dismiss" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
