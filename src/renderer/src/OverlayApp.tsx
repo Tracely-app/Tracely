@@ -788,8 +788,8 @@ function EvidenceRow({ claim, compact }: { claim: ScreenWatchClaimSummary; compa
   }
   const color = evidenceScoreColor(claim.evidence.score)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: compact ? 11 : 12 }}>
-      <span style={{ fontWeight: 700, color }}>{claim.evidence.score}/100</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: compact ? 11 : 12, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ fontWeight: 600, color }}>{claim.evidence.score}/100</span>
       <span style={{ color: DIM }}>
         · {claim.evidence.count} source{claim.evidence.count === 1 ? '' : 's'}
       </span>
@@ -845,7 +845,7 @@ function ProviderBadge({ provider }: { provider: SourceProvider }): JSX.Element 
         borderRadius: 8,
         background: PROVIDER_COLOR[provider],
         color: '#fff',
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: 600,
         display: 'flex',
         alignItems: 'center',
@@ -1003,7 +1003,7 @@ function PanelSourceRow({
         <div
           title={article.title}
           style={{
-            fontSize: 13.5,
+            fontSize: 13,
             fontWeight: 500,
             color: W_INK,
             whiteSpace: 'nowrap',
@@ -1079,7 +1079,10 @@ function CritiqueFixRow({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: W_BODY, letterSpacing: 0.2 }}>{label}</div>
+        {/* The inset label: 11/600 uppercase, +0.04em, in the label grey. */}
+        <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+          {label}
+        </div>
         <button
           className="tracely-btn-secondary"
           onClick={() => {
@@ -1099,7 +1102,7 @@ function CritiqueFixRow({
       </div>
       <div
         style={{
-          fontSize: monospace ? 12.5 : 13.5,
+          fontSize: monospace ? 12 : 13,
           fontFamily: monospace ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined,
           lineHeight: 1.45,
           color: W_INK,
@@ -1129,7 +1132,7 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
           borderRadius: 8,
           background: AMBER_BG,
           color: AMBER_FG,
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: 600,
           display: 'flex',
           alignItems: 'center',
@@ -1144,7 +1147,7 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
           <div
             title={title}
             style={{
-              fontSize: 13.5,
+              fontSize: 13,
               fontWeight: 500,
               color: W_INK,
               whiteSpace: 'nowrap',
@@ -1240,13 +1243,13 @@ function WidgetClaimCard({
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <TypeDot claimType={claim.claimType} />
-        <div style={{ fontSize: 15, fontWeight: 700, color: W_INK }}>
+        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px', color: W_INK, fontVariantNumeric: 'tabular-nums' }}>
           {CLAIM_TYPE_LABEL[claim.claimType]} · {Math.round(claim.confidence * 100)}% confidence
         </div>
       </div>
       <div
         style={{
-          fontSize: 14.5,
+          fontSize: 14,
           lineHeight: 1.4,
           color: W_BODY,
           display: '-webkit-box',
@@ -1268,7 +1271,7 @@ function WidgetClaimCard({
         </div>
       ) : evidence ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500, color: '#8a8b90' }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: LABEL, fontVariantNumeric: 'tabular-nums' }}>
             {evidence.count} source{evidence.count === 1 ? '' : 's'}
           </span>
           {freshlyRefreshed ? (
@@ -1413,7 +1416,7 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
             It used to be an uppercase micro-label with the percentage pushed to
             the far right, which turned a description of the claim into two
             unrelated pieces of metadata. */}
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: W_INK, whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: W_INK, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
           {CLAIM_TYPE_LABEL[claim.claimType]} · {Math.round(claim.confidence * 100)}% confidence
         </div>
       </div>
@@ -1760,7 +1763,7 @@ function ParagraphDetailPanel({
         >
           {strong ? 'Strong' : 'Needs Work'}
         </span>
-        <span style={{ fontSize: 13, fontWeight: 500, color: '#7e7f84' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: MUTED, fontVariantNumeric: 'tabular-nums' }}>
           {/* The ordinal that followed this counted the raw array, while the
               heading above numbers the body — "12th paragraph" under
               "Paragraph 11". One name per paragraph; the heading has it. */}
@@ -1775,7 +1778,7 @@ function ParagraphDetailPanel({
           padding: '12px 14px',
           width: '100%',
           boxSizing: 'border-box',
-          fontSize: 13.5,
+          fontSize: 13,
           lineHeight: 1.5,
           color: '#1b1b21'
         }}
@@ -1788,8 +1791,8 @@ function ParagraphDetailPanel({
           heading over an empty block reads as a failure to load. */}
       {issues.length > 0 ? (
         <div style={{ width: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>WHY THIS NEEDS WORK</div>
-          <div style={{ marginTop: 8, fontSize: 13.5, lineHeight: 1.5, color: '#35363c' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>WHY THIS NEEDS WORK</div>
+          <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: '#35363c' }}>
             {issues.map((w) => w.message).join(' ')}
           </div>
         </div>
@@ -1811,7 +1814,7 @@ function ParagraphDetailPanel({
           }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#cb5c19', letterSpacing: 0.66 }}>UNCITED CLAIM</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#cb5c19', letterSpacing: '0.04em' }}>UNCITED CLAIM</div>
             <div style={{ marginTop: 4, fontSize: 13, lineHeight: 1.5, color: '#524026' }}>
               &ldquo;{claim.text}&rdquo; — this figure has no source attached.
             </div>
@@ -1840,7 +1843,7 @@ function ParagraphDetailPanel({
 
       {articles.length > 0 ? (
         <div style={{ width: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
             EVIDENCE CITED IN THIS PARAGRAPH ({articles.length})
           </div>
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1933,7 +1936,7 @@ function ComponentBar({ value, max, label }: { value: number; max: number; label
       title={`${label}: ${Math.round(value)} of ${max}`}
     >
       <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ fontSize: 11, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: INK, fontVariantNumeric: 'tabular-nums' }}>
         {Math.round(pct)}%
       </span>
       <span
@@ -1986,10 +1989,10 @@ function ScoreRing({ score }: { score: number }): JSX.Element {
         strokeDasharray={`${filled} ${circumference}`}
         transform="rotate(-90 37 37)"
       />
-      <text x="37" y="35" textAnchor="middle" dominantBaseline="middle" fontSize="21" fontWeight="700" fill={color}>
+      <text x="37" y="34" textAnchor="middle" dominantBaseline="middle" fontSize="20" fontWeight="600" fill={color} style={{ fontVariantNumeric: 'tabular-nums' }}>
         {score}
       </text>
-      <text x="37" y="51" textAnchor="middle" fontSize="9" fill={DIM}>
+      <text x="37" y="53" textAnchor="middle" fontSize="11" fill={DIM}>
         / 100
       </text>
     </svg>
@@ -1999,10 +2002,10 @@ function ScoreRing({ score }: { score: number }): JSX.Element {
 function StatCell({ value, label }: { value: string; label: string }): JSX.Element {
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: INK, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: INK, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </div>
-      <div style={{ fontSize: 9, color: DIM, letterSpacing: 0.4, marginTop: 2, textTransform: 'uppercase' }}>
+      <div style={{ fontSize: 11, color: DIM, letterSpacing: '0.04em', marginTop: 2, textTransform: 'uppercase' }}>
         {label}
       </div>
     </div>
@@ -2094,20 +2097,20 @@ function ArgumentScoreView({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <ScoreRing score={structure.score} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 9.5, color: DIM, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+          <div style={{ fontSize: 11, color: DIM, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
             Argument score
           </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: INK, marginTop: 2 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: INK, marginTop: 2 }}>
             How this draft is built
             {/* Not decoration. A draft with unlabelled paragraphs was scored on an
                 incomplete reading, and the components it could not assess were
                 counted as absent rather than skipped — presenting that as settled
                 is the failure this prevents. */}
             {!structure.complete ? (
-              <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: '#b3690a' }}>Provisional</span>
+              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: '#b3690a' }}>Provisional</span>
             ) : null}
           </div>
-          <div style={{ fontSize: 11.5, color: MUTED, marginTop: 3, lineHeight: 1.4 }}>
+          <div style={{ fontSize: 12, color: MUTED, marginTop: 3, lineHeight: 1.4 }}>
             {/* Three facts, never merged — the same rule as the main app's
                 panel. The ratio here used to be withRelevantSource, read out as
                 "N of M claims have sources", which says Tracely's search
@@ -2158,7 +2161,7 @@ function ArgumentScoreView({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: DIM, letterSpacing: 0.4 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
           BREAKDOWN BY PARAGRAPH
         </div>
         {rows.map(({ paragraph, name, keys, verdict, weaknesses }) => (
@@ -2181,7 +2184,7 @@ function ArgumentScoreView({
                   flex: 1,
                   minWidth: 0,
                   fontSize: 12,
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: INK
                 }}
               >
@@ -2193,7 +2196,7 @@ function ArgumentScoreView({
                   mysteriously costly. */}
               <span
                 style={{
-                  fontSize: 10.5,
+                  fontSize: 11,
                   color: DIM,
                   flexShrink: 0,
                   fontStyle: paragraph.role === 'unknown' ? 'italic' : 'normal'
@@ -2205,7 +2208,7 @@ function ArgumentScoreView({
                 <span
                   style={{
                     flexShrink: 0,
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: 600,
                     color: verdict.color,
                     background: `${verdict.color}14`,
@@ -2288,10 +2291,10 @@ function ArgumentScoreView({
           to sit beside is one the draft never attempts. */}
       {missing.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: DIM, letterSpacing: 0.4 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
             NOT FOUND IN THIS DRAFT
           </div>
-          <div style={{ fontSize: 11.5, color: MUTED, lineHeight: 1.45 }}>
+          <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.45 }}>
             {missing.map(([, label]) => label).join(' · ')}
           </div>
         </div>
@@ -2299,13 +2302,13 @@ function ArgumentScoreView({
 
       {draftWeaknesses.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: DIM, letterSpacing: 0.4 }}>SUMMARY</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>SUMMARY</div>
           {/* The design writes a paragraph of prose here. These are the rubric's
               own sentences instead: nothing on this path generates text, and a
               summary invented to fill a slot would be the one part of the panel
               that was not a reading of the draft. */}
           {draftWeaknesses.map((weakness, i) => (
-            <div key={`${weakness.kind}-${i}`} style={{ fontSize: 11.5, lineHeight: 1.45, color: MUTED }}>
+            <div key={`${weakness.kind}-${i}`} style={{ fontSize: 12, lineHeight: 1.45, color: MUTED }}>
               {weakness.message}
             </div>
           ))}
@@ -2316,7 +2319,7 @@ function ArgumentScoreView({
           has no model classifier wired to it — the sentence has one value. It
           matters more here than in the app: there is no "re-analyze" button to
           ask for a better reading with. */}
-      <div style={{ fontSize: 10.5, color: DIM, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 11, color: DIM, lineHeight: 1.4 }}>
         Labelled by local rules, which leave anything they cannot justify unlabelled.
       </div>
     </div>
@@ -2340,8 +2343,8 @@ function NoReadingView(): JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9, padding: '26px 16px' }}>
       <ScoreRing score={0} />
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: INK }}>No reading yet</div>
-      <div style={{ fontSize: 11.5, color: MUTED, textAlign: 'center', lineHeight: 1.45, maxWidth: 260 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>No reading yet</div>
+      <div style={{ fontSize: 12, color: MUTED, textAlign: 'center', lineHeight: 1.45, maxWidth: 260 }}>
         The rubric needs a few paragraphs of prose before it has an opinion worth showing. Keep writing and this
         fills in on its own.
       </div>
@@ -2455,7 +2458,7 @@ function FixCard({
         <>
           <div style={POPOVER_BODY}>{REVISION_RULE}</div>
           <CritiqueFixRow label={REVISION_LABEL} text={revision} />
-          <div style={{ ...POPOVER_BODY, fontSize: 11.5 }}>{OVERLAY_APPLY_NOTE}</div>
+          <div style={{ ...POPOVER_BODY, fontSize: 12 }}>{OVERLAY_APPLY_NOTE}</div>
         </>
       ) : null}
       {citationFix ? <CritiqueFixRow label={CITATION_FIX_LABEL} text={citationFix} monospace /> : null}
@@ -2796,7 +2799,7 @@ function CandidateRow({
       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
         <div
           style={{
-            fontSize: 13.5,
+            fontSize: 13,
             fontWeight: 500,
             color: INK,
             whiteSpace: 'nowrap',
@@ -2825,7 +2828,7 @@ function CandidateRow({
             </span>
           ) : null}
           {showMatch ? (
-            <span style={{ color: POSITIVE, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <span style={{ color: POSITIVE, fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
               {candidate.matchPercent}% match
             </span>
           ) : null}
@@ -2845,9 +2848,8 @@ function CandidateRow({
         <span
           style={{
             alignSelf: 'flex-start',
-            fontSize: 10,
+            fontSize: 11,
             fontWeight: 600,
-            letterSpacing: 0.3,
             borderRadius: 999,
             padding: '2px 7px',
             marginTop: 1,
@@ -2919,14 +2921,14 @@ function CitedSourceBlock({ cited }: { cited: ResolvedCitedWork | null }): JSX.E
         gap: 4
       }}
     >
-      <div style={{ fontSize: 10, fontWeight: 600, color: MUTED, letterSpacing: 0.6 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: '0.04em' }}>
         {CITED_HEADING}
       </div>
       <div style={{ fontSize: 12, fontWeight: 500, color: INK }}>{described.reference}</div>
       {described.title ? (
         <div style={{ fontSize: 12, lineHeight: 1.35, color: INK }}>{described.title}</div>
       ) : null}
-      <div style={{ fontSize: 11.5, lineHeight: 1.4, color: MUTED }}>
+      <div style={{ fontSize: 12, lineHeight: 1.4, color: MUTED }}>
         {/* Grey, never red, when nothing came back. Crossref and Open Library
             hold journal articles and books; a web page or a government report
             is in neither, and a warning colour would turn a limit of ours into
@@ -2937,7 +2939,7 @@ function CitedSourceBlock({ cited }: { cited: ResolvedCitedWork | null }): JSX.E
         {described.detail}
       </div>
       {described.note ? (
-        <div style={{ fontSize: 11.5, lineHeight: 1.4, color: MUTED }}>{described.note}</div>
+        <div style={{ fontSize: 12, lineHeight: 1.4, color: MUTED }}>{described.note}</div>
       ) : null}
     </div>
   )
@@ -3109,7 +3111,7 @@ function CitedWorkCard({
             flexShrink: 0,
             background: CHIP_BG,
             color: MUTED,
-            fontSize: 11.5,
+            fontSize: 12,
             fontWeight: 500,
             borderRadius: 999,
             padding: '3px 9px'
@@ -3145,7 +3147,7 @@ function CitedWorkCard({
               <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
                 <div
                   style={{
-                    fontSize: 13.5,
+                    fontSize: 13,
                     fontWeight: 500,
                     color: INK,
                     whiteSpace: 'nowrap',
@@ -3160,7 +3162,7 @@ function CitedWorkCard({
                 </div>
                 {/* Neutral, words doing the work — colour here means a finding. */}
                 {candidate.yearNote ? (
-                  <div style={{ fontSize: 11.5, lineHeight: 1.35, color: MUTED }}>{candidate.yearNote}</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.35, color: MUTED }}>{candidate.yearNote}</div>
                 ) : null}
               </div>
               <Radio selected={on} />
@@ -3206,17 +3208,17 @@ function CitedWorkCard({
             gap: 6
           }}
         >
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
             {pasteOverLabel(response.citation)}
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: INK, userSelect: 'text' }}>{written.inTextCitation}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: INK, userSelect: 'text' }}>{written.inTextCitation}</div>
           <div style={{ fontSize: 12, lineHeight: 1.4, color: MUTED, userSelect: 'text', wordBreak: 'break-word' }}>
             {written.worksCitedEntry}
           </div>
         </div>
       ) : null}
       <CopyButtons disabled={!written} copied={copied} onCopy={onCopy} />
-      <div style={{ ...POPOVER_BODY, fontSize: 11.5 }}>{PASTE_OVER_NOTE}</div>
+      <div style={{ ...POPOVER_BODY, fontSize: 12 }}>{PASTE_OVER_NOTE}</div>
       <button className="tracely-btn-secondary" onClick={onFindSource} style={{ ...SECONDARY_BTN_STYLE, width: '100%' }}>
         {FIND_DIFFERENT_SOURCE}
       </button>
@@ -3362,7 +3364,7 @@ function CitationFlowCard({
             gap: 6
           }}
         >
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
             {EXTERNAL_REFERENCE_LABEL}
           </div>
           <div
@@ -3379,7 +3381,7 @@ function CitationFlowCard({
             {state.citation.worksCitedEntry}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
           <span style={{ color: POSITIVE, fontWeight: 500 }}>Claim resolved</span>
           <span style={{ color: DIM }}>· {flagsLeft(remaining)}</span>
         </div>
@@ -3495,7 +3497,7 @@ function CitationFlowCard({
       showMatch={!checked}
     />
   )
-  const groupLabel: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6, textTransform: 'uppercase', padding: '6px 8px 2px' }
+  const groupLabel: CSSProperties = { fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '6px 8px 2px' }
   const column: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }
 
   return (
@@ -3521,7 +3523,7 @@ function CitationFlowCard({
               flexShrink: 0,
               background: CHIP_BG,
               color: MUTED,
-              fontSize: 11.5,
+              fontSize: 12,
               fontWeight: 500,
               borderRadius: 999,
               padding: '3px 9px'
@@ -3618,10 +3620,10 @@ function CitationFlowCard({
             gap: 6
           }}
         >
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: DIM, letterSpacing: 0.6 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
             {mode === 'copy' ? pasteOverLabel('YOUR CITATION') : 'WILL BE INSERTED'}
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: INK }}>{preview.inTextCitation}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: INK }}>{preview.inTextCitation}</div>
           <div style={{ fontSize: 12, lineHeight: 1.4, color: MUTED }}>{preview.worksCitedEntry}</div>
         </div>
       ) : null}
@@ -3641,7 +3643,7 @@ function CitationFlowCard({
       ) : mode === 'copy' ? (
         <>
           <CopyButtons disabled={!canAct} copied={copied} onCopy={(which) => onCopy?.(which)} />
-          <div style={{ ...POPOVER_BODY, fontSize: 11.5 }}>{PASTE_OVER_NOTE}</div>
+          <div style={{ ...POPOVER_BODY, fontSize: 12 }}>{PASTE_OVER_NOTE}</div>
         </>
       ) : (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -5113,7 +5115,7 @@ export default function OverlayApp(): JSX.Element {
                     )
                   ) : visibleClaims.length === 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginTop: 24 }}>
-                      <div style={{ fontSize: 12.5, color: DIM, textAlign: 'center' }}>No claims flagged yet.</div>
+                      <div style={{ fontSize: 13, color: DIM, textAlign: 'center' }}>No claims flagged yet.</div>
                     </div>
                   ) : widget.viewMode === 'single' && topClaim ? (
                     // The design's card IS the panel body: the same 16px stack
@@ -5132,7 +5134,7 @@ export default function OverlayApp(): JSX.Element {
                         onCritique={() => void critiqueFor(topClaim.id)}
                         onShowAll={showAll}
                       />
-                      {actionError ? <div style={{ fontSize: 11.5, color: '#d6301a' }}>{actionError}</div> : null}
+                      {actionError ? <div style={{ fontSize: 12, color: '#d6301a' }}>{actionError}</div> : null}
                     </div>
                   ) : (
                     // A single vertical column, not a grid — sized per-claim-
