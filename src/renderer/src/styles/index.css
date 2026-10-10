@@ -1698,6 +1698,9 @@ textarea:disabled {
   pointer-events: none;
 }
 
+/* The page itself is the writing surface: its focus indicator is the caret,
+   and a 2px ring around the whole document would frame the prose, not a
+   control. Every control around it keeps the universal ring. */
 .docedit-body:focus {
   outline: none;
 }
@@ -5472,10 +5475,12 @@ textarea:disabled {
  * changed to fix. A band that is simply there cannot fail that way. */
 .docedit-flash {
   position: absolute;
-  border-radius: 3px;
+  border-radius: 4px;
   pointer-events: none;
-  background: rgba(255, 89, 0, 0.22);
-  box-shadow: 0 0 0 1.5px rgba(255, 89, 0, 0.75);
+  /* The thin-evidence finding hex at the same 22% / 75% it always was, mixed
+     rather than spelled as rgba so the one orange stays one literal. */
+  background: color-mix(in srgb, #ff5900 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ff5900 75%, transparent);
   opacity: 1;
 }
 

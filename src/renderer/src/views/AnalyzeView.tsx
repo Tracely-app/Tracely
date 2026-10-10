@@ -2556,7 +2556,7 @@ function DocumentEditor({
           (2026-08-15); the rail went with it, since this was the only way in.
         */}
         {/*
-          "Share" and "•••" were here, permanently disabled with "isn't
+          "Share" and "More" were here, permanently disabled with "isn't
           available yet". Local-first, no account, no permalink, nothing to
           share TO. A button that can never be enabled is worse than no button —
           it takes up space promising something that is not coming.
