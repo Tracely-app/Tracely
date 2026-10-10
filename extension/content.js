@@ -3717,6 +3717,7 @@
     .fx-diff { font-size: 13px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
     .fx-diff del { color: var(--label); text-decoration: line-through; }
     .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: var(--chip-wash); border-radius: 4px; padding: 0 2px; }
+    .fx-diff del + ins { margin-left: 4px; } /* the struck words and their replacement never run together */
     .fx-line { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
     .fx-src { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--muted); min-width: 0; }
     .fx-src img { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
