@@ -3616,8 +3616,13 @@
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
     .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
-    .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
-    .x:hover { color: var(--text); }
+    .x {
+      margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+      background: none; border: none; color: var(--label); cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit;
+      transition: color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .x:hover { color: var(--text); background: var(--surface-2); }
     /* The writer's own words, set off by a rule; the advice under it is the body. */
     .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
     .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
@@ -3630,17 +3635,19 @@
     }
     .deep-row { margin: -2px 0 0; }
     .deep-btn {
-      background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
-      padding: 6px 12px; font-family: ${JAKARTA}; font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; height: 32px; padding: 0 12px; line-height: 1;
+      background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+      font-family: ${JAKARTA}; font-size: 13px; font-weight: 500;
       color: var(--ink); cursor: pointer;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .deep-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+    .deep-btn:hover { background: rgba(0,0,0,.04); }
     .deep-btn.locked { color: var(--label); cursor: not-allowed; }
-    .deep-btn.locked:hover { border-color: var(--hairline); color: var(--label); }
+    .deep-btn.locked:hover { background: var(--surface); color: var(--label); }
     .deep-pro {
-      display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: var(--r-chip);
-      background: var(--accent-wash); color: var(--accent-ink);
-      font-size: 10px; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
+      display: inline-flex; align-items: center; margin-left: 6px; height: 16px; line-height: 16px; padding: 0 5px;
+      border-radius: var(--r-chip); background: var(--accent-wash); color: var(--accent-ink);
+      font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
     .deep-label, .fix-label, .sources-title {
       font-size: 11px; font-weight: 600; color: var(--label); letter-spacing: .01em;
