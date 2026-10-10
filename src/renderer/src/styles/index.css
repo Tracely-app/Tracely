@@ -2478,27 +2478,46 @@ textarea:disabled {
 }
 
 .citation-block {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
+/* APA / MLA / Chicago as one row of small chips; the chosen one fills. */
 .citation-style-picker {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 
+/* Even chip widths: .btn-primary's 18px padding would widen the chosen one. */
+.citation-style-picker .btn {
+  padding: 0 10px;
+}
+
+.citation-block .spinner-row,
+.citation-block .error-text {
+  margin: 8px 0 0;
+}
+
+/* The inset recipe. Copy sits under the citation rather than beside it: the
+   floating window is narrow, and a side column squeezed the reference into a
+   ribbon of short lines. */
 .citation-result {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   margin-top: 8px;
-  padding: 8px 10px;
+  padding: 12px 12px 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   font-size: 12px;
 }
 
 .citation-result code {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
   white-space: pre-wrap;
   flex: 1;
   /* A flex item's min-width defaults to its content, so a long unbroken DOI or
@@ -2506,6 +2525,18 @@ textarea:disabled {
      of wrapping. */
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A ghost pulled left by its own padding so the label lines up with the
+   citation text, like .evidence-actions above it. */
+.citation-copy {
+  align-self: flex-start;
+  gap: 4px;
+  margin-left: -10px;
+}
+
+.citation-copied-icon {
+  color: var(--score-good);
 }
 
 .muted {
@@ -2528,12 +2559,14 @@ textarea:disabled {
   margin: 10px 0;
 }
 
+/* Ink on var(--border): a spinner is status, not a call to action, so it never
+   takes the accent (the Essay Grade loader's green arc is its own rule). */
 .spinner {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
   border: 2px solid var(--border);
-  border-top-color: var(--primary);
+  border-top-color: var(--ink);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -3300,7 +3333,7 @@ textarea:disabled {
 @keyframes modal-card-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.97);
+    transform: translateY(6px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -3310,77 +3343,85 @@ textarea:disabled {
 
 .modal-backdrop {
   position: fixed;
-  /* Inset by the window gutter and rounded to match the card. The dialog is
-     portalled to document.body, so `inset: 0` painted an opaque square-cornered
-     rectangle over the whole window — including the transparent area outside
-     the card's 30px radius, which showed as four hard corners appearing out of
-     nowhere on a frameless transparent window. */
+  /* Inset by the window gutter, which is zero now that the window has a real
+     frame: the scrim is full-bleed and square, like the views under it. (It was
+     rounded to 30px while a floating card sat inside a transparent window.) */
   inset: var(--window-margin);
-  border-radius: 30px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.36);
   backdrop-filter: blur(2px);
   z-index: 50;
-  animation: modal-backdrop-in 0.15s ease;
+  animation: modal-backdrop-in var(--dur) var(--ease);
   -webkit-app-region: no-drag;
 }
 
 .modal-card {
-  width: 300px;
-  padding: 20px;
-  border-radius: 14px;
+  width: 360px;
+  max-width: calc(100% - 32px);
+  padding: 24px;
+  border-radius: var(--r-card);
   background: var(--surface);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-lg);
-  animation: modal-card-in 0.18s cubic-bezier(0.2, 0.8, 0.3, 1.1);
+  animation: modal-card-in 160ms var(--ease);
 }
 
 .modal-title {
-  margin: 0 0 6px;
-  font-size: 15px;
+  margin: 0 0 8px;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .modal-message {
-  margin: 0 0 18px;
-  font-size: 12.5px;
+  margin: 0 0 16px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
 }
 
 .modal-confirm-input {
+  display: block;
   width: 100%;
-  padding: 9px 12px;
-  margin-bottom: 18px;
+  height: var(--ctl-h);
+  padding: 0 12px;
+  margin: 0 0 16px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
+.modal-confirm-input::placeholder {
+  color: var(--label);
+}
+
+/* The danger ring, not the accent one: this field arms an irreversible action. */
 .modal-confirm-input:focus-visible {
   outline: none;
   border-color: var(--danger);
   box-shadow: 0 0 0 3px var(--score-low-wash);
 }
 
+.modal-confirm-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .modal-backdrop,
-  .modal-card,
-  .settings-panel-content {
-    animation: none !important;
-  }
+  /* 16 + 8: the action row sits 24 below whatever precedes it. */
+  margin-top: 8px;
 }
 
 /* ---------------------------------------------------------------------
@@ -3529,7 +3570,7 @@ textarea:disabled {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: var(--score-good-wash);
@@ -6192,8 +6233,12 @@ textarea:disabled {
    coloured card behind transparent PNGs. */
 .docmark-row-badge.has-icon,
 .argev-badge.has-icon {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  /* White in BOTH themes: most favicons are drawn for a light page, and a dark
+     tile would put dark-on-dark marks in an invisible box; a small white chip
+     reads as the site's own icon. --primary-contrast is the one token that is
+     white on both paths. The hairline is var(--border), which adapts. */
+  background: var(--primary-contrast);
+  border: 1px solid var(--border);
 }
 
 /* Favicons arrive at whatever size the publisher serves. `contain` keeps a
@@ -6205,24 +6250,6 @@ textarea:disabled {
   height: 16px;
   object-fit: contain;
   display: block;
-}
-
-/* Still white in dark. Most favicons are drawn for a light page and a dark
-   tile puts dark-on-dark marks into an invisible box; a small white chip reads
-   as the site's own icon rather than as a light patch. Only the border-color
-   adapts, and on BOTH dark paths — the bare media query this used to be missed
-   the Settings toggle and also fired under a dark OS with the toggle set to
-   light. */
-:root[data-theme='dark'] .docmark-row-badge.has-icon,
-:root[data-theme='dark'] .argev-badge.has-icon {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .docmark-row-badge.has-icon,
-  :root:not([data-theme='light']) .argev-badge.has-icon {
-    background: #fff;
-    border-color: rgba(255, 255, 255, 0.14);
-  }
 }
 
 /* --- Native window -------------------------------------------------------- */
@@ -6250,12 +6277,6 @@ textarea:disabled {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-}
-
-/* Full-bleed for the same reason: it covered a card inset by the window
-   gutter and rounded to match it, and there is now neither. */
-.modal-backdrop {
-  border-radius: 0;
 }
 
 /* --- Home ----------------------------------------------------------------- */

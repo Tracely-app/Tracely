@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useId } from 'react'
 import { createPortal } from 'react-dom'
 import Button from './Button'
 
@@ -35,6 +35,8 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps): JSX.Element {
   const [typed, setTyped] = useState('')
   const locked = requireText !== undefined && typed !== requireText
+  const titleId = useId()
+  const messageId = useId()
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
@@ -46,21 +48,34 @@ export default function ConfirmDialog({
 
   return createPortal(
     <div className="modal-backdrop" onMouseDown={() => !busy && onCancel()}>
-      <div className="modal-card" role="alertdialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
-        <h4 className="modal-title">{title}</h4>
-        <p className="modal-message">{message}</p>
+      <div
+        className="modal-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h4 id={titleId} className="modal-title">
+          {title}
+        </h4>
+        <p id={messageId} className="modal-message">
+          {message}
+        </p>
         {requireText !== undefined ? (
           <input
             className="modal-confirm-input"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder={requireText}
+            aria-label={`Type ${requireText} to confirm`}
             autoFocus
             disabled={busy}
           />
         ) : null}
         <div className="modal-actions">
-          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+          {/* Focus starts on the safe choice; the type-to-confirm input takes it instead when there is one. */}
+          <Button variant="ghost" onClick={onCancel} disabled={busy} autoFocus={requireText === undefined}>
             {cancelLabel}
           </Button>
           <Button variant={danger ? 'danger' : 'dark'} onClick={onConfirm} disabled={busy || locked}>

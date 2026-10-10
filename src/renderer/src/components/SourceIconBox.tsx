@@ -41,6 +41,7 @@ export default function SourceIconBox({
         aria-hidden="true"
         width={16}
         height={16}
+        loading="lazy"
         // A domain whose icon 404s or decodes badly must not leave an empty
         // box where the monogram was — the alt text is empty by design, so a
         // broken image is invisible rather than wrong.

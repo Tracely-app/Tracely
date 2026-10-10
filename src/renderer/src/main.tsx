@@ -4,6 +4,9 @@ import App from './App'
 import '@fontsource/instrument-sans/400.css'
 import '@fontsource/instrument-sans/500.css'
 import '@fontsource/instrument-sans/600.css'
+// 700 stays in this window only: no product rule asks for it, but the editor
+// keeps a pasted document's inline `font-weight: 700` spans, and the user can
+// set those in Instrument Sans.
 import '@fontsource/instrument-sans/700.css'
 import './styles/index.css'
 

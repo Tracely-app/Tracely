@@ -12,6 +12,16 @@ import { PlanProvider } from './lib/plan'
 
 export type Tab = 'home' | 'documents' | 'analyze' | 'library' | 'settings'
 
+// What a screen reader announces for the one landmark on screen; 'analyze' is
+// the editor, whatever the route is called internally.
+const TAB_LABEL: Record<Tab, string> = {
+  home: 'Home',
+  documents: 'Documents',
+  analyze: 'Editor',
+  library: 'Library',
+  settings: 'Settings'
+}
+
 // There is no gate here any more.
 //
 // This file used to open on one of three screens depending on an auth lookup:
@@ -71,7 +81,7 @@ export default function App(): JSX.Element {
           the strip that replaces its caption area; it stops short of the
           corner Windows draws the real window buttons in. */}
       <div className="app-dragbar" aria-hidden="true" />
-      <main className={`app-main ${tab === 'home' ? 'app-main-fixed' : ''}`}>
+      <main className={`app-main ${tab === 'home' ? 'app-main-fixed' : ''}`} aria-label={TAB_LABEL[tab]}>
         {tab === 'home' ? (
           <HomeView
             onNavigate={setTab}
