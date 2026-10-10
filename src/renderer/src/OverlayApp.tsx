@@ -628,11 +628,11 @@ function TypeDot({ claimType, size = 9 }: { claimType: ClaimType; size?: number 
  * The popover's two text styles, shared by every card in it.
  *
  * Identical across all eight Figma popover frames — 14px SemiBold ink for the
- * title, 13px Regular at 1.4 for the body — so they are defined once rather
+ * title (20px line), 13px Regular at 1.5 for the body — so they are defined once rather
  * than repeated at each call site and allowed to drift apart.
  */
-const POPOVER_TITLE: CSSProperties = { fontSize: 14, fontWeight: 600, color: INK }
-const POPOVER_BODY: CSSProperties = { fontSize: 13, lineHeight: 1.4, color: MUTED }
+const POPOVER_TITLE: CSSProperties = { fontSize: 14, fontWeight: 600, lineHeight: '20px', color: INK }
+const POPOVER_BODY: CSSProperties = { fontSize: 13, lineHeight: 1.5, color: MUTED }
 
 /**
  * The 16x10 arrow every "Hover Popover" frame draws, pointing at the sentence.
@@ -2564,20 +2564,7 @@ function ProblemCard({
         {remaining > 1 ? (
           <span
             title={`${remaining} issues with this sentence — this is the first`}
-            style={{
-              marginLeft: 'auto',
-              flexShrink: 0,
-              minWidth: 18,
-              height: 18,
-              padding: '0 5px',
-              borderRadius: 999,
-              background: CHIP_BG,
-              color: MUTED,
-              fontSize: 11,
-              fontWeight: 600,
-              lineHeight: '18px',
-              textAlign: 'center'
-            }}
+            style={{ ...CHIP_STYLE, marginLeft: 'auto', flexShrink: 0, minWidth: 20, justifyContent: 'center' }}
           >
             {remaining}
           </span>
@@ -2890,7 +2877,7 @@ function CandidateRow({
           className="tracely-btn-secondary"
           onClick={() => openUrl(candidate.url)}
           title={candidate.url}
-          style={{ ...SECONDARY_BTN_STYLE, flexShrink: 0, padding: '5px 10px', fontSize: 12 }}
+          style={{ ...SECONDARY_BTN_STYLE, flexShrink: 0, height: 28, padding: '0 10px', fontSize: 12 }}
         >
           {OPEN_SOURCE}
         </button>
@@ -2970,11 +2957,8 @@ function CopyButtons({
   copied: Copied
   onCopy: (which: 'marker' | 'entry') => void
 }): JSX.Element {
-  const style = (primary: boolean): CSSProperties => ({
-    ...(primary ? PRIMARY_BTN_STYLE : SECONDARY_BTN_STYLE),
-    opacity: disabled ? 0.6 : 1,
-    cursor: disabled ? 'default' : 'pointer'
-  })
+  // Disabled looks come from the .tracely-btn-*:disabled rule.
+  const style = (primary: boolean): CSSProperties => (primary ? PRIMARY_BTN_STYLE : SECONDARY_BTN_STYLE)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <button className="tracely-btn-primary" onClick={() => onCopy('marker')} disabled={disabled} style={style(true)}>
@@ -3425,7 +3409,7 @@ function CitationFlowCard({
             className="tracely-btn-secondary"
             onClick={onUndo}
             disabled={undoing}
-            style={{ ...SECONDARY_BTN_STYLE, opacity: undoing ? 0.6 : 1, cursor: undoing ? 'default' : 'pointer' }}
+            style={SECONDARY_BTN_STYLE}
           >
             {undoing ? 'Undoing…' : 'Undo'}
           </button>
@@ -3665,11 +3649,7 @@ function CitationFlowCard({
           className="tracely-btn-primary"
           onClick={onInsert}
           disabled={inserting || !canAct}
-          style={{
-            ...PRIMARY_BTN_STYLE,
-            opacity: inserting || !canAct ? 0.6 : 1,
-            cursor: inserting || !canAct ? 'default' : 'pointer'
-          }}
+          style={PRIMARY_BTN_STYLE}
         >
           {inserting ? 'Inserting…' : 'Insert citation'}
         </button>
@@ -3677,11 +3657,7 @@ function CitationFlowCard({
           className="tracely-btn-secondary"
           onClick={onPreview}
           disabled={previewing || !canAct}
-          style={{
-            ...SECONDARY_BTN_STYLE,
-            opacity: previewing || !canAct ? 0.6 : 1,
-            cursor: previewing || !canAct ? 'default' : 'pointer'
-          }}
+          style={SECONDARY_BTN_STYLE}
         >
           {previewing ? 'Formatting…' : 'Preview'}
         </button>
