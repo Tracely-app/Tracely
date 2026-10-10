@@ -3467,7 +3467,7 @@
     .pill:where(.quiet) { transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1); }
     .pill.quiet .plane { background: var(--border-strong); }
     .pill.quiet:hover { color: var(--text); }
-    .pill.orphan { cursor: default; color: var(--muted); font-weight: 500; height: auto; min-height: 40px; padding: 8px 12px 8px 6px; line-height: 1.35; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
+    .pill.orphan { cursor: default; color: var(--muted); font-weight: 500; height: auto; min-height: 40px; padding: 8px 12px 8px 6px; line-height: 1.35; white-space: normal; text-wrap: pretty; max-width: min(360px, calc(100vw - 44px)); }
     .pill.orphan:hover { transform: none; border-color: var(--border); color: var(--muted); }
     .plane {
       width: 24px; height: 24px; border-radius: 50%;
