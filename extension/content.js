@@ -3459,10 +3459,14 @@
       transition: transform .1s ease, border-color .15s ease;
     }
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
-    .pill.quiet { color: var(--label); font-weight: 500; }
-    .pill.quiet .plane { background: #c8c8cc; }
-    .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
-    .pill.orphan:hover { transform: none; border-color: var(--border); }
+    /* Quiet pills (consent, site off, orphaned): muted text, a grey disc —
+       nothing is wrong with the writing. Hovering the clickable ones darkens
+       the label; the orphan is not clickable and keeps its resets. */
+    .pill.quiet { color: var(--muted); font-weight: 500; transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1); }
+    .pill.quiet .plane { background: var(--border-strong); }
+    .pill.quiet:hover { color: var(--text); }
+    .pill.orphan { cursor: default; color: var(--muted); font-weight: 500; height: auto; min-height: 40px; padding: 8px 12px 8px 6px; line-height: 1.35; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
+    .pill.orphan:hover { transform: none; border-color: var(--border); color: var(--muted); }
     .plane {
       width: 24px; height: 24px; border-radius: 50%;
       background: var(--accent-gradient);
