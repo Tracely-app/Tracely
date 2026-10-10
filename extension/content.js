@@ -3449,14 +3449,14 @@
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
     /* ── Pill ─────────────────────────────────────────────────────────── */
     .pill {
-      display: flex; align-items: center; gap: 8px; height: 40px;
+      display: flex; align-items: center; gap: 8px; height: 36px;
       background: var(--surface); color: var(--text);
       border: 1px solid var(--border); border-radius: 999px;
-      padding: 0 14px 0 8px;
-      box-shadow: var(--shadow-lg);
+      padding: 0 12px 0 6px;
+      box-shadow: var(--shadow-card);
       cursor: pointer; user-select: none;
-      font-size: 13px; font-weight: 600;
-      transition: transform .1s ease, border-color .15s ease;
+      font-size: 13px; font-weight: 500;
+      transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
     .pill.quiet { color: var(--label); font-weight: 500; }
@@ -3469,7 +3469,7 @@
       display: flex; align-items: center; justify-content: center;
       color: #fff; flex-shrink: 0;
     }
-    .plane svg { width: 13px; height: 13px; }
+    .plane svg { width: 12px; height: 12px; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
       display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
