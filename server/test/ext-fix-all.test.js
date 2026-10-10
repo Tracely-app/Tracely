@@ -38,6 +38,8 @@ function fakeNode(tag) {
     get textContent() { return this._text + this.children.map((c) => c.textContent).join(""); },
     set textContent(v) { this._text = String(v); for (const c of this.children) c.parent = null; this.children = []; },
     get offsetHeight() { return 90; },
+    get offsetWidth() { return 220; },
+    getBoundingClientRect() { return { left: 500, top: 300, width: 64, height: 24, right: 564, bottom: 324 }; },
     setAttribute(k, v) { this.attrs[k] = v; }, hasAttribute(k) { return k in this.attrs; },
     appendChild(c) { c.parent = this; this.children.push(c); return c; },
     append(...cs) { for (const c of cs) this.appendChild(c); },
@@ -59,7 +61,7 @@ function fakeDocument() {
 }
 const allNodes = (n) => [n, ...n.children.flatMap(allNodes)];
 
-function load({ nolist = false } = {}) {
+function load({ nolist = false, inline = [] } = {}) {
   const clock = { t: 1_000_000 };
   const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0 };
   const document = fakeDocument();
@@ -104,6 +106,18 @@ function load({ nolist = false } = {}) {
     function tcCursorAt(x, y) { tcCur.x = x; tcCur.y = y; log.cursor.push([Math.round(x), Math.round(y)]); }
     function tcCursorPress() {}
     function tcCursorHide() { tcCur.x = tcCur.y = -100; log.hides++; }
+    // The page's text runs: the changes named in \`inline\` are drawn whole on screen, one line each; the rest are not found.
+    const INLINE = ${JSON.stringify(inline)};
+    const nrm = (s) => String(s).toLowerCase().replace(/\\s+/g, "");
+    const run = (k) => ({ isConnected: true, getBoundingClientRect: () => ({ left: 100, top: 100 + 40 * k, width: 400, height: 18 }) });
+    const svgRangeRects = (text, a, z) => {
+      const k = INLINE.findIndex((w) => text.includes(w));
+      if (k < 0) return null;
+      const node = run(k);
+      return { pieces: z > a ? [{ node, f0: 0.25, f1: 0.75, rect: { left: 200, top: 100 + 40 * k, width: 200, height: 18 } }] : [], at: { node, f: 0.75 } };
+    };
+    const barTextRect = (p) => p?.rect ?? null;
+    const TP_STRIKE_MS = 200, TP_CHAR_MS = 30, TP_TYPE_MAX_MS = 1200;
     ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
     ${sliceBetween(SRC, "  const VERDICT_LABEL =", "\n")}
     function hashText(s) { return "h" + s.length; }
@@ -176,7 +190,8 @@ function load({ nolist = false } = {}) {
     ${sliceBetween(SRC, '    /* ── "Let Tracely fix these": everything prepared', "    if (FEATURES.typePreview) {")}
     ({ prepareFixes, stopFixes, closeFixes, acceptFix, acceptAllFixes, skipFix, rejectAllFixes, walkStripHtml, fixPingHtml, placeFixCards, runDocEdit,
        batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
-       cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null })`, ctx);
+       cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null,
+       marks: () => fixMarks, placeFixMarks })`, ctx);
   return { X, log, clock, document };
 }
 // Let every chain of jumps run out.
@@ -334,4 +349,42 @@ test("a missing Works Cited is one of the suggestions: looked up while the rest 
   assert.equal(card.dataset.loose, "1");
   assert.equal(await X.acceptFix(X.batch().items.indexOf(list)), true);
   assert.deepEqual(plain(log.sent.at(-1).job.steps.map((st) => st.line)), ["Works Cited", "Weatherford, Jack. Genghis Khan and the Making of the Modern World. 2004."]);
+});
+
+test("Tracely's cursor makes each change in its place — struck, typed — with Accept and Reject beside it; Accept all goes round and clicks each", async () => {
+  // Owner, 2026-10-09: "when you click accept all there is no cursor but I want tracely cursor to go around and
+  // change each one and leave the accept or reject choice next to each change that it makes".
+  const { X, log } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  const marks = X.marks();
+  assert.deepEqual([...marks.keys()].sort(), ["c0", "s1"], "the two the page shows whole are made in place");
+  // The fix: its old words struck on their run, its new words in the chip beside it, with its two answers.
+  const fix = marks.get("s1");
+  X.placeFixMarks();
+  assert.equal(fix.strikes.length, 1);
+  assert.deepEqual([fix.strikes[0].style.left, fix.strikes[0].style.width, fix.strikes[0].style.visibility], ["200px", "200px", "visible"], "struck where the words are");
+  assert.equal(fix.words._text, "used paper money");
+  assert.deepEqual(plain(allNodes(fix.chip).filter((n) => n.tagName === "button").map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
+  assert.equal(fix.chip.style.top, "122px", "right under the change (its line's bottom, 118, + 4)");
+  // The citation only adds words: nothing struck, the marker typed in its chip.
+  const cite = marks.get("c0");
+  assert.equal(cite.strikes.length, 0);
+  assert.equal(cite.words._text, "(Lee 2021)");
+  assert.equal(cite.chip.style.top, "216px", "under its own line (158 + 4), pushed below the fix's chip (122 + 90 + 4): none on another");
+  // The cursor stopped at each change, and the margin keeps a card only for what the page could not show in place.
+  assert.ok(log.cursor.some(([x, y]) => x === 202 && y === 110), `at the fix's first struck word: ${JSON.stringify(log.cursor)}`);
+  assert.deepEqual(plain(X.cards().children.map((c) => c.dataset.key)), ["c1", "c3", "tip:x"]);
+  // Reject one beside its change: gone from the page.
+  allNodes(cite.chip).filter((n) => n.tagName === "button")[1].click();
+  assert.equal(X.batch().items[1].status, "skipped");
+  assert.equal(X.marks().has("c0"), false);
+  // Accept all: the cursor goes to the fix's ✓ and clicks it; it goes in; the rest follow; the cursor leaves.
+  const before = log.cursor.length, hides = log.hides;
+  await X.acceptAllFixes();
+  assert.ok(log.cursor.slice(before).some(([x, y]) => x === 532 && y === 312), "it went to the ✓ (500 + 64/2, 300 + 24/2)");
+  assert.deepEqual(statuses(X), ["s1:applied", "c0:skipped", "c1:applied", "c2:none (no source backs it)", "c3:applied", "tip:x:applied"], "every one it was left goes in, one at a time");
+  assert.equal(X.marks().size, 0, "every change answered: nothing left in the text");
+  assert.ok(log.hides > hides, "and the cursor is gone when it is done");
 });

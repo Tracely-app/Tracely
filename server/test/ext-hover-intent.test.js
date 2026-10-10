@@ -28,7 +28,8 @@ test("a pass across the page opens nothing: a card waits for the pointer to stay
   assert.deepEqual({ ...X.hoverIntent({ open: false, under: "A" }) }, { act: "open", hash: "A", ms: X.HOVER_OPEN_MS });
   assert.equal(X.hoverIntent({ open: false, under: null }).act, "none");
   // Snappy, like Grammarly (owner, 2026-10-09): under a tenth of a second, still past a fly-over.
-  assert.ok(X.HOVER_OPEN_MS >= 50 && X.HOVER_OPEN_MS <= 100, "long enough to skip a fly-over, short enough to feel immediate");
+  // Owner, 2026-10-09: "still keep jumping around" — at 70 ms a pointer crossing a paragraph popped cards.
+  assert.ok(X.HOVER_OPEN_MS >= 120 && X.HOVER_OPEN_MS <= 250, "long enough that a pass across the page opens nothing, short enough to feel immediate");
 });
 
 test("on the way to the card, other underlines are ignored — unless the pointer stops on one", () => {
@@ -48,7 +49,7 @@ test("on the card or its own sentence the card stays; elsewhere another mark tak
   // over at once, and empty page closes the card at once — no waiting for the pointer to stop.
   assert.deepEqual({ ...X.hoverIntent({ ...open, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_SWAP_MS });
   assert.deepEqual({ ...X.hoverIntent(open) }, { act: "hide", ms: X.HOVER_HIDE_MS });
-  assert.ok(X.HOVER_SWAP_MS <= 120, "another underline takes over within a blink");
+  assert.ok(X.HOVER_SWAP_MS > X.HOVER_OPEN_MS && X.HOVER_SWAP_MS <= 260, "another underline takes over once the pointer settles on it, not as it passes");
   // The sweet spot (owner, 2026-10-09: "when I go off of it it goes away but not so fast that I cant go
   // back if I suddenly change my mind"): 2.21.35 closed in 140 ms. Long enough to come back, short of a wait.
   assert.ok(X.HOVER_HIDE_MS >= 300 && X.HOVER_HIDE_MS <= 450, `off the card it waits a moment: ${X.HOVER_HIDE_MS}`);
@@ -116,8 +117,11 @@ test("wired: one hover path, through the intent; motion only via the helpers", (
   assert.match(hov, /window\.addEventListener\("mouseout", \(e\) => \{\n\s+if \(e\.relatedTarget\) return;\n\s+hoverPt = \{ x: -1e4, y: -1e4 \};\n\s+hoverHit\(\);/, "out of the window: the card closes, no move needed");
   assert.match(SRC, /const markActive = \(e\) => \{ lastTextChangeAt = Date\.now\(\); if \(e\?\.type === "keydown"\) typingClosesCard\(e\); \};/, "typing closes the card, as Grammarly's does");
   assert.ok(!/approaching|HOVER_NEAR_PX|hoverPrev/.test(SRC.replace(/\/\*[\s\S]*?\*\//g, "")), "nothing holds the card on the pointer's direction any more");
-  // Hung from the pointer, so the way to it is straight down.
-  assert.match(SRC, /const hit = \{ \.\.\.st\.hit, centerX: Math\.max\(st\.hit\.left, Math\.min\(st\.hit\.right \?\? st\.hit\.left, hoverPt\.x\)\) \};/);
+  // Hung from the START of its line — the same place every time, wherever the pointer came in (it used to follow the pointer).
+  assert.match(SRC, /const hit = \{ \.\.\.st\.hit, centerX: st\.hit\.left \+ Math\.min\(POP_LINE_IN, \(\(st\.hit\.right \?\? st\.hit\.left\) - st\.hit\.left\) \/ 2\) \};/);
+  assert.ok(!/hoverPt\.x\)\) \};/.test(SRC), "not from the pointer's x");
+  // A 1px change in its line's measured box is not a move.
+  assert.match(SRC, /const moved = \(now, want\) => now === "" \|\| Math\.abs\(\(parseFloat\(now\) \|\| 0\) - want\) >= 1\.5;/);
   assert.match(SRC, /const idealLeft = cx - POP_CARET;/);
   assert.match(SRC, /popAnchorDx = Math\.max\(0, \(rect\.centerX \?\? rect\.left \+ POP_CARET\) - rect\.left\);/);
   assert.match(SRC, /centerX: r\.left \+ Math\.min\(popAnchorDx, r\.width\) \}\);\n\s+const pb = popEl\.getBoundingClientRect\(\);/, "it follows its line from the same spot");
