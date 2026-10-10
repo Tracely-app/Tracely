@@ -3803,6 +3803,23 @@
       0% { box-shadow: 0 0 0 3px var(--ring); }
       100% { box-shadow: none; }
     }
+
+    /* ── Primitives: focus, scrollbar, motion ─────────────────────────────
+       Shared recipes, appended so they win over the sections above: the
+       small button in strips and footers, one ink focus ring for every
+       control that is not a text field (those keep the accent ring), the
+       list's thin scrollbar, and the one reduced-motion block. */
+    .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
+    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
+    .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    .list { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+    .list::-webkit-scrollbar { width: 8px; }
+    .list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid var(--surface); }
+    .list::-webkit-scrollbar-track { background: transparent; }
+    @media (prefers-reduced-motion: reduce) {
+      .launcher, .launcher:hover, .pill, .pill:hover, button.act, .chip, .deep-btn, .x, .src a.src-open, select, .cite-url input { transition: none; transform: none; }
+      .panel.opening, .card.flash, .deep-spin { animation: none; }
+    }
   `;
 
   function makeWidget() {
