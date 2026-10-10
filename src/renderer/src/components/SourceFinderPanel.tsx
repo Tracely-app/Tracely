@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { CitationStyle } from '@shared/types'
 import type { ScreenWatchSourceCandidate } from '@shared/ipc-contract'
 import { MIN_EVIDENCE_TEXT_CHARS } from '@shared/evidenceLimits'
 import SourceIconBox from './SourceIconBox'
 import { sourceInitials } from './citationFlowCopy'
 import Spinner from './Spinner'
+import { CloseIcon } from './icons'
 
 /**
  * "Find sources" — paste a piece of evidence, get the sources that speak to it.
@@ -37,6 +38,7 @@ export default function SourceFinderPanel({
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const titleId = useId()
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
   // The panel exists to be typed into, so it takes the caret on open rather
@@ -88,16 +90,16 @@ export default function SourceFinderPanel({
       <div
         className="srcfind"
         role="dialog"
-        aria-label="Find sources"
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="srcfind-head">
           <div>
-            <h2>Find sources</h2>
+            <h2 id={titleId}>Find sources</h2>
             <p>Paste a fact or a sentence. Tracely looks for work that speaks to it.</p>
           </div>
           <button className="srcfind-close" onClick={onClose} aria-label="Close">
-            ×
+            <CloseIcon size={16} />
           </button>
         </header>
 
@@ -132,11 +134,12 @@ export default function SourceFinderPanel({
         <div className="srcfind-results">
           {loading ? (
             <div className="srcfind-loading">
-              <Spinner />
-              <span>Searching the academic indexes…</span>
+              <Spinner label="Searching the academic indexes…" />
             </div>
           ) : error ? (
-            <p className="srcfind-note srcfind-error">{error}</p>
+            <p className="srcfind-note srcfind-error" role="alert">
+              {error}
+            </p>
           ) : note ? (
             <p className="srcfind-note">{note}</p>
           ) : candidates && candidates.length > 0 ? (

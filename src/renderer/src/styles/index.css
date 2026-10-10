@@ -4656,6 +4656,7 @@ textarea:disabled {
     background-color var(--dur) var(--ease),
     border-color var(--dur) var(--ease),
     color var(--dur) var(--ease),
+    filter var(--dur) var(--ease),
     opacity var(--dur) var(--ease);
 }
 
@@ -7079,9 +7080,9 @@ textarea:disabled {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--r-card);
   box-shadow: var(--shadow-lg);
-  padding: 20px;
+  padding: 24px;
   gap: 12px;
 }
 
@@ -7093,49 +7094,56 @@ textarea:disabled {
 }
 .srcfind-head h2 {
   margin: 0 0 4px;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 .srcfind-head p {
   margin: 0;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
 }
 .srcfind-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin: -2px -4px 0 0;
+  padding: 0;
   border: 0;
-  background: none;
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
+  border-radius: var(--r-ctl);
+  background: transparent;
   color: var(--muted);
-  padding: 0 4px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.srcfind-close:hover { color: var(--text); }
+.srcfind-close:hover { background: var(--hover); color: var(--text); }
+.srcfind-close:active { background: var(--pressed); }
 
+/* The shared textarea recipe (84px, 10/12 padding, 13/1.5, radius 8); its
+   textarea:focus-visible accent ring applies unchanged. */
 .srcfind-input {
   width: 100%;
   resize: vertical;
-  min-height: 72px;
-  padding: 11px 12px;
+  min-height: 84px;
+  padding: 10px 12px;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   /* Both explicit. `color: inherit` was enough only by accident — the panel
      above sets one — and an input that inherits its background from nothing is
      exactly how the white-on-white happened. */
   color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-ctl);
 }
-.srcfind-input::placeholder { color: var(--muted); }
-.srcfind-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: transparent;
-}
+.srcfind-input::placeholder { color: var(--label); opacity: 1; }
 
 .srcfind-actions {
   display: flex;
@@ -7143,37 +7151,53 @@ textarea:disabled {
   justify-content: space-between;
   gap: 12px;
 }
-.srcfind-hint { font-size: 12px; color: var(--muted); }
+.srcfind-hint { font-size: 12px; line-height: 1.45; color: var(--muted); }
 .srcfind-go {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: var(--ctl-h);
+  padding: 0 18px;
   border: 0;
-  border-radius: 8px;
-  padding: 8px 16px;
+  border-radius: var(--r-ctl);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   color: var(--primary-contrast);
   background: var(--primary);
   cursor: pointer;
+  transition: filter var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
-.srcfind-go:disabled { opacity: 0.45; cursor: default; }
+.srcfind-go:hover:not(:disabled) { filter: brightness(1.06); }
+.srcfind-go:active:not(:disabled) { filter: brightness(0.94); }
+.srcfind-go:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* The results are what scrolls — the header, the box and the button stay put,
    so the control you press is never below the fold. */
 .srcfind-results { overflow-y: auto; min-height: 0; }
-.srcfind-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 18px 2px;
-  font-size: 13.5px;
-  color: var(--muted);
-}
+.srcfind-loading { padding: 8px 0; }
+.srcfind-loading .spinner-row { margin: 0; }
+/* No-results is the shared empty recipe: muted 13px in a dashed box. */
 .srcfind-note {
-  margin: 6px 2px;
-  font-size: 13.5px;
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
+  text-align: center;
 }
-.srcfind-error { color: var(--danger); }
+/* An error is a sentence, not an empty state: no box. */
+.srcfind-note.srcfind-error {
+  padding: 8px 0;
+  border: 0;
+  text-align: left;
+  color: var(--danger);
+}
 
 .srcfind-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .srcfind-row {
@@ -7181,7 +7205,7 @@ textarea:disabled {
   grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: start;
-  padding: 11px 4px;
+  padding: 12px 4px;
   border-bottom: 1px solid var(--border);
 }
 .srcfind-row:last-child { border-bottom: 0; }
@@ -7191,11 +7215,11 @@ textarea:disabled {
 .srcfind-badge {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--surface-2);
   color: var(--muted);
@@ -7205,13 +7229,13 @@ textarea:disabled {
 .srcfind-badge img { width: 100%; height: 100%; object-fit: contain; }
 
 .srcfind-row-main { min-width: 0; }
-.srcfind-row-title { font-size: 13.5px; font-weight: 550; line-height: 1.35; color: var(--text); }
-.srcfind-row-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.srcfind-row-title { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--text); text-wrap: pretty; }
+.srcfind-row-meta { font-size: 12px; line-height: 1.45; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .srcfind-row-cite {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 6px;
-  line-height: 1.45;
+  margin-top: 8px;
+  line-height: 1.5;
   word-break: break-word;
 }
 
@@ -7219,10 +7243,10 @@ textarea:disabled {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 5px;
+  gap: 4px;
   white-space: nowrap;
 }
-.srcfind-match { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.srcfind-match { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* The same two treatments `.docmark-cred` uses in the editor — green for a
    publisher a marker accepts, neutral grey for one Tracely does not recognise.
@@ -7230,10 +7254,13 @@ textarea:disabled {
    site, and the editor has said so in exactly these colours since the chip
    existed. */
 .srcfind-cred {
-  font-size: 10.5px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.3px;
-  padding: 2px 7px;
+  line-height: 1;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--muted);
@@ -7246,20 +7273,28 @@ textarea:disabled {
   color: var(--score-good);
 }
 
-.srcfind-row-btns { display: flex; gap: 6px; margin-top: 2px; }
+.srcfind-row-btns { display: flex; gap: 4px; margin-top: 4px; }
 .srcfind-open,
 .srcfind-copy {
-  border: 1px solid var(--border);
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
   border-radius: 6px;
-  padding: 3px 9px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   color: var(--text);
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 .srcfind-open:hover,
-.srcfind-copy:hover { background: var(--surface-2); }
+.srcfind-copy:hover { background: var(--hover); }
+.srcfind-open:active,
+.srcfind-copy:active { background: var(--pressed); }
 
 /* ── One set of edges at every width ──────────────────────────────────────
  *
