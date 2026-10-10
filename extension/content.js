@@ -3015,10 +3015,10 @@
     }
   }
   function genreLineHtml(genre, text = "", style = "mla") {
-    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line">${GENRE_QUIET_LINE[genre]}</div>`;
+    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line" role="note">${GENRE_QUIET_LINE[genre]}</div>`;
     if (!GENRE_LABEL[genre]) return "";
     const how = genreCiteNote(genre, text, style);
-    return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
+    return `<div class="genre-line" role="note">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
      a citation (cite_tip), orange for one on the writing (note_tip). A note
@@ -3393,7 +3393,7 @@
      throw away what they were typing. */
   const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
   function orphanPillHtml() {
-    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+    return `<div class="pill quiet orphan" id="pill" role="status" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
   }
 
   /* ── the app's design tokens ───────────────────────────────────────────
@@ -3462,10 +3462,16 @@
       transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
-    .pill.quiet { color: var(--label); font-weight: 500; }
-    .pill.quiet .plane { background: #c8c8cc; }
-    .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
-    .pill.orphan:hover { transform: none; border-color: var(--border); }
+    /* Quiet pills (consent, site off, orphaned): muted text, a grey disc —
+       nothing is wrong with the writing. Hovering the clickable ones darkens
+       the label; the orphan is not clickable and keeps its resets. */
+    .pill.quiet { color: var(--muted); font-weight: 500; }
+    /* :where() adds no specificity, so the reduced-motion block below still wins. */
+    .pill:where(.quiet) { transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1); }
+    .pill.quiet .plane { background: var(--border-strong); }
+    .pill.quiet:hover { color: var(--text); }
+    .pill.orphan { cursor: default; color: var(--muted); font-weight: 500; height: auto; min-height: 40px; padding: 8px 12px 8px 6px; line-height: 1.35; white-space: normal; text-wrap: pretty; max-width: min(360px, calc(100vw - 44px)); }
+    .pill.orphan:hover { transform: none; border-color: var(--border); color: var(--muted); }
     .plane {
       width: 24px; height: 24px; border-radius: 50%;
       background: var(--accent-gradient);
@@ -9563,11 +9569,11 @@
     function renderDocsConsent() {
       root.innerHTML = `
         ${expanded ? `
-        <div class="panel opening">
-          <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+        <div class="panel opening" role="dialog" aria-labelledby="docsConsentTitle">
+          <div class="head" style="cursor:default"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
-              <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
+              <div class="top"><span class="ctitle" id="docsConsentTitle">Check this document with Tracely?</span></div>
               <div class="expl">${esc(DOCS_CONSENT_TEXT)}</div>
               <div class="row">
                 <button class="act primary" id="docsOn">Turn on for Google Docs</button>
@@ -9575,7 +9581,7 @@
               </div>
             </div>
           </div>
-          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
+          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);font-weight:500;text-decoration:underline;text-underline-offset:2px">Privacy</a></div>
         </div>` : ""}
         <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
@@ -9709,7 +9715,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty"><span role="status">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</span></div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -11084,7 +11090,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty"><span role="status">${emptyMsg}</span></div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -11100,7 +11106,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
+          ? `<div class="pill quiet" id="pill" role="button" tabindex="0" aria-expanded="${expanded ? "true" : "false"}" title="Tracely is off on this site — open to turn it on"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
