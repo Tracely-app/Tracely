@@ -3472,9 +3472,10 @@
     .plane svg { width: 13px; height: 13px; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
+      display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
       background: var(--chip-wash); color: var(--chip-ink);
-      border-radius: var(--r-chip); padding: 1px 6px;
-      font-size: 10px; font-weight: 600; letter-spacing: .01em;
+      border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums;
     }
     .count.off { color: var(--label); }
 
