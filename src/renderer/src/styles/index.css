@@ -3711,18 +3711,10 @@ textarea:disabled {
 .argscore-btn.secondary:hover { background: var(--hover); }
 .argscore-btn.secondary:active { background: var(--pressed); }
 
-/* The letter chip, on its own row under OVERALL SCORE as the frames place it. */
-/* The frame's grade pill (404:200): fully rounded, 13px, on the wash of its
-   own band. */
-/* The frame's grade pill (404:200): fully rounded, 13px SemiBold, on the wash
-   of its own band. */
+/* The letter chip, on its own row under OVERALL SCORE as the frames place it:
+   the shared 20px chip (above), on the wash of its own band. */
 .argscore-grade {
-  display: inline-block;
   margin-top: 8px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 650;
 }
 
 .argscore-grade.tone-good { color: var(--score-good); background: var(--score-good-wash); }
@@ -3730,25 +3722,32 @@ textarea:disabled {
 .argscore-grade.tone-low  { color: var(--score-low);  background: var(--score-low-wash); }
 
 .argscore-grade-line {
-  margin: 9px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
-  font-weight: 650;
-  line-height: 1.4;
-  color: #55565c;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted-2);
 }
 
 /* -- Argument Score: navigation between the four frames -------------------- */
 
 .argscore-back {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
   text-align: left;
   border: none;
   background: none;
   padding: 0;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--muted-2);
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
 }
 
 .argscore-back:hover { color: var(--text); }
@@ -3756,18 +3755,22 @@ textarea:disabled {
 .argscore-section-row {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
 }
 
 .argscore-section-row .argscore-section { flex: 1; }
 
 .argscore-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   background: none;
   padding: 0;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--primary);
   cursor: pointer;
   white-space: nowrap;
@@ -3781,21 +3784,27 @@ textarea:disabled {
 .argscore-checkall-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 10px 0 2px;
+  gap: 12px;
+  margin: 8px 0 4px;
 }
 
 .argscore-checkall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  height: 32px;
   border: 1px solid var(--primary);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: none;
-  padding: 6px 12px;
+  padding: 0 12px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1;
   color: var(--primary);
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
 /* The token, not a literal. There are alternate accents (blue/green/purple)
@@ -3804,10 +3813,12 @@ textarea:disabled {
 .argscore-checkall:hover {
   background: var(--accent-wash);
 }
+.argscore-checkall:active { background: var(--pressed); }
+.argscore-checkall:disabled { opacity: 0.5; cursor: not-allowed; background: none; }
 
 .argscore-checkall-note {
-  font-size: 11.5px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -3816,8 +3827,10 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /* On the widget: full width, sitting between the ring and the footer pills. It
@@ -3825,12 +3838,12 @@ textarea:disabled {
    renders nothing at all once every claim has been checked. */
 .argscore-checkall-row[data-compact='true'] {
   margin: 0;
-  padding: 0 18px 16px;
+  padding: 0 24px 16px;
 }
 
 .argscore-checkall-row[data-compact='true'] .argscore-checkall {
   flex: 1;
-  padding: 9px 12px;
+  height: var(--ctl-h);
 }
 
 .argscore-checkall-row[data-compact='true'] .argscore-checkall-progress {
@@ -3846,10 +3859,11 @@ textarea:disabled {
    table of boxes. */
 .argscore-para {
   border: 1px solid transparent;
-  border-radius: 12px;
-  margin-bottom: 10px;
-  background: #f8f9f8;
+  border-radius: var(--r-tile);
+  margin-bottom: 8px;
+  background: var(--surface-2);
   overflow: hidden;
+  transition: border-color var(--dur) var(--ease);
 }
 
 .argscore-para[data-open='true'] { border-color: var(--border-strong); }
@@ -3859,28 +3873,32 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-height: 40px;
   margin: 0;
-  padding: 9px 12px;
+  padding: 8px 12px;
   text-align: left;
   font: inherit;
+  color: var(--text);
   border: none;
   background: none;
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
-.argscore-para-head:hover { background: var(--surface-2); }
+.argscore-para-head:hover { background: var(--hover); }
+.argscore-para-head:active { background: var(--pressed); }
 .argscore-para-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
-/* A CSS triangle rather than a glyph: '›' and '⌄' sit on different baselines in
-   the two states, so the row's text shifted a pixel every time it opened. */
+/* An SVG chevron (ChevronRightIcon 12) rotated in place rather than two
+   glyphs: '›' and '⌄' sit on different baselines in the two states, so the
+   row's text shifted a pixel every time it opened. */
 .argscore-para-chevron {
   flex-shrink: 0;
-  width: 0;
-  height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid var(--muted);
-  transition: transform 120ms ease;
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+  transition: transform var(--dur) var(--ease);
 }
 
 .argscore-para[data-open='true'] .argscore-para-chevron { transform: rotate(90deg); }
@@ -3893,28 +3911,32 @@ textarea:disabled {
    styled. */
 .argscore-para-role {
   flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: var(--surface-2);
-  font-size: 10.5px;
-  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
   color: var(--muted-2);
 }
 
 /* One dot per finding on a closed row. Same amber the weakness wash uses, so a
    closed row and the card inside it are visibly the same thing. */
-.argscore-para-dots { display: flex; gap: 3px; }
+.argscore-para-dots { display: flex; gap: 4px; }
 
 .argscore-para-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--score-mid);
 }
 
-.argscore-para-body { padding: 0 12px 11px; }
+.argscore-para-body { padding: 0 12px 12px; }
 
-.argscore-para-open { margin-top: 10px; }
+.argscore-para-open { margin-top: 8px; }
 
 /* ---- Cohesion & flow (the block above the paragraph breakdown) ---------- */
 /* The frame's lavender block (449:165): #f6f3fe on a #d3c7f2 hairline at 16px
@@ -3923,10 +3945,10 @@ textarea:disabled {
    one is about the joins between paragraphs and the other is about the
    paragraphs. */
 .argscore-flow {
-  margin-top: 14px;
-  padding: 15px;
+  margin-top: 16px;
+  padding: 14px;
   border: 1px solid #d3c7f2;
-  border-radius: 16px;
+  border-radius: var(--r-tile);
   background: #f6f3fe;
 }
 
@@ -3936,7 +3958,7 @@ textarea:disabled {
   gap: 8px;
 }
 
-.argscore-flow-head .argscore-section { flex: 1; margin: 0 0 2px; }
+.argscore-flow-head .argscore-section { flex: 1; margin: 0 0 4px; }
 
 /* The inline findings list is gone. It was the only category of finding in the
    product with nothing behind it — a paragraph weakness opens a detail, a claim
@@ -3949,32 +3971,37 @@ textarea:disabled {
 .argscore-boundary-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface);
   font: inherit;
+  color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: border-color 90ms ease, background 90ms ease;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .argscore-boundary-row:hover {
-  border-color: var(--text);
-  background: var(--surface-2, #fafafa);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
+.argscore-boundary-row:active { background: var(--hover); }
 
 /* Fixed width so every arrow lines up down the list — the pair is the row's
    index and reads as a column, not as prose. */
 .argscore-boundary-pair {
   flex: 0 0 auto;
   min-width: 56px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--text);
-  padding-top: 1px;
+  font-variant-numeric: tabular-nums;
 }
 
 .argscore-boundary-body {
@@ -3982,12 +4009,13 @@ textarea:disabled {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .argscore-boundary-label {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--score-mid);
 }
 
@@ -3996,7 +4024,7 @@ textarea:disabled {
    itself, and letting it wrap turns the list into paragraphs. */
 .argscore-boundary-seam {
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -4005,10 +4033,12 @@ textarea:disabled {
 
 .argscore-boundary-go {
   flex: 0 0 auto;
+  display: inline-flex;
   color: var(--muted);
-  font-size: 13px;
-  padding-top: 1px;
+  padding-top: 2px;
+  transition: color var(--dur) var(--ease);
 }
+.argscore-boundary-row:hover .argscore-boundary-go { color: var(--text); }
 
 /* ---- One boundary, opened --------------------------------------------- */
 .argscore-seam {
@@ -4025,25 +4055,25 @@ textarea:disabled {
 }
 
 .argscore-seam-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--label);
 }
 
 /* The gap drawn between the two halves — a dashed rule standing in for the
    join that is missing. This is the finding, rendered. */
 .argscore-seam-gap {
-  height: 18px;
+  height: 16px;
   margin: 8px 0;
   border-top: 2px dashed var(--score-mid);
 }
 
 .argscore-flow-clear {
   margin: 8px 0 0;
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -4053,23 +4083,24 @@ textarea:disabled {
    findings rather than measurements. The dot and the title take the problem's
    own colour, so the card is neutral and the finding is what carries hue. */
 .argscore-problem {
-  margin-top: 9px;
-  padding: 10px 12px;
+  margin-top: 8px;
+  padding: 14px;
   border: 1px solid #d3c7f2;
-  border-radius: 10px;
+  border-radius: var(--r-tile);
   background: #f6f3fe;
 }
 
 .argscore-problem-head {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .argscore-problem-dot {
   flex-shrink: 0;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--score-mid);
   transform: translateY(1px);
@@ -4078,26 +4109,28 @@ textarea:disabled {
 .argscore-problem-title {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
   color: #7b44d4;
+  font-variant-numeric: tabular-nums;
 }
 
 .argscore-problem-score { font-weight: 500; color: var(--muted-2); }
 
 .argscore-problem-quote {
-  margin: 6px 0 0;
-  font-size: 11.5px;
+  margin: 8px 0 0;
+  font-size: 12px;
   line-height: 1.5;
   font-style: italic;
   color: var(--muted-2);
 }
 
 .argscore-problem-body {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.5;
-  color: #212429;
+  color: var(--text);
 }
 
 /* The Summary heading carries the frame's blue dot. A pseudo-element so the
@@ -4105,13 +4138,13 @@ textarea:disabled {
 .argscore-section-dot {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .argscore-section-dot::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--primary);
 }
