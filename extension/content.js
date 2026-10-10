@@ -3768,19 +3768,27 @@
     .src-says { font-size: 12px; line-height: 16.8px; color: var(--ink); margin-top: 2px; user-select: text; }
     .src-from { font-size: 10.5px; color: var(--label); margin-top: 2px; }
     .src-unread { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
-    .src-unread-toggle { align-self: flex-start; background: none; border: none; padding: 2px 0; font: inherit; font-size: 12px; color: var(--label); cursor: pointer; text-align: left; }
-    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; }
-    .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
+    .src-unread-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; background: none; border: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--muted); cursor: pointer; text-align: left; border-radius: 4px; }
+    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+    .src a.src-open {
+      display: inline-flex; align-items: center; height: 28px; padding: 0 10px; line-height: 1;
+      font-size: 12px; font-weight: 500; color: var(--ink);
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn); background: var(--surface);
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .src a.src-open:hover { background: var(--surface-2); color: var(--ink); }
     .loading { font-size: 13px; color: var(--body); }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
-      flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
-      padding: 7px 10px; font-size: 12px; outline: none;
+      flex: 1; min-width: 0; height: 32px; padding: 0 10px; font-size: 13px; line-height: 1;
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn); outline: none;
       color: var(--text); background: var(--surface); font-family: ${JAKARTA};
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
+    .cite-url input::placeholder { color: var(--label); opacity: 1; }
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
-    .autosrc input { accent-color: var(--accent); }
+    .autosrc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
+    .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
     .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
