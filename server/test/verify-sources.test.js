@@ -105,10 +105,10 @@ test("receipts: backs and contradicts carry the source's own words and where the
   const call = async (req) => {
     sent = req;
     return {
-      parsed: { verdicts: [
-        { id: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" },
-        { id: 1, verdict: "contradicts", quote: "Spending on youth facilities fell by 12%" },
-        { id: 2, verdict: "topic", quote: "" },
+      parsed: { parts: ["the claim"], verdicts: [
+        { id: 0, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] },
+        { id: 1, found: [{ part: 0, verdict: "contradicts", quote: "Spending on youth facilities fell by 12%" }] },
+        { id: 2, found: [] },
       ] },
       usage: { input: 1200, output: 90, cached: 0 },
     };
@@ -137,13 +137,23 @@ test("receipts: backs and contradicts carry the source's own words and where the
   assert.deepEqual([r.tally.read, r.tally.backs, r.tally.contradicts, r.tally.topic, r.tally.unread], [3, 1, 1, 1, 1]);
 });
 
-test("receipts: a quote that is not in the source's text is topic, never backs", async () => {
+test("receipts: a quote that is not in the source's text is topic, never backs; a source backing some parts is topic, tallied partial", async () => {
   delete process.env.TRACELY_MOCK;
   const fetchImpl = fakeFetch({ "10.1234%2Ftopical": { json: { abstract_inverted_index: toIndex(TOPICAL) } } });
-  const call = async () => ({ parsed: { verdicts: [{ id: 0, verdict: "backs", quote: "support for youth leadership has increased" }] }, usage: null });
+  const call = async () => ({ parsed: { parts: ["the claim"], verdicts: [{ id: 0, found: [{ part: 0, verdict: "backs", quote: "support for youth leadership has increased" }] }] }, usage: null });
   const r = await verifySources({ claim: CLAIM, sources: [{ id: "a", title: "Ord & Davies", doi: "10.1234/topical" }], model: "m", call, fetchImpl });
   assert.deepEqual(r.receipts, [{ id: "a", verdict: "topic", readFrom: "abstract" }]);
   assert.equal(r.tally.unquoted, 1);
+
+  const half = await verifySources({
+    claim: `${CLAIM} It was the steepest cut of any service.`,
+    sources: [{ id: "h", title: "Youth Matters", abstract: BACKING }],
+    model: "m",
+    call: async () => ({ parsed: { parts: ["spending on youth facilities fell by 73% between 2010/11 and 2022/23", "it was the steepest cut of any service"], verdicts: [{ id: 0, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }] }, usage: null }),
+    fetchImpl: fakeFetch({}),
+  });
+  assert.deepEqual(half.receipts, [{ id: "h", verdict: "topic", readFrom: "abstract" }], "one part of two is not the sentence");
+  assert.equal(half.tally.partial, 1);
 });
 
 test("the desktop's own abstract is read when OpenAlex has none — never instead of OpenAlex's, and never fetched for", async () => {
@@ -153,7 +163,7 @@ test("the desktop's own abstract is read when OpenAlex has none — never instea
     "10.1234%2Fopenalex-has-none": { json: { abstract_inverted_index: null } },
   });
   let user = "";
-  const call = async (req) => { user = req.user; return { parsed: { verdicts: [0, 1, 2].map((id) => ({ id, verdict: "backs", quote: "spending on youth facilities fell by 73%" })) }, usage: null }; };
+  const call = async (req) => { user = req.user; return { parsed: { parts: ["the claim"], verdicts: [0, 1, 2].map((id) => ({ id, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] })) }, usage: null }; };
   const r = await verifySources({
     claim: CLAIM,
     sources: [
@@ -256,8 +266,8 @@ globalThis.fetch = async (url, init = {}) => {
   const input = JSON.stringify(body.input);
   const tag = (/TAG-([\\w-]+)/.exec(input) || [])[1] || null;
   appendFileSync(process.env.TRACELY_TEST_OPENAI_LOG, JSON.stringify({ tag, model: body.model, effort: body.reasoning?.effort ?? null, maxTokens: body.max_output_tokens ?? null, schema: body.text?.format?.name ?? null }) + "\\n");
-  const verdicts = [{ id: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }, { id: 1, verdict: "topic", quote: "" }];
-  return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: 4000, output_tokens: 600 }, output_text: JSON.stringify({ verdicts }) }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const verdicts = [{ id: 0, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }, { id: 1, found: [] }];
+  return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: 4000, output_tokens: 600 }, output_text: JSON.stringify({ parts: ["the claim"], verdicts }) }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
 `);
 const openaiLog = (tag) => readFileSync(OPENAI_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((c) => c.tag === tag);
@@ -345,12 +355,12 @@ test.describe("over HTTP on a hosted server", () => {
       { id: "src-b", verdict: "topic", readFrom: "abstract" },
     ]);
     assert.equal(r.body.tally, undefined, "the tallies are the log line's, not the response's");
-    assert.deepEqual(openaiLog("http-1").map((c) => [c.model, c.effort, c.maxTokens, c.schema]), [["gpt-5.6-luna", "low", 2000, "verdicts"]]);
+    assert.deepEqual(openaiLog("http-1").map((c) => [c.model, c.effort, c.maxTokens, c.schema]), [["gpt-5.6-luna", "low", 3000, "verdicts"]]);
     assert.ok(usage("__global_app__", "spend_ucents") > appBefore, "billed to the desktop's pool");
     assert.equal(usage("__global__", "spend_ucents"), extBefore, "never the extension's");
     assert.equal(usage("user:u-free-verifier", "ai"), 1, "one AI action per opened list");
     assert.equal(usage("user:u-free-verifier", "source_search"), 0, "nothing was searched, so no source search is spent");
-    assert.match(S.log(), /\/api\/verify-sources gpt-5\.6-luna sources=2 read=2 backs=1 contradicts=0 topic=1 unread=0 retracted=0 unquoted=0 ms=\d+/);
+    assert.match(S.log(), /\/api\/verify-sources gpt-5\.6-luna sources=2 read=2 backs=1 contradicts=0 topic=1 unread=0 retracted=0 unquoted=0 partial=0 ms=\d+/);
     assert.doesNotMatch(S.log(), /youth facilities/, "the log line carries no text");
   });
 

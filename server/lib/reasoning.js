@@ -491,7 +491,7 @@ function receiptOf(id, s, retracted) {
 
 /* The route's log line, never the response: how many were read and what they said. */
 function tallyOf(receipts, extra = {}) {
-  const t = { read: 0, backs: 0, contradicts: 0, topic: 0, unread: 0, retracted: 0, unquoted: 0, ...extra };
+  const t = { read: 0, backs: 0, contradicts: 0, topic: 0, unread: 0, retracted: 0, unquoted: 0, partial: 0, ...extra };
   for (const r of receipts) {
     if (r.retracted) t.retracted++;
     t[r.verdict]++;
@@ -526,7 +526,7 @@ export async function verifySources({ claim, context, sources, model, call, fetc
   }
   const gone = new Set(out.retracted ?? []);
   const receipts = list.map((s, i) => receiptOf(input.sources[i].id, s, gone.has(s)));
-  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0 }) };
+  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0, partial: out.partial ?? 0 }) };
 }
 
 /* ── mocks: deterministic, same shapes, no key ─────────────────────────── */

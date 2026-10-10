@@ -16,14 +16,19 @@
  *      alone does not settle it (abstractSettles); otherwise the page. From
  *      the WHOLE text, the best few passages by overlap with the claim's
  *      words and figures are kept (selectExcerpts, ~3 × 600 characters);
- *   2. ONE structured call on the search's own model judges all of them
- *      against the claim, from those excerpts only: backs / contradicts /
- *      topic, with a verbatim `quote` for the first two;
- *   3. the quote is checked against the excerpts (matchQuote: whitespace,
- *      quote marks, dashes and case folded, word boundaries kept). Found:
- *      "supports"/"refutes", `verified: true`, `quote` (the source's own
- *      characters), `readFrom` ("abstract" | "page"), and the snippet becomes
- *      the quote. Not found: the verdict falls to "topic" ("context").
+ *   2. ONE structured call on the search's own model splits the claim into
+ *      its checkable PARTS once (1-4: each a fact, figure, finding, cause or
+ *      attribution; framing and the writer's own comment left out), then says
+ *      for each source which parts its excerpts state ("backs") or rule out
+ *      ("contradicts"), with a verbatim `quote` for each — from any excerpt;
+ *   3. every quote is checked against the excerpts (matchQuote: whitespace,
+ *      quote marks, dashes and case folded, word boundaries kept); a part
+ *      whose quote is not there is not found. EVERY part backed: "supports";
+ *      any part contradicted: "refutes"; either way `verified: true`, `quote`
+ *      (the source's own characters — the parts' spans in the claim's order,
+ *      joined with " … "), `readFrom` ("abstract" | "page"), and the snippet
+ *      becomes the quote. Anything less — some parts, or none — is
+ *      "context" (a source backing only some parts is tallied `partial`).
  *   4. a source that could not be read (paywall, bot wall, PDF, no abstract,
  *      the deadline, the judge failing or skipping it) is "context" with
  *      `verified: false`. It used to keep the search's label; now nothing
@@ -34,11 +39,24 @@
  * OpenAlex's `is_retracted`, on the same response as the abstract, marks a
  * source the caller drops (`retracted`).
  *
+ * Why parts (2026-10-10, owner: "ok do that" — fix the step that turned away
+ * sources it had read). Run on the 310 sources three blind judges had
+ * labelled (eval/goldset, production 6974306), the one-verdict judge agreed
+ * with them on 34 of its 48 "backs" and accepted 34 of their 84. Most of the
+ * disagreements were two-part sentences, decided both ways: it showed
+ * "teenagers need 8 to 10 hours" as backing "…and roughly 70 percent get less
+ * than seven", and turned away the abstract that states the 13% of "13
+ * percent more productive, and attrition fell by half". Others backed every
+ * part in different places on the page (the first edition anonymous, the 1831
+ * edition's new preface), which one contiguous quote cannot carry. Now the
+ * parts are decided once per claim, the same for every source, and a source
+ * backs the sentence only with a receipt for each.
+ *
  * Cost: still ONE call, on the fast model — now over every source rather than
  * only the ones the search called "supports"/"refutes", ~3-5k input tokens
- * and ~0.5-1k out: about 0.1-0.2 cent against the search's ~1.3
- * (WORST_CALL["/api/sources"] covers it: 3,000 + 2,000 output tokens under its
- * 6,000). Latency: the reads share one VERIFY_DEADLINE_MS (4 s, from 3 s), so
+ * and ~1-2k out (the parts, and a quote per part): about 0.1-0.3 cent against
+ * the search's ~1.3 (WORST_CALL["/api/sources"] covers it: the search's 3,000
+ * output tokens and VERIFY_MAX_TOKENS' 3,000 are its 6,000). Latency: the reads share one VERIFY_DEADLINE_MS (4 s, from 3 s), so
  * the worst case adds one second plus the judge's larger input. Nothing here
  * throws. */
 import { safeFetch, decodeEntities, looksBlocked } from "./citeMeta.js";
@@ -50,6 +68,10 @@ export const VERIFY_DEADLINE_MS = 4_000;
 export const EXCERPT_WINDOWS = 3;
 export const EXCERPT_CHARS = 600;
 export const MAX_QUOTE_CHARS = 300;
+// The judge's answer: the parts, then up to a quote per part per source.
+// /api/sources reserves 6,000 output tokens (server.js WORST_CALL): the
+// search's 3,000 and this.
+export const VERIFY_MAX_TOKENS = 3_000;
 const MIN_QUOTE_CHARS = 15;
 const MIN_TEXT_CHARS = 80;   // an abstract shorter than this is not one
 const MIN_PAGE_CHARS = 200;  // a page with less visible text is a shell, an app or a wall
@@ -282,13 +304,23 @@ function quoteCore(quote) {
   }
   return t;
 }
-const clipQuote = (q) => {
+const clipQuote = (q, cap = MAX_QUOTE_CHARS) => {
   const t = String(q).trim();
-  if (t.length <= MAX_QUOTE_CHARS) return t;
-  const cut = t.slice(0, MAX_QUOTE_CHARS);
+  if (t.length <= cap) return t;
+  const cut = t.slice(0, cap);
   const sp = cut.lastIndexOf(" ");
-  return `${(sp > MAX_QUOTE_CHARS * 0.6 ? cut.slice(0, sp) : cut).replace(/[,;:]$/, "")}…`;
+  return `${(sp > cap * 0.6 ? cut.slice(0, sp) : cut).replace(/[,;:]$/, "")}…`;
 };
+/* The receipt for several parts: each part's span once (a span that another
+ * one contains is dropped), in the claim's order, joined with " … " — every
+ * piece the source's own characters, each cut for display on its own. */
+export const MULTI_QUOTE_CHARS = 200;
+export function joinQuotes(spans) {
+  const list = (Array.isArray(spans) ? spans : []).map((t) => String(t ?? "").trim()).filter(Boolean);
+  const keep = list.filter((t, i) => !list.some((o, j) => j !== i && (o === t ? j < i : o.includes(t))));
+  if (keep.length <= 1) return keep.length ? clipQuote(keep[0]) : "";
+  return keep.map((t) => clipQuote(t, MULTI_QUOTE_CHARS)).join(" … ");
+}
 /**
  * Where the quote is, verbatim (after folding), in ONE of the passages — on
  * word boundaries, so "fell by 73" is not found in "fell by 735" or "73.5%".
@@ -449,21 +481,39 @@ export async function gatherEvidence(sources, claim, { fetchImpl = globalThis.fe
   }
 }
 
+export const MAX_PARTS = 4;
 export const VERIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["verdicts"],
+  required: ["parts", "verdicts"],
   properties: {
+    parts: {
+      type: "array",
+      description: "The claim's checkable parts, once for every source, in the claim's order: 1 to 4.",
+      items: { type: "string" },
+    },
     verdicts: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "verdict", "quote"],
+        required: ["id", "found"],
         properties: {
           id: { type: "integer" },
-          verdict: { type: "string", enum: ["backs", "contradicts", "topic"] },
-          quote: { type: "string", description: "For backs/contradicts: the words from ONE excerpt that decide it, copied character for character as one contiguous span, at most 300 characters. \"\" for topic." },
+          found: {
+            type: "array",
+            description: "Each part this source's excerpts state or rule out. [] when they do neither for any part.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["part", "verdict", "quote"],
+              properties: {
+                part: { type: "integer", description: "Index into parts, from 0." },
+                verdict: { type: "string", enum: ["backs", "contradicts"] },
+                quote: { type: "string", description: "The words from ONE excerpt that state it, copied character for character as one contiguous span, at most 300 characters." },
+              },
+            },
+          },
         },
       },
     },
@@ -472,14 +522,16 @@ export const VERIFY_SCHEMA = {
 
 export const VERIFY_SYSTEM = `You check whether sources actually say what a student's sentence claims, before the student is told to cite them. You are given the CLAIM and, for each source, excerpts of its own text, each excerpt in its own """ block. Judge from that text ONLY — never from what you know about the source, its title or its reputation.
 
-For each source, one verdict:
-- "backs": an excerpt states the claim's specific proposition — the same subject, the same direction, and the same figures where the claim gives any. A different word for the same measure is fine ("spending" or "investment", "facilities" or "services" when the text means the same figure). Backing part of a two-part claim is "backs" only if the part it backs is the claim's main point.
-- "contradicts": an excerpt states something that cannot be true alongside the claim (a different figure, the opposite direction, a different date or person).
-- "topic": anything else. A source about the same subject that does not state this sentence's specific proposition is "topic" — however relevant, however reputable: one that makes a different point, a broader or weaker one, a related finding, or only mentions the subject. This is the answer whenever you are unsure. A paper about youth services cut by austerity does NOT back a claim that support for youth leadership has grown.
+First, "parts": split the CLAIM into its checkable parts, ONCE, the same for every source — each a fact, figure, finding, date, cause or attribution a source could state, in the claim's own order. One part when the claim makes one point; at most 4. Leave out framing ("research suggests", "critics point out", "meanwhile") and the writer's own comment on the facts ("which lets everyone claim progress"): those are not checked. Keep each part's figures and its strength ("most", "the main reason", "by half"). "Teenagers need 8 to 10 hours of sleep, and roughly 70 percent get less than seven" is two parts: "teenagers need 8 to 10 hours of sleep" and "roughly 70 percent of teenagers sleep less than seven hours".
 
-If a PROPOSED CORRECTION is given, judge against the ORIGINAL claim: a source that backs the correction "contradicts" the claim.
+Then, for each source, "found": every part its excerpts state, with the words that state it.
+- "backs": an excerpt states that part — the same subject, the same direction, and the same figures where the part gives any. A different word for the same measure is fine ("spending" or "investment", "facilities" or "services" when the text means the same figure), and so is the same figure written another way ("1 in 3" for "a third", "$50,000" for "tens of thousands of dollars").
+- "contradicts": an excerpt states something that cannot be true alongside that part (a different figure, the opposite direction, a different date or person).
+- A part an excerpt is only ABOUT is not found: the same subject making a different point, a broader or weaker one, a related finding, or only a mention. Leave it out. This is the answer whenever you are unsure. A paper about youth services cut by austerity does NOT back a claim that support for youth leadership has grown.
 
-"quote" is the receipt the student is shown under the source. For "backs" and "contradicts", copy the words that decide it from ONE excerpt, character for character, as one contiguous span: no ellipses, nothing added, changed or reordered, at most 300 characters — a whole sentence or clause, enough to read on its own. The quote is checked against the excerpt, and a verdict whose quote is not there is discarded as "topic". Use "" for "topic".`;
+If a PROPOSED CORRECTION is given, judge against the ORIGINAL claim: an excerpt that states the correction "contradicts" the part it corrects.
+
+Each "quote" is part of the receipt the student is shown under the source. Copy the words that state the part from ONE excerpt, character for character, as one contiguous span: no ellipses, nothing added, changed or reordered, at most 300 characters — a whole sentence or clause, enough to read on its own. Different parts may be quoted from different excerpts. Every quote is checked against the excerpts, and a part whose quote is not there counts as not found. The source is shown as backing the sentence only when EVERY part is backed.`;
 
 /* What a source becomes when it could not be read or judged: never backing. */
 export function markUnverified(s) {
@@ -491,35 +543,52 @@ export function markUnverified(s) {
 }
 
 /* The verdicts, applied: stance, `verified`, `readFrom`, and for backing or
- * contradicting the `quote` found in the source's own text, which also
- * becomes the snippet. A quote that is not there drops the verdict to
- * "topic". A source the judge skipped is unverified. Pure, so it is tested
- * without a model. Returns { changed, quoted, unquoted, unjudged }. */
-export function applyVerdicts(sources, evidence, verdicts) {
-  const byId = new Map((Array.isArray(verdicts) ? verdicts : []).map((v) => [v?.id, v]));
-  const tally = { changed: 0, quoted: 0, unquoted: 0, unjudged: 0 };
+ * contradicting the receipt found in the source's own text, which also
+ * becomes the snippet. `judged` is the judge's answer: { parts, verdicts:
+ * [{ id, found: [{ part, verdict, quote }] }] }. A part counts only with its
+ * quote found (matchQuote); every part backed is "supports", any part
+ * contradicted "refutes", anything else "context". A source the judge
+ * skipped — or an answer with no parts — is unverified. Pure, so it is tested
+ * without a model. Returns { changed, quoted, unquoted, unjudged, partial }. */
+export function applyVerdicts(sources, evidence, judged) {
+  const parts = (Array.isArray(judged?.parts) ? judged.parts : []).filter((p) => typeof p === "string" && p.trim()).slice(0, MAX_PARTS);
+  const byId = new Map((Array.isArray(judged?.verdicts) ? judged.verdicts : []).map((v) => [v?.id, v]));
+  const tally = { changed: 0, quoted: 0, unquoted: 0, unjudged: 0, partial: 0 };
   for (const e of evidence) {
     const s = sources[e.i];
     if (!s) continue;
     const before = s.stance;
     const v = byId.get(e.i);
     const readFrom = e.passages.some((p) => p.from === "page") ? "page" : "abstract";
-    if (!v || !["backs", "contradicts", "topic"].includes(v.verdict)) {
+    if (!parts.length || !v || !Array.isArray(v.found)) {
       markUnverified(s);
       tally.unjudged++;
+      if (s.stance !== before) tally.changed++;
+      continue;
+    }
+    const backed = new Map();
+    const against = new Map();
+    for (const f of v.found) {
+      const p = f?.part;
+      if (!Number.isInteger(p) || p < 0 || p >= parts.length || (f.verdict !== "backs" && f.verdict !== "contradicts")) continue;
+      const m = matchQuote(f.quote, e.passages);
+      if (!m) { tally.unquoted++; continue; }
+      const into = f.verdict === "backs" ? backed : against;
+      if (!into.has(p)) into.set(p, m);
+    }
+    const receipt = against.size ? against : backed.size === parts.length ? backed : null;
+    if (!receipt && backed.size) tally.partial++;
+    s.stance = !receipt ? "context" : receipt === against ? "refutes" : "supports";
+    s.verified = true;
+    if (receipt) {
+      const spans = [...receipt.entries()].sort((a, b) => a[0] - b[0]).map(([, m]) => m);
+      s.quote = joinQuotes(spans.map((m) => m.text));
+      s.snippet = `“${s.quote}”`;
+      s.readFrom = spans.some((m) => m.from === "page") ? "page" : "abstract";
+      tally.quoted++;
     } else {
-      const m = v.verdict === "topic" ? null : matchQuote(v.quote, e.passages);
-      if (v.verdict !== "topic" && !m) tally.unquoted++;
-      s.stance = !m ? "context" : v.verdict === "backs" ? "supports" : "refutes";
-      s.verified = true;
-      s.readFrom = m ? m.from : readFrom;
-      if (m) {
-        s.quote = clipQuote(m.text);
-        s.snippet = `“${s.quote}”`;
-        tally.quoted++;
-      } else {
-        delete s.quote;
-      }
+      delete s.quote;
+      s.readFrom = readFrom;
     }
     if (s.stance !== before) tally.changed++;
   }
@@ -531,9 +600,11 @@ export function applyVerdicts(sources, evidence, verdicts) {
  * the one judge call. Watching only; a throwing callback changes nothing. */
 export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onProgress = null }) {
   const list = Array.isArray(sources) ? sources : [];
-  // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
-  // not (fell to topic) — the number that says whether the rule is too strict.
-  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null };
+  // quoted: sources with a receipt (every part backed, or one contradicted);
+  // unquoted: parts whose quote was not in the text; partial: sources that
+  // backed some parts but not all — the numbers that say whether the rule is
+  // too strict.
+  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, partial: 0, unread: 0, retracted: [], usage: null };
   const unverify = (s) => {
     if (!s || typeof s !== "object") return;
     const before = s.stance;
@@ -554,13 +625,14 @@ export async function verifySources({ claim, correction, sources, model, call = 
   try {
     const user = `CLAIM:\n${claim}\n` + (correction ? `\nPROPOSED CORRECTION:\n${correction}\n` : "") +
       evidence.map((e) => `\nSOURCE ${e.i}: ${list[e.i].title}\n` + e.passages.map((p) => `"""\n${p.text}\n"""`).join("\n")).join("\n") +
-      `\n\nReturn one verdict per source id (${evidence.map((e) => e.i).join(", ")}).`;
-    const raw = await call({ model, system: VERIFY_SYSTEM, user, schema: VERIFY_SCHEMA, maxTokens: 2_000, what: "source check", name: "verdicts", effort: "low" });
-    const t = applyVerdicts(list, evidence, raw?.parsed?.verdicts);
+      `\n\nReturn the claim's parts once, then one verdict per source id (${evidence.map((e) => e.i).join(", ")}).`;
+    const raw = await call({ model, system: VERIFY_SYSTEM, user, schema: VERIFY_SCHEMA, maxTokens: VERIFY_MAX_TOKENS, what: "source check", name: "verdicts", effort: "low" });
+    const t = applyVerdicts(list, evidence, raw?.parsed);
     out.checked = evidence.length;
     out.changed += t.changed;
     out.quoted = t.quoted;
     out.unquoted = t.unquoted;
+    out.partial = t.partial;
     out.unread += t.unjudged;
     out.usage = raw?.usage ?? null;
     return out;
