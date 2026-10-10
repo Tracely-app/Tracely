@@ -803,11 +803,11 @@ textarea:disabled {
   flex-shrink: 1000;
   /* The floor is a trade against the formatting group, which scrolls at the
      default 898 whatever this is (its content is ~440px; there is ~300 left).
-     Measured: at 160 only Font, Size and B stay visible; at 96 B, U and I
+     Measured: at 160 only Font, Size and B stay visible; at 88 B, U and I
      do, whole, with "Saved" showing, and the title still reads "Untitled d…"
-     (full on hover/focus). From ~1180 up nothing shrinks and the title gets
-     its full 220. */
-  min-width: 96px;
+     (all of it once focused). From ~1180 up nothing shrinks and the title
+     gets its full 220. */
+  min-width: 88px;
 }
 
 .docedit-name::placeholder {
