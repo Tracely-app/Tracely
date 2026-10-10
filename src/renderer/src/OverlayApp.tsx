@@ -79,11 +79,16 @@ import {
   DESIGN_AMBER,
   DESIGN_ORANGE,
   DESIGN_RED,
+  LEGEND,
+  MARK_PATTERN_BY_COLOR,
   PROBLEM_COLOR,
   PROBLEM_LABEL,
   bucketFor,
   popoverCopyFor
 } from './components/problemCopy'
+import type { MarkPattern } from './components/problemCopy'
+// The one icon set, as 16px SVG strings for this file's inline markup.
+import { ICON_SVG } from './components/icons'
 import { aboutTheCitation, popoverRoute } from '@shared/citationAction'
 // The fix card's wording, shared with the editor's DocumentMarkLayer for the
 // same reason citationFlowCopy.ts is.
@@ -197,8 +202,9 @@ const INK = '#1c1c1c'
 /** Body copy and secondary labels. */
 const MUTED = '#737373'
 /** Metadata: venue, year, timing hints — the quietest text on a card. */
-/** Tracely orange. Progress, the factual claim bucket, the count badge. */
-const ACCENT = '#ff5900'
+const LABEL = '#8a8b90'
+/** Card and panel fill, and the text on an ink fill. */
+const PAPER = '#fff'
 /** Agreement: match percentages, confirmations. */
 const POSITIVE = '#16a34a'
 /** Button and divider hairlines. */
@@ -213,38 +219,103 @@ const CHIP_BG = '#f2f2f2'
 // whatever is behind it; the design commits to a hard outline for that reason.
 const CARD_BORDER = '2px solid #000000'
 const PANEL_BORDER = '1px solid #000000'
-const PANEL_RADIUS = 24
+// 16, the same radius as the popover card: one rounded-corner size for every
+// transient surface in the product (cards, popovers, panels, modals).
+const PANEL_RADIUS = 16
 const PANEL_SHADOW = '0px 8px 12px 0px rgba(0, 0, 0, 0.18)'
 const CARD_SHADOW = '0px 8px 24px 0px rgba(0, 0, 0, 0.18)'
 const CARD_RADIUS = 16
 
-// 8px rounded rectangles, not pills. The buttons were the most visible drift:
-// a 999px radius at 9x18 padding reads as a chat UI, and the design is a
-// document tool.
+/** Hover and press washes on an outlined control, and the ink hover. */
+const HOVER_WASH = 'rgba(0, 0, 0, 0.04)'
+const PRESSED_WASH = 'rgba(0, 0, 0, 0.08)'
+/** The outlined button's edge: the editor's .docmark-btn-secondary border. */
+const SECONDARY_EDGE = 'rgba(0, 0, 0, 0.26)'
+/** Hover and colour transitions, product-wide. */
+const EASE = 'cubic-bezier(.2, .8, .2, 1)'
+
+// 8px rounded rectangles, not pills, 32px tall on a finding surface — the
+// editor's .docmark-btn recipe. The FILL lives on the .tracely-btn-* classes
+// in the <style> block below rather than here, because an inline background
+// would beat the hover and pressed rules; everything that does not change
+// with state stays inline.
 const PRIMARY_BTN_STYLE: CSSProperties = {
-  border: 'none',
+  border: '1px solid transparent',
   borderRadius: 8,
-  padding: '8px 14px',
+  height: 32,
+  padding: '0 12px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  whiteSpace: 'nowrap',
+  fontFamily: 'inherit',
   fontSize: 13,
   fontWeight: 600,
-  color: '#fff',
-  cursor: 'pointer',
-  background: INK
-}
-
-const SECONDARY_BTN_STYLE: CSSProperties = {
-  border: `1px solid ${HAIRLINE}`,
-  borderRadius: 8,
-  padding: '8px 14px',
-  fontSize: 13,
-  fontWeight: 400,
-  color: INK,
-  background: '#fff',
+  lineHeight: 1,
+  color: PAPER,
   cursor: 'pointer'
 }
 
+const SECONDARY_BTN_STYLE: CSSProperties = {
+  border: `1px solid ${SECONDARY_EDGE}`,
+  borderRadius: 8,
+  height: 32,
+  padding: '0 12px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  whiteSpace: 'nowrap',
+  fontFamily: 'inherit',
+  fontSize: 13,
+  fontWeight: 500,
+  lineHeight: 1,
+  color: INK,
+  cursor: 'pointer'
+}
+
+/**
+ * A neutral chip — count, style name, credibility — the app's `.count`/`.chip`
+ * recipe: 20px tall, 11/600, tabular figures, on the chip wash.
+ */
+const CHIP_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  height: 20,
+  padding: '0 8px',
+  borderRadius: 999,
+  background: CHIP_BG,
+  color: MUTED,
+  fontSize: 11,
+  fontWeight: 600,
+  lineHeight: 1,
+  whiteSpace: 'nowrap',
+  fontVariantNumeric: 'tabular-nums'
+}
+
+/**
+ * An icon-only control: 28×28, radius 8, a 16px icon from ICON_SVG, and the
+ * chip wash on hover (the .tracely-icon-btn rule). Always with an aria-label.
+ */
+const ICON_BTN_STYLE: CSSProperties = {
+  width: 28,
+  height: 28,
+  padding: 0,
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: INK,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  flexShrink: 0
+}
+
 const BUCKET_COLOR: Record<Bucket, string> = {
-  factual: ACCENT,
+  // The design's orange, the factual bucket's colour since the first mockup.
+  factual: '#ff5900',
   statistic: '#7c3aed',
   causal: '#2f6fed',
   other: '#d6301a'
@@ -332,6 +403,24 @@ function useStableUnderlines(underlines: Underlines, trackedIds: Set<string>): U
   }, [underlines])
 
   return stable
+}
+
+/**
+ * How the line under a mark is drawn — by pattern as well as colour, so the
+ * three finding groups read apart in greyscale (MARK_PATTERN_BY_COLOR in
+ * problemCopy.ts, the editor's rule): red solid 2px, orange dashed 2px, amber
+ * double 3px (1+1+1), and the grey checking state dotted. Hovered adds 1px.
+ * The dashed, double and dotted lines are a border on a zero-height box,
+ * because a filled box can only be solid.
+ */
+function markLineStyle(color: string, hovered: boolean): CSSProperties {
+  const pattern: MarkPattern = MARK_PATTERN_BY_COLOR[color] ?? 'dotted'
+  const weight = hovered ? LINE_HEIGHT_HOVERED : LINE_HEIGHT
+  if (pattern === 'solid') {
+    return { height: weight, borderRadius: LINE_RADIUS, background: color }
+  }
+  const width = pattern === 'double' ? weight + 1 : weight
+  return { height: 0, borderBottom: `${width}px ${pattern} ${color}` }
 }
 
 /**
@@ -440,11 +529,9 @@ function UnderlineMark({
           // 2px tall with a 1px radius, at full strength — the design's
           // `rounded-[1px]` marks. It was a 2px radius at 0.85 opacity, which
           // on a 2px bar rounds it into a capsule and washes the colour.
-          height: hovered ? LINE_HEIGHT_HOVERED : LINE_HEIGHT,
-          borderRadius: LINE_RADIUS,
-          background: color,
+          ...markLineStyle(color, hovered),
           opacity: 1,
-          transition: LINE_TRANSITION
+          transition: `${LINE_TRANSITION}, border-bottom-width 110ms ease`
         }}
       />
     </div>
@@ -485,9 +572,7 @@ function GhostUnderline({ mark }: { mark: DrawnUnderline }): JSX.Element {
           left: 0,
           right: 0,
           bottom: 0,
-          height: LINE_HEIGHT,
-          borderRadius: LINE_RADIUS,
-          background: mark.color
+          ...markLineStyle(mark.color, false)
         }}
       />
     </div>
@@ -5008,55 +5093,31 @@ export default function OverlayApp(): JSX.Element {
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
-                        // 19px semibold, the design's panel title size. The
-                        // header is the only place the panel names itself.
-                        fontSize: 19,
+                        // 16px semibold: the panel and dialog title size
+                        // everywhere in the product. The header is the only
+                        // place the panel names itself.
+                        fontSize: 16,
                         fontWeight: 600,
-                        color: W_INK
+                        letterSpacing: '-0.01em',
+                        lineHeight: 1.3,
+                        color: W_INK,
+                        fontVariantNumeric: 'tabular-nums'
                       }}
                     >
                       {visibleClaims.length} claim{visibleClaims.length === 1 ? '' : 's'} flagged
                     </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: ACCENT,
-                        background: 'rgba(255, 89, 0, 0.1)',
-                        borderRadius: 999,
-                        padding: '2px 8px',
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0
-                      }}
-                    >
-                      {widget.totalInfoCount} found
-                    </div>
+                    {/* Neutral, so the number carries the meaning — the
+                        app's own count chip, not a finding colour. */}
+                    <div style={{ ...CHIP_STYLE, flexShrink: 0 }}>{widget.totalInfoCount} found</div>
                   </div>
                   <button
+                    className="tracely-icon-btn"
                     onClick={toggleWidgetExpanded}
                     title="Close"
                     aria-label="Close"
-                    style={{
-                      // 30px on #f2f2f2, per the design — the old 22px puck at
-                      // 6% black read as a disabled control rather than a
-                      // button.
-                      width: 30,
-                      height: 30,
-                      boxSizing: 'border-box',
-                      border: 'none',
-                      background: CHIP_BG,
-                      borderRadius: '50%',
-                      color: W_INK,
-                      fontSize: 17,
-                      fontWeight: 500,
-                      lineHeight: '30px',
-                      padding: 0,
-                      cursor: 'pointer',
-                      flexShrink: 0
-                    }}
-                  >
-                    ×
-                  </button>
+                    style={{ ...ICON_BTN_STYLE, color: W_INK }}
+                    dangerouslySetInnerHTML={{ __html: ICON_SVG.close }}
+                  />
                 </div>
 
                 <div style={{ height: 1, background: W_DIVIDER, flexShrink: 0 }} />
@@ -5310,43 +5371,105 @@ export default function OverlayApp(): JSX.Element {
            is never focused and always sits above another app, exactly where
            Chromium stops advancing animations, so the degraded case must be
            "appears instantly", never "never appears". */
+        /* A <button> does not inherit the document font; every label around
+           it draws in Instrument Sans, so the controls do too. */
+        button { font-family: inherit; }
+        /* The one button recipe. The fill lives here rather than inline so
+           hover and press can change it; everything else is in the
+           *_BTN_STYLE objects. Press darkens, never shrinks. */
         .tracely-btn-primary {
-          transition: background 0.12s ease, transform 0.08s ease;
+          background: ${INK};
+          transition: background 150ms ${EASE}, opacity 150ms ${EASE};
         }
-        .tracely-btn-primary:hover:not(:disabled) {
-          background: #2c2c33;
-        }
+        .tracely-btn-primary:hover:not(:disabled),
         .tracely-btn-primary:active:not(:disabled) {
-          transform: scale(0.97);
+          background: #000;
         }
         .tracely-btn-secondary {
-          transition: background 0.12s ease;
+          background: ${PAPER};
+          transition: background 150ms ${EASE}, border-color 150ms ${EASE}, opacity 150ms ${EASE};
         }
         .tracely-btn-secondary:hover:not(:disabled) {
-          background: rgba(0, 0, 0, 0.05);
+          background: ${HOVER_WASH};
         }
         .tracely-btn-secondary:active:not(:disabled) {
-          background: rgba(0, 0, 0, 0.09);
+          background: ${PRESSED_WASH};
         }
         .tracely-btn-primary:disabled,
         .tracely-btn-secondary:disabled {
-          cursor: default;
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         .tracely-btn-text {
-          transition: color 0.12s ease;
+          border-radius: 6px;
+          transition: color 150ms ${EASE}, background 150ms ${EASE};
         }
         .tracely-btn-text:hover {
           color: ${INK};
+          background: ${HOVER_WASH};
+        }
+        .tracely-btn-text:active {
+          background: ${PRESSED_WASH};
+        }
+        .tracely-icon-btn {
+          transition: background 150ms ${EASE}, color 150ms ${EASE};
+        }
+        .tracely-icon-btn:hover {
+          background: ${CHIP_BG};
+        }
+        .tracely-icon-btn:active {
+          background: ${PRESSED_WASH};
+        }
+        .tracely-icon-btn svg {
+          display: block;
+        }
+        .tracely-pill {
+          transition: background 150ms ${EASE}, color 150ms ${EASE}, border-color 150ms ${EASE};
+        }
+        .tracely-pill:hover {
+          background: ${HOVER_WASH};
         }
         .tracely-list-row {
-          transition: border-color 0.12s ease, box-shadow 0.12s ease;
+          transition: border-color 150ms ${EASE}, box-shadow 150ms ${EASE}, background 150ms ${EASE};
         }
         .tracely-list-row:hover {
-          border-color: #c9c9d0;
+          border-color: ${SECONDARY_EDGE};
           box-shadow: 0 2px 10px rgba(15, 15, 20, 0.06);
         }
         .tracely-list-row:active {
-          transform: scale(0.99);
+          background: ${HOVER_WASH};
+        }
+        .tracely-row-btn {
+          transition: background 150ms ${EASE};
+        }
+        .tracely-row-btn:hover {
+          background: ${HOVER_WASH};
+        }
+        /* One focus ring per surface: 2px ink, offset 2 — the finding
+           surfaces' ring (the editor's popover and the extension draw the
+           same one). */
+        .tracely-btn-primary:focus-visible,
+        .tracely-btn-secondary:focus-visible,
+        .tracely-btn-text:focus-visible,
+        .tracely-icon-btn:focus-visible,
+        .tracely-pill:focus-visible,
+        .tracely-list-row:focus-visible,
+        .tracely-row-btn:focus-visible,
+        .tracely-launcher:focus-visible {
+          outline: 2px solid ${INK};
+          outline-offset: 2px;
+        }
+        .tracely-launcher {
+          transition: box-shadow 150ms ${EASE}, transform 150ms ${EASE};
+        }
+        /* The panel grows out of its corner the way the popover grows out of
+           its sentence: 160ms in. */
+        @keyframes tracely-panel-in {
+          from { opacity: 0; transform: translateY(6px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .tracely-panel {
+          animation: tracely-panel-in 0.16s ${EASE};
         }
         @keyframes tracely-spin {
           to { transform: rotate(360deg); }
@@ -5355,8 +5478,9 @@ export default function OverlayApp(): JSX.Element {
           display: inline-block;
           width: 10px;
           height: 10px;
-          border: 1.5px solid rgba(0, 0, 0, 0.12);
-          border-top-color: ${ACCENT};
+          border: 1.5px solid ${HAIRLINE};
+          /* Ink, not orange: progress is not a finding. */
+          border-top-color: ${INK};
           border-radius: 50%;
           animation: tracely-spin 0.7s linear infinite;
         }
@@ -5372,7 +5496,7 @@ export default function OverlayApp(): JSX.Element {
         .tracely-progress-track {
           height: 6px;
           border-radius: 999px;
-          background: #ededed;
+          background: ${HAIRLINE};
           overflow: hidden;
           width: 100%;
         }
@@ -5380,7 +5504,7 @@ export default function OverlayApp(): JSX.Element {
           height: 100%;
           width: 40%;
           border-radius: 999px;
-          background: ${ACCENT};
+          background: ${INK};
           animation: tracely-progress 1.1s ease-in-out infinite;
         }
         @keyframes tracely-progress {
@@ -5401,6 +5525,40 @@ export default function OverlayApp(): JSX.Element {
         .tracely-skeleton-faint {
           background: #f4f4f4;
           animation: tracely-skeleton-pulse 1.1s ease-in-out infinite;
+        }
+        /* The one reduced-motion block for this surface: nothing moves.
+           Entrances land at their end state, the ghost mark simply leaves,
+           spinners and skeletons hold still, and the launcher does not grow
+           under the pointer. (useDrawIn and useMarkDepartures check
+           reducedMotion() themselves for the Web Animations they run.) */
+        @media (prefers-reduced-motion: reduce) {
+          .tracely-popover,
+          .tracely-panel,
+          .tracely-underline-out,
+          .tracely-progress-fill,
+          .tracely-skeleton,
+          .tracely-skeleton-faint,
+          .tracely-ring,
+          .tracely-spinner {
+            animation: none !important;
+          }
+          .tracely-underline-out {
+            opacity: 0;
+          }
+          .tracely-launcher,
+          .tracely-launcher:hover {
+            transform: none !important;
+            transition: none !important;
+          }
+          .tracely-btn-primary,
+          .tracely-btn-secondary,
+          .tracely-btn-text,
+          .tracely-icon-btn,
+          .tracely-pill,
+          .tracely-list-row,
+          .tracely-row-btn {
+            transition: none !important;
+          }
         }
       `}</style>
     </div>
