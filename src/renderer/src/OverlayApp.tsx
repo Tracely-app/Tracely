@@ -1477,9 +1477,10 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
         borderWidth: 1,
         borderStyle: 'solid',
         borderRadius: 12,
-        // 12 + 16 + 6 + 16 + 12 = 62 = GRID_CARD_HEIGHT: two 16px lines fit
-        // the row main sizes the panel from, descenders included.
-        padding: '12px 16px',
+        // 1 + 11 + 16 + 6 + 16 + 11 + 1 = 62 = GRID_CARD_HEIGHT (border-box,
+        // borders included): two 16px lines fit the row main sizes the panel
+        // from, descenders included.
+        padding: '11px 16px',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
