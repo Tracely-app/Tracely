@@ -3576,9 +3576,12 @@
       position: sticky; bottom: -16px; z-index: 1;
       display: flex; flex-wrap: wrap; gap: 4px 12px; flex-shrink: 0;
       margin: 2px -24px -16px; padding: 8px 24px;
-      background: var(--surface); border-top: 1px solid var(--border);
+      background: var(--surface);
       font-size: 11px; line-height: 16px; color: var(--label);
     }
+    /* Its rule is inset to the content width, like the tally's and the
+       foot's right under it; the white strip itself stays full-bleed. */
+    .legend::before { content: ""; position: absolute; top: 0; left: 24px; right: 24px; border-top: 1px solid var(--border); }
     /* A card brought into view (a header chip, a clicked underline) stops
        above the strip instead of under it. */
     .tips:has(> .legend) > .card { scroll-margin-bottom: 64px; }
