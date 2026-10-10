@@ -8,11 +8,11 @@ import ReactDOM from 'react-dom/client'
 // looked like the mockups.
 //
 // Bundled by @fontsource, not fetched: overlay.html ships `default-src 'self'`
-// with no font-src, so a Google Fonts URL would be blocked outright.
+// with no font-src, so a Google Fonts URL would be blocked outright. No 700:
+// 600 is the heaviest weight drawn here (OverlayApp maps strong/b to it).
 import '@fontsource/instrument-sans/400.css'
 import '@fontsource/instrument-sans/500.css'
 import '@fontsource/instrument-sans/600.css'
-import '@fontsource/instrument-sans/700.css'
 import OverlayApp from './OverlayApp'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
