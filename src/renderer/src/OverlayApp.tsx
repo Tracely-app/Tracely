@@ -248,6 +248,9 @@ const PRIMARY_BTN_STYLE: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
+  // Never squeezed: in the popover's scrolling column a 32px button with no
+  // padding would otherwise shrink to its 13px label.
+  flexShrink: 0,
   whiteSpace: 'nowrap',
   fontFamily: 'inherit',
   fontSize: 13,
@@ -266,6 +269,7 @@ const SECONDARY_BTN_STYLE: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
+  flexShrink: 0,
   whiteSpace: 'nowrap',
   fontFamily: 'inherit',
   fontSize: 13,
