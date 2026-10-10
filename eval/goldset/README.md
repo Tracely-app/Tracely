@@ -161,10 +161,11 @@ What it says:
   claims get any offer (25 → 12). The precision gain overlaps the noise at
   n=22, and among pages the judges could read it did not rise (73% → 67%):
   most of it is that an offer now needs a page Tracely could read.
-- **The 10 wrong offers:** 5 back only the setup half of a two-part sentence
+- **The 10 wrong offers:** 4 back only the setup half of a two-part sentence
   (AASM's 8–10 hours for "70% sleep under seven"; Gutenberg's 1450 for "presses
   in 200 cities by 1500"; Luther's pamphlets ×2 for "…and witch-hunting
-  literature"; the SDG report). 4 are abstracts the judges could not open
+  literature"); 1 gives a different figure (the SDG report's count of people
+  without power, not the region's share). 4 are abstracts the judges could not open
   (title-only, so not "backs" by the rule). 1 contradicts (the share of
   sub-Saharan Africa with power doubled; the essay says it barely moved).
 - **The verifier refuses good sources it read:** 13 sources Tracely read and
@@ -173,8 +174,8 @@ What it says:
   the utilities' 40% cost recovery ×2.
 - **Tracely's own fetch fails where a reader gets through:** half the sources
   (77) came back unread; 11 of them all three judges opened and call "backs".
-- Judges were steadier across runs than within one: of the 51 sources judged
-  both times, 41 kept their majority (6 backs → not, 2 not → backs).
+- Of the 51 sources judged in both runs, 41 kept their majority label
+  (6 backs → not, 2 not → backs): the judges' own drift, for scale.
 
 ## Files
 
