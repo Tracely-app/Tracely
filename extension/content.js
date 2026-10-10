@@ -3514,23 +3514,23 @@
        the header inset to the content width. Capped to the viewport: a 480px
        card does not fit beside a narrow Docs window. */
     .panel {
-      position: absolute; right: 0; bottom: 70px;
+      position: absolute; right: 0; bottom: 68px;
       width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
-      background: var(--surface); border: 1px solid #000; border-radius: 24px;
-      box-shadow: 0 8px 12px rgba(0,0,0,.18);
+      background: var(--surface); border: 1px solid var(--ink); border-radius: var(--r-card);
+      box-shadow: var(--shadow-lg);
       display: flex; flex-direction: column; overflow: hidden;
     }
     /* The header is the panel's handle (wireDrag): a grip, the name, and the
        close; the counts sit under it (.tally) and carry the rule. */
     .head {
-      display: flex; align-items: center; gap: 8px;
-      margin: 0 24px; padding: 18px 0 10px; cursor: grab; user-select: none; touch-action: none;
+      display: flex; align-items: center; gap: 10px;
+      margin: 0 24px; padding: 14px 0 10px; cursor: grab; user-select: none; touch-action: none;
     }
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
-    .grip { display: flex; color: #b9bac0; margin-left: -4px; }
-    .head:hover .grip { color: #6b6c72; }
-    .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
+    .grip { display: flex; color: var(--label); margin-left: 0; transition: color .15s cubic-bezier(.2,.8,.2,1); }
+    .head:hover .grip { color: var(--muted); }
+    .head .name { font-weight: 600; font-size: 16px; line-height: 1.3; color: var(--ink); white-space: nowrap; }
     .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
