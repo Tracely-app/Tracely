@@ -1094,15 +1094,24 @@ textarea:disabled {
 
 .docmark-card {
   /* Figma 288:309, read off get_design_context — not estimated. 2px here,
-     unlike the home sample (361:329) which the design draws at 1px. */
+     unlike the home sample (361:329) which the design draws at 1px. Ink and
+     surface are tokens, so the same rule is the dark card too: a light border
+     on the dark surface, never a white flashlight over a dark document. */
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #fff;
-  border: 2px solid #000;
-  border-radius: 16px;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: var(--r-card);
   padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  line-height: 1.4;
+  box-shadow: var(--shadow-lg);
+}
+
+/* A finding surface focuses in ink, not the app-chrome accent. */
+.docmark-card :focus-visible,
+.docprose-card :focus-visible {
+  outline-color: var(--ink);
 }
 
 /* Everything in the card holds its size; `.docmark-scroll` is the one part that
@@ -1150,71 +1159,104 @@ textarea:disabled {
 .docmark-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1c1c1c;
+  line-height: 20px;
+  color: var(--text);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
+/* "2" — more problems wait behind this one. The chip recipe at its smallest. */
 .docmark-count {
   margin-left: auto;
   flex-shrink: 0;
-  min-width: 18px;
-  padding: 1px 6px;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.07);
-  font-size: 10px;
+  box-sizing: border-box;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
   font-weight: 600;
-  color: #55555c;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
   text-align: center;
 }
 
 .docmark-body {
   margin: 0;
   font-size: 13px;
-  line-height: 1.4;
-  color: #737373;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .docmark-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-/* No width, no height — the frame's buttons hug their text. */
+/* No width — the frame's buttons hug their text. The finding-surface recipe:
+   32px, radius 8, 13px; one ink primary beside one outlined secondary. No
+   scale on press — the fill says it. */
 .docmark-btn-primary,
 .docmark-btn-secondary {
-  padding: 8px 14px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
+  font-family: inherit;
   font-size: 13px;
+  line-height: 1;
   white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    filter var(--dur) var(--ease);
 }
 
 .docmark-btn-primary {
-  background: #1c1c1c;
-  border: 1px solid #1c1c1c;
-  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: var(--ink-contrast);
   font-weight: 600;
 }
 
-.docmark-btn-primary:hover {
-  background: #000;
+.docmark-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.docmark-btn-primary:active:not(:disabled) {
+  filter: brightness(0.85);
 }
 
 .docmark-btn-secondary {
-  background: #fff;
-  border: 1px solid #d9d9d9;
-  color: #1c1c1c;
-  font-weight: 400;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-weight: 500;
 }
 
-.docmark-btn-secondary:hover {
-  background: rgba(0, 0, 0, 0.04);
+.docmark-btn-secondary:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.docmark-btn-secondary:active:not(:disabled) {
+  background: var(--pressed);
 }
 
 .docmark-btn-primary:disabled,
 .docmark-btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- The citation flow inside the same card (Figma "Find a Source" /
@@ -1227,24 +1269,32 @@ textarea:disabled {
 /* The style stated opposite the title, e.g. "MLA 9". */
 .docmark-chip {
   flex-shrink: 0;
+  margin-left: auto;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 999px;
-  background: #f2f2f2;
-  padding: 3px 9px;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: #737373;
+  background: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .docmark-hint {
   font-size: 12px;
-  color: #9a9ba1;
+  color: var(--label);
 }
 
 .docmark-progress {
   width: 100%;
   height: 6px;
   border-radius: 999px;
-  background: #ededed;
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -1289,19 +1339,21 @@ textarea:disabled {
   display: block;
   height: 9px;
   border-radius: 999px;
-  background: #ebebeb;
+  background: var(--border);
   animation: docmark-skeleton-pulse 1.1s ease-in-out infinite;
 }
 
+/* var(--hover), not var(--surface-2): at 2% the subtitle bar vanished into
+   the card, and the pair stops reading as a title over a subtitle. */
 .docmark-skeleton.faint {
   height: 8px;
-  background: #f4f4f4;
+  background: var(--hover);
 }
 
 .docmark-skeleton.tile {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   flex-shrink: 0;
 }
 
@@ -1327,7 +1379,7 @@ textarea:disabled {
   gap: 10px;
   width: 100%;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   /* The unselected row keeps a transparent border of the same width, so
      selecting one does not shift its contents by a pixel. */
   border: 1px solid transparent;
@@ -1336,22 +1388,36 @@ textarea:disabled {
   font: inherit;
   color: inherit;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.docmark-row:not(.docmark-row-static):not(.selected):hover {
+  background: var(--hover);
+}
+
+.docmark-row:not(.docmark-row-static):active {
+  background: var(--pressed);
 }
 
 .docmark-row.selected {
-  border-color: #e5e5e5;
-  background: #f8f8f8;
+  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 .docmark-row-badge {
   width: 28px;
   height: 28px;
   flex-shrink: 0;
-  border-radius: 8px;
-  background: #1a56db;
+  border-radius: var(--r-ctl);
+  /* The monogram's tile is the one blue the marks already use (prose error),
+     so the popover carries no second blue. */
+  background: #2563eb;
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1373,9 +1439,10 @@ textarea:disabled {
 }
 
 .docmark-row-title {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
-  color: #1c1c1c;
+  line-height: 1.4;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1387,7 +1454,8 @@ textarea:disabled {
   gap: 6px;
   min-width: 0;
   font-size: 12px;
-  color: #9a9ba1;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 /* The venue is the longest thing on a source row and the one line here that had
@@ -1403,8 +1471,9 @@ textarea:disabled {
    supports…" is a promise that the ranking is legible on every row, and an
    ellipsis that ate the number would quietly break it. */
 .docmark-match {
-  color: #16a34a;
+  color: var(--score-good);
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -1414,9 +1483,9 @@ textarea:disabled {
    finding (see "UI decisions" in CLAUDE.md), and a year that differs is a fact
    to check, not one. Wraps, because the sentence is the point of the line. */
 .docmark-year-note {
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: #737373;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
   white-space: normal;
 }
 
@@ -1428,7 +1497,7 @@ textarea:disabled {
 .docmark-receipt {
   font-size: 12px;
   line-height: 1.4;
-  color: #1c1c1c;
+  color: var(--text);
   white-space: normal;
   overflow-wrap: anywhere;
   user-select: text;
@@ -1436,11 +1505,11 @@ textarea:disabled {
 
 .docmark-receipt-lead {
   font-weight: 500;
-  color: #737373;
+  color: var(--muted);
 }
 
 .docmark-receipt-from {
-  color: #9a9ba1;
+  color: var(--label);
 }
 
 /* A row with a receipt is top-aligned, so the icon stays beside the title it
@@ -1454,95 +1523,132 @@ textarea:disabled {
   cursor: default;
 }
 
+/* The small secondary: 28px, the same outline as the card's Dismiss. */
 .docmark-open {
   flex-shrink: 0;
   align-self: center;
-  border: 1px solid #d9d9d9;
-  border-radius: 8px;
-  background: #fff;
-  padding: 5px 10px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  padding: 0 10px;
   font: inherit;
   font-size: 12px;
   font-weight: 500;
-  color: #1c1c1c;
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
 .docmark-open:hover {
-  background: #f8f8f8;
+  background: var(--hover);
+}
+
+.docmark-open:active {
+  background: var(--pressed);
 }
 
 /* "Says otherwise", "Related, but they don't say this", "Couldn't read these":
    the block-label voice, so a group reads as a heading over rows, not a row. */
 .docmark-group-label,
 .docmark-group-toggle {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #9a9ba1;
-  padding: 6px 8px 2px;
+  color: var(--label);
+  padding: 8px 8px 4px;
 }
 
 .docmark-group-toggle {
   background: none;
   border: none;
+  border-radius: var(--r-ctl);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
 }
 
 .docmark-group-toggle:hover {
-  color: #737373;
+  color: var(--text);
 }
 
 .docmark-radio {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  border-radius: 999px;
-  border: 1.5px solid #d1d1d1;
-  background: #fff;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
   box-sizing: border-box;
 }
 
-/* Filled ink with a 6px white centre, drawn as an inset ring so the outer
-   size does not change between the two states. */
+/* A 6px ink ring round a 6px surface-coloured centre, drawn as an inset
+   shadow so the outer size does not change between the two states. (Two
+   stacked inset shadows painted the centre over too — the "on" radio was a
+   solid ink disc, not the ring this comment always described.) */
 .docmark-radio.on {
   border: none;
-  background: #1c1c1c;
-  box-shadow: inset 0 0 0 6px #1c1c1c, inset 0 0 0 3px #fff;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 6px var(--ink);
 }
 
 .docmark-styles {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .docmark-styles-label {
+  margin-right: 4px;
   font-size: 12px;
   font-weight: 500;
-  color: #737373;
+  color: var(--muted);
 }
 
+/* The chip recipe at the style-pill size: 26px, 12px; on = ink. */
 .docmark-style-pill {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 999px;
-  padding: 5px 11px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 400;
-  color: #737373;
-  background: #fff;
-  border: 1px solid #e0e0e0;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.docmark-style-pill:not(.on):hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.docmark-style-pill:not(.on):active {
+  background: var(--pressed);
 }
 
 .docmark-style-pill.on {
   font-weight: 600;
-  color: #fff;
-  background: #1c1c1c;
-  border-color: #1c1c1c;
+  color: var(--ink-contrast);
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
 /* What a marker would make of a source — see shared/sourceCredibility.ts.
@@ -1555,27 +1661,32 @@ textarea:disabled {
    accusation, which is the same mistake the cited-source block avoids. */
 .docmark-cred {
   align-self: flex-start;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 999px;
-  padding: 2px 7px;
-  margin-top: 3px;
-  background: #eef7f0;
-  color: #16a34a;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--score-good-wash);
+  color: var(--score-good);
   white-space: nowrap;
 }
 
 .docmark-cred-unvetted {
-  background: #f2f2f3;
-  color: #737373;
+  background: var(--hover);
+  color: var(--muted);
 }
 
 .docmark-block {
   width: 100%;
   box-sizing: border-box;
-  background: #f8f8f8;
-  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -1583,35 +1694,35 @@ textarea:disabled {
 }
 
 .docmark-block-label {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  color: #9a9ba1;
-  letter-spacing: 0.6px;
+  color: var(--label);
+  letter-spacing: 0.04em;
 }
 
 .docmark-block-marker {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
-  color: #1c1c1c;
+  color: var(--text);
 }
 
 .docmark-block-body {
   font-size: 12px;
-  line-height: 1.4;
-  color: #737373;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 /* The cited-source block inside a Compare Sources card. Reuses .docmark-block
    wholesale — it is the same grey panel the citation preview draws in — and
    adds only the three things that panel has no equivalent for. */
 .docmark-cited-title {
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: #1c1c1c;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
 }
 
 .docmark-cited-ok {
-  color: #16a34a;
+  color: var(--score-good);
   font-weight: 600;
 }
 
@@ -1619,7 +1730,7 @@ textarea:disabled {
    behind it hold journal articles and books and nothing else — so the mark that
    sits beside it must not read as one. */
 .docmark-cited-miss {
-  color: #9a9ba1;
+  color: var(--label);
   font-weight: 600;
 }
 
@@ -1642,12 +1753,12 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
 .docmark-resolved-yes {
-  color: #16a34a;
+  color: var(--score-good);
   font-weight: 500;
 }
 
@@ -1665,7 +1776,7 @@ textarea:disabled {
 .docmark-fix-quote {
   font-size: 13px;
   line-height: 1.45;
-  color: #1c1c1c;
+  color: var(--text);
   /* Selectable, so a writer who wants to paste it somewhere else can, and so
      Apply failing is inconvenient rather than a dead end. */
   user-select: text;
@@ -1689,7 +1800,7 @@ textarea:disabled {
 .docmark-fix-issue-title {
   font-size: 13px;
   font-weight: 500;
-  color: #1c1c1c;
+  color: var(--text);
   margin-bottom: 2px;
 }
 
@@ -5440,12 +5551,6 @@ textarea:disabled {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .docpending {
-    animation: none;
-  }
-}
-
 /* The prose POPOVER cannot live in the layer above, and this is why.
  *
  * `.docprose-layer` is z-index 1 on purpose — claim marks should read above
@@ -5487,18 +5592,19 @@ textarea:disabled {
   border: 0;
 }
 
-/* Lighter than the claim popover on purpose: 1px where that card has 2, no
-   dot, no shadow spread. A remark about a doubled word must not arrive with
-   the same weight as one about whether a statistic is real. */
+/* Lighter than the claim popover on purpose: 1px where that card has 2, a
+   tile's radius, no dot. A remark about a doubled word must not arrive with
+   the same weight as one about whether a statistic is real. Tokens, so this
+   is the dark card too. */
 .docprose-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  background: #fff;
-  border: 1px solid #d5d7dd;
-  border-radius: 12px;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tile);
   padding: 12px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
 }
 
 .docprose-card-head {
@@ -5508,9 +5614,10 @@ textarea:disabled {
 }
 
 .docprose-card-kind {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  line-height: 16px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -5518,15 +5625,16 @@ textarea:disabled {
   margin: 0;
   font-size: 13px;
   line-height: 1.45;
-  color: #1c1c1c;
+  color: var(--text);
 }
 
-/* The prose card's buttons are one step smaller than the claim card's, for the
-   same reason its border is thinner. */
+/* The prose card's buttons are one step smaller than the claim card's — the
+   28px small size — for the same reason its border is thinner. */
 .docprose-card .docmark-btn-primary,
 .docprose-card .docmark-btn-secondary {
+  height: 28px;
   font-size: 12px;
-  padding: 6px 10px;
+  padding: 0 10px;
 }
 
 /* The report's "Show me" landing. Fades out on its own — a permanent highlight
@@ -7540,114 +7648,9 @@ textarea:disabled {
 
 /* -- Dark theme: the editor's mark popover cards ---------------------------
  *
- * .docmark-* / .docprose-card exist ONLY in the main window — the Screen Watch
- * overlay draws these frames with inline styles in a window that loads no
- * stylesheet — so theming them here cannot touch the overlay. The base rules
- * are the Figma frame's literal white card (#fff on a #000 border) and stay
- * that way in light; these move the card onto the app's dark tokens so a
- * popover over a dark document is not a white flashlight. The three mark/dot
- * colours (#d93636 / #ffb800 / #ff5900) are set inline from the shared
- * problem-colour map and are deliberately theme-invariant, as is the
- * credibility green's meaning — only its lightness moves (var(--score-good)).
- * Both dark paths, as above. */
-:root[data-theme='dark'] .docmark-card {
-  background: var(--surface);
-  border-color: var(--border-strong);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-:root[data-theme='dark'] .docmark-title { color: var(--text); }
-:root[data-theme='dark'] .docmark-count { background: rgba(255, 255, 255, 0.1); color: var(--muted); }
-:root[data-theme='dark'] .docmark-body { color: var(--muted); }
-:root[data-theme='dark'] .docmark-btn-primary { background: var(--ink); border-color: var(--ink); color: var(--ink-contrast); }
-:root[data-theme='dark'] .docmark-btn-primary:hover { background: #fff; }
-:root[data-theme='dark'] .docmark-btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); }
-:root[data-theme='dark'] .docmark-btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
-:root[data-theme='dark'] .docmark-chip { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
-:root[data-theme='dark'] .docmark-progress { background: rgba(255, 255, 255, 0.12); }
-:root[data-theme='dark'] .docmark-skeleton { background: rgba(255, 255, 255, 0.12); }
-:root[data-theme='dark'] .docmark-skeleton.faint { background: rgba(255, 255, 255, 0.07); }
-:root[data-theme='dark'] .docmark-row.selected { border-color: rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.06); }
-:root[data-theme='dark'] .docmark-row-title { color: var(--text); }
-:root[data-theme='dark'] .docmark-match { color: var(--score-good); }
-:root[data-theme='dark'] .docmark-year-note { color: var(--muted); }
-:root[data-theme='dark'] .docmark-receipt { color: var(--text); }
-:root[data-theme='dark'] .docmark-receipt-lead { color: var(--muted); }
-:root[data-theme='dark'] .docmark-open { background: var(--surface); border-color: var(--border); color: var(--text); }
-:root[data-theme='dark'] .docmark-open:hover { background: rgba(255, 255, 255, 0.06); }
-:root[data-theme='dark'] .docmark-group-toggle:hover { color: var(--muted); }
-:root[data-theme='dark'] .docmark-radio { border-color: rgba(255, 255, 255, 0.3); background: var(--surface); }
-:root[data-theme='dark'] .docmark-radio.on {
-  background: var(--ink);
-  box-shadow: inset 0 0 0 6px var(--ink), inset 0 0 0 3px var(--surface);
-}
-:root[data-theme='dark'] .docmark-styles-label { color: var(--muted); }
-:root[data-theme='dark'] .docmark-style-pill { background: var(--surface); border-color: var(--border); color: var(--muted); }
-:root[data-theme='dark'] .docmark-style-pill.on { background: var(--ink); border-color: var(--ink); color: var(--ink-contrast); }
-:root[data-theme='dark'] .docmark-cred { background: var(--score-good-wash); color: var(--score-good); }
-:root[data-theme='dark'] .docmark-cred-unvetted { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
-:root[data-theme='dark'] .docmark-block { background: rgba(255, 255, 255, 0.05); }
-:root[data-theme='dark'] .docmark-block-marker { color: var(--text); }
-:root[data-theme='dark'] .docmark-block-body { color: var(--muted); }
-:root[data-theme='dark'] .docmark-cited-title { color: var(--text); }
-:root[data-theme='dark'] .docmark-cited-ok { color: var(--score-good); }
-:root[data-theme='dark'] .docmark-resolved-yes { color: var(--score-good); }
-:root[data-theme='dark'] .docmark-fix-quote { color: var(--text); }
-:root[data-theme='dark'] .docmark-fix-issue-title { color: var(--text); }
-:root[data-theme='dark'] .docprose-card {
-  background: var(--surface);
-  border-color: var(--border-strong);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-}
-:root[data-theme='dark'] .docprose-card-body { color: var(--text); }
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .docmark-card {
-    background: var(--surface);
-    border-color: var(--border-strong);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  }
-  :root:not([data-theme='light']) .docmark-title { color: var(--text); }
-  :root:not([data-theme='light']) .docmark-count { background: rgba(255, 255, 255, 0.1); color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-body { color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-btn-primary { background: var(--ink); border-color: var(--ink); color: var(--ink-contrast); }
-  :root:not([data-theme='light']) .docmark-btn-primary:hover { background: #fff; }
-  :root:not([data-theme='light']) .docmark-btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); }
-  :root:not([data-theme='light']) .docmark-btn-secondary:hover { background: rgba(255, 255, 255, 0.06); }
-  :root:not([data-theme='light']) .docmark-chip { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-progress { background: rgba(255, 255, 255, 0.12); }
-  :root:not([data-theme='light']) .docmark-skeleton { background: rgba(255, 255, 255, 0.12); }
-  :root:not([data-theme='light']) .docmark-skeleton.faint { background: rgba(255, 255, 255, 0.07); }
-  :root:not([data-theme='light']) .docmark-row.selected { border-color: rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.06); }
-  :root:not([data-theme='light']) .docmark-row-title { color: var(--text); }
-  :root:not([data-theme='light']) .docmark-match { color: var(--score-good); }
-  :root:not([data-theme='light']) .docmark-year-note { color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-receipt { color: var(--text); }
-  :root:not([data-theme='light']) .docmark-receipt-lead { color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-open { background: var(--surface); border-color: var(--border); color: var(--text); }
-  :root:not([data-theme='light']) .docmark-open:hover { background: rgba(255, 255, 255, 0.06); }
-  :root:not([data-theme='light']) .docmark-group-toggle:hover { color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-radio { border-color: rgba(255, 255, 255, 0.3); background: var(--surface); }
-  :root:not([data-theme='light']) .docmark-radio.on {
-    background: var(--ink);
-    box-shadow: inset 0 0 0 6px var(--ink), inset 0 0 0 3px var(--surface);
-  }
-  :root:not([data-theme='light']) .docmark-styles-label { color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-style-pill { background: var(--surface); border-color: var(--border); color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-style-pill.on { background: var(--ink); border-color: var(--ink); color: var(--ink-contrast); }
-  :root:not([data-theme='light']) .docmark-cred { background: var(--score-good-wash); color: var(--score-good); }
-  :root:not([data-theme='light']) .docmark-cred-unvetted { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-block { background: rgba(255, 255, 255, 0.05); }
-  :root:not([data-theme='light']) .docmark-block-marker { color: var(--text); }
-  :root:not([data-theme='light']) .docmark-block-body { color: var(--muted); }
-  :root:not([data-theme='light']) .docmark-cited-title { color: var(--text); }
-  :root:not([data-theme='light']) .docmark-cited-ok { color: var(--score-good); }
-  :root:not([data-theme='light']) .docmark-resolved-yes { color: var(--score-good); }
-  :root:not([data-theme='light']) .docmark-fix-quote { color: var(--text); }
-  :root:not([data-theme='light']) .docmark-fix-issue-title { color: var(--text); }
-  :root:not([data-theme='light']) .docprose-card {
-    background: var(--surface);
-    border-color: var(--border-strong);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  }
-  :root:not([data-theme='light']) .docprose-card-body { color: var(--text); }
-}
+ * No overrides. .docmark-* / .docprose-card are drawn from the tokens alone
+ * (surface, ink, text, muted, label, border, hover, score-good), which both
+ * dark paths already redefine, so the dark card is the light rule. The three
+ * mark/dot colours are set inline from the shared problem-colour map and are
+ * theme-invariant by design. Add a rule here only for a value no token
+ * carries, and on BOTH dark paths. */
