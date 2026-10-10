@@ -2624,7 +2624,7 @@
   const MARK_PNG = "data:image/png;base64,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";
   let focusCard = null;     // the open card (foldCards): the underline last clicked, or the card last opened
   function launcherHtml(countCls, countTxt, title) {
-    return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
+    return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}" aria-label="${esc(title)}">
       <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
       <span class="count ${countCls}">${esc(countTxt)}</span>
     </div>`;
@@ -2678,7 +2678,7 @@
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
       <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
     </div>
-    <div class="tally">${chips.join("")}</div>`;
+    <div class="tally" role="group" aria-label="Tracely findings">${chips.join("")}</div>`;
   }
   // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
@@ -3449,14 +3449,14 @@
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
     /* ── Pill ─────────────────────────────────────────────────────────── */
     .pill {
-      display: flex; align-items: center; gap: 8px; height: 40px;
+      display: flex; align-items: center; gap: 8px; height: 36px;
       background: var(--surface); color: var(--text);
       border: 1px solid var(--border); border-radius: 999px;
-      padding: 0 14px 0 8px;
-      box-shadow: var(--shadow-lg);
+      padding: 0 12px 0 6px;
+      box-shadow: var(--shadow-card);
       cursor: pointer; user-select: none;
-      font-size: 13px; font-weight: 600;
-      transition: transform .1s ease, border-color .15s ease;
+      font-size: 13px; font-weight: 500;
+      transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
     .pill.quiet { color: var(--label); font-weight: 500; }
@@ -3469,7 +3469,7 @@
       display: flex; align-items: center; justify-content: center;
       color: #fff; flex-shrink: 0;
     }
-    .plane svg { width: 13px; height: 13px; }
+    .plane svg { width: 12px; height: 12px; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
       display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
@@ -3481,31 +3481,31 @@
 
     /* ── Launcher (Figma "Collapsed Launcher" 267:64) ──────────────────────
        The desktop overlay's launcher, value for value (OverlayApp.tsx): a
-       56px ink circle, the mark turned white, and a 31px count badge 8.5px
-       above the top edge and 3.5px past the right. The badge is orange
-       because it counts findings; while checking it is grey "…", and with
-       nothing flagged there is no badge at all, as in the frame. */
+       56px ink circle, the mark turned white, and a 22px count badge 4px
+       past the top and right edges, ringed in the surface colour. The badge
+       is ink, not a finding colour: the number carries the meaning. While
+       checking it is grey "…" with a dotted ring, and with nothing flagged
+       there is no badge at all, as in the frame. Focus and reduced motion
+       come from the primitives block at the end of this sheet. */
     .launcher {
       position: relative; width: 56px; height: 56px; border-radius: 50%;
       background: var(--ink); cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 2px 10px rgba(0,0,0,.18);
-      transition: box-shadow .12s ease, transform .12s ease;
+      transition: box-shadow .15s cubic-bezier(.2,.8,.2,1), transform .15s cubic-bezier(.2,.8,.2,1);
       margin-left: auto;
     }
-    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.06); }
-    .launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-    @media (prefers-reduced-motion: reduce) { .launcher, .launcher:hover { transition: none; transform: none; } }
-    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; }
-    .launch-plane { width: 22px; height: 22px; color: #fff; display: flex; }
+    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.03); }
+    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; transform: translate(-1px, -1px); }
+    .launch-plane { width: 20px; height: 20px; color: #fff; display: flex; }
     .launch-plane svg { width: 100%; height: 100%; }
     .launcher .count {
-      position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
-      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
-      font-size: 16px; font-weight: 600; letter-spacing: 0;
+      position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; padding: 0 6px;
+      border-radius: 999px; border: 2px solid var(--surface); background: var(--ink); color: #fff;
+      font-size: 12px; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums;
       display: flex; align-items: center; justify-content: center;
     }
-    .launcher .count.off { background: #9a9ba1; font-size: 12px; }
+    .launcher .count.off { background: ${MARK_PENDING}; border-style: dotted; color: #fff; font-size: 11px; }
     .launcher .count.ok { display: none; }
 
     /* ── Panel ────────────────────────────────────────────────────────── */
@@ -3514,24 +3514,27 @@
        the header inset to the content width. Capped to the viewport: a 480px
        card does not fit beside a narrow Docs window. */
     .panel {
-      position: absolute; right: 0; bottom: 70px;
+      position: absolute; right: 0; bottom: 68px;
       width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
-      background: var(--surface); border: 1px solid #000; border-radius: 24px;
-      box-shadow: 0 8px 12px rgba(0,0,0,.18);
+      background: var(--surface); border: 1px solid var(--ink); border-radius: var(--r-card);
+      box-shadow: var(--shadow-lg);
       display: flex; flex-direction: column; overflow: hidden;
     }
+    /* Over the 36px pill (site off) the panel keeps the launcher's 12px gap. */
+    .root:has(> .pill) > .panel { bottom: 48px; }
     /* The header is the panel's handle (wireDrag): a grip, the name, and the
        close; the counts sit under it (.tally) and carry the rule. */
     .head {
-      display: flex; align-items: center; gap: 8px;
-      margin: 0 24px; padding: 18px 0 10px; cursor: grab; user-select: none; touch-action: none;
+      display: flex; align-items: center; gap: 10px;
+      margin: 0 24px; padding: 14px 0 10px; cursor: grab; user-select: none; touch-action: none;
     }
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
-    .grip { display: flex; color: #b9bac0; margin-left: -4px; }
-    .head:hover .grip { color: #6b6c72; }
-    .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
-    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
+    .grip { display: flex; color: var(--label); margin-left: 0; transition: color .15s cubic-bezier(.2,.8,.2,1); }
+    .head:hover .grip { color: var(--muted); }
+    .head .name { font-weight: 600; font-size: 16px; line-height: 1.3; color: var(--ink); white-space: nowrap; }
+    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 12px; border-bottom: 1px solid var(--border); }
+    .tally:empty { display: none; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
       border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
@@ -3544,13 +3547,17 @@
     .chip-ico svg { width: 12px; height: 12px; display: block; }
     .chip-clear { cursor: default; font-weight: 500; color: var(--ink); }
     .chip-clear:hover { border-color: var(--border); background: var(--surface); }
+    /* Icon-only dismiss: 28px, radius 8, transparent until hovered; its
+       ink focus ring comes from the primitives block. */
     .close {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
-      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
+      margin-left: 8px; flex-shrink: 0; width: 28px; height: 28px; border-radius: var(--r-btn);
+      border: none; background: transparent; color: var(--label); cursor: pointer;
+      font-size: 18px; font-weight: 500; line-height: 1; font-family: inherit;
       display: flex; align-items: center; justify-content: center;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .close:hover { background: #e7e7e7; }
+    .close:hover { background: var(--surface-2); color: var(--text); }
+    .close:active { background: var(--chip-wash); color: var(--text); }
     /* The one legend (never colour alone): what each underline's LINE means. */
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
@@ -3570,11 +3577,10 @@
     .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
     .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--label); max-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
-    .foot .act { padding: 5px 10px; font-size: 11px; }
-    .foot-left { display: flex; align-items: center; gap: 10px; }
+    .foot-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
     select {
       height: 32px; padding: 0 26px 0 10px; font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; line-height: 1;
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -3583,8 +3589,9 @@
       transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
-    .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
+    .list { overflow-y: auto; overscroll-behavior: contain; padding: 12px 24px 16px; display: flex; flex-direction: column; gap: 8px; }
+    /* Nothing to show: the app's dashed empty box, muted, one short measure. */
+    .empty { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; padding: 32px 16px; width: 100%; max-width: 300px; margin: 0 auto; border: 1px dashed var(--border); border-radius: 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
     /* Each card is its own box, so where one ends is never a guess; the
@@ -3684,13 +3691,13 @@
     .live-strip img { width: 16px; height: 16px; border-radius: 4px; background: var(--surface-2); }
     .live-strip img.faded { opacity: .35; }
     .ready-ping {
-      display: flex; align-items: center; gap: 8px; margin: 0 0 10px auto; max-width: 320px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
+      display: flex; align-items: center; gap: 8px; margin: 0 0 12px auto; max-width: 320px;
+      font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--ink);
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-btn);
-      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-lg);
+      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-card);
     }
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .ready-ping button.act { flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
@@ -3789,15 +3796,22 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
-    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .foot { margin: 0 24px; padding: 10px 0 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    /* The footer's switch is a ghost button — the quiet action of the panel —
+       unless it turns the site ON, which is the panel's one ink primary. Its
+       hover and pressed fills are the shared button.act ones (they outrank
+       the transparent rest here), so only the text darkens locally. */
+    .foot .act { border-color: transparent; background: none; color: var(--muted); font-weight: 500; flex-shrink: 0; }
+    .foot .act:not(.primary):hover:not([disabled]), .foot .act:not(.primary):active:not([disabled]) { color: var(--text); }
+    .foot .act.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
     /* The panel eases up out of the pill when it opens (re-renders while it
-       stays open don't replay it). Reduced motion: it just appears. */
-    .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
+       stays open don't replay it). Reduced motion (the primitives block at
+       the end of this sheet): it just appears. */
+    .panel.opening { animation: tracely-panel-in 160ms cubic-bezier(.2,.8,.2,1) both; transform-origin: 100% 100%; }
     @keyframes tracely-panel-in {
-      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      from { opacity: 0; transform: translateY(8px) scale(.98); }
       to { opacity: 1; transform: none; }
     }
-    @media (prefers-reduced-motion: reduce) { .panel.opening { animation: none; } }
     .card.flash { animation: tracely-flash 1.2s ease-out; }
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px var(--ring); }
@@ -6897,7 +6911,7 @@
       if (!seg || expanded) return "";
       const n = readyPing.n;
       const what = n ? `${n} source${n === 1 ? "" : "s"} ready` : "Search finished";
-      return `<div class="ready-ping" role="status"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
+      return `<div class="ready-ping" role="status" aria-live="polite"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
     }
     // Show: the claim's card over its underline when it is on screen, else the panel.
     function showSourcesFor(hash) {
