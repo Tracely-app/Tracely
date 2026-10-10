@@ -59,7 +59,18 @@ import type { WorksCitedResult } from '../components/documentMarks'
 import { scheduleFrame } from '../frameScheduler'
 import type { DocumentMark, MarkRect } from '../components/documentMarks'
 import TextArea from '../components/TextArea'
-import { DocumentIcon, CloseIcon, BackIcon } from '../components/icons'
+import {
+  DocumentIcon,
+  CloseIcon,
+  BackIcon,
+  ChevronDownIcon,
+  AlignLeftIcon,
+  MoreHorizontalIcon,
+  ShareIcon,
+  CheckIcon
+} from '../components/icons'
+import Spinner from '../components/Spinner'
+import { LEGEND } from '../components/problemCopy'
 import { autoCritiqueTargets } from '@shared/autoCritique'
 import { DETECT_IDLE_MS, shouldDetectNow } from '@shared/liveDetect'
 import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
@@ -466,6 +477,9 @@ function DocumentEditor({
   const [wordMenuOpen, setWordMenuOpen] = useState(false)
   const [fontMenuOpen, setFontMenuOpen] = useState(false)
   const [sizeMenuOpen, setSizeMenuOpen] = useState(false)
+  // The last colour picked, for the bar under the "A" — purely what the button
+  // shows; applying the colour is still exec('foreColor') below.
+  const [textColor, setTextColor] = useState<string | null>(null)
   const fontMenuRef = useRef<HTMLDivElement>(null)
   const sizeMenuRef = useRef<HTMLDivElement>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -2248,7 +2262,7 @@ function DocumentEditor({
       <div className="docedit-main">
       <div className="docedit-toolbar">
         <button className="docedit-back" onClick={onBack}>
-          <BackIcon size={12} />
+          <BackIcon size={14} />
           Back
         </button>
         <div className="docedit-divider" />
@@ -2285,10 +2299,14 @@ function DocumentEditor({
         <div className="docedit-menu-wrap" ref={fontMenuRef}>
           <button
             className="docedit-fontname"
+            aria-label="Font"
+            aria-haspopup="menu"
+            aria-expanded={fontMenuOpen}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setFontMenuOpen((o) => !o)}
           >
-            {fontFamily}
+            <span className="docedit-menu-label">{fontFamily}</span>
+            <ChevronDownIcon size={12} className="docedit-menu-chevron" />
           </button>
           {fontMenuOpen ? (
             <ToolbarMenu
@@ -2308,10 +2326,14 @@ function DocumentEditor({
         <div className="docedit-menu-wrap" ref={sizeMenuRef}>
           <button
             className="docedit-fontsize"
+            aria-label="Font size"
+            aria-haspopup="menu"
+            aria-expanded={sizeMenuOpen}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setSizeMenuOpen((o) => !o)}
           >
-            {fontSize}
+            <span className="docedit-menu-label">{fontSize}</span>
+            <ChevronDownIcon size={12} className="docedit-menu-chevron" />
           </button>
           {sizeMenuOpen ? (
             <ToolbarMenu
@@ -2328,6 +2350,7 @@ function DocumentEditor({
         <button
           className={`docedit-toolbtn bold ${format.bold ? 'active' : ''}`}
           aria-pressed={format.bold}
+          aria-label="Bold"
           title="Bold"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => exec('bold')}
@@ -2337,6 +2360,7 @@ function DocumentEditor({
         <button
           className={`docedit-toolbtn underline ${format.underline ? 'active' : ''}`}
           aria-pressed={format.underline}
+          aria-label="Underline"
           title="Underline"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => exec('underline')}
@@ -2346,6 +2370,7 @@ function DocumentEditor({
         <button
           className={`docedit-toolbtn italic ${format.italic ? 'active' : ''}`}
           aria-pressed={format.italic}
+          aria-label="Italic"
           title="Italic"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => exec('italic')}
@@ -2356,16 +2381,27 @@ function DocumentEditor({
           className="docedit-toolbtn"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => colorInputRef.current?.click()}
+          aria-label="Text color"
           title="Text color"
         >
-          A
+          <span className="docedit-colorglyph">
+            A
+            <span
+              className="docedit-colorbar"
+              style={textColor ? { background: textColor } : undefined}
+              aria-hidden="true"
+            />
+          </span>
         </button>
         <input
           ref={colorInputRef}
           type="color"
           className="docedit-color-input"
           list="docedit-color-presets"
-          onChange={(e) => exec('foreColor', e.target.value)}
+          onChange={(e) => {
+            exec('foreColor', e.target.value)
+            setTextColor(e.target.value)
+          }}
         />
         <datalist id="docedit-color-presets">
           {TEXT_COLORS.map((c) => (
@@ -2377,9 +2413,12 @@ function DocumentEditor({
             className="docedit-toolbtn"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setAlignMenuOpen((o) => !o)}
+            aria-label="Align text"
+            aria-haspopup="menu"
+            aria-expanded={alignMenuOpen}
             title="Align text"
           >
-            ≡
+            <AlignLeftIcon size={16} />
           </button>
           {alignMenuOpen ? (
             <ToolbarMenu
@@ -2406,9 +2445,12 @@ function DocumentEditor({
             className="docedit-toolbtn"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setShareMenuOpen((o) => !o)}
+            aria-label="Share"
+            aria-haspopup="menu"
+            aria-expanded={shareMenuOpen}
             title="Share"
           >
-            Share
+            <ShareIcon size={16} />
           </button>
           {shareMenuOpen ? (
             <ToolbarMenu
@@ -2431,9 +2473,12 @@ function DocumentEditor({
             className="docedit-toolbtn"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setMoreMenuOpen((o) => !o)}
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={moreMenuOpen}
             title="More"
           >
-            •••
+            <MoreHorizontalIcon size={16} />
           </button>
           {moreMenuOpen ? (
             <ToolbarMenu
@@ -2452,8 +2497,17 @@ function DocumentEditor({
         </div>
 
         </div>
-        <span className="docedit-savestate">
-          {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
+        <span className="docedit-savestate" aria-live="polite">
+          {saveState === 'saving' ? (
+            'Saving…'
+          ) : saveState === 'saved' ? (
+            <>
+              <CheckIcon size={12} />
+              Saved
+            </>
+          ) : (
+            ''
+          )}
         </span>
         {/*
           Opens the Argument Score report, which is what the design has this
@@ -2476,6 +2530,7 @@ function DocumentEditor({
         */}
         <button
           className="docedit-tracer"
+          aria-pressed={tracerOpen}
           onClick={() => setTracerOpen((open) => !open)}
           title="Chat with Tracer about this draft"
         >
@@ -2506,33 +2561,10 @@ function DocumentEditor({
         */}
       </div>
 
-      {/*
-        Above the page rather than in the toolbar.
-
-        The toolbar is already at its width: its formatting group scrolls at the
-        default window size, and a pill there costs the writer visible controls
-        every time they open a document. This is the top of the DOCUMENT, which
-        is what was asked for and what it is about.
-      */}
-      <div className="docedit-docmeta">
-        {/*
-          What year this document is being graded against.
-
-          At the top of the document because that is where the setting's
-          consequences are: the same draft is an A at grade 7 and a C at grade
-          12, and a letter with no statement of which one it is is a number
-          without units. It reads the same value every letter in this window
-          bands against (lib/gradeLevel.tsx), and opens Settings, because the
-          first thing anyone does on seeing the wrong year is change it.
-        */}
-        <button
-          className="docedit-gradelevel"
-          onClick={onOpenSettings}
-          title="Grading level — change it in Settings › Preferences"
-        >
-          {gradeLevelLabel(gradingLevel)}
-        </button>
-      </div>
+      {/* The grading-level chip used to sit on its own row here, above the
+          page. It lives in the status row at the foot of the page now, beside
+          the word count — the two facts about the document in one place, and
+          no row of chrome between the toolbar and the first line. */}
 
       <div
         className="docedit-body-wrap"
@@ -2803,33 +2835,85 @@ function DocumentEditor({
         the marks simply appear late. This says what is happening, in the one
         place in the editor that already holds status.
       */}
-      {checking ? (
-        <div className="docedit-checking">
-          Checking sources · {checking.done} of {checking.total}
+      {/* The status row, floating over the foot of the page: word count,
+          grading level, the underline legend once there are marks, and the
+          evidence sweep's progress while it runs. One row, one pill recipe. */}
+      <div className="docedit-status">
+        <div className="docedit-wordcount docedit-menu-wrap" ref={wordMenuRef}>
+          <button
+            className="docedit-wordcount-trigger"
+            aria-haspopup="menu"
+            aria-expanded={wordMenuOpen}
+            onClick={() => setWordMenuOpen((o) => !o)}
+          >
+            <b>{wordCount}</b> words
+          </button>
+          {wordMenuOpen ? (
+            <ToolbarMenu
+              width={131}
+              onClose={() => setWordMenuOpen(false)}
+              items={[
+                { label: `Word count · ${wordCount.toLocaleString()}` },
+                { label: `Character count · ${bodyText().length.toLocaleString()}` },
+                { label: `Reading time · ~${Math.max(1, Math.round(wordCount / 238))} min` }
+              ]}
+            />
+          ) : null}
         </div>
-      ) : null}
-      <div className="docedit-wordcount docedit-menu-wrap" ref={wordMenuRef}>
-        <button className="docedit-wordcount-trigger" onClick={() => setWordMenuOpen((o) => !o)}>
-          <b>{wordCount}</b> words
+        {/*
+          What year this document is being graded against: the same draft is an
+          A at grade 7 and a C at grade 12, and a letter with no statement of
+          which one it is is a number without units. It reads the same value
+          every letter in this window bands against (lib/gradeLevel.tsx), and
+          opens Settings, because the first thing anyone does on seeing the
+          wrong year is change it.
+        */}
+        <button
+          className="docedit-gradelevel"
+          onClick={onOpenSettings}
+          title="Grading level — change it in Settings › Preferences"
+        >
+          <span className="docedit-gradelevel-prefix">Grading level ·</span>
+          {gradeLevelLabel(gradingLevel)}
         </button>
-        {wordMenuOpen ? (
-          <ToolbarMenu
-            width={131}
-            onClose={() => setWordMenuOpen(false)}
-            items={[
-              { label: `Word count · ${wordCount.toLocaleString()}` },
-              { label: `Character count · ${bodyText().length.toLocaleString()}` },
-              { label: `Reading time · ~${Math.max(1, Math.round(wordCount / 238))} min` }
-            ]}
-          />
+        {marks.length > 0 ? (
+          <div className="docedit-legend" role="note" aria-label="What the underlines mean">
+            {LEGEND.map((item) => (
+              <span key={item.label} className="docedit-legend-item">
+                <span
+                  className={`docedit-legend-line ${item.pattern}`}
+                  style={{ color: item.color }}
+                  aria-hidden="true"
+                />
+                {item.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {checking ? (
+          <div className="docedit-checking">
+            <Spinner size="sm" label={`Checking sources · ${checking.done} of ${checking.total}`} />
+          </div>
         ) : null}
       </div>
 
-      {error ? <p className="error-text docedit-error">{error}</p> : null}
+      {error ? (
+        <p className="error-text docedit-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
-      {proseNotice ? <p className="error-text docedit-error">{proseNotice}</p> : null}
+      {proseNotice ? (
+        <p className="error-text docedit-error" role="alert">
+          {proseNotice}
+        </p>
+      ) : null}
 
-      {claims && claims.length === 0 ? <p className="muted docedit-error">No checkable claims detected.</p> : null}
+      {claims && claims.length === 0 ? (
+        <p className="muted docedit-error" role="status">
+          No checkable claims detected.
+        </p>
+      ) : null}
 
       {/*
         The ClaimCard list that used to sit under the document is gone.
