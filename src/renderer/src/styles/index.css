@@ -4734,11 +4734,11 @@ textarea:disabled {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 4px;
-  background: #fff;
-  border: 1px solid #000;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 6px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tile);
+  box-shadow: var(--shadow-lg);
   /* Ten font sizes make a 374px-tall menu; cap it rather than let it run off
      a 606px window. */
   max-height: 320px;
@@ -4748,67 +4748,53 @@ textarea:disabled {
 .toolbar-menu-item {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   width: 100%;
-  height: 34px;
-  padding: 8px 12px;
+  height: 32px;
+  padding: 0 12px;
   border: none;
   border-radius: 6px;
   background: transparent;
   font-size: 13px;
   font-weight: 500;
-  color: #333338;
+  line-height: 1;
+  color: var(--text);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .toolbar-menu-item:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
 }
 
-.toolbar-menu-item.active {
+.toolbar-menu-item:active:not(:disabled) {
+  background: var(--pressed);
+}
+
+/* Inside the menu the ring sits on the row, not 2px outside it where the
+   menu's own overflow would clip it. */
+.toolbar-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toolbar-menu-item.active,
+.toolbar-menu-item.active:hover:not(:disabled) {
   background: var(--accent-wash);
   color: var(--accent);
 }
 
 .toolbar-menu-item:disabled {
-  color: rgba(51, 51, 56, 0.35);
-  cursor: default;
+  color: var(--label);
+  cursor: not-allowed;
 }
 
-/* Dark for the toolbar menus, BOTH ways dark is reachable — the explicit
-   Settings toggle and System on a dark OS. A rule on only one path is a known
-   bug class in this file (see the Documents-family note). The item rule is
-   `:not(.active)` because the :root prefix would otherwise out-specify
-   `.toolbar-menu-item.active` and flatten the accent highlight. */
-:root[data-theme='dark'] .toolbar-menu {
-  background: var(--surface);
-  border-color: var(--border-strong);
-}
-:root[data-theme='dark'] .toolbar-menu-item:not(.active) {
-  color: var(--text);
-}
-:root[data-theme='dark'] .toolbar-menu-item:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-:root[data-theme='dark'] .toolbar-menu-item:disabled {
-  color: var(--label);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .toolbar-menu {
-    background: var(--surface);
-    border-color: var(--border-strong);
-  }
-  :root:not([data-theme='light']) .toolbar-menu-item:not(.active) {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .toolbar-menu-item:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  :root:not([data-theme='light']) .toolbar-menu-item:disabled {
-    color: var(--label);
-  }
-}
+/* No dark block: every value above is a token, so both ways dark is reachable
+   (the Settings toggle and System on a dark OS) are covered by :root. */
 
 /* Each trigger is the positioning context for its own menu. */
 .docedit-menu-wrap {

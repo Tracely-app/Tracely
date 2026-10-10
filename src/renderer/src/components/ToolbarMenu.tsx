@@ -5,10 +5,10 @@ import { useEffect, useRef } from 'react'
  * (Align), 234:46 (Font Size), 234:67 (Share), 234:74 (More), 234:85 (Word
  * Count).
  *
- * All six share one chrome, read off 226:95 with get_design_context: white,
- * 1px black, 10px radius, 4px/8px padding, 2px between rows, and a
- * 0 4px 16px rgba(0,0,0,0.12) shadow. Rows are 34px tall at 12px/8px padding
- * with a 6px radius, and their text is Instrument Sans Medium 13px #333338.
+ * All six share one chrome — the shared menu recipe: var(--surface), a 1px
+ * var(--border-strong) edge, 12px radius, 6px/4px padding, 2px between rows
+ * and var(--shadow-lg). Rows are 32px tall with a 6px radius, 13px/500
+ * var(--text), hover var(--hover); the active row keeps the accent wash.
  *
  * The widths are the frames' own and differ per menu (132, 109, 48, 125, 123,
  * 131), so each caller passes its own rather than one shared value being
