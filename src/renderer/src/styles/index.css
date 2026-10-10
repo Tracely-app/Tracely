@@ -1613,12 +1613,14 @@ textarea:disabled {
   box-sizing: border-box;
 }
 
-/* Filled ink with a surface-coloured centre, drawn as an inset ring so the
-   outer size does not change between the two states. */
+/* A 6px ink ring round a 6px surface-coloured centre, drawn as an inset
+   shadow so the outer size does not change between the two states. (Two
+   stacked inset shadows painted the centre over too — the "on" radio was a
+   solid ink disc, not the ring this comment always described.) */
 .docmark-radio.on {
   border: none;
-  background: var(--ink);
-  box-shadow: inset 0 0 0 6px var(--ink), inset 0 0 0 3px var(--surface);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 6px var(--ink);
 }
 
 .docmark-styles {
