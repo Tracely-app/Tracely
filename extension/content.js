@@ -1784,30 +1784,31 @@
        and empty page closes the card after HOVER_HIDE_MS.
      s: { open, popHash, onCard, onOwn, inTri, under } → { act, hash?, ms?, rest? },
      act one of "none" | "stay" | "open" | "swap" | "hide". */
-  /* And (owner, 2026-10-09: "if I am trying to move to the overlay and the
-     overlay happens to be over another underline, the overlay jumps"):
-     measured on a Docs stand-in, a pointer that went straight down from the
-     end of a long line — beside its card, which centres on the line — took
-     another sentence's card twice on the way. So while a card is open,
-     another underline takes over ONLY when the pointer stops on it (`rest`:
-     it has stayed within 3px) — HOVER_SWAP_MS outside the triangle,
-     HOVER_REST_MS inside it — never while it is moving, however slowly or
-     whichever way; and a pointer getting closer to the card (`approaching`)
-     is on its way there, whatever it is over. The same run showed the other
-     half of the jump: beside the card, between two lines, the card CLOSED
-     (empty page, 250 ms), and the pointer then reached the place it had been
-     — over another underline, whose card opened. So near the card
-     (`near`, within HOVER_NEAR_PX of it) it closes only when the pointer
-     stops there for HOVER_HIDE_NEAR_MS; only far from it does empty page
-     close it at once. */
-  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 300, HOVER_REST_MS = 650, HOVER_HIDE_MS = 250, HOVER_HIDE_NEAR_MS = 900, HOVER_NEAR_PX = 140;
+  /* Snappy, the way Grammarly's card is (owner, 2026-10-09: "the cursor
+     detection hover system is bad. make it as snappy and just like grammarly
+     … when I stop hovering over underline, sometimes it stays"). 2.21.34 held
+     the card outright while the pointer got closer to it (`approaching`) or
+     sat in the triangle, and needed the pointer to STOP on another underline
+     before it took over. Holding was the sticky part: a decision only ever
+     ran on a mouse move, so a pointer that stopped while held left the card
+     up for good — reproduced on a Docs stand-in: off the underline, beside
+     the card, still open 5 s later. Now every state but "on the card or on
+     its own underline" ends in a timer, so a still pointer always resolves;
+     and the card opens UNDER THE POINTER (popAnchorDx), so the way to it is
+     straight down and crosses no other line:
+     - a card opens once the pointer has been on an underline HOVER_OPEN_MS;
+     - another underline takes over after HOVER_SWAP_MS on it; empty page
+       closes the card after HOVER_HIDE_MS;
+     - in the triangle, on the way to the card, nothing changes while the
+       pointer moves; once it rests there HOVER_REST_MS, the underline under
+       it opens, or over empty page the card closes. */
+  const HOVER_OPEN_MS = 70, HOVER_SWAP_MS = 90, HOVER_REST_MS = 220, HOVER_HIDE_MS = 140;
   function hoverIntent(s) {
     if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
-    if (s.onCard || s.onOwn || s.approaching) return { act: "stay" };
+    if (s.onCard || s.onOwn) return { act: "stay" };
     const other = s.under && s.under !== s.popHash ? s.under : null;
-    if (s.inTri) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "stay" };
-    if (s.near) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "hide", ms: HOVER_HIDE_NEAR_MS, rest: true };
-    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS, rest: true };
+    if (s.inTri) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "hide", ms: HOVER_REST_MS, rest: true };
+    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS };
     return { act: "hide", ms: HOVER_HIDE_MS };
   }
   /* Is (x, y) on the way from `apex` to the card? The region is the convex
@@ -4842,6 +4843,7 @@
     let popEl = null, popHash = null, popFontIn = false;
     let popApex = null; // the pointer's last spot on the open card's sentence: the safe triangle's tip
     let popAnchor = null, popLastTop = 0, popFollowRaf = 0, popLostAt = 0;
+    let popAnchorDx = 0; // where on its line the card hangs from: the pointer's x when it opened
     let popPinned = false; // an edit from this card may remove the underline it follows — stay put
 
     /* Nothing to load any more: the cards use the app's font stack, which is
@@ -4873,7 +4875,7 @@
         switching
           ? [{ opacity: 0 }, { opacity: 1 }]
           : [{ opacity: 0, transform: `translateY(${popAbove ? 6 : -6}px) scale(0.98)` }, { opacity: 1, transform: "none" }],
-        { duration: switching ? 90 : 160, easing: POP_EASE },
+        { duration: switching ? 70 : 120, easing: POP_EASE },
       );
       setTimeout(() => anim.cancel(), 500); // never a card held invisible by an animation that did not run
     }
@@ -4926,7 +4928,8 @@
        shared/popoverPlacement.ts). What this file adds that the app has not
        got — "Explain in depth" — sits inside the fix card as one more of its
        issue blocks, so no action row gains a button the app's lacks. */
-    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10, TAIL_W = 16, TAIL_H = 10, TAIL_NET = TAIL_H - 2;
+    // POP_CARET: the caret's distance from the card's left edge — it hangs from the word, as Grammarly's does.
+    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10, TAIL_W = 16, TAIL_H = 10, TAIL_NET = TAIL_H - 2, POP_CARET = 40;
     const MIN_CARD = 180; // shared/popoverPlacement.ts MIN_CARD_HEIGHT
     const DM = { // index.css .docmark-*
       ink: "#1c1c1c", body: "#737373", hint: "#9a9ba1", green: "#16a34a", red: "#d93636", amber: "#ffb800", orange: "#ff5900",
@@ -5221,7 +5224,8 @@
       if (!popEl || !popCard) return;
       const width = popWidth;
       const cx = r.centerX ?? r.left + 24;
-      const idealLeft = cx - width / 2;
+      // Under the pointer, hanging down-right from it, so straight down is the card.
+      const idealLeft = cx - POP_CARET;
       const left = Math.max(8, Math.min(idealLeft, innerWidth - width - 8));
       const markTop = r.top, markH = (r.bottom ?? r.top + 4) - r.top;
       const below = markTop + markH + POP_GAP;
@@ -5288,7 +5292,7 @@
         // card half out with it (owner, 2026-10-09). It is lost only once the
         // CARD has left the view.
         popLastTop = r.top;
-        placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
+        placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + Math.min(popAnchorDx, r.width) });
         const pb = popEl.getBoundingClientRect();
         if (!clip || (pb.bottom > clip.top + 8 && pb.top < clip.bottom - 8)) {
           popLostAt = 0;
@@ -5329,6 +5333,7 @@
       popEl.style.visibility = "visible";
       animatePopoverIn(popEl, switching);
       popAnchor = anchorBar ?? null;
+      popAnchorDx = Math.max(0, (rect.centerX ?? rect.left + POP_CARET) - rect.left);
       popLastTop = rect.top;
       popLostAt = 0;
       if (!popFollowRaf) popFollowRaf = requestAnimationFrame(popFollowFrame);
@@ -6019,15 +6024,19 @@
     function requestPlace() {
       if (!popAnchor?.el?.isConnected) return;
       const r = popAnchor.el.getBoundingClientRect();
-      placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
+      placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + Math.min(popAnchorDx, r.width) });
     }
 
     /* Hover intent (hoverIntent, inSafeTriangle). One pending decision at a
        time; when its timer fires the pointer is looked at again, and the
        decision runs only if it still holds. */
     let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
-    let hoverPrev = { x: -1, y: -1 }; // where the pointer was at the last hover pass (approaching)
     function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
+    // Tracely's own panel and suggestions cover the underlines beneath them.
+    function overTracelyUi(x, y) {
+      const t = document.elementFromPoint?.(x, y) ?? null;
+      return Boolean(t && !(popEl && popEl.contains(t)) && typeof t.closest === "function" && t.closest("#tracely-host, [data-tracely-fix-card], [data-tracely-type-bubble]"));
+    }
     function hoverState(x, y) {
       // Bars are DOM-anchored now — read their LIVE viewport rects, which
       // are correct mid-scroll by construction.
@@ -6043,7 +6052,7 @@
         const r = b.el.getBoundingClientRect();
         if (clip && (r.bottom < clip.top + 2 || r.top > clip.bottom - 2 || r.left > clip.right || r.right < clip.left)) return null;
         return x >= r.left - 2 && x <= r.right + 2 && y >= r.top - b.size && y <= r.bottom + 3
-          ? { left: r.left, top: r.top, bottom: r.bottom, size: b.size, centerX: r.left + r.width / 2 }
+          ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom, size: b.size, centerX: r.left + r.width / 2 }
           : null;
       };
       let onOwn = false, bar = null, hit = null;
@@ -6053,50 +6062,50 @@
         const h = hitOf(b);
         if (h) { bar = b; hit = h; }
       }
-      let onCard = false, inTri = false, approaching = false, near = false;
+      let onCard = false, inTri = false;
       if (popEl) {
         const pb = popEl.getBoundingClientRect();
         onCard = x >= pb.left - 12 && x <= pb.right + 12 && y >= pb.top - 12 && y <= pb.bottom + 12;
         if (!onCard && !onOwn) inTri = inSafeTriangle(popApex, (popCard ?? popEl).getBoundingClientRect(), x, y);
-        // Closer to the card than at the last move: on its way there.
-        const toCard = (px, py) => Math.hypot(Math.max(pb.left - px, 0, px - pb.right), Math.max(pb.top - py, 0, py - pb.bottom));
-        approaching = !onCard && hoverPrev.x >= 0 && toCard(x, y) < toCard(hoverPrev.x, hoverPrev.y) - 0.5;
-        near = !onCard && toCard(x, y) <= HOVER_NEAR_PX;
       }
-      // Not while pinned: an edit from this card is still settling.
-      if (popEl && popPinned) bar = null;
-      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, approaching, near, under: bar?.hash ?? null, bar, hit };
+      // Not while pinned: an edit from this card is still settling. And not
+      // through Tracely's own panel or suggestions.
+      if ((popEl && popPinned) || (bar && overTracelyUi(x, y))) bar = null;
+      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, under: bar?.hash ?? null, bar, hit };
     }
     function runHoverDecision(d, st) {
       if (d.act === "hide") { hideDocsPopover(); return; }
       if (!st.bar) return;
-      if (st.bar.flow) showFlowPopover(st.bar, st.hit, st.bar);
-      else showDocsPopover(st.bar.hash, st.hit, st.bar);
+      // Hung from the pointer's spot on the line, not the line's middle.
+      const hit = { ...st.hit, centerX: Math.max(st.hit.left, Math.min(st.hit.right ?? st.hit.left, hoverPt.x)) };
+      if (st.bar.flow) showFlowPopover(st.bar, hit, st.bar);
+      else showDocsPopover(st.bar.hash, hit, st.bar);
       popApex = { x: hoverPt.x, y: hoverPt.y };
     }
     function hoverHit() {
       hoverRafBusy = false;
       const { x, y } = hoverPt;
       const st = hoverState(x, y);
-      hoverPrev = { x, y };
       const d = hoverIntent(st);
       if (st.onOwn) popApex = { x, y };
       // The sentence under a closed pointer lights up at once; its card follows.
       const lit = d.act === "open" ? d.hash : null;
       if (lit !== docsHoverHash) { docsHoverHash = lit; paintDocsActive(); }
       if (d.act === "stay" || d.act === "none") { clearHoverPending(); return; }
-      const same = hoverPending && hoverPending.act === d.act && hoverPending.hash === d.hash;
+      const same = hoverPending && hoverPending.act === d.act && hoverPending.hash === d.hash && hoverPending.rest === Boolean(d.rest);
       // Already counting down — unless this one waits for the pointer to REST
       // and it has moved since.
       if (same && !(d.rest && Math.hypot(x - hoverPending.x, y - hoverPending.y) > 3)) return;
       clearHoverPending();
-      const pending = { act: d.act, hash: d.hash, x, y, timer: 0 };
+      const pending = { act: d.act, hash: d.hash, rest: Boolean(d.rest), x, y, timer: 0 };
       pending.timer = setTimeout(() => {
         if (hoverPending !== pending) return;
         hoverPending = null;
         const now = hoverState(hoverPt.x, hoverPt.y);
         const again = hoverIntent(now);
         if (again.act === d.act && again.hash === d.hash) runHoverDecision(again, now);
+        // Something else holds now and no move may come to say so: decide again.
+        else hoverHit();
       }, d.ms);
       hoverPending = pending;
     }
@@ -6111,6 +6120,23 @@
       setTimeout(() => runHover(hoverHit), 90);
       requestAnimationFrame(() => runHover(hoverHit));
     }, { passive: true });
+    // Out of the window (the toolbar, another app): no move will come to close
+    // the card, so the pointer counts as nowhere.
+    window.addEventListener("mouseout", (e) => {
+      if (e.relatedTarget) return;
+      hoverPt = { x: -1e4, y: -1e4 };
+      hoverHit();
+    }, { passive: true });
+    /* Typing closes an open card, as Grammarly's does — not typing into the
+       card itself (a page number), not while an edit from it settles, not
+       while the pointer is on it. Esc closes it too. */
+    function typingClosesCard(e) {
+      if (!popEl || popPinned || popHeld || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
+      const t = e.target;
+      if (t && typeof t.closest === "function" && t.closest("[data-tracely-docs-popover], #tracely-host")) return;
+      clearHoverPending();
+      hideDocsPopover();
+    }
 
     // Scroll/wheel fire at frame rate; a trailing 140ms throttle keeps the
     // locate pass (line assembly + matching in the page world) off the hot
@@ -9248,7 +9274,7 @@
        a same-origin iframe (the one docs-hook.js types into), so listen there
        too; it can appear late, hence the re-scan. Nothing is read or sent
        here — this only moves the next export read earlier. */
-    const markActive = () => { lastTextChangeAt = Date.now(); };
+    const markActive = (e) => { lastTextChangeAt = Date.now(); if (e?.type === "keydown") typingClosesCard(e); };
     document.addEventListener("keydown", markActive, true);
     document.addEventListener("input", markActive, true);
     const watchTypingFrame = () => {
