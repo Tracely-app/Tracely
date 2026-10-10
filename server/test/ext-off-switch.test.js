@@ -66,7 +66,8 @@ test("on homework nothing is flagged, nothing essay-only runs, and the panel say
 
 test("wired: no sentence is sent on homework, in either mode", () => {
   assert.match(SRC, /writingOnly: true,/);
-  assert.equal((SRC.match(/if \(FEATURES\.writingOnly && docGenre === "homework"\) return \[\]; \/\/ not writing: nothing to check/g) || []).length, 2);
+  assert.equal((SRC.match(/if \(FEATURES\.writingOnly && GENRE_QUIET\.has\(docGenre\)\) return \[\]; \/\/ homework, a poem, a story, a script: nothing to check/g) || []).length, 2);
+  assert.match(SRC, /const GENRE_QUIET = new Set\(\["homework", "poem", "story", "script"\]\);/);
 });
 
 test("Check now is gone; Docs has Turn off, other sites Turn off / Turn on for this site", () => {

@@ -176,12 +176,25 @@ it fits and always while the pointer is on it (`popHeld`). It moves as ONE
 PIECE: side and size are decided when it opens or its content changes
 (`popPlanned`, reset by `paintPop`), never by a scroll, which only carries it
 with its line — half out of view included; it is lost only once the card has
-left the view. Its button rows wrap rather than clip (`dmActions`). On the way
-to it ("the overlay happens to be over another underline, the overlay
-jumps"), another underline takes over only when the pointer STOPS on it, a
-pointer getting closer to the card is on its way there, and near the card
-(140px) it closes only on a 900ms stop (`hoverIntent`, `near`,
-`approaching`). Tests: `server/test/ext-hover-card.test.js`,
+left the view. Its button rows wrap rather than clip (`dmActions`).
+
+Since 2.21.35 the hover is Grammarly's (owner, 2026-10-09: "the cursor
+detection hover system is bad. make it as snappy and just like grammarly …
+when I stop hovering over underline, sometimes it stays"). 2.21.34 held the
+card while the pointer got closer to it and needed the pointer to stop on
+another underline; a decision only ran on a mouse move, so a pointer that
+stopped while held left the card up for good (reproduced on the stand-in:
+still open 5 s later). Now every state but "on the card or its own
+underline" ends in a timer (`hoverIntent`; a timer whose decision no longer
+holds decides again, move or no move): it opens in ~0.1 s
+(`HOVER_OPEN_MS` 70), another underline takes over in `HOVER_SWAP_MS` (90),
+empty page closes it in `HOVER_HIDE_MS` (140), and only inside the safe
+triangle does it wait for the pointer to rest (`HOVER_REST_MS` 220). The card
+hangs from the POINTER's spot on the line (`popAnchorDx`, `POP_CARET`), not
+the line's middle, so straight down is the card. Leaving the window, typing
+in the doc (`typingClosesCard`, not into the card) and Esc close it; the
+panel and the suggestions cover the underlines beneath them
+(`overTracelyUi`). Tests: `server/test/ext-hover-card.test.js`,
 `server/test/ext-hover-intent.test.js`.
 
 "Let Tracely fix these" ("go do all of them and then disappear and just leave
@@ -193,6 +206,52 @@ following the scroll). The cursor leaves with the last one; a note above the
 launcher has Accept all / Reject all (`fixPingHtml`). The notes above the
 launcher are wired with the chrome, not the panel — they only show while it is
 closed. Tests: `server/test/ext-fix-all.test.js`.
+
+## Kinds of writing, and how each is cited
+
+Since 2.21.35 (owner, 2026-10-09: "make it extremely good at type of
+literature detection … if it is world history DBQ, no need for citations and
+worked cited. If it is a poem, cite this way. If it is a research paper, cite
+that way … resumes or emails") `detectGenre` tells 18 kinds apart from the
+text alone (free, no model): dbq, research, lab, literary, poem, story,
+script, speech, news, personal, email, coverletter, letter, resume, notes,
+annotated, homework, prose. The most distinctive shapes are looked for first
+(a salutation and a sign-off, numbered tasks, a script's speakers, a
+resume's headings, a DBQ's document numbers …). What each kind means:
+`GENRE_QUIET` (homework, poem, story, script) sends nothing to be checked;
+`GENRE_OWN` (resume, letters, email, personal essay, notes, annotated
+bibliography) shows a wrong public fact but never asks for a source; a DBQ
+cites its documents, needs no source for outside evidence and has no Works
+Cited (no page / "names no work" / unnamed-source notes either); a speech or
+a news story names its source in the sentence ("According to … in 2021, …",
+`attributeAloud`) and has no list; `genreWantsList` (prose, research,
+literary, lab) keeps a Works Cited. A literary essay quotes a poem by line,
+a play by act.scene.line, a novel by page (`literaryForm`). Tracely cites in
+the style the doc already uses (`docCitationStyle`) unless the writer picked
+one (`settings.styleChosen`); MLA when it says nothing. The panel says what it
+is reading and what that means (`genreLineHtml`). Measured on invented
+documents (`server/test/fixtures/`): the 67 it was tuned on, all right (main:
+20); 50 written blind by another author, 40 right before any tuning (main:
+11), 49 after general fixes; and 40 more written blind after those, scored
+once and left untuned: 38 right (main: 8) — keep that set untuned, it is the
+honest number. Both blind sets must stay at 90% or better. Tests:
+`server/test/ext-writing-types.test.js`.
+
+## Works Cited when the writing needs one
+
+Since 2.21.35 (owner, 2026-10-09: "when it needs to its still not
+automatically inserting works cited"): an essay or paper that cites works and
+has no list gets a "No Works Cited" note (`noListTip`) with **Add Works
+Cited** (`docAddWorksCited`): every cited work is looked up
+(`lookupCitedWork`, `/api/compare-source`, no model, 10 a minute) and listed
+only when a record is plainly that work (`citedMatchFor`: the cited author
+and year, or most of a cited title; an author-only citation only when exactly
+one of their works is about the claim); the heading and the entries go in at
+the end as one group with one Undo, and the rest are named for their own
+cards. It is one of "Let Tracely fix these" suggestions (act `list`, its card
+at the foot of the margin). Replace citation now starts the list too where
+the kind of writing keeps one. Tests: `server/test/ext-docs-edit.test.js`,
+`server/test/ext-fix-all.test.js`, `server/test/ext-writing-types.test.js`.
 
 ## Measuring
 

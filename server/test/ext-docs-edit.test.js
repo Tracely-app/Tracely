@@ -819,6 +819,15 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
     const requestDocsMarks = () => { marks++; };
     const persistCaches = () => {}, persistFlow = () => {};
     const citedMap = new Map(); // "Find the cited work" lookups (docReplaceCitation, docCompleteEntry)
+    let docGenre = "prose"; // what detectGenre said: a DBQ or a speech has no reference list
+    const popSteps = new Map(), stepOf = (h) => popSteps.get(h) ?? { step: "problem" };
+    const tipsById = new Map(), tipById = (id) => tipsById.get(id) ?? null;
+    // "Add Works Cited" looks each cited work up: here, by the author (or the query) it asks about.
+    const lookups = new Map();
+    async function lookupCitedWork(plan) { return lookups.get(plan.author ?? plan.citedRef) ?? { resolved: false, matches: [], note: "Not found." }; }
+    ${contentSlice("  const REF_STOP = new Set(", "  function inTextCitations(body) {")}
+    ${contentSlice("  // The essay-like kinds", "  /* What a literary essay is about")}
+    ${contentSlice('  /* "(Shiraishi)" at the end of a sentence', "  function citationHygieneTips(")}
     ${contentSlice("  function hashText(s) {", "  /* A Doc opened from a second")}
     ${contentSlice("  // Bibliography block", "  function segmentText(")}
     ${contentSlice('  /* ── "Find the cited work" (2.21.24)', "  function esc(s) {")}
@@ -826,6 +835,7 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
     ${contentSlice("    /* ── editing the document ──", "    // (the bridge \"highlight in doc\" feature was removed")}
     ({
       docsEdit, probeInDoc, canEditDoc, docApply, docFix, docCite, docReplaceCitation, docCompleteEntry, addTransition, undoLastDocEdit, editView, editBtnHtml, segHint, hashText, settleEditStates,
+      docAddWorksCited, noListTip, listBuilds, tipsById, lookups, setGenre: (g) => { docGenre = g; },
       setBridge: (v) => { bridgeReady = v; },
       setDoc: (text, segs) => { docText = text; segments = segs; },
       setBars: (b) => { docsBars = b; },
@@ -1380,11 +1390,56 @@ test("content.js: Replace citation adds the entry in order when the old entry is
   assert.deepEqual(twice.ops().map((o) => o.op), ["replace", "insertLineBefore"], "another sentence still cites the old entry: it stays");
   assert.equal(twice.ops()[1].before, "Zhou, L. (2021). Z. https://z.org");
 
+  // Owner, 2026-10-09: "when it needs to its still not automatically inserting works cited". An
+  // essay with no list gets one — the heading, then the entry; a DBQ never does.
   const bare = faultySetup(lands);
   bare.w.citedMap.set("k2", lookedUp(bare.h));
   await bare.w.probeInDoc();
   assert.equal(await bare.w.docReplaceCitation("k2", 0), true);
-  assert.deepEqual(bare.ops().map((o) => o.op), ["replace"], "no reference list: the sentence only — Copy reference is beside the button");
+  assert.deepEqual(bare.ops().map((o) => o.op), ["replace", "appendLine", "appendLine"], "no reference list: one is started");
+  assert.deepEqual(bare.ops().slice(1).map((o) => o.line), ["References", "Weatherford, J. (2004). Genghis Khan and the Making of the Modern World."]);
+  const dbq = faultySetup(lands);
+  dbq.w.setGenre("dbq");
+  dbq.w.citedMap.set("k3", lookedUp(dbq.h));
+  await dbq.w.probeInDoc();
+  assert.equal(await dbq.w.docReplaceCitation("k3", 0), true);
+  assert.deepEqual(dbq.ops().map((o) => o.op), ["replace"], "a DBQ has no Works Cited: the sentence only");
+});
+
+test("content.js: in a speech or a news story, Cite in doc names the source in the sentence — no marker, no list", async () => {
+  const S = "Most teens sleep less than eight hours a night.";
+  const { w, ops } = loadWiring({ respond: (m) => (m.dryRun ? { ok: true, dryRun: true } : lands(m)), body: S });
+  const h = w.hashText(S);
+  w.setDoc(S, [{ ...seg(S), hash: h }]);
+  w.setGenre("speech");
+  w.sourcesMap.set(h, { loading: false, list: [{ title: "Teens and sleep", url: "https://example.org/sleep", publisher: "Pew Research Center", year: 2021 }], citedUrl: null });
+  await w.probeInDoc();
+  assert.equal(await w.docCite(h, 0), true);
+  assert.deepEqual(ops().filter((o) => !o.dryRun && o.op !== "ping").map((o) => [o.op, o.replacement]), [["replace", "According to Pew Research Center in 2021, most teens sleep less than eight hours a night."]]);
+});
+
+test("content.js: Add Works Cited — each cited work looked up, the ones a record plainly matches listed in order, as ONE group", async () => {
+  // Owner, 2026-10-09: "when it needs to its still not automatically inserting works cited".
+  const BODY = "Literacy spread across the empire (Weatherford, 2004). Some historians argue the courts kept records (Shiraishi). Trade grew along the routes (Allsen, 2001).";
+  const { w, ops } = loadWiring({ respond: (m) => (m.dryRun ? { ok: true, dryRun: true } : lands(m)), body: BODY });
+  w.setDoc(BODY, []);
+  const tip = w.noListTip(BODY, "prose", "apa")[0];
+  assert.equal(tip.kind, "nolist");
+  assert.equal(tip.label, "No References");
+  assert.match(tip.message, /You cite \(Weatherford, 2004\), \(Shiraishi\), \(Allsen, 2001\), but there is no References\./);
+  w.tipsById.set(tip.id, tip);
+  // Weatherford: one work of his from 2004. Allsen: two from 2001 — no telling which. Shiraishi: none about the claim.
+  w.lookups.set("Weatherford", { resolved: true, matches: [RECORD, { ...RECORD, title: "The Secret History of the Mongol Queens", year: 2010 }], byAuthor: { name: "Weatherford", offClaim: [] } });
+  w.lookups.set("Allsen", { resolved: true, matches: [{ ...RECORD, authors: ["Thomas Allsen"], title: "Culture and Conquest", year: 2001 }, { ...RECORD, authors: ["Thomas Allsen"], title: "Commodity and Exchange", year: 2001 }], byAuthor: { name: "Allsen", offClaim: ["routes"] } });
+  w.lookups.set("Shiraishi", { resolved: true, matches: [{ ...RECORD, authors: ["Noriko Shiraishi"], title: "Ceramics of Japan", year: 1999 }], byAuthor: { name: "Shiraishi", offClaim: ["courts"] } });
+  await w.probeInDoc();
+  assert.equal(await w.docAddWorksCited(tip.id), true);
+  const sent = ops().filter((o) => !o.dryRun && o.op !== "ping");
+  assert.deepEqual(sent.map((o) => [o.op, o.line]), [["appendLine", "References"], ["appendLine", "Weatherford, J. (2004). Genghis Khan and the Making of the Modern World."]], "the heading, then only the work a record plainly is");
+  assert.equal(w.state().statusMsg, "added your References with 1 entry");
+  assert.deepEqual(plain(w.listBuilds.get(tip.id).missing), ["(Shiraishi)", "(Allsen, 2001)"], "the rest are left for their own cards — never a guess");
+  await w.undoLastDocEdit();
+  assert.equal(ops().filter((o) => o.op === "undo").pop().undoToken.length, 2, "one Undo takes the heading and the entry back");
 });
 
 test("content.js: Replace citation refuses a citation no longer in the sentence exactly once", async () => {

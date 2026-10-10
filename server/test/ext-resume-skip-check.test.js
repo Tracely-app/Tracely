@@ -37,7 +37,7 @@ test("a resume skips the check while the review serves it, and only then", () =>
 });
 
 test("wired into both modes: no sentence is sent, and the review's answer decides", () => {
-  assert.equal((SRC.match(/function uncheckedSegments\(\) \{\n\s+if \(FEATURES\.writingOnly && docGenre === "homework"\) return \[\];[^\n]*\n\s+if \(FEATURES\.resumeTips && reviewCoversCheck\(docGenre, review\)\) return \[\];/g) || []).length, 2);
+  assert.equal((SRC.match(/function uncheckedSegments\(\) \{\n\s+if \(FEATURES\.writingOnly && GENRE_QUIET\.has\(docGenre\)\) return \[\];[^\n]*\n\s+if \(FEATURES\.resumeTips && reviewCoversCheck\(docGenre, review\)\) return \[\];/g) || []).length, 2);
   assert.equal((SRC.match(/review\.serving = data\?\.genre === "resume";/g) || []).length, 2, "the model saying it is not a resume sends it back to the check");
   assert.equal((SRC.match(/\} catch \(err\) \{\n\s+review\.serving = false;/g) || []).length, 2, "any failure, 404 included, falls back to the check");
   assert.equal((SRC.match(/unavailable: false, serving: null, kind: null, seen: new Map\(\) \};/g) || []).length, 2);

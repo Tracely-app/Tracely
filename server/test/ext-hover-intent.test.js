@@ -19,7 +19,7 @@ const SRC = readFileSync(path.join(HERE, "..", "..", "extension", "content.js"),
 const a = SRC.indexOf("  /* Hover intent for the Docs card.");
 const b = SRC.indexOf("  function esc(s) {", a);
 const X = vm.runInContext(`${SRC.slice(a, b)}
-  ({ hoverIntent, inSafeTriangle, isFreshMark, HOVER_OPEN_MS, HOVER_SWAP_MS, HOVER_REST_MS, HOVER_HIDE_MS, HOVER_HIDE_NEAR_MS })`, vm.createContext({}));
+  ({ hoverIntent, inSafeTriangle, isFreshMark, HOVER_OPEN_MS, HOVER_SWAP_MS, HOVER_REST_MS, HOVER_HIDE_MS })`, vm.createContext({}));
 
 const open = { open: true, popHash: "A", onCard: false, onOwn: false, inTri: false, under: null };
 
@@ -27,11 +27,13 @@ test("a pass across the page opens nothing: a card waits for the pointer to stay
   assert.ok(a > 0 && b > a, "content.js: the hover helpers moved");
   assert.deepEqual({ ...X.hoverIntent({ open: false, under: "A" }) }, { act: "open", hash: "A", ms: X.HOVER_OPEN_MS });
   assert.equal(X.hoverIntent({ open: false, under: null }).act, "none");
-  assert.ok(X.HOVER_OPEN_MS >= 100 && X.HOVER_OPEN_MS <= 200, "long enough to skip a fly-over, short enough to feel immediate");
+  // Snappy, like Grammarly (owner, 2026-10-09): under a tenth of a second, still past a fly-over.
+  assert.ok(X.HOVER_OPEN_MS >= 50 && X.HOVER_OPEN_MS <= 100, "long enough to skip a fly-over, short enough to feel immediate");
 });
 
 test("on the way to the card, other underlines are ignored — unless the pointer stops on one", () => {
-  assert.equal(X.hoverIntent({ ...open, inTri: true }).act, "stay");
+  // Stopped in the triangle over empty page, it closes: a still pointer always resolves.
+  assert.deepEqual({ ...X.hoverIntent({ ...open, inTri: true }) }, { act: "hide", ms: X.HOVER_REST_MS, rest: true });
   const d = X.hoverIntent({ ...open, inTri: true, under: "B" });
   assert.equal(d.act, "swap");
   assert.equal(d.rest, true, "inside the triangle a swap needs the pointer to REST");
@@ -41,19 +43,25 @@ test("on the way to the card, other underlines are ignored — unless the pointe
 
 test("on the card or its own sentence the card stays; elsewhere another mark takes over, empty page closes it", () => {
   assert.equal(X.hoverIntent({ ...open, onCard: true, under: "B" }).act, "stay");
-  // Owner, 2026-10-09: on the way to the card, over another underline, it jumped.
-  assert.equal(X.hoverIntent({ ...open, approaching: true, under: "B" }).act, "stay", "getting closer to the card: on its way there, whatever it crosses");
-  assert.equal(X.hoverIntent({ ...open, approaching: true, inTri: true, under: "B" }).act, "stay");
-  assert.ok(X.HOVER_SWAP_MS >= 250 && X.HOVER_REST_MS >= 600, "another underline takes over only once the pointer stops on it");
-  // Beside the card, between lines: it does not close under a moving pointer (it used to, and the
-  // pointer then landed where it had been — over another underline, which opened).
-  assert.deepEqual({ ...X.hoverIntent({ ...open, near: true }) }, { act: "hide", ms: X.HOVER_HIDE_NEAR_MS, rest: true });
-  assert.ok(X.HOVER_HIDE_NEAR_MS > X.HOVER_REST_MS);
-  assert.deepEqual({ ...X.hoverIntent({ ...open, near: true, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_REST_MS, rest: true });
   assert.equal(X.hoverIntent({ ...open, onOwn: true, under: "B" }).act, "stay");
-  assert.deepEqual({ ...X.hoverIntent({ ...open, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_SWAP_MS, rest: true }, "only once the pointer STOPS on it (owner, 2026-10-09)");
+  // Snappy (owner, 2026-10-09: "make it as snappy and just like grammarly"): another underline takes
+  // over at once, and empty page closes the card at once — no waiting for the pointer to stop.
+  assert.deepEqual({ ...X.hoverIntent({ ...open, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_SWAP_MS });
   assert.deepEqual({ ...X.hoverIntent(open) }, { act: "hide", ms: X.HOVER_HIDE_MS });
+  assert.ok(X.HOVER_SWAP_MS <= 120 && X.HOVER_HIDE_MS <= 180, "within a blink");
+  assert.ok(X.HOVER_REST_MS > X.HOVER_SWAP_MS && X.HOVER_REST_MS <= 300, "a rest in the triangle is short too");
   assert.equal(X.hoverIntent({ ...open, under: "A" }).act, "hide", "its own hash is never a swap");
+});
+
+test("it never stays by itself: off the card and off its underline, every state ends in a timer", () => {
+  // Owner, 2026-10-09: "when I stop hovering over underline, sometimes it stays". 2.21.34 held the
+  // card while the pointer got closer to it, and a hover decision only ran on a mouse move: a pointer
+  // that stopped while held left the card up for good (5 s and counting on a Docs stand-in).
+  for (const inTri of [false, true]) for (const under of [null, "A", "B"]) for (const approaching of [false, true]) {
+    const d = X.hoverIntent({ ...open, inTri, under, approaching, near: true });
+    assert.notEqual(d.act, "stay", JSON.stringify({ inTri, under, approaching }));
+    assert.ok(d.ms > 0, "a timer");
+  }
 });
 
 test("the safe zone runs from the pointer to the card, far corners included", () => {
@@ -93,7 +101,17 @@ test("only a mark new on the page animates — not a redraw, not a sentence bein
 test("wired: one hover path, through the intent; motion only via the helpers", () => {
   const hov = SRC.slice(SRC.indexOf("    function hoverHit() {"), SRC.indexOf("    // Scroll/wheel fire at frame rate"));
   assert.match(hov, /const d = hoverIntent\(st\);/);
-  assert.match(hov, /if \(again\.act === d\.act && again\.hash === d\.hash\) runHoverDecision\(again, now\);/, "a decision runs only if it still holds when its timer fires");
+  assert.match(hov, /if \(again\.act === d\.act && again\.hash === d\.hash\) runHoverDecision\(again, now\);\n(?:\s*\/\/.*\n)?\s+else hoverHit\(\);/, "a decision runs only if it still holds when its timer fires — and else the pointer is judged again, move or no move");
+  assert.match(hov, /hoverPending\.rest === Boolean\(d\.rest\)/, "a wait for a rest is not a wait for a blink");
+  assert.match(hov, /window\.addEventListener\("mouseout", \(e\) => \{\n\s+if \(e\.relatedTarget\) return;\n\s+hoverPt = \{ x: -1e4, y: -1e4 \};\n\s+hoverHit\(\);/, "out of the window: the card closes, no move needed");
+  assert.match(SRC, /const markActive = \(e\) => \{ lastTextChangeAt = Date\.now\(\); if \(e\?\.type === "keydown"\) typingClosesCard\(e\); \};/, "typing closes the card, as Grammarly's does");
+  assert.ok(!/approaching|HOVER_NEAR_PX|hoverPrev/.test(SRC.replace(/\/\*[\s\S]*?\*\//g, "")), "nothing holds the card on the pointer's direction any more");
+  // Hung from the pointer, so the way to it is straight down.
+  assert.match(SRC, /const hit = \{ \.\.\.st\.hit, centerX: Math\.max\(st\.hit\.left, Math\.min\(st\.hit\.right \?\? st\.hit\.left, hoverPt\.x\)\) \};/);
+  assert.match(SRC, /const idealLeft = cx - POP_CARET;/);
+  assert.match(SRC, /popAnchorDx = Math\.max\(0, \(rect\.centerX \?\? rect\.left \+ POP_CARET\) - rect\.left\);/);
+  assert.match(SRC, /centerX: r\.left \+ Math\.min\(popAnchorDx, r\.width\) \}\);\n\s+const pb = popEl\.getBoundingClientRect\(\);/, "it follows its line from the same spot");
+  assert.match(SRC, /if \(\(popEl && popPinned\) \|\| \(bar && overTracelyUi\(x, y\)\)\) bar = null;/, "the panel covers the underlines under it");
   assert.ok(!/showDocsPopover|showFlowPopover/.test(hov.slice(0, hov.indexOf("window.addEventListener"))), "nothing opens a card except runHoverDecision");
   assert.match(SRC, /inTri = inSafeTriangle\(popApex, \(popCard \?\? popEl\)\.getBoundingClientRect\(\), x, y\);/);
   assert.match(SRC, /settleDocsMotion\(leaving, recentBefore\);\n\s+paintDocsActive\(\);/);

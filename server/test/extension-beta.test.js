@@ -405,9 +405,10 @@ const KEY = "tracely.widget.settings";
 
 test("old widget settings load without breaking anything, minus the slider stop", () => {
   const old = JSON.stringify({ model: "gpt-5-nano", effort: "low", citationStyle: "mla", autoSources: true });
-  assert.deepEqual(plain(loadSettingsApi(old).api.loadSettings(KEY)), { citationStyle: "mla", citeHints: true, autoSources: true });
+  // styleChosen (2.21.35): MLA was the default, so it was never a pick — each doc's own style is used.
+  assert.deepEqual(plain(loadSettingsApi(old).api.loadSettings(KEY)), { citationStyle: "mla", citeHints: true, autoSources: true, styleChosen: false });
   for (const junk of [null, "not json", "null", "42", '"apa"', "[1,2]", "true"]) {
-    assert.deepEqual(plain(loadSettingsApi(junk).api.loadSettings(KEY)), { citationStyle: "mla", citeHints: true }, String(junk));
+    assert.deepEqual(plain(loadSettingsApi(junk).api.loadSettings(KEY)), { citationStyle: "mla", citeHints: true, styleChosen: false }, String(junk));
   }
 });
 
@@ -417,7 +418,7 @@ test("saving a setting drops the retired slider keys and keeps the rest", () => 
   settings.autoSources = true;
   settings.model = "gpt-6-astra"; // even if something put one back in memory
   r.api.persistSettings(settings, KEY);
-  assert.deepEqual(r.writes.at(-1), { citationStyle: "chicago", citeHints: true, autoSources: true });
+  assert.deepEqual(r.writes.at(-1), { citationStyle: "chicago", citeHints: true, autoSources: true, styleChosen: true }, "Chicago was a pick: it keeps winning");
   assert.equal(settings.model, "gpt-6-astra", "the live object is not mutated by a save");
 });
 
