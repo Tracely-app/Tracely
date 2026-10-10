@@ -5325,6 +5325,9 @@ export default function OverlayApp(): JSX.Element {
         /* A <button> does not inherit the document font; every label around
            it draws in Instrument Sans, so the controls do too. */
         button { font-family: inherit; }
+        /* 600 is the heaviest weight in the product; a <strong> from the
+           markdown in a critique would otherwise draw at 700. */
+        strong, b { font-weight: 600; }
         /* The one button recipe. The fill lives here rather than inline so
            hover and press can change it; everything else is in the
            *_BTN_STYLE objects. Press darkens, never shrinks. */
