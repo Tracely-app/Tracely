@@ -7320,7 +7320,8 @@
       if (canEditDoc() !== was) render();
     }
 
-    const canEditDoc = () => !harness && (inDoc.editable || bridgeReady);
+    // A test page may opt in (harness.canEdit) to see fix-all's suggestions; its edits go nowhere (editPath "none").
+    const canEditDoc = () => (harness ? harness.canEdit === true : inDoc.editable || bridgeReady);
     /* Why the doc cannot be edited from here, in the words the card shows
        under its Copy button — never a silent swap to Copy. */
     function editBlockReason() {
@@ -9550,15 +9551,15 @@
       }
       fixMarks.get(it.key)?.chip.remove();
       const strikes = geo.pieces.map(() => {
-        const s = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden",
+        const s = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
           background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
         fixMarksEl.appendChild(s);
         return s;
       });
       const chip = el("div", {
-        position: "fixed", left: "0", top: "0", display: "flex", alignItems: "center", gap: "6px", maxWidth: "380px", boxSizing: "border-box",
-        padding: "4px 4px 4px 8px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "10px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
-        fontFamily: APP.font, fontSize: "12.5px", lineHeight: "1.35", color: DM.ink, pointerEvents: "auto", visibility: "hidden", WebkitFontSmoothing: "antialiased",
+        position: "fixed", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
+        padding: "3px 3px 3px 7px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
+        fontFamily: APP.font, fontSize: "12px", lineHeight: "1.3", color: DM.ink, pointerEvents: "auto", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
       chip.setAttribute("data-tracely-fix-chip", "");
       chip.dataset.key = it.key;
@@ -9606,7 +9607,7 @@
         const busy = docBusy || Boolean(fixBatch?.applying);
         const yes = dmBtn("✓ Accept", true, { disabled: busy });
         const no = dmBtn("✕ Reject", false, { disabled: busy });
-        for (const b of [yes, no]) Object.assign(b.style, { padding: "4px 10px", fontSize: "12px", flex: "0 0 auto" });
+        for (const b of [yes, no]) Object.assign(b.style, { padding: "3px 9px", fontSize: "11.5px", flex: "0 0 auto" });
         yes.addEventListener("click", () => acceptFix(i));
         no.addEventListener("click", () => skipFix(i));
         m.accept = yes;
@@ -9652,7 +9653,7 @@
       if (!fixMarksEl?.isConnected || !fixMarks.size) return;
       if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
       const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-      const chips = [];
+      const chips = [], struck = [];
       for (const m of fixMarks.values()) {
         // Docs redrew the line: find the change again (its pieces' runs are gone).
         if (![m.geo.at.node, ...m.geo.pieces.map((p) => p.node)].every((n) => n.isConnected !== false) && Date.now() - m.geo.found > 200) {
@@ -9668,6 +9669,7 @@
           const r = rects[k];
           if (!m.shown || !inView(r)) { sEl.style.visibility = "hidden"; return; }
           Object.assign(sEl.style, { visibility: "visible", left: `${Math.round(r.left)}px`, top: `${Math.round(r.top)}px`, width: `${Math.round(r.width)}px`, height: `${Math.round(r.height)}px` });
+          struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
         });
         const last = [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
         if (!m.shown || !last) { m.chip.style.visibility = "hidden"; continue; }
@@ -9680,7 +9682,13 @@
         const w = c.m.chip.offsetWidth || 220, h = c.m.chip.offsetHeight || 30;
         const left = Math.max(8, Math.min(c.left, innerWidth - w - 8));
         let top = c.top;
-        for (const p of placed) if (left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) top = p.top + p.h + 4;
+        // Down past anything it would cover — another chip, or words another change strikes — until it covers none.
+        for (let moved = true, n = 0; moved && n < 12; n++) {
+          moved = false;
+          for (const p of [...placed, ...struck]) {
+            if (left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) { top = p.top + p.h + 4; moved = true; }
+          }
+        }
         c.m.chip.style.left = `${Math.round(left)}px`;
         c.m.chip.style.top = `${Math.round(top)}px`;
         c.m.chip.style.visibility = top + Math.min(h, 24) > clip.bottom ? "hidden" : "visible";

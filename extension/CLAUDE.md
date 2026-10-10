@@ -218,6 +218,18 @@ margin slide in once each (`fixCardsShown`), and the notes above the launcher
 rise in once (`.ready-ping.enter`). Reduced motion: no movement, only the
 dimming that says it is leaving.
 
+Since 2.21.37 (owner, 2026-10-09: "overlay when hovering over underlines
+still keep jumping around"): measured on the stand-in with motion off, a card
+held its place on its underline — what moved was around it. It opened
+wherever the pointer entered its line (main: x=354, 494 or 641 for one line),
+a pass across a paragraph opened a card (70 ms), another underline took over
+in 110 ms, and 2.21.36's spring, slide, scale and drift moved every one. Now
+the card hangs from the START of its line (`POP_LINE_IN`: the same place
+every time — 368 for all three), opens after `HOVER_OPEN_MS` 160 (a pass
+opens nothing), switches after `HOVER_SWAP_MS` 220, ignores a 1px change in
+its line's box, and opens, switches and leaves with fades (a 4px rise on
+open; nothing scales or bounces).
+
 "Let Tracely fix these" ("go do all of them and then disappear and just leave
 the accept reject"): the press closes the panel; as each change is ready the
 cursor goes to its underline (only when on screen — never a scroll) and leaves
@@ -227,6 +239,20 @@ following the scroll). The cursor leaves with the last one; a note above the
 launcher has Accept all / Reject all (`fixPingHtml`). The notes above the
 launcher are wired with the chrome, not the panel — they only show while it is
 closed. Tests: `server/test/ext-fix-all.test.js`.
+
+Since 2.21.37 (owner, 2026-10-09: "when you click accept all there is no
+cursor but I want tracely cursor to go around and change each one and leave
+the accept or reject choice next to each change that it makes") each change
+is made IN ITS PLACE: the cursor goes to it, strikes the words it takes out
+on their exact runs (`fixInlineGeo` → `svgRangeRects`, the Type preview's own
+locating) and types the new words into a chip right under the change with
+✓ Accept and ✕ Reject (`fixMarkMake`, `fixMarkReveal`, `fillFixChip`,
+`placeFixMarks`: every frame, chips keep clear of each other and of struck
+words). Nothing reaches the Doc until Accept; Accept all sends the cursor
+round again to click each ✓ (`fixClickAccept`). A change the page can't show
+in place — the Works Cited list, a sentence Docs isn't drawing whole — keeps
+its card in the margin. A test page opts in with `harness.canEdit` (its edits
+go nowhere: "Docs' editor isn't ready").
 
 ## Kinds of writing, and how each is cited
 
