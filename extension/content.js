@@ -3689,13 +3689,13 @@
     .live-strip img { width: 16px; height: 16px; border-radius: 4px; background: var(--surface-2); }
     .live-strip img.faded { opacity: .35; }
     .ready-ping {
-      display: flex; align-items: center; gap: 8px; margin: 0 0 10px auto; max-width: 320px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
+      display: flex; align-items: center; gap: 8px; margin: 0 0 12px auto; max-width: 320px;
+      font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--ink);
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-btn);
-      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-lg);
+      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-card);
     }
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .ready-ping button.act { flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
