@@ -268,3 +268,16 @@ export function monthDayLabel(ymd: string): string {
   if (!m) return String(ymd ?? '')
   return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}`
 }
+
+/**
+ * The order page, for an upgrade that attaches to THIS account.
+ *
+ * `uid` is forwarded by jointracely.com/order to Stripe as
+ * client_reference_id, which is how the billing webhook knows whose plan to
+ * change — the same contract the extension's orderUrl() uses. Signed out, the
+ * bare page: Stripe then matches the payment by email, which only works if the
+ * email typed at checkout is the account's.
+ */
+export function upgradeUrlFor(userId: string | null | undefined): string {
+  return userId ? `${UPGRADE_URL}?uid=${encodeURIComponent(userId)}` : UPGRADE_URL
+}

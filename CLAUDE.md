@@ -78,8 +78,8 @@ npm run ship           # desktop release — Merrick's box only (src/CLAUDE.md)
 ## Environments
 
 One hosted server, one Supabase project (`sxifbtelrtbsgnnwnmdf`; the old
-"production" project is deleted), anonymous desktop sessions, Google sign-in
-in the extension. Which `.env` each command reads, and the build banner:
+"production" project is deleted), Google sign-in in the extension and,
+optionally, the desktop (anonymous desktop sessions otherwise). Which `.env` each command reads, and the build banner:
 `docs/environments.md`. Nothing secret is in the tree; `server/.env` lives
 only on the Linode.
 

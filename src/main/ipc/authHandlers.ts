@@ -1,22 +1,33 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
-import type { AuthGetPlanResponse, AuthGetThoroughResponse, AuthGetUserResponse } from '@shared/ipc-contract'
+import type {
+  AuthGetPlanResponse,
+  AuthGetThoroughResponse,
+  AuthGetUserResponse,
+  AuthRefreshResponse,
+  AuthSignInWithGoogleResponse,
+  AuthSignOutResponse
+} from '@shared/ipc-contract'
 import { fetchThoroughAllowance } from '../services/ai/client'
 import { getCurrentUser, isAuthConfigured } from '../services/auth/client'
 import { getCurrentPlan } from '../services/auth/plan'
+import { refreshAccount, signInWithGoogle, signOutHere } from '../services/auth/googleSignIn'
 
 /**
- * What is left of auth once there is no sign-in.
+ * Auth: who is signed in, which plan they are on, and Google sign-in / out.
  *
- * The app holds an anonymous Supabase session so the relay has an account to
- * attribute spend to (see ensureAnonymousSession), and these two channels are
- * everything the renderer still asks about it. Nothing here can start, end or
- * modify a session — there is no sign-up, sign-in, sign-out, Google OAuth,
- * name, username or delete-account handler any more, and the
- * `AUTH_SIGN_*`/`AUTH_UPDATE_*`/`AUTH_DELETE_ACCOUNT` channel constants that
- * addressed them are unregistered. They stay in shared/ because
- * `src/shared/*` is additive, the same way the `TRACER_*` constants outlived
- * Tracer's removal.
+ * Sign-in came back with the backend unification. The desktop's AI calls go to
+ * the Tracely server, which applies the plan of whichever account a call
+ * carries; with no sign-in, every desktop user was a free install and a plan
+ * bought on the website could never reach this app. Google only — see
+ * services/auth/loopback.ts for why not a password, and why a loopback
+ * redirect rather than the `tracely://` protocol the first version used.
+ *
+ * Signing in is OPTIONAL. Signed out, the app works as a free install (the
+ * server meters it by the X-Tracely-Install id). Still unregistered, and
+ * staying that way: email/password sign-up and sign-in, name and username
+ * updates, and delete-account — their channel constants live on in shared/
+ * under the additive rule.
  */
 export function registerAuthHandlers(): void {
   // Not "who are you" — an anonymous account has no name or email to answer
@@ -39,5 +50,24 @@ export function registerAuthHandlers(): void {
   // The Settings meter's numbers (Pro's Thorough allowance). Display only.
   ipcMain.handle(IPC.AUTH_GET_THOROUGH, async (): Promise<AuthGetThoroughResponse> => {
     return { thorough: await fetchThoroughAllowance() }
+  })
+
+  // Resolves once the browser has come back and a session exists — or rejects
+  // with a message written for the person who clicked. The signed-in user also
+  // arrives through AUTH_STATE_CHANGED, which is what the plan re-reads on.
+  ipcMain.handle(IPC.AUTH_SIGN_IN_WITH_GOOGLE, async (): Promise<AuthSignInWithGoogleResponse> => {
+    await signInWithGoogle()
+    return { ok: true }
+  })
+
+  // This computer only — see signOutHere for why never global.
+  ipcMain.handle(IPC.AUTH_SIGN_OUT, async (): Promise<AuthSignOutResponse> => {
+    await signOutHere()
+    return { ok: true }
+  })
+
+  ipcMain.handle(IPC.AUTH_REFRESH, async (): Promise<AuthRefreshResponse> => {
+    await refreshAccount()
+    return { ok: true }
   })
 }

@@ -11,6 +11,9 @@ import type {
   AuthGetUserResponse,
   CitationFindCitedWorkRequest,
   CitationFindCitedWorkResponse,
+  AuthRefreshResponse,
+  AuthSignInWithGoogleResponse,
+  AuthSignOutResponse,
   CitationGenerateRequest,
   CitationGenerateResponse,
   CitationListRequest,
@@ -204,16 +207,21 @@ const api = {
     get: (): Promise<ProfileGetResponse> => ipcRenderer.invoke(IPC.PROFILE_GET, {}),
     set: (req: ProfileSetRequest): Promise<ProfileSetResponse> => ipcRenderer.invoke(IPC.PROFILE_SET, req)
   },
-  // There is no sign-in in this app. The session behind these two is
-  // anonymous and created without asking (main/services/auth/client.ts), so
-  // nothing here can start or end one — `getUser` reports only that one
-  // exists, and `getPlan` is what the model-tier rows read.
+  // Optional Google sign-in (main/services/auth/googleSignIn.ts). Signed out,
+  // the app is a free install; signed in, it runs on that account's plan.
   auth: {
     getUser: (): Promise<AuthGetUserResponse> => ipcRenderer.invoke(IPC.AUTH_GET_USER, {}),
     /** Which plan this account is on. Never throws, never answers above free. */
     getPlan: (): Promise<AuthGetPlanResponse> => ipcRenderer.invoke(IPC.AUTH_GET_PLAN, {}),
     /** Pro's Thorough allowance for the Settings meter. Never throws; null when unknown. */
-    getThorough: (): Promise<AuthGetThoroughResponse> => ipcRenderer.invoke(IPC.AUTH_GET_THOROUGH, {})
+    getThorough: (): Promise<AuthGetThoroughResponse> => ipcRenderer.invoke(IPC.AUTH_GET_THOROUGH, {}),
+    /** Opens the browser; resolves when the browser comes back signed in. */
+    signInWithGoogle: (): Promise<AuthSignInWithGoogleResponse> =>
+      ipcRenderer.invoke(IPC.AUTH_SIGN_IN_WITH_GOOGLE, {}),
+    /** This computer only. */
+    signOut: (): Promise<AuthSignOutResponse> => ipcRenderer.invoke(IPC.AUTH_SIGN_OUT, {}),
+    /** Re-read the account now, e.g. right after buying a plan. */
+    refresh: (): Promise<AuthRefreshResponse> => ipcRenderer.invoke(IPC.AUTH_REFRESH, {})
   },
   history: {
     clear: (req: HistoryClearRequest): Promise<HistoryClearResponse> =>

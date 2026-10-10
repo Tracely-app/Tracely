@@ -37,7 +37,12 @@ export function getSupabase(): ReturnType<typeof createClient> {
       storage: fileSessionStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false
+      detectSessionInUrl: false,
+      // Google sign-in comes back as a one-time CODE on the loopback redirect
+      // (googleSignIn.ts), and exchangeCodeForSession only exists in the PKCE
+      // flow. The verifier it needs is kept in fileSessionStorage between the
+      // two halves, so the same client must start and finish a sign-in.
+      flowType: 'pkce'
     }
   })
   client.auth.onAuthStateChange((_event, session) => {
@@ -107,15 +112,18 @@ export async function ensureAnonymousSession(): Promise<void> {
 }
 
 /**
- * An anonymous account has no email, no name and no username — there is no
- * sign-up form to have collected them and no provider to have supplied them.
- * The id is the whole of it, and it is the only field anything reads: the
- * renderer uses this to know a session exists at all, and the relay attributes
- * spend by the id inside the JWT rather than by anything sent from here.
+ * The account as the renderer sees it: its id, and the email Google supplied.
+ *
+ * `email` is what tells the Billing panel whether someone has SIGNED IN (a
+ * Google account always has one) or is merely holding the anonymous session
+ * this app creates when the project allows it (which has none). The id is what
+ * an upgrade link carries so the purchase attaches to this account.
  */
 export function toAuthUser(user: User | null): AuthUser | null {
   if (!user) return null
-  return { id: user.id, email: null, firstName: null, username: null }
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>
+  const name = typeof meta.full_name === 'string' ? meta.full_name : typeof meta.name === 'string' ? meta.name : null
+  return { id: user.id, email: user.email ?? null, firstName: name ? name.split(' ')[0] : null, username: null }
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
