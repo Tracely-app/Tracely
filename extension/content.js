@@ -2062,7 +2062,7 @@
     const list = Array.isArray(unread) ? unread.filter(Boolean) : [];
     if (!list.length) return "";
     const rows = open ? list.map((src) => `
-        <div class="src src-unread-row">
+        <div class="src src-unread-row" role="listitem">
           <div class="src-body">
             <span class="src-title">${esc(src.title || src.url)}</span>
             <div class="src-meta">${esc(src.publisher || "")}</div>
@@ -3047,7 +3047,7 @@
   }
   function citedWorkHtml(c, actionsFor, more = "") {
     if (!c) return "";
-    if (c.loading) return `<div class="sources"><div class="loading">${esc(CITED_COPY.looking)}</div></div>`;
+    if (c.loading) return `<div class="sources"><div class="loading"><span class="deep-spin" aria-hidden="true"></span>${esc(CITED_COPY.looking)}</div></div>`;
     if (!c.resolved) {
       return `<div class="sources"><div class="sources-title">${esc(CITED_COPY.one)}</div><div class="loading">${esc(c.note)}</div>`
         + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${c.target?.segHash ? `<div class="src-snip">${esc(CITED_COPY.fallback)}</div>` : ""}</div>`;
@@ -3056,7 +3056,7 @@
       const meta = citedMetaLine(src);
       const yn = citedYearNote(src.year, c.plan?.citedYear);
       return `
-        <div class="src" data-cited-row="${i}">
+        <div class="src" role="listitem" data-cited-row="${i}">
           <div class="src-body">
             ${src.url ? `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>` : `<span class="src-title">${esc(src.title)}</span>`}
             ${meta ? `<div class="src-meta">${esc(meta)}</div>` : ""}
@@ -3066,7 +3066,7 @@
         </div>`;
     }).join("");
     const by = c.byAuthor;
-    return `<div class="sources"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
+    return `<div class="sources" role="list"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
       + `<div class="src-snip">${esc(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
       + `${by?.offClaim?.length ? `<div class="src-snip"><b>${esc(CITED_COPY.offClaim(by.offClaim))}</b></div>` : ""}`
       + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
@@ -3768,6 +3768,8 @@
     .src-snip { font-size: 12px; line-height: 1.5; color: var(--muted); }
     .src-snip b { font-weight: 600; color: var(--ink); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    /* "Find a different source" under the cited-work rows: a secondary, at the small size. */
+    .sources > .row .act { height: 28px; padding: 0 10px; font-size: 12px; }
     /* The receipt: the source's own words, and where they were read. */
     .src-says { font-size: 12px; line-height: 1.5; color: var(--ink); margin-top: 2px; user-select: text; }
     .src-from { font-size: 11px; line-height: 1.5; color: var(--label); margin-top: 2px; }
@@ -6988,7 +6990,7 @@
     }
     // The panel's card while the search runs: the stage, and the sites' icons.
     function liveSourcesHtml(live) {
-      const line = `<div class="loading">${esc(liveTitle(live))}…</div>`;
+      const line = `<div class="loading"><span class="deep-spin" aria-hidden="true"></span>${esc(liveTitle(live))}…</div>`;
       if (!live?.found?.length) return line;
       const icons = live.found.map((src) => {
         const state = liveState(live, src.url);
@@ -9571,11 +9573,11 @@
           if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"${st.unreadOpen && st.unread?.length ? ' role="list"' : ""}><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
+            sourcesHtml = `<div class="sources" role="list"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
-                <div class="src">
+                <div class="src" role="listitem">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
@@ -10940,13 +10942,13 @@
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
           if (st?.loading) {
-            sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+            sourcesHtml = `<div class="sources"><div class="loading"><span class="deep-spin" aria-hidden="true"></span>Searching the web for sources…</div></div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"${st.unreadOpen && st.unread?.length ? ' role="list"' : ""}><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
+            sourcesHtml = `<div class="sources" role="list"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
-                <div class="src">
+                <div class="src" role="listitem">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
