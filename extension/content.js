@@ -3863,6 +3863,9 @@
     .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
     button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
     .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    /* The two text links outside the source rows ("See plans" under a locked
+       deep dive, the consent foot's privacy link): the same ring, as .src a. */
+    .deep-note a:focus-visible, .foot a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
     .list { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
     .list::-webkit-scrollbar { width: 8px; }
     .list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid var(--surface); }
