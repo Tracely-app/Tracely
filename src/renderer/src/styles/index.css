@@ -827,7 +827,7 @@ textarea:disabled {
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-ctl);
   background: transparent;
   font: inherit;
   font-size: 13px;
@@ -846,6 +846,13 @@ textarea:disabled {
 
 .docedit-toolbtn:active {
   background: var(--pressed);
+}
+
+/* A menu trigger (Align, Share, More) stays pressed while its menu is open,
+   as the Font and Size triggers do. */
+.docedit-toolbtn[aria-expanded='true'] {
+  background: var(--pressed);
+  color: var(--text);
 }
 
 /* A formatting toggle has to read as pressed at a glance, so "on" is the solid
@@ -900,7 +907,7 @@ textarea:disabled {
   height: 28px;
   padding: 0 6px 0 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-ctl);
   background: transparent;
   font: inherit;
   font-size: 12px;
@@ -924,12 +931,14 @@ textarea:disabled {
   background: var(--hover);
 }
 
+/* The label ellipsizes, so the font menu can stay narrow and leave the room
+   to the formatting buttons at the default 898px window. */
 .docedit-fontname {
-  width: 110px;
+  width: 88px;
 }
 
 .docedit-fontsize {
-  width: 56px;
+  width: 52px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -969,6 +978,11 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* A scroller clips both axes, so 4px of padding (taken back by the
+     margin) keeps the 2px focus ring at 2px offset inside the clip. */
+  padding: 4px;
+  margin: -4px 0;
+  scroll-padding-inline: 4px;
   overflow-x: auto;
   /* No scrollbar track through the middle of a 44px toolbar. The group is
      scrolled with the wheel or by dragging, like every other overflow row in
@@ -980,6 +994,38 @@ textarea:disabled {
   display: none;
 }
 
+/* Controls past the right edge fade out rather than being sliced in half,
+   which also says the group scrolls. */
+.docedit-tools[data-overflow] {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+}
+
+/* Below 1180px the decorative document glyph goes, and "Saved" collapses to
+   its check (the word stays in the live region for screen readers), so the
+   formatting buttons keep their room. */
+@media (max-width: 1179px) {
+  .docedit-toolbar > .docedit-icon {
+    display: none;
+  }
+  .docedit-toolbar .docedit-savestate {
+    min-width: 0;
+  }
+  .docedit-savestate-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.docedit-savestate:empty {
+  margin-left: 0;
+  padding: 0;
+}
+
 /* The toolbar's one primary. 4px of margin on top of the row's 4 gap: two
    text buttons 4 apart put Tracer's 2px-offset focus ring on this one's edge. */
 .docedit-insights {
@@ -988,8 +1034,8 @@ textarea:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 14px;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
   border: 0;
   border-radius: var(--r-ctl);
   background: var(--accent);
@@ -1880,21 +1926,21 @@ textarea:disabled {
   font-weight: 600;
 }
 
-/* What year the document is graded against, beside the word count. Quieter
-   than the word count (24 to its 28): a property with a way to change it. */
+/* What year the document is graded against, beside the word count. The same
+   chip as the word count; the quieter prefix carries the difference. */
 .docedit-gradelevel {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  height: 24px;
-  padding: 0 8px;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   font: inherit;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
@@ -5398,6 +5444,14 @@ textarea:disabled {
   color: var(--accent);
 }
 
+.toolbar-menu-item.danger {
+  color: var(--danger);
+}
+
+.toolbar-menu-item.danger:hover:not(:disabled) {
+  background: var(--score-low-wash);
+}
+
 .toolbar-menu-item:disabled {
   color: var(--label);
   cursor: not-allowed;
@@ -5412,36 +5466,9 @@ textarea:disabled {
   display: inline-flex;
 }
 
-/* The formatting group is a horizontal scroller, and a scroller clips both
-   axes — so the five menus hanging from it (font, size, align, share, more)
-   opened INSIDE the 44px row and were never visible. Fixed with auto insets
-   puts each at its static place (the trigger's top-left, scroll included) but
-   out of the scroller's clip; the margin drops it 6px below the 28px trigger.
-   `!important` only beats ToolbarMenu's inline left/right: 0, which would
-   otherwise pin it to the window edge. Right-hung menus (share, more) shift
-   back by their own width less the 28px trigger. Position only — the menu's
-   look stays `.toolbar-menu`'s. */
-.docedit-tools .toolbar-menu {
-  position: fixed;
-  top: auto;
-  left: auto !important;
-  right: auto !important;
-  margin-top: 34px;
-  /* A fixed box's static position ignores the scroller's offset; AnalyzeView
-     publishes it as --tools-scroll on scroll so the menu stays under its
-     trigger when the group has been scrolled. */
-  margin-left: calc(-1 * var(--tools-scroll, 0px));
-}
-
-.docedit-tools .toolbar-menu[style*='right'] {
-  transform: translateX(calc(-100% + 28px));
-}
-
-/* The word count sits at the foot of the page, so its menu opens upward. */
-.docedit-wordcount .toolbar-menu {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
+/* The five toolbar menus and the word-count menu place themselves:
+   ToolbarMenu writes viewport-fixed top/left from its trigger (flipping above
+   it when there is no room below), so no rule here offsets them. */
 
 /* The word-count chip is a menu trigger (234:85); its recipe is with the
    status row, under `.docedit-status`. */
@@ -7361,7 +7388,7 @@ textarea:disabled {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  height: 32px;
+  height: var(--ctl-h-sm);
   padding: 0 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-ctl);
