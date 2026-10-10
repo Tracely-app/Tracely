@@ -2174,7 +2174,10 @@
     }
     return true;
   }
-  const MARK_IN_MS = 260, MARK_OUT_MS = 180, MARK_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  /* Draw-in at most 240ms, fade-out at most 160ms, the wash on the marks'
+     110ms (MARK_BAND_TRANSITION's opacity) — the shared motion scale. */
+  const MARK_IN_MS = 240, MARK_OUT_MS = 160, MARK_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  const MARK_WASH_MS = 110;
   /* A new underline draws itself in from the left, like a pen stroke.
      Chromium freezes animations on a page that is not painting, and this one
      holds the mark invisible until it runs — so a timer cancels it, and the
@@ -4939,16 +4942,16 @@
       // Vertical spine with a rounded elbow into a short arrow at the foot.
       g.appendChild(svgEl("path", {
         d: `M ${bx} ${top + r} L ${bx} ${bot - r} Q ${bx} ${bot} ${bx + r} ${bot} L ${bx + r * 1.5} ${bot}`,
-        fill: "none", stroke: FLOW_COLOR, "stroke-width": Math.max(1.2, lh * 0.075),
+        fill: "none", stroke: MARK_PENDING, "stroke-width": Math.max(1.2, lh * 0.075),
         "stroke-linecap": "round", "stroke-linejoin": "round",
       }));
       g.appendChild(svgEl("path", {
         d: `M ${bx + r * 0.9} ${bot - r * 0.5} L ${bx + r * 1.7} ${bot} L ${bx + r * 0.9} ${bot + r * 0.5} Z`,
-        fill: FLOW_COLOR,
+        fill: MARK_PENDING,
       }));
       // Badge: filled disc at the head of the bracket with a flow glyph.
       const cy = f.top + lh * 0.42, cr = lh * 0.62;
-      g.appendChild(svgEl("circle", { cx: bx, cy, r: cr, fill: FLOW_COLOR }));
+      g.appendChild(svgEl("circle", { cx: bx, cy, r: cr, fill: MARK_PENDING }));
       g.appendChild(svgEl("path", {
         d: `M ${bx - cr * 0.5} ${cy + cr * 0.08} q ${cr * 0.25} ${-cr * 0.55} ${cr * 0.5} 0 q ${cr * 0.25} ${cr * 0.55} ${cr * 0.5} 0`,
         fill: "none", stroke: "#fff", "stroke-width": Math.max(1, cr * 0.22),
@@ -4956,9 +4959,9 @@
       }));
       // Right-margin chip — dot plus label, aligned to the first line.
       const chipX = (f.colRight ?? f.right) + lh * 0.9, chipY = f.top + lh * 0.62;
-      g.appendChild(svgEl("circle", { cx: chipX, cy: chipY - lh * 0.2, r: Math.max(2, lh * 0.13), fill: FLOW_ACCENT }));
+      g.appendChild(svgEl("circle", { cx: chipX, cy: chipY - lh * 0.2, r: Math.max(2, lh * 0.13), fill: MARK_PENDING }));
       const label = svgEl("text", {
-        x: chipX + lh * 0.42, y: chipY, fill: FLOW_ACCENT,
+        x: chipX + lh * 0.42, y: chipY, fill: MARK_PENDING,
         "font-size": lh * 0.62, "font-family": "Arial, Helvetica, sans-serif", "font-weight": "500",
       });
       label.textContent = "Flow issue";
@@ -5041,7 +5044,7 @@
       el.style.opacity = op;
       if (markReducedMotion() || typeof el.animate !== "function") return;
       try {
-        const anim = el.animate([{ opacity: from }, { opacity: op }], { duration: 120, easing: "ease" });
+        const anim = el.animate([{ opacity: from }, { opacity: op }], { duration: MARK_WASH_MS, easing: "ease" });
         setTimeout(() => anim.cancel(), 400);
       } catch { /* it simply changes */ }
     }
@@ -10135,7 +10138,8 @@
       if (overlayEl && overlayEl.isConnected) return overlayEl;
       overlayEl = document.createElement("div");
       overlayEl.id = "tracely-marks";
-      Object.assign(overlayEl.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483646" });
+      // contain: layout — the page's own layout never has to look inside it.
+      Object.assign(overlayEl.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483646", contain: "layout" });
       document.documentElement.appendChild(overlayEl);
       return overlayEl;
     }
@@ -10351,7 +10355,7 @@
       card.scrollIntoView({ block: "nearest" });
       card.classList.add("flash");
       clearTimeout(flashTimer);
-      flashTimer = setTimeout(() => card.classList.remove("flash"), 1300);
+      flashTimer = setTimeout(() => card.classList.remove("flash"), 1000); // the 900ms .card.flash, and a beat
     }
 
     /* Hot path: this fires on every pointer move the page sees. It leaves
