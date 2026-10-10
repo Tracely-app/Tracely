@@ -801,10 +801,13 @@ textarea:disabled {
      title still sat at 134px of its 150. There is no ordering primitive in
      flexbox; a lopsided weight is how you say "this one first". */
   flex-shrink: 1000;
-  /* 160 now that "Share" and "•••" are 28px icon buttons: the formatting group
-     is ~90px narrower than when 76 was measured, so the title keeps a readable
-     floor and "AI Insights" still clears the window controls. */
-  min-width: 160px;
+  /* The floor is a trade against the formatting group, which scrolls at the
+     default 898 whatever this is (its content is ~440px; there is ~300 left).
+     Measured: at 160 only Font, Size and B stay visible; at 96 B, U and I
+     do, whole, with "Saved" showing, and the title still reads "Untitled d…"
+     (full on hover/focus). From ~1180 up nothing shrinks and the title gets
+     its full 220. */
+  min-width: 96px;
 }
 
 .docedit-name::placeholder {
@@ -1690,7 +1693,8 @@ textarea:disabled {
 
 .docedit-body:empty::before {
   content: attr(data-placeholder);
-  color: #a1a1a1;
+  color: var(--label);
+  font-size: 15px;
   pointer-events: none;
 }
 
@@ -1698,55 +1702,181 @@ textarea:disabled {
   outline: none;
 }
 
-.docedit-wordcount {
+/* The status row, floating over the foot of the page: word count, grading
+   level, the underline legend once there are marks, and the evidence sweep's
+   progress while it runs. Every item is in the flow, so nothing can land on
+   top of anything else; `wrap-reverse` sends whatever does not fit to a line
+   ABOVE the word count rather than off the bottom of the window. The row
+   itself takes no pointer events, so the gaps between pills stay part of the
+   page; the pills take them back. */
+.docedit-status {
   position: absolute;
-  left: 23px;
+  left: 24px;
+  right: 24px;
   bottom: 16px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.docedit-status > * {
+  pointer-events: auto;
+}
+
+/* The chip recipe lives on the trigger so its focus ring follows the shape;
+   the wrapper (also `.docedit-menu-wrap`) only positions the menu. */
+.docedit-wordcount {
+  flex-shrink: 0;
+}
+
+.docedit-wordcount-trigger {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: #4d4d4d;
-  -webkit-app-region: no-drag;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
-.docedit-wordcount b {
-  color: #212121;
+.docedit-wordcount-trigger:hover,
+.docedit-wordcount-trigger[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.docedit-wordcount-trigger b {
+  color: var(--text);
   font-weight: 600;
 }
 
-/* `.docedit-wordcount` is position:absolute with a solid white background,
-   pinned bottom-left — and a positioned element paints over a static sibling
-   regardless of DOM order. This <p> is that static sibling, so the first ~80px
-   of every failure message ("Relay request failed: …") rendered underneath the
-   badge and the error read as truncated nonsense, or as nothing happening at
-   all. `.docedit-results` already solves this for itself with position+z-index;
-   this needs the same, plus left room so short messages clear the badge. */
+/* What year the document is graded against, beside the word count. Quieter
+   than the word count (24 to its 28): a property with a way to change it. */
+.docedit-gradelevel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.docedit-gradelevel:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.docedit-gradelevel-prefix {
+  font-weight: 400;
+  color: var(--label);
+}
+
+/* What the underlines mean, once there are any. Samples are 24x2 and drawn
+   with the marks' own patterns: solid 2, dashed 2, double 3 (1+1+1). On a
+   surface fill so prose scrolling under the row cannot run through it. */
+.docedit-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: var(--ctl-h-sm);
+  padding: 0 8px;
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--label);
+  white-space: nowrap;
+}
+
+.docedit-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docedit-legend-line {
+  flex-shrink: 0;
+  width: 24px;
+  height: 0;
+  border-bottom: 2px solid currentColor;
+}
+
+.docedit-legend-line.dashed {
+  border-bottom-style: dashed;
+}
+
+.docedit-legend-line.double {
+  border-bottom: 3px double currentColor;
+}
+
+/* The evidence sweep's progress: the word count's chip recipe with the one
+   spinner before the text. Status, not an alert; it goes away on its own. In
+   the row's flow rather than centred over it, where it landed on the legend
+   whenever marks were already drawn mid-sweep. */
+.docedit-checking {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.docedit-checking .spinner-row {
+  margin: 0;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* Errors and notices under the page. In the flow at the foot of
+   `.docedit-main`, with 56px below them so they sit clear of the status row
+   floating over the bottom 16 + 28 + a 12px breath. */
 .docedit-error {
   position: relative;
   z-index: 1;
-  padding: 10px 24px 10px 130px;
   margin: 0;
+  padding: 8px 24px;
 }
 
-.docedit-results {
-  /* Sits above .docedit-wordcount (see below) — a position:absolute element
-     always paints above a static sibling regardless of DOM order, so
-     without this the pinned-bottom-left word count floated over whatever
-     part of the claims/evidence panel landed underneath it. */
-  position: relative;
-  z-index: 1;
-  background: var(--surface);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  max-height: 220px;
-  overflow-y: auto;
-  padding: 16px 24px;
-  -webkit-app-region: no-drag;
+.docedit-error:last-of-type {
+  margin-bottom: 56px;
 }
+
+/* `.docedit-results`, the ClaimCard panel under the page, stood here. Nothing
+   renders it any more (see the note at the foot of AnalyzeView's editor). */
 
 /* --- Buttons: one recipe ---------------------------------------------------
    Secondary is the base: 36px, radius 8, 1px border-strong on surface, 14/500.
@@ -3295,7 +3425,8 @@ textarea:disabled {
   padding: 0 4px;
   /* 8 + the toolbar's 4 = 12 between the formatting group and the actions. */
   margin-left: 8px;
-  min-width: 46px;
+  /* Wide enough for "✓ Saved" and "Saving…", so neither shifts the row. */
+  min-width: 56px;
 }
 
 .docedit-savestate svg {
@@ -4753,19 +4884,8 @@ textarea:disabled {
   display: inline-flex;
 }
 
-/* The word-count chip is a menu trigger now (234:85), so the chip's own
-   styling moves onto the button and the wrapper only positions. */
-.docedit-wordcount-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
+/* The word-count chip is a menu trigger (234:85); its recipe is with the
+   status row, under `.docedit-status`. */
 
 /* Visually hidden, still announced. */
 .sr-only {

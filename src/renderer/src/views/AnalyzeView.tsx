@@ -2347,6 +2347,7 @@ function DocumentEditor({
             />
           ) : null}
         </div>
+        <div className="docedit-divider" aria-hidden="true" />
         <button
           className={`docedit-toolbtn bold ${format.bold ? 'active' : ''}`}
           aria-pressed={format.bold}
@@ -2435,6 +2436,7 @@ function DocumentEditor({
             />
           ) : null}
         </div>
+        <div className="docedit-divider" aria-hidden="true" />
 
         {/* Share — 234:67. Every row is dead, and says why on hover. Tracely is
             local-first: the document exists in one SQLite file on this machine,
