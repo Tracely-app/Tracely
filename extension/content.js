@@ -3644,10 +3644,11 @@
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 10px 12px;
+      border-radius: var(--r-btn); padding: 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
-    .deep-row { margin: -2px 0 0; }
+    .deep-row { margin: 0; }
+    .deep-row .deep-note { margin-top: 6px; }
     .deep-btn {
       display: inline-flex; align-items: center; height: 32px; padding: 0 12px; line-height: 1;
       background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -3663,35 +3664,37 @@
       border-radius: var(--r-chip); background: var(--accent-wash); color: var(--accent-ink);
       font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
+    /* Every inset's label: the panel's one small-caps recipe. */
     .deep-label, .fix-label, .sources-title {
-      font-size: 11px; font-weight: 600; color: var(--label); letter-spacing: .01em;
+      font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label);
+      text-transform: uppercase; letter-spacing: .04em;
     }
     .deep .badge { align-self: flex-start; }
     .deep-prefix { font-size: 13px; font-weight: 600; color: var(--ink); }
-    .deep-sub { margin-top: 6px; }
-    .deep .row { margin-top: 4px; }
-    .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
-    .fix-text { white-space: normal; }
-    .deep-note { font-size: 11px; color: var(--label); }
+    .deep-sub { margin-top: 8px; }
+    /* The suggested text reads in ink (it is what goes into the writing); the
+       fuller answer's prose is muted, like a card's reason. */
+    .deep-text, .fix-text { font-size: 13px; line-height: 1.5; color: var(--muted); white-space: pre-line; }
+    .fix-text { color: var(--ink); white-space: normal; }
+    .deep-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .deep-note.err { color: var(--danger); }
-    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
-    .deep-note a:hover { text-decoration: underline; }
-    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--body); }
-    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
+    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+    .deep-note a:hover { text-decoration-thickness: 2px; }
+    /* Progress is not a finding: an ink arc on the border grey. */
+    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--ink); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     /* A card's actions sit at their own width, the one it asks for first and
        filled: a full-width bar per button outweighed the advice. */
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
     .row > button.act { flex: 0 0 auto; }
-    .edit-note { font-size: 11px; color: var(--label); }
+    .edit-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
       border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
     }
-    .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
     .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
@@ -3812,7 +3815,7 @@
       to { opacity: 1; transform: none; }
     }
     @media (prefers-reduced-motion: reduce) { .panel.opening { animation: none; } }
-    .card.flash { animation: tracely-flash 1.2s ease-out; }
+    .card.flash { animation: tracely-flash 900ms ease-out; }
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px var(--ring); }
       100% { box-shadow: none; }
