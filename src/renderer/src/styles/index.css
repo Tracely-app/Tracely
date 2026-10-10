@@ -1624,32 +1624,53 @@ textarea:disabled {
 .docmark-styles {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .docmark-styles-label {
+  margin-right: 4px;
   font-size: 12px;
   font-weight: 500;
-  color: #737373;
+  color: var(--muted);
 }
 
+/* The chip recipe at the style-pill size: 26px, 12px; on = ink. */
 .docmark-style-pill {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 999px;
-  padding: 5px 11px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 400;
-  color: #737373;
-  background: #fff;
-  border: 1px solid #e0e0e0;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.docmark-style-pill:not(.on):hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.docmark-style-pill:not(.on):active {
+  background: var(--pressed);
 }
 
 .docmark-style-pill.on {
   font-weight: 600;
-  color: #fff;
-  background: #1c1c1c;
-  border-color: #1c1c1c;
+  color: var(--ink-contrast);
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
 /* What a marker would make of a source — see shared/sourceCredibility.ts.
@@ -1662,27 +1683,32 @@ textarea:disabled {
    accusation, which is the same mistake the cited-source block avoids. */
 .docmark-cred {
   align-self: flex-start;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 999px;
-  padding: 2px 7px;
-  margin-top: 3px;
-  background: #eef7f0;
-  color: #16a34a;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--score-good-wash);
+  color: var(--score-good);
   white-space: nowrap;
 }
 
 .docmark-cred-unvetted {
-  background: #f2f2f3;
-  color: #737373;
+  background: var(--hover);
+  color: var(--muted);
 }
 
 .docmark-block {
   width: 100%;
   box-sizing: border-box;
-  background: #f8f8f8;
-  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -1690,35 +1716,35 @@ textarea:disabled {
 }
 
 .docmark-block-label {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  color: #9a9ba1;
-  letter-spacing: 0.6px;
+  color: var(--label);
+  letter-spacing: 0.04em;
 }
 
 .docmark-block-marker {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
-  color: #1c1c1c;
+  color: var(--text);
 }
 
 .docmark-block-body {
   font-size: 12px;
-  line-height: 1.4;
-  color: #737373;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 /* The cited-source block inside a Compare Sources card. Reuses .docmark-block
    wholesale — it is the same grey panel the citation preview draws in — and
    adds only the three things that panel has no equivalent for. */
 .docmark-cited-title {
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: #1c1c1c;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
 }
 
 .docmark-cited-ok {
-  color: #16a34a;
+  color: var(--score-good);
   font-weight: 600;
 }
 
@@ -1726,7 +1752,7 @@ textarea:disabled {
    behind it hold journal articles and books and nothing else — so the mark that
    sits beside it must not read as one. */
 .docmark-cited-miss {
-  color: #9a9ba1;
+  color: var(--label);
   font-weight: 600;
 }
 
@@ -1749,12 +1775,12 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
 .docmark-resolved-yes {
-  color: #16a34a;
+  color: var(--score-good);
   font-weight: 500;
 }
 
@@ -1772,7 +1798,7 @@ textarea:disabled {
 .docmark-fix-quote {
   font-size: 13px;
   line-height: 1.45;
-  color: #1c1c1c;
+  color: var(--text);
   /* Selectable, so a writer who wants to paste it somewhere else can, and so
      Apply failing is inconvenient rather than a dead end. */
   user-select: text;
@@ -1796,7 +1822,7 @@ textarea:disabled {
 .docmark-fix-issue-title {
   font-size: 13px;
   font-weight: 500;
-  color: #1c1c1c;
+  color: var(--text);
   margin-bottom: 2px;
 }
 
