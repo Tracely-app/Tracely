@@ -2788,22 +2788,33 @@ textarea:disabled {
 }
 
 .settings-static-value {
-  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  height: var(--ctl-h);
+  padding: 0 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-static-value-good {
-  color: #00a63e;
+  color: var(--score-good);
 }
 
 /* The Figma Settings frames end each panel with one tall read-only box
    (Recent login activity, Available integrations, Billing history). */
 .settings-static-value-block {
+  height: auto;
   min-height: 100px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  white-space: normal;
 }
 
 .accent-swatch-row {
@@ -3302,9 +3313,9 @@ textarea:disabled {
    Tokens only: this panel is read in both themes and a card built out of
    literal greys is the thing the dark-mode pass had to go back and undo. */
 .settings-plan-card {
-  padding: 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
   background: var(--surface-2);
   margin-bottom: 12px;
 }
@@ -3320,46 +3331,56 @@ textarea:disabled {
   font-family: var(--font-display);
   font-size: 20px;
   font-weight: 500;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .settings-plan-price {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Says which plan is being described, not that anything is wrong — so it takes
    the accent wash rather than a status colour. */
 .settings-plan-badge {
   flex-shrink: 0;
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   border: 1px solid var(--accent-border);
   border-radius: 999px;
   background: var(--accent-wash);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  line-height: 1;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
 }
 
 .settings-plan-includes {
   list-style: none;
-  margin: 14px 0 0;
+  margin: 16px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .settings-plan-includes li {
   position: relative;
   padding-left: 16px;
-  font-size: 12.5px;
-  color: var(--muted-2);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
+/* Centred on the first line: (19.5px line - 6px dot) / 2. */
 .settings-plan-includes li::before {
   content: '';
   position: absolute;
@@ -3377,9 +3398,9 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--surface-2);
   margin-bottom: 12px;
 }
@@ -3388,8 +3409,8 @@ textarea:disabled {
   min-width: 0;
 }
 
-/* The panel is 620px wide and the sentence beside it is two lines long, so
-   without this the button wraps to "See / plans". */
+/* The sentence beside it runs two lines, so without this the button would
+   wrap to "See / plans". .btn is already 36px and flex-shrink 0. */
 .settings-plan-upgrade .btn {
   flex-shrink: 0;
   white-space: nowrap;
@@ -4754,14 +4775,14 @@ textarea:disabled {
 
 /* The one line that says why a Figma-accurate settings page cannot be used. */
 .settings-unavailable-note {
-  margin: 0 0 18px;
-  padding: 10px 12px;
+  margin: 0 0 24px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   background: var(--surface-2);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--muted-2);
+  color: var(--muted);
 }
 
 .settings-static-value.is-unavailable {
