@@ -4787,9 +4787,10 @@ textarea:disabled {
 
 /* ---- Document toolbar menus (Figma 226:95 / 226:104 / 234:46 / 234:67 /
    234:74 / 234:85) — chrome read off 226:95 with get_design_context. ------- */
+/* Fixed, with top/left set by ToolbarMenu.tsx from its trigger — see there
+   for why it cannot hang absolutely inside the scrolling tool group. */
 .toolbar-menu {
-  position: absolute;
-  top: calc(100% + 6px);
+  position: fixed;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -6521,6 +6522,9 @@ textarea:disabled {
   max-width: calc(100vw / var(--app-zoom, 1) - 40px);
   height: 627px;
   max-height: calc(100vh / var(--app-zoom, 1) - 40px);
+  /* The edge is what separates it from Home in dark, where the shadow is
+     invisible on a near-black page of the same var(--bg). */
+  border: 1px solid var(--border);
   border-radius: var(--r-card);
   background: var(--bg);
   box-shadow: var(--shadow-lg);

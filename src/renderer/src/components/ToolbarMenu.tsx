@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 
 /**
  * The document toolbar's dropdown menus — Figma 226:95 (Font), 226:104
@@ -42,6 +42,43 @@ export default function ToolbarMenu({
   onClose: () => void
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState<CSSProperties>({ visibility: 'hidden' })
+
+  // Placed in viewport coordinates (`position: fixed`) against its trigger's
+  // wrapper. Hung absolutely inside that wrapper it was clipped: the toolbar's
+  // tool group scrolls horizontally (`overflow-x: auto`, which makes the other
+  // axis clip too), so the font, size and align menus rendered invisibly, and
+  // the word-count chip's menu ran off the bottom of the window. It opens
+  // below the trigger and flips above when there is no room. Rects are in
+  // zoomed pixels and `top`/`left` are multiplied by the root zoom
+  // (Settings > Font size), hence the division by --app-zoom.
+  useLayoutEffect(() => {
+    const menu = ref.current
+    const anchor = menu?.parentElement
+    if (!menu || !anchor) return
+    function reposition(): void {
+      if (!menu || !anchor) return
+      const zoom =
+        parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom')) || 1
+      const a = anchor.getBoundingClientRect()
+      const h = menu.getBoundingClientRect().height / zoom
+      const vw = window.innerWidth / zoom
+      const vh = window.innerHeight / zoom
+      const below = a.bottom / zoom + 6
+      const top = below + h <= vh - 8 ? below : Math.max(8, a.top / zoom - 6 - h)
+      const edge = align === 'right' ? a.right / zoom - width : a.left / zoom
+      const left = Math.min(Math.max(8, edge), Math.max(8, vw - width - 8))
+      setPlace({ top, left })
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    // Capture, so a scroll of the tool group (or any ancestor) moves it too.
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [align, width])
 
   // Click-away and Escape. Pointerdown rather than click so it closes before
   // the editor takes focus back and the caret jumps.
@@ -64,7 +101,7 @@ export default function ToolbarMenu({
     <div
       ref={ref}
       className="toolbar-menu"
-      style={{ width, [align]: 0 }}
+      style={{ width, ...place }}
       role="menu"
       // The editor is a contentEditable; letting these buttons take focus
       // would collapse the selection the command is about to act on.
