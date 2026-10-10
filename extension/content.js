@@ -3794,15 +3794,23 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
-    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .foot { margin: 0 24px; padding: 10px 0 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    /* The footer's switch is a ghost button — the quiet action of the panel —
+       unless it turns the site ON, which is the panel's one ink primary. */
+    .foot .act { border-color: transparent; background: none; color: var(--muted); font-weight: 500; flex-shrink: 0; }
+    .foot button.act:hover:not([disabled]) { background: var(--surface-2); border-color: transparent; color: var(--text); }
+    .foot button.act:active:not([disabled]) { background: var(--chip-wash); color: var(--text); }
+    .foot .act.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .foot button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
+    .foot button.act.primary:active:not([disabled]) { background: #000; border-color: #000; color: #fff; }
     /* The panel eases up out of the pill when it opens (re-renders while it
-       stays open don't replay it). Reduced motion: it just appears. */
-    .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
+       stays open don't replay it). Reduced motion (the primitives block at
+       the end of this sheet): it just appears. */
+    .panel.opening { animation: tracely-panel-in 160ms cubic-bezier(.2,.8,.2,1) both; transform-origin: 100% 100%; }
     @keyframes tracely-panel-in {
-      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      from { opacity: 0; transform: translateY(8px) scale(.98); }
       to { opacity: 1; transform: none; }
     }
-    @media (prefers-reduced-motion: reduce) { .panel.opening { animation: none; } }
     .card.flash { animation: tracely-flash 1.2s ease-out; }
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px var(--ring); }
