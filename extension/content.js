@@ -3562,6 +3562,9 @@
       background: var(--surface); border-top: 1px solid var(--border);
       font-size: 11px; line-height: 16px; color: var(--label);
     }
+    /* A card brought into view (a header chip, a clicked underline) stops
+       above the strip instead of under it. */
+    .tips:has(> .legend) > .card { scroll-margin-bottom: 64px; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
     .legend-line { display: inline-block; width: 24px; border-radius: 1px; }
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
