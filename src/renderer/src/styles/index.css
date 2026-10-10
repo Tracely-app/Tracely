@@ -6048,7 +6048,8 @@ textarea:disabled {
   display: block;
   height: 3px;
   margin-bottom: 10px;
-  border-radius: 1.5px;
+  /* A full round on a 3px bar — 999 rather than 1.5 so it sits on the radius scale. */
+  border-radius: 999px;
   background: var(--h-line);
 }
 /* 167.5 / 203.4 / 131.6 of the frame's 263.3 card, and a fourth short line. */
@@ -6279,7 +6280,7 @@ textarea:disabled {
 :root[data-theme='dark'] .home-tracer-badge {
   mix-blend-mode: normal;
   opacity: 0.9;
-  border-radius: 10px;
+  border-radius: var(--r-tile);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .home {
@@ -6301,7 +6302,7 @@ textarea:disabled {
   :root:not([data-theme='light']) .home-tracer-badge {
     mix-blend-mode: normal;
     opacity: 0.9;
-    border-radius: 10px;
+    border-radius: var(--r-tile);
   }
 }
 
