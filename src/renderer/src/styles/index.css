@@ -606,30 +606,8 @@ textarea:disabled {
   border-radius: 12px;
 }
 
-/* `.btn.analyze-cta`, not `.analyze-cta`. The button carries `btn btn-primary
-   analyze-cta`, and `.btn-primary { font-size: 14px }` is declared later in
-   this file at the same specificity — so it won, and the 16px the design asks
-   for (58:226) never applied. The extra class breaks the tie by weight rather
-   than by moving rules around and changing what else the order affects. */
-.btn.analyze-cta {
-  width: 200px;
-  height: 56px;
-  font-size: 16px;
-  /* Figma 58:226 sets "Create Document" on ONE line: a 135px label centred in
-     the 200px button. `.btn-primary` pads 32px a side, so the content box is
-     200 - 64 - 2 = 134px — one pixel narrower than the label, which is why it
-     wrapped. The design's own label is `whitespace-nowrap` and simply sits
-     across its padding, so this does the same rather than trimming the padding
-     and losing the design's 200x56 box. */
-  white-space: nowrap;
-  /* The wrap also exposed that this never centred its content explicitly: a
-     button's default centring stops once the content is taller than a fixed
-     height, so the two lines overflowed 56px and sat low. Explicit centring
-     means a label that ever does outgrow the box stays centred instead. */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
+/* `.btn.analyze-cta` stood here — the 200x56 "Create Document" box. No
+   renderer element carries the class any more. */
 
 /* New Session source-type picker (Analyze tab, pre-analysis state) */
 .analyze-view {
@@ -1796,82 +1774,128 @@ textarea:disabled {
   -webkit-app-region: no-drag;
 }
 
+/* --- Buttons: one recipe ---------------------------------------------------
+   Secondary is the base: 36px, radius 8, 1px border-strong on surface, 14/500.
+   Hover and press are the two neutral washes; nothing scales or glows. */
 .btn {
-  padding: 8px 16px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--ctl-h);
+  padding: 0 16px;
+  border-radius: var(--r-ctl);
   border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
   font-weight: 500;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
   transition:
-    transform 0.1s ease,
-    box-shadow 0.15s ease,
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease,
-    filter 0.15s ease;
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    filter var(--dur) var(--ease);
 }
 
 .btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  background-color: var(--hover);
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  background-color: var(--pressed);
 }
 
 .btn:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: not-allowed;
 }
 
+.btn-sm {
+  height: var(--ctl-h-sm);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.btn > svg {
+  flex-shrink: 0;
+}
+
+/* Primary: a flat accent fill. The gradient and the orange glow are gone —
+   --accent-gradient belongs to the brand mark alone. */
 .btn-primary {
-  background: var(--accent-gradient);
+  background-color: var(--accent);
   color: var(--primary-contrast);
   border-color: transparent;
-  border-radius: 12px;
-  font-size: 14px;
   font-weight: 600;
-  padding: 12px 32px;
-  box-shadow: 0 4px 8px rgba(244, 123, 32, 0.35);
+  padding: 0 18px;
+  box-shadow: none;
 }
 
 .btn-primary:hover:not(:disabled) {
+  background-color: var(--accent);
   color: var(--primary-contrast);
-  filter: brightness(1.05);
-  box-shadow: 0 5px 10px rgba(244, 123, 32, 0.4);
+  filter: brightness(1.06);
+}
+
+.btn-primary:active:not(:disabled) {
+  background-color: var(--accent);
+  filter: brightness(0.94);
 }
 
 .btn-dark {
-  background: var(--ink);
+  background-color: var(--ink);
   color: var(--ink-contrast);
   border-color: transparent;
+  font-weight: 600;
+  padding: 0 18px;
 }
 
 .btn-dark:hover:not(:disabled) {
+  background-color: var(--ink);
   color: var(--ink-contrast);
   filter: brightness(1.15);
-  border-color: transparent;
+}
+
+.btn-dark:active:not(:disabled) {
+  background-color: var(--ink);
+  filter: brightness(0.85);
 }
 
 .btn-ghost {
-  background: transparent;
+  background-color: transparent;
   border-color: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--hover);
+  color: var(--text);
 }
 
 .btn-danger {
-  background: transparent;
+  background-color: transparent;
   color: var(--danger);
   border-color: var(--danger);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: var(--score-low-wash);
+  background-color: var(--score-low-wash);
   color: var(--danger);
   border-color: var(--danger);
+}
+
+.btn-danger:active:not(:disabled) {
+  background-color: var(--score-low-wash);
+  filter: brightness(0.94);
 }
 
 .results-panel {
