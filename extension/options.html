@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tracely — Options</title>
 <style>
-  /* The desktop app's tokens (src/renderer/src/styles/index.css), light mode.
-     Dark is deliberately absent here as it is in the widget: the app has a
-     full dark palette (--bg #131316, --surface #1c1c1f, --text #f7f7f8,
-     --border rgba(255,255,255,.14)) and shipping half of one is worse than
-     none. Whoever does it starts there. */
+  /* The desktop app's tokens (src/renderer/src/styles/index.css). Light here,
+     dark in the block below — both copied from the desktop's own blocks, so
+     the page follows the OS theme with the app's exact values. */
   :root {
+    color-scheme: light dark;
     --bg: #f0f0f1;
     --surface: #ffffff;
     --surface-2: rgba(0,0,0,.02);
     --text: #000000;
     --ink: #1c1c1c;
     --body: #737373;
+    --muted: rgba(0,0,0,.6);
     --label: rgba(0,0,0,.56);
     --chip-ink: #55555c;
     --chip-wash: rgba(0,0,0,.07);
@@ -35,6 +35,40 @@
     --r-card: 16px;
     --r-btn: 8px;
     --r-chip: 20px;
+    /* The desktop's polish tokens: the two neutral washes every control's
+       hover and press share, and the one transition curve. */
+    --hover: rgba(0,0,0,.06);
+    --pressed: rgba(0,0,0,.1);
+    --dur: 150ms;
+    --ease: cubic-bezier(.2,.8,.2,1);
+  }
+  /* The desktop dark block, verbatim. The desktop has no --body, --muted or
+     --chip-*: --body and --muted take its dark --muted, the chip pair takes
+     its dark chip (.docmark-chip). --accent-ink and --ok take the desktop's
+     dark accent and --score-good, because the light pair is under 3.4:1 on
+     the dark surface. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0d;
+      --surface: #17171b;
+      --surface-2: rgba(255, 255, 255, 0.04);
+      --text: #f6f6f8;
+      --ink: #f6f6f8;
+      --body: rgba(246, 246, 248, 0.66);
+      --muted: rgba(246, 246, 248, 0.66);
+      --label: rgba(246, 246, 248, 0.62);
+      --chip-ink: rgba(246, 246, 248, 0.66);
+      --chip-wash: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.18);
+      --border-strong: rgba(255, 255, 255, 0.28);
+      --accent-ink: #f97316;
+      --accent-wash: rgba(244, 123, 32, 0.16);
+      --ring: rgba(244, 123, 32, 0.4);
+      --ok: #34d399;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+      --hover: rgba(255, 255, 255, 0.08);
+      --pressed: rgba(255, 255, 255, 0.12);
+    }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* `hidden` must win over the display rules below (.linkbtn, .acct), or
@@ -42,121 +76,190 @@
   [hidden] { display: none !important; }
   body {
     font-family: 'Instrument Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 44px 24px 72px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 24px 64px; }
 
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
   .plane {
-    width: 36px; height: 36px; border-radius: 10px;
+    width: 32px; height: 32px; border-radius: var(--r-btn);
     background: var(--accent-gradient);
     display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0;
   }
-  .plane svg { width: 19px; height: 19px; }
-  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
-  /* --body (#737373) is 4.16:1 on --bg; this is the one line that sits on the
-     page rather than a card, so it takes a darker grey (5.6:1). */
-  .tag { color: rgba(0,0,0,.66); font-size: 13px; line-height: 18.2px; margin: 4px 0 24px; }
-
-  .status {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 12px; font-weight: 500; color: var(--body);
-    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-    padding: 7px 14px; margin-bottom: 24px;
-  }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
-  .status.on .dot { background: var(--ok); }
-  .status.off .dot { background: var(--accent); }
+  .plane svg { width: 16px; height: 16px; }
+  h1 { font-size: 24px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--text); }
+  /* --body (#737373) is 4.16:1 on --bg; this is one of the lines that sit on
+     the page rather than a card, so it takes --muted (5.5:1). */
+  .tag { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 6px 0 28px; }
 
   section {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
-    padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+    padding: 20px 24px; margin-bottom: 16px; box-shadow: none;
   }
-  h2 { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
-  .hint { font-size: 13px; line-height: 18.2px; color: var(--body); margin-bottom: 14px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  input[type="password"], input[type="text"] {
-    flex: 1; min-width: 0;
-    border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 8px 12px;
-    font-size: 12px; color: var(--text); background: var(--surface); outline: none;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    transition: border-color .15s, box-shadow .15s;
-  }
-  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+  h2 { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ink); margin-bottom: 4px; }
+  .hint { font-size: 13px; line-height: 1.5; color: var(--body); margin-bottom: 12px; }
 
-  /* The app's .btn / .btn-primary, down to the 0.98 press. */
-  button {
-    border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-    border-radius: var(--r-btn); padding: 8px 16px; font-size: 12px; font-weight: 500; cursor: pointer;
-    font-family: inherit;
-    transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+  /* The page foot: the live server line, then the privacy sentence. A column
+     so the status line is a block-level item and no text strut pads it. */
+  .page-foot { display: flex; flex-direction: column; align-items: flex-start; margin-top: 24px; }
+  .status {
+    display: inline-flex; align-items: flex-start; gap: 8px;
+    font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--label);
+    background: none; border: 0; padding: 0; margin: 0 0 8px;
   }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
-  button:active:not(:disabled) { transform: scale(.98); }
-  button:disabled { opacity: .5; cursor: default; }
-  button.ghost { color: var(--body); }
-  .saved { font-size: 12px; color: var(--ok); font-weight: 500; margin-top: 10px; min-height: 16px; }
+  /* Centred on the first 18px line, so a status that wraps keeps its dot
+     beside the first line rather than between the two. */
+  .dot { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+  .status.on .dot { background: var(--ok); }
+  .status.off .dot { background: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input[type="password"], input[type="text"] {
+    flex: 1; min-width: 0; height: 36px; padding: 0 12px;
+    border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+    font-size: 13px; color: var(--text); background: var(--surface); outline: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  input[type="password"]::placeholder, input[type="text"]::placeholder { color: var(--label); }
+  input[type="password"]:focus, input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+
+  /* The app's one button recipe (index.css .btn / .btn-ghost / .btn-sm):
+     36px, radius 8, 14/500, the two neutral washes on hover and press.
+     Nothing scales or glows. */
+  button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 36px; padding: 0 16px; flex-shrink: 0;
+    border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+    background: var(--surface); color: var(--text);
+    font-family: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+  }
+  button:hover:not(:disabled) { background-color: var(--hover); }
+  button:active:not(:disabled) { background-color: var(--pressed); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background-color: transparent; border-color: transparent; color: var(--muted); }
+  button.ghost:hover:not(:disabled) { background-color: var(--hover); color: var(--text); }
+  button.ghost:active:not(:disabled) { background-color: var(--pressed); color: var(--text); }
+  button.sm, li button { height: 28px; padding: 0 10px; font-size: 13px; }
+  /* A ghost text button on its own line: pulled left by its padding so its
+     label lines up with the text above it. */
+  button.flush { margin-left: -10px; }
+  .saved { font-size: 12px; line-height: 1.5; color: var(--ok); font-weight: 500; margin-top: 8px; min-height: 18px; }
   .saved.warn { color: var(--accent-ink); }
 
   /* account */
+  /* The page's one primary (.btn-primary): a flat accent fill. The gradient
+     and the orange glow belong to the brand mark alone. */
   .linkbtn {
-    display: inline-flex; align-items: center; text-decoration: none;
-    border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 600;
-    background: var(--accent-gradient); color: #fff; border: 1px solid transparent;
-    box-shadow: 0 4px 8px rgba(244,123,32,.35);
-    transition: filter .15s ease, box-shadow .15s ease, transform .1s ease;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 36px; padding: 0 18px; flex-shrink: 0;
+    border: 1px solid transparent; border-radius: var(--r-btn);
+    background: var(--accent); color: #fff; box-shadow: none;
+    font-size: 14px; font-weight: 600; line-height: 1; white-space: nowrap; text-decoration: none;
+    transition: filter var(--dur) var(--ease);
   }
-  .linkbtn:hover { filter: brightness(1.05); box-shadow: 0 5px 10px rgba(244,123,32,.4); }
-  .linkbtn:active { transform: scale(.98); }
+  .linkbtn:hover { filter: brightness(1.06); }
+  .linkbtn:active { filter: brightness(.94); }
   .acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .acct-email { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+  .acct-email {
+    font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--ink);
+    white-space: nowrap; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* The app's chip: 20px, radius 999, 11/600 +0.04em. */
   .plan {
-    font-size: 10px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
-    padding: 1px 6px; border-radius: var(--r-chip);
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px; flex-shrink: 0;
+    font-size: 11px; font-weight: 600; line-height: 1; letter-spacing: .04em; text-transform: uppercase;
+    border-radius: 999px;
     background: var(--chip-wash); color: var(--chip-ink);
   }
   .plan.paid { background: var(--accent-wash); color: var(--accent-ink); }
-  .beta-tag { font-size: 11px; font-weight: 500; color: var(--label); }
+  .beta-tag { font-size: 12px; font-weight: 500; color: var(--label); }
 
   /* plan meters */
-  h3.sub { font-size: 13px; font-weight: 600; color: var(--ink); margin: 18px 0 6px; }
-  .meter { display: block; height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
-  .meter-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent-gradient); }
-  .upgrade-link { font-size: 12px; font-weight: 500; color: var(--accent-ink); text-decoration: none; }
-  .upgrade-link:hover { text-decoration: underline; }
-  .model-note { font-size: 12px; line-height: 16.8px; color: var(--label); margin-top: 10px; }
+  h3.sub { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--ink); margin: 16px 0 4px; }
+  .meter { display: block; height: 6px; border-radius: 999px; background: var(--chip-wash); border: 0; overflow: hidden; }
+  .meter-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .upgrade-link {
+    font-size: 12px; font-weight: 500; color: var(--accent-ink);
+    text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
+  }
+  .upgrade-link:hover { text-decoration-thickness: 2px; }
+  .model-note { font-size: 12px; line-height: 1.5; color: var(--label); margin-top: 8px; font-variant-numeric: tabular-nums; }
   .model-note.warn { color: var(--accent-ink); }
+
+  /* Google Docs: the checkbox drawn as the app's switch (36x20, a 16px knob
+     travelling 16px). Still the native checkbox, so options.js, the label
+     click and Space are untouched. */
+  .autosrc { display: flex; align-items: flex-start; gap: 12px; font-size: 14px; line-height: 1.5; color: var(--text); cursor: pointer; }
+  .autosrc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .autosrc .sub { display: block; font-size: 12px; line-height: 1.5; color: var(--label); }
+  .autosrc input {
+    appearance: none; -webkit-appearance: none; font: inherit;
+    width: 36px; height: 20px; border-radius: 999px; margin: 1px 0 0;
+    background: var(--border-strong); position: relative; flex-shrink: 0; cursor: pointer;
+    transition: background-color var(--dur) var(--ease);
+  }
+  .autosrc input::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--dur) var(--ease);
+  }
+  .autosrc:hover input:not(:disabled) { box-shadow: 0 0 0 4px var(--hover); }
+  .autosrc input:checked { background: var(--accent); }
+  .autosrc input:checked::after { transform: translateX(16px); }
+  .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .autosrc input:disabled { opacity: .5; cursor: not-allowed; }
 
   ul { list-style: none; }
   li {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 2px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.5; color: var(--text);
   }
   li:last-child { border-bottom: none; }
-  li .origin { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  li button { padding: 5px 12px; font-size: 11px; color: var(--body); }
-  .foot { font-size: 12px; line-height: 16.8px; color: var(--label); margin-top: 24px; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  li .origin { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The empty list: the app's dashed empty box. */
+  #noSites {
+    border: 1px dashed var(--border); border-radius: 12px; padding: 12px 14px; margin: 0;
+    font-size: 13px; line-height: 1.5; color: var(--muted);
+  }
+  /* Holds its line while the account is still being read, so the card does
+     not jump when the hint arrives. */
+  #acctHint { min-height: 20px; }
+  .foot { font-size: 12px; line-height: 1.5; color: var(--label); }
+  /* One focus ring for every control the Tab key reaches; the text inputs
+     draw the accent ring instead. */
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* A narrow tab: the 16px gutter and card padding of the app's small
+     layouts, so the account row keeps its two buttons side by side. */
+  @media (max-width: 480px) {
+    .wrap { padding: 24px 16px 48px; }
+    section { padding: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+  }
 </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <span class="plane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>
+      <span class="plane"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>
       <h1>Tracely</h1>
     </header>
     <p class="tag">Live fact-checking while you write — anywhere on the web.</p>
-
-    <span id="serverStatus" class="status"><span class="dot"></span><span id="serverStatusText">Checking for a local Tracely server…</span></span>
 
     <section>
       <h2>Tracely account</h2>
       <p class="hint" id="acctHint">Checking your account…</p>
       <div id="signedOut" hidden>
-        <div class="acct" id="betaPlanOut" hidden style="margin-bottom:14px">
+        <div class="acct" id="betaPlanOut" hidden style="margin-bottom:12px">
           <span class="plan paid" id="betaPlanLabel">Pro</span>
           <span class="beta-tag">beta</span>
         </div>
@@ -164,7 +267,7 @@
           <button id="signIn">Sign in</button>
           <a class="linkbtn" id="seePlans" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
         </div>
-        <p class="hint" style="margin:10px 0 0">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a class="upgrade-link" href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+        <p class="hint" style="margin:12px 0 0">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a class="upgrade-link" href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
       </div>
       <div id="signedIn" hidden>
         <div class="acct">
@@ -172,11 +275,12 @@
           <span class="plan" id="acctPlan"></span>
           <span class="beta-tag" id="acctBeta" hidden>beta</span>
         </div>
-        <div class="row" style="margin-top:14px">
+        <div class="row" style="margin-top:12px">
           <a class="linkbtn" id="manageLink" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">Upgrade</a>
           <button id="signOut" class="ghost">Sign out</button>
         </div>
-        <p class="hint" style="margin:12px 0 0">Your usage counts and payment record are kept with your account. <button id="deleteAccount" class="ghost" style="padding:5px 10px;font-size:11px">Delete my account and data</button></p>
+        <p class="hint" style="margin:12px 0 4px">Your usage counts and payment record are kept with your account.</p>
+        <button id="deleteAccount" class="ghost sm flush">Delete my account and data</button>
       </div>
       <p id="acctStatus" class="saved"></p>
     </section>
@@ -192,7 +296,7 @@
 
       <div id="thoroughPro" hidden>
         <h3 class="sub">Thorough explanations (Pro)</h3>
-        <p class="hint" style="margin-bottom:12px">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
+        <p class="hint">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
         <span class="meter" id="thoroughMeter" hidden><span class="meter-fill" id="thoroughFill"></span></span>
         <p class="model-note" id="thoroughMeterText" hidden></p>
       </div>
@@ -204,17 +308,20 @@
     <section>
       <h2>Google Docs</h2>
       <p class="hint">In Google Docs, Tracely checks the whole document while you write. The first Doc you open asks once; this is the same switch.</p>
-      <label class="autosrc" style="font-size:13px;color:var(--text)"><input type="checkbox" id="docsTgl" /><span>Check Google Docs automatically — sends the document text to Tracely's server</span></label>
+      <label class="autosrc"><input type="checkbox" id="docsTgl" /><span class="autosrc-text"><span>Check Google Docs automatically</span><span class="sub">Sends the document text to Tracely's server</span></span></label>
     </section>
 
     <section>
       <h2>Sites with auto-check on</h2>
       <p class="hint">Automatic 10-second checking runs only on these sites. Everywhere else, nothing leaves the page until you click “Check once” in the widget.</p>
       <ul id="sites"></ul>
-      <p id="noSites" class="hint" style="margin-bottom:0">None yet — click into a text field on a site and flip “Auto-check on this site” in the Tracely widget.</p>
+      <p id="noSites" class="hint">None yet — click into a text field on a site and flip “Auto-check on this site” in the Tracely widget.</p>
     </section>
 
-    <p class="foot">Tracely never sends your writing anywhere except the Tracely server that checks it. Google Docs checks read the doc through your own signed-in session.</p>
+    <footer class="page-foot">
+      <span id="serverStatus" class="status"><span class="dot"></span><span id="serverStatusText">Checking for a local Tracely server…</span></span>
+      <p class="foot">Tracely never sends your writing anywhere except the Tracely server that checks it. Google Docs checks read the doc through your own signed-in session.</p>
+    </footer>
   </div>
   <script src="options.js"></script>
 </body>
