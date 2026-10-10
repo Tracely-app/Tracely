@@ -59,7 +59,7 @@ function fakeDocument() {
 }
 const allNodes = (n) => [n, ...n.children.flatMap(allNodes)];
 
-function load() {
+function load({ nolist = false } = {}) {
   const clock = { t: 1_000_000 };
   const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0 };
   const document = fakeDocument();
@@ -77,7 +77,24 @@ function load() {
   const head = sliceBetween(SRC, "    async function runDocEdit(key, job) {", '      setEditState(key, { state: "applying" });');
   const X = vm.runInContext(`
     const harness = null;
-    const FEATURES = { typePreview: true };
+    const FEATURES = { typePreview: true, refList: true };
+    let docGenre = "prose";
+    // An essay that cites works and has no list: its note, and "Add Works Cited" as far as the batch sees it.
+    const NOLIST = { id: "tip:nolist", kind: "nolist", quote: "", label: "No Works Cited" };
+    const allTips = () => (${nolist ? "true" : "false"} ? [NOLIST] : []);
+    const listBuilds = new Map();
+    async function buildWorksCited(id) {
+      log.lookups = (log.lookups ?? 0) + 1;
+      await new Promise((r) => setTimeout(r, 1500)); // the cited works, looked up
+      const b = { loading: false, entries: ["Weatherford, Jack. Genghis Khan and the Making of the Modern World. 2004."], missing: [] };
+      listBuilds.set(id, b);
+      return b;
+    }
+    function docAddWorksCited(id) {
+      const b = listBuilds.get(id);
+      if (!b || docBusy) return Promise.resolve(false);
+      return runDocEdit("list:" + id, { steps: [{ action: "appendLine", line: "Works Cited" }, ...b.entries.map((line) => ({ action: "appendLine", line }))] });
+    }
     const APP = { font: "Test Sans" };
     let expanded = true, docsScroller = null;
     const reducedMotion = () => true;
@@ -293,4 +310,26 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
   X.rejectAllFixes();
   assert.equal(X.cards(), null, "nothing left to answer: the suggestions are gone");
   assert.equal(X.fixPingHtml(), "");
+});
+
+test("a missing Works Cited is one of the suggestions: looked up while the rest prepare, added at the end on Accept", async () => {
+  // Owner, 2026-10-09: "when it needs to its still not automatically inserting works cited".
+  const { X, log } = load({ nolist: true });
+  assert.match(X.walkStripHtml(), /Tracely can prepare 7 of these fixes at once/);
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  assert.equal(log.lookups, 1, "the cited works are looked up once");
+  const list = X.batch().items.find((it) => it.act === "list");
+  assert.equal(list.status, "ready");
+  assert.equal(statuses(X).at(-1), "tip:nolist:ready", "after every underlined change: the list goes at the end");
+  assert.equal(log.sent.length, 0, "nothing reached the doc while preparing");
+  const html = X.walkStripHtml();
+  assert.match(html, /Add the list · No Works Cited/);
+  assert.match(html, /\+<\/span> Works Cited<\/div><div class="fx-line"><span aria-hidden="true">\+<\/span> Weatherford, Jack\. Genghis Khan and the Making of the Modern World\. 2004\./, "the heading and the entry it adds");
+  // Its suggestion in the doc has no underline to sit by: it sits at the foot of the page's margin.
+  const card = X.cards()?.children.find((n) => n.dataset?.key === "tip:nolist");
+  assert.ok(card, "a suggestion card for it");
+  assert.equal(card.dataset.loose, "1");
+  assert.equal(await X.acceptFix(X.batch().items.indexOf(list)), true);
+  assert.deepEqual(plain(log.sent.at(-1).job.steps.map((st) => st.line)), ["Works Cited", "Weatherford, Jack. Genghis Khan and the Making of the Modern World. 2004."]);
 });

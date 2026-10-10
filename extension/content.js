@@ -2812,7 +2812,9 @@
         if (n) add(n.raw, n.inner, sentence);
       }
     }
-    return [...works.values()];
+    // (Weatherford 112) beside (Weatherford, 2004) is a page of that work, not another one.
+    const dated = new Set([...works.values()].filter((w) => w.author && w.year).map((w) => w.author.toLowerCase()));
+    return [...works.values()].filter((w) => w.year || !w.author || !dated.has(w.author.toLowerCase()));
   }
   function noListTip(text, genre, style) {
     if (!genreWantsList(genre)) return [];
