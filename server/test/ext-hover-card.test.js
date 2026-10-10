@@ -146,11 +146,29 @@ test("a row of buttons wraps instead of being cut off at the card's edge", () =>
 test("wired: a new card starts with no side; the pointer on the card holds it", () => {
   assert.match(SRC, /popAbove = false;\n\s+popSide = null;\n\s+popHeld = false;/);
   assert.match(SRC, /popEl\.addEventListener\("pointerenter", \(\) => \{ popHeld = true; \}\);/);
-  assert.match(SRC, /popEl\.addEventListener\("pointerleave", \(\) => \{ popHeld = false; \}\);/);
+  assert.match(SRC, /popEl\.addEventListener\("pointerleave", \(e\) => \{ popHeld = false; hoverPt = \{ x: e\.clientX, y: e\.clientY \}; hoverHit\(\); \}\);/);
   assert.ok(!/const cardH = popCard\.offsetHeight;/.test(SRC), "never the capped height");
   assert.match(SRC, /popPlanned = false; \/\/ new content: its side and size are decided again/, "a repaint plans it again; a scroll never does");
   assert.ok(!/topPx = `\$\{Math\.max\(4, top\)\}px`/.test(SRC), "never pinned to the screen's edge");
   const follow = sliceBetween(SRC, "    function popFollowFrame() {", "    /* ── open / paint");
   assert.match(follow, /popLastTop = r\.top;\n\s+placeDocsPopover\(/, "placed with its line even when the line is out of view");
   assert.match(follow, /if \(!clip \|\| \(pb\.bottom > clip\.top \+ 8 && pb\.top < clip\.bottom - 8\)\) \{/, "lost only once the card itself has left the view");
+});
+
+test("motion: the card pops out of its underline, its rows step in, it fades while a close waits, and leaves from there", () => {
+  // Owner, 2026-10-09: "Also add animations for the overlay popups".
+  assert.match(SRC, /const POP_SPRING = "cubic-bezier\(0\.34, 1\.45, 0\.64, 1\)";/, "a little give: it overshoots a hair and settles");
+  assert.match(SRC, /\[\{ opacity: 0, transform: `translateY\(\$\{dy\}px\) scale\(0\.92\)` \}, \{ opacity: 1, transform: "none" \}\],\n\s+\{ duration: switching \? 130 : 260, easing: switching \? POP_EASE : POP_SPRING \},/);
+  assert.match(SRC, /if \(!switching\) stepIn\(popCard, 60\);/, "its rows step in after it");
+  assert.match(SRC, /if \(popStepShown !== null && popStepShown !== stepNow\) Promise\.resolve\(\)\.then\(\(\) => stepIn\(popCard\)\);/, "and again when what it shows changes — never on a repaint of the same");
+  // Leaving: opacity and `translate` only — placement owns left and top, open and close own transform.
+  assert.match(SRC, /popEl\.style\.opacity = on \? "0\.35" : "";\n\s+popEl\.style\.translate = on \? `0 \$\{popAbove \? -4 : 4\}px` : "";/);
+  assert.match(SRC, /const from = Math\.min\(1, Number\(getComputedStyle\(el\)\.opacity\) \|\| 1\);/, "it leaves from where the fade got to, not from full");
+  // Reduced motion: no movement at all, only the dimming that says it is leaving.
+  assert.match(SRC, /if \(reducedMotion\(\)\) \{ popEl\.style\.opacity = on \? "0\.6" : ""; return; \}/);
+  assert.match(SRC, /function stepIn\(card, delay = 0\) \{\n\s+if \(!card \|\| reducedMotion\(\)\) return;/);
+  // The suggestions in the margin slide in once each; the notes above the launcher rise in once.
+  assert.match(SRC, /if \(!fixCardsShown\.has\(it\.key\)\) \{\n\s+fixCardsShown\.add\(it\.key\);\n\s+if \(!reducedMotion\(\) && typeof card\.animate === "function"\) card\.animate\(\[\{ opacity: 0, translate: "18px 0" \}/);
+  assert.match(SRC, /\.ready-ping\.enter \{ animation: tracely-ping-in 260ms/);
+  assert.match(SRC, /@media \(prefers-reduced-motion: reduce\) \{ \.ready-ping\.enter \{ animation: none; \} \}/);
 });

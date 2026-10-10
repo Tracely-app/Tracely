@@ -197,6 +197,27 @@ panel and the suggestions cover the underlines beneath them
 (`overTracelyUi`). Tests: `server/test/ext-hover-card.test.js`,
 `server/test/ext-hover-intent.test.js`.
 
+Since 2.21.36 (owner, 2026-10-09: "how come hovering off it doesnt make the
+overlay go away? … the sweet spot where when I go off of it it goes away but
+not so fast that I cant go back if I suddenly change my mind. Also add
+animations for the overlay popups"): on the stand-in the card stayed only
+while the pointer was on it or on its own underline — and since it hangs
+under the pointer, moving DOWN off a line lands on it. Off both, it now waits
+`HOVER_HIDE_MS` (350; 2.21.35 closed in 140, before a change of mind could
+reach it), fading toward 35% and drifting 4px while it waits (`popLeaving`:
+opacity and `translate` only); the pointer back brings it straight back,
+else it leaves from where the fade got to. The moves are heard in the
+CAPTURE phase, mouse and pointer both, so a page that stops them on their
+way up (Docs may, over its own chrome — not checked in real Docs) cannot
+leave a card waiting; leaving the card feeds the hover itself
+(`pointerleave`), and a throw in the hover can never leave a card up
+(`hoverDecide` in a try). Motion: the card pops out of its underline with a
+little give (`POP_SPRING`, 260ms), its rows step in (`stepIn`, again when its
+step changes — never on a repaint of the same), the suggestions in the
+margin slide in once each (`fixCardsShown`), and the notes above the launcher
+rise in once (`.ready-ping.enter`). Reduced motion: no movement, only the
+dimming that says it is leaving.
+
 "Let Tracely fix these" ("go do all of them and then disappear and just leave
 the accept reject"): the press closes the panel; as each change is ready the
 cursor goes to its underline (only when on screen — never a scroll) and leaves

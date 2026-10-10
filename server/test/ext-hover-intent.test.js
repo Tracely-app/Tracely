@@ -48,8 +48,11 @@ test("on the card or its own sentence the card stays; elsewhere another mark tak
   // over at once, and empty page closes the card at once — no waiting for the pointer to stop.
   assert.deepEqual({ ...X.hoverIntent({ ...open, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_SWAP_MS });
   assert.deepEqual({ ...X.hoverIntent(open) }, { act: "hide", ms: X.HOVER_HIDE_MS });
-  assert.ok(X.HOVER_SWAP_MS <= 120 && X.HOVER_HIDE_MS <= 180, "within a blink");
-  assert.ok(X.HOVER_REST_MS > X.HOVER_SWAP_MS && X.HOVER_REST_MS <= 300, "a rest in the triangle is short too");
+  assert.ok(X.HOVER_SWAP_MS <= 120, "another underline takes over within a blink");
+  // The sweet spot (owner, 2026-10-09: "when I go off of it it goes away but not so fast that I cant go
+  // back if I suddenly change my mind"): 2.21.35 closed in 140 ms. Long enough to come back, short of a wait.
+  assert.ok(X.HOVER_HIDE_MS >= 300 && X.HOVER_HIDE_MS <= 450, `off the card it waits a moment: ${X.HOVER_HIDE_MS}`);
+  assert.ok(X.HOVER_REST_MS > X.HOVER_SWAP_MS && X.HOVER_REST_MS <= X.HOVER_HIDE_MS, "a rest in the triangle is no longer than that");
   assert.equal(X.hoverIntent({ ...open, under: "A" }).act, "hide", "its own hash is never a swap");
 });
 
@@ -101,7 +104,14 @@ test("only a mark new on the page animates — not a redraw, not a sentence bein
 test("wired: one hover path, through the intent; motion only via the helpers", () => {
   const hov = SRC.slice(SRC.indexOf("    function hoverHit() {"), SRC.indexOf("    // Scroll/wheel fire at frame rate"));
   assert.match(hov, /const d = hoverIntent\(st\);/);
-  assert.match(hov, /if \(again\.act === d\.act && again\.hash === d\.hash\) runHoverDecision\(again, now\);\n(?:\s*\/\/.*\n)?\s+else hoverHit\(\);/, "a decision runs only if it still holds when its timer fires — and else the pointer is judged again, move or no move");
+  assert.match(hov, /if \(again\.act === d\.act && again\.hash === d\.hash\) runHoverDecision\(again, now\);\n(?:\s*\/\/.*\n)?\s+else \{\n\s+if \(pending\.act === "hide" && !pending\.rest\) popLeaving\(false\);\n\s+hoverHit\(\);/, "a decision runs only if it still holds when its timer fires — and else the pointer is judged again, move or no move");
+  // While a close waits the card fades, and comes straight back when the pointer does.
+  assert.match(hov, /if \(d\.act === "hide" && !d\.rest\) popLeaving\(true, d\.ms\);/);
+  assert.match(SRC, /function clearHoverPending\(\) \{\n\s+if \(!hoverPending\) return;\n\s+clearTimeout\(hoverPending\.timer\);\n\s+if \(hoverPending\.act === "hide" && !hoverPending\.rest\) popLeaving\(false\);/);
+  // A throw can never leave a card up; moves are heard before the page can stop them.
+  assert.match(hov, /try \{ hoverDecide\(\); \} catch \(err\)/);
+  assert.match(hov, /window\.addEventListener\("mousemove", onHoverMove, \{ passive: true, capture: true \}\);\n\s+window\.addEventListener\("pointermove", onHoverMove, \{ passive: true, capture: true \}\);/);
+  assert.match(SRC, /popEl\.addEventListener\("pointerleave", \(e\) => \{ popHeld = false; hoverPt = \{ x: e\.clientX, y: e\.clientY \}; hoverHit\(\); \}\);/, "leaving the card is heard even if no move follows");
   assert.match(hov, /hoverPending\.rest === Boolean\(d\.rest\)/, "a wait for a rest is not a wait for a blink");
   assert.match(hov, /window\.addEventListener\("mouseout", \(e\) => \{\n\s+if \(e\.relatedTarget\) return;\n\s+hoverPt = \{ x: -1e4, y: -1e4 \};\n\s+hoverHit\(\);/, "out of the window: the card closes, no move needed");
   assert.match(SRC, /const markActive = \(e\) => \{ lastTextChangeAt = Date\.now\(\); if \(e\?\.type === "keydown"\) typingClosesCard\(e\); \};/, "typing closes the card, as Grammarly's does");
