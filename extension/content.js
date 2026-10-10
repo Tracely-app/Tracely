@@ -3481,31 +3481,31 @@
 
     /* ── Launcher (Figma "Collapsed Launcher" 267:64) ──────────────────────
        The desktop overlay's launcher, value for value (OverlayApp.tsx): a
-       56px ink circle, the mark turned white, and a 31px count badge 8.5px
-       above the top edge and 3.5px past the right. The badge is orange
-       because it counts findings; while checking it is grey "…", and with
-       nothing flagged there is no badge at all, as in the frame. */
+       56px ink circle, the mark turned white, and a 22px count badge 4px
+       past the top and right edges, ringed in the surface colour. The badge
+       is ink, not a finding colour: the number carries the meaning. While
+       checking it is grey "…" with a dotted ring, and with nothing flagged
+       there is no badge at all, as in the frame. Focus and reduced motion
+       come from the primitives block at the end of this sheet. */
     .launcher {
       position: relative; width: 56px; height: 56px; border-radius: 50%;
       background: var(--ink); cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 2px 10px rgba(0,0,0,.18);
-      transition: box-shadow .12s ease, transform .12s ease;
+      transition: box-shadow .15s cubic-bezier(.2,.8,.2,1), transform .15s cubic-bezier(.2,.8,.2,1);
       margin-left: auto;
     }
-    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.06); }
-    .launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-    @media (prefers-reduced-motion: reduce) { .launcher, .launcher:hover { transition: none; transform: none; } }
-    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; }
-    .launch-plane { width: 22px; height: 22px; color: #fff; display: flex; }
+    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.03); }
+    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; transform: translate(-1px, -1px); }
+    .launch-plane { width: 20px; height: 20px; color: #fff; display: flex; }
     .launch-plane svg { width: 100%; height: 100%; }
     .launcher .count {
-      position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
-      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
-      font-size: 16px; font-weight: 600; letter-spacing: 0;
+      position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; padding: 0 6px;
+      border-radius: 999px; border: 2px solid var(--surface); background: var(--ink); color: #fff;
+      font-size: 12px; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums;
       display: flex; align-items: center; justify-content: center;
     }
-    .launcher .count.off { background: #9a9ba1; font-size: 12px; }
+    .launcher .count.off { background: ${MARK_PENDING}; border-style: dotted; color: #fff; font-size: 11px; }
     .launcher .count.ok { display: none; }
 
     /* ── Panel ────────────────────────────────────────────────────────── */
