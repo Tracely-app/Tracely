@@ -3520,6 +3520,8 @@
       box-shadow: var(--shadow-lg);
       display: flex; flex-direction: column; overflow: hidden;
     }
+    /* Over the 36px pill (site off) the panel keeps the launcher's 12px gap. */
+    .root:has(> .pill) > .panel { bottom: 48px; }
     /* The header is the panel's handle (wireDrag): a grip, the name, and the
        close; the counts sit under it (.tally) and carry the rule. */
     .head {
