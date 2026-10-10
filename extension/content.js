@@ -5091,7 +5091,7 @@
             bar.setAttribute("data-tracely-bar", "");
             bar.setAttribute("aria-hidden", "true");
             bar.setAttribute("x", String(rx + sb.f0 * rw));
-            bar.setAttribute("y", String(ry + rh - 2));
+            bar.setAttribute("y", String(ry + rh - 1.5)); // a hair under the descenders; same y as the follow below
             bar.setAttribute("width", String(Math.max(2, (sb.f1 - sb.f0) * rw)));
             // The same line field mode and the legend draw: 2 tall, radius 1.
             bar.setAttribute("height", String(markLineHeight(pattern, false)));
@@ -6747,7 +6747,7 @@
           if (rx !== b.gx || ry !== b.gy || rw !== b.gw || rh !== b.gh || tf !== b.tf) {
             b.gx = rx; b.gy = ry; b.gw = rw; b.gh = rh; b.tf = tf;
             b.el.setAttribute("x", String(rx + b.f0 * rw));
-            b.el.setAttribute("y", String(ry + rh - 2));
+            b.el.setAttribute("y", String(ry + rh - 1.5)); // = drawDocsMarksSvg's bar y
             b.el.setAttribute("width", String(Math.max(2, (b.f1 - b.f0) * rw)));
             if (tf) b.el.setAttribute("transform", tf); else b.el.removeAttribute("transform");
             b.size = b.node.getBoundingClientRect().height || b.size;
