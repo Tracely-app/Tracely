@@ -3558,10 +3558,10 @@
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
-    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
+    .evidence { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding-top: 8px; border-top: 1px solid var(--border); }
     .ev-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; border: none; background: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); cursor: pointer; border-radius: 4px; }
     .ev-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
-    .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    .ev-intro { font-size: 12px; line-height: 1.5; color: var(--label); margin-top: -2px; padding: 0 2px; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
@@ -3680,9 +3680,10 @@
     .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
-    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    .live-strip img { width: 16px; height: 16px; border-radius: 4px; background: var(--surface-2); }
-    .live-strip img.faded { opacity: .35; }
+    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .live-strip img { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-2); }
+    .live-strip img.faded { opacity: .4; }
+    .live-strip img.read { outline: 2px solid var(--ink); outline-offset: -2px; }
     .ready-ping {
       display: flex; align-items: center; gap: 8px; margin: 0 0 10px auto; max-width: 320px;
       font-size: 12px; font-weight: 500; color: var(--ink);
@@ -3697,9 +3698,10 @@
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
+      border-radius: var(--r-btn); padding: 8px 8px 8px 12px; line-height: 1.4;
     }
-    .walk-strip button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .walk-strip > span { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .walk-strip .act { flex-shrink: 0; }
     /* "Let Tracely fix these": the prepared changes, each waiting for the
        writer. Ink only — a removed word struck through, an added one
        underlined; the dot is the flag's own finding colour. */
@@ -3707,23 +3709,22 @@
     .fixes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
     .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
     .fixes-acts { display: inline-flex; gap: 6px; }
-    .fixes-acts button.act { padding: 5px 12px; font-size: 12px; }
-    .fixes-note { font-size: 11.5px; color: #6b6c72; }
-    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #ececec; border-radius: 10px; background: var(--surface); }
-    .fx-top { display: flex; align-items: center; gap: 8px; }
-    .fx-title { font-size: 12.5px; font-weight: 600; color: #1a1a1f; }
-    .fx-diff { font-size: 12.5px; line-height: 1.5; color: #55565c; }
-    .fx-diff del { color: #8a8b90; text-decoration: line-through; }
-    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: #efeff2; border-radius: 3px; padding: 0 2px; }
-    .fx-line { font-size: 11.5px; color: #55565c; }
-    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #55565c; min-width: 0; }
-    .fx-src img { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    .fixes-note { font-size: 12px; line-height: 1.5; color: var(--label); }
+    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--surface); }
+    .fx-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .fx-top .dot { flex-shrink: 0; }
+    .fx-title { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--ink); }
+    .fx-diff { font-size: 13px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+    .fx-diff del { color: var(--label); text-decoration: line-through; }
+    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: var(--chip-wash); border-radius: 4px; padding: 0 2px; }
+    .fx-line { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--muted); min-width: 0; }
+    .fx-src img { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
     .fx-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6c72; }
-    .fx-applied { opacity: .75; }
+    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--label); }
+    .fx-applied { opacity: .7; }
     .fx-applied .fx-state { color: var(--ink); font-weight: 500; }
-    .fx-skipped { opacity: .55; }
-    .fx .row button.act { padding: 5px 12px; font-size: 12px; }
+    .fx-skipped { opacity: .5; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
