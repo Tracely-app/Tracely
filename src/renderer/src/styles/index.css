@@ -4832,10 +4832,13 @@ textarea:disabled {
 }
 
 /* Text link back to Home: muted at rest, text on hover, the 14px chevron from
-   the shared icon set. Same recipe as `.settings-back-link`. */
+   the shared icon set. Same recipe as `.settings-back-link`. Inset 20px so the
+   chevron's ink (4px into its 14px box) lands on the 48px edge the title and
+   the grid share — one left edge down the page instead of two. */
 .docs-back {
   -webkit-app-region: no-drag;
   align-self: flex-start;
+  margin-left: 20px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
