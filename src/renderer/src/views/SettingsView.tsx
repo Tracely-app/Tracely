@@ -19,12 +19,15 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
 import SettingsField from '../components/SettingsField'
 import SettingsUnavailable from '../components/SettingsUnavailable'
-import { Bell, CreditCard, Link2, ShieldCheck } from 'lucide-react'
 import {
   UserIcon,
   SunIcon,
   SlidersIcon,
   ShieldIcon,
+  ShieldCheckIcon,
+  BellIcon,
+  LinkIcon,
+  CardIcon,
   BackIcon
 } from '../components/icons'
 import { tracelyApi } from '../lib/api'
@@ -140,10 +143,10 @@ const NAV: { id: Section; label: string; icon: (props: { size?: number }) => JSX
   { id: 'profile', label: 'Profile', icon: UserIcon },
   { id: 'appearance', label: 'Appearance', icon: SunIcon },
   { id: 'preferences', label: 'Preferences', icon: SlidersIcon },
-  { id: 'notifications', label: 'Notifications', icon: (p) => <Bell size={p.size ?? 15} /> },
-  { id: 'security', label: 'Security', icon: (p) => <ShieldCheck size={p.size ?? 15} /> },
-  { id: 'integrations', label: 'Integrations', icon: (p) => <Link2 size={p.size ?? 15} /> },
-  { id: 'billing', label: 'Billing', icon: (p) => <CreditCard size={p.size ?? 15} /> },
+  { id: 'notifications', label: 'Notifications', icon: BellIcon },
+  { id: 'security', label: 'Security', icon: ShieldCheckIcon },
+  { id: 'integrations', label: 'Integrations', icon: LinkIcon },
+  { id: 'billing', label: 'Billing', icon: CardIcon },
   // NOT in the Figma frames, which list seven sections and no Privacy. Kept
   // anyway: it is the only way to reach "clear history" and "delete all local
   // data", both of which work. Deleting a real, reachable feature to match a
@@ -440,18 +443,19 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
         <aside className="settings-sidebar">
           <div className="settings-sidebar-header">
             <button className="settings-back-link" onClick={() => onNavigate('home')}>
-              <BackIcon /> Back
+              <BackIcon size={14} /> Back
             </button>
             <h2>Settings</h2>
           </div>
-          <nav className="settings-nav">
+          <nav className="settings-nav" aria-label="Settings sections">
             {NAV.map((n) => (
               <Fragment key={n.id}>
                 <button
                   className={`settings-nav-item ${section === n.id ? 'active' : ''}`}
+                  aria-current={section === n.id ? 'page' : undefined}
                   onClick={() => setSection(n.id)}
                 >
-                  <n.icon size={15} />
+                  <n.icon size={16} />
                   {n.label}
                 </button>
               </Fragment>
