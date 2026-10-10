@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 /**
@@ -7,8 +7,9 @@ import { createPortal } from 'react-dom'
  * Its own component rather than a variant of ConfirmDialog, because the two
  * disagree about which button is loud and only one of them can be right per
  * dialog. ConfirmDialog gives the quiet treatment to Cancel and the heavy one
- * to Confirm. This frame does the opposite: Cancel is the orange gradient pill
- * and Confirm is grey.
+ * to Confirm. The frame drew the opposite (Cancel as the orange gradient pill,
+ * Confirm grey); the polish pass put both on the shared button recipe —
+ * an outlined Cancel and a solid accent Confirm.
  *
  * It was called SaveChangesDialog and it is not only about saving any more, so
  * the name went. What it IS about is the button arrangement, and that
@@ -63,6 +64,7 @@ export default function ConfirmSheet({
   onCancel: () => void
 }): JSX.Element {
   const [suppress, setSuppress] = useState(false)
+  const titleId = useId()
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
@@ -78,10 +80,12 @@ export default function ConfirmSheet({
         className="modal-card savechanges-card"
         role="alertdialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <h4 className="savechanges-title">{title}</h4>
+        <h4 id={titleId} className="savechanges-title">
+          {title}
+        </h4>
         <p className="savechanges-message">{message}</p>
 
         {/* Not the `hidden` attribute: that is a UA `display: none`, and

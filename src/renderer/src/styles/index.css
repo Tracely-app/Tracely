@@ -4545,10 +4545,8 @@ textarea:disabled {
 .argscore-unchecked { color: var(--muted); }
 
 /* ---- Save changes dialog (Figma 212:65) --------------------------------
-   Cancel is the gradient pill and Confirm is grey. That is inverted from
-   every other confirm in the app, and it is the design's own choice for a
-   non-destructive action — see SaveChangesDialog.tsx for why it did not
-   become a ConfirmDialog variant. */
+   ConfirmSheet.tsx. Polished onto the shared dialog recipe: 16px card, an
+   outlined Cancel and a solid accent Confirm. */
 .savechanges-card {
   width: 360px;
   padding: 24px;
@@ -4639,38 +4637,59 @@ textarea:disabled {
   gap: 12px;
 }
 
+/* The app-chrome pair: Cancel is the secondary (outlined) button and Confirm
+   the solid accent primary — the same recipe as every other dialog. */
 .savechanges-btn {
+  display: inline-flex;
   flex: 1;
-  height: 44px;
-  border: none;
-  border-radius: 999px;
-  font-size: 15px;
+  align-items: center;
+  justify-content: center;
+  height: var(--ctl-h);
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
 }
 
 .savechanges-btn.cancel {
-  background: linear-gradient(90deg, #f97316 0%, #ea3a0c 100%);
-  color: #fff;
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 500;
 }
 
-.savechanges-btn.cancel:hover {
-  filter: brightness(1.06);
+.savechanges-btn.cancel:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.savechanges-btn.cancel:active:not(:disabled) {
+  background: var(--pressed);
 }
 
 .savechanges-btn.confirm {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--primary-contrast);
 }
 
-.savechanges-btn.confirm:hover {
-  background: var(--border);
+.savechanges-btn.confirm:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.savechanges-btn.confirm:active:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 .savechanges-btn:disabled {
-  opacity: 0.55;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- Home sample popover — Figma 361:329, read off get_design_context ----
