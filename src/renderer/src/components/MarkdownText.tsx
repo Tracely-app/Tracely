@@ -15,6 +15,13 @@ import { parseMarkdown, type Block, type InlineNode } from '../lib/markdown'
 //
 // Sizes are `em`-relative and colours inherit, so this picks up whatever the
 // surrounding bubble or card already set.
+//
+// The one exception is inline code, which also carries the `md-code` class.
+// In the windows that load `styles/index.css` that class sets the
+// `--md-code-*` custom properties below to the shared inset recipe (12px,
+// var(--surface-2), 1px var(--border), radius 4); the overlay window does not
+// load that sheet, so there every property falls back to the
+// currentColor-derived tint it has always had.
 
 const CONTAINER_STYLE: CSSProperties = {
   display: 'flex',
@@ -27,7 +34,7 @@ const CONTAINER_STYLE: CSSProperties = {
 // byte-for-byte what they rendered before this component existed.
 const PARAGRAPH_STYLE: CSSProperties = { margin: 0, whiteSpace: 'pre-wrap' }
 
-const HEADING_STYLE: CSSProperties = { margin: 0, fontWeight: 700, fontSize: '1.02em' }
+const HEADING_STYLE: CSSProperties = { margin: 0, fontWeight: 600, fontSize: '1em' }
 
 const LIST_STYLE: CSSProperties = {
   margin: 0,
@@ -39,11 +46,13 @@ const LIST_STYLE: CSSProperties = {
 
 const CODE_STYLE: CSSProperties = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
-  fontSize: '0.92em',
-  // Derived from the inherited text colour so one value works on the light
-  // cards and the dark theme alike. Unsupported means no tint, not broken text.
-  background: 'color-mix(in srgb, currentColor 10%, transparent)',
-  padding: '0.1em 0.32em',
+  fontSize: 'var(--md-code-size, 0.92em)',
+  // The fallbacks derive from the inherited text colour so one value works on
+  // the light cards and the dark theme alike. Unsupported means no tint, not
+  // broken text.
+  background: 'var(--md-code-bg, color-mix(in srgb, currentColor 10%, transparent))',
+  border: 'var(--md-code-border, 0)',
+  padding: 'var(--md-code-pad, 0.1em 0.32em)',
   borderRadius: 4
 }
 
@@ -54,13 +63,13 @@ function renderInline(nodes: InlineNode[]): JSX.Element[] {
         return <span key={i}>{node.value}</span>
       case 'code':
         return (
-          <code key={i} style={CODE_STYLE}>
+          <code key={i} className="md-code" style={CODE_STYLE}>
             {node.value}
           </code>
         )
       case 'strong':
         return (
-          <strong key={i} style={{ fontWeight: 700 }}>
+          <strong key={i} style={{ fontWeight: 600 }}>
             {renderInline(node.children)}
           </strong>
         )

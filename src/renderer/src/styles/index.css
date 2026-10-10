@@ -2128,49 +2128,87 @@ textarea:disabled {
   margin-top: 20px;
 }
 
+/* An outlined static card: no shadow at rest. */
 .claim-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px 18px;
+  border-radius: var(--r-card);
+  padding: 16px 20px;
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
 }
 
 .claim-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.3;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .claim-type {
-  padding: 2px 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .claim-confidence-false {
   color: var(--danger);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .claim-text {
   font-size: 15px;
   font-weight: 600;
   line-height: 1.45;
-  margin: 10px 0 12px;
+  margin: 12px 0;
+  text-wrap: pretty;
 }
 
 .claim-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+}
+
+/* The card only renders in the 380px Floating popup, where "Refresh
+   Evidence" + "Re-check Argument" no longer fit on one row at 14px. Growing
+   the pair makes either outcome look intended: two equal halves, or two
+   full-width rows — never one short button hanging under another. */
+.claim-actions .btn {
+  flex: 1 1 auto;
+}
+
+/* The card's own status rows: the error sentence, and "no supporting
+   evidence" in the shared dashed empty box. Scoped here so the global
+   .muted / .error-text stay untouched. */
+.claim-card > .error-text {
+  margin: 4px 0 0;
+  padding: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.claim-card > .claim-empty {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* Structured "verdict → score breakdown → critique prose" card — replaces
@@ -2178,9 +2216,9 @@ textarea:disabled {
    hover-tooltip, easy to never discover) plus a single unstructured
    critique paragraph below it. */
 .evidence-score-card {
-  margin-top: 14px;
+  margin-top: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   overflow: hidden;
   background: var(--surface);
 }
@@ -2207,8 +2245,8 @@ textarea:disabled {
 
 .evidence-score-verdict {
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--score-mid);
 }
 .evidence-verdict-good .evidence-score-verdict {
@@ -2222,13 +2260,15 @@ textarea:disabled {
 }
 
 .evidence-score-number {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .evidence-score-number-max {
+  margin-left: 2px;
   font-size: 12px;
   font-weight: 500;
   color: var(--muted);
@@ -2237,8 +2277,8 @@ textarea:disabled {
 .evidence-score-breakdown {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px 16px;
-  padding: 14px 16px;
+  gap: 12px 16px;
+  padding: 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -2270,21 +2310,22 @@ textarea:disabled {
 .evidence-score-stat-fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--accent-gradient);
-  transition: width 0.3s ease;
+  background: var(--accent);
+  transition: width 240ms var(--ease);
 }
 
 .evidence-score-critique {
-  padding: 14px 16px;
+  padding: 16px;
 }
 
 .evidence-score-critique-label {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   color: var(--label);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .evidence-score-critique p {
@@ -2300,20 +2341,25 @@ textarea:disabled {
    padded text — because it only ever appears when a local entailment model and
    the relay independently agreed, which is rare and worth stopping for. */
 .evidence-correction {
-  padding: 12px 16px;
-  margin: 0 14px 2px;
+  padding: 12px;
+  margin: 16px 16px 0;
   border-left: 3px solid var(--danger);
   background: var(--score-low-wash);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 var(--r-ctl) var(--r-ctl) 0;
+}
+
+.evidence-correction:last-child {
+  margin-bottom: 16px;
 }
 
 .evidence-correction-label {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   color: var(--danger);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .evidence-correction p {
@@ -2329,15 +2375,20 @@ textarea:disabled {
   /* `float: right` took it out of flow, so a long evidence title ran underneath
      the chip instead of stopping short of it. Inline-block keeps it on the same
      line and lets the text reflow around it. */
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   vertical-align: middle;
-  margin-left: 8px;
-  padding: 2px 8px;
+  height: 20px;
+  /* It is the card's first child, above a block title: a leading chip on its
+     own line, flush with the title's left edge. */
+  margin: 0 0 8px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
@@ -2354,54 +2405,76 @@ textarea:disabled {
 .evidence-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   margin-top: 12px;
 }
 
 .evidence-card {
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: var(--r-ctl);
+  padding: 12px 14px;
   background: var(--surface-2);
 }
 
 .evidence-title {
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.4;
+  text-wrap: pretty;
 }
 
 .evidence-title a {
   color: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+}
+
+.evidence-title a:hover {
+  text-decoration-color: currentColor;
 }
 
 .evidence-meta {
   font-size: 12px;
+  line-height: 1.45;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Reads as a property of the source rather than a badge competing with the
    stance chip above it — whether you can read the paper is useful context,
    not a verdict. */
+/* On its own line under the meta: inline, it wrapped onto a fresh line with
+   its left margin still on and sat indented from the text above. */
 .evidence-oa {
-  margin-left: 6px;
-  padding: 1px 6px;
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  height: 20px;
+  margin: 8px 0 0;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--score-good-wash);
   color: var(--score-good);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
 }
 
 .evidence-abstract {
   font-size: 13px;
+  line-height: 1.5;
   margin: 8px 0;
 }
 
+/* Small ghost buttons, pulled left by their own padding so the labels line up
+   with the title and meta above. */
 .evidence-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 4px;
+  margin: 8px 0 0 -10px;
 }
 
 .citation-block {
@@ -4867,34 +4940,33 @@ textarea:disabled {
 .argscore-unchecked { color: var(--muted); }
 
 /* ---- Save changes dialog (Figma 212:65) --------------------------------
-   Cancel is the gradient pill and Confirm is grey. That is inverted from
-   every other confirm in the app, and it is the design's own choice for a
-   non-destructive action — see SaveChangesDialog.tsx for why it did not
-   become a ConfirmDialog variant. */
+   ConfirmSheet.tsx. Polished onto the shared dialog recipe: 16px card, an
+   outlined Cancel and a solid accent Confirm. */
 .savechanges-card {
   width: 360px;
-  padding: 20px;
-  border-radius: 18px;
+  padding: 24px;
+  border-radius: var(--r-card);
 }
 
 .savechanges-title {
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .savechanges-message {
   margin: 8px 0 16px;
-  font-size: 13.5px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
 .savechanges-check {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   margin-bottom: 20px;
   font-size: 13px;
   color: var(--text);
@@ -4911,19 +4983,44 @@ textarea:disabled {
   height: 0;
 }
 
+/* The global checkbox recipe (16px, radius 4, accent when checked, drawn
+   tick), repeated here because the native input is visually hidden. */
 .savechanges-box {
-  width: 19px;
-  height: 19px;
+  position: relative;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   border: 1.5px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--surface);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.savechanges-check:hover .savechanges-box {
+  border-color: var(--accent);
 }
 
 .savechanges-check input:checked + .savechanges-box {
   border-color: transparent;
-  background: var(--accent) center / 13px 13px no-repeat
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");
+  background: var(--accent);
+}
+
+.savechanges-check input:checked + .savechanges-box::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--primary-contrast);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.savechanges-check input:disabled + .savechanges-box {
+  opacity: 0.5;
 }
 
 .savechanges-check input:focus-visible + .savechanges-box {
@@ -4935,38 +5032,60 @@ textarea:disabled {
   gap: 12px;
 }
 
+/* The app-chrome pair: Cancel is the secondary (outlined) button and Confirm
+   the solid accent primary — the same recipe as every other dialog. */
 .savechanges-btn {
+  display: inline-flex;
   flex: 1;
-  height: 44px;
-  border: none;
-  border-radius: 999px;
-  font-size: 15px;
+  align-items: center;
+  justify-content: center;
+  height: var(--ctl-h);
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    filter var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
 }
 
 .savechanges-btn.cancel {
-  background: linear-gradient(90deg, #f97316 0%, #ea3a0c 100%);
-  color: #fff;
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 500;
 }
 
-.savechanges-btn.cancel:hover {
-  filter: brightness(1.06);
+.savechanges-btn.cancel:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.savechanges-btn.cancel:active:not(:disabled) {
+  background: var(--pressed);
 }
 
 .savechanges-btn.confirm {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--accent);
+  color: var(--primary-contrast);
 }
 
-.savechanges-btn.confirm:hover {
-  background: var(--border);
+.savechanges-btn.confirm:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.savechanges-btn.confirm:active:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 .savechanges-btn:disabled {
-  opacity: 0.55;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- Home sample popover — Figma 361:329, read off get_design_context ----
@@ -5004,18 +5123,19 @@ textarea:disabled {
 
 /* ---- Document toolbar menus (Figma 226:95 / 226:104 / 234:46 / 234:67 /
    234:74 / 234:85) — chrome read off 226:95 with get_design_context. ------- */
+/* Fixed, with top/left set by ToolbarMenu.tsx from its trigger — see there
+   for why it cannot hang absolutely inside the scrolling tool group. */
 .toolbar-menu {
-  position: absolute;
-  top: calc(100% + 6px);
+  position: fixed;
   z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 4px;
-  background: #fff;
-  border: 1px solid #000;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 6px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tile);
+  box-shadow: var(--shadow-lg);
   /* Ten font sizes make a 374px-tall menu; cap it rather than let it run off
      a 606px window. */
   max-height: 320px;
@@ -5025,67 +5145,53 @@ textarea:disabled {
 .toolbar-menu-item {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   width: 100%;
-  height: 34px;
-  padding: 8px 12px;
+  height: 32px;
+  padding: 0 12px;
   border: none;
   border-radius: 6px;
   background: transparent;
   font-size: 13px;
   font-weight: 500;
-  color: #333338;
+  line-height: 1;
+  color: var(--text);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .toolbar-menu-item:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
 }
 
-.toolbar-menu-item.active {
+.toolbar-menu-item:active:not(:disabled) {
+  background: var(--pressed);
+}
+
+/* Inside the menu the ring sits on the row, not 2px outside it where the
+   menu's own overflow would clip it. */
+.toolbar-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toolbar-menu-item.active,
+.toolbar-menu-item.active:hover:not(:disabled) {
   background: var(--accent-wash);
   color: var(--accent);
 }
 
 .toolbar-menu-item:disabled {
-  color: rgba(51, 51, 56, 0.35);
-  cursor: default;
+  color: var(--label);
+  cursor: not-allowed;
 }
 
-/* Dark for the toolbar menus, BOTH ways dark is reachable — the explicit
-   Settings toggle and System on a dark OS. A rule on only one path is a known
-   bug class in this file (see the Documents-family note). The item rule is
-   `:not(.active)` because the :root prefix would otherwise out-specify
-   `.toolbar-menu-item.active` and flatten the accent highlight. */
-:root[data-theme='dark'] .toolbar-menu {
-  background: var(--surface);
-  border-color: var(--border-strong);
-}
-:root[data-theme='dark'] .toolbar-menu-item:not(.active) {
-  color: var(--text);
-}
-:root[data-theme='dark'] .toolbar-menu-item:hover:not(:disabled) {
-  background: var(--surface-2);
-}
-:root[data-theme='dark'] .toolbar-menu-item:disabled {
-  color: var(--label);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .toolbar-menu {
-    background: var(--surface);
-    border-color: var(--border-strong);
-  }
-  :root:not([data-theme='light']) .toolbar-menu-item:not(.active) {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .toolbar-menu-item:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  :root:not([data-theme='light']) .toolbar-menu-item:disabled {
-    color: var(--label);
-  }
-}
+/* No dark block: every value above is a token, so both ways dark is reachable
+   (the Settings toggle and System on a dark OS) are covered by :root. */
 
 /* Each trigger is the positioning context for its own menu. */
 .docedit-menu-wrap {
@@ -6722,9 +6828,9 @@ textarea:disabled {
   flex-direction: column;
   width: min(680px, 100%);
   max-height: 100%;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 18px 48px rgba(16, 18, 22, 0.28);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -6734,162 +6840,112 @@ textarea:disabled {
   justify-content: space-between;
   gap: 16px;
   flex-shrink: 0;
-  padding: 22px 24px 16px;
-  border-bottom: 1px solid #d9dbe0;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .guide-kicker {
-  margin: 0 0 6px;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.3px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--label);
 }
 
 .guide-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.2px;
-  color: #212429;
+  line-height: 1.3;
+  color: var(--text);
+  text-wrap: balance;
 }
 
 .guide-close {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 8px;
-  background: none;
-  color: #737880;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.guide-close:hover { background: #f1f2f4; color: #212429; }
-.guide-close svg { width: 16px; height: 16px; }
+.guide-close:hover { background: var(--hover); color: var(--text); }
+.guide-close:active { background: var(--pressed); }
 
 .guide-body {
   overflow-y: auto;
-  padding: 20px 24px 28px;
-  outline: none;
+  padding: 24px 24px 32px;
 }
+/* Focus lands here programmatically on open; the ring is drawn inside the
+   scroller so its overflow cannot clip it. */
+.guide-body:focus { outline: none; }
+.guide-body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .guide-standfirst {
   margin: 0;
   font-size: 15px;
   line-height: 1.55;
-  color: #4a4f57;
+  color: var(--muted-2);
 }
 
-.guide-section { margin-top: 22px; }
+.guide-section { margin-top: 24px; }
 
 .guide-section h2 {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: #212429;
+  line-height: 1.3;
+  color: var(--text);
 }
 
-/* 14.5/1.62 rather than the app's denser default: this is the one surface in
-   Tracely that gets read continuously rather than scanned. */
+/* 15/1.6 rather than the app's denser default: this is the one surface in
+   Tracely that gets read continuously rather than scanned (the only place the
+   type scale allows 15). */
 .guide-section p {
-  margin: 0 0 10px;
-  font-size: 14.5px;
-  line-height: 1.62;
-  color: #3d424a;
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  text-wrap: pretty;
 }
 
 .guide-section ul {
-  margin: 4px 0 10px;
+  margin: 4px 0 12px;
   padding-left: 20px;
 }
 
 .guide-section li {
-  margin-bottom: 6px;
-  font-size: 14.5px;
-  line-height: 1.55;
-  color: #3d424a;
+  margin-bottom: 8px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
 }
 
-.guide-note {
+/* Two classes so it out-ranks `.guide-section p` (the note is a <p>). */
+.guide-section .guide-note {
   margin-top: 12px;
   margin-bottom: 0;
-  padding: 12px 14px;
+  padding: 12px;
   border-left: 3px solid var(--accent);
-  border-radius: 0 8px 8px 0;
-  background: #fef2e7;
-  font-size: 13.5px;
-  color: #5a4636;
+  border-radius: 0 var(--r-ctl) var(--r-ctl) 0;
+  background: var(--accent-wash);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
 }
 
-/* Dark for the guide reader, BOTH ways dark is reachable — the explicit
-   Settings toggle and System on a dark OS. The note keeps its warm cast: a 12%
-   accent wash over the card with the text moved toward #f9a050, the dark
-   counterpart of cream-and-brown. */
-:root[data-theme='dark'] .guide-card {
-  background: var(--surface);
-}
-:root[data-theme='dark'] .guide-head {
-  border-bottom-color: var(--border);
-}
-:root[data-theme='dark'] .guide-title {
-  color: var(--text);
-}
-:root[data-theme='dark'] .guide-close {
-  color: var(--muted);
-}
-:root[data-theme='dark'] .guide-close:hover {
-  background: var(--surface-2);
-  color: var(--text);
-}
-:root[data-theme='dark'] .guide-standfirst {
-  color: var(--muted-2);
-}
-:root[data-theme='dark'] .guide-section h2 {
-  color: var(--text);
-}
-:root[data-theme='dark'] .guide-section p,
-:root[data-theme='dark'] .guide-section li {
-  color: var(--muted-2);
-}
-:root[data-theme='dark'] .guide-note {
-  background: rgba(244, 123, 32, 0.12);
-  color: #f9a050;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .guide-card {
-    background: var(--surface);
-  }
-  :root:not([data-theme='light']) .guide-head {
-    border-bottom-color: var(--border);
-  }
-  :root:not([data-theme='light']) .guide-title {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .guide-close {
-    color: var(--muted);
-  }
-  :root:not([data-theme='light']) .guide-close:hover {
-    background: var(--surface-2);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .guide-standfirst {
-    color: var(--muted-2);
-  }
-  :root:not([data-theme='light']) .guide-section h2 {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .guide-section p,
-  :root:not([data-theme='light']) .guide-section li {
-    color: var(--muted-2);
-  }
-  :root:not([data-theme='light']) .guide-note {
-    background: rgba(244, 123, 32, 0.12);
-    color: #f9a050;
-  }
-}
+/* No dark block: every colour above is a token, so the Settings toggle and
+   System-on-a-dark-OS paths both resolve through :root. The note's
+   var(--accent-wash) is 16% in dark, which keeps its warm cast. */
 
 /* ---------------------------------------------------------------------------
    The Tracer panel (components/TracerChat.tsx)
@@ -6910,9 +6966,12 @@ textarea:disabled {
   max-width: calc(100vw / var(--app-zoom, 1) - 40px);
   height: 627px;
   max-height: calc(100vh / var(--app-zoom, 1) - 40px);
-  border-radius: 16px;
-  background: #f5f6f8;
-  box-shadow: 0 18px 48px rgba(16, 18, 22, 0.26);
+  /* The edge is what separates it from Home in dark, where the shadow is
+     invisible on a near-black page of the same var(--bg). */
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--bg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   -webkit-app-region: no-drag;
 }
@@ -6920,11 +6979,11 @@ textarea:disabled {
 .tracer-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-shrink: 0;
-  padding: 14px 14px 14px 12px;
+  padding: 12px;
   background: var(--accent);
-  color: #fff;
+  color: var(--primary-contrast);
 }
 
 /* Same treatment as Home's launcher: the artwork has a white background rather
@@ -6943,20 +7002,25 @@ textarea:disabled {
   flex: 1;
   min-width: 0;
 }
-.tracer-head-text b { font-size: 15px; font-weight: 600; }
+.tracer-head-text b { font-size: 15px; font-weight: 600; line-height: 1.3; }
 .tracer-head-text span {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.3;
   opacity: 0.92;
 }
 
+/* The status dot: the app's own green, ringed in white so it holds up on the
+   accent header in both themes. */
 .tracer-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
   border-radius: 50%;
-  background: #7ee08f;
+  background: var(--score-good);
+  box-shadow: 0 0 0 1.5px var(--primary-contrast);
 }
 
 .tracer-close {
@@ -6966,19 +7030,22 @@ textarea:disabled {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 8px;
-  background: none;
-  color: #fff;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--primary-contrast);
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
-.tracer-close:hover { background: rgba(255, 255, 255, 0.18); }
-.tracer-close svg { width: 15px; height: 15px; }
+.tracer-close:hover { background: var(--hover); }
+.tracer-close:active { background: var(--pressed); }
+/* On the accent header an accent ring would vanish; white reads. */
+.tracer-close:focus-visible { outline: 2px solid var(--primary-contrast); outline-offset: 2px; }
 
 .tracer-log {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -6987,8 +7054,8 @@ textarea:disabled {
 .tracer-msg {
   margin: 0;
   max-width: 84%;
-  padding: 11px 13px;
-  border-radius: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-tile);
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -6997,16 +7064,16 @@ textarea:disabled {
 
 .tracer-msg.from-tracer {
   align-self: flex-start;
-  border: 1px solid #dfe1e6;
-  background: #fff;
-  color: #2c3038;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
 }
 
 .tracer-msg.from-user {
   align-self: flex-end;
   border: 1px solid transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--primary-contrast);
 }
 
 /* Three dots, offset so they rise in sequence. Decorative only — the bubble is
@@ -7016,14 +7083,14 @@ textarea:disabled {
 .tracer-typing {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 14px 15px;
+  gap: 4px;
+  padding: 14px 16px;
 }
 .tracer-typing i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #b4b8c0;
+  background: var(--label);
   animation: tracer-bounce 1.1s infinite ease-in-out;
 }
 .tracer-typing i:nth-child(2) { animation-delay: 0.15s; }
@@ -7036,7 +7103,8 @@ textarea:disabled {
 
 .tracer-error {
   margin: 0;
-  font-size: 12px;
+  padding: 8px 0;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--danger);
 }
@@ -7044,46 +7112,53 @@ textarea:disabled {
 .tracer-composer {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
-  padding: 12px 12px 14px;
-  border-top: 1px solid #e4e6ea;
-  background: #fff;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .tracer-composer input {
   flex: 1;
   min-width: 0;
-  height: 42px;
-  padding: 0 16px;
-  border: 1px solid #e4e6ea;
-  border-radius: 21px;
-  background: #f5f6f8;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-ctl);
+  background: var(--bg);
   font: inherit;
   font-size: 13px;
-  color: #2c3038;
+  color: var(--text);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
-.tracer-composer input:focus {
-  outline: none;
+/* The universal field ring, restated only because the rule above out-ranks
+   its zero-specificity border colour. */
+.tracer-composer input:focus-visible {
   border-color: var(--accent);
-  background: #fff;
+  box-shadow: 0 0 0 3px var(--ring);
 }
-.tracer-composer input::placeholder { color: #9aa0a8; }
+.tracer-composer input::placeholder { color: var(--label); opacity: 1; }
+.tracer-composer input:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .tracer-send {
   flex-shrink: 0;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--primary-contrast);
   cursor: pointer;
+  transition: filter var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
-.tracer-send:disabled { opacity: 0.45; cursor: default; }
-.tracer-send svg { width: 19px; height: 19px; }
+.tracer-send:hover:not(:disabled) { filter: brightness(1.06); }
+.tracer-send:active:not(:disabled) { filter: brightness(0.94); }
+.tracer-send:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Tracer's launcher in the editor toolbar: the secondary beside the one
    primary (`.docedit-insights`), outlined so the two do not read as a pair of
@@ -7127,10 +7202,10 @@ textarea:disabled {
 .tracer-rewrite {
   align-self: flex-start;
   width: 100%;
-  padding: 11px 12px;
-  border: 1px solid #f3d3b4;
-  border-radius: 12px;
-  background: #fff8f1;
+  padding: 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-tile);
+  background: var(--accent-wash);
 }
 
 .tracer-rewrite b {
@@ -7138,9 +7213,10 @@ textarea:disabled {
   margin-bottom: 8px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.4px;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #b45309;
+  color: var(--text);
 }
 
 /* Before and after, both shown. Showing only the replacement would ask the
@@ -7149,189 +7225,85 @@ textarea:disabled {
 .tracer-rewrite-was,
 .tracer-rewrite-now {
   margin: 0;
-  padding: 7px 9px;
-  border-radius: 8px;
-  font-size: 12.5px;
-  line-height: 1.45;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .tracer-rewrite-was {
-  background: #f4f5f7;
-  color: #6b7078;
+  background: var(--surface-2);
+  color: var(--muted);
   text-decoration: line-through;
-  text-decoration-color: #b9bdc4;
+  text-decoration-color: var(--label);
 }
 
 .tracer-rewrite-now {
-  margin-top: 6px;
-  background: #fff;
-  border: 1px solid #f0dcc6;
-  color: #2c3038;
+  margin-top: 8px;
+  background: var(--surface);
+  border-color: var(--accent-border);
+  color: var(--text);
 }
 
 .tracer-rewrite-actions {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .tracer-apply,
 .tracer-dismiss {
-  height: 30px;
-  padding: 0 14px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 13px;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    filter var(--dur) var(--ease);
 }
 
 .tracer-apply {
-  border: 0;
+  border: 1px solid transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--primary-contrast);
+  font-weight: 600;
 }
+.tracer-apply:hover { filter: brightness(1.06); }
+.tracer-apply:active { filter: brightness(0.94); }
 
 .tracer-dismiss {
-  border: 1px solid #e2d5c6;
+  border: 1px solid var(--border);
   background: transparent;
-  color: #6b7078;
+  color: var(--muted);
+  font-weight: 500;
 }
-.tracer-dismiss:hover { background: #f6ede3; }
+.tracer-dismiss:hover { background: var(--hover); color: var(--text); }
+.tracer-dismiss:active { background: var(--pressed); }
 
 .tracer-rewrite-done,
 .tracer-rewrite-gone {
   display: block;
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
-.tracer-rewrite-done { color: #168449; }
-.tracer-rewrite-gone { color: #6b7078; }
+.tracer-rewrite-done { color: var(--score-good); }
+.tracer-rewrite-gone { color: var(--muted); }
 
-/* Dark for the Tracer panel, BOTH ways dark is reachable — the explicit
-   Settings toggle and System on a dark OS. The header, send button and user
-   bubble already ride var(--accent) and are untouched; these cover the
-   hardcoded-light remainder. The log sits on var(--bg) so the surface bubbles
-   still read as cards against it — the same figure-ground as light's
-   #f5f6f8-under-#fff. The input keeps its own :focus rules here because the
-   :root-prefixed base rule would otherwise out-specify the light :focus and
-   lose the accent border. */
-:root[data-theme='dark'] .tracer-panel {
-  background: var(--bg);
-}
-:root[data-theme='dark'] .tracer-msg.from-tracer {
-  border-color: var(--border);
-  background: var(--surface);
-  color: var(--text);
-}
-:root[data-theme='dark'] .tracer-typing i {
-  background: var(--muted);
-}
-:root[data-theme='dark'] .tracer-composer {
-  border-top-color: var(--border);
-  background: var(--surface);
-}
-:root[data-theme='dark'] .tracer-composer input {
-  border-color: var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-}
-:root[data-theme='dark'] .tracer-composer input:focus {
-  border-color: var(--accent);
-  background: var(--surface);
-}
-:root[data-theme='dark'] .tracer-composer input::placeholder {
-  color: var(--label);
-}
-:root[data-theme='dark'] .tracer-rewrite {
-  border-color: rgba(244, 123, 32, 0.3);
-  background: var(--surface);
-}
-:root[data-theme='dark'] .tracer-rewrite b {
-  color: var(--accent-2);
-}
-:root[data-theme='dark'] .tracer-rewrite-was {
-  background: var(--surface-2);
-  color: var(--muted);
-}
-:root[data-theme='dark'] .tracer-rewrite-now {
-  background: var(--surface-2);
-  border-color: rgba(244, 123, 32, 0.3);
-  color: var(--text);
-}
-:root[data-theme='dark'] .tracer-dismiss {
-  border-color: var(--border);
-  color: var(--muted);
-}
-:root[data-theme='dark'] .tracer-dismiss:hover {
-  background: var(--surface-2);
-}
-:root[data-theme='dark'] .tracer-rewrite-done {
-  color: var(--score-good);
-}
-:root[data-theme='dark'] .tracer-rewrite-gone {
-  color: var(--muted);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .tracer-panel {
-    background: var(--bg);
-  }
-  :root:not([data-theme='light']) .tracer-msg.from-tracer {
-    border-color: var(--border);
-    background: var(--surface);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .tracer-typing i {
-    background: var(--muted);
-  }
-  :root:not([data-theme='light']) .tracer-composer {
-    border-top-color: var(--border);
-    background: var(--surface);
-  }
-  :root:not([data-theme='light']) .tracer-composer input {
-    border-color: var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .tracer-composer input:focus {
-    border-color: var(--accent);
-    background: var(--surface);
-  }
-  :root:not([data-theme='light']) .tracer-composer input::placeholder {
-    color: var(--label);
-  }
-  :root:not([data-theme='light']) .tracer-rewrite {
-    border-color: rgba(244, 123, 32, 0.3);
-    background: var(--surface);
-  }
-  :root:not([data-theme='light']) .tracer-rewrite b {
-    color: var(--accent-2);
-  }
-  :root:not([data-theme='light']) .tracer-rewrite-was {
-    background: var(--surface-2);
-    color: var(--muted);
-  }
-  :root:not([data-theme='light']) .tracer-rewrite-now {
-    background: var(--surface-2);
-    border-color: rgba(244, 123, 32, 0.3);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .tracer-dismiss {
-    border-color: var(--border);
-    color: var(--muted);
-  }
-  :root:not([data-theme='light']) .tracer-dismiss:hover {
-    background: var(--surface-2);
-  }
-  :root:not([data-theme='light']) .tracer-rewrite-done {
-    color: var(--score-good);
-  }
-  :root:not([data-theme='light']) .tracer-rewrite-gone {
-    color: var(--muted);
-  }
-}
+/* No dark block: the panel, bubbles, composer and rewrite card are all
+   tokens, so the Settings toggle and System-on-a-dark-OS paths both resolve
+   through :root. The log sits on var(--bg) so the surface bubbles still read
+   as cards against it in either theme. */
 
 /* `.docedit-checking`, `.docedit-docmeta` and `.docedit-gradelevel` stood here.
    The checking pill and the grading-level chip live in the status row at the
@@ -7465,9 +7437,9 @@ textarea:disabled {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--r-card);
   box-shadow: var(--shadow-lg);
-  padding: 20px;
+  padding: 24px;
   gap: 12px;
 }
 
@@ -7479,49 +7451,56 @@ textarea:disabled {
 }
 .srcfind-head h2 {
   margin: 0 0 4px;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 .srcfind-head p {
   margin: 0;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
 }
 .srcfind-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin: -2px -4px 0 0;
+  padding: 0;
   border: 0;
-  background: none;
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
+  border-radius: var(--r-ctl);
+  background: transparent;
   color: var(--muted);
-  padding: 0 4px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.srcfind-close:hover { color: var(--text); }
+.srcfind-close:hover { background: var(--hover); color: var(--text); }
+.srcfind-close:active { background: var(--pressed); }
 
+/* The shared textarea recipe (84px, 10/12 padding, 13/1.5, radius 8); its
+   textarea:focus-visible accent ring applies unchanged. */
 .srcfind-input {
   width: 100%;
   resize: vertical;
-  min-height: 72px;
-  padding: 11px 12px;
+  min-height: 84px;
+  padding: 10px 12px;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   /* Both explicit. `color: inherit` was enough only by accident — the panel
      above sets one — and an input that inherits its background from nothing is
      exactly how the white-on-white happened. */
   color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-ctl);
 }
-.srcfind-input::placeholder { color: var(--muted); }
-.srcfind-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: transparent;
-}
+.srcfind-input::placeholder { color: var(--label); opacity: 1; }
 
 .srcfind-actions {
   display: flex;
@@ -7529,37 +7508,53 @@ textarea:disabled {
   justify-content: space-between;
   gap: 12px;
 }
-.srcfind-hint { font-size: 12px; color: var(--muted); }
+.srcfind-hint { font-size: 12px; line-height: 1.45; color: var(--muted); }
 .srcfind-go {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: var(--ctl-h);
+  padding: 0 18px;
   border: 0;
-  border-radius: 8px;
-  padding: 8px 16px;
+  border-radius: var(--r-ctl);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   color: var(--primary-contrast);
   background: var(--primary);
   cursor: pointer;
+  transition: filter var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
-.srcfind-go:disabled { opacity: 0.45; cursor: default; }
+.srcfind-go:hover:not(:disabled) { filter: brightness(1.06); }
+.srcfind-go:active:not(:disabled) { filter: brightness(0.94); }
+.srcfind-go:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* The results are what scrolls — the header, the box and the button stay put,
    so the control you press is never below the fold. */
 .srcfind-results { overflow-y: auto; min-height: 0; }
-.srcfind-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 18px 2px;
-  font-size: 13.5px;
-  color: var(--muted);
-}
+.srcfind-loading { padding: 8px 0; }
+.srcfind-loading .spinner-row { margin: 0; }
+/* No-results is the shared empty recipe: muted 13px in a dashed box. */
 .srcfind-note {
-  margin: 6px 2px;
-  font-size: 13.5px;
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
+  text-align: center;
 }
-.srcfind-error { color: var(--danger); }
+/* An error is a sentence, not an empty state: no box. */
+.srcfind-note.srcfind-error {
+  padding: 8px 0;
+  border: 0;
+  text-align: left;
+  color: var(--danger);
+}
 
 .srcfind-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .srcfind-row {
@@ -7567,7 +7562,7 @@ textarea:disabled {
   grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: start;
-  padding: 11px 4px;
+  padding: 12px 4px;
   border-bottom: 1px solid var(--border);
 }
 .srcfind-row:last-child { border-bottom: 0; }
@@ -7577,11 +7572,11 @@ textarea:disabled {
 .srcfind-badge {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--surface-2);
   color: var(--muted);
@@ -7591,13 +7586,13 @@ textarea:disabled {
 .srcfind-badge img { width: 100%; height: 100%; object-fit: contain; }
 
 .srcfind-row-main { min-width: 0; }
-.srcfind-row-title { font-size: 13.5px; font-weight: 550; line-height: 1.35; color: var(--text); }
-.srcfind-row-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.srcfind-row-title { font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--text); text-wrap: pretty; }
+.srcfind-row-meta { font-size: 12px; line-height: 1.45; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .srcfind-row-cite {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 6px;
-  line-height: 1.45;
+  margin-top: 8px;
+  line-height: 1.5;
   word-break: break-word;
 }
 
@@ -7605,10 +7600,10 @@ textarea:disabled {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 5px;
+  gap: 4px;
   white-space: nowrap;
 }
-.srcfind-match { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.srcfind-match { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* The same two treatments `.docmark-cred` uses in the editor — green for a
    publisher a marker accepts, neutral grey for one Tracely does not recognise.
@@ -7616,10 +7611,13 @@ textarea:disabled {
    site, and the editor has said so in exactly these colours since the chip
    existed. */
 .srcfind-cred {
-  font-size: 10.5px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.3px;
-  padding: 2px 7px;
+  line-height: 1;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--muted);
@@ -7632,20 +7630,37 @@ textarea:disabled {
   color: var(--score-good);
 }
 
-.srcfind-row-btns { display: flex; gap: 6px; margin-top: 2px; }
+.srcfind-row-btns { display: flex; gap: 4px; margin-top: 4px; }
 .srcfind-open,
 .srcfind-copy {
-  border: 1px solid var(--border);
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
   border-radius: 6px;
-  padding: 3px 9px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   color: var(--text);
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 .srcfind-open:hover,
-.srcfind-copy:hover { background: var(--surface-2); }
+.srcfind-copy:hover { background: var(--hover); }
+.srcfind-open:active,
+.srcfind-copy:active { background: var(--pressed); }
+
+/* MarkdownText's inline code (components/MarkdownText.tsx). The element's
+   inline style reads these, so windows without this sheet keep its fallback. */
+.md-code {
+  --md-code-size: 12px;
+  --md-code-bg: var(--surface-2);
+  --md-code-border: 1px solid var(--border);
+  --md-code-pad: 1px 4px;
+}
 
 /* ── One set of edges at every width ──────────────────────────────────────
  *
