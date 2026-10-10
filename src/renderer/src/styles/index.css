@@ -2269,6 +2269,11 @@ textarea:disabled {
   height: 100%;
 }
 
+/* Before settings arrive: the spinner where the pane's content will start. */
+.settings-loading {
+  padding: 44px 40px;
+}
+
 .settings-shell {
   display: flex;
   width: 100%;

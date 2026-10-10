@@ -436,7 +436,13 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
 
 
   if (!settings) {
-    return <div className="settings-view">{error ? <p className="error-text" role="alert">{error}</p> : <p>Loading…</p>}</div>
+    return (
+      <div className="settings-view">
+        <div className="settings-loading">
+          {error ? <p className="error-text" role="alert">{error}</p> : <Spinner label="Loading…" />}
+        </div>
+      </div>
+    )
   }
 
   return (
