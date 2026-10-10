@@ -325,7 +325,7 @@ const ICON_BTN_STYLE: CSSProperties = {
   padding: 0,
   border: 'none',
   borderRadius: 8,
-  background: 'transparent',
+  // No inline fill: .tracely-icon-btn draws it, so the hover wash can show.
   color: INK,
   display: 'inline-flex',
   alignItems: 'center',
@@ -802,9 +802,10 @@ const PANEL_GAP = 16
 // Padded 6x8 so the hit target is a real one and the .tracely-btn-text hover
 // wash has room to show; callers that sit flush with a column edge pull it
 // back with a negative margin so the label, not the wash, lines up.
+// Its colour and (transparent) fill live on .tracely-btn-text, so the hover
+// can change them; an inline value would always win.
 const TEXT_BTN_STYLE: CSSProperties = {
   border: 'none',
-  background: 'transparent',
   padding: '6px 8px',
   borderRadius: 6,
   display: 'inline-flex',
@@ -814,7 +815,6 @@ const TEXT_BTN_STYLE: CSSProperties = {
   fontSize: 13,
   fontWeight: 500,
   lineHeight: 1,
-  color: MUTED,
   cursor: 'pointer'
 }
 
@@ -3519,7 +3519,6 @@ function CitationFlowCard({
                   alignItems: 'center',
                   gap: 4,
                   textAlign: 'left',
-                  background: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
                   fontFamily: 'inherit'
@@ -4928,6 +4927,7 @@ export default function OverlayApp(): JSX.Element {
 
             return (
               <div
+                className="tracely-panel"
                 style={{
                   position: 'absolute',
                   left: panelPos.x,
@@ -4936,8 +4936,8 @@ export default function OverlayApp(): JSX.Element {
                   height: widget.rect.height,
                   background: PAPER,
                   // The panel's own chrome, which is not the popover's: 1px
-                  // rather than 2px, radius 24 rather than 16, and a tighter
-                  // shadow. It is a window you opened, not a note pinned over
+                  // rather than 2px and a tighter shadow, at the same 16px
+                  // radius. It is a window you opened, not a note pinned over
                   // your document, and the design distinguishes the two.
                   border: PANEL_BORDER,
                   borderRadius: PANEL_RADIUS,
@@ -5321,6 +5321,8 @@ export default function OverlayApp(): JSX.Element {
           cursor: not-allowed;
         }
         .tracely-btn-text {
+          background: transparent;
+          color: ${MUTED};
           border-radius: 6px;
           transition: color 150ms ${EASE}, background 150ms ${EASE};
         }
@@ -5332,6 +5334,7 @@ export default function OverlayApp(): JSX.Element {
           background: ${PRESSED_WASH};
         }
         .tracely-icon-btn {
+          background: transparent;
           transition: background 150ms ${EASE}, color 150ms ${EASE};
         }
         .tracely-icon-btn:hover {
