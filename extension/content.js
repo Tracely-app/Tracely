@@ -2062,7 +2062,7 @@
     const list = Array.isArray(unread) ? unread.filter(Boolean) : [];
     if (!list.length) return "";
     const rows = open ? list.map((src) => `
-        <div class="src src-unread-row">
+        <div class="src src-unread-row" role="listitem">
           <div class="src-body">
             <span class="src-title">${esc(src.title || src.url)}</span>
             <div class="src-meta">${esc(src.publisher || "")}</div>
@@ -2698,7 +2698,7 @@
     if (!open) return `<div class="evidence">${head}</div>`;
     const cards = candidates.map((seg) => `
       <div class="card ev-card" data-card="${seg.hash}">
-        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed" aria-label="Not needed">✕</button></div>
         <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
         <div class="expl">This holds up, but it is a point a reader may want backed. A study or official source would make it harder to argue with.</div>
         ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">Find evidence</button></div>`}
@@ -3047,7 +3047,7 @@
   }
   function citedWorkHtml(c, actionsFor, more = "") {
     if (!c) return "";
-    if (c.loading) return `<div class="sources"><div class="loading">${esc(CITED_COPY.looking)}</div></div>`;
+    if (c.loading) return `<div class="sources"><div class="loading"><span class="deep-spin" aria-hidden="true"></span>${esc(CITED_COPY.looking)}</div></div>`;
     if (!c.resolved) {
       return `<div class="sources"><div class="sources-title">${esc(CITED_COPY.one)}</div><div class="loading">${esc(c.note)}</div>`
         + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${c.target?.segHash ? `<div class="src-snip">${esc(CITED_COPY.fallback)}</div>` : ""}</div>`;
@@ -3056,7 +3056,7 @@
       const meta = citedMetaLine(src);
       const yn = citedYearNote(src.year, c.plan?.citedYear);
       return `
-        <div class="src" data-cited-row="${i}">
+        <div class="src" role="listitem" data-cited-row="${i}">
           <div class="src-body">
             ${src.url ? `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>` : `<span class="src-title">${esc(src.title)}</span>`}
             ${meta ? `<div class="src-meta">${esc(meta)}</div>` : ""}
@@ -3066,7 +3066,7 @@
         </div>`;
     }).join("");
     const by = c.byAuthor;
-    return `<div class="sources"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
+    return `<div class="sources" role="list"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
       + `<div class="src-snip">${esc(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
       + `${by?.offClaim?.length ? `<div class="src-snip"><b>${esc(CITED_COPY.offClaim(by.offClaim))}</b></div>` : ""}`
       + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
@@ -3565,10 +3565,10 @@
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
-    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
+    .evidence { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding-top: 8px; border-top: 1px solid var(--border); }
     .ev-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; border: none; background: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); cursor: pointer; border-radius: 4px; }
     .ev-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
-    .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    .ev-intro { font-size: 12px; line-height: 1.5; color: var(--label); margin-top: -2px; padding: 0 2px; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
@@ -3687,9 +3687,10 @@
     .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
-    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    .live-strip img { width: 16px; height: 16px; border-radius: 4px; background: var(--surface-2); }
-    .live-strip img.faded { opacity: .35; }
+    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .live-strip img { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-2); }
+    .live-strip img.faded { opacity: .4; }
+    .live-strip img.read { outline: 2px solid var(--ink); outline-offset: -2px; }
     .ready-ping {
       display: flex; align-items: center; gap: 8px; margin: 0 0 12px auto; max-width: 320px;
       font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--ink);
@@ -3704,33 +3705,34 @@
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
+      border-radius: var(--r-btn); padding: 8px 8px 8px 12px; line-height: 1.4;
     }
-    .walk-strip button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .walk-strip > span { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .walk-strip .act { flex-shrink: 0; }
     /* "Let Tracely fix these": the prepared changes, each waiting for the
        writer. Ink only — a removed word struck through, an added one
        underlined; the dot is the flag's own finding colour. */
     .fixes { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
     .fixes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
     .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
-    .fixes-acts { display: inline-flex; gap: 6px; }
-    .fixes-acts button.act { padding: 5px 12px; font-size: 12px; }
-    .fixes-note { font-size: 11.5px; color: #6b6c72; }
-    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #ececec; border-radius: 10px; background: var(--surface); }
-    .fx-top { display: flex; align-items: center; gap: 8px; }
-    .fx-title { font-size: 12.5px; font-weight: 600; color: #1a1a1f; }
-    .fx-diff { font-size: 12.5px; line-height: 1.5; color: #55565c; }
-    .fx-diff del { color: #8a8b90; text-decoration: line-through; }
-    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: #efeff2; border-radius: 3px; padding: 0 2px; }
-    .fx-line { font-size: 11.5px; color: #55565c; }
-    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #55565c; min-width: 0; }
-    .fx-src img { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    .fixes-acts { display: inline-flex; gap: 8px; }
+    .fixes-note { font-size: 12px; line-height: 1.5; color: var(--label); }
+    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--surface); }
+    .fx-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .fx-top .dot { flex-shrink: 0; }
+    .fx-title { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--ink); }
+    .fx-diff { font-size: 13px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+    .fx-diff del { color: var(--label); text-decoration: line-through; }
+    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: var(--chip-wash); border-radius: 4px; padding: 0 2px; }
+    .fx-diff del + ins { margin-left: 4px; } /* the struck words and their replacement never run together */
+    .fx-line { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--muted); min-width: 0; }
+    .fx-src img { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
     .fx-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6c72; }
-    .fx-applied { opacity: .75; }
+    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--label); }
+    .fx-applied { opacity: .7; }
     .fx-applied .fx-state { color: var(--ink); font-weight: 500; }
-    .fx-skipped { opacity: .55; }
-    .fx .row button.act { padding: 5px 12px; font-size: 12px; }
+    .fx-skipped { opacity: .5; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
@@ -3749,32 +3751,39 @@
     button.act[disabled] { opacity: .5; cursor: not-allowed; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
-    .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-    .src { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
+    .sources { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .src { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
     .src:hover { background: var(--surface-2); }
     .stance {
-      font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--r-chip);
-      margin-top: 2px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
+      min-width: 68px; /* one width for supports / refutes / context / manual, so every title starts on one edge */
+      font-size: 11px; font-weight: 600; border-radius: var(--r-chip);
+      margin-top: 1px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
     .st-supports { color: #1f7a4d; }
     .st-refutes { color: #b02a2a; }
     .st-context { color: var(--chip-ink); }
     .st-manual { color: #245d99; }
-    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .src-ico:empty { display: none; }
     .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
-    .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
-    .src-title { font-size: 13px; font-weight: 500; color: var(--ink); display: block; }
-    .src a:hover { color: var(--accent-ink); }
-    .src-meta { font-size: 11px; color: var(--label); }
-    .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
+    .src a { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--ink); text-decoration: none; display: block; overflow-wrap: anywhere; }
+    .src-title { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--ink); display: block; overflow-wrap: anywhere; }
+    .src a:not(.src-open):hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+    .src a:not(.src-open):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+    .src-meta { font-size: 12px; line-height: 1.5; color: var(--label); }
+    .src-snip { font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .src-snip b { font-weight: 600; color: var(--ink); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    /* "Find a different source" under the cited-work rows: a secondary, at the small size. */
+    .sources > .row .act { height: 28px; padding: 0 10px; font-size: 12px; }
     /* The receipt: the source's own words, and where they were read. */
-    .src-says { font-size: 12px; line-height: 16.8px; color: var(--ink); margin-top: 2px; user-select: text; }
-    .src-from { font-size: 10.5px; color: var(--label); margin-top: 2px; }
-    .src-unread { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+    .src-says { font-size: 12px; line-height: 1.5; color: var(--ink); margin-top: 2px; user-select: text; }
+    .src-from { font-size: 11px; line-height: 1.5; color: var(--label); margin-top: 2px; }
+    .src-unread { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .src-unread-row { opacity: .8; }
     .src-unread-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; background: none; border: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--muted); cursor: pointer; text-align: left; border-radius: 4px; }
     .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
     .src a.src-open {
@@ -3784,7 +3793,7 @@
       transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .src a.src-open:hover { background: var(--surface-2); color: var(--ink); }
-    .loading { font-size: 13px; color: var(--body); }
+    .loading { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
       flex: 1; min-width: 0; height: 32px; padding: 0 10px; font-size: 13px; line-height: 1;
@@ -6997,7 +7006,7 @@
     }
     // The panel's card while the search runs: the stage, and the sites' icons.
     function liveSourcesHtml(live) {
-      const line = `<div class="loading">${esc(liveTitle(live))}…</div>`;
+      const line = `<div class="loading"><span class="deep-spin" aria-hidden="true"></span>${esc(liveTitle(live))}…</div>`;
       if (!live?.found?.length) return line;
       const icons = live.found.map((src) => {
         const state = liveState(live, src.url);
@@ -9271,11 +9280,11 @@
       const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
       return `
         <div class="fx fx-${it.status}" data-fx-row="${i}">
-          <div class="fx-top">${dot ? `<span class="dot ${dot}"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
+          <div class="fx-top">${dot ? `<span class="dot ${dot}" aria-hidden="true"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
           ${it.job && it.status !== "failed" ? fixChangeHtml(it.job) : ""}
           ${src}
           ${it.status === "ready" ? `<div class="row"><button class="act primary" data-fx-accept="${i}"${docBusy || fixBatch?.applying ? " disabled" : ""}>${FIX_COPY.accept}</button><button class="act" data-fx-skip="${i}">${FIX_COPY.skip}</button></div>`
-            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin"></span>` : ""}${esc(state)}</div>` : ""}
+            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin" aria-hidden="true"></span>` : ""}${esc(state)}</div>` : ""}
         </div>`;
     }
     /* ── the suggestions, in the doc ──────────────────────────────────────
@@ -9473,7 +9482,7 @@
       const end = b.preparing ? `<button class="act" data-walk-stop="1">${FIX_COPY.stop}</button>` : `<button class="act" data-fx-close="1"${b.applying ? " disabled" : ""}>${FIX_COPY.done}</button>`;
       const whys = [...new Set(none.map((it) => it.why).filter(Boolean))].join("; ");
       return `<div class="fixes">
-        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
+        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin" aria-hidden="true"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
         ${rows}
         ${none.length ? `<div class="fixes-note">${esc(FIX_COPY.couldNot(none.length, whys))}</div>` : ""}
         ${b.left ? `<div class="fixes-note">${esc(FIX_COPY.left(b.left))}</div>` : ""}
@@ -9580,11 +9589,11 @@
           if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"${st.unreadOpen && st.unread?.length ? ' role="list"' : ""}><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
+            sourcesHtml = `<div class="sources" role="list"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
-                <div class="src">
+                <div class="src" role="listitem">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
@@ -10949,13 +10958,13 @@
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
           if (st?.loading) {
-            sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+            sourcesHtml = `<div class="sources"><div class="loading"><span class="deep-spin" aria-hidden="true"></span>Searching the web for sources…</div></div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"${st.unreadOpen && st.unread?.length ? ' role="list"' : ""}><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
+            sourcesHtml = `<div class="sources" role="list"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
-                <div class="src">
+                <div class="src" role="listitem">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
