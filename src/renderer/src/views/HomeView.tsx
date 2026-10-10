@@ -6,13 +6,12 @@ import { greetingFor } from '@shared/greeting'
 import SourceFinderPanel from '../components/SourceFinderPanel'
 import type { CitationStyle } from '@shared/types'
 import type { Tab } from '../App'
-import figmaLogo from '../assets/figma-logo.png'
 import tracerBadge from '../assets/tracer-badge.png'
 import iconPersuasive from '../assets/resource-persuasive.svg'
 import iconRubric from '../assets/resource-rubric.svg'
 import iconResearch from '../assets/resource-research.svg'
 import iconSources from '../assets/resource-sources.svg'
-import homeArrow from '../assets/home-arrow.svg'
+import { ArrowRightIcon, BrandMark, CogIcon, PlusIcon, SearchIcon } from '../components/icons'
 import { gradeFor } from '../components/essayGrade'
 import { tracelyApi } from '../lib/api'
 import { useGradeLevel } from '../lib/gradeLevel'
@@ -155,7 +154,7 @@ export default function HomeView({
         <section className="home-card">
         <header className="home-top">
           <div className="home-brand">
-            <img src={figmaLogo} alt="" />
+            <BrandMark size={28} />
             <span>Tracely</span>
           </div>
           {/*
@@ -192,15 +191,7 @@ export default function HomeView({
                 : 'Tracely is off.'}
           </p>
           <button className="home-settings" onClick={() => onNavigate('settings')}>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.6" />
-              <path
-                d="M12 4v2M12 18v2M4 12h2M18 12h2M6.5 6.5l1.4 1.4M16.1 16.1l1.4 1.4M17.5 6.5l-1.4 1.4M7.9 16.1l-1.4 1.4"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
+            <CogIcon size={16} />
             Settings
           </button>
         </div>
@@ -232,7 +223,7 @@ export default function HomeView({
         <section className="home-actions">
           <button className="home-action primary" onClick={onNewDocument}>
             <span className="home-action-icon" aria-hidden="true">
-              +
+              <PlusIcon size={16} />
             </span>
             <span className="home-action-text">
               <b>New document</b>
@@ -255,10 +246,7 @@ export default function HomeView({
           */}
           <button className="home-action" onClick={() => setFinderOpen(true)}>
             <span className="home-action-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="6.2" stroke="currentColor" strokeWidth="1.6" />
-                <path d="M15.5 15.5L20 20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
+              <SearchIcon size={16} />
             </span>
             <span className="home-action-text">
               <b>Find sources</b>
@@ -279,7 +267,8 @@ export default function HomeView({
             <div className="home-section-head">
               <h2>Recent documents</h2>
               <button className="home-link" onClick={() => onNavigate('documents')}>
-                View all documents →
+                View all documents
+                <ArrowRightIcon size={14} />
               </button>
             </div>
             {recent.length === 0 ? (
@@ -289,8 +278,14 @@ export default function HomeView({
             ) : (
               <div className="home-docs">
                 {recent.map((doc) => (
-                  <button key={doc.id} className="home-doc" onClick={() => onOpenDocument(doc.id)}>
+                  <button
+                    key={doc.id}
+                    className="home-doc"
+                    aria-label={`Open ${doc.title}`}
+                    onClick={() => onOpenDocument(doc.id)}
+                  >
                     <span className="home-doc-thumb" aria-hidden="true">
+                      <i />
                       <i />
                       <i />
                       <i />
@@ -327,7 +322,10 @@ export default function HomeView({
                   <img className="home-resource-icon" src={item.icon} alt="" width={40} height={40} />
                   <b>{item.title}</b>
                   <span className="home-resource-blurb">{item.blurb}</span>
-                  <span className="home-resource-read">Read →</span>
+                  <span className="home-resource-read">
+                    Read
+                    <ArrowRightIcon size={12} />
+                  </span>
                 </button>
               ))}
             </div>
@@ -365,7 +363,7 @@ export default function HomeView({
           </div>
           <button className="home-worklink" onClick={() => onNavigate('settings')}>
             You choose where Tracely works
-            <img src={homeArrow} alt="" width={17} height={22} />
+            <ArrowRightIcon size={14} />
           </button>
         </footer>
       </div>

@@ -5633,8 +5633,20 @@ textarea:disabled {
   --h-accent: #f97316;
   --h-subtle: #fbfbfc;
   --h-line: #d9dbe0;
-  --h-accent-wash: #fef2e7;
-  --h-foot: #6d6d6d;
+  /* The status dot: grey until Screen Watch is on, then the frame's green.
+     Both the same in dark — a green that only reads on white would be wrong
+     for a status light. */
+  --h-dot: #b9bcc2;
+  --h-on: #2fb457;
+  /* The grade chip's three tones, the frame's own light pairs. Dark maps each
+     pair onto the app's score tokens (wash + bright text) in the two dark
+     blocks below, so the chip rules themselves carry no theme branches. */
+  --h-good-bg: #e9f6ec;
+  --h-good: #168449;
+  --h-mid-bg: #fef5e9;
+  --h-mid: #cb5c19;
+  --h-low-bg: #fdeceb;
+  --h-low: #c0392b;
   /* The card ground and the strongest text, as vars rather than the literal
      #fff / #000 they used to be, so the dark block at the end of this family
      can re-derive them. Light is unchanged: these ARE those literals. */
@@ -5729,40 +5741,46 @@ textarea:disabled {
    below the OS window buttons, which are drawn over this corner. */
 .home-card {
   margin: 0 calc(var(--h-card-edge) - var(--h-gutter));
-  padding: 34px 23px 22px;
-  border-radius: 14px;
+  padding: 28px 24px 22px;
+  border: 1px solid var(--h-card-line);
+  border-radius: var(--r-card);
   background: var(--h-card);
-  box-shadow: 0 1px 2px rgba(16, 18, 22, 0.05);
 }
 
 /* `.home-close` is gone with the button — the real Windows close sits in that
    corner now and hides to the tray identically. See HomeView. */
 
+/* Baseline, not centre: the brand is 20px and the greeting 28px, and centring
+   two different sizes puts their baselines a few pixels apart. */
 .home-top {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 20px;
 }
 
-/* "Tracely" is 32px SemiBold beside a 63x54 mark. */
+/* The wordmark beside the 28x24 mark (BrandMark, components/icons.tsx). The
+   row aligns on the word's baseline — `baseline` here, with the mark opted
+   back out to `center`, is what makes the lockup's baseline the TEXT's rather
+   than the image's bottom edge, so `.home-top` lines it up with the greeting. */
 .home-brand {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 32px;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  line-height: 1.3;
+  /* No tracking: the scale keeps -0.01em for 24px and up, and this is 20. */
   color: var(--h-strong);
 }
-.home-brand img { width: 42px; height: 36px; object-fit: contain; }
+.home-brand img { width: 28px; height: 24px; align-self: center; }
 
-/* Same 32px SemiBold as the brand — they are a matched pair across the top. */
 .home-greeting {
   margin: 0;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--h-strong);
   text-align: right;
 }
@@ -5772,59 +5790,67 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
-/* 20px SemiBold, 0.6px tracking, beside a 15px dot. */
+/* A status line, not a second heading: 14px Medium in the muted grey beside
+   an 8px dot. */
 .home-status {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 8px;
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.6px;
-  color: var(--h-strong);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--h-muted);
 }
 
 /* Grey until Screen Watch is genuinely on: a green dot over "Tracely is off."
    is the status line contradicting itself, and the dot is read first. */
 .home-status-dot {
-  width: 15px;
-  height: 15px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #b9bcc2;
+  background: var(--h-dot);
   flex-shrink: 0;
 }
-.home-status.on .home-status-dot { background: #2fb457; }
+.home-status.on .home-status-dot { background: var(--h-on); }
 
-/* 20px Regular in the frame's grey, with the cog at 36% opacity. */
-/* A filled grey pill in the frame, not bare text — it is the only control in
-   the header card and reads as one. */
+/* The one control in the header card: the app's small secondary button —
+   outlined on the card ground, 32px, radius 8 — with the cog at full strength
+   in the muted grey. The hairline darkens to the ink on hover and the fill
+   takes the press wash on :active. */
 .home-settings {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 38px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 19px;
-  background: #e0e1e3;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--h-line);
+  border-radius: var(--r-ctl);
+  background: var(--h-card);
   font: inherit;
-  font-size: 20px;
-  letter-spacing: 0.2px;
-  color: var(--h-foot);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--h-ink);
   cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.home-settings:hover { background: #d5d7d9; color: var(--h-ink); }
-.home-settings svg { width: 22px; height: 22px; opacity: 0.36; }
+.home-settings svg { color: var(--h-muted); flex-shrink: 0; }
+.home-settings:hover { border-color: var(--h-ink); }
+.home-settings:active { background: var(--pressed); }
 
 /* 263.333 wide on a 16px gap, 72 tall, filled rather than outlined. */
 .home-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-top: 22px;
+  margin-top: 20px;
 }
 
 .home-stat {
@@ -5832,14 +5858,21 @@ textarea:disabled {
   flex-direction: column;
   justify-content: center;
   gap: 4px;
-  min-height: 72px;
-  padding: 0 14px;
+  min-height: 76px;
+  padding: 0 16px;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
 }
-.home-stat b { font-size: 22px; font-weight: 600; color: var(--h-ink); }
-.home-stat span { font-size: 10px; font-weight: 500; color: var(--h-muted); }
+.home-stat b {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--h-ink);
+}
+.home-stat span { font-size: 12px; font-weight: 500; line-height: 1.45; color: var(--h-muted); }
 
 /* 326 and 377 wide on a 15px gap — NOT equal columns. The primary card is the
    narrower of the two and the one with a border, which is what makes it read
@@ -5852,64 +5885,70 @@ textarea:disabled {
 .home-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 15px;
+  gap: 16px;
   margin-top: 20px;
 }
 
+/* One tile recipe for both cards (and the document and resource cards below):
+   card ground, hairline, radius 12; the hairline darkens to the ink and the
+   card lifts on hover, and the lift drops again while pressed. */
 .home-action {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 64px;
-  padding: 0 15px;
+  gap: 14px;
+  min-height: 72px;
+  padding: 16px;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
 }
+.home-action:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-action:active { box-shadow: none; }
 
-/* Peach fill, and a border in the same family — NOT the black outline this
-   carried. The frame distinguishes the primary card by colour alone; a 1px
-   black rule around one card is the heaviest line on the screen. */
-.home-action.primary {
-  border-color: #f8e3d0;
-  background: var(--h-accent-wash);
-}
+/* The primary card is told apart by its accent hairline and filled icon tile,
+   on the same card ground as its neighbour — the peach wash it carried made
+   the two cards two recipes, and a black outline before that was the heaviest
+   line on the screen. */
+.home-action.primary { border-color: var(--accent-border); }
+.home-action.primary:hover { border-color: var(--h-ink); }
 
 /* The frame draws "Paste a link" as a plain white card with no border, so the
    disabled state keeps that and only loses a little contrast. */
-.home-action:disabled { opacity: 0.75; cursor: default; }
+.home-action:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 36x36 at 10px radius: white inside the primary card, #fbfbfc outside it. */
+/* 40x40 at radius 8: the accent fill inside the primary card, the subtle
+   grey with a hairline outside it (on a white card the grey alone was
+   invisible and the icon floated). */
 .home-action-icon {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border: 1px solid var(--h-card-line);
+  border-radius: var(--r-ctl);
   background: var(--h-subtle);
-  font-size: 16px;
-  font-weight: 600;
   color: var(--h-muted);
 }
 .home-action.primary .home-action-icon {
-  background: var(--h-card);
-  color: var(--h-accent);
+  border-color: transparent;
+  background: var(--h-accent);
+  color: var(--primary-contrast);
 }
-.home-action-icon svg { width: 17px; height: 17px; }
 
-.home-action-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.home-action-text b { font-size: 14px; font-weight: 600; color: var(--h-ink); }
-.home-action-text span { font-size: 12px; line-height: 1.35; color: var(--h-muted); }
+.home-action-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-action-text b { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--h-ink); }
+.home-action-text span { font-size: 13px; line-height: 1.4; color: var(--h-muted); }
 
 .home-section { display: flex; flex-direction: column; }
-.home-section + .home-section { margin-top: 26px; }
+.home-section + .home-section { margin-top: 32px; }
 /* The sections sit inside .home-lower, so `.home-actions + .home-section` (the
    rule this was) never matched and "Recent documents" sat on the action cards. */
-.home-actions + .home-lower { margin-top: 30px; }
+.home-actions + .home-lower { margin-top: 32px; }
 
 .home-section-head {
   display: flex;
@@ -5917,36 +5956,58 @@ textarea:disabled {
   justify-content: space-between;
   gap: 12px;
 }
-/* 15px for "Recent documents", 16px for "Resources" — the frame really does
-   differ by a point between the two. */
+/* One section-title size for both; the frame's one-point difference between
+   "Recent documents" and "Resources" read as a mistake rather than a choice. */
 .home-section-head h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--h-ink);
 }
-.home-section--resources .home-section-head h2 { font-size: 16px; }
 
 .home-section-sub {
-  margin: 5px 0 0;
-  font-size: 12.5px;
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--h-muted);
 }
 
+/* "View all documents" — ink text with the arrow icon, accent on hover. The
+   accent at rest made it the loudest thing on the row for a link to a list. */
 .home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
   border: 0;
+  /* Only shapes the keyboard ring: the outline follows the radius. */
+  border-radius: 4px;
   background: none;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--h-accent);
+  line-height: 1.45;
+  color: var(--h-ink);
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
 }
-.home-link:hover { text-decoration: underline; }
+.home-link svg { flex-shrink: 0; }
+.home-link:hover { color: var(--h-accent); }
 
+/* The empty state: one line of the muted grey, centred in a dashed box the
+   size of the row it stands in for. */
 .home-empty {
-  margin: 14px 0 0;
-  font-size: 12.5px;
+  margin: 16px 0 0;
+  padding: 24px;
+  border: 1px dashed var(--h-line);
+  border-radius: var(--r-tile);
+  /* Filled with the thumbnail ground: on the grey page the dashed hairline
+     alone was nearly invisible, and the slot should still read as one. */
+  background: var(--h-subtle);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
   color: var(--h-muted);
 }
 
@@ -5954,7 +6015,7 @@ textarea:disabled {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 /* 166 tall, 12 radius, outlined in the frame's line colour. */
@@ -5968,16 +6029,19 @@ textarea:disabled {
   min-height: 166px;
   padding: 0;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
   font: inherit;
   text-align: left;
   cursor: pointer;
   overflow: hidden;
+  transition: border-color var(--dur) var(--ease);
 }
-.home-doc:hover { border-color: var(--h-accent); }
+.home-doc:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-doc:active { box-shadow: none; }
 
-/* 100 tall, filled, with three 3px bars at 12/24/36 and the chip at 8,8. */
+/* 100 tall, filled, with four 3px bars on a 10px gap inside a 12px inset — the
+   same thumbnail the Documents grid draws — and the chip at 8,8. */
 .home-doc-thumb {
   position: relative;
   height: 100px;
@@ -5988,41 +6052,51 @@ textarea:disabled {
 .home-doc-thumb i {
   display: block;
   height: 3px;
-  margin-bottom: 9px;
-  border-radius: 1.5px;
+  margin-bottom: 10px;
+  /* A full round on a 3px bar — 999 rather than 1.5 so it sits on the radius scale. */
+  border-radius: 999px;
   background: var(--h-line);
 }
-/* 167.5 / 203.4 / 131.6 of the frame's 263.3 card. */
+/* 167.5 / 203.4 / 131.6 of the frame's 263.3 card, and a fourth short line. */
 .home-doc-thumb i:nth-child(1) { width: 68%; }
 .home-doc-thumb i:nth-child(2) { width: 83%; }
 .home-doc-thumb i:nth-child(3) { width: 53%; }
+.home-doc-thumb i:nth-child(4) { width: 40%; }
 
+/* The grade chip: the app's chip recipe (20px pill, 11/600 tabular) in the
+   frame's three tone pairs. Bands: >= 80 good, >= 65 mid, else low. */
 .home-doc-grade {
   position: absolute;
   top: 8px;
   right: 8px;
-  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
   height: 20px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-.home-doc-grade.tone-good { background: #e9f6ec; color: #168449; }
-.home-doc-grade.tone-mid { background: #fef5e9; color: #cb5c19; }
-.home-doc-grade.tone-low { background: #fdeceb; color: #c0392b; }
+.home-doc-grade.tone-good { background: var(--h-good-bg); color: var(--h-good); }
+.home-doc-grade.tone-mid { background: var(--h-mid-bg); color: var(--h-mid); }
+.home-doc-grade.tone-low { background: var(--h-low-bg); color: var(--h-low); }
 
+/* Two lines of title, then an ellipsis — a one-line clip lost the end of most
+   essay titles at the narrow sizes. */
 .home-doc-title {
-  padding: 11px 9px 0;
-  font-size: 12.5px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding: 12px 12px 0;
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1.4;
   color: var(--h-ink);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.home-doc-meta { padding: 8px 9px 0; font-size: 11px; color: var(--h-muted); }
+.home-doc-meta { padding: 6px 12px 12px; font-size: 12px; line-height: 1.45; color: var(--h-muted); }
 
 /* 189 wide, 144 tall, on a 16px gap. */
 .home-resources {
@@ -6042,42 +6116,47 @@ textarea:disabled {
   align-items: flex-start;
   text-align: left;
   min-height: 144px;
-  padding: 13px;
+  padding: 16px;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
   font: inherit;
   cursor: pointer;
   box-sizing: border-box;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--dur) var(--ease);
 }
-.home-resource:hover {
-  border-color: #c2c6ce;
-  box-shadow: 0 2px 10px rgba(16, 18, 22, 0.06);
-}
-.home-resource:hover .home-resource-read { text-decoration: underline; }
+.home-resource:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-resource:active { box-shadow: none; }
+.home-resource:hover .home-resource-read { color: var(--h-accent); }
 .home-resource b {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--h-ink);
 }
 .home-resource-blurb {
-  margin-top: 5px;
-  font-size: 11.5px;
-  line-height: 1.35;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--h-muted);
 }
-/* Full strength. It was at 0.6 to say "not wired up yet", which in practice
-   just looked like a faded link — the frame draws it in the accent at full
-   opacity, and the cards being inert is not something to communicate by
-   washing out one word. */
+/* "Read" with the arrow icon, in the ink at rest and the accent while the
+   card is hovered — the same treatment as "View all documents". It was at
+   0.6 opacity once to say "not wired up yet", which just looked faded. */
 .home-resource-read {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-top: auto;
-  font-size: 11.5px;
+  padding-top: 12px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--h-accent);
+  line-height: 1.45;
+  color: var(--h-ink);
+  transition: color var(--dur) var(--ease);
 }
+.home-resource-read svg { flex-shrink: 0; }
 
 /* The exported 40x40 asset, at its designed size.
    The tinted disc is INSIDE the SVG — it is one shape in the frame — so there
@@ -6095,11 +6174,11 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 30px;
+  margin-top: 32px;
   padding-bottom: 4px;
 }
 
-.home-tracer { display: flex; align-items: center; gap: 13px; }
+.home-tracer { display: flex; align-items: center; gap: 12px; }
 
 /* 76px in the frame, and the mascot overhangs it to the left (image 4 sits at
    x -56 against a launcher at x 14). The supplied artwork already contains the
@@ -6119,36 +6198,49 @@ textarea:disabled {
   mix-blend-mode: multiply;
 }
 
-/* 166x34, 17 radius, a soft shadow, 16px Medium. */
+/* The same 32px outlined secondary button as Settings in the header — the
+   pill, the shadow and the 16px type made it the one control on Home drawn to
+   a different recipe. */
 .home-tracer-btn {
-  height: 34px;
-  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--h-line);
-  border-radius: 17px;
+  border-radius: var(--r-ctl);
   background: var(--h-card);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   font: inherit;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   color: var(--h-ink);
   cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
 }
-.home-tracer-btn:disabled { opacity: 0.6; cursor: default; }
+.home-tracer-btn:hover { border-color: var(--h-ink); }
+.home-tracer-btn:active { background: var(--pressed); }
+.home-tracer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .home-worklink {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 4px;
+  padding: 0;
   border: 0;
+  border-radius: 4px;
   background: none;
   font: inherit;
-  font-size: 16px;
-  letter-spacing: 0.16px;
-  color: var(--h-foot);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--h-muted);
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
 }
+.home-worklink svg { flex-shrink: 0; }
 .home-worklink:hover { color: var(--h-ink); }
-.home-worklink img { width: 17px; height: 22px; }
 
 /* The window can be dragged to 680px, where four 189px resource cards would be
    150 each with a two-line title in every one. */
@@ -6158,10 +6250,7 @@ textarea:disabled {
   .home-resources { grid-template-columns: repeat(2, 1fr); }
   .home-actions { grid-template-columns: 1fr; }
   .home-top { flex-direction: column; align-items: flex-start; gap: 4px; }
-  .home-greeting { text-align: left; font-size: 26px; }
-  .home-brand { font-size: 26px; }
-  .home-status { font-size: 17px; }
-  .home-settings { font-size: 16px; }
+  .home-greeting { text-align: left; font-size: 24px; }
 }
 
 /* Dark for the Home family, BOTH ways dark is reachable — an explicit
@@ -6170,48 +6259,26 @@ textarea:disabled {
    `--h-*` palette (the frame's literal light values, see `.home`), so dark
    re-derives each var from the app's dark tokens and every card, border and
    line of text migrated onto the vars follows without per-element rules. */
+/* Each --h-* is the app's own dark token (the same values the literals here
+   used to spell out), and the grade tones take the dark score tokens — wash
+   background, bright text — so no per-element rule is needed for any card,
+   border, control or chip. The accent hairline on the primary action card and
+   the hover shadow are app tokens already and flip on their own. */
 :root[data-theme='dark'] .home {
-  --h-ink: #f6f6f8;
-  --h-strong: #f6f6f8;
-  --h-muted: rgba(246, 246, 248, 0.66);
-  --h-subtle: rgba(255, 255, 255, 0.04);
-  --h-line: rgba(255, 255, 255, 0.18);
-  --h-card-line: rgba(255, 255, 255, 0.18);
-  --h-accent-wash: rgba(244, 123, 32, 0.16);
-  --h-foot: rgba(246, 246, 248, 0.62);
-  --h-page: #0b0b0d;
-  --h-card: #17171b;
-}
-/* The peach border reads as a glow on a dark card; the dark accent-border
-   token is the same family at dark strength. */
-:root[data-theme='dark'] .home-action.primary {
-  border-color: rgba(244, 123, 32, 0.3);
-}
-/* The settings pill is a filled light-grey control in the frame; on a dark
-   card the fill becomes a white wash so it still reads as a pill. */
-:root[data-theme='dark'] .home-settings {
-  background: rgba(255, 255, 255, 0.08);
-}
-:root[data-theme='dark'] .home-settings:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-:root[data-theme='dark'] .home-resource:hover {
-  border-color: var(--border-strong);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-}
-/* The grade chips are hardcoded light bg/fg pairs; in dark they take the
-   app's dark score tokens (wash background, bright text). */
-:root[data-theme='dark'] .home-doc-grade.tone-good {
-  background: var(--score-good-wash);
-  color: var(--score-good);
-}
-:root[data-theme='dark'] .home-doc-grade.tone-mid {
-  background: var(--score-mid-wash);
-  color: var(--score-mid);
-}
-:root[data-theme='dark'] .home-doc-grade.tone-low {
-  background: var(--score-low-wash);
-  color: var(--score-low);
+  --h-ink: var(--text);
+  --h-strong: var(--text);
+  --h-muted: var(--muted);
+  --h-subtle: var(--surface-2);
+  --h-line: var(--border);
+  --h-card-line: var(--border);
+  --h-page: var(--bg);
+  --h-card: var(--surface);
+  --h-good-bg: var(--score-good-wash);
+  --h-good: var(--score-good);
+  --h-mid-bg: var(--score-mid-wash);
+  --h-mid: var(--score-mid);
+  --h-low-bg: var(--score-low-wash);
+  --h-low: var(--score-low);
 }
 /* `multiply` drops the artwork's white tile against a LIGHT ground; on a dark
    ground it multiplies the whole image toward black. Dark shows the tile as a
@@ -6219,50 +6286,29 @@ textarea:disabled {
 :root[data-theme='dark'] .home-tracer-badge {
   mix-blend-mode: normal;
   opacity: 0.9;
-  border-radius: 10px;
+  border-radius: var(--r-tile);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .home {
-    --h-ink: #f6f6f8;
-    --h-strong: #f6f6f8;
-    --h-muted: rgba(246, 246, 248, 0.66);
-    --h-subtle: rgba(255, 255, 255, 0.04);
-    --h-line: rgba(255, 255, 255, 0.18);
-    --h-card-line: rgba(255, 255, 255, 0.18);
-    --h-accent-wash: rgba(244, 123, 32, 0.16);
-    --h-foot: rgba(246, 246, 248, 0.62);
-    --h-page: #0b0b0d;
-    --h-card: #17171b;
-  }
-  :root:not([data-theme='light']) .home-action.primary {
-    border-color: rgba(244, 123, 32, 0.3);
-  }
-  :root:not([data-theme='light']) .home-settings {
-    background: rgba(255, 255, 255, 0.08);
-  }
-  :root:not([data-theme='light']) .home-settings:hover {
-    background: rgba(255, 255, 255, 0.14);
-  }
-  :root:not([data-theme='light']) .home-resource:hover {
-    border-color: var(--border-strong);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  }
-  :root:not([data-theme='light']) .home-doc-grade.tone-good {
-    background: var(--score-good-wash);
-    color: var(--score-good);
-  }
-  :root:not([data-theme='light']) .home-doc-grade.tone-mid {
-    background: var(--score-mid-wash);
-    color: var(--score-mid);
-  }
-  :root:not([data-theme='light']) .home-doc-grade.tone-low {
-    background: var(--score-low-wash);
-    color: var(--score-low);
+    --h-ink: var(--text);
+    --h-strong: var(--text);
+    --h-muted: var(--muted);
+    --h-subtle: var(--surface-2);
+    --h-line: var(--border);
+    --h-card-line: var(--border);
+    --h-page: var(--bg);
+    --h-card: var(--surface);
+    --h-good-bg: var(--score-good-wash);
+    --h-good: var(--score-good);
+    --h-mid-bg: var(--score-mid-wash);
+    --h-mid: var(--score-mid);
+    --h-low-bg: var(--score-low-wash);
+    --h-low: var(--score-low);
   }
   :root:not([data-theme='light']) .home-tracer-badge {
     mix-blend-mode: normal;
     opacity: 0.9;
-    border-radius: 10px;
+    border-radius: var(--r-tile);
   }
 }
 
@@ -7087,27 +7133,24 @@ textarea:disabled {
  * of removing the old whole-app zoom (see shared/windowSize.ts).
  */
 @media (min-width: 1180px) {
-  .home-greeting { font-size: 36px; }
-  .home-stat { min-height: 84px; padding: 0 18px; }
-  .home-stat b { font-size: 26px; }
-  .home-stat span { font-size: 11px; }
-  .home-action { min-height: 74px; padding: 0 18px; }
-  .home-resource { min-height: 158px; padding: 16px; }
+  .home-greeting { font-size: 32px; }
+  .home-stat { min-height: 84px; padding: 0 20px; }
+  .home-stat b { font-size: 28px; }
+  .home-action { min-height: 80px; padding: 20px; }
+  .home-resource { min-height: 158px; }
   .home-doc { min-height: 186px; }
   .home-doc-thumb { height: 116px; }
-  .home-doc-title { font-size: 13.5px; }
+  .home-doc-title { font-size: 14px; }
 }
 
+/* The type stops stepping here — the greeting holds at 32, the stat numbers
+   at 28 over their 12px labels — and only the cards keep growing. */
 @media (min-width: 1440px) {
-  .home-greeting { font-size: 40px; }
-  .home-stat { min-height: 96px; padding: 0 22px; }
-  .home-stat b { font-size: 30px; }
-  .home-stat span { font-size: 12px; }
-  .home-action { min-height: 82px; padding: 0 22px; }
-  .home-resource { min-height: 172px; padding: 18px; }
+  .home-stat { min-height: 96px; padding: 0 24px; }
+  .home-action { min-height: 88px; padding: 24px; }
+  .home-resource { min-height: 172px; padding: 20px; }
   .home-doc { min-height: 204px; }
   .home-doc-thumb { height: 130px; }
-  .home-doc-title { font-size: 14.5px; }
 }
 
 /* ── The editor at a wide window ──────────────────────────────────────────
