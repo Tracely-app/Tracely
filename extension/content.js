@@ -3631,7 +3631,12 @@
     .card.shut > :not(.top):not(.expl) { display: none; }
     .card.shut .expl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
     .card.shut:not(:has(.expl)) > .quote { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .top { display: flex; align-items: center; gap: 8px; }
+    /* Aligned to the title's FIRST line, so a title that wraps in a narrow
+       panel keeps its dot and its dismiss beside its first words: the 8px
+       dot centred on the 20px line, the 24px dismiss centred on it too. */
+    .top { display: flex; align-items: flex-start; gap: 8px; }
+    .top > .dot { margin-top: 6px; }
+    .top > .x { margin-top: -2px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
