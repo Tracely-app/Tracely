@@ -6,7 +6,7 @@ import type { ScreenWatchProblemKind } from '@shared/ipc-contract'
 import { PROBLEM_LABEL } from './problemCopy'
 import { POINTS_PER_LEVEL, REFERENCE_LEVEL, adjustedScore, gradeFor, gradeLevelCredit } from '@shared/gradeLevel'
 import { paragraphNames } from './paragraphNames'
-import { CloseIcon } from './icons'
+import { ArrowRightIcon, ChevronRightIcon, CloseIcon } from './icons'
 
 /**
  * The Essay Grade report, drawn once and rendered on both surfaces.
@@ -400,8 +400,10 @@ export function GradeScoreSection({
             right: 0,
             top: 38,
             textAlign: 'center',
-            fontSize: 30,
+            fontSize: 28,
             fontWeight: 600,
+            letterSpacing: '-0.01em',
+            fontVariantNumeric: 'tabular-nums',
             color: P.text,
             lineHeight: 1
           }}
@@ -409,28 +411,29 @@ export function GradeScoreSection({
           {structure ? score : '—'}
         </div>
         <div
-          style={{ position: 'absolute', left: 0, right: 0, top: 74, textAlign: 'center', fontSize: 12, color: P.dim }}
+          style={{ position: 'absolute', left: 0, right: 0, top: 74, textAlign: 'center', fontSize: 12, color: P.dim, fontVariantNumeric: 'tabular-nums' }}
         >
           / 100
         </div>
       </div>
 
-      <div style={{ position: 'absolute', left: 144, top: 22.5, width: 241, height: 71 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: P.dim, letterSpacing: 0.6 }}>OVERALL SCORE</div>
+      <div style={{ position: 'absolute', left: 144, top: 22, width: 241, height: 72 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: P.dim, letterSpacing: '0.04em', lineHeight: '16px' }}>OVERALL SCORE</div>
         <div
           style={{
             position: 'absolute',
-            top: 22,
+            top: 24,
             left: 0,
-            height: 24,
+            height: 20,
             borderRadius: 999,
             background: P.greenWash,
             color: P.green,
-            fontSize: 13,
+            fontSize: 11,
             fontWeight: 600,
+            fontVariantNumeric: 'tabular-nums',
             display: 'inline-flex',
             alignItems: 'center',
-            padding: '0 10px'
+            padding: '0 8px'
           }}
         >
           {structure ? letter : '—'}
@@ -438,7 +441,7 @@ export function GradeScoreSection({
         {/* The frame says "Above average for this assignment type" here. There
             is no cohort and no assignment type, so the slot keeps its place
             and says what the band means — see essayGrade.ts. */}
-        <div style={{ position: 'absolute', top: 55, left: 0, fontSize: 13, fontWeight: 600, color: P.body }}>
+        <div style={{ position: 'absolute', top: 52, left: 0, fontSize: 13, fontWeight: 600, lineHeight: 1.5, color: P.body }}>
           {structure ? line : 'No reading of this draft yet'}
         </div>
       </div>
@@ -508,7 +511,7 @@ export function GradeButtonRow({ primaryLabel, onPrimary }: { primaryLabel: stri
  *  in-app report uses, so the two cannot disagree about a draft's read time. */
 export const OVERLAY_READING_WPM = 238
 
-/** One stat chip from 404:203 — 18px figure over a 10px tracked caption. */
+/** One stat chip from 404:203 — 18px figure over an 11px tracked caption. */
 export function StatChip({ value, label }: { value: string; label: string }): JSX.Element {
   const P = useContext(GradePaletteContext)
   return (
@@ -517,15 +520,27 @@ export function StatChip({ value, label }: { value: string; label: string }): JS
     // is invisible at the frame's own spacing and clipped "VOCAB DIVERSITY" off
     // the right edge the moment the row was laid out anywhere else. Measuring
     // the wider of the two is what lets the row space itself.
-    <div style={{ height: 37, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-      <div style={{ fontSize: 18, fontWeight: 600, color: P.text, whiteSpace: 'nowrap' }}>{value}</div>
+    <div style={{ height: 40, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <div
         style={{
-          marginTop: 3,
-          fontSize: 10,
+          fontSize: 18,
           fontWeight: 600,
+          lineHeight: '22px',
+          fontVariantNumeric: 'tabular-nums',
+          color: P.text,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          marginTop: 4,
+          fontSize: 11,
+          fontWeight: 600,
+          lineHeight: '14px',
           color: P.dim,
-          letterSpacing: 0.4,
+          letterSpacing: '0.04em',
           whiteSpace: 'nowrap'
         }}
       >
@@ -541,9 +556,9 @@ export function MiniBar({ label, percent, color }: { label: string; percent: num
   const pct = Math.max(0, Math.min(100, percent))
   return (
     <div style={{ position: 'relative', height: 22, flex: 1, minWidth: 0 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, whiteSpace: 'nowrap' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, lineHeight: '16px', whiteSpace: 'nowrap' }}>
         <span style={{ fontWeight: 500, color: P.body }}>{label}</span>
-        <span style={{ fontWeight: 600, color: P.text }}>{Math.round(pct)}%</span>
+        <span style={{ fontWeight: 600, color: P.text, fontVariantNumeric: 'tabular-nums' }}>{Math.round(pct)}%</span>
       </div>
       <div
         style={{ position: 'absolute', top: 18, left: 0, right: 0, height: 4, borderRadius: 999, background: P.trackBg }}
@@ -648,9 +663,9 @@ export function EssayGradeReportPanel({
         <StatChip value={stats ? `${vocab}%` : '—'} label="VOCAB DIVERSITY" />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: P.dim, letterSpacing: 0.6 }}>BREAKDOWN BY PARAGRAPH</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: P.dim, letterSpacing: '0.04em' }}>BREAKDOWN BY PARAGRAPH</div>
           {/* The frame's link. There is no separate Argument Check panel in the
               overlay, and the claim list IS where a claim is checked one at a
               time, so it goes there rather than nowhere. */}
@@ -658,6 +673,9 @@ export function EssayGradeReportPanel({
             className="tracely-btn-text"
             onClick={onArgumentCheck}
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
               border: 'none',
               background: 'none',
               padding: 0,
@@ -668,7 +686,7 @@ export function EssayGradeReportPanel({
               cursor: 'pointer'
             }}
           >
-            Open Argument Check →
+            Open Argument Check <ArrowRightIcon size={12} />
           </button>
         </div>
 
@@ -681,7 +699,7 @@ export function EssayGradeReportPanel({
             padding: 14,
             display: 'flex',
             flexWrap: 'wrap',
-            gap: '10px 20px',
+            gap: '12px 24px',
             width: '100%',
             boxSizing: 'border-box'
           }}
@@ -733,7 +751,7 @@ export function EssayGradeReportPanel({
                 padding: '12px 14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
+                gap: 8,
                 width: '100%',
                 boxSizing: 'border-box'
               }}
@@ -742,8 +760,8 @@ export function EssayGradeReportPanel({
                 <span
                   style={{
                     background: P.chipBg,
-                    borderRadius: 6,
-                    height: 19,
+                    borderRadius: 999,
+                    height: 20,
                     display: 'inline-flex',
                     alignItems: 'center',
                     padding: '0 8px',
@@ -755,26 +773,26 @@ export function EssayGradeReportPanel({
                 >
                   {ROLE_LABEL[paragraph.role]}
                 </span>
-                <span style={{ fontSize: 13.5, fontWeight: 600, color: P.text }}>{name}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: P.text, fontVariantNumeric: 'tabular-nums' }}>{name}</span>
                 <span style={{ flex: 1 }} />
                 <span
                   style={{
                     background: strong ? P.strongWash : P.warnWash,
                     color: strong ? P.green : P.warnText,
                     borderRadius: 999,
-                    height: 23,
+                    height: 20,
                     display: 'inline-flex',
                     alignItems: 'center',
-                    padding: '0 10px',
-                    fontSize: 12,
+                    padding: '0 8px',
+                    fontSize: 11,
                     fontWeight: 600,
                     flexShrink: 0
                   }}
                 >
                   {strong ? 'Strong' : 'Needs Work'}
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 500, color: P.chevron, flexShrink: 0 }} aria-hidden="true">
-                  ›
+                <span style={{ display: 'inline-flex', color: P.chevron, flexShrink: 0 }} aria-hidden="true">
+                  <ChevronRightIcon size={12} />
                 </span>
               </div>
 
@@ -782,12 +800,12 @@ export function EssayGradeReportPanel({
                   there is a weakness that IS the assessment; otherwise the
                   paragraph's own opening line says which paragraph this is,
                   which a role label alone does not. */}
-              <div style={{ fontSize: 12.5, color: P.body, lineHeight: 1.35 }}>
+              <div style={{ fontSize: 13, color: P.body, lineHeight: 1.5 }}>
                 {issues[0]?.message ?? preview}
               </div>
 
               {paragraph.claimIds.length > 0 ? (
-                <div style={{ fontSize: 12, fontWeight: 500, color: P.body }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: P.body, fontVariantNumeric: 'tabular-nums' }}>
                   {cited} of {paragraph.claimIds.length} claim{paragraph.claimIds.length === 1 ? '' : 's'} cited in this
                   paragraph
                 </div>
@@ -802,11 +820,11 @@ export function EssayGradeReportPanel({
                       key={`${issue.kind}-${i}`}
                       style={{
                         background: P.issueBg,
-                        borderRadius: 10,
-                        padding: '10px 12px',
+                        borderRadius: 8,
+                        padding: 12,
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: 6,
+                        gap: 4,
                         width: '100%',
                         boxSizing: 'border-box'
                       }}
@@ -830,7 +848,7 @@ export function EssayGradeReportPanel({
                           >
                             !
                           </span>
-                          <span style={{ fontSize: 12.5, fontWeight: 600, color: P.issueTitle }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: P.issueTitle, fontVariantNumeric: 'tabular-nums' }}>
                             {/* `problemKinds` can be EMPTY on a claim a
                                 weakness points at — the finding came off the
                                 prose or the role vector, not off the claim —
@@ -857,6 +875,9 @@ export function EssayGradeReportPanel({
                               onFindForClaim(issue.claimId as string)
                             }}
                             style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
                               border: 'none',
                               background: 'none',
                               padding: 0,
@@ -868,11 +889,11 @@ export function EssayGradeReportPanel({
                               flexShrink: 0
                             }}
                           >
-                            Find →
+                            Find <ArrowRightIcon size={12} />
                           </button>
                         ) : null}
                       </div>
-                      <div style={{ fontSize: 12, color: P.issueBody, lineHeight: 1.35 }}>{issue.message}</div>
+                      <div style={{ fontSize: 12, color: P.issueBody, lineHeight: 1.5 }}>{issue.message}</div>
                     </div>
                   )
                 })}
@@ -896,10 +917,12 @@ export function EssayGradeReportPanel({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '10px 14px',
-            borderRadius: 10,
+            padding: '8px 12px',
+            borderRadius: 8,
             background: P.panelBg,
-            fontSize: 12.5,
+            fontSize: 13,
+            lineHeight: 1.5,
+            fontVariantNumeric: 'tabular-nums',
             color: P.body,
             boxSizing: 'border-box'
           }}
@@ -916,8 +939,8 @@ export function EssayGradeReportPanel({
       ) : null}
 
       <div style={{ width: '100%', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 13, height: 17 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: P.blue, flexShrink: 0 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 20 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.blue, flexShrink: 0 }} />
           <span style={{ fontSize: 14, fontWeight: 600, color: P.text }}>Summary</span>
         </div>
         {/* The frame's summary is written prose ("You're in great shape!").
@@ -925,7 +948,7 @@ export function EssayGradeReportPanel({
             templates, never a model (see structure/weaknesses.ts) — so the block
             carries the whole-draft findings, which is what it would be
             summarising, and the band line when there are none. */}
-        <div style={{ marginTop: 6, fontSize: 13.5, lineHeight: 1.4, color: P.body }}>
+        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: P.body }}>
           {draftWeaknesses.length > 0
             ? draftWeaknesses.map((w) => w.message).join(' ')
             : structure
