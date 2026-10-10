@@ -4551,28 +4551,29 @@ textarea:disabled {
    become a ConfirmDialog variant. */
 .savechanges-card {
   width: 360px;
-  padding: 20px;
-  border-radius: 18px;
+  padding: 24px;
+  border-radius: var(--r-card);
 }
 
 .savechanges-title {
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .savechanges-message {
   margin: 8px 0 16px;
-  font-size: 13.5px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
 .savechanges-check {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   margin-bottom: 20px;
   font-size: 13px;
   color: var(--text);
@@ -4589,19 +4590,44 @@ textarea:disabled {
   height: 0;
 }
 
+/* The global checkbox recipe (16px, radius 4, accent when checked, drawn
+   tick), repeated here because the native input is visually hidden. */
 .savechanges-box {
-  width: 19px;
-  height: 19px;
+  position: relative;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   border: 1.5px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--surface);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.savechanges-check:hover .savechanges-box {
+  border-color: var(--accent);
 }
 
 .savechanges-check input:checked + .savechanges-box {
   border-color: transparent;
-  background: var(--accent) center / 13px 13px no-repeat
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");
+  background: var(--accent);
+}
+
+.savechanges-check input:checked + .savechanges-box::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--primary-contrast);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.savechanges-check input:disabled + .savechanges-box {
+  opacity: 0.5;
 }
 
 .savechanges-check input:focus-visible + .savechanges-box {
