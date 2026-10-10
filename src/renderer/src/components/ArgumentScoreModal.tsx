@@ -26,6 +26,7 @@ import { summariseDraft } from '@shared/draftSummary'
 import { tracelyApi } from '../lib/api'
 import MarkdownText from './MarkdownText'
 import Spinner from './Spinner'
+import { ArrowRightIcon, BackIcon, ChevronRightIcon, CloseIcon } from './icons'
 import { gradeFor } from './essayGrade'
 import { adjustedScore } from '@shared/gradeLevel'
 import { useGradeLevel } from '../lib/gradeLevel'
@@ -544,11 +545,19 @@ export default function ArgumentScoreModal({
   if (loading) return <GradingCard />
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Argument score">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="argscore-title"
+      aria-label="Argument score"
+    >
       <div className="modal-card argscore-card">
         {error ? (
           <div className="argscore-state">
-            <p className="error-text">{error}</p>
+            <p className="error-text" role="alert">
+              {error}
+            </p>
             <button className="argscore-btn secondary" onClick={onReanalyze}>
               Try again
             </button>
@@ -624,15 +633,15 @@ export default function ArgumentScoreModal({
 
             It brings its own header, divider and button row, so this wrapper
             supplies only what the overlay's card supplies around it: the
-            frame's 22/24 padding, its 22px rhythm, and the scroll.
+            modal head's 20/24 padding, a 24px rhythm, and the scroll.
           */
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'flex-start',
-              gap: 22,
-              padding: '22px 24px',
+              gap: 24,
+              padding: '20px 24px 24px',
               overflowY: 'auto',
               minHeight: 0
             }}
@@ -695,13 +704,14 @@ function ModalHead({
     <header className="argscore-head">
       {onBack ? (
         <button className="argscore-back" onClick={onBack}>
-          ← {backLabel}
+          <BackIcon size={14} />
+          {backLabel}
         </button>
       ) : (
-        <h2 className="argscore-title">{title}</h2>
+        <h2 className="argscore-title" id="argscore-title">{title}</h2>
       )}
       <button className="argscore-close" onClick={onClose} aria-label="Close">
-        ×
+        <CloseIcon size={16} />
       </button>
     </header>
   )
@@ -900,7 +910,7 @@ function ScoreReport({
                 per-claim surface and does not belong in the paragraph flow. */}
             {claims.length > 0 ? (
               <button className="argscore-link" onClick={() => onView({ name: 'argument' })}>
-                Open Argument Check →
+                Open Argument Check <ArrowRightIcon size={12} />
               </button>
             ) : null}
           </div>
@@ -933,7 +943,9 @@ function ScoreReport({
                   aria-expanded={open}
                   onClick={() => setExpanded(open ? null : paragraph.index)}
                 >
-                  <span className="argscore-para-chevron" aria-hidden="true" />
+                  <span className="argscore-para-chevron" aria-hidden="true">
+                    <ChevronRightIcon size={12} />
+                  </span>
                   {/* The raw array index used to lead the row as "P12". The
                       name beside it is numbered across the BODY, so on a titled
                       essay the row read "P12  Paragraph 11" — two numbers for
@@ -1007,7 +1019,7 @@ function ScoreReport({
                       className="argscore-link argscore-para-open"
                       onClick={() => onView({ name: 'paragraph', index: paragraph.index })}
                     >
-                      Open paragraph {paragraph.index} →
+                      Open paragraph {paragraph.index} <ArrowRightIcon size={12} />
                     </button>
                   </div>
                 ) : null}
@@ -1245,7 +1257,7 @@ function CohesionRow({
         </p>
         {n > 0 ? (
           <button className="argscore-link" onClick={onOpen}>
-            Open Flow Check →
+            Open Flow Check <ArrowRightIcon size={12} />
           </button>
         ) : null}
       </div>
@@ -1321,7 +1333,7 @@ function CohesionCheck({
                   </span>
                 </span>
                 <span className="argscore-boundary-go" aria-hidden="true">
-                  →
+                  <ArrowRightIcon size={14} />
                 </span>
               </button>
             ))}
@@ -1415,7 +1427,7 @@ function BoundaryDetail({
             className="argscore-link"
             onClick={() => onReveal({ claimId: null, paragraphIndex: finding.toIndex })}
           >
-            Show me in the document →
+            Show me in the document <ArrowRightIcon size={12} />
           </button>
         </div>
 
@@ -1504,7 +1516,7 @@ function ParagraphProblem({
               onReveal({ claimId: claim?.id ?? null, paragraphIndex })
             }
           >
-            Show me →
+            Show me <ArrowRightIcon size={12} />
           </button>
         ) : null}
         {searchable ? (
@@ -1518,7 +1530,7 @@ function ParagraphProblem({
               })
             }
           >
-            Find evidence →
+            Find evidence <ArrowRightIcon size={12} />
           </button>
         ) : null}
       </div>
@@ -1795,7 +1807,7 @@ function ParagraphDetail({
             writer where it is — the quote cannot be edited, and editing it is
             the entire reason anyone opened this. */}
         <button className="argscore-link" onClick={() => onReveal({ claimId: null, paragraphIndex: index })}>
-          Show me in the document →
+          Show me in the document <ArrowRightIcon size={12} />
         </button>
 
         {weaknesses.length > 0 ? (
@@ -1823,7 +1835,7 @@ function ParagraphDetail({
             <span className="argscore-uncited-label">Uncited claim</span>
             <p className="argscore-uncited-text">“{claim.text}”</p>
             <button className="argscore-link" onClick={() => onFindEvidence(claim.id)}>
-              Find evidence →
+              Find evidence <ArrowRightIcon size={12} />
             </button>
           </div>
         ))}
@@ -1841,7 +1853,7 @@ function ParagraphDetail({
                     view lists the sources already found, so this is "show me
                     what that score is made of" as much as it is a search. */}
                 <button className="argscore-link" onClick={() => onFindEvidence(claim.id)}>
-                  Find evidence →
+                  Find evidence <ArrowRightIcon size={12} />
                 </button>
               </div>
             ))}
@@ -1955,7 +1967,11 @@ function FindEvidenceResult({
         ) : (
           <>
             <div className="argev-head">
-              <span className={`argev-dot${found > 0 ? ' found' : ''}`} />
+              {evidence === null ? (
+                <Spinner size="sm" />
+              ) : (
+                <span className={`argev-dot${found > 0 ? ' found' : ''}`} />
+              )}
               <h2 className="argev-title">
                 {evidence === null ? 'Looking…' : `${found} source${found === 1 ? '' : 's'} found`}
               </h2>
@@ -1965,7 +1981,11 @@ function FindEvidenceResult({
               Ranked by how directly each source supports “{claim.text}”
             </p>
 
-            {failure ? <p className="error-text">{failure}</p> : null}
+            {failure ? (
+              <p className="error-text" role="alert">
+                {failure}
+              </p>
+            ) : null}
 
             {evidence !== null && found === 0 ? (
               <p className="muted argev-empty">
@@ -2134,9 +2154,9 @@ function ArgumentCheck({
   return (
     <>
       <header className="argscore-head">
-        <h2 className="argscore-title">Argument check</h2>
+        <h2 className="argscore-title" id="argscore-title">Argument check</h2>
         <button className="argscore-close" onClick={onClose} aria-label="Close">
-          ×
+          <CloseIcon size={16} />
         </button>
       </header>
       <div className="argscore-scroll argscore-check">

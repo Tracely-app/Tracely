@@ -3578,7 +3578,7 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 22px 24px 16px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3586,24 +3586,33 @@ textarea:disabled {
   margin: 0;
   flex: 1;
   font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.1px;
-  color: #1a1a1f;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
 }
 
+/* The icon-only dismiss: 28x28 at the control radius, a 16px CloseIcon in the
+   muted grey, lifting to the text colour on a hover wash. */
 .argscore-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--muted-2);
-  font-size: 15px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-ctl);
+  border: none;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
-.argscore-close:hover { background: var(--border); }
+.argscore-close:hover { background: var(--hover); color: var(--text); }
+.argscore-close:active { background: var(--pressed); }
 
 /* The grading loader — Figma 391:540 "Analyzing Card", values read off the node
    rather than estimated: 340 wide, 32 padding, 24 radius, 16 gap, 1px black
@@ -3611,11 +3620,11 @@ textarea:disabled {
    / 14px radius belongs to the small dialogs. */
 .gradeload-card {
   width: 340px;
-  padding: 32px;
-  border-radius: 24px;
-  background: #fff;
-  border: 1px solid #000;
-  box-shadow: 0 10px 28px -4px rgba(15, 26, 20, 0.14);
+  padding: 28px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3657,7 +3666,7 @@ textarea:disabled {
 
 .gradeload-spinner-track {
   fill: none;
-  stroke: var(--surface-2);
+  stroke: var(--border);
 }
 
 /* Round caps are why this is an SVG arc and not a bordered box, and the green is
@@ -3672,45 +3681,42 @@ textarea:disabled {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1f;
+  line-height: 1.3;
+  color: var(--text);
 }
 
 .gradeload-sub {
   margin: 0;
   font-size: 13px;
-  line-height: 1.35;
-  color: #7e7f84;
+  line-height: 1.5;
+  color: var(--muted);
   text-align: center;
 }
 
-/* A writer who has asked the OS to stop moving things gets a still ring rather
-   than no feedback: the arc is already visible, so removing the spin costs
-   nothing but the motion. */
-@media (prefers-reduced-motion: reduce) {
-  .gradeload-spinner {
-    animation: none;
-  }
-  .gradeload-card {
-    animation: none;
-  }
-}
+/* Under reduced motion the sheet's one rule (top of file) stills the spin and
+   the entrance; the arc is already visible, so a still ring still reads as
+   "working". */
 
 .argscore-state {
-  padding: 34px 24px;
+  padding: 32px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   text-align: center;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
+
+.argscore-state p { margin: 0; }
+.argscore-state .argscore-btn { flex: 0 0 auto; }
 
 .argscore-summary {
   display: flex;
   align-items: center;
-  gap: 28px;
-  padding: 23px 24px 22px;
+  gap: 24px;
+  padding: 24px;
 }
 
 .argscore-summary-text { min-width: 0; }
@@ -3719,67 +3725,84 @@ textarea:disabled {
   display: block;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #9a9ba1;
+  color: var(--label);
+}
+
+/* Chips: 20px pills, 11/600, tabular digits. The band colours are the score
+   tokens and stay as they are. */
+.argscore-provisional,
+.argscore-grade,
+.argscore-verdict-pill,
+.argscore-check-band {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .argscore-provisional {
-  display: inline-block;
-  margin-top: 5px;
-  padding: 2px 8px;
-  border-radius: 20px;
-  font-size: 10.5px;
-  font-weight: 600;
+  margin-top: 8px;
+  margin-right: 4px;
   color: var(--score-mid);
   background: var(--score-mid-wash);
 }
 
 .argscore-verdict {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /* What Tracely's own search found, under what the writer cited. Deliberately
    quieter than .argscore-verdict: it is a report on retrieval, not a judgement
    on the draft, and it used to be phrased as one. */
 .argscore-verdict-sub {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Ring. Colour comes from the tone- class so it tracks the same 70/40 bands
    every other score in the app uses. */
-.argscore-ring-track { fill: none; stroke: var(--surface-2); }
+.argscore-ring-track { fill: none; stroke: var(--border); }
 .argscore-ring-fill { fill: none; stroke-linecap: round; }
 .argscore-ring.tone-good .argscore-ring-fill { stroke: var(--score-good); }
 .argscore-ring.tone-mid  .argscore-ring-fill { stroke: var(--score-mid); }
 .argscore-ring.tone-low  .argscore-ring-fill { stroke: var(--score-low); }
 
 .argscore-ring-score {
-  font-size: 30px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   fill: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
-.argscore-ring-max { font-size: 12px; fill: #9a9ba1; }
+.argscore-ring-max { font-size: 12px; fill: var(--label); font-variant-numeric: tabular-nums; }
 
 .argscore-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 18px 6px;
+  padding: 0 24px 24px;
 }
 
 .argscore-stats {
   display: flex;
-  gap: 10px;
-  padding-bottom: 14px;
+  gap: 12px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3788,40 +3811,42 @@ textarea:disabled {
 .argscore-stats b {
   display: block;
   font-size: 18px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .argscore-stats span {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 11px;
-  letter-spacing: 0.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #9a9ba1;
+  color: var(--label);
 }
 
 .argscore-section {
-  margin: 18px 0 10px;
+  margin: 16px 0 8px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--label);
 }
 
 /* .argscore-para / .argscore-para-head are defined once, further down, where
    the collapsible row lives. They used to be declared here too and the two
    disagreed about padding — the wrapper carried the closed row's padding into
    the open one, so an expanded row had a 10px gap above its body. */
-.argscore-para-name { flex: 1; font-size: 13.5px; font-weight: 650; color: #1a1a1f; font-variant-numeric: tabular-nums; }
-.argscore-para-claims { font-size: 10.5px; color: var(--muted); }
+.argscore-para-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argscore-para-claims { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .argscore-para-preview {
   margin: 0 0 8px;
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3837,16 +3862,16 @@ textarea:disabled {
   margin-top: 6px;
 }
 
-/* Metric chip (404:228): 11.5px Medium label, SemiBold value, on a #eaeaea
-   fully-rounded 4px track. */
-.argscore-bar-label { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 500; color: #55565c; }
-.argscore-bar-pct { font-size: 11.5px; font-weight: 650; color: #1a1a1f; font-variant-numeric: tabular-nums; }
+/* Metric chip (404:228): 12px Medium label, SemiBold tabular value, on a
+   fully-rounded 4px track in var(--border). */
+.argscore-bar-label { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted-2); }
+.argscore-bar-pct { font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 
 .argscore-bar-track {
   flex-basis: 100%;
   height: 4px;
   border-radius: 999px;
-  background: #eaeaea;
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -3856,61 +3881,69 @@ textarea:disabled {
 .argscore-bar-fill.tone-low  { background: var(--score-low); }
 
 .argscore-weakness {
-  margin: 7px 0 0;
-  padding: 7px 9px;
-  border-radius: 8px;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--r-ctl);
   background: var(--score-mid-wash);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-missing { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted-2); }
 
-.argscore-footnote { margin: 14px 0 0; font-size: 11px; color: var(--muted); }
+.argscore-footnote { margin: 16px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .argscore-foot {
   display: flex;
-  gap: 10px;
-  padding: 14px 18px;
+  gap: 12px;
+  padding: 16px 24px;
   border-top: 1px solid var(--border);
 }
 
-/* Full-height pills, not 10px-rounded rects — the shape on 370:135 and 404:129,
-   where the primary is an orange→red gradient and the secondary a white outline. */
-/* Pills at the frame's height (404:327): 41px, fully rounded, orange filled
-   beside a 1.5px outlined white. */
+/* The modal's button pair, on the app-chrome recipe: 36px at the control
+   radius, a 1px strong hairline, 14px type. The primary is the solid accent —
+   the frames' 41px orange→red gradient pills went with the rest of the app's. */
 .argscore-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
-  height: 41px;
-  border-radius: 999px;
+  min-width: 0;
+  height: var(--ctl-h);
+  padding: 0 18px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font: inherit;
   font-size: 14px;
   font-weight: 500;
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
   cursor: pointer;
-  border: 1.5px solid #d3d8d4;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .argscore-btn.primary {
-  background: linear-gradient(90deg, #f97316 0%, #ea3a0c 100%);
+  background: var(--accent);
   border-color: transparent;
-  color: #fff;
+  color: var(--primary-contrast);
+  font-weight: 600;
 }
 .argscore-btn.primary:hover { filter: brightness(1.06); }
+.argscore-btn.primary:active { filter: brightness(0.94); }
 .argscore-btn.secondary { background: var(--surface); color: var(--text); }
-.argscore-btn.secondary:hover { background: var(--surface-2); }
+.argscore-btn.secondary:hover { background: var(--hover); }
+.argscore-btn.secondary:active { background: var(--pressed); }
 
-/* The letter chip, on its own row under OVERALL SCORE as the frames place it. */
-/* The frame's grade pill (404:200): fully rounded, 13px, on the wash of its
-   own band. */
-/* The frame's grade pill (404:200): fully rounded, 13px SemiBold, on the wash
-   of its own band. */
+/* The letter chip, on its own row under OVERALL SCORE as the frames place it:
+   the shared 20px chip (above), on the wash of its own band. */
 .argscore-grade {
-  display: inline-block;
   margin-top: 8px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 650;
 }
 
 .argscore-grade.tone-good { color: var(--score-good); background: var(--score-good-wash); }
@@ -3918,25 +3951,32 @@ textarea:disabled {
 .argscore-grade.tone-low  { color: var(--score-low);  background: var(--score-low-wash); }
 
 .argscore-grade-line {
-  margin: 9px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
-  font-weight: 650;
-  line-height: 1.4;
-  color: #55565c;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted-2);
 }
 
 /* -- Argument Score: navigation between the four frames -------------------- */
 
 .argscore-back {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
   text-align: left;
   border: none;
   background: none;
   padding: 0;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--muted-2);
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
 }
 
 .argscore-back:hover { color: var(--text); }
@@ -3944,18 +3984,22 @@ textarea:disabled {
 .argscore-section-row {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
 }
 
 .argscore-section-row .argscore-section { flex: 1; }
 
 .argscore-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   background: none;
   padding: 0;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--primary);
   cursor: pointer;
   white-space: nowrap;
@@ -3969,21 +4013,27 @@ textarea:disabled {
 .argscore-checkall-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 10px 0 2px;
+  gap: 12px;
+  margin: 8px 0 4px;
 }
 
 .argscore-checkall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  height: 32px;
   border: 1px solid var(--primary);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: none;
-  padding: 6px 12px;
+  padding: 0 12px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1;
   color: var(--primary);
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
 /* The token, not a literal. There are alternate accents (blue/green/purple)
@@ -3992,10 +4042,12 @@ textarea:disabled {
 .argscore-checkall:hover {
   background: var(--accent-wash);
 }
+.argscore-checkall:active { background: var(--pressed); }
+.argscore-checkall:disabled { opacity: 0.5; cursor: not-allowed; background: none; }
 
 .argscore-checkall-note {
-  font-size: 11.5px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -4004,8 +4056,10 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /* On the widget: full width, sitting between the ring and the footer pills. It
@@ -4013,12 +4067,12 @@ textarea:disabled {
    renders nothing at all once every claim has been checked. */
 .argscore-checkall-row[data-compact='true'] {
   margin: 0;
-  padding: 0 18px 16px;
+  padding: 0 24px 16px;
 }
 
 .argscore-checkall-row[data-compact='true'] .argscore-checkall {
   flex: 1;
-  padding: 9px 12px;
+  height: var(--ctl-h);
 }
 
 .argscore-checkall-row[data-compact='true'] .argscore-checkall-progress {
@@ -4034,10 +4088,11 @@ textarea:disabled {
    table of boxes. */
 .argscore-para {
   border: 1px solid transparent;
-  border-radius: 12px;
-  margin-bottom: 10px;
-  background: #f8f9f8;
+  border-radius: var(--r-tile);
+  margin-bottom: 8px;
+  background: var(--surface-2);
   overflow: hidden;
+  transition: border-color var(--dur) var(--ease);
 }
 
 .argscore-para[data-open='true'] { border-color: var(--border-strong); }
@@ -4047,28 +4102,32 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-height: 40px;
   margin: 0;
-  padding: 9px 12px;
+  padding: 8px 12px;
   text-align: left;
   font: inherit;
+  color: var(--text);
   border: none;
   background: none;
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
-.argscore-para-head:hover { background: var(--surface-2); }
+.argscore-para-head:hover { background: var(--hover); }
+.argscore-para-head:active { background: var(--pressed); }
 .argscore-para-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
-/* A CSS triangle rather than a glyph: '›' and '⌄' sit on different baselines in
-   the two states, so the row's text shifted a pixel every time it opened. */
+/* An SVG chevron (ChevronRightIcon 12) rotated in place rather than two
+   glyphs: '›' and '⌄' sit on different baselines in the two states, so the
+   row's text shifted a pixel every time it opened. */
 .argscore-para-chevron {
   flex-shrink: 0;
-  width: 0;
-  height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid var(--muted);
-  transition: transform 120ms ease;
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+  transition: transform var(--dur) var(--ease);
 }
 
 .argscore-para[data-open='true'] .argscore-para-chevron { transform: rotate(90deg); }
@@ -4081,40 +4140,44 @@ textarea:disabled {
    styled. */
 .argscore-para-role {
   flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: var(--surface-2);
-  font-size: 10.5px;
-  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
   color: var(--muted-2);
 }
 
 /* One dot per finding on a closed row. Same amber the weakness wash uses, so a
    closed row and the card inside it are visibly the same thing. */
-.argscore-para-dots { display: flex; gap: 3px; }
+.argscore-para-dots { display: flex; gap: 4px; }
 
 .argscore-para-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--score-mid);
 }
 
-.argscore-para-body { padding: 0 12px 11px; }
+.argscore-para-body { padding: 0 12px 12px; }
 
-.argscore-para-open { margin-top: 10px; }
+.argscore-para-open { margin-top: 8px; }
 
 /* ---- Cohesion & flow (the block above the paragraph breakdown) ---------- */
-/* The frame's lavender block (449:165): #f6f3fe on a #d3c7f2 hairline at 16px
-   radius. It was surface-grey, which put it in the same visual class as the
+/* The frame's lavender block (449:165): #f6f3fe on a #d3c7f2 hairline, at the
+   tile radius (12). It was surface-grey, which put it in the same visual class as the
    paragraph cards below it — the frame separates the two deliberately, because
    one is about the joins between paragraphs and the other is about the
    paragraphs. */
 .argscore-flow {
-  margin-top: 14px;
-  padding: 15px;
+  margin-top: 16px;
+  padding: 14px;
   border: 1px solid #d3c7f2;
-  border-radius: 16px;
+  border-radius: var(--r-tile);
   background: #f6f3fe;
 }
 
@@ -4124,7 +4187,7 @@ textarea:disabled {
   gap: 8px;
 }
 
-.argscore-flow-head .argscore-section { flex: 1; margin: 0 0 2px; }
+.argscore-flow-head .argscore-section { flex: 1; margin: 0 0 4px; }
 
 /* The inline findings list is gone. It was the only category of finding in the
    product with nothing behind it — a paragraph weakness opens a detail, a claim
@@ -4137,32 +4200,37 @@ textarea:disabled {
 .argscore-boundary-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface);
   font: inherit;
+  color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: border-color 90ms ease, background 90ms ease;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .argscore-boundary-row:hover {
-  border-color: var(--text);
-  background: var(--surface-2, #fafafa);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
+.argscore-boundary-row:active { background: var(--hover); }
 
 /* Fixed width so every arrow lines up down the list — the pair is the row's
    index and reads as a column, not as prose. */
 .argscore-boundary-pair {
   flex: 0 0 auto;
   min-width: 56px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--text);
-  padding-top: 1px;
+  font-variant-numeric: tabular-nums;
 }
 
 .argscore-boundary-body {
@@ -4170,12 +4238,13 @@ textarea:disabled {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .argscore-boundary-label {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--score-mid);
 }
 
@@ -4184,7 +4253,7 @@ textarea:disabled {
    itself, and letting it wrap turns the list into paragraphs. */
 .argscore-boundary-seam {
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.5;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -4193,10 +4262,12 @@ textarea:disabled {
 
 .argscore-boundary-go {
   flex: 0 0 auto;
+  display: inline-flex;
   color: var(--muted);
-  font-size: 13px;
-  padding-top: 1px;
+  padding-top: 2px;
+  transition: color var(--dur) var(--ease);
 }
+.argscore-boundary-row:hover .argscore-boundary-go { color: var(--text); }
 
 /* ---- One boundary, opened --------------------------------------------- */
 .argscore-seam {
@@ -4213,25 +4284,25 @@ textarea:disabled {
 }
 
 .argscore-seam-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--label);
 }
 
 /* The gap drawn between the two halves — a dashed rule standing in for the
    join that is missing. This is the finding, rendered. */
 .argscore-seam-gap {
-  height: 18px;
+  height: 16px;
   margin: 8px 0;
   border-top: 2px dashed var(--score-mid);
 }
 
 .argscore-flow-clear {
   margin: 8px 0 0;
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -4241,23 +4312,24 @@ textarea:disabled {
    findings rather than measurements. The dot and the title take the problem's
    own colour, so the card is neutral and the finding is what carries hue. */
 .argscore-problem {
-  margin-top: 9px;
-  padding: 10px 12px;
+  margin-top: 8px;
+  padding: 14px;
   border: 1px solid #d3c7f2;
-  border-radius: 10px;
+  border-radius: var(--r-tile);
   background: #f6f3fe;
 }
 
 .argscore-problem-head {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .argscore-problem-dot {
   flex-shrink: 0;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--score-mid);
   transform: translateY(1px);
@@ -4266,26 +4338,28 @@ textarea:disabled {
 .argscore-problem-title {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
   color: #7b44d4;
+  font-variant-numeric: tabular-nums;
 }
 
 .argscore-problem-score { font-weight: 500; color: var(--muted-2); }
 
 .argscore-problem-quote {
-  margin: 6px 0 0;
-  font-size: 11.5px;
+  margin: 8px 0 0;
+  font-size: 12px;
   line-height: 1.5;
   font-style: italic;
   color: var(--muted-2);
 }
 
 .argscore-problem-body {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.5;
-  color: #212429;
+  color: var(--text);
 }
 
 /* The Summary heading carries the frame's blue dot. A pseudo-element so the
@@ -4293,13 +4367,13 @@ textarea:disabled {
 .argscore-section-dot {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .argscore-section-dot::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--primary);
 }
@@ -4325,50 +4399,69 @@ textarea:disabled {
 
 .argev-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .argev-style {
   margin-left: auto;
-  padding: 2px 8px;
-  border-radius: 20px;
-  background: var(--surface-2);
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
   color: var(--muted-2);
 }
 
 .argev-sub {
-  margin: 6px 0 14px;
+  margin: 8px 0 16px;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted);
 }
 
+/* The empty state's one recipe: a dashed box, 13px muted. */
 .argev-empty {
-  margin: 4px 0 14px;
-  font-size: 12px;
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  font-size: 13px;
   line-height: 1.5;
+  color: var(--muted);
 }
 
 .argev-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   margin-bottom: 8px;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: transparent;
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  font: inherit;
+  color: var(--text);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .argev-row:hover {
-  background: var(--surface-2);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
+.argev-row:active { background: var(--hover); }
 
 .argev-row.selected {
   border-color: var(--score-good);
@@ -4381,17 +4474,17 @@ textarea:disabled {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  font-size: 10px;
-  font-weight: 700;
+  border-radius: var(--r-ctl);
+  background: var(--hover);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted-2);
 }
 
 .argev-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
   flex: 1;
 }
@@ -4399,12 +4492,15 @@ textarea:disabled {
 .argev-source-title {
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .argev-source-sub {
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .argev-match {
@@ -4416,8 +4512,9 @@ textarea:disabled {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--border-strong);
   border-radius: 50%;
+  transition: border-color var(--dur) var(--ease);
 }
 
 .argev-radio.on {
@@ -4430,21 +4527,17 @@ textarea:disabled {
 
 .argev-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .argev-again {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .argscore-verdict-pill {
   flex-shrink: 0;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .argscore-verdict-pill.tone-good { color: var(--score-good); background: var(--score-good-wash); }
@@ -4456,28 +4549,29 @@ textarea:disabled {
    standalone paragraph used in the detail and summary views. */
 .argscore-weakness {
   display: block;
-  margin-top: 7px;
-  padding: 7px 9px;
-  border-radius: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--r-ctl);
   background: var(--score-mid-wash);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-weakness-block {
   margin: 0 0 8px;
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
-.argscore-detail { padding-top: 4px; }
+.argscore-detail { padding-top: 20px; }
 
 .argscore-detail-title {
   margin: 0 0 8px;
   font-size: 18px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
   text-wrap: balance;
 }
@@ -4485,51 +4579,54 @@ textarea:disabled {
 .argscore-detail-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  font-size: 11.5px;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
+/* An inset: surface-2 on a 1px hairline, radius 8, padding 12. */
 .argscore-quote {
   margin: 0 0 16px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
   background: var(--surface-2);
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-uncited {
   border: 1px solid var(--score-mid);
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   background: var(--score-mid-wash);
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
 }
 
 .argscore-uncited-label {
   display: block;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--score-mid);
 }
 
 .argscore-uncited-text {
-  margin: 5px 0 0;
-  font-size: 12.5px;
+  margin: 4px 0 8px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-claim {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-start;
-  padding: 9px 0;
+  padding: 8px 0;
   border-top: 1px solid var(--border);
 }
 
@@ -4537,9 +4634,9 @@ textarea:disabled {
 
 .argscore-claim-score {
   flex-shrink: 0;
-  min-width: 30px;
+  min-width: 32px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4550,15 +4647,16 @@ textarea:disabled {
 .argscore-strength {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
 .argscore-strength .argscore-eyebrow { flex: 1; }
 
 .argscore-strength-score {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4567,7 +4665,7 @@ textarea:disabled {
 .argscore-strength-score.tone-mid  { color: var(--score-mid); }
 .argscore-strength-score.tone-low  { color: var(--score-low); }
 
-.argscore-breakdown { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.argscore-breakdown { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 
 /* -- Argument check (Figma 353:185, the widget inside 353:129) --------------
    Read off the frame rather than estimated: 16px between blocks, 1px #e7e7e7
@@ -4580,7 +4678,7 @@ textarea:disabled {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-top: 18px;
+  padding-top: 20px;
 }
 
 .argscore-check-rule {
@@ -4588,11 +4686,11 @@ textarea:disabled {
   background: var(--border);
 }
 
-/* The dot is the accent, at the frame's two sizes: 9px on the claim line, 7px
-   on the critique heading. */
+/* The dot is the accent, at two sizes: 8px on the claim line, 6px on the
+   critique heading. */
 .argscore-check-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--accent);
   flex-shrink: 0;
@@ -4603,15 +4701,16 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .argscore-check-quote {
   margin: 0;
-  font-size: 14.5px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -4620,21 +4719,8 @@ textarea:disabled {
 .argscore-check-score {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: -6px;
-}
-
-.argscore-check-score .argscore-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.055em;
-}
-
-.argscore-check-band {
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 8px;
+  margin-bottom: -8px;
 }
 
 .argscore-check-band.tone-good { color: var(--score-good); background: var(--score-good-wash); }
@@ -4643,8 +4729,9 @@ textarea:disabled {
 
 .argscore-check-number {
   margin-left: auto;
-  font-size: 26px;
-  font-weight: 650;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -4652,6 +4739,7 @@ textarea:disabled {
 .argscore-check-number small {
   margin-left: 2px;
   font-size: 14px;
+  letter-spacing: 0;
   font-weight: 400;
   color: var(--muted);
 }
@@ -4660,7 +4748,7 @@ textarea:disabled {
   display: block;
   height: 6px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -4669,7 +4757,7 @@ textarea:disabled {
 .argscore-check-fill.tone-mid  { background: var(--score-mid); }
 .argscore-check-fill.tone-low  { background: var(--score-low); }
 
-.argscore-check-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.055em; }
+.argscore-check-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
 
 /* 2x2, 24px between columns and 14px between rows. The fills are ink in every
    cell: these are the parts of the score above, not four separate verdicts, so
@@ -4678,13 +4766,13 @@ textarea:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 24px;
-  row-gap: 14px;
+  row-gap: 16px;
 }
 
-.argscore-check-metrics .argscore-bar { margin-top: 0; gap: 6px 8px; }
+.argscore-check-metrics .argscore-bar { margin-top: 0; gap: 8px; }
 .argscore-check-metrics .argscore-bar-label { font-size: 13px; font-weight: 500; color: var(--muted-2); }
 .argscore-check-metrics .argscore-bar-pct { font-size: 13px; font-weight: 600; }
-.argscore-check-metrics .argscore-bar-track { height: 5px; border-radius: 999px; }
+.argscore-check-metrics .argscore-bar-track { height: 4px; border-radius: 999px; }
 .argscore-check-metrics .argscore-bar-fill { border-radius: 999px; background: var(--ink); }
 
 /* The unscored state. Deliberately not styled as a score of zero: no track, no
@@ -4694,24 +4782,24 @@ textarea:disabled {
 .argscore-check-unmeasured {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
 }
 
 .argscore-check-unmeasured-body {
   margin: 0;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted);
 }
 
 .argscore-check-sources {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   font-size: 13px;
   font-weight: 500;
@@ -4729,45 +4817,50 @@ textarea:disabled {
 .argscore-check-heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
-.argscore-check-heading .argscore-check-dot { width: 7px; height: 7px; }
+.argscore-check-heading .argscore-check-dot { width: 6px; height: 6px; }
 
-/* Sits under its heading, so the section's own 6px gap replaces the card's 16. */
+/* Sits under its heading, so an 8px gap replaces the card's 16. */
 .argscore-check-critique {
-  margin-top: -10px;
-  font-size: 13.5px;
-  line-height: 1.4;
+  margin-top: -8px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
-/* The frame's buttons: a solid ink pill and a 1.5px outlined one. Not the
-   orange gradient `.argscore-btn.primary` the Essay Grade frames draw — these
-   two are a different pair, on a different card. */
+/* The Argument check's pair: a solid ink button and a 1px ink outline, on the
+   same 36px / radius-8 geometry as the accent pair above. */
 .argscore-btn.ink {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--ink-contrast);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .argscore-btn.ink:hover { filter: brightness(1.15); }
+.argscore-btn.ink:active { filter: brightness(0.9); }
 
 .argscore-btn.outline {
   background: var(--surface);
-  border: 1.5px solid var(--ink);
+  border: 1px solid var(--ink);
   color: var(--text);
   font-weight: 500;
 }
 
-.argscore-btn.outline:hover { background: var(--surface-2); }
-.argscore-btn:disabled { opacity: 0.55; cursor: default; }
-.argscore-btn:disabled:hover { filter: none; background: var(--surface); }
+.argscore-btn.outline:hover { background: var(--hover); }
+.argscore-btn.outline:active { background: var(--pressed); }
+.argscore-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.argscore-btn:disabled:hover,
+.argscore-btn:disabled:active { filter: none; }
+.argscore-btn.secondary:disabled:hover,
+.argscore-btn.outline:disabled:hover { background: var(--surface); }
 
 /* "not checked yet" is dimmer than the ratio beside it — it is a caveat on that
    number, not a second number competing with it. */
@@ -5683,34 +5776,40 @@ textarea:disabled {
    is marked so a writer can see at a glance which button they are about to
    press; leaving the two identical is how "check" comes to mean two prices. */
 .argscore-checkall-row[data-paid='true'] {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 12px;
 }
 
 .argscore-checkall-row[data-paid='true'] .argscore-checkall {
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--text);
+  border: 1px solid var(--ink);
 }
+.argscore-checkall-row[data-paid='true'] .argscore-checkall:hover { background: var(--hover); }
+.argscore-checkall-row[data-paid='true'] .argscore-checkall:active { background: var(--pressed); }
 
 /* --- Full report: the pieces the Figma report frame adds ------------------ */
 
 /* The paragraph's number, leading its row. Monospaced digits so P1 and P14 are
    the same width and the names beside them stay on one left edge — a ragged
    column of names is what makes a fourteen-row list read as a jumble. */
-/* The frame's tag badge (404:221): 28x19 at 6px radius, #e8e9ec, 11px. */
+/* The tag badge on the shared chip recipe: 20px, 11/600, tabular digits. */
 .argscore-para-index {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 28px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: #e8e9ec;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hover);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: #55565c;
-  text-align: center;
+  color: var(--muted-2);
 }
 
 /* What the paragraph is doing, where its own text used to be quoted back at
@@ -5719,8 +5818,8 @@ textarea:disabled {
    day someone lengthens one. */
 .argscore-para-blurb {
   margin: 0 0 8px;
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -5739,86 +5838,70 @@ textarea:disabled {
 .argscore-flow-item {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 3px 4px;
+  padding: 4px;
   border: 0;
   border-radius: 6px;
   background: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
 .argscore-flow-item:hover {
-  background: var(--surface-3, rgba(127, 127, 127, 0.09));
+  background: var(--hover);
 }
+.argscore-flow-item:active { background: var(--pressed); }
 
 .argscore-flow-where {
   flex-shrink: 0;
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--muted-2);
 }
 
 .argscore-flow-what {
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
 /* The narrowed sentence the critique already produced. Green, and set apart
    from the quote above it, because the two are the same sentence twice and the
-   reader has to be able to tell at a glance which one is theirs. */
+   reader has to be able to tell at a glance which one is theirs. An inset on
+   the score-good wash with the label in score-good — both tokens flip for
+   dark, so no dark rule is needed. */
 .argscore-problem-rewrite {
   margin: 8px 0 0;
-  padding: 7px 9px;
-  border-radius: 8px;
-  background: rgba(28, 160, 96, 0.09);
+  padding: 8px 12px;
+  border-radius: var(--r-ctl);
+  background: var(--score-good-wash);
 }
 
 .argscore-problem-rewrite-label {
   display: block;
-  font-size: 9.5px;
-  font-weight: 750;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #1ca060;
+  color: var(--score-good);
 }
 
 .argscore-problem-rewrite-text {
-  margin: 3px 0 0;
-  font-size: 11.5px;
+  margin: 4px 0 0;
+  font-size: 12px;
   line-height: 1.5;
-  color: #14603b;
-}
-
-/* Dark mode keeps the hue and moves the lightness — the green has to stay
-   legible against a dark card without becoming the brightest thing on it.
-   BOTH dark paths, like every dark rule in this file: the bare media query
-   this used to be missed the Settings toggle (data-theme='dark' under a light
-   OS) and wrongly fired under a dark OS with the toggle set to light. */
-:root[data-theme='dark'] .argscore-problem-rewrite {
-  background: rgba(52, 199, 123, 0.12);
-}
-:root[data-theme='dark'] .argscore-problem-rewrite-text {
-  color: #7fe0ae;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .argscore-problem-rewrite {
-    background: rgba(52, 199, 123, 0.12);
-  }
-  :root:not([data-theme='light']) .argscore-problem-rewrite-text {
-    color: #7fe0ae;
-  }
+  color: var(--text);
 }
 
 /* The closing paragraph. Reads as prose, not as another statistic. */
 .argscore-summary-prose {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.55;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -7586,10 +7669,9 @@ textarea:disabled {
 
 /* -- Dark theme: Argument Score modal + grading loader ----------------------
  *
- * The rules above transcribe the Figma report frames with literal light inks
- * (#1a1a1f titles, #f8f9f8 panels, the lavender finding cards). Fine in the
- * light theme they were read from; in dark they were the half of "AI Insights"
- * that never changed with the appearance setting. The shared Essay Grade panel
+ * The rules above transcribed the Figma report frames with literal light inks
+ * (#1a1a1f titles, #f8f9f8 panels, the lavender finding cards); all but the
+ * lavender cards now read the theme tokens directly. The shared Essay Grade panel
  * itself is themed in TSX (see GradePalette in EssayGradeReport.tsx — it is
  * inline styles because it also renders in the stylesheet-less overlay
  * window); these overrides cover the modal chrome and sibling views AROUND it.
@@ -7598,52 +7680,24 @@ textarea:disabled {
  * (`:root[data-theme='dark']`) and the system fallback
  * (`prefers-color-scheme: dark` guarded by `:not([data-theme='light'])`).
  * A rule on only one of them is a known bug class in this file. */
-:root[data-theme='dark'] .argscore-title { color: var(--text); }
-:root[data-theme='dark'] .gradeload-card { background: var(--surface); border-color: var(--border-strong); }
-:root[data-theme='dark'] .gradeload-title { color: var(--text); }
-:root[data-theme='dark'] .gradeload-sub { color: var(--muted); }
-:root[data-theme='dark'] .argscore-para-name { color: var(--text); }
-:root[data-theme='dark'] .argscore-bar-label { color: var(--muted-2); }
-:root[data-theme='dark'] .argscore-bar-pct { color: var(--text); }
-:root[data-theme='dark'] .argscore-bar-track { background: rgba(255, 255, 255, 0.14); }
-:root[data-theme='dark'] .argscore-btn.secondary { border-color: var(--border-strong); }
-:root[data-theme='dark'] .argscore-grade-line { color: var(--muted-2); }
-:root[data-theme='dark'] .argscore-para { background: var(--surface-2); }
-:root[data-theme='dark'] .argscore-boundary-row { background: var(--surface); }
-/* The lavender finding cards keep their hue and drop their lightness — a
-   violet wash on the dark surface, with the title lifted to violet-300. */
+/* Everything else in these families reads tokens that flip on their own; only
+   the lavender finding cards carry literal light inks. They keep their hue and
+   drop their lightness — a violet wash on the dark surface, with the title
+   lifted to violet-300. */
 :root[data-theme='dark'] .argscore-flow,
 :root[data-theme='dark'] .argscore-problem {
   border-color: rgba(196, 181, 253, 0.28);
   background: rgba(139, 92, 246, 0.14);
 }
 :root[data-theme='dark'] .argscore-problem-title { color: #c4b5fd; }
-:root[data-theme='dark'] .argscore-problem-body { color: var(--text); }
-:root[data-theme='dark'] .argscore-para-index { background: rgba(255, 255, 255, 0.1); color: var(--muted-2); }
-:root[data-theme='dark'] .argscore-checkall-row[data-paid='true'] .argscore-checkall { background: var(--surface); }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .argscore-title { color: var(--text); }
-  :root:not([data-theme='light']) .gradeload-card { background: var(--surface); border-color: var(--border-strong); }
-  :root:not([data-theme='light']) .gradeload-title { color: var(--text); }
-  :root:not([data-theme='light']) .gradeload-sub { color: var(--muted); }
-  :root:not([data-theme='light']) .argscore-para-name { color: var(--text); }
-  :root:not([data-theme='light']) .argscore-bar-label { color: var(--muted-2); }
-  :root:not([data-theme='light']) .argscore-bar-pct { color: var(--text); }
-  :root:not([data-theme='light']) .argscore-bar-track { background: rgba(255, 255, 255, 0.14); }
-  :root:not([data-theme='light']) .argscore-btn.secondary { border-color: var(--border-strong); }
-  :root:not([data-theme='light']) .argscore-grade-line { color: var(--muted-2); }
-  :root:not([data-theme='light']) .argscore-para { background: var(--surface-2); }
-  :root:not([data-theme='light']) .argscore-boundary-row { background: var(--surface); }
   :root:not([data-theme='light']) .argscore-flow,
   :root:not([data-theme='light']) .argscore-problem {
     border-color: rgba(196, 181, 253, 0.28);
     background: rgba(139, 92, 246, 0.14);
   }
   :root:not([data-theme='light']) .argscore-problem-title { color: #c4b5fd; }
-  :root:not([data-theme='light']) .argscore-problem-body { color: var(--text); }
-  :root:not([data-theme='light']) .argscore-para-index { background: rgba(255, 255, 255, 0.1); color: var(--muted-2); }
-  :root:not([data-theme='light']) .argscore-checkall-row[data-paid='true'] .argscore-checkall { background: var(--surface); }
 }
 
 /* -- Dark theme: the editor's mark popover cards ---------------------------
