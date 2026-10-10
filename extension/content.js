@@ -3798,13 +3798,12 @@
     .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
     .foot { margin: 0 24px; padding: 10px 0 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     /* The footer's switch is a ghost button — the quiet action of the panel —
-       unless it turns the site ON, which is the panel's one ink primary. */
+       unless it turns the site ON, which is the panel's one ink primary. Its
+       hover and pressed fills are the shared button.act ones (they outrank
+       the transparent rest here), so only the text darkens locally. */
     .foot .act { border-color: transparent; background: none; color: var(--muted); font-weight: 500; flex-shrink: 0; }
-    .foot button.act:hover:not([disabled]) { background: var(--surface-2); border-color: transparent; color: var(--text); }
-    .foot button.act:active:not([disabled]) { background: var(--chip-wash); color: var(--text); }
+    .foot .act:not(.primary):hover:not([disabled]), .foot .act:not(.primary):active:not([disabled]) { color: var(--text); }
     .foot .act.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
-    .foot button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
-    .foot button.act.primary:active:not([disabled]) { background: #000; border-color: #000; color: #fff; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion (the primitives block at
        the end of this sheet): it just appears. */
