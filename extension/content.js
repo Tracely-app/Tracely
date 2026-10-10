@@ -3551,10 +3551,19 @@
       display: flex; align-items: center; justify-content: center;
     }
     .close:hover { background: #e7e7e7; }
-    /* The one legend (never colour alone): what each underline's LINE means. */
-    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
+    /* The one legend (never colour alone): what each underline's LINE means.
+       A strip stuck to the list's bottom edge while the Claims group is in
+       view (sticky inside that group); the negative margins take it to the
+       list's edges and onto its 16px bottom padding, so it sits flush. */
+    .legend {
+      position: sticky; bottom: -16px; z-index: 1;
+      display: flex; flex-wrap: wrap; gap: 4px 12px; flex-shrink: 0;
+      margin: 2px -24px -16px; padding: 8px 24px;
+      background: var(--surface); border-top: 1px solid var(--border);
+      font-size: 11px; line-height: 16px; color: var(--label);
+    }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-    .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
+    .legend-line { display: inline-block; width: 24px; border-radius: 1px; }
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
@@ -3566,9 +3575,9 @@
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
     .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-    .tips + .tips { margin-top: 6px; }
-    .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
-    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
+    .tips + .tips { margin-top: 8px; }
+    .tips-head { font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label); text-transform: uppercase; letter-spacing: .04em; padding: 4px 2px 0; font-variant-numeric: tabular-nums; }
+    .genre-line { font-size: 12px; line-height: 1.5; color: var(--label); padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
