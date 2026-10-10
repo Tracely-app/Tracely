@@ -183,6 +183,30 @@
   .model-note { font-size: 12px; line-height: 16.8px; color: var(--label); margin-top: 10px; }
   .model-note.warn { color: var(--accent-ink); }
 
+  /* Google Docs: the checkbox drawn as the app's switch (36x20, a 16px knob
+     travelling 16px). Still the native checkbox, so options.js, the label
+     click and Space are untouched. */
+  .autosrc { display: flex; align-items: flex-start; gap: 12px; font-size: 14px; line-height: 1.5; color: var(--text); cursor: pointer; }
+  .autosrc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .autosrc .sub { display: block; font-size: 12px; line-height: 1.5; color: var(--label); }
+  .autosrc input {
+    appearance: none; -webkit-appearance: none;
+    width: 36px; height: 20px; border-radius: 999px; margin: 1px 0 0;
+    background: var(--border-strong); position: relative; flex-shrink: 0; cursor: pointer;
+    transition: background-color var(--dur) var(--ease);
+  }
+  .autosrc input::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--dur) var(--ease);
+  }
+  .autosrc:hover input:not(:disabled) { box-shadow: 0 0 0 4px var(--hover); }
+  .autosrc input:checked { background: var(--accent); }
+  .autosrc input:checked::after { transform: translateX(16px); }
+  .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .autosrc input:disabled { opacity: .5; cursor: not-allowed; }
+
   ul { list-style: none; }
   li {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -256,7 +280,7 @@
     <section>
       <h2>Google Docs</h2>
       <p class="hint">In Google Docs, Tracely checks the whole document while you write. The first Doc you open asks once; this is the same switch.</p>
-      <label class="autosrc" style="font-size:13px;color:var(--text)"><input type="checkbox" id="docsTgl" /><span>Check Google Docs automatically — sends the document text to Tracely's server</span></label>
+      <label class="autosrc"><input type="checkbox" id="docsTgl" /><span class="autosrc-text"><span>Check Google Docs automatically</span><span class="sub">Sends the document text to Tracely's server</span></span></label>
     </section>
 
     <section>
