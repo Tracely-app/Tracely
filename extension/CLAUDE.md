@@ -229,10 +229,12 @@ literary, lab) keeps a Works Cited. A literary essay quotes a poem by line,
 a play by act.scene.line, a novel by page (`literaryForm`). Tracely cites in
 the style the doc already uses (`docCitationStyle`) unless the writer picked
 one (`settings.styleChosen`); MLA when it says nothing. The panel says what it
-is reading and what that means (`genreLineHtml`). Measured: 67 documents in
-`server/test/fixtures/writing-types.js` (main read 20 right; this reads all
-67, the set it was tuned on) and a blind held-out set,
-`writing-types-holdout.js`, which must stay at 90% or better. Tests:
+is reading and what that means (`genreLineHtml`). Measured on invented
+documents (`server/test/fixtures/`): the 67 it was tuned on, all right (main:
+20); 50 written blind by another author, 40 right before any tuning (main:
+11), 49 after general fixes; and 40 more written blind after those, scored
+once and left untuned: 38 right (main: 8) — keep that set untuned, it is the
+honest number. Both blind sets must stay at 90% or better. Tests:
 `server/test/ext-writing-types.test.js`.
 
 ## Works Cited when the writing needs one

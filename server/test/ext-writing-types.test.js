@@ -6,10 +6,15 @@
  * mention such as resumes or emails be able to detect even writing types like
  * that."
  *
- * Two corpora: fixtures/writing-types.js, the documents the detector was
- * tuned on (every one must be read right), and
- * fixtures/writing-types-holdout.js, written blind by another author and
- * never tuned on — its score is the honest one. Every document is invented. */
+ * Three corpora, every document invented:
+ *   fixtures/writing-types.js — 67 documents the detector was tuned on: every
+ *     one must be read right;
+ *   fixtures/writing-types-holdout.js — 50 written blind by another author.
+ *     Scored blind first: 40/50 (main 11/50). Its misses then taught general
+ *     fixes (49/50 after), so it is no longer blind;
+ *   fixtures/writing-types-blind2.js — 40 more, written blind after those
+ *     fixes and scored once, untuned: 38/40 (main 8/40). Keep it untuned: it is
+ *     the honest number. Both held-out sets must stay at 90% or better. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -22,6 +27,7 @@ import { WRITING_TYPES } from "./fixtures/writing-types.js";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(path.join(HERE, "..", "..", "extension", "content.js"), "utf8");
 const HOLDOUT = path.join(HERE, "fixtures", "writing-types-holdout.js");
+const BLIND2 = path.join(HERE, "fixtures", "writing-types-blind2.js");
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const X = vm.runInContext(`
@@ -42,12 +48,16 @@ test("every kind of writing in the tuned corpus is read right", () => {
   for (const k of KINDS.filter((k) => k !== "prose")) assert.ok(X.GENRE_LABEL[k], `the panel can name ${k}`);
 });
 
-test("a held-out corpus, written blind, is read right at least 9 times in 10", { skip: !existsSync(HOLDOUT) && "no holdout corpus" }, async () => {
-  const { WRITING_TYPES_HOLDOUT } = await import(pathToFileURL(HOLDOUT));
-  const wrong = WRITING_TYPES_HOLDOUT.filter((d) => X.detectGenre(d.text) !== d.expect);
-  const share = 1 - wrong.length / WRITING_TYPES_HOLDOUT.length;
-  assert.ok(share >= 0.9, `${Math.round(share * 100)}% right; wrong:\n${wrong.map((d) => `${d.expect} → ${X.detectGenre(d.text)}: ${d.name}`).join("\n")}`);
-});
+for (const [file, name] of [[HOLDOUT, "WRITING_TYPES_HOLDOUT"], [BLIND2, "WRITING_TYPES_BLIND2"]]) {
+  test(`held out, written blind (${path.basename(file)}): read right at least 9 times in 10`, async () => {
+    assert.ok(existsSync(file), file);
+    const docs = (await import(pathToFileURL(file)))[name];
+    assert.ok(docs.length >= 40);
+    const wrong = docs.filter((d) => X.detectGenre(d.text) !== d.expect);
+    const share = 1 - wrong.length / docs.length;
+    assert.ok(share >= 0.9, `${Math.round(share * 100)}% right; wrong:\n${wrong.map((d) => `${d.expect} → ${X.detectGenre(d.text)}: ${d.name}`).join("\n")}`);
+  });
+}
 
 test("short and odd documents: an essay unless something says otherwise", () => {
   const cases = [
