@@ -49,6 +49,20 @@ test("a held-out corpus, written blind, is read right at least 9 times in 10", {
   assert.ok(share >= 0.9, `${Math.round(share * 100)}% right; wrong:\n${wrong.map((d) => `${d.expect} → ${X.detectGenre(d.text)}: ${d.name}`).join("\n")}`);
 });
 
+test("short and odd documents: an essay unless something says otherwise", () => {
+  const cases = [
+    ["", "prose"], ["Sleep matters.", "prose"],
+    ["My Essay\nSchools should start later. Teens need more sleep. Studies show later starts help grades.", "prose"],
+    ["Why the Ocean Is Salty\nRivers carry minerals from rocks into the sea every day.\nEvaporation removes water but leaves the salt behind.\nOver millions of years the salt builds up to about 3.5 percent.\nThat is why seawater tastes the way it does today.\nSo next time you swim, remember the rivers.", "prose"],
+    ["Hello,\nCan you send me the notes from class?\nThanks", "email"],
+    ["Roses are red,\nViolets are blue,\nSugar is sweet,\nAnd so are you.", "poem"],
+    ["Introduction\nHook\nThesis\nBody 1\nBody 2\nConclusion", "notes"],
+    ["1. What is photosynthesis?\n2. Where does it happen?\n3. Why do plants need light?", "homework"],
+    ["Title\r\n\r\nLine one of a poem, running on,\r\nline two comes after it\r\n\r\nline three in a new stanza,\r\nline four ends here", "poem"],
+  ];
+  for (const [text, want] of cases) assert.equal(X.detectGenre(text), want, JSON.stringify(text.slice(0, 40)));
+});
+
 test("what each kind is checked for: quiet, the writer's own account, a DBQ, everything else", () => {
   const shown = (genre, verdict, text = "Over 70% of teens use social media every day.") => X.flagShown({ verdict }, {}, genre, text);
   // A poem, a story, a script, homework: nothing in them is a claim to check or cite.

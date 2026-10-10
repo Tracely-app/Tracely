@@ -1557,7 +1557,7 @@
     const rhymes = (a, b) => a.length >= 2 && b.length >= 2 && a !== b && (a.slice(-3) === b.slice(-3) || (a.slice(-2) === b.slice(-2) && !WEAK_RHYME.has(a.slice(-2))));
     const rhymed = share((l, i) => [body[i + 1], body[i + 2]].some((o) => o && rhymes(end(l), end(o))));
     const open = share((l) => !/[.!?]["”’)]?$/.test(l));
-    return (stanzas >= 2 && open >= 0.3) || rhymed >= 0.3 || (open >= 0.6 && n >= 6);
+    return (stanzas >= 2 && open >= 0.3) || rhymed >= 0.3 || (open >= 0.6 && n >= 6) || (open >= 0.75 && avg <= 9); // a quatrain too
   }
   /* Notes or an outline: mostly bullets, numbered or lettered points,
      "Label: …" lines or an outline's own words, and mostly fragments. */
