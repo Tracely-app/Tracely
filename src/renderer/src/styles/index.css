@@ -3527,20 +3527,22 @@ textarea:disabled {
 }
 
 .argscore-verdict {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /* What Tracely's own search found, under what the writer cited. Deliberately
    quieter than .argscore-verdict: it is a report on retrieval, not a judgement
    on the draft, and it used to be phrased as one. */
 .argscore-verdict-sub {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Ring. Colour comes from the tone- class so it tracks the same 70/40 bands
@@ -3552,25 +3554,26 @@ textarea:disabled {
 .argscore-ring.tone-low  .argscore-ring-fill { stroke: var(--score-low); }
 
 .argscore-ring-score {
-  font-size: 30px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   fill: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
-.argscore-ring-max { font-size: 12px; fill: #9a9ba1; }
+.argscore-ring-max { font-size: 12px; fill: var(--label); font-variant-numeric: tabular-nums; }
 
 .argscore-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 18px 6px;
+  padding: 0 24px 8px;
 }
 
 .argscore-stats {
   display: flex;
-  gap: 10px;
-  padding-bottom: 14px;
+  gap: 12px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3579,40 +3582,42 @@ textarea:disabled {
 .argscore-stats b {
   display: block;
   font-size: 18px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .argscore-stats span {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 11px;
-  letter-spacing: 0.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #9a9ba1;
+  color: var(--label);
 }
 
 .argscore-section {
-  margin: 18px 0 10px;
+  margin: 16px 0 8px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--label);
 }
 
 /* .argscore-para / .argscore-para-head are defined once, further down, where
    the collapsible row lives. They used to be declared here too and the two
    disagreed about padding — the wrapper carried the closed row's padding into
    the open one, so an expanded row had a 10px gap above its body. */
-.argscore-para-name { flex: 1; font-size: 13.5px; font-weight: 650; color: #1a1a1f; font-variant-numeric: tabular-nums; }
-.argscore-para-claims { font-size: 10.5px; color: var(--muted); }
+.argscore-para-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argscore-para-claims { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .argscore-para-preview {
   margin: 0 0 8px;
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3630,14 +3635,14 @@ textarea:disabled {
 
 /* Metric chip (404:228): 11.5px Medium label, SemiBold value, on a #eaeaea
    fully-rounded 4px track. */
-.argscore-bar-label { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 500; color: #55565c; }
-.argscore-bar-pct { font-size: 11.5px; font-weight: 650; color: #1a1a1f; font-variant-numeric: tabular-nums; }
+.argscore-bar-label { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--muted-2); }
+.argscore-bar-pct { font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 
 .argscore-bar-track {
   flex-basis: 100%;
   height: 4px;
   border-radius: 999px;
-  background: #eaeaea;
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -3647,23 +3652,23 @@ textarea:disabled {
 .argscore-bar-fill.tone-low  { background: var(--score-low); }
 
 .argscore-weakness {
-  margin: 7px 0 0;
-  padding: 7px 9px;
-  border-radius: 8px;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--r-ctl);
   background: var(--score-mid-wash);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-missing { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted-2); }
 
-.argscore-footnote { margin: 14px 0 0; font-size: 11px; color: var(--muted); }
+.argscore-footnote { margin: 16px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .argscore-foot {
   display: flex;
-  gap: 10px;
-  padding: 14px 18px;
+  gap: 12px;
+  padding: 16px 24px;
   border-top: 1px solid var(--border);
 }
 
