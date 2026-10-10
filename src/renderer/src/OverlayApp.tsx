@@ -313,6 +313,21 @@ const ICON_BTN_STYLE: CSSProperties = {
   flexShrink: 0
 }
 
+/**
+ * One of the shared ICON_SVG strings (16px, 1.75 stroke, currentColor) as an
+ * inline element, for a control's leading or trailing icon. Decorative: the
+ * control's own label or aria-label names it.
+ */
+function InlineIcon({ svg, flip }: { svg: string; flip?: boolean }): JSX.Element {
+  return (
+    <span
+      aria-hidden
+      style={{ display: 'inline-flex', flexShrink: 0, transform: flip ? 'scaleX(-1)' : undefined }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
+}
+
 const BUCKET_COLOR: Record<Bucket, string> = {
   // The design's orange, the factual bucket's colour since the first mockup.
   factual: '#ff5900',
@@ -762,12 +777,22 @@ const PANEL_GAP = 16
 // A plain text link, no border/background — the least visually heavy
 // action on a card, used for anything that closes/skips/reverts rather
 // than does something.
+//
+// Padded 6x8 so the hit target is a real one and the .tracely-btn-text hover
+// wash has room to show; callers that sit flush with a column edge pull it
+// back with a negative margin so the label, not the wash, lines up.
 const TEXT_BTN_STYLE: CSSProperties = {
   border: 'none',
-  background: 'none',
-  padding: 0,
+  background: 'transparent',
+  padding: '6px 8px',
+  borderRadius: 6,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  fontFamily: 'inherit',
   fontSize: 13,
   fontWeight: 500,
+  lineHeight: 1,
   color: MUTED,
   cursor: 'pointer'
 }
@@ -1576,29 +1601,14 @@ function AnalyzingCard({ onClose }: { onClose: () => void }): JSX.Element {
           timeout of its own) leaves a card the user cannot put away sitting
           over the document they are writing in. */}
       <button
-        className="tracely-btn-text"
+        className="tracely-icon-btn"
         onClick={onClose}
         title="Close"
         aria-label="Close"
-        style={{
-          position: 'absolute',
-          top: 12,
-          right: 12,
-          width: 26,
-          height: 26,
-          borderRadius: 999,
-          border: 'none',
-          background: '#eaf2ec',
-          color: '#376049',
-          fontFamily: 'inherit',
-          fontSize: 15,
-          lineHeight: 1,
-          cursor: 'pointer',
-          padding: 0
-        }}
-      >
-        ×
-      </button>
+        // The shared 28px icon button, keeping this card's green wash.
+        style={{ ...ICON_BTN_STYLE, position: 'absolute', top: 12, right: 12, background: '#eaf2ec', color: '#376049' }}
+        dangerouslySetInnerHTML={{ __html: ICON_SVG.close }}
+      />
       <div style={{ width: 56, height: 56, flexShrink: 0 }}>
         <svg
           className="tracely-ring"
@@ -1705,43 +1715,18 @@ function ParagraphDetailPanel({
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-        <button
-          className="tracely-btn-text"
-          onClick={onBack}
-          style={{
-            border: 'none',
-            background: 'none',
-            padding: 0,
-            fontFamily: 'inherit',
-            fontSize: 13,
-            fontWeight: 500,
-            color: MUTED,
-            cursor: 'pointer'
-          }}
-        >
-          ← Back to summary
+        <button className="tracely-btn-text" onClick={onBack} style={{ ...TEXT_BTN_STYLE, marginLeft: -8 }}>
+          <InlineIcon svg={ICON_SVG.chevronRight} flip />
+          Back to summary
         </button>
         <button
-          className="tracely-btn-text"
+          className="tracely-icon-btn"
           onClick={onClose}
           title="Close"
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 999,
-            border: 'none',
-            background: '#f2f2f2',
-            color: '#000',
-            fontFamily: 'inherit',
-            fontSize: 15,
-            lineHeight: 1,
-            cursor: 'pointer',
-            padding: 0,
-            flexShrink: 0
-          }}
-        >
-          ×
-        </button>
+          aria-label="Close"
+          style={ICON_BTN_STYLE}
+          dangerouslySetInnerHTML={{ __html: ICON_SVG.close }}
+        />
       </div>
 
       <div style={{ fontSize: 18, fontWeight: 600, color: W_INK }}>
@@ -1822,21 +1807,11 @@ function ParagraphDetailPanel({
           <button
             className="tracely-btn-primary"
             onClick={() => onFindForClaim(claim.id)}
-            style={{
-              width: 150,
-              height: 36,
-              flexShrink: 0,
-              border: 'none',
-              borderRadius: 8,
-              background: 'linear-gradient(to right, #f97316, #dc2626)',
-              color: PAPER,
-              fontFamily: 'inherit',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer'
-            }}
+            // The finding-surface primary: solid ink, never a gradient.
+            style={{ ...PRIMARY_BTN_STYLE, width: 150, flexShrink: 0 }}
           >
-            Find evidence →
+            Find evidence
+            <InlineIcon svg={ICON_SVG.chevronRight} />
           </button>
         </div>
       ))}
@@ -2274,7 +2249,7 @@ function ArgumentScoreView({
                       className="tracely-btn-text"
                       onClick={() => onHighlightParagraph(paragraph.index, weakness.claimId)}
                       title="Show this paragraph's claims on screen"
-                      style={{ ...TEXT_BTN_STYLE, flexShrink: 0, padding: 0, fontSize: 11 }}
+                      style={{ ...TEXT_BTN_STYLE, flexShrink: 0, padding: '2px 6px', margin: '-2px -6px', fontSize: 11 }}
                     >
                       Show
                     </button>
@@ -5008,9 +4983,10 @@ export default function OverlayApp(): JSX.Element {
                     <button
                       className="tracely-btn-text"
                       onClick={leavePanelView}
-                      style={{ ...TEXT_BTN_STYLE, flexShrink: 0 }}
+                      style={{ ...TEXT_BTN_STYLE, flexShrink: 0, marginLeft: -8 }}
                     >
-                      ← Back
+                      <InlineIcon svg={ICON_SVG.chevronRight} flip />
+                      Back
                     </button>
                   ) : null}
                   {/* Sibling of the drag region, never a child of it — that div
