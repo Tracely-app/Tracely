@@ -2701,7 +2701,7 @@
     documents: "Document evidence (DBQ)", sourcing: "Sourcing (DBQ)", complexity: "Complexity (DBQ)",
     relevance: "Doesn't support the argument", source: "Source problem", quotation: "Quotation problem", citation: "Citation problem",
     bibliography: "Works Cited problem", reasoning: "Reasoning", contradiction: "Contradiction",
-    vague: "Unnamed source", nameonly: "Citation names no work", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
+    vague: "Unnamed source", nameonly: "Citation names no work", nolist: "No Works Cited", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
   const NOTE_ACTION = { delete: "Delete this", rewrite: "Rewrite", cite: "Add a real source", needs_info: "Needs more information" };
   const NOTE_STATUS = { confirmed: "confirmed", unsupported: "unsupported", unverified: "unverified", possible: "possible" };
   function resumeTips(text, modelFindings, dismissed) {
@@ -2780,9 +2780,91 @@
     refuncited: "Nothing in your text cites this source. If you used it, add an in-text citation; if not, remove it from the list.",
     refincomplete: "A reader cannot find this source from this entry. Add what is missing from the source itself — never guess it.",
   };
-  function referenceTips(text, dismissed) {
-    return referenceListIssues(text).map((r) => ({ id: "tip:" + hashText(r.quote + "|" + r.kind), quote: r.quote, kind: r.kind, message: r.missing ? `${REF_MESSAGES[r.kind]} Missing: ${r.missing.join("; ")}.` : REF_MESSAGES[r.kind], suggestion: "" }))
-      .filter((t) => !dismissed.has(t.id));
+  function referenceTips(text, dismissed, genre = "prose", style = "mla") {
+    return [
+      ...noListTip(text, genre, style),
+      ...referenceListIssues(text).map((r) => ({ id: "tip:" + hashText(r.quote + "|" + r.kind), quote: r.quote, kind: r.kind, message: r.missing ? `${REF_MESSAGES[r.kind]} Missing: ${r.missing.join("; ")}.` : REF_MESSAGES[r.kind], suggestion: "" })),
+    ].filter((t) => !dismissed.has(t.id));
+  }
+  /* No Works Cited. Owner, 2026-10-09: "right now when it needs to its still
+     not automatically inserting works cited". An essay or paper that cites
+     works in its text and has no reference list gets a note that offers to
+     add one ("Add Works Cited", docAddWorksCited). Not on a DBQ, a speech, a
+     news story or the writer's own account: those have none
+     (genreWantsList). The works are each distinct citation of a work —
+     (Lee, 2019) and (Lee 45) are one — and a surname after a reported claim,
+     "(Shiraishi)". */
+  function citedWorksWithoutList(text) {
+    const t = String(text ?? "");
+    if (worksCitedBlock(t)) return [];
+    const works = new Map();
+    const add = (raw, inner, sentence) => {
+      const author = citedAuthorOnly(inner);
+      const year = citedYearOf(inner);
+      const title = (String(inner).match(/["“]([^"”]{3,})["”]/) ?? [])[1] ?? "";
+      const key = `${(author ?? title).toLowerCase()}|${year ?? ""}`;
+      if (!works.has(key)) works.set(key, { key, raw, inner, author, year, title, sentence });
+    };
+    for (const para of t.split(/\n+/)) {
+      for (const sentence of para.split(/(?<=[.!?]["”’)\]]?)\s+/)) {
+        for (const c of inTextCitationsOf(sentence)) add(c.raw, c.inner, sentence);
+        const n = nameOnlyCitation(sentence, t);
+        if (n) add(n.raw, n.inner, sentence);
+      }
+    }
+    return [...works.values()];
+  }
+  function noListTip(text, genre, style) {
+    if (!genreWantsList(genre)) return [];
+    const works = citedWorksWithoutList(text);
+    if (!works.length) return [];
+    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    const named = works.slice(0, 3).map((w) => w.raw).join(", ") + (works.length > 3 ? ` and ${works.length - 3} more` : "");
+    return [{
+      id: "tip:" + hashText(`nolist|${works.map((w) => w.key).join(",")}`), quote: "", kind: "nolist", label: `No ${list}`, suggestion: "",
+      message: `You cite ${named}, but there is no ${list}. Every work you cite needs an entry there, at the end.`,
+    }];
+  }
+  /* The record a citation plainly means, or null. An entry nobody picked has
+     to be the right one: the record's author is the cited name and its year
+     the cited year (when one is given); a title-only citation shares most of
+     its title's words; and for a surname-only citation — whose lookup lists
+     that author's works on the subject — exactly one of them is about the
+     sentence's claim. Anything less is left for the citation's own card,
+     where the writer picks. */
+  function citedMatchFor(work, r, plan) {
+    if (!r?.resolved || !Array.isArray(r.matches) || !r.matches.length) return null;
+    const fold = (x) => String(x ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    const year = work.year && work.year !== "n.d." ? Number(work.year) : null;
+    let pool = r.matches.filter((m) => !year || m.year === year);
+    if (work.author) {
+      const surname = fold(work.author);
+      pool = pool.filter((m) => (m.authors ?? []).some((a) => fold(a).split(/[\s,.]+/).includes(surname)));
+    } else if (work.title) {
+      const want = refWords(work.title);
+      pool = pool.filter((m) => { const have = new Set(refWords(m.title)); return want.length && want.filter((w) => have.has(w)).length / want.length >= 0.6; });
+    } else return null;
+    if (r.byAuthor) {
+      if (year && pool.length === 1) return pool[0]; // (Weatherford, 2004): one work of his from that year
+      const terms = (plan?.claimTerms ?? []).map((w) => w.slice(0, 5));
+      const on = pool.filter((m) => { const t = new Set(refWords(`${m.title} ${m.container ?? ""}`).map((w) => w.slice(0, 5))); return terms.some((w) => t.has(w)); });
+      return on.length === 1 ? on[0] : null;
+    }
+    return pool[0] ?? null;
+  }
+  /* A speech or a news story names its source in the sentence and has no
+     list: "According to Pew Research Center in 2021, most teens …". */
+  const LOWER_OPENER = /^(?:The|A|An|This|That|These|Those|Most|Many|Some|More|Over|About|Nearly|Almost|Every|Each|It|There|Only|Few|Half|All|One|Two|Three|Four|Five|Our|We|They|People|Students|Teens|Kids|Children|Adults|Americans)\b/;
+  function attributeAloud(sentence, src) {
+    const text = String(sentence ?? "").trim();
+    if (!src || !text || /^according to\b/i.test(text) || inTextCitationsOf(text).length) return null;
+    const inner = String(formatCitation(src, "apa").marker ?? "").replace(/^\(|\)$/g, "");
+    const m = inner.match(/^(.+?),\s*((?:1[5-9]|20)\d\d[a-z]?|n\.d\.)$/);
+    const who = (m ? m[1] : inner).replace(/ & /g, " and ").trim();
+    if (!who || who.length > 80) return null;
+    const year = m && m[2] !== "n.d." ? ` in ${m[2]}` : "";
+    const rest = LOWER_OPENER.test(text) ? text[0].toLowerCase() + text.slice(1) : text;
+    return `According to ${who}${year}, ${rest}`;
   }
   /* Writing feedback (owner, 2026-10-05, on an AP World DBQ whose facts were
      all right: "it flags things too little … It should of flagged these
@@ -2922,7 +3004,7 @@
      a citation (cite_tip), orange for one on the writing (note_tip). A note
      with no underline — a resume line, a stray line — has none: colour only
      ever means a finding someone can see in the text. */
-  const CITE_TIP_KINDS = ["page", "vague", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete"];
+  const CITE_TIP_KINDS = ["page", "vague", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete", "nolist"];
   const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-quest" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
@@ -7041,7 +7123,12 @@
         const note = editNoteHtml(`rw:${key}`);
         if (note) card.querySelector(".fix")?.insertAdjacentHTML("beforeend", note);
       }
+      if (tip?.kind === "nolist" && canEditDoc()) {
+        const lb = listBuilds.get(key);
+        buttons.push(editBtnHtml(`list:${key}`, lb?.loading ? "Looking up the cited works…" : `Add ${REF_HEADINGS[settings.citationStyle] ?? REF_HEADINGS.mla}`, `data-tip-list="${esc(key)}"${lb?.loading ? " disabled" : ""}`));
+      }
       let html = fixBtn ? editNoteHtml(`del:${key}`) : "";
+      if (tip?.kind === "nolist") html += editNoteHtml(`list:${key}`) + (listBuildNote(listBuilds.get(key)) ? `<div class="src-snip">${esc(listBuildNote(listBuilds.get(key)))}</div>` : "");
       if (c) html += citedWorkHtml(c, (i, src) => citedActionsHtml(key, c, i, src), c.resolved && c.target?.segHash ? `<div class="row"><button class="act" data-cited-more="${esc(key)}">${esc(CITED_COPY.different)}</button></div>` : "");
       const claim = st.claim ? segments.find((s) => s.hash === st.claim) : null;
       if (isTip && claim) html += sourcesFor(claim); // a verdict card already lists its own sentence's sources
@@ -7614,7 +7701,9 @@
       // An unnamed source ("some researchers have argued") is named instead:
       // the sentence then cites by its words, and no marker is added beside them.
       const named = swapped ? null : nameTheSource(seg.text, src, style);
-      const { steps, retry, hint, pasteEntry, listName, replacement } = await citePlan(seg, styled, src, { anchor, swapped: swapped ?? named });
+      // A speech or a news story names its source in the sentence, and has no list.
+      const spoken = swapped || named || genreWantsList(docGenre) ? null : attributeAloud(seg.text, src);
+      const { steps, retry, hint, pasteEntry, listName, replacement } = await citePlan(seg, styled, src, { anchor, swapped: swapped ?? named ?? spoken, listOnly: Boolean(spoken) });
       if (!steps.length) {
         if (editGate.collect && `cite:${hash}:${src.url}`.startsWith(editGate.collect.prefix)) return false; // preparing: nothing to choose, and no copy
         // Marker and entry are both in the doc already: nothing to change —
@@ -7632,7 +7721,7 @@
         return true;
       }
       const prevCited = st.citedUrl ?? null;
-      const did = swapped ? `replaced ${replace} with ${markerWithPage(marker, citationPage(replace.slice(1, -1)), style)}` : named ? `named ${narrativeCitation(src, style).name} as the source` : `cited ${marker}`;
+      const did = swapped ? `replaced ${replace} with ${markerWithPage(marker, citationPage(replace.slice(1, -1)), style)}` : named ? `named ${narrativeCitation(src, style).name} as the source` : spoken ? "named the source in the sentence" : `cited ${marker}`;
       return runDocEdit(`cite:${hash}:${src.url}`, {
         steps,
         // If Docs refuses the in-order insert for real: the same group, the entry last.
@@ -7646,7 +7735,7 @@
             // A swapped citation was what the verdict was about: the sentence
             // that cites a real source now is checked afresh, not told the same.
             // So is one whose unnamed source is now named.
-            if (!swapped && !named && cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
+            if (!swapped && !named && !spoken && cache.has(hash) && !cache.has(newHash)) cache.set(newHash, cache.get(hash));
             if (sourcesMap.has(hash) && !sourcesMap.has(newHash)) sourcesMap.set(newHash, sourcesMap.get(hash));
             if (!(hint.occurrences > 1)) markEdited(hash); // another copy keeps its underline
           }
@@ -7787,7 +7876,8 @@
       }
       const shown = markerWithPage(styled.marker, citationPage(t.raw.slice(1, -1)), style);
       const oldEntry = c.plan?.entry && citationUses(docText, t.raw) <= 1 ? c.plan.entry : null;
-      const plan = await citePlan(seg, styled, src, { anchor, swapped, entryLine: citedWorkEntry(src, style).entry, oldEntry, listOnly: !same });
+      // An essay or paper with no list gets one (owner, 2026-10-09); a DBQ, a speech or a news story never does.
+      const plan = await citePlan(seg, styled, src, { anchor, swapped, entryLine: citedWorkEntry(src, style).entry, oldEntry, listOnly: !same && !genreWantsList(docGenre) });
       if (!plan.steps.length) {
         statusKind = "idle";
         statusMsg = same ? `${plan.listName} already has this work's entry` : "nothing to change";
@@ -7820,6 +7910,86 @@
           c.done = null;
           persistCaches();
         },
+      });
+    }
+
+    /* "Add Works Cited" (owner, 2026-10-09: "when it needs to its still not
+       automatically inserting works cited"). The no-list note's own fix: each
+       cited work is looked up (lookupCitedWork — the record's own fields,
+       never a guess; LOOKUP_ROUTES, 10 a minute, no model) and kept only when
+       the record is plainly the one cited (citedMatchFor); a work Tracely
+       cited itself comes from its source. Then the style's heading and the
+       entries, alphabetical, go in at the end as ONE group with one Undo — or
+       are copied to paste where Docs refuses the append. A citation no
+       record plainly matches is named in the note and left for its own card,
+       where the writer picks its work. */
+    const LIST_MAX_LOOKUPS = 8;
+    const listBuilds = new Map(); // tip id → { loading } | { sig, entries, missing }
+    function ownCitedSource(work, style) {
+      for (const st of sourcesMap.values()) {
+        const src = st?.citedUrl ? st.list?.find((x) => x.url === st.citedUrl) : null;
+        const mk = src ? formatCitation(src, style).marker : "";
+        if (mk && (mk === work.raw || work.raw.startsWith(mk.slice(0, -1)))) return src;
+      }
+      return null;
+    }
+    async function buildWorksCited(tipId) {
+      const works = citedWorksWithoutList(docText);
+      const sig = works.map((w) => w.key).join(",");
+      const have = listBuilds.get(tipId);
+      if (have?.loading || (have && have.sig === sig)) return have;
+      listBuilds.set(tipId, { loading: true, sig });
+      render();
+      const style = settings.citationStyle || "mla";
+      const entries = [], missing = [];
+      for (const [i, w] of works.entries()) {
+        const own = ownCitedSource(w, style);
+        if (own) { entries.push(formatCitation(own, style).ref); continue; }
+        const plan = i < LIST_MAX_LOOKUPS ? citedLookupPlan({ kind: "sentence", raw: w.raw, inner: w.inner, sentence: w.sentence }, docText) : null;
+        const r = plan ? await lookupCitedWork(plan) : null;
+        const m = r ? citedMatchFor(w, r, plan) : null;
+        if (m) entries.push(citedWorkEntry(m, style).entry); else missing.push(w.raw);
+      }
+      const built = { loading: false, sig, entries: [...new Set(entries)].sort((a, b) => refSortKey(a).localeCompare(refSortKey(b))), missing };
+      listBuilds.set(tipId, built);
+      render();
+      return built;
+    }
+    function listBuildNote(b) {
+      if (!b || b.loading) return "";
+      const n = b.entries.length, m = b.missing.length;
+      const who = b.missing.slice(0, 3).join(", ") + (m > 3 ? ` and ${m - 3} more` : "");
+      if (!m) return `Found ${n === 1 ? "the cited work" : `all ${n} cited works`}.`;
+      return `${n ? `Found ${n} of ${n + m}. ` : ""}Not sure which work ${who} ${m === 1 ? "is" : "are"} — ${n ? "the rest go in, and " : "the heading goes in, and "}${m === 1 ? "its" : "each one's"} card finds it for you to pick.`;
+    }
+    async function docAddWorksCited(tipId) {
+      const tip = tipById(tipId);
+      if (!tip || tip.kind !== "nolist" || docBusy) return false;
+      const built = await buildWorksCited(tipId);
+      if (!built || built.loading || worksCitedBlock(docText)) return false;
+      const style = settings.citationStyle || "mla";
+      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const lines = [heading, ...built.entries];
+      const key = `list:${tipId}`;
+      // Docs' end of document has to be one the hook can append to (its text API, and a dry run that
+      // says so); where it is not, the list is copied to paste — never while fix-all only prepares.
+      let canAppend = editPath() !== "hook" || inDoc.api;
+      if (canAppend && editPath() === "hook") canAppend = Boolean((await docsEdit("appendLine", { line: heading, dryRun: true }, { timeoutMs: 3000 }))?.ok);
+      if (!canAppend) {
+        if (editGate.collect) return false;
+        const copied = await copyFallback(lines.join("\n"));
+        statusKind = "idle";
+        statusMsg = copied ? `Docs didn't let Tracely add your ${heading} — it is copied: paste it at the end of the doc` : `Docs didn't let Tracely add your ${heading} — add it at the end of the doc`;
+        render();
+        return false;
+      }
+      const n = built.entries.length;
+      return runDocEdit(key, {
+        steps: lines.map((line) => ({ action: "appendLine", line })),
+        copy: lines.join("\n"),
+        doneMsg: n ? `added your ${heading} with ${n} ${n === 1 ? "entry" : "entries"}` : `added a ${heading} heading`,
+        onApplied: tipDone(tipId, key),
+        onUndone: () => popSteps.delete(tipId),
       });
     }
 
@@ -8043,7 +8213,7 @@
         else left++;
       }
       for (const n of notes ?? []) {
-        const act = n.deletes ? "delete" : n.kind === "vague" && n.claim ? "name" : null;
+        const act = n.deletes ? "delete" : n.kind === "vague" && n.claim ? "name" : n.kind === "nolist" ? "list" : null;
         if (act) items.push({ key: n.key, start: n.start, act, kind: n.kind });
         else left++;
       }
@@ -8828,7 +8998,7 @@
       couldNot: (n, why) => `${n} couldn't be prepared (${why}) — ${n === 1 ? "its card is" : "their cards are"} still there`,
       left: (n) => `${n} more ${n === 1 ? "needs" : "need"} you — open ${n === 1 ? "its card" : "their cards"}`,
     };
-    const FIX_ACT = { fix: "Fix", cite: "Cite", name: "Name the source", delete: "Delete" };
+    const FIX_ACT = { fix: "Fix", cite: "Cite", name: "Name the source", delete: "Delete", list: "Add the list" };
     const tcSleep = (ms) => new Promise((r) => setTimeout(r, ms));
     function walkInputs() {
       const flags = currentIssues().map(({ seg, f }) => ({
@@ -8839,6 +9009,9 @@
         key: tip.id, kind: tip.kind, start: Math.max(0, docText.indexOf(tip.quote)),
         deletes: canDeleteTip(tip), claim: tip.kind === "vague" && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0,
       }));
+      // No underline to hang it on: the missing list sits after everything else.
+      const nolist = FEATURES.refList && genreWantsList(docGenre) ? allTips().find((t) => t.kind === "nolist") : null;
+      if (nolist) notes.push({ key: nolist.id, kind: "nolist", start: docText.length });
       return walkPlan(flags, notes);
     }
     const walkOffered = () => Boolean(FEATURES.typePreview && previewDocEdit && canEditDoc() && !(harness && harness.typePreview !== true) && walkInputs().items.length);
@@ -8853,10 +9026,11 @@
     // The card's own function for this change; the key prefix runDocEdit will see.
     function fixMake(item) {
       if (item.act === "fix") return docFix(item.key);
+      if (item.act === "list") return docAddWorksCited(item.key);
       if (item.act === "delete") return docDeleteTip(item.key);
       return docCite(item.claim, item.srcIndex, null, replaceFor(item.claim));
     }
-    const fixPrefix = (item) => (item.act === "fix" ? `fix:${item.key}` : item.act === "delete" ? `del:${item.key}` : `cite:${item.claim}:`);
+    const fixPrefix = (item) => (item.act === "fix" ? `fix:${item.key}` : item.act === "delete" ? `del:${item.key}` : item.act === "list" ? `list:${item.key}` : `cite:${item.claim}:`);
     // The change, recorded and not sent: { key, job }, or null when there is none to make.
     function fixCollect(item) {
       const run = async () => {
@@ -8898,6 +9072,11 @@
       render();
     }
     async function prepareFix(item, b) {
+      if (item.act === "list") {
+        fixSettle(item, "searching");
+        await buildWorksCited(item.key); // the lookups first, outside the queue: the edit itself is then quick to plan
+        if (fixBatch !== b || b.stopped) return;
+      }
       if (item.act === "cite" || item.act === "name") {
         item.claim = fixClaimOf(item);
         if (!item.claim) return fixSettle(item, "none", "the sentence changed");
@@ -9019,7 +9198,7 @@
     function fixRowHtml(it, i) {
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
       const dot = it.verdict ? `d-${it.verdict === "false" ? "false" : it.verdict === "questionable" ? "quest" : it.verdict === "needs_citation" ? "cite" : "inco"}` : tipDot({ kind: it.kind });
-      const state = { waiting: FIX_COPY.waiting, searching: FIX_COPY.searching, working: FIX_COPY.working, applying: FIX_COPY.applying, applied: FIX_COPY.applied, skipped: FIX_COPY.skipped, failed: it.why }[it.status] ?? "";
+      const state = { waiting: FIX_COPY.waiting, searching: it.act === "list" ? "Looking up the cited works…" : FIX_COPY.searching, working: FIX_COPY.working, applying: FIX_COPY.applying, applied: FIX_COPY.applied, skipped: FIX_COPY.skipped, failed: it.why }[it.status] ?? "";
       const busy = ["waiting", "searching", "working", "applying"].includes(it.status);
       const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
       return `
@@ -9106,6 +9285,7 @@
       });
       card.setAttribute("data-tracely-fix-card", "");
       card.dataset.key = it.key;
+      if (it.act === "list") card.dataset.loose = "1";
       const top = el("div", { display: "flex", alignItems: "center", gap: "7px", fontWeight: "600", fontSize: "12px" });
       top.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" }), el("span", {}, `${FIX_ACT[it.act]} · ${flag}`));
       card.appendChild(top);
@@ -9178,6 +9358,11 @@
       for (const card of fixCardsEl.children) {
         const bar = fixBarFor(card.dataset.key);
         const r = bar ? bar.el.getBoundingClientRect() : null;
+        if (!r && card.dataset.loose) { // the missing Works Cited: at the foot of the margin, where the list will go
+          const pg = document.querySelector(".kix-page-paginated")?.getBoundingClientRect();
+          placed.push({ card, x: Math.max(8, Math.min((pg ? pg.right : innerWidth - FIX_CARD_W - 40) + 14, innerWidth - FIX_CARD_W - 12)), want: clip.bottom - card.offsetHeight - 16 });
+          continue;
+        }
         if (!r || r.bottom < clip.top || r.top > clip.bottom) { card.style.visibility = "hidden"; continue; }
         const page = bar.el.closest?.(".kix-page-paginated");
         const right = page ? page.getBoundingClientRect().right : r.right;
@@ -9477,6 +9662,7 @@
         }
         // A note's own fix (decorateCard): Delete, Rewrite in doc, the page box.
         for (const btn of shadow.querySelectorAll("[data-tip-del]")) btn.addEventListener("click", () => armOrDelete(btn.dataset.tipDel));
+        for (const btn of shadow.querySelectorAll("[data-tip-list]")) btn.addEventListener("click", () => docAddWorksCited(btn.dataset.tipList));
         for (const btn of shadow.querySelectorAll("[data-tip-rewrite]")) btn.addEventListener("click", () => docRewriteTip(btn.dataset.tipRewrite));
         for (const input of shadow.querySelectorAll("[data-page-input]")) {
           input.addEventListener("input", () => pageDrafts.set(input.dataset.pageInput, input.value));
