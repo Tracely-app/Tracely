@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { CitationStyle } from '@shared/types'
 import { tracelyApi } from '../lib/api'
 import Button from './Button'
+import Spinner from './Spinner'
+import { CheckIcon } from './icons'
 
 const STYLES: CitationStyle[] = ['APA', 'MLA', 'Chicago']
 
@@ -46,11 +48,13 @@ export default function CitationBlock({ sourceId }: { sourceId: string }): JSX.E
 
   return (
     <div className="citation-block">
-      <div className="citation-style-picker">
+      <div className="citation-style-picker" role="group" aria-label="Citation style">
         {STYLES.map((s) => (
           <Button
             key={s}
             variant={s === style && citation ? 'primary' : 'ghost'}
+            size="sm"
+            aria-pressed={s === style && citation !== null}
             onClick={() => generate(s)}
             disabled={loading}
           >
@@ -58,13 +62,24 @@ export default function CitationBlock({ sourceId }: { sourceId: string }): JSX.E
           </Button>
         ))}
       </div>
-      {loading ? <p className="muted">Generating…</p> : null}
-      {error ? <p className="error-text">{error}</p> : null}
+      {loading ? <Spinner size="sm" label="Generating…" /> : null}
+      {error ? (
+        <p className="error-text" role="alert">
+          {error}
+        </p>
+      ) : null}
       {citation ? (
         <div className="citation-result">
           <code>{citation}</code>
-          <Button variant="ghost" onClick={copy}>
-            {copied ? 'Copied' : 'Copy'}
+          <Button variant="ghost" size="sm" className="citation-copy" onClick={copy}>
+            {copied ? (
+              <>
+                <CheckIcon className="citation-copied-icon" />
+                Copied
+              </>
+            ) : (
+              'Copy'
+            )}
           </Button>
         </div>
       ) : null}

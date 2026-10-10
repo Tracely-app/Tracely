@@ -2478,27 +2478,46 @@ textarea:disabled {
 }
 
 .citation-block {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
+/* APA / MLA / Chicago as one row of small chips; the chosen one fills. */
 .citation-style-picker {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 
+/* Even chip widths: .btn-primary's 18px padding would widen the chosen one. */
+.citation-style-picker .btn {
+  padding: 0 10px;
+}
+
+.citation-block .spinner-row,
+.citation-block .error-text {
+  margin: 8px 0 0;
+}
+
+/* The inset recipe. Copy sits under the citation rather than beside it: the
+   floating window is narrow, and a side column squeezed the reference into a
+   ribbon of short lines. */
 .citation-result {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   margin-top: 8px;
-  padding: 8px 10px;
+  padding: 12px 12px 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   font-size: 12px;
 }
 
 .citation-result code {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
   white-space: pre-wrap;
   flex: 1;
   /* A flex item's min-width defaults to its content, so a long unbroken DOI or
@@ -2506,6 +2525,18 @@ textarea:disabled {
      of wrapping. */
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A ghost pulled left by its own padding so the label lines up with the
+   citation text, like .evidence-actions above it. */
+.citation-copy {
+  align-self: flex-start;
+  gap: 4px;
+  margin-left: -10px;
+}
+
+.citation-copied-icon {
+  color: var(--score-good);
 }
 
 .muted {
