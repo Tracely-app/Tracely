@@ -3868,7 +3868,10 @@
     .list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid var(--surface); }
     .list::-webkit-scrollbar-track { background: transparent; }
     @media (prefers-reduced-motion: reduce) {
-      .launcher, .launcher:hover, .pill, .pill:hover, button.act, .chip, .deep-btn, .x, .src a.src-open, select, .cite-url input { transition: none; transform: none; }
+      /* Every transition in the sheet, not a list that misses the next one
+         (the grip and the close were still easing their colour). */
+      *, *::before, *::after { transition: none !important; }
+      .launcher, .launcher:hover, .pill, .pill:hover { transform: none; }
       .panel.opening, .card.flash, .deep-spin { animation: none; }
     }
   `;
