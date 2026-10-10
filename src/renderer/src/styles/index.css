@@ -4961,77 +4961,98 @@ textarea:disabled {
      the container width. */
   grid-template-columns: repeat(auto-fill, minmax(181.5px, 1fr));
   gap: 16px;
-  padding: 0 24px 24px;
+  /* 4px at the top, pulled back by the margin, so the first row's focus ring
+     (2px outline, 2px offset) is not clipped by this scroll container. */
+  padding: 4px 24px 24px;
+  margin-top: -4px;
   overflow-y: auto;
   align-content: start;
+  /* A flex child in a column defaults to min-height:auto, which let a long
+     list push past the view's overflow:hidden instead of scrolling here. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
+/* Clickable tile: 1px var(--border) on the surface, radius 12, no shadow at
+   rest; hover = stronger line + the small shadow (the shared card recipe).
+   The card is the positioning context for the menu and its popup. */
 .docs-card {
   -webkit-app-region: no-drag;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   text-align: left;
   height: 200px;
   padding: 0;
-  border: 1px solid #d1d4db;
-  border-radius: 12px;
-  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface);
   font: inherit;
   color: inherit;
   cursor: pointer;
   overflow: hidden;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .docs-card:hover {
-  border-color: #b9bdc6;
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
 
+/* The thumbnail is the positioning context for the grade chip. */
 .docs-card-thumb {
   position: relative;
   display: block;
   height: 122px;
   flex-shrink: 0;
-  background: #f5f5f7;
+  background: var(--bg);
   overflow: hidden;
 }
 
-/* Five bars at the frame's widths, 14px apart from a 16px top. Decorative —
-   the thumbnail shows that the card is a document, not what it says. */
+/* Four bars at the frame's widths, 14px apart from a 16px top — the same
+   weight as Home's tiles. Decorative: the thumbnail shows that the card is a
+   document, not what it says. */
 .docs-card-bar {
   position: absolute;
   left: 12px;
   height: 3px;
-  border-radius: 1.5px;
-  background: #d1d4db;
+  border-radius: 999px;
+  background: var(--border);
 }
 .docs-card-bar:nth-child(1) { top: 16px; }
 .docs-card-bar:nth-child(2) { top: 30px; }
 .docs-card-bar:nth-child(3) { top: 44px; }
 .docs-card-bar:nth-child(4) { top: 58px; }
-.docs-card-bar:nth-child(5) { top: 72px; }
 
+/* The grade chip: the shared chip recipe (20px, radius 999, 11/600 tabular).
+   Its three palettes are below, with the menu. */
 .docs-card-chip {
   position: absolute;
   top: 8px;
   right: 8px;
-  min-width: 34px;
-  height: 22px;
-  border-radius: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .docs-card-title {
-  margin: 9px 11px 0;
+  margin: 8px 12px 0;
   font-size: 13px;
   font-weight: 500;
-  color: #212429;
-  /* Two lines, then ellipsis. The frame's title box is 32px — exactly two
-     lines — and "Photosynthesis Lab Report" already uses both. */
+  line-height: 1.3;
+  color: var(--text);
+  /* Two lines, then ellipsis. The frame's title box is two lines, and
+     "Photosynthesis Lab Report" already uses both. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -5039,90 +5060,77 @@ textarea:disabled {
 }
 
 .docs-card-date {
-  margin: auto 11px 11px;
-  font-size: 11px;
-  color: #737880;
+  margin: auto 12px 12px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
+/* The three list states, each inset to the grid's 24px. Empty = the shared
+   dashed box; loading = <Spinner label>; error = .error-text with role=alert. */
 .docs-empty {
+  margin: 0 24px;
+  padding: 40px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-card);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--muted);
+}
+
+.docs-loading {
   padding: 0 24px;
 }
 
-/* Dark for the Documents family, BOTH ways dark is reachable — an explicit
-   data-theme='dark' AND the system prefers-color-scheme fallback when the
-   setting is System. These rules covered only the explicit attribute for a
-   while, so Theme = System on a dark OS left this tab half light ("only some
-   parts actually change"). The rule it cites: a dark rule that covers one of
-   the two paths is a bug waiting to be re-reported. (The `.login-canvas` note
-   that used to be the worked example went with the sign-in screens.) */
-:root[data-theme='dark'] .docs-view {
-  background: var(--surface);
-  border-color: var(--border-strong);
+.docs-error {
+  margin: 0;
+  padding: 0 24px;
 }
-:root[data-theme='dark'] .docs-title,
-:root[data-theme='dark'] .docs-card-title {
-  color: var(--text);
-}
-:root[data-theme='dark'] .docs-card,
-:root[data-theme='dark'] .docs-sort {
-  background: var(--surface);
-  border-color: var(--border);
-}
-:root[data-theme='dark'] .docs-card-thumb {
-  background: var(--surface-2, #202024);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .docs-view {
-    background: var(--surface);
-    border-color: var(--border-strong);
-  }
-  :root:not([data-theme='light']) .docs-title,
-  :root:not([data-theme='light']) .docs-card-title {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .docs-card,
-  :root:not([data-theme='light']) .docs-sort {
-    background: var(--surface);
-    border-color: var(--border);
-  }
-  :root:not([data-theme='light']) .docs-card-thumb {
-    background: var(--surface-2, #202024);
-  }
-}
+
+/* Dark: nothing to override. Every colour above is a token, and the tokens
+   already cover BOTH ways dark is reachable (an explicit data-theme='dark' and
+   the prefers-color-scheme fallback when the setting is System). The per-rule
+   dark blocks that used to live here existed only because the light values
+   were literals; the one family that still needs a dark path is the grade
+   chip's palette, below, because its light values are the frame's own. */
 
 /* The app's own minimize / maximize / close cluster is gone with
    components/WindowControls.tsx. The OS title bar owns that corner now, and
    two close buttons on one window is worse than none. --winctl-reserve, which
    several views subtract to clear it, is 0px for the same reason. */
 
-/* Per-card menu. The card needs to be the positioning context so the popup can
-   sit against it rather than against the thumbnail it is drawn over. */
-.docs-card {
-  position: relative;
-}
+/* Per-card menu. The card is `position: relative` above, so the popup sits
+   against the card rather than against the thumbnail it is drawn over.
 
-/* Hidden until the card is hovered, the control has focus, or the menu is
+   Hidden until the card is hovered, the control has focus, or the menu is
    open: the grid is a list of things to OPEN, and a control visible on every
    card at rest competes with that. Focus is in the selector so it stays
-   reachable by keyboard, where there is no hover. */
+   reachable by keyboard, where there is no hover. The dismiss-size icon
+   button: 24x24, radius 6, a 16px icon, the surface at 92% over the thumbnail
+   so the bars read through its edge. */
 .docs-card-menu {
   position: absolute;
   top: 8px;
   left: 8px;
   width: 24px;
-  height: 22px;
+  height: 24px;
+  padding: 0;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #d1d4db;
-  color: #55555c;
-  font-size: 15px;
-  line-height: 1;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  color: var(--muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease;
+  transition:
+    opacity var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
   z-index: 2;
 }
 
@@ -5134,86 +5142,75 @@ textarea:disabled {
 
 .docs-card-menu:hover,
 .docs-card-menu.open {
-  background: #fff;
-  color: #212429;
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 
+.docs-card-menu:active {
+  background: var(--pressed);
+}
+
+/* The menu: a transient surface, so it is the one thing on this page that
+   casts a shadow. Radius 12, 6x4 inset, 32px items at radius 6. */
 .docs-card-menu-popup {
   position: absolute;
-  top: 34px;
+  top: 36px;
   left: 8px;
   z-index: 3;
-  min-width: 118px;
-  padding: 4px;
+  min-width: 120px;
+  padding: 6px 4px;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid #d1d4db;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tile);
+  box-shadow: var(--shadow-lg);
+  transform-origin: top left;
+  animation: docs-menu-in 140ms var(--ease) both;
+}
+
+@keyframes docs-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .docs-card-menu-delete {
-  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
   border-radius: 6px;
-  font-size: 12.5px;
-  color: #cb3232;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--danger);
   cursor: pointer;
   text-align: left;
+  transition: background-color var(--dur) var(--ease);
 }
 
 .docs-card-menu-delete:hover,
 .docs-card-menu-delete:focus-visible {
-  background: #fdecec;
+  background: var(--score-low-wash);
 }
 
-/* Both dark paths, same as the docs family block above. The :hover/.open
-   rules are new: the base hover sets background #fff, which outranked the
-   old dark rule by order — hovering the menu in dark mode flashed white. */
-:root[data-theme='dark'] .docs-card-menu,
-:root[data-theme='dark'] .docs-card-menu-popup {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--text);
-}
-:root[data-theme='dark'] .docs-card-menu:hover,
-:root[data-theme='dark'] .docs-card-menu.open {
-  background: var(--surface-2);
-  color: var(--text);
-}
-:root[data-theme='dark'] .docs-card-menu-delete:hover,
-:root[data-theme='dark'] .docs-card-menu-delete:focus-visible {
-  background: rgba(255, 92, 77, 0.14);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .docs-card-menu,
-  :root:not([data-theme='light']) .docs-card-menu-popup {
-    background: var(--surface);
-    border-color: var(--border);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .docs-card-menu:hover,
-  :root:not([data-theme='light']) .docs-card-menu.open {
-    background: var(--surface-2);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .docs-card-menu-delete:hover,
-  :root:not([data-theme='light']) .docs-card-menu-delete:focus-visible {
-    background: rgba(255, 92, 77, 0.14);
-  }
-}
+/* Dark: nothing to override for the menu either — the control, the popup and
+   the Delete item are on tokens above, so both dark paths are covered. (The
+   old dark hover rule existed because the light hover was a literal #fff.) */
 
-/* The thumbnail is the positioning context for both the grade chip and this. */
-.docs-card-thumb {
-  position: relative;
-}
-
-/* The grade chip's two palettes, moved here from inline styles in
-   DocumentsView.tsx (CHIP_GREEN / CHIP_AMBER) — CSS cannot reach an inline
-   style, so the chips were the one part of this view dark could not touch.
-   Light values are the frame's own, identical to the constants they replace.
-   Dark takes the app's score tokens (wash background, bright text), covering
-   BOTH dark paths like every block in this family. */
+/* The grade chip's three palettes — the same classes and values as Home's
+   `.home-doc-grade.tone-*`, so one document shows one colour on both screens.
+   Light values are the frame's own; dark takes the app's score tokens (wash
+   background, bright text), covering BOTH dark paths like every block in this
+   family. Classes rather than inline styles because an inline style is
+   unreachable by the dark-theme rules. */
 .docs-card-chip.tone-good {
   background: #e9f6ec;
   color: #168449;
@@ -5221,6 +5218,10 @@ textarea:disabled {
 .docs-card-chip.tone-mid {
   background: #fef5e9;
   color: #cb5c19;
+}
+.docs-card-chip.tone-low {
+  background: #fdeceb;
+  color: #c0392b;
 }
 :root[data-theme='dark'] .docs-card-chip.tone-good {
   background: var(--score-good-wash);
@@ -5230,6 +5231,10 @@ textarea:disabled {
   background: var(--score-mid-wash);
   color: var(--score-mid);
 }
+:root[data-theme='dark'] .docs-card-chip.tone-low {
+  background: var(--score-low-wash);
+  color: var(--score-low);
+}
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .docs-card-chip.tone-good {
     background: var(--score-good-wash);
@@ -5238,6 +5243,10 @@ textarea:disabled {
   :root:not([data-theme='light']) .docs-card-chip.tone-mid {
     background: var(--score-mid-wash);
     color: var(--score-mid);
+  }
+  :root:not([data-theme='light']) .docs-card-chip.tone-low {
+    background: var(--score-low-wash);
+    color: var(--score-low);
   }
 }
 
