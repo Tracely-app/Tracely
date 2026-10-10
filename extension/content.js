@@ -3483,8 +3483,8 @@
     .count, .badge {
       display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
       background: var(--chip-wash); color: var(--chip-ink);
-      border-radius: var(--r-chip);
-      font-size: 11px; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums;
+      border-radius: 999px;
+      font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
     }
     .count.off { color: var(--label); }
 
@@ -3679,7 +3679,7 @@
     .deep-btn.locked:hover { background: var(--surface); color: var(--label); }
     .deep-pro {
       display: inline-flex; align-items: center; margin-left: 6px; height: 16px; line-height: 16px; padding: 0 5px;
-      border-radius: var(--r-chip); background: var(--accent-wash); color: var(--accent-ink);
+      border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink);
       font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
     /* Every inset's label: the panel's one small-caps recipe. */
@@ -3785,7 +3785,7 @@
     .stance {
       display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
       min-width: 68px; /* one width for supports / refutes / context / manual, so every title starts on one edge */
-      font-size: 11px; font-weight: 600; border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 600; border-radius: 999px;
       margin-top: 1px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
@@ -5520,7 +5520,7 @@
     const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.body, flex: "0 0 auto" }, text);
     const dmHint = (text) => el("span", { fontSize: "12px", lineHeight: "1.5", color: DM.hint, fontVariantNumeric: "tabular-nums" }, text);
     function dmChip(text) {
-      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
+      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
     }
     /* A card's row of buttons. It wraps: the card is 320px and clips what
        overflows, and "Apply revision · Back · Explain in depth PRO" is wider
@@ -5662,7 +5662,7 @@
         if (from) meta.appendChild(el("span", { fontSize: "11px", color: DM.hint }, from));
       }
       const trusted = TRUSTED_KINDS.has(src.kind);
-      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
@@ -6331,7 +6331,7 @@
       if (v.kind === "result") {
         const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
         const w = dmIssue(title, v.text);
-        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", padding: "0 8px", borderRadius: "999px", background: APP.chipWash, color: APP.chipInk, margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", padding: "0 8px", borderRadius: "999px", background: APP.chipWash, color: APP.chipInk, margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
         if (!v.basis && !v.revision) return w;
         // What the fuller answer rests on, and its own fix — applied like the
