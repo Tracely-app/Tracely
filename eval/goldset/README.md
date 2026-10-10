@@ -109,6 +109,15 @@ paced under the beta pool's 30 searches an hour and resumable. 36/36 answered,
 155 sources, 59 shown as backing (stance `supports`). The response strips the
 server's `verified`, so this records what the extension is shown.
 
+**2026-10-09, extension, production, after receipts** (live `6974306`, #309):
+the same runner and claims. 36/36 answered (one 429, retried), 155 sources,
+22 shown as backing (`supports` and not `verified: false`, the extension's
+`backingSources` since receipts): 15 quoted from the page, 7 from the abstract.
+77 came back unread (`verified: false`, the "check these yourself" list), 50
+read and filed `context`, 6 `refutes`. Only 51 of the 155 are URLs the 10-07
+run also returned, so part of any change is the search, not the verifier.
+Beta pool spend about $0.53.
+
 ## Judged: does a source back its sentence? (AI-consensus)
 
 `judged/` holds three blind AI judges' verdicts (Claude Opus, Sonnet, Fable)
@@ -127,13 +136,51 @@ Read the extension's 41% as a floor: the judges could open about 60% of its
 pages (403s, logins, captchas), and a page judged from its title alone is
 "backs" only when the title states the claim. The extension also filed 22
 sources the judges say back their sentence under `context`, where they are not
-offered. **The "after"**: once `main` (receipts, #309/#310) is deployed, run
-both runners again to new files and judge them the same way.
+offered.
+
+### After receipts (2026-10-09, extension only)
+
+The same three judges and brief on all 155 sources of the 10-09 run
+(`judged/2026-10-09-extension-prod.json`). The desktop was not re-run: live
+v0.3.100 does not carry its receipts (#310), so it is the same pipeline.
+
+| Extension | Before (618188c) | After receipts (6974306) |
+|---|---|---|
+| Shown as backing | 59 | 22 |
+| …that back their sentence | 24 (41%; 95% CI 29–53%) | **12 (55%; 35–73%)** |
+| …where ≥2 judges could read the page | 22 of 30 (73%) | 12 of 18 (67%) |
+| Shown but not backing | 35 | **10** |
+| Claims with a backing source shown | 16 of 36 | **7 of 36** |
+| First source shown backs | 12 of 25 | 6 of 12 |
+| Returned and backing, but not offered | 22 | 26 (13 read and filed `context`, 11 unread, 2 `refutes`) |
+| Judges, backs vs not (Cohen's κ) | 0.43–0.81 | 0.73–0.87 |
+
+What it says:
+
+- **Wrong offers fell from 35 to 10; right ones halved (24 → 12).** Fewer
+  claims get any offer (25 → 12). The precision gain overlaps the noise at
+  n=22, and among pages the judges could read it did not rise (73% → 67%):
+  most of it is that an offer now needs a page Tracely could read.
+- **The 10 wrong offers:** 4 back only the setup half of a two-part sentence
+  (AASM's 8–10 hours for "70% sleep under seven"; Gutenberg's 1450 for "presses
+  in 200 cities by 1500"; Luther's pamphlets ×2 for "…and witch-hunting
+  literature"); 1 gives a different figure (the SDG report's count of people
+  without power, not the region's share). 4 are abstracts the judges could not open
+  (title-only, so not "backs" by the rule). 1 contradicts (the share of
+  sub-Saharan Africa with power doubled; the essay says it barely moved).
+- **The verifier refuses good sources it read:** 13 sources Tracely read and
+  filed `context` are unanimous "backs" — the three Frankenstein chapter 5
+  texts, the Ctrip work-from-home experiment ×2, the 8:30 start-time counts ×2,
+  the utilities' 40% cost recovery ×2.
+- **Tracely's own fetch fails where a reader gets through:** half the sources
+  (77) came back unread; 11 of them all three judges opened and call "backs".
+- Of the 51 sources judged in both runs, 41 kept their majority label
+  (6 backs → not, 2 not → backs): the judges' own drift, for scale.
 
 ## Files
 
 - `claims.mjs` — the 36 claims with their paragraphs; `--claims` filtering.
 - `run-extension.mjs` — Run 1. `run-desktop.mjs` + `desktop-entry.ts` — Run 2.
 - `run-extension-prod.mjs` — Run 1 against production, through the beta pool.
-- `runs/` — results, committed: they are the baseline.
+- `runs/` — results, committed: the 10-07 baseline and the 10-09 after-receipts run.
 - `judged/` — the three judges' verdicts on each run, with the majority.
