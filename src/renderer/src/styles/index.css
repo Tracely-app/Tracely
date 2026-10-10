@@ -5981,6 +5981,8 @@ textarea:disabled {
   gap: 4px;
   padding: 0;
   border: 0;
+  /* Only shapes the keyboard ring: the outline follows the radius. */
+  border-radius: 4px;
   background: none;
   font: inherit;
   font-size: 13px;
@@ -6000,6 +6002,9 @@ textarea:disabled {
   padding: 24px;
   border: 1px dashed var(--h-line);
   border-radius: var(--r-tile);
+  /* Filled with the thumbnail ground: on the grey page the dashed hairline
+     alone was nearly invisible, and the slot should still read as one. */
+  background: var(--h-subtle);
   font-size: 13px;
   line-height: 1.5;
   text-align: center;
@@ -6224,6 +6229,7 @@ textarea:disabled {
   gap: 4px;
   padding: 0;
   border: 0;
+  border-radius: 4px;
   background: none;
   font: inherit;
   font-size: 13px;
