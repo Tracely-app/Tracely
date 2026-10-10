@@ -20,12 +20,22 @@ import {
  * in one place so the two surfaces cannot drift.
  */
 
+/**
+ * The reader's reduced-motion setting. One MediaQueryList for the module,
+ * made on first use; `.matches` is read live, so turning the OS setting on
+ * stops the next mark's entrance without a reload. When it is on, nothing
+ * here moves: no draw-in, no stagger, no card entrance, no departing ghost.
+ */
+let motionQuery: MediaQueryList | null | undefined
 export function reducedMotion(): boolean {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  } catch {
-    return false
+  if (motionQuery === undefined) {
+    try {
+      motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    } catch {
+      motionQuery = null
+    }
   }
+  return motionQuery?.matches ?? false
 }
 
 /**
@@ -89,7 +99,9 @@ export function useMarkArrivals(items: MarkItem[]): Map<string, number> {
   const fresh = items
     .filter((i) => !mounted.current.has(i.id) && isFreshMark([...recent.current.values()], i.seen))
     .sort((a, b) => a.seen.y - b.seen.y || a.seen.x0 - b.seen.x0)
-  const arrivals = new Map(fresh.map((i, n) => [i.id, markInDelay(n)]))
+  // Under reduced motion the stagger is 0 too: every mark is simply there.
+  const still = reducedMotion()
+  const arrivals = new Map(fresh.map((i, n) => [i.id, still ? 0 : markInDelay(n)]))
   useEffect(() => {
     mounted.current = new Set(items.map((i) => i.id))
     const now = Date.now()
