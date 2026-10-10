@@ -5633,8 +5633,20 @@ textarea:disabled {
   --h-accent: #f97316;
   --h-subtle: #fbfbfc;
   --h-line: #d9dbe0;
-  --h-accent-wash: #fef2e7;
-  --h-foot: #6d6d6d;
+  /* The status dot: grey until Screen Watch is on, then the frame's green.
+     Both the same in dark — a green that only reads on white would be wrong
+     for a status light. */
+  --h-dot: #b9bcc2;
+  --h-on: #2fb457;
+  /* The grade chip's three tones, the frame's own light pairs. Dark maps each
+     pair onto the app's score tokens (wash + bright text) in the two dark
+     blocks below, so the chip rules themselves carry no theme branches. */
+  --h-good-bg: #e9f6ec;
+  --h-good: #168449;
+  --h-mid-bg: #fef5e9;
+  --h-mid: #cb5c19;
+  --h-low-bg: #fdeceb;
+  --h-low: #c0392b;
   /* The card ground and the strongest text, as vars rather than the literal
      #fff / #000 they used to be, so the dark block at the end of this family
      can re-derive them. Light is unchanged: these ARE those literals. */
@@ -5729,40 +5741,46 @@ textarea:disabled {
    below the OS window buttons, which are drawn over this corner. */
 .home-card {
   margin: 0 calc(var(--h-card-edge) - var(--h-gutter));
-  padding: 34px 23px 22px;
-  border-radius: 14px;
+  padding: 28px 24px 22px;
+  border: 1px solid var(--h-card-line);
+  border-radius: var(--r-card);
   background: var(--h-card);
-  box-shadow: 0 1px 2px rgba(16, 18, 22, 0.05);
 }
 
 /* `.home-close` is gone with the button — the real Windows close sits in that
    corner now and hides to the tray identically. See HomeView. */
 
+/* Baseline, not centre: the brand is 20px and the greeting 28px, and centring
+   two different sizes puts their baselines a few pixels apart. */
 .home-top {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 20px;
 }
 
-/* "Tracely" is 32px SemiBold beside a 63x54 mark. */
+/* The wordmark beside the 28x24 mark (BrandMark, components/icons.tsx). The
+   row aligns on the word's baseline — `baseline` here, with the mark opted
+   back out to `center`, is what makes the lockup's baseline the TEXT's rather
+   than the image's bottom edge, so `.home-top` lines it up with the greeting. */
 .home-brand {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 32px;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--h-strong);
 }
-.home-brand img { width: 42px; height: 36px; object-fit: contain; }
+.home-brand img { width: 28px; height: 24px; align-self: center; }
 
-/* Same 32px SemiBold as the brand — they are a matched pair across the top. */
 .home-greeting {
   margin: 0;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--h-strong);
   text-align: right;
 }
@@ -5772,52 +5790,60 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
-/* 20px SemiBold, 0.6px tracking, beside a 15px dot. */
+/* A status line, not a second heading: 14px Medium in the muted grey beside
+   an 8px dot. */
 .home-status {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 8px;
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.6px;
-  color: var(--h-strong);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--h-muted);
 }
 
 /* Grey until Screen Watch is genuinely on: a green dot over "Tracely is off."
    is the status line contradicting itself, and the dot is read first. */
 .home-status-dot {
-  width: 15px;
-  height: 15px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #b9bcc2;
+  background: var(--h-dot);
   flex-shrink: 0;
 }
-.home-status.on .home-status-dot { background: #2fb457; }
+.home-status.on .home-status-dot { background: var(--h-on); }
 
-/* 20px Regular in the frame's grey, with the cog at 36% opacity. */
-/* A filled grey pill in the frame, not bare text — it is the only control in
-   the header card and reads as one. */
+/* The one control in the header card: the app's small secondary button —
+   outlined on the card ground, 32px, radius 8 — with the cog at full strength
+   in the muted grey. The hairline darkens to the ink on hover and the fill
+   takes the press wash on :active. */
 .home-settings {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 38px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 19px;
-  background: #e0e1e3;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--h-line);
+  border-radius: var(--r-ctl);
+  background: var(--h-card);
   font: inherit;
-  font-size: 20px;
-  letter-spacing: 0.2px;
-  color: var(--h-foot);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--h-ink);
   cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.home-settings:hover { background: #d5d7d9; color: var(--h-ink); }
-.home-settings svg { width: 22px; height: 22px; opacity: 0.36; }
+.home-settings svg { color: var(--h-muted); flex-shrink: 0; }
+.home-settings:hover { border-color: var(--h-ink); }
+.home-settings:active { background: var(--pressed); }
 
 /* 263.333 wide on a 16px gap, 72 tall, filled rather than outlined. */
 .home-stats {
