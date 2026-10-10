@@ -557,28 +557,30 @@ input[type='range']:disabled {
 .textarea,
 textarea {
   width: 100%;
-  padding: 12px 16px;
+  min-height: 84px;
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
+  line-height: 1.5;
   resize: vertical;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .textarea::placeholder,
 textarea::placeholder {
-  color: var(--muted);
-  opacity: 0.8;
+  color: var(--label);
+  opacity: 1;
 }
 
 .textarea:focus-visible,
 textarea:focus-visible {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--ring);
 }
 
@@ -589,21 +591,22 @@ textarea:disabled {
 }
 
 .textarea-sm {
-  padding: 7px 9px;
+  min-height: 72px;
+  padding: 8px 10px;
   font-size: 12px;
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
 }
 
 .textarea-md {
-  padding: 10px 11px;
+  padding: 10px 12px;
   font-size: 13px;
-  border-radius: 9px;
+  border-radius: var(--r-ctl);
 }
 
 .textarea-lg {
   padding: 12px 16px;
   font-size: 13px;
-  border-radius: 12px;
+  border-radius: var(--r-ctl);
 }
 
 /* `.btn.analyze-cta` stood here — the 200x56 "Create Document" box. No
@@ -2214,10 +2217,13 @@ textarea:disabled {
 
 .muted {
   color: var(--muted);
+  font-size: 13px;
 }
 
 .error-text {
   color: var(--danger);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .spinner-row {
@@ -2225,16 +2231,28 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   color: var(--muted);
+  font-size: 13px;
   margin: 10px 0;
 }
 
 .spinner {
   width: 14px;
   height: 14px;
+  flex-shrink: 0;
   border: 2px solid var(--border);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
+}
+
+.spinner-sm {
+  width: 12px;
+  height: 12px;
+}
+
+.spinner-lg {
+  width: 20px;
+  height: 20px;
 }
 
 @keyframes spin {
