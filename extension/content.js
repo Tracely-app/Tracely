@@ -3026,7 +3026,7 @@
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" aria-label="Dismiss" title="Dismiss">✕</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
@@ -9566,7 +9566,7 @@
             : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
             <div class="card">
-              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
+              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}" aria-label="Dismiss" title="Dismiss">✕</button></div>
               <div class="quote">${esc(fi.passage.slice(0, 160))}</div>
               <div class="fix">
                 <div class="fix-label">Why it jumps</div>
@@ -9612,7 +9612,7 @@
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              <button class="x" data-dismiss="${seg.hash}" aria-label="Dismiss" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
@@ -10982,7 +10982,7 @@
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              <button class="x" data-dismiss="${seg.hash}" aria-label="Dismiss" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
