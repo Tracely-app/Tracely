@@ -1468,13 +1468,17 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
         boxSizing: 'border-box',
         width: '100%',
         height: GRID_CARD_HEIGHT,
-        border: '1px solid #eaeaea',
+        // Width and style only: the colour and the fill are on
+        // .tracely-list-row, so its hover and press can change them.
+        borderWidth: 1,
+        borderStyle: 'solid',
         borderRadius: 12,
-        padding: '12px 14px',
+        // 12 + 16 + 6 + 16 + 12 = 62 = GRID_CARD_HEIGHT: two 16px lines fit
+        // the row main sizes the panel from, descenders included.
+        padding: '12px 16px',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
-        background: PAPER,
         overflow: 'hidden',
         textAlign: 'left',
         cursor: 'pointer',
@@ -1489,7 +1493,7 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
             It used to be an uppercase micro-label with the percentage pushed to
             the far right, which turned a description of the claim into two
             unrelated pieces of metadata. */}
-        <div style={{ fontSize: 13, fontWeight: 600, color: W_INK, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, lineHeight: '16px', color: W_INK, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
           {CLAIM_TYPE_LABEL[claim.claimType]} · {Math.round(claim.confidence * 100)}% confidence
         </div>
       </div>
@@ -1498,7 +1502,8 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
       <div
         style={{
           fontSize: 13,
-          color: '#6b6c72',
+          lineHeight: '16px',
+          color: MUTED,
           width: '100%',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -5380,6 +5385,8 @@ export default function OverlayApp(): JSX.Element {
           background: ${HOVER_WASH};
         }
         .tracely-list-row {
+          border-color: ${W_DIVIDER};
+          background: ${PAPER};
           transition: border-color 150ms ${EASE}, box-shadow 150ms ${EASE}, background 150ms ${EASE};
         }
         .tracely-list-row:hover {
