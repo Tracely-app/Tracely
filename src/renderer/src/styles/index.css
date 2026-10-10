@@ -1796,6 +1796,9 @@ textarea:disabled {
   font-size: 14px;
   line-height: 1;
   white-space: nowrap;
+  /* A control keeps its height: as an item of an overflowing flex column
+     (.floating-body) it was being squashed to its text line. */
+  flex-shrink: 0;
   transition:
     background-color var(--dur) var(--ease),
     border-color var(--dur) var(--ease),
