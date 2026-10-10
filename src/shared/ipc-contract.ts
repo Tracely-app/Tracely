@@ -31,6 +31,7 @@ import type { ScreenWatchProblemKind } from './problemKind'
 import type { SourceReceipt, VerifySourceInput } from './sourceReceipts'
 import type { CitationDefectKind } from './citationShape'
 import type { Credibility } from './sourceCredibility'
+import type { VoiceId } from './voices'
 
 // Note: CitationStyle is already 'APA' | 'MLA' | 'Chicago' — reused as-is for
 // the Screen Watch citation flow below, same enum the main app's citation
@@ -296,6 +297,12 @@ export interface SettingsSetRequest {
   autoCritiqueCited?: boolean
   /** Requested model tier. Clamped to the plan on every call — see AppSettings. */
   modelTier?: ModelTier
+  /** Tracer Voice persona. Must be an id in shared/voices.ts — anything else is rejected. */
+  voiceId?: VoiceId
+  voiceCaptions?: boolean
+  voiceSaveTranscript?: boolean
+  /** The first-use voice disclosure was accepted. */
+  voiceConsent?: boolean
 }
 export type SettingsSetResponse = AppSettings
 
