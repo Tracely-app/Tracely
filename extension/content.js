@@ -3012,10 +3012,10 @@
     }
   }
   function genreLineHtml(genre, text = "", style = "mla") {
-    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line">${GENRE_QUIET_LINE[genre]}</div>`;
+    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line" role="note">${GENRE_QUIET_LINE[genre]}</div>`;
     if (!GENRE_LABEL[genre]) return "";
     const how = genreCiteNote(genre, text, style);
-    return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
+    return `<div class="genre-line" role="note">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
      a citation (cite_tip), orange for one on the writing (note_tip). A note
@@ -9644,7 +9644,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty"><span role="status">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</span></div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -11014,7 +11014,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty"><span role="status">${emptyMsg}</span></div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -11030,7 +11030,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
+          ? `<div class="pill quiet" id="pill" role="button" tabindex="0" aria-expanded="${expanded ? "true" : "false"}" title="Tracely is off on this site — open to turn it on"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
