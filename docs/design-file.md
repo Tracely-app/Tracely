@@ -141,6 +141,17 @@ checking"). The desktop half — colours and cue — ships with a normal
 desktop release, and should reuse those three lines. Add no new mark or grade UI that contradicts these
 in the meantime.
 
+**Amended 2026-10-09 (owner, extension 2.21.34):** "I don't like the dotted
+underline, find a different way to differentiate underlines but make them all
+solid and straight line." The extension's lines are all solid now (the
+still-checking line a faint solid grey), and the non-colour cue moved off the
+line: an icon in the page's left margin beside the line where each mark starts
+(`MARK_ICON`, `drawMarginIcons` — the panel header's own icons: a red ⓘ for
+wrong, an orange magnifier for worth checking, an amber quote for a citation,
+an orange pencil for a writing note), and the legend shows each line with its
+icon. Text fields have no margin: there the panel's cards and legend name the
+kind. The desktop half should take the icons, not the old line patterns.
+
 - **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`
   in `src/renderer/src/components/problemCopy.ts`, mirrored by `COLORS` and
   the kinds table in `server/shared/marks.js` (every kind but the desktop-only

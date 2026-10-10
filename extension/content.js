@@ -22,8 +22,8 @@
 
    Field mode also draws Grammarly-style overlay underlines: flagged
    sentences get a 2px solid underline (3px hovered) in their verdict's
-   colour from MARK_COLORS below (the app's red / orange / amber); 2px grey
-   dotted while pending; clicking one
+   colour from MARK_COLORS below (the app's red / orange / amber), every one
+   solid; a faint solid grey while pending; clicking one
    opens the panel and flashes that verdict's card. */
 /* FILE MAP — one file, no build step, two developers editing it at once.
    Sections, by the line their anchor sits on (regenerate the numbers with
@@ -152,7 +152,7 @@
   const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#ff5900" };
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
-  const MARK_PENDING = "#9a9ba1"; // grey dotted while a sentence's check is in flight
+  const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
 
   /* The bare-bones build: fact-checking (underline, card, suggested fix) and
      citations (find a source, cite it), in Docs and in any text field.
@@ -196,80 +196,38 @@
   /* Never colour alone (CLAUDE.md "UI decisions"). Amber #ffb800 is 1.73:1 on
      white, under WCAG's 3:1 for graphics, and red and orange are close under
      tritanopia, so the colour cannot be the only thing that says which
-     finding a sentence carries. Each meaning also has a LINE: solid for
-     wrong, dashed for worth checking, double for a missing citation. Not
-     dotted for amber: grey dotted already means "still checking", and the two
-     would then differ by colour alone again. The panel's legend names all
-     three (legendHtml). */
+     finding a sentence carries. Until 2.21.34 the LINE said it too — solid,
+     dashed, double. Owner, 2026-10-09: "I don't like the dotted underline,
+     find a different way to differentiate underlines but make them all solid
+     and straight line." So every line is one solid line, and the kind is
+     said by an ICON in the page's left margin beside the line (MARK_ICON,
+     drawMarginIcons) — the same icons as the panel header's counts — and by
+     the legend, which shows each line with its icon (legendHtml). */
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "dashed", needs_citation: "double", cite_tip: "double", note_tip: "dashed" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", cite_tip: "solid", note_tip: "solid" };
+  // Which header kind (TALLY_ICON) each mark's icon is: wrong, worth checking, a citation, the writing.
+  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", cite_tip: "cite", note_tip: "writing" };
+  const MARK_ICON_RANK = { wrong: 4, check: 3, cite: 2, writing: 1 }; // one icon a line: the most serious
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
-  // "needs specific evidence", "explain this evidence". Orange dashed: the
+  // "needs specific evidence", "explain this evidence". Orange: the
   // thin-evidence family ("Worth checking"), never red, which means wrong.
   // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
   // with no page, a reference listed twice or never cited — citationMarks),
   // drawn under the parenthetical or the entry rather than the sentence, so a
   // sentence can carry a red fact mark and an amber citation mark at once.
-  // Same family as needs_citation ("add or fix the attribution"), same line.
-  // CSS for a div-drawn line (field mode, and Docs' fallback bars).
-  function markFill(color, pattern) {
-    if (pattern === "dashed") return `repeating-linear-gradient(90deg, ${color} 0 6px, transparent 6px 9px)`;
-    if (pattern === "double") return `linear-gradient(to bottom, ${color} 0 1px, transparent 1px calc(100% - 1px), ${color} calc(100% - 1px))`;
-    return color;
-  }
-  // The panel's legend: one row per LINE, in the cards' own words.
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"]];
+  // Same family as needs_citation ("add or fix the attribution"), same colour.
+  // CSS for a div-drawn line (field mode, and Docs' fallback bars): solid.
+  const markFill = (color) => color;
+  /* The panel's legend: each kind's icon (as in the page margin and the
+     header) beside its solid line, in the cards' own words. */
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"], ["note_tip", "Writing note"]];
   function legendHtml() {
-    const items = LEGEND.map(([v, label]) => {
-      const p = MARK_PATTERN[v];
-      return `<span class="legend-item"><span class="legend-line" aria-hidden="true" style="background: ${markFill(MARK_COLORS[v], p)}; height: ${markLineHeight(p, false)}px"></span>${label}</span>`;
-    }).join("");
-    return `<div class="legend" role="note" aria-label="What the underlines mean">${items}</div>`;
+    const items = LEGEND.map(([v, label]) => `<span class="legend-item"><span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[MARK_ICON[v]]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: ${MARK_LINE_HEIGHT}px"></span>${label}</span>`).join("");
+    return `<div class="legend" role="note" aria-label="What the underlines and margin icons mean">${items}</div>`;
   }
-  // A double line needs room for two strokes and a gap, or it reads as solid.
-  const markLineHeight = (pattern, hovered) =>
-    pattern === "double" ? (hovered ? 4 : 3) : (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
-  /* The same patterns for the bars drawn INSIDE Docs' SVG layer, as fills
-     defined once in a hidden SVG of our own (url(#id) resolves across inline
-     SVGs in one document), so nothing is added to Docs' SVG but the rect. */
-  function svgMarkFill(color, pattern) {
-    if (pattern !== "dashed" && pattern !== "double") return color;
-    const id = `tracely-mark-${pattern}-${color.slice(1)}`;
-    if (!document.getElementById(id)) {
-      const NS = "http://www.w3.org/2000/svg";
-      let defs = document.getElementById("tracely-mark-defs");
-      if (!defs) {
-        const svg = document.createElementNS(NS, "svg");
-        svg.setAttribute("width", "0");
-        svg.setAttribute("height", "0");
-        svg.setAttribute("aria-hidden", "true");
-        svg.style.position = "absolute";
-        defs = document.createElementNS(NS, "defs");
-        defs.id = "tracely-mark-defs";
-        svg.appendChild(defs);
-        (document.body || document.documentElement).appendChild(svg);
-      }
-      const p = document.createElementNS(NS, "pattern");
-      p.id = id;
-      const stripe = (x, y, w, h) => {
-        const r = document.createElementNS(NS, "rect");
-        for (const [k, v] of Object.entries({ x, y, width: w, height: h, fill: color })) r.setAttribute(k, String(v));
-        p.appendChild(r);
-      };
-      if (pattern === "dashed") {
-        // Vertical stripes in the bar's own units, so the dashes do not stretch with it.
-        for (const [k, v] of Object.entries({ patternUnits: "userSpaceOnUse", width: 9, height: 1 })) p.setAttribute(k, String(v));
-        stripe(0, 0, 6, 1);
-      } else {
-        // Two strokes, top and bottom of whatever box the bar is.
-        for (const [k, v] of Object.entries({ patternUnits: "objectBoundingBox", patternContentUnits: "objectBoundingBox", width: 1, height: 1 })) p.setAttribute(k, String(v));
-        stripe(0, 0, 1, 0.36);
-        stripe(0, 0.64, 1, 0.36);
-      }
-      defs.appendChild(p);
-    }
-    return `url(#${id})`;
-  }
+  const markLineHeight = (pattern, hovered) => (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
+  // The bars drawn INSIDE Docs' SVG layer: solid, like every line.
+  const svgMarkFill = (color) => color;
   const MARK_LINE_RADIUS = 1;
   const MARK_BAND_TRANSITION = "opacity 110ms ease, transform 110ms cubic-bezier(0.22, 1, 0.36, 1), background 110ms ease";
   const MARK_LINE_TRANSITION = "height 110ms ease";
@@ -1826,13 +1784,30 @@
        and empty page closes the card after HOVER_HIDE_MS.
      s: { open, popHash, onCard, onOwn, inTri, under } → { act, hash?, ms?, rest? },
      act one of "none" | "stay" | "open" | "swap" | "hide". */
-  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 120, HOVER_REST_MS = 300, HOVER_HIDE_MS = 250;
+  /* And (owner, 2026-10-09: "if I am trying to move to the overlay and the
+     overlay happens to be over another underline, the overlay jumps"):
+     measured on a Docs stand-in, a pointer that went straight down from the
+     end of a long line — beside its card, which centres on the line — took
+     another sentence's card twice on the way. So while a card is open,
+     another underline takes over ONLY when the pointer stops on it (`rest`:
+     it has stayed within 3px) — HOVER_SWAP_MS outside the triangle,
+     HOVER_REST_MS inside it — never while it is moving, however slowly or
+     whichever way; and a pointer getting closer to the card (`approaching`)
+     is on its way there, whatever it is over. The same run showed the other
+     half of the jump: beside the card, between two lines, the card CLOSED
+     (empty page, 250 ms), and the pointer then reached the place it had been
+     — over another underline, whose card opened. So near the card
+     (`near`, within HOVER_NEAR_PX of it) it closes only when the pointer
+     stops there for HOVER_HIDE_NEAR_MS; only far from it does empty page
+     close it at once. */
+  const HOVER_OPEN_MS = 140, HOVER_SWAP_MS = 300, HOVER_REST_MS = 650, HOVER_HIDE_MS = 250, HOVER_HIDE_NEAR_MS = 900, HOVER_NEAR_PX = 140;
   function hoverIntent(s) {
     if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
-    if (s.onCard || s.onOwn) return { act: "stay" };
+    if (s.onCard || s.onOwn || s.approaching) return { act: "stay" };
     const other = s.under && s.under !== s.popHash ? s.under : null;
     if (s.inTri) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "stay" };
-    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS };
+    if (s.near) return other ? { act: "swap", hash: other, ms: HOVER_REST_MS, rest: true } : { act: "hide", ms: HOVER_HIDE_NEAR_MS, rest: true };
+    if (other) return { act: "swap", hash: other, ms: HOVER_SWAP_MS, rest: true };
     return { act: "hide", ms: HOVER_HIDE_MS };
   }
   /* Is (x, y) on the way from `apex` to the card? The region is the convex
@@ -3141,6 +3116,8 @@
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
     .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
+    .legend-ico { display: inline-flex; width: 12px; height: 12px; }
+    .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
     .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
     .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
@@ -3266,6 +3243,7 @@
     }
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -4636,7 +4614,7 @@
             bar.setAttribute("x", String(rx + sb.f0 * rw));
             bar.setAttribute("y", String(ry + rh - 2));
             bar.setAttribute("width", String(Math.max(2, (sb.f1 - sb.f0) * rw)));
-            bar.setAttribute("height", pattern === "double" ? "3.2" : "2.5"); // two strokes need room
+            bar.setAttribute("height", "2.5");
             bar.setAttribute("rx", "1.25");
             bar.setAttribute("fill", svgMarkFill(color, pattern));
             bar.setAttribute("pointer-events", "none");
@@ -4653,7 +4631,7 @@
             wash.setAttribute("aria-hidden", "true");
             wash.setAttribute("pointer-events", "none");
             wash.setAttribute("rx", "2");
-            wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above carries the pattern
+            wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above is the line
             if (tf) wash.setAttribute("transform", tf);
             wash.style.opacity = "0";
             sb.node.parentNode.insertBefore(wash, bar);
@@ -4684,6 +4662,7 @@
           }
         }
         joinBars();
+        drawMarginIcons(svgBars);
         /* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT.
            Placing them against Google's rendered text has now failed in five
            distinct ways — anchored to a title, to a table header, to a partial
@@ -4709,6 +4688,60 @@
         startGlue();
       } catch (err) {
         console.warn("[tracely] docs svg mark draw failed:", err);
+      }
+    }
+
+    /* The margin icon (MARK_ICON): one beside the line where each mark
+       STARTS (a sentence that wraps gets one, not one a line), and one a line
+       — the most serious kind starting there — in the page's left margin. Drawn like the bars, inside the SVG that holds the line's own
+       text geometry (left of its leftmost run), so the compositor carries it
+       with the text and it scales with the zoom. Marked as ours
+       (data-tracely-bar): the next draw's sweep takes it away, and the
+       annotation observer ignores it. Only in-tree lines get one; fields and
+       Docs' fallback paths have no margin to put it in. */
+    function drawMarginIcons(svgBars) {
+      const lines = new Map(); // a line (its SVG parent and baseline) → { parent, ry, rh, tf, kind }
+      const first = new Map(); // each mark's first piece: its top line, then its leftmost
+      for (const sb of svgBars) {
+        const y = parseFloat(sb.node.getAttribute("y")), x = parseFloat(sb.node.getAttribute("x"));
+        const cur = first.get(sb.hash);
+        if (!cur || y < cur.y - 1 || (Math.abs(y - cur.y) <= 1 && x < cur.x)) first.set(sb.hash, { sb, y, x });
+      }
+      for (const { sb } of first.values()) {
+        const kind = MARK_ICON[lastVerdictByHash.get(sb.hash)];
+        const parent = sb.node.parentNode;
+        const ry = parseFloat(sb.node.getAttribute("y")), rh = parseFloat(sb.node.getAttribute("height"));
+        if (!kind || !parent || ![ry, rh].every(Number.isFinite)) continue;
+        const per = lines.get(parent) ?? new Map();
+        lines.set(parent, per);
+        const key = Math.round((ry + rh) / 2);
+        const cur = per.get(key);
+        if (!cur || MARK_ICON_RANK[kind] > MARK_ICON_RANK[cur.kind]) per.set(key, { parent, ry, rh, tf: sb.node.getAttribute("transform"), kind });
+      }
+      const NS = "http://www.w3.org/2000/svg";
+      for (const per of lines.values()) {
+        for (const line of per.values()) {
+          // The line's leftmost run: where its text starts.
+          let left = Infinity;
+          for (const n of line.parent.children) {
+            if (n.tagName?.toLowerCase() !== "rect" || !n.hasAttribute("aria-label")) continue;
+            const y = parseFloat(n.getAttribute("y")), x = parseFloat(n.getAttribute("x"));
+            if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(y - line.ry) <= 1) left = Math.min(left, x);
+          }
+          if (!Number.isFinite(left)) continue;
+          const size = Math.max(8, Math.min(12, line.rh * 0.7));
+          const icon = document.createElementNS(NS, "svg");
+          icon.setAttribute("data-tracely-bar", "");
+          icon.setAttribute("data-tracely-margin-icon", line.kind);
+          icon.setAttribute("aria-hidden", "true");
+          icon.setAttribute("pointer-events", "none");
+          icon.setAttribute("viewBox", "0 0 12 12");
+          for (const [k, v] of Object.entries({ x: left - size - 8, y: line.ry + (line.rh - size) / 2, width: size, height: size })) icon.setAttribute(k, String(v));
+          if (line.tf) icon.setAttribute("transform", line.tf);
+          icon.style.color = MARK_COLORS[Object.keys(MARK_ICON).find((v) => MARK_ICON[v] === line.kind)];
+          icon.innerHTML = TALLY_ICON[line.kind].replace(/^<svg[^>]*>|<\/svg>$/g, "");
+          line.parent.appendChild(icon);
+        }
       }
     }
 
@@ -4873,6 +4906,8 @@
       popLostAt = 0;
       popPinned = false;
       popApex = null;
+      popSide = null;
+      popHeld = false;
       popEditSyncs.clear();
       if (popFollowRaf) { cancelAnimationFrame(popFollowRaf); popFollowRaf = 0; }
       paintDocsActive();
@@ -4951,8 +4986,13 @@
     function dmChip(text) {
       return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
     }
+    /* A card's row of buttons. It wraps: the card is 320px and clips what
+       overflows, and "Apply revision · Back · Explain in depth PRO" is wider
+       than that — the owner's screenshot, 2026-10-09, had the primary cut on
+       the left and PRO on the right. Now what does not fit drops to the next
+       line (the link keeps its marginLeft:auto, so it sits at the right). */
     function dmActions(...kids) {
-      const row = el("div", { display: "flex", gap: "8px", alignItems: "center", flex: "0 0 auto" });
+      const row = el("div", { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", flex: "0 0 auto" });
       for (const k of kids) if (k) row.appendChild(k);
       return row;
     }
@@ -5148,7 +5188,35 @@
     function editState(key) { return docEditState.get(key)?.state ?? null; }
     const fixTitle = (verdict) => verdict === "questionable" ? "Narrow this claim" : verdict === "false" ? "What to check" : "What to change";
 
-    /* ── placement: the app's above/below rule, in viewport space ────────── */
+    /* ── placement: the app's above/below rule, in viewport space ──────────
+       Owner, 2026-10-09: "the underline overlay compacts when it is under the
+       screen … when I hover over underline and go to click the action button
+       such as delete this, it jumps around". The card was measured AFTER its
+       height had been capped to the room below the line, so near the bottom
+       of the screen it was squeezed — and then judged by the squeezed size,
+       so it stayed squeezed, or flipped above and back as its content changed
+       and moved out from under a pointer on its way to a button. Now the
+       card's FULL height decides (popNaturalHeight); it opens below when it
+       fits there, else above when it fits there, else on the roomier side;
+       it keeps that side while it still fits — and always while the pointer
+       is on it (popHeld) — and only a card taller than its side's room is
+       capped (its list scrolls).
+       And then it is ONE PIECE (owner, 2026-10-09: "make the whole overlay
+       move as one piece … so when I scroll it to be half out of frame it
+       moves accordingly"): its side and its size are decided when it opens
+       and when its content changes (popPlanned, reset by paintPop) — never
+       by a scroll. A scroll only carries it with its line, half out of view
+       if that is where the line takes it: no flip, no squeeze, no pinning to
+       the screen's edge. */
+    let popSide = null; // "above" | "below": the side the open card keeps
+    let popHeld = false; // the pointer is on the card: it does not change side under it
+    let popPlanned = false; // side and size decided for what the card shows now
+    function popNaturalHeight() {
+      // What the scroll regions hide when the card is capped, added back.
+      let hidden = 0;
+      for (const d of popCard.querySelectorAll("div")) if (d.style.overflowY === "auto") hidden += Math.max(0, d.scrollHeight - d.clientHeight);
+      return popCard.offsetHeight + hidden + Math.max(0, popCard.scrollHeight - popCard.clientHeight);
+    }
     function placeDocsPopover(r) {
       if (!popEl || !popCard) return;
       const width = popWidth;
@@ -5156,12 +5224,24 @@
       const idealLeft = cx - width / 2;
       const left = Math.max(8, Math.min(idealLeft, innerWidth - width - 8));
       const markTop = r.top, markH = (r.bottom ?? r.top + 4) - r.top;
-      // The card's own height, tail excluded: what has to fit on one side.
-      const cardH = popCard.offsetHeight;
       const below = markTop + markH + POP_GAP;
-      const spaceBelow = innerHeight - below - 8;
-      const spaceAbove = markTop - POP_GAP - 8;
-      const above = cardH > 0 && cardH > spaceBelow && cardH <= spaceAbove;
+      if (!popPlanned) {
+        popPlanned = true;
+        // The card's own height, uncapped and tail excluded: what has to fit on one side.
+        const cardH = popNaturalHeight();
+        const spaceBelow = innerHeight - below - 8;
+        const spaceAbove = markTop - POP_GAP - 8;
+        const fits = (side) => cardH <= (side === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+        if (!popSide || (!popHeld && !fits(popSide))) {
+          popSide = fits("below") ? "below" : fits("above") ? "above" : spaceAbove > spaceBelow ? "above" : "below";
+        }
+        // Capped only when it is taller than the room on its side, so the
+        // buttons never fall past the fold; then its list is what scrolls.
+        const room = (popSide === "above" ? spaceAbove : spaceBelow) - TAIL_NET;
+        const cap = cardH > room ? `${Math.max(MIN_CARD, room)}px` : "";
+        if (popCard.style.maxHeight !== cap) popCard.style.maxHeight = cap;
+      }
+      const above = popSide === "above";
       if (above !== popAbove) {
         popAbove = above;
         const old = popEl.querySelector("[data-pop-arrow]");
@@ -5169,12 +5249,9 @@
         const tail = dmTail(above ? "down" : "up", above);
         if (above) popEl.appendChild(tail); else popEl.insertBefore(tail, popEl.firstChild);
       }
-      // Capped to the room on the side it sits, so the buttons never fall past
-      // the fold; the results list is the part that scrolls (.docmark-scroll).
-      const room = (above ? spaceAbove : spaceBelow) - TAIL_NET;
-      popCard.style.maxHeight = `${Math.max(MIN_CARD, room)}px`;
+      // Carried with its line, wherever that is — half out of view included.
       const top = above ? markTop - POP_GAP - popCard.offsetHeight - TAIL_NET : below;
-      const leftPx = `${left}px`, topPx = `${Math.max(4, top)}px`;
+      const leftPx = `${left}px`, topPx = `${Math.round(top)}px`;
       if (popEl.style.left !== leftPx) popEl.style.left = leftPx;
       if (popEl.style.top !== topPx) popEl.style.top = topPx;
       const tail = popEl.querySelector("[data-pop-arrow]");
@@ -5207,10 +5284,14 @@
           docsScroller = document.querySelector(".kix-appview-editor");
         }
         const clip = docsScroller ? docsScroller.getBoundingClientRect() : null;
-        if (!clip || (r.bottom >= clip.top + 2 && r.top <= clip.bottom - 2)) {
-          popLastTop = r.top;
+        // Carried with its line wherever it goes — the line out of view and the
+        // card half out with it (owner, 2026-10-09). It is lost only once the
+        // CARD has left the view.
+        popLastTop = r.top;
+        placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
+        const pb = popEl.getBoundingClientRect();
+        if (!clip || (pb.bottom > clip.top + 8 && pb.top < clip.bottom - 8)) {
           popLostAt = 0;
-          placeDocsPopover({ left: r.left, top: r.top, bottom: r.bottom, size: popAnchor.size, centerX: r.left + r.width / 2 });
           placed = true;
         }
       }
@@ -5229,12 +5310,17 @@
       popHash = hash;
       popWidth = width;
       popAbove = false;
+      popSide = null;
+      popHeld = false;
+      popPlanned = false;
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
       popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
+      popEl.addEventListener("pointerenter", () => { popHeld = true; });
+      popEl.addEventListener("pointerleave", () => { popHeld = false; });
       popEditSyncs.add(paintPop); // every edit-state change repaints the card
       paintPop();
       popEl.style.visibility = "hidden";
@@ -5525,6 +5611,7 @@
 
     function paintPop() {
       if (!popEl || !popCard) return;
+      popPlanned = false; // new content: its side and size are decided again (popHeld keeps the side)
       const hash = popHash;
       popCard.textContent = "";
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
@@ -5939,6 +6026,7 @@
        time; when its timer fires the pointer is looked at again, and the
        decision runs only if it still holds. */
     let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
+    let hoverPrev = { x: -1, y: -1 }; // where the pointer was at the last hover pass (approaching)
     function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
     function hoverState(x, y) {
       // Bars are DOM-anchored now — read their LIVE viewport rects, which
@@ -5965,15 +6053,19 @@
         const h = hitOf(b);
         if (h) { bar = b; hit = h; }
       }
-      let onCard = false, inTri = false;
+      let onCard = false, inTri = false, approaching = false, near = false;
       if (popEl) {
         const pb = popEl.getBoundingClientRect();
-        onCard = x >= pb.left - 8 && x <= pb.right + 8 && y >= pb.top - 8 && y <= pb.bottom + 8;
+        onCard = x >= pb.left - 12 && x <= pb.right + 12 && y >= pb.top - 12 && y <= pb.bottom + 12;
         if (!onCard && !onOwn) inTri = inSafeTriangle(popApex, (popCard ?? popEl).getBoundingClientRect(), x, y);
+        // Closer to the card than at the last move: on its way there.
+        const toCard = (px, py) => Math.hypot(Math.max(pb.left - px, 0, px - pb.right), Math.max(pb.top - py, 0, py - pb.bottom));
+        approaching = !onCard && hoverPrev.x >= 0 && toCard(x, y) < toCard(hoverPrev.x, hoverPrev.y) - 0.5;
+        near = !onCard && toCard(x, y) <= HOVER_NEAR_PX;
       }
       // Not while pinned: an edit from this card is still settling.
       if (popEl && popPinned) bar = null;
-      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, under: bar?.hash ?? null, bar, hit };
+      return { open: Boolean(popEl), popHash, onCard, onOwn, inTri, approaching, near, under: bar?.hash ?? null, bar, hit };
     }
     function runHoverDecision(d, st) {
       if (d.act === "hide") { hideDocsPopover(); return; }
@@ -5986,6 +6078,7 @@
       hoverRafBusy = false;
       const { x, y } = hoverPt;
       const st = hoverState(x, y);
+      hoverPrev = { x, y };
       const d = hoverIntent(st);
       if (st.onOwn) popApex = { x, y };
       // The sentence under a closed pointer lights up at once; its card follows.
@@ -8436,6 +8529,7 @@
     function fixSettle(item, status, why = "") {
       item.status = status;
       item.why = why;
+      if (status === "ready" && !item.dropped) fixTourPush(item);
       render();
     }
     async function prepareFix(item, b) {
@@ -8465,13 +8559,20 @@
     function prepareFixes() {
       if (fixBatch?.preparing || fixBatch?.applying || docBusy || !walkOffered()) return;
       const plan = walkInputs();
-      const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "" })), left: plan.left, preparing: true, stopped: false, applying: false };
+      const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "", dropped: false })), left: plan.left, preparing: true, stopped: false, applying: false };
       fixBatch = b;
+      fixTour = { queue: [], running: false };
+      expanded = false; // the panel gets out of the way: the suggestions go in the doc
       render();
       Promise.allSettled(b.items.map((it) => prepareFix(it, b).catch((err) => {
         console.debug(`[tracely] fix-all: ${err?.message ?? err}`);
         fixSettle(it, "none", "something went wrong");
-      }))).then(() => { if (fixBatch === b) { b.preparing = false; render(); } });
+      }))).then(() => {
+        if (fixBatch !== b) return;
+        b.preparing = false;
+        if (!fixTour?.running) tcCursorHide();
+        render();
+      });
     }
     function stopFixes() {
       const b = fixBatch;
@@ -8485,6 +8586,12 @@
       if (fixBatch?.applying) return;
       if (fixBatch) fixBatch.stopped = true;
       fixBatch = null;
+      fixTour = null;
+      tcCursorHide();
+      render();
+    }
+    function rejectAllFixes() {
+      for (const it of fixBatch?.items ?? []) if (it.status === "ready") { it.status = "skipped"; it.why = ""; }
       render();
     }
     function skipFix(i) {
@@ -8558,6 +8665,180 @@
           ${it.status === "ready" ? `<div class="row"><button class="act primary" data-fx-accept="${i}"${docBusy || fixBatch?.applying ? " disabled" : ""}>${FIX_COPY.accept}</button><button class="act" data-fx-skip="${i}">${FIX_COPY.skip}</button></div>`
             : state ? `<div class="fx-state">${busy ? `<span class="deep-spin"></span>` : ""}${esc(state)}</div>` : ""}
         </div>`;
+    }
+    /* ── the suggestions, in the doc ──────────────────────────────────────
+       Owner, 2026-10-09: "the let tracely fix these it should go do all of
+       them and then disappear and just leave the accept reject multiple
+       times instead of waiting after each turn". So the press closes the
+       panel, and as each change is ready Tracely's cursor goes to its
+       underline (when it is on screen — the doc is never scrolled for it),
+       and leaves a suggestion there, in the page's right margin the way
+       Docs' own suggestions sit: what changes, its source, ✓ Accept and
+       ✕ Reject. The cursor goes when the last one is down; the suggestions
+       stay, stacked beside their lines and following the scroll, until the
+       writer answers each — or all, from the note above the launcher. Accept
+       is acceptFix, the panel list's own (it lists the same changes). */
+    const FIX_CARD_W = 248;
+    let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
+    let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
+    let fixCardsRaf = 0;
+    function fixBarFor(key) {
+      let best = null, top = Infinity;
+      for (const b of docsBars) {
+        if (b.hash !== key || !b.el?.isConnected || b.el.style.display === "none" || b.el.style.opacity === "0") continue;
+        const t = b.el.getBoundingClientRect().top;
+        if (t < top) { top = t; best = b; }
+      }
+      return best;
+    }
+    function fixTourPush(item) {
+      if (!fixTour) { item.dropped = true; return; }
+      fixTour.queue.push(item);
+      if (!fixTour.running) runFixTour(fixTour);
+    }
+    async function fixGlide(x, y) {
+      const c = tcCursor();
+      const x0 = c.x < 0 ? innerWidth - 60 : c.x, y0 = c.y < 0 ? innerHeight - 60 : c.y; // from the launcher the first time
+      if (reducedMotion()) { tcCursorAt(x, y); return; }
+      const steps = Math.round(tpClamp(Math.hypot(x - x0, y - y0) / 40, 6, 16));
+      for (let k = 1; k <= steps; k++) {
+        const e = tpEase(k / steps);
+        tcCursorAt(x0 + (x - x0) * e, y0 + (y - y0) * e);
+        await tcSleep(18);
+      }
+    }
+    async function runFixTour(t) {
+      t.running = true;
+      try {
+        while (t.queue.length && fixTour === t) {
+          const it = t.queue.shift();
+          if (it.status !== "ready" || it.dropped) continue;
+          const bar = fixBarFor(it.key);
+          const r = bar?.el.getBoundingClientRect();
+          const seen = Boolean(r && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && !document.hidden);
+          if (seen) {
+            await fixGlide(r.left + Math.min(r.width / 2, 30), r.top - (bar.size || 14) * 0.45);
+            for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
+          }
+          it.dropped = true;
+          paintFixCards();
+          if (seen) await tcSleep(140);
+        }
+      } finally {
+        t.running = false;
+        if (fixTour === t && !fixBatch?.preparing) tcCursorHide();
+      }
+    }
+    // One suggestion: the change in the writer's words, and its two answers.
+    function fixCardEl(it, i) {
+      const color = it.verdict ? MARK_COLORS[it.verdict] : MARK_COLORS[CITE_TIP_KINDS.includes(it.kind) ? "cite_tip" : "note_tip"];
+      const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
+      const card = el("div", {
+        position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "10px 12px 12px",
+        background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
+        pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "6px", fontFamily: APP.font, color: DM.ink,
+        fontSize: "12.5px", lineHeight: "1.45", visibility: "hidden", WebkitFontSmoothing: "antialiased",
+      });
+      card.setAttribute("data-tracely-fix-card", "");
+      card.dataset.key = it.key;
+      const top = el("div", { display: "flex", alignItems: "center", gap: "7px", fontWeight: "600", fontSize: "12px" });
+      top.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" }), el("span", {}, `${FIX_ACT[it.act]} · ${flag}`));
+      card.appendChild(top);
+      const plan = it.job ? previewPlan(it.job) : { edits: [], lines: [] };
+      const e = plan.edits[0];
+      if (e) {
+        const d = previewDiff(e.find, e.next);
+        const diff = el("div", { color: DM.body });
+        diff.append(document.createTextNode(tpClip(d.keepBefore, 46, true)));
+        if (d.removed.trim()) diff.appendChild(el("span", { textDecoration: "line-through", color: "#8a8b90" }, d.removed));
+        if (d.inserted.trim()) diff.appendChild(el("span", { fontWeight: "600", color: DM.ink, background: "#efeff2", borderRadius: "3px", padding: "0 2px" }, d.inserted));
+        diff.append(document.createTextNode(tpClip(d.keepAfter, 30, false)));
+        card.appendChild(diff);
+      }
+      for (const l of plan.lines) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px" }, `+ ${tpClip(l.line, 80, false)}`));
+      if (it.src) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, `Source: ${it.src.title}`));
+      if (it.status === "ready") {
+        const row = el("div", { display: "flex", gap: "6px", marginTop: "2px" });
+        const busy = docBusy || Boolean(fixBatch?.applying);
+        const yes = dmBtn("✓ Accept", true, { disabled: busy });
+        const no = dmBtn("✕ Reject", false, { disabled: busy });
+        for (const b of [yes, no]) Object.assign(b.style, { padding: "5px 11px", fontSize: "12px" });
+        yes.addEventListener("click", () => acceptFix(i));
+        no.addEventListener("click", () => skipFix(i));
+        row.append(yes, no);
+        card.appendChild(row);
+      } else {
+        const why = it.status === "applying" ? FIX_COPY.applying : it.why;
+        const row = el("div", { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", color: DM.body, fontSize: "12px" }, why);
+        if (it.status === "failed") {
+          const x = dmBtn("✕", false);
+          Object.assign(x.style, { padding: "3px 8px", fontSize: "11px" });
+          x.addEventListener("click", () => { it.status = "skipped"; render(); });
+          row.appendChild(x);
+        }
+        card.appendChild(row);
+      }
+      return card;
+    }
+    // Built when what they show changes; placed every frame (placeFixCards).
+    function paintFixCards() {
+      const b = fixBatch;
+      const items = b ? b.items.map((it, i) => [it, i]).filter(([it]) => it.dropped && ["ready", "applying", "failed"].includes(it.status)) : [];
+      if (!items.length) {
+        fixCardsEl?.remove();
+        fixCardsEl = null;
+        if (fixCardsRaf) { cancelAnimationFrame(fixCardsRaf); fixCardsRaf = 0; }
+        return;
+      }
+      if (!fixCardsEl?.isConnected) {
+        fixCardsEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "901", pointerEvents: "none" });
+        fixCardsEl.setAttribute("data-tracely-fix-cards", "");
+        document.documentElement.appendChild(fixCardsEl);
+      }
+      const sig = items.map(([it, i]) => `${i}:${it.status}:${it.why}`).join("|") + (docBusy || b.applying ? "|busy" : "");
+      if (fixCardsEl.dataset.sig !== sig) {
+        fixCardsEl.dataset.sig = sig;
+        fixCardsEl.textContent = "";
+        for (const [it, i] of items) fixCardsEl.appendChild(fixCardEl(it, i));
+      }
+      if (!fixCardsRaf) fixCardsRaf = requestAnimationFrame(placeFixCards);
+    }
+    // Beside each line, in the page's right margin; stacked so none covers another; only while its line is in view.
+    function placeFixCards() {
+      fixCardsRaf = 0;
+      if (!fixCardsEl?.isConnected || !fixCardsEl.children.length) return;
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+      const placed = [];
+      for (const card of fixCardsEl.children) {
+        const bar = fixBarFor(card.dataset.key);
+        const r = bar ? bar.el.getBoundingClientRect() : null;
+        if (!r || r.bottom < clip.top || r.top > clip.bottom) { card.style.visibility = "hidden"; continue; }
+        const page = bar.el.closest?.(".kix-page-paginated");
+        const right = page ? page.getBoundingClientRect().right : r.right;
+        placed.push({ card, x: Math.max(8, Math.min(right + 14, innerWidth - FIX_CARD_W - 12)), want: r.top - 10 });
+      }
+      placed.sort((a, b) => a.want - b.want);
+      let floor = clip.top + 6;
+      for (const p of placed) {
+        const top = Math.max(p.want, floor);
+        const h = p.card.offsetHeight;
+        p.card.style.visibility = top + Math.min(h, 60) > clip.bottom ? "hidden" : "visible";
+        p.card.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(top)}px)`;
+        floor = top + h + 8;
+      }
+      fixCardsRaf = requestAnimationFrame(placeFixCards);
+    }
+    // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
+    function fixPingHtml() {
+      const b = fixBatch;
+      if (!b || expanded) return "";
+      const ready = b.items.filter((it) => it.status === "ready").length;
+      if (!ready && !b.preparing) return "";
+      const busy = docBusy || b.applying ? " disabled" : "";
+      const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
+      return `<div class="ready-ping fix-ping" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
+        + `${ready > 1 ? `<button class="act primary" data-fxp-all="1"${busy}>Accept all</button>` : ""}${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
     }
     function walkStripHtml() {
       const b = fixBatch;
@@ -8773,7 +9054,7 @@
       const caret = typing ? shadow.activeElement.selectionStart : null;
       root.innerHTML = `
         ${panelHtml}
-        ${readyPingHtml()}
+        ${readyPingHtml()}${typeof fixPingHtml === "function" ? fixPingHtml() : "" /* (absent from server/test's slices of render) */}
         ${launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
@@ -8791,6 +9072,14 @@
 
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       wireChrome(shadow, () => { expanded = false; render(); }, render);
+      // The notes above the launcher show while the panel is CLOSED, so they are
+      // wired here, not with the panel: the live search's "Sources ready"
+      // (noteSourcesReady) and Let Tracely fix these's suggestions (fixPingHtml).
+      shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
+      shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
+      shadow.querySelector("[data-fxp-all]")?.addEventListener("click", () => acceptAllFixes());
+      shadow.querySelector("[data-fxp-none]")?.addEventListener("click", () => rejectAllFixes());
+      if (typeof paintFixCards === "function") paintFixCards(); // the suggestions in the doc follow every change of state
       if (expanded) {
         shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);
         // "Let Tracely fix these" (the Type preview block): start, and Stop.
@@ -8850,9 +9139,6 @@
           btn.addEventListener("pointerdown", () => { fetchSources(btn.dataset.sources).catch(() => {}); });
           btn.addEventListener("click", () => fetchSources(btn.dataset.sources));
         }
-        // The live search's "Sources ready" note (noteSourcesReady).
-        shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
-        shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
         for (const btn of shadow.querySelectorAll("[data-flow-go]")) {
           btn.addEventListener("click", async () => {
             const fi = activeFlowIssues().find((x) => flowHashOf(x) === btn.dataset.flowGo);
@@ -9401,13 +9687,13 @@
         if (rects.length === 0) continue;
         if (!pending) { paintMark(layer, seg.hash, rects, color, pattern); continue; }
         for (const r of rects) {
-          // Provisional: a dotted rule, no band — nothing to point at yet.
+          // Provisional: a faint solid grey rule, no band — nothing to point at yet.
           const bar = document.createElement("div");
           Object.assign(bar.style, {
             position: "fixed", left: r.left + "px", top: r.top + "px",
             width: r.width + "px", height: r.height + "px",
             background: "transparent", pointerEvents: "none",
-            borderBottom: `2px dotted ${color}`, opacity: "0.7",
+            borderBottom: `2px solid ${color}`, opacity: "0.45",
           });
           layer.appendChild(bar);
         }

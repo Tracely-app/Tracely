@@ -19,7 +19,7 @@ const SRC = readFileSync(path.join(HERE, "..", "..", "extension", "content.js"),
 const a = SRC.indexOf("  /* Hover intent for the Docs card.");
 const b = SRC.indexOf("  function esc(s) {", a);
 const X = vm.runInContext(`${SRC.slice(a, b)}
-  ({ hoverIntent, inSafeTriangle, isFreshMark, HOVER_OPEN_MS, HOVER_SWAP_MS, HOVER_REST_MS, HOVER_HIDE_MS })`, vm.createContext({}));
+  ({ hoverIntent, inSafeTriangle, isFreshMark, HOVER_OPEN_MS, HOVER_SWAP_MS, HOVER_REST_MS, HOVER_HIDE_MS, HOVER_HIDE_NEAR_MS })`, vm.createContext({}));
 
 const open = { open: true, popHash: "A", onCard: false, onOwn: false, inTri: false, under: null };
 
@@ -41,8 +41,17 @@ test("on the way to the card, other underlines are ignored — unless the pointe
 
 test("on the card or its own sentence the card stays; elsewhere another mark takes over, empty page closes it", () => {
   assert.equal(X.hoverIntent({ ...open, onCard: true, under: "B" }).act, "stay");
+  // Owner, 2026-10-09: on the way to the card, over another underline, it jumped.
+  assert.equal(X.hoverIntent({ ...open, approaching: true, under: "B" }).act, "stay", "getting closer to the card: on its way there, whatever it crosses");
+  assert.equal(X.hoverIntent({ ...open, approaching: true, inTri: true, under: "B" }).act, "stay");
+  assert.ok(X.HOVER_SWAP_MS >= 250 && X.HOVER_REST_MS >= 600, "another underline takes over only once the pointer stops on it");
+  // Beside the card, between lines: it does not close under a moving pointer (it used to, and the
+  // pointer then landed where it had been — over another underline, which opened).
+  assert.deepEqual({ ...X.hoverIntent({ ...open, near: true }) }, { act: "hide", ms: X.HOVER_HIDE_NEAR_MS, rest: true });
+  assert.ok(X.HOVER_HIDE_NEAR_MS > X.HOVER_REST_MS);
+  assert.deepEqual({ ...X.hoverIntent({ ...open, near: true, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_REST_MS, rest: true });
   assert.equal(X.hoverIntent({ ...open, onOwn: true, under: "B" }).act, "stay");
-  assert.deepEqual({ ...X.hoverIntent({ ...open, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_SWAP_MS });
+  assert.deepEqual({ ...X.hoverIntent({ ...open, under: "B" }) }, { act: "swap", hash: "B", ms: X.HOVER_SWAP_MS, rest: true }, "only once the pointer STOPS on it (owner, 2026-10-09)");
   assert.deepEqual({ ...X.hoverIntent(open) }, { act: "hide", ms: X.HOVER_HIDE_MS });
   assert.equal(X.hoverIntent({ ...open, under: "A" }).act, "hide", "its own hash is never a swap");
 });

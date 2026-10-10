@@ -146,10 +146,11 @@ Store upload, the website, DNS. Details and the rules for writing a hook:
 One colour vocabulary, the desktop's (`src/renderer/src/components/problemCopy.ts`,
 mirrored in `server/shared/marks.js`): red `#d93636` wrong or invented;
 orange `#ff5900` thin evidence or an unverified figure; amber `#ffb800` add or
-fix the attribution; blue `#2563eb` grammar only; grey dotted `#9a9ba1` still
-checking. Colour only ever means a finding; never colour alone (the extension's
-`MARK_PATTERN`: solid / dashed / double, one legend). The design file and the
-ratified decisions: `docs/design-file.md`.
+fix the attribution; blue `#2563eb` grammar only; grey `#9a9ba1` still
+checking. Colour only ever means a finding; never colour alone — in the
+extension every underline is one solid line (owner, 2026-10-09) and the kind is
+an icon in the page margin beside it (`MARK_ICON`) and in one legend. The
+design file and the ratified decisions: `docs/design-file.md`.
 
 ## Not without the other human
 

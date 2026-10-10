@@ -44,6 +44,6 @@ test("one continuous underline per sentence per line, kept through typing", () =
   assert.match(join, /if \(a\.hash !== b\.hash \|\| a\.node\.parentNode !== b\.node\.parentNode \|\| \(a\.tf \|\| ""\) !== \(b\.tf \|\| ""\)\) continue;/);
   assert.match(join, /if \(Math\.abs\(\(a\.gy \+ a\.gh\) - \(b\.gy \+ b\.gh\)\) > 2\) continue; \/\/ another line/);
   assert.match(join, /if \(bx > ax\) a\.el\.setAttribute\("width", String\(Math\.max\(2, bx - ax \+ 0\.5\)\)\);/);
-  assert.match(SRC, /joinBars\(\);\n\s+\/\* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT\./, "after drawing");
+  assert.match(SRC, /joinBars\(\);\n\s+drawMarginIcons\(svgBars\);\n\s+\/\* IN-DOCUMENT FLOW BRACKETS ARE OFF BY DEFAULT\./, "after drawing");
   assert.match(SRC, /joinBars\(\); \/\/ the follow above reset each bar to its own rect's width\n\s+if \(relocateNow\)/, "after the observer moves bars");
 });

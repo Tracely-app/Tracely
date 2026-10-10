@@ -1,109 +1,112 @@
-/* Never colour alone (CLAUDE.md "UI decisions"): every underline the
- * extension draws says what it means with its LINE as well as its colour —
- * solid for wrong, dashed for worth checking, double for a missing citation —
- * and the panel carries the one legend. Amber #ffb800 is 1.73:1 on white, and
- * red and orange are close under tritanopia; before this, colour was the only
- * difference between the three. */
+/* Never colour alone (CLAUDE.md "UI decisions"), with every line solid.
+ * Until 2.21.34 the LINE said what a mark meant as well as its colour —
+ * solid for wrong, dashed for worth checking, double for a missing citation.
+ * Owner, 2026-10-09: "I don't like the dotted underline, find a different way
+ * to differentiate underlines but make them all solid and straight line." So
+ * every underline is one solid line, and the kind is said by an ICON in the
+ * page's left margin beside the line — the header's own icons — and by the
+ * one legend, which shows each line with its icon. Amber #ffb800 is 1.73:1 on
+ * white, and red and orange are close under tritanopia: the icon is what
+ * keeps the colour from being the only difference. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sliceBetween } from "./helpers/anchors.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(path.join(HERE, "..", "..", "extension", "content.js"), "utf8");
 
-/* A document just big enough for svgMarkFill: ids, children, attributes. */
-function fakeDocument() {
-  const byId = new Map();
-  const node = (tag) => {
-    const n = {
-      tag, attrs: {}, children: [], style: {}, _id: "",
-      get id() { return this._id; }, set id(v) { this._id = v; byId.set(v, this); },
-      setAttribute(k, v) { this.attrs[k] = v; },
-      appendChild(c) { this.children.push(c); if (c._id) byId.set(c._id, c); return c; },
-    };
-    return n;
-  };
-  const body = node("body");
-  return { body, documentElement: body, created: [], getElementById: (id) => byId.get(id) ?? null,
-    createElementNS(_ns, tag) { const n = node(tag); this.created.push(n); return n; } };
-}
-
-function load(document = fakeDocument()) {
-  const a = SRC.indexOf("  const MARK_PATTERN =");
-  const b = SRC.indexOf("  const MARK_LINE_RADIUS", a);
-  assert.ok(a > 0 && b > a, "content.js: the mark-pattern block moved");
-  const colors = SRC.match(/const MARK_COLORS = (\{[^}]*\});/)[1];
+function load(extra = {}) {
   const code = `
-    const MARK_COLORS = ${colors};
+    ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
     const MARK_LINE_HEIGHT = 2, MARK_LINE_HEIGHT_HOVERED = 3;
-    ${SRC.slice(a, b)}
-    ({ MARK_COLORS, MARK_PATTERN, markFill, markLineHeight, svgMarkFill, legendHtml, LEGEND })`;
-  return { ...vm.runInContext(code, vm.createContext({ document })), document };
+    ${sliceBetween(SRC, "  const TALLY_ICON = {", "\n  };\n")}
+  };
+    ${sliceBetween(SRC, "  const MARK_PATTERN =", "  const MARK_LINE_RADIUS")}
+    ({ MARK_COLORS, MARK_PATTERN, MARK_ICON, MARK_ICON_RANK, TALLY_ICON, markFill, markLineHeight, svgMarkFill, legendHtml, LEGEND })`;
+  return vm.runInContext(code, vm.createContext(extra));
 }
 
-test("each finding colour has its own line, and none is the 'still checking' dotted line", () => {
-  const { MARK_COLORS, MARK_PATTERN } = load();
-  const byColor = new Map();
-  for (const [verdict, color] of Object.entries(MARK_COLORS)) {
-    const p = MARK_PATTERN[verdict];
-    assert.ok(["solid", "dashed", "double"].includes(p), `${verdict} has a line pattern (${p})`);
-    // One vocabulary: verdicts that share a colour share a line.
-    if (byColor.has(color)) assert.equal(byColor.get(color), p, `${verdict} draws ${color} like the others`);
-    byColor.set(color, p);
+test("every line is solid; each kind has its own icon, so colour is never the only difference", () => {
+  const { MARK_COLORS, MARK_PATTERN, MARK_ICON, TALLY_ICON } = load();
+  const seen = new Map();
+  for (const v of Object.keys(MARK_COLORS)) {
+    assert.equal(MARK_PATTERN[v], "solid", `${v} is a solid line`);
+    assert.ok(TALLY_ICON[MARK_ICON[v]], `${v} has an icon (${MARK_ICON[v]})`);
+    seen.set(MARK_ICON[v], MARK_COLORS[v]);
   }
-  const lines = [...byColor.values()];
-  assert.equal(new Set(lines).size, lines.length, `three colours, three lines: ${JSON.stringify(Object.fromEntries(byColor))}`);
-  assert.equal(MARK_PATTERN.false, "solid", "wrong keeps the plain line it always had");
+  assert.deepEqual([...seen.keys()].sort(), ["check", "cite", "writing", "wrong"], "the header's four kinds");
+  // Two kinds share orange (worth checking, a writing note): their icons differ.
+  assert.equal(seen.get("check"), seen.get("writing"));
+  assert.notEqual(TALLY_ICON.check, TALLY_ICON.writing);
 });
 
-test("the div line: a solid colour, a dashed gradient, a double rule tall enough to read as two", () => {
-  const { markFill, markLineHeight } = load();
-  assert.equal(markFill("#d93636", "solid"), "#d93636");
-  assert.match(markFill("#ff5900", "dashed"), /^repeating-linear-gradient\(90deg, #ff5900 0 6px, transparent 6px 9px\)$/);
-  assert.match(markFill("#ffb800", "double"), /linear-gradient\(to bottom, #ffb800 0 1px, transparent 1px calc\(100% - 1px\), #ffb800/);
-  assert.ok(markLineHeight("double", false) >= 3, "two 1px strokes and a gap need 3px");
-  assert.ok(markLineHeight("double", true) > markLineHeight("double", false), "and it still thickens on hover");
+test("the lines themselves: a plain colour, 2px (3px hovered), in a div or in Docs' SVG", () => {
+  const { markFill, svgMarkFill, markLineHeight } = load();
+  assert.equal(markFill("#ff5900", "solid"), "#ff5900");
+  assert.equal(svgMarkFill("#ffb800", "solid"), "#ffb800");
   assert.equal(markLineHeight("solid", false), 2);
   assert.equal(markLineHeight("solid", true), 3);
+  assert.ok(!/repeating-linear-gradient|patternUnits|borderBottom: `2px dotted/.test(SRC), "no dashed, double or dotted line is drawn anywhere");
+  assert.match(SRC, /borderBottom: `2px solid \$\{color\}`, opacity: "0\.45",/, "still checking: a faint solid grey line");
 });
 
-test("the in-Docs SVG bar: a pattern fill defined once, in our own hidden SVG", () => {
-  const { svgMarkFill, document } = load();
-  assert.equal(svgMarkFill("#d93636", "solid"), "#d93636", "solid stays a plain fill");
-  const dashed = svgMarkFill("#ff5900", "dashed");
-  assert.equal(dashed, "url(#tracely-mark-dashed-ff5900)");
-  assert.equal(svgMarkFill("#ff5900", "dashed"), dashed);
-  assert.equal(svgMarkFill("#ffb800", "double"), "url(#tracely-mark-double-ffb800)");
-  const patterns = document.created.filter((n) => n.tag === "pattern");
-  assert.equal(patterns.length, 2, "one <pattern> per line and colour, however many bars use it");
-  assert.equal(document.created.filter((n) => n.tag === "svg").length, 1, "one hidden SVG holds them");
-  const dash = document.getElementById("tracely-mark-dashed-ff5900");
-  assert.equal(dash.attrs.patternUnits, "userSpaceOnUse", "dashes keep their length however long the bar is");
-  const dbl = document.getElementById("tracely-mark-double-ffb800");
-  assert.equal(dbl.children.length, 2, "two strokes");
-});
-
-test("one legend names every line, in the cards' words", () => {
-  const { legendHtml, markFill, MARK_COLORS, MARK_PATTERN } = load();
+test("one legend: each kind's icon beside its solid line, in the cards' words", () => {
+  const { legendHtml, MARK_COLORS, TALLY_ICON } = load();
   const html = legendHtml();
-  assert.equal((html.match(/class="legend-item"/g) || []).length, 3);
-  for (const label of ["Contradicted or doesn't make sense", "Worth checking", "Missing or incomplete citation"]) assert.ok(html.includes(label), label);
-  for (const v of ["false", "questionable", "needs_citation"]) {
-    assert.ok(html.includes(markFill(MARK_COLORS[v], MARK_PATTERN[v])), `the legend draws ${v}'s line exactly as the page does`);
+  assert.equal((html.match(/class="legend-item"/g) || []).length, 4);
+  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Worth checking", "check"], ["needs_citation", "Missing or incomplete citation", "cite"], ["note_tip", "Writing note", "writing"]]) {
+    assert.ok(html.includes(`<span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[kind]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: 2px"></span>${label}`), label);
   }
-  assert.match(html, /aria-label="What the underlines mean"/);
+  assert.match(html, /aria-label="What the underlines and margin icons mean"/);
+  assert.equal((SRC.match(/cardListHtml\(cards\) \+ legendHtml\(\)/g) || []).length, 2, "in both panels, under the cards");
 });
 
-test("every drawing path takes its line from the pattern, not the colour alone", () => {
-  // Docs: the in-tree SVG rect, its fixed-div fallback, the page-anchored div; field mode's line.
-  assert.ok(!/setAttribute\("fill", color\)/.test(SRC), "the SVG bar is filled through svgMarkFill");
-  assert.ok(!/background: color, borderRadius: "2px"/.test(SRC), "no Docs div bar is a bare colour");
-  assert.equal((SRC.match(/background: markFill\(color, pattern\)/g) || []).length, 3, "the two Docs div bars and field mode's line");
-  assert.match(SRC, /bar\.setAttribute\("fill", svgMarkFill\(color, pattern\)\)/);
-  assert.match(SRC, /line\.style\.height = `\$\{markLineHeight\(pattern, on\)\}px`/, "hover keeps the double rule readable");
-  // The legend is in both panels, under the cards.
-  assert.equal((SRC.match(/cardListHtml\(cards\) \+ legendHtml\(\)/g) || []).length, 2);
+/* drawMarginIcons over a stand-in of Docs' annotation SVG: one line's runs. */
+function fakeSvg() {
+  const parent = { children: [], appendChild(c) { this.children.push(c); return c; } };
+  const rect = (label, x, y, h = 18, tf = null) => {
+    const n = { tagName: "rect", attrs: { "aria-label": label, x: String(x), y: String(y), height: String(h), ...(tf ? { transform: tf } : {}) }, parentNode: parent,
+      getAttribute(k) { return this.attrs[k] ?? null; }, hasAttribute(k) { return k in this.attrs; } };
+    parent.children.push(n);
+    return n;
+  };
+  const document = { createElementNS: (_ns, tag) => ({ tagName: tag, attrs: {}, style: {}, innerHTML: "", setAttribute(k, v) { this.attrs[k] = v; } }) };
+  return { parent, rect, document };
+}
+
+test("the margin icon: one a line, the most serious kind on it, left of where the line's text starts, carried with it", () => {
+  const { parent, rect, document } = fakeSvg();
+  const lineA1 = rect("The Mongols invented", 96, 100, 18, "matrix(1 0 0 1 0 0)");
+  const lineA2 = rect(" the dollar (Smith).", 240, 100, 18, "matrix(1 0 0 1 0 0)");
+  const lineB = rect("Trade grew.", 96, 130);
+  const lineC = rect("It grew because roads were", 96, 160);
+  const lineD = rect("safe for merchants.", 96, 190);
+  const lastVerdictByHash = new Map([["s1", "needs_citation"], ["s2", "false"], ["s3", "note_tip"], ["s4", "questionable"]]);
+  const X = vm.runInContext(`
+    ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
+    ${sliceBetween(SRC, "  const TALLY_ICON = {", "\n  };\n")}
+  };
+    ${sliceBetween(SRC, "  const MARK_ICON =", "\n")}
+    ${sliceBetween(SRC, "  const MARK_ICON_RANK =", "\n")}
+    ${sliceBetween(SRC, "    function drawMarginIcons(svgBars) {", "    // Docs' small scrolls blit pixels")}
+    ({ drawMarginIcons })`, vm.createContext({ document, lastVerdictByHash }));
+  // Line A carries a citation note and a wrong fact; line B a writing note.
+  // …and s4 is one sentence wrapped over lines C and D.
+  X.drawMarginIcons([{ hash: "s1", node: lineA2 }, { hash: "s2", node: lineA1 }, { hash: "s3", node: lineB }, { hash: "s4", node: lineD }, { hash: "s4", node: lineC }]);
+  const icons = parent.children.filter((n) => n.tagName === "svg");
+  assert.equal(icons.length, 3, "one icon a line, and a wrapped sentence gets one, beside its first line");
+  assert.equal(icons[2].attrs.y, String(160 + (18 - 12) / 2));
+  const [a, b] = icons;
+  assert.equal(a.attrs["data-tracely-margin-icon"], "wrong", "the most serious kind on the line");
+  assert.equal(a.style.color, "#d93636");
+  assert.deepEqual([a.attrs.x, a.attrs.y, a.attrs.width], [String(96 - 12 - 8), String(100 + (18 - 12) / 2), "12"], "left of the line's first run, level with it");
+  assert.equal(a.attrs.transform, "matrix(1 0 0 1 0 0)", "in the line's own coordinates, so it scrolls and zooms with the text");
+  assert.ok("data-tracely-bar" in a.attrs, "ours: swept by the next draw, ignored by the annotation observer");
+  assert.match(a.innerHTML, /^<circle /, "the header's icon, inside our own <svg>");
+  assert.equal(b.attrs["data-tracely-margin-icon"], "writing");
+  assert.match(SRC, /joinBars\(\);\n\s+drawMarginIcons\(svgBars\);/, "drawn with the bars, after they are joined");
 });
