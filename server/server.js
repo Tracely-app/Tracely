@@ -26,6 +26,7 @@ import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
+import * as voice from "./lib/voice.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // What is deployed, as the runbook stamped it (lib/release.js); null on a laptop.
@@ -197,10 +198,13 @@ const PAID_ROUTES = new Set([
  * (they are not in EXTENSION_API), which is what makes changing them safe.
  * /api/verify-sources (2026-10-07) is the desktop's receipts: the extension's
  * verifier (lib/sourceVerify.js) behind the desktop's gate, so reading the
- * sources in a list a writer opened can never spend the extension's day. */
+ * sources in a list a writer opened can never spend the extension's day.
+ * /api/voice/* (2026-10-10) is Tracer Voice on gpt-live-1 (lib/voice.js):
+ * the app pool reserves a session's worst case for as long as it is open. */
 const APP_AI_ROUTES = new Set([
   "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
   "/api/correction", "/api/find-sources", "/api/verify-sources",
+  "/api/voice/session", "/api/voice/end",
 ]);
 
 /* Routes whose failures are MODEL failures, logged by the central error
@@ -1676,6 +1680,23 @@ const server = http.createServer(async (req, res) => {
       db.prepare("INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES (?,?,?,?,?)")
         .run(uuid(), convId, "assistant", out.reply, now + 1);
       json(res, 200, { ...out, conversationId: convId }, cors);
+      return;
+    }
+
+    // Tracer Voice (lib/voice.js): trade the desktop's WebRTC offer for
+    // gpt-live-1's answer, behind appGate like /api/tracer, then Pro, the key,
+    // the body, one session per caller, the daily cap and a held worst case.
+    // The hold lives on the session, NOT on `gate` — the `finally` below
+    // would release it when this request ends, minutes before the call does.
+    if (req.method === "POST" && url.pathname === "/api/voice/session") {
+      loadEnvFile();
+      const out = await voice.startSession({ gate, readBody: () => parseJsonBody(req), mock: MOCK });
+      json(res, 200, out, cors);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/voice/end") {
+      const out = await voice.endSession({ gate, body: (await parseJsonBody(req)) ?? {} });
+      json(res, 200, out, cors);
       return;
     }
 
