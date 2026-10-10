@@ -3437,7 +3437,7 @@ textarea:disabled {
 
 .gradeload-spinner-track {
   fill: none;
-  stroke: var(--surface-2);
+  stroke: var(--border);
 }
 
 /* Round caps are why this is an SVG arc and not a bordered box, and the green is
@@ -3547,7 +3547,7 @@ textarea:disabled {
 
 /* Ring. Colour comes from the tone- class so it tracks the same 70/40 bands
    every other score in the app uses. */
-.argscore-ring-track { fill: none; stroke: var(--surface-2); }
+.argscore-ring-track { fill: none; stroke: var(--border); }
 .argscore-ring-fill { fill: none; stroke-linecap: round; }
 .argscore-ring.tone-good .argscore-ring-fill { stroke: var(--score-good); }
 .argscore-ring.tone-mid  .argscore-ring-fill { stroke: var(--score-mid); }
@@ -7472,10 +7472,9 @@ textarea:disabled {
 
 /* -- Dark theme: Argument Score modal + grading loader ----------------------
  *
- * The rules above transcribe the Figma report frames with literal light inks
- * (#1a1a1f titles, #f8f9f8 panels, the lavender finding cards). Fine in the
- * light theme they were read from; in dark they were the half of "AI Insights"
- * that never changed with the appearance setting. The shared Essay Grade panel
+ * The rules above transcribed the Figma report frames with literal light inks
+ * (#1a1a1f titles, #f8f9f8 panels, the lavender finding cards); all but the
+ * lavender cards now read the theme tokens directly. The shared Essay Grade panel
  * itself is themed in TSX (see GradePalette in EssayGradeReport.tsx — it is
  * inline styles because it also renders in the stylesheet-less overlay
  * window); these overrides cover the modal chrome and sibling views AROUND it.
@@ -7484,52 +7483,24 @@ textarea:disabled {
  * (`:root[data-theme='dark']`) and the system fallback
  * (`prefers-color-scheme: dark` guarded by `:not([data-theme='light'])`).
  * A rule on only one of them is a known bug class in this file. */
-:root[data-theme='dark'] .argscore-title { color: var(--text); }
-:root[data-theme='dark'] .gradeload-card { background: var(--surface); border-color: var(--border-strong); }
-:root[data-theme='dark'] .gradeload-title { color: var(--text); }
-:root[data-theme='dark'] .gradeload-sub { color: var(--muted); }
-:root[data-theme='dark'] .argscore-para-name { color: var(--text); }
-:root[data-theme='dark'] .argscore-bar-label { color: var(--muted-2); }
-:root[data-theme='dark'] .argscore-bar-pct { color: var(--text); }
-:root[data-theme='dark'] .argscore-bar-track { background: rgba(255, 255, 255, 0.14); }
-:root[data-theme='dark'] .argscore-btn.secondary { border-color: var(--border-strong); }
-:root[data-theme='dark'] .argscore-grade-line { color: var(--muted-2); }
-:root[data-theme='dark'] .argscore-para { background: var(--surface-2); }
-:root[data-theme='dark'] .argscore-boundary-row { background: var(--surface); }
-/* The lavender finding cards keep their hue and drop their lightness — a
-   violet wash on the dark surface, with the title lifted to violet-300. */
+/* Everything else in these families reads tokens that flip on their own; only
+   the lavender finding cards carry literal light inks. They keep their hue and
+   drop their lightness — a violet wash on the dark surface, with the title
+   lifted to violet-300. */
 :root[data-theme='dark'] .argscore-flow,
 :root[data-theme='dark'] .argscore-problem {
   border-color: rgba(196, 181, 253, 0.28);
   background: rgba(139, 92, 246, 0.14);
 }
 :root[data-theme='dark'] .argscore-problem-title { color: #c4b5fd; }
-:root[data-theme='dark'] .argscore-problem-body { color: var(--text); }
-:root[data-theme='dark'] .argscore-para-index { background: rgba(255, 255, 255, 0.1); color: var(--muted-2); }
-:root[data-theme='dark'] .argscore-checkall-row[data-paid='true'] .argscore-checkall { background: var(--surface); }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .argscore-title { color: var(--text); }
-  :root:not([data-theme='light']) .gradeload-card { background: var(--surface); border-color: var(--border-strong); }
-  :root:not([data-theme='light']) .gradeload-title { color: var(--text); }
-  :root:not([data-theme='light']) .gradeload-sub { color: var(--muted); }
-  :root:not([data-theme='light']) .argscore-para-name { color: var(--text); }
-  :root:not([data-theme='light']) .argscore-bar-label { color: var(--muted-2); }
-  :root:not([data-theme='light']) .argscore-bar-pct { color: var(--text); }
-  :root:not([data-theme='light']) .argscore-bar-track { background: rgba(255, 255, 255, 0.14); }
-  :root:not([data-theme='light']) .argscore-btn.secondary { border-color: var(--border-strong); }
-  :root:not([data-theme='light']) .argscore-grade-line { color: var(--muted-2); }
-  :root:not([data-theme='light']) .argscore-para { background: var(--surface-2); }
-  :root:not([data-theme='light']) .argscore-boundary-row { background: var(--surface); }
   :root:not([data-theme='light']) .argscore-flow,
   :root:not([data-theme='light']) .argscore-problem {
     border-color: rgba(196, 181, 253, 0.28);
     background: rgba(139, 92, 246, 0.14);
   }
   :root:not([data-theme='light']) .argscore-problem-title { color: #c4b5fd; }
-  :root:not([data-theme='light']) .argscore-problem-body { color: var(--text); }
-  :root:not([data-theme='light']) .argscore-para-index { background: rgba(255, 255, 255, 0.1); color: var(--muted-2); }
-  :root:not([data-theme='light']) .argscore-checkall-row[data-paid='true'] .argscore-checkall { background: var(--surface); }
 }
 
 /* -- Dark theme: the editor's mark popover cards ---------------------------
