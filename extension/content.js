@@ -3559,8 +3559,8 @@
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
     .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
-    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
-    .ev-toggle:hover { text-decoration: underline; }
+    .ev-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; border: none; background: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); cursor: pointer; border-radius: 4px; }
+    .ev-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
     .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
@@ -3576,9 +3576,11 @@
     .foot .act { padding: 5px 10px; font-size: 11px; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
     select {
-      font-size: 12px; font-weight: 500; font-family: ${JAKARTA};
+      height: 32px; padding: 0 26px 0 10px; font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; line-height: 1;
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
-      padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231c1c1c' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center / 12px 12px;
+      color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
