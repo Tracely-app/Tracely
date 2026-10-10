@@ -555,7 +555,9 @@ export default function ArgumentScoreModal({
       <div className="modal-card argscore-card">
         {error ? (
           <div className="argscore-state">
-            <p className="error-text">{error}</p>
+            <p className="error-text" role="alert">
+              {error}
+            </p>
             <button className="argscore-btn secondary" onClick={onReanalyze}>
               Try again
             </button>
@@ -1965,7 +1967,11 @@ function FindEvidenceResult({
         ) : (
           <>
             <div className="argev-head">
-              <span className={`argev-dot${found > 0 ? ' found' : ''}`} />
+              {evidence === null ? (
+                <Spinner size="sm" />
+              ) : (
+                <span className={`argev-dot${found > 0 ? ' found' : ''}`} />
+              )}
               <h2 className="argev-title">
                 {evidence === null ? 'Looking…' : `${found} source${found === 1 ? '' : 's'} found`}
               </h2>
@@ -1975,7 +1981,11 @@ function FindEvidenceResult({
               Ranked by how directly each source supports “{claim.text}”
             </p>
 
-            {failure ? <p className="error-text">{failure}</p> : null}
+            {failure ? (
+              <p className="error-text" role="alert">
+                {failure}
+              </p>
+            ) : null}
 
             {evidence !== null && found === 0 ? (
               <p className="muted argev-empty">

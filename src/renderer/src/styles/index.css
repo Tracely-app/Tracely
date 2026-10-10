@@ -4170,50 +4170,69 @@ textarea:disabled {
 
 .argev-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .argev-style {
   margin-left: auto;
-  padding: 2px 8px;
-  border-radius: 20px;
-  background: var(--surface-2);
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
   color: var(--muted-2);
 }
 
 .argev-sub {
-  margin: 6px 0 14px;
+  margin: 8px 0 16px;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted);
 }
 
+/* The empty state's one recipe: a dashed box, 13px muted. */
 .argev-empty {
-  margin: 4px 0 14px;
-  font-size: 12px;
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  font-size: 13px;
   line-height: 1.5;
+  color: var(--muted);
 }
 
 .argev-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   margin-bottom: 8px;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: transparent;
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  font: inherit;
+  color: var(--text);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .argev-row:hover {
-  background: var(--surface-2);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
+.argev-row:active { background: var(--hover); }
 
 .argev-row.selected {
   border-color: var(--score-good);
@@ -4226,17 +4245,17 @@ textarea:disabled {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  font-size: 10px;
-  font-weight: 700;
+  border-radius: var(--r-ctl);
+  background: var(--hover);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted-2);
 }
 
 .argev-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
   flex: 1;
 }
@@ -4244,12 +4263,15 @@ textarea:disabled {
 .argev-source-title {
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .argev-source-sub {
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .argev-match {
@@ -4261,8 +4283,9 @@ textarea:disabled {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--border-strong);
   border-radius: 50%;
+  transition: border-color var(--dur) var(--ease);
 }
 
 .argev-radio.on {
@@ -4275,8 +4298,8 @@ textarea:disabled {
 
 .argev-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .argev-again {
@@ -4286,10 +4309,6 @@ textarea:disabled {
 
 .argscore-verdict-pill {
   flex-shrink: 0;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .argscore-verdict-pill.tone-good { color: var(--score-good); background: var(--score-good-wash); }
@@ -4301,19 +4320,19 @@ textarea:disabled {
    standalone paragraph used in the detail and summary views. */
 .argscore-weakness {
   display: block;
-  margin-top: 7px;
-  padding: 7px 9px;
-  border-radius: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--r-ctl);
   background: var(--score-mid-wash);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-weakness-block {
   margin: 0 0 8px;
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -4322,7 +4341,8 @@ textarea:disabled {
 .argscore-detail-title {
   margin: 0 0 8px;
   font-size: 18px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
   text-wrap: balance;
 }
@@ -4330,51 +4350,54 @@ textarea:disabled {
 .argscore-detail-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  font-size: 11.5px;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
+/* An inset: surface-2 on a 1px hairline, radius 8, padding 12. */
 .argscore-quote {
   margin: 0 0 16px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
   background: var(--surface-2);
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-uncited {
   border: 1px solid var(--score-mid);
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   background: var(--score-mid-wash);
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
 }
 
 .argscore-uncited-label {
   display: block;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--score-mid);
 }
 
 .argscore-uncited-text {
-  margin: 5px 0 0;
-  font-size: 12.5px;
+  margin: 4px 0 8px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted-2);
 }
 
 .argscore-claim {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-start;
-  padding: 9px 0;
+  padding: 8px 0;
   border-top: 1px solid var(--border);
 }
 
@@ -4382,9 +4405,9 @@ textarea:disabled {
 
 .argscore-claim-score {
   flex-shrink: 0;
-  min-width: 30px;
+  min-width: 32px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4395,15 +4418,16 @@ textarea:disabled {
 .argscore-strength {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
 .argscore-strength .argscore-eyebrow { flex: 1; }
 
 .argscore-strength-score {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4412,7 +4436,7 @@ textarea:disabled {
 .argscore-strength-score.tone-mid  { color: var(--score-mid); }
 .argscore-strength-score.tone-low  { color: var(--score-low); }
 
-.argscore-breakdown { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.argscore-breakdown { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 
 /* -- Argument check (Figma 353:185, the widget inside 353:129) --------------
    Read off the frame rather than estimated: 16px between blocks, 1px #e7e7e7
@@ -4425,7 +4449,7 @@ textarea:disabled {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-top: 18px;
+  padding-top: 16px;
 }
 
 .argscore-check-rule {
@@ -4433,11 +4457,11 @@ textarea:disabled {
   background: var(--border);
 }
 
-/* The dot is the accent, at the frame's two sizes: 9px on the claim line, 7px
-   on the critique heading. */
+/* The dot is the accent, at two sizes: 8px on the claim line, 6px on the
+   critique heading. */
 .argscore-check-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--accent);
   flex-shrink: 0;
@@ -4448,15 +4472,16 @@ textarea:disabled {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
 .argscore-check-quote {
   margin: 0;
-  font-size: 14.5px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -4465,21 +4490,8 @@ textarea:disabled {
 .argscore-check-score {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: -6px;
-}
-
-.argscore-check-score .argscore-eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.055em;
-}
-
-.argscore-check-band {
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 8px;
+  margin-bottom: -8px;
 }
 
 .argscore-check-band.tone-good { color: var(--score-good); background: var(--score-good-wash); }
@@ -4488,8 +4500,9 @@ textarea:disabled {
 
 .argscore-check-number {
   margin-left: auto;
-  font-size: 26px;
-  font-weight: 650;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -4497,6 +4510,7 @@ textarea:disabled {
 .argscore-check-number small {
   margin-left: 2px;
   font-size: 14px;
+  letter-spacing: 0;
   font-weight: 400;
   color: var(--muted);
 }
@@ -4505,7 +4519,7 @@ textarea:disabled {
   display: block;
   height: 6px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -4514,7 +4528,7 @@ textarea:disabled {
 .argscore-check-fill.tone-mid  { background: var(--score-mid); }
 .argscore-check-fill.tone-low  { background: var(--score-low); }
 
-.argscore-check-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.055em; }
+.argscore-check-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
 
 /* 2x2, 24px between columns and 14px between rows. The fills are ink in every
    cell: these are the parts of the score above, not four separate verdicts, so
@@ -4523,13 +4537,13 @@ textarea:disabled {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 24px;
-  row-gap: 14px;
+  row-gap: 16px;
 }
 
-.argscore-check-metrics .argscore-bar { margin-top: 0; gap: 6px 8px; }
+.argscore-check-metrics .argscore-bar { margin-top: 0; gap: 8px; }
 .argscore-check-metrics .argscore-bar-label { font-size: 13px; font-weight: 500; color: var(--muted-2); }
 .argscore-check-metrics .argscore-bar-pct { font-size: 13px; font-weight: 600; }
-.argscore-check-metrics .argscore-bar-track { height: 5px; border-radius: 999px; }
+.argscore-check-metrics .argscore-bar-track { height: 4px; border-radius: 999px; }
 .argscore-check-metrics .argscore-bar-fill { border-radius: 999px; background: var(--ink); }
 
 /* The unscored state. Deliberately not styled as a score of zero: no track, no
@@ -4539,24 +4553,24 @@ textarea:disabled {
 .argscore-check-unmeasured {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-2, rgba(0, 0, 0, 0.02));
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
 }
 
 .argscore-check-unmeasured-body {
   margin: 0;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--muted);
 }
 
 .argscore-check-sources {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   font-size: 13px;
   font-weight: 500;
@@ -4574,45 +4588,50 @@ textarea:disabled {
 .argscore-check-heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--text);
 }
 
-.argscore-check-heading .argscore-check-dot { width: 7px; height: 7px; }
+.argscore-check-heading .argscore-check-dot { width: 6px; height: 6px; }
 
-/* Sits under its heading, so the section's own 6px gap replaces the card's 16. */
+/* Sits under its heading, so an 8px gap replaces the card's 16. */
 .argscore-check-critique {
-  margin-top: -10px;
-  font-size: 13.5px;
-  line-height: 1.4;
+  margin-top: -8px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
-/* The frame's buttons: a solid ink pill and a 1.5px outlined one. Not the
-   orange gradient `.argscore-btn.primary` the Essay Grade frames draw — these
-   two are a different pair, on a different card. */
+/* The Argument check's pair: a solid ink button and a 1px ink outline, on the
+   same 36px / radius-8 geometry as the accent pair above. */
 .argscore-btn.ink {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--ink-contrast);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .argscore-btn.ink:hover { filter: brightness(1.15); }
+.argscore-btn.ink:active { filter: brightness(0.9); }
 
 .argscore-btn.outline {
   background: var(--surface);
-  border: 1.5px solid var(--ink);
+  border: 1px solid var(--ink);
   color: var(--text);
   font-weight: 500;
 }
 
-.argscore-btn.outline:hover { background: var(--surface-2); }
-.argscore-btn:disabled { opacity: 0.55; cursor: default; }
-.argscore-btn:disabled:hover { filter: none; background: var(--surface); }
+.argscore-btn.outline:hover { background: var(--hover); }
+.argscore-btn.outline:active { background: var(--pressed); }
+.argscore-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.argscore-btn:disabled:hover,
+.argscore-btn:disabled:active { filter: none; }
+.argscore-btn.secondary:disabled:hover,
+.argscore-btn.outline:disabled:hover { background: var(--surface); }
 
 /* "not checked yet" is dimmer than the ratio beside it — it is a caveat on that
    number, not a second number competing with it. */
