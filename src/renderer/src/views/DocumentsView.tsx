@@ -306,6 +306,7 @@ export default function DocumentsView({
           busyLabel="Deleting…"
           // No opt-out on a delete: there is no trash and no undo behind it.
           showSuppress={false}
+          danger
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => {
             const target = pendingDelete

@@ -4455,27 +4455,26 @@ input[type='checkbox']:focus-visible,
   justify-content: center;
   flex-shrink: 0;
   height: 32px;
-  border: 1px solid var(--primary);
+  /* The secondary recipe: an accent outline stacked over the orange "View
+     Full Report" primary made two orange controls compete. */
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-ctl);
-  background: none;
+  background: var(--surface);
   padding: 0 12px;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
-  color: var(--primary);
+  color: var(--text);
   cursor: pointer;
   transition: background-color var(--dur) var(--ease);
 }
 
-/* The token, not a literal. There are alternate accents (blue/green/purple)
-   further up this file, and a hardcoded orange tint would sit under an accent
-   the user chose instead of it. */
 .argscore-checkall:hover {
-  background: var(--accent-wash);
+  background: var(--hover);
 }
 .argscore-checkall:active { background: var(--pressed); }
-.argscore-checkall:disabled { opacity: 0.5; cursor: not-allowed; background: none; }
+.argscore-checkall:disabled { opacity: 0.5; cursor: not-allowed; background: var(--surface); }
 
 .argscore-checkall-note {
   font-size: 12px;
@@ -5440,6 +5439,18 @@ input[type='checkbox']:focus-visible,
 
 .savechanges-btn.confirm:active:not(:disabled) {
   filter: brightness(0.94);
+}
+
+/* A destructive confirm: the danger recipe, as ConfirmDialog's Delete. */
+.savechanges-btn.confirm.danger {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.savechanges-btn.confirm.danger:hover:not(:disabled) {
+  filter: none;
+  background: var(--score-low-wash);
 }
 
 .savechanges-btn:disabled {
