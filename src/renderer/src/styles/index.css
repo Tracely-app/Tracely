@@ -2559,12 +2559,14 @@ textarea:disabled {
   margin: 10px 0;
 }
 
+/* Ink on var(--border): a spinner is status, not a call to action, so it never
+   takes the accent (the Essay Grade loader's green arc is its own rule). */
 .spinner {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
   border: 2px solid var(--border);
-  border-top-color: var(--primary);
+  border-top-color: var(--ink);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
