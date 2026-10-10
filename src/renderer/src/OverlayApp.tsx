@@ -1213,6 +1213,28 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
 }
 
 /**
+ * What the three line patterns mean, at the panel's foot: a 24px sample of
+ * each (LEGEND, problemCopy.ts — drawn by markLineStyle, so it is the line the
+ * document actually carries) and its label, 11px. The editor's footer and the
+ * extension's sticky strip draw the same row.
+ */
+function PanelLegend(): JSX.Element {
+  return (
+    <div
+      aria-label="What the underlines mean"
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', fontSize: 11, lineHeight: '16px', color: MUTED }}
+    >
+      {LEGEND.map((entry) => (
+        <span key={entry.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <span aria-hidden style={{ display: 'block', width: 24, flexShrink: 0, ...markLineStyle(entry.color, false) }} />
+          {entry.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
  * The panel's single-claim card — Figma "Overlay Mockup - Widget over Document"
  * and its two result variants.
  *
@@ -1388,6 +1410,11 @@ function WidgetClaimCard({
           three frames), so a claim with fewer sources than the mockup would
           otherwise leave its buttons floating mid-card. */}
       <div style={{ flex: 1, minHeight: 0 }} />
+
+      {/* 8px above the footer buttons: the stack's 16px gap, less 8. */}
+      <div style={{ marginBottom: -8 }}>
+        <PanelLegend />
+      </div>
 
       <div style={{ display: 'flex', gap: 8, width: '100%' }}>
         <button
