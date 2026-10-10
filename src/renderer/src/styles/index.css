@@ -5850,7 +5850,7 @@ textarea:disabled {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-top: 22px;
+  margin-top: 20px;
 }
 
 .home-stat {
@@ -5858,14 +5858,21 @@ textarea:disabled {
   flex-direction: column;
   justify-content: center;
   gap: 4px;
-  min-height: 72px;
-  padding: 0 14px;
+  min-height: 76px;
+  padding: 0 16px;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
 }
-.home-stat b { font-size: 22px; font-weight: 600; color: var(--h-ink); }
-.home-stat span { font-size: 10px; font-weight: 500; color: var(--h-muted); }
+.home-stat b {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--h-ink);
+}
+.home-stat span { font-size: 12px; font-weight: 500; line-height: 1.45; color: var(--h-muted); }
 
 /* 326 and 377 wide on a 15px gap — NOT equal columns. The primary card is the
    narrower of the two and the one with a border, which is what makes it read
@@ -5878,58 +5885,64 @@ textarea:disabled {
 .home-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 15px;
+  gap: 16px;
   margin-top: 20px;
 }
 
+/* One tile recipe for both cards (and the document and resource cards below):
+   card ground, hairline, radius 12; the hairline darkens to the ink and the
+   card lifts on hover, and the lift drops again while pressed. */
 .home-action {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 64px;
-  padding: 0 15px;
+  gap: 14px;
+  min-height: 72px;
+  padding: 16px;
   border: 1px solid var(--h-card-line);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--h-card);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
 }
+.home-action:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-action:active { box-shadow: none; }
 
-/* Peach fill, and a border in the same family — NOT the black outline this
-   carried. The frame distinguishes the primary card by colour alone; a 1px
-   black rule around one card is the heaviest line on the screen. */
-.home-action.primary {
-  border-color: #f8e3d0;
-  background: var(--h-accent-wash);
-}
+/* The primary card is told apart by its accent hairline and filled icon tile,
+   on the same card ground as its neighbour — the peach wash it carried made
+   the two cards two recipes, and a black outline before that was the heaviest
+   line on the screen. */
+.home-action.primary { border-color: var(--accent-border); }
+.home-action.primary:hover { border-color: var(--h-ink); }
 
 /* The frame draws "Paste a link" as a plain white card with no border, so the
    disabled state keeps that and only loses a little contrast. */
-.home-action:disabled { opacity: 0.75; cursor: default; }
+.home-action:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 36x36 at 10px radius: white inside the primary card, #fbfbfc outside it. */
+/* 40x40 at radius 8: the accent fill inside the primary card, the subtle
+   grey with a hairline outside it (on a white card the grey alone was
+   invisible and the icon floated). */
 .home-action-icon {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border: 1px solid var(--h-card-line);
+  border-radius: var(--r-ctl);
   background: var(--h-subtle);
-  font-size: 16px;
-  font-weight: 600;
   color: var(--h-muted);
 }
 .home-action.primary .home-action-icon {
-  background: var(--h-card);
-  color: var(--h-accent);
+  border-color: transparent;
+  background: var(--h-accent);
+  color: var(--primary-contrast);
 }
-.home-action-icon svg { width: 17px; height: 17px; }
 
-.home-action-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.home-action-text b { font-size: 14px; font-weight: 600; color: var(--h-ink); }
-.home-action-text span { font-size: 12px; line-height: 1.35; color: var(--h-muted); }
+.home-action-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-action-text b { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--h-ink); }
+.home-action-text span { font-size: 13px; line-height: 1.4; color: var(--h-muted); }
 
 .home-section { display: flex; flex-direction: column; }
 .home-section + .home-section { margin-top: 26px; }
