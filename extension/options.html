@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tracely — Options</title>
 <style>
-  /* The desktop app's tokens (src/renderer/src/styles/index.css), light mode.
-     Dark is deliberately absent here as it is in the widget: the app has a
-     full dark palette (--bg #131316, --surface #1c1c1f, --text #f7f7f8,
-     --border rgba(255,255,255,.14)) and shipping half of one is worse than
-     none. Whoever does it starts there. */
+  /* The desktop app's tokens (src/renderer/src/styles/index.css). Light here,
+     dark in the block below — both copied from the desktop's own blocks, so
+     the page follows the OS theme with the app's exact values. */
   :root {
+    color-scheme: light dark;
     --bg: #f0f0f1;
     --surface: #ffffff;
     --surface-2: rgba(0,0,0,.02);
     --text: #000000;
     --ink: #1c1c1c;
     --body: #737373;
+    --muted: rgba(0,0,0,.6);
     --label: rgba(0,0,0,.56);
     --chip-ink: #55555c;
     --chip-wash: rgba(0,0,0,.07);
@@ -35,6 +35,40 @@
     --r-card: 16px;
     --r-btn: 8px;
     --r-chip: 20px;
+    /* The desktop's polish tokens: the two neutral washes every control's
+       hover and press share, and the one transition curve. */
+    --hover: rgba(0,0,0,.06);
+    --pressed: rgba(0,0,0,.1);
+    --dur: 150ms;
+    --ease: cubic-bezier(.2,.8,.2,1);
+  }
+  /* The desktop dark block, verbatim. The desktop has no --body, --muted or
+     --chip-*: --body and --muted take its dark --muted, the chip pair takes
+     its dark chip (.docmark-chip). --accent-ink and --ok take the desktop's
+     dark accent and --score-good, because the light pair is under 3.4:1 on
+     the dark surface. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0d;
+      --surface: #17171b;
+      --surface-2: rgba(255, 255, 255, 0.04);
+      --text: #f6f6f8;
+      --ink: #f6f6f8;
+      --body: rgba(246, 246, 248, 0.66);
+      --muted: rgba(246, 246, 248, 0.66);
+      --label: rgba(246, 246, 248, 0.62);
+      --chip-ink: rgba(246, 246, 248, 0.66);
+      --chip-wash: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.18);
+      --border-strong: rgba(255, 255, 255, 0.28);
+      --accent-ink: #f97316;
+      --accent-wash: rgba(244, 123, 32, 0.16);
+      --ring: rgba(244, 123, 32, 0.4);
+      --ok: #34d399;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+      --hover: rgba(255, 255, 255, 0.08);
+      --pressed: rgba(255, 255, 255, 0.12);
+    }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* `hidden` must win over the display rules below (.linkbtn, .acct), or
