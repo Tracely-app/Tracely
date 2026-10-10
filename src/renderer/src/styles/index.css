@@ -7355,6 +7355,15 @@ textarea:disabled {
 .srcfind-open:active,
 .srcfind-copy:active { background: var(--pressed); }
 
+/* MarkdownText's inline code (components/MarkdownText.tsx). The element's
+   inline style reads these, so windows without this sheet keep its fallback. */
+.md-code {
+  --md-code-size: 12px;
+  --md-code-bg: var(--surface-2);
+  --md-code-border: 1px solid var(--border);
+  --md-code-pad: 1px 4px;
+}
+
 /* ── One set of edges at every width ──────────────────────────────────────
  *
  * Owner, 2026-10-03, with a full-screen screenshot: "please fix this chaotic
