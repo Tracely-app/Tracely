@@ -6,6 +6,7 @@ import type { ScreenWatchProblemKind } from '@shared/ipc-contract'
 import { PROBLEM_LABEL } from './problemCopy'
 import { POINTS_PER_LEVEL, REFERENCE_LEVEL, adjustedScore, gradeFor, gradeLevelCredit } from '@shared/gradeLevel'
 import { paragraphNames } from './paragraphNames'
+import { CloseIcon } from './icons'
 
 /**
  * The Essay Grade report, drawn once and rendered on both surfaces.
@@ -188,14 +189,14 @@ export interface GradePalette {
   closeBg: string
   /** The round close button's glyph. */
   closeText: string
-  /** The secondary pill's outline. */
+  /** The secondary button's outline. */
   btnBorder: string
-  /** The secondary pill's label. */
+  /** The secondary button's label. */
   btnText: string
-  /** Text on the filled primary pill (and on the `!` badge). */
+  /** Text on the filled primary button (and on the `!` badge). */
   onPrimary: string
-  /** The primary pill's orange→red fill. */
-  primaryGradient: string
+  /** The primary button's solid accent fill (the app's --accent). */
+  primary: string
   /** A claim issue card's wash. */
   issueBg: string
   /** The `!` badge's fill. */
@@ -233,7 +234,7 @@ export const GRADE_LIGHT: GradePalette = {
   btnBorder: '#d3d8d4',
   btnText: '#2d362f',
   onPrimary: '#fff',
-  primaryGradient: 'linear-gradient(to right, #f97316, #dc2626)',
+  primary: '#f97316',
   issueBg: '#fff7f0',
   issueBadge: '#d95319',
   issueTitle: '#b35116',
@@ -274,7 +275,7 @@ export const GRADE_DARK: GradePalette = {
   btnBorder: 'rgba(255, 255, 255, 0.28)',
   btnText: '#f6f6f8',
   onPrimary: '#fff',
-  primaryGradient: 'linear-gradient(to right, #f97316, #dc2626)',
+  primary: '#f97316',
   issueBg: 'rgba(255, 171, 61, 0.1)',
   issueBadge: '#d95319',
   issueTitle: '#ffab3d',
@@ -304,36 +305,43 @@ export function gradeRingColor(score: number, palette: GradePalette = GRADE_LIGH
   return palette.ringLow
 }
 
-/** The header both frames draw: 19px title left, 30px close circle right. */
+/** The header both frames draw: a 16/600 title left, a 28px icon close right. */
 export function GradeHeader({ title, onClose }: { title: string; onClose: () => void }): JSX.Element {
   const P = useContext(GradePaletteContext)
   return (
-    <div style={{ height: 30, position: 'relative', flexShrink: 0, width: '100%' }}>
-      <div style={{ position: 'absolute', left: 0, top: 3.5, fontSize: 19, fontWeight: 600, color: P.text }}>
-        {title}
-      </div>
+    <div
+      style={{
+        height: 28,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        flexShrink: 0,
+        width: '100%'
+      }}
+    >
+      <div style={{ minWidth: 0, fontSize: 16, fontWeight: 600, lineHeight: 1.3, color: P.text }}>{title}</div>
       <button
         className="tracely-btn-text"
         onClick={onClose}
         title="Close"
+        aria-label="Close"
         style={{
-          position: 'absolute',
-          right: 0,
-          top: 0,
-          width: 30,
-          height: 30,
-          borderRadius: 999,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          width: 28,
+          height: 28,
+          borderRadius: 8,
           border: 'none',
           background: P.closeBg,
           color: P.closeText,
-          fontFamily: 'inherit',
-          fontSize: 17,
-          lineHeight: 1,
           cursor: 'pointer',
           padding: 0
         }}
       >
-        ×
+        <CloseIcon size={16} />
       </button>
     </div>
   )
@@ -439,7 +447,7 @@ export function GradeScoreSection({
 }
 
 /**
- * The two-pill row at the foot of both frames. Only the primary label differs.
+ * The two-button row at the foot of both frames. Only the primary label differs.
  *
  * "Re-grade Writing" is drawn as the frame draws it and disabled: the structural
  * read is recomputed on every poll (see refreshWatchOutline), so the number
@@ -447,21 +455,30 @@ export function GradeScoreSection({
  */
 export function GradeButtonRow({ primaryLabel, onPrimary }: { primaryLabel: string; onPrimary: () => void }): JSX.Element {
   const P = useContext(GradePaletteContext)
+  // One button recipe with the app chrome: 36px, radius 8, a solid accent
+  // primary beside a 1px outlined secondary, splitting the row evenly.
+  const base = {
+    flex: 1,
+    minWidth: 0,
+    height: 36,
+    padding: '0 18px',
+    borderRadius: 8,
+    fontFamily: 'inherit',
+    fontSize: 14,
+    lineHeight: 1,
+    whiteSpace: 'nowrap'
+  } as const
   return (
-    <div style={{ height: 41, display: 'flex', gap: 10, flexShrink: 0, width: '100%' }}>
+    <div style={{ height: 36, display: 'flex', gap: 12, flexShrink: 0, width: '100%' }}>
       <button
         className="tracely-btn-primary"
         onClick={onPrimary}
         style={{
-          width: 251,
-          height: 41,
+          ...base,
           border: 'none',
-          borderRadius: 999,
-          background: P.primaryGradient,
+          background: P.primary,
           color: P.onPrimary,
-          fontFamily: 'inherit',
-          fontSize: 14,
-          fontWeight: 500,
+          fontWeight: 600,
           cursor: 'pointer'
         }}
       >
@@ -472,17 +489,13 @@ export function GradeButtonRow({ primaryLabel, onPrimary }: { primaryLabel: stri
         disabled
         title="The score updates on its own as you write"
         style={{
-          width: 251,
-          height: 41,
-          border: `1.5px solid ${P.btnBorder}`,
-          borderRadius: 999,
+          ...base,
+          border: `1px solid ${P.btnBorder}`,
           background: P.surface,
           color: P.btnText,
-          fontFamily: 'inherit',
-          fontSize: 14,
           fontWeight: 500,
-          cursor: 'default',
-          opacity: 0.6
+          cursor: 'not-allowed',
+          opacity: 0.5
         }}
       >
         Re-grade Writing
