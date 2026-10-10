@@ -3472,9 +3472,10 @@
     .plane svg { width: 13px; height: 13px; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
+      display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
       background: var(--chip-wash); color: var(--chip-ink);
-      border-radius: var(--r-chip); padding: 1px 6px;
-      font-size: 10px; font-weight: 600; letter-spacing: .01em;
+      border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums;
     }
     .count.off { color: var(--label); }
 
@@ -3532,17 +3533,17 @@
     .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
     .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
     .chip {
-      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
-      border-radius: 999px; border: 1px solid #e4e4e7; background: #fff;
-      font-family: inherit; font-size: 12.5px; font-weight: 600; color: #1a1a1f; cursor: pointer;
-      transition: border-color .15s ease, background .15s ease;
+      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
+      border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+      font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer;
+      font-variant-numeric: tabular-nums; line-height: 1;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .chip:hover { border-color: #c9c9ce; background: #fafafa; }
-    .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
-    .chip-ico svg { width: 13px; height: 13px; display: block; }
-    .chip-clear { cursor: default; font-weight: 500; color: #3a3b40; }
-    .chip-clear:hover { border-color: #e4e4e7; background: #fff; }
+    .chip:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .chip-ico { display: inline-flex; width: 12px; height: 12px; flex-shrink: 0; }
+    .chip-ico svg { width: 12px; height: 12px; display: block; }
+    .chip-clear { cursor: default; font-weight: 500; color: var(--ink); }
+    .chip-clear:hover { border-color: var(--border); background: var(--surface); }
     .close {
       margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
       border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
@@ -3558,8 +3559,8 @@
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
     .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
-    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
-    .ev-toggle:hover { text-decoration: underline; }
+    .ev-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; border: none; background: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); cursor: pointer; border-radius: 4px; }
+    .ev-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
     .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
@@ -3575,9 +3576,11 @@
     .foot .act { padding: 5px 10px; font-size: 11px; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
     select {
-      font-size: 12px; font-weight: 500; font-family: ${JAKARTA};
+      height: 32px; padding: 0 26px 0 10px; font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; line-height: 1;
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
-      padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231c1c1c' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center / 12px 12px;
+      color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
@@ -3613,8 +3616,13 @@
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
     .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
-    .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
-    .x:hover { color: var(--text); }
+    .x {
+      margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+      background: none; border: none; color: var(--label); cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit;
+      transition: color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .x:hover { color: var(--text); background: var(--surface-2); }
     /* The writer's own words, set off by a rule; the advice under it is the body. */
     .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
     .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
@@ -3627,17 +3635,19 @@
     }
     .deep-row { margin: -2px 0 0; }
     .deep-btn {
-      background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
-      padding: 6px 12px; font-family: ${JAKARTA}; font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; height: 32px; padding: 0 12px; line-height: 1;
+      background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+      font-family: ${JAKARTA}; font-size: 13px; font-weight: 500;
       color: var(--ink); cursor: pointer;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .deep-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+    .deep-btn:hover { background: rgba(0,0,0,.04); }
     .deep-btn.locked { color: var(--label); cursor: not-allowed; }
-    .deep-btn.locked:hover { border-color: var(--hairline); color: var(--label); }
+    .deep-btn.locked:hover { background: var(--surface); color: var(--label); }
     .deep-pro {
-      display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: var(--r-chip);
-      background: var(--accent-wash); color: var(--accent-ink);
-      font-size: 10px; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
+      display: inline-flex; align-items: center; margin-left: 6px; height: 16px; line-height: 16px; padding: 0 5px;
+      border-radius: var(--r-chip); background: var(--accent-wash); color: var(--accent-ink);
+      font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
     .deep-label, .fix-label, .sources-title {
       font-size: 11px; font-weight: 600; color: var(--label); letter-spacing: .01em;
@@ -3718,16 +3728,18 @@
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
     button.act {
-      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
-      border-radius: 999px; padding: 7px 14px;
-      font-size: 12.5px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
-      transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+      display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; line-height: 1;
+      border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink);
+      border-radius: var(--r-btn);
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer; white-space: nowrap;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
     button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
-    button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: #111; border-color: #111; color: #fff; }
-    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
-    button.act[disabled] { opacity: .5; cursor: default; }
+    button.act:active:not([disabled]) { background: rgba(0,0,0,.08); }
+    button.act.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+    button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
+    button.act.primary:active:not([disabled]) { background: #000; border-color: #000; }
+    button.act[disabled] { opacity: .5; cursor: not-allowed; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
     .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -3756,19 +3768,27 @@
     .src-says { font-size: 12px; line-height: 16.8px; color: var(--ink); margin-top: 2px; user-select: text; }
     .src-from { font-size: 10.5px; color: var(--label); margin-top: 2px; }
     .src-unread { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
-    .src-unread-toggle { align-self: flex-start; background: none; border: none; padding: 2px 0; font: inherit; font-size: 12px; color: var(--label); cursor: pointer; text-align: left; }
-    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; }
-    .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
+    .src-unread-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; background: none; border: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--muted); cursor: pointer; text-align: left; border-radius: 4px; }
+    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+    .src a.src-open {
+      display: inline-flex; align-items: center; height: 28px; padding: 0 10px; line-height: 1;
+      font-size: 12px; font-weight: 500; color: var(--ink);
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn); background: var(--surface);
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .src a.src-open:hover { background: var(--surface-2); color: var(--ink); }
     .loading { font-size: 13px; color: var(--body); }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
-      flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
-      padding: 7px 10px; font-size: 12px; outline: none;
+      flex: 1; min-width: 0; height: 32px; padding: 0 10px; font-size: 13px; line-height: 1;
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn); outline: none;
       color: var(--text); background: var(--surface); font-family: ${JAKARTA};
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
+    .cite-url input::placeholder { color: var(--label); opacity: 1; }
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
-    .autosrc input { accent-color: var(--accent); }
+    .autosrc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
+    .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
     .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
@@ -3782,6 +3802,23 @@
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px var(--ring); }
       100% { box-shadow: none; }
+    }
+
+    /* ── Primitives: focus, scrollbar, motion ─────────────────────────────
+       Shared recipes, appended so they win over the sections above: the
+       small button in strips and footers, one ink focus ring for every
+       control that is not a text field (those keep the accent ring), the
+       list's thin scrollbar, and the one reduced-motion block. */
+    .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
+    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
+    .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    .list { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+    .list::-webkit-scrollbar { width: 8px; }
+    .list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid var(--surface); }
+    .list::-webkit-scrollbar-track { background: transparent; }
+    @media (prefers-reduced-motion: reduce) {
+      .launcher, .launcher:hover, .pill, .pill:hover, button.act, .chip, .deep-btn, .x, .src a.src-open, select, .cite-url input { transition: none; transform: none; }
+      .panel.opening, .card.flash, .deep-spin { animation: none; }
     }
   `;
 
