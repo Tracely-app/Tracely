@@ -6323,9 +6323,9 @@ textarea:disabled {
   flex-direction: column;
   width: min(680px, 100%);
   max-height: 100%;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 18px 48px rgba(16, 18, 22, 0.28);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -6335,162 +6335,112 @@ textarea:disabled {
   justify-content: space-between;
   gap: 16px;
   flex-shrink: 0;
-  padding: 22px 24px 16px;
-  border-bottom: 1px solid #d9dbe0;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .guide-kicker {
-  margin: 0 0 6px;
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.3px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--label);
 }
 
 .guide-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.2px;
-  color: #212429;
+  line-height: 1.3;
+  color: var(--text);
+  text-wrap: balance;
 }
 
 .guide-close {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 8px;
-  background: none;
-  color: #737880;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.guide-close:hover { background: #f1f2f4; color: #212429; }
-.guide-close svg { width: 16px; height: 16px; }
+.guide-close:hover { background: var(--hover); color: var(--text); }
+.guide-close:active { background: var(--pressed); }
 
 .guide-body {
   overflow-y: auto;
-  padding: 20px 24px 28px;
-  outline: none;
+  padding: 24px 24px 32px;
 }
+/* Focus lands here programmatically on open; the ring is drawn inside the
+   scroller so its overflow cannot clip it. */
+.guide-body:focus { outline: none; }
+.guide-body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .guide-standfirst {
   margin: 0;
   font-size: 15px;
   line-height: 1.55;
-  color: #4a4f57;
+  color: var(--muted-2);
 }
 
-.guide-section { margin-top: 22px; }
+.guide-section { margin-top: 24px; }
 
 .guide-section h2 {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: #212429;
+  line-height: 1.3;
+  color: var(--text);
 }
 
-/* 14.5/1.62 rather than the app's denser default: this is the one surface in
-   Tracely that gets read continuously rather than scanned. */
+/* 15/1.6 rather than the app's denser default: this is the one surface in
+   Tracely that gets read continuously rather than scanned (the only place the
+   type scale allows 15). */
 .guide-section p {
-  margin: 0 0 10px;
-  font-size: 14.5px;
-  line-height: 1.62;
-  color: #3d424a;
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  text-wrap: pretty;
 }
 
 .guide-section ul {
-  margin: 4px 0 10px;
+  margin: 4px 0 12px;
   padding-left: 20px;
 }
 
 .guide-section li {
-  margin-bottom: 6px;
-  font-size: 14.5px;
-  line-height: 1.55;
-  color: #3d424a;
+  margin-bottom: 8px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
 }
 
-.guide-note {
+/* Two classes so it out-ranks `.guide-section p` (the note is a <p>). */
+.guide-section .guide-note {
   margin-top: 12px;
   margin-bottom: 0;
-  padding: 12px 14px;
+  padding: 12px;
   border-left: 3px solid var(--accent);
-  border-radius: 0 8px 8px 0;
-  background: #fef2e7;
-  font-size: 13.5px;
-  color: #5a4636;
+  border-radius: 0 var(--r-ctl) var(--r-ctl) 0;
+  background: var(--accent-wash);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
 }
 
-/* Dark for the guide reader, BOTH ways dark is reachable — the explicit
-   Settings toggle and System on a dark OS. The note keeps its warm cast: a 12%
-   accent wash over the card with the text moved toward #f9a050, the dark
-   counterpart of cream-and-brown. */
-:root[data-theme='dark'] .guide-card {
-  background: var(--surface);
-}
-:root[data-theme='dark'] .guide-head {
-  border-bottom-color: var(--border);
-}
-:root[data-theme='dark'] .guide-title {
-  color: var(--text);
-}
-:root[data-theme='dark'] .guide-close {
-  color: var(--muted);
-}
-:root[data-theme='dark'] .guide-close:hover {
-  background: var(--surface-2);
-  color: var(--text);
-}
-:root[data-theme='dark'] .guide-standfirst {
-  color: var(--muted-2);
-}
-:root[data-theme='dark'] .guide-section h2 {
-  color: var(--text);
-}
-:root[data-theme='dark'] .guide-section p,
-:root[data-theme='dark'] .guide-section li {
-  color: var(--muted-2);
-}
-:root[data-theme='dark'] .guide-note {
-  background: rgba(244, 123, 32, 0.12);
-  color: #f9a050;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .guide-card {
-    background: var(--surface);
-  }
-  :root:not([data-theme='light']) .guide-head {
-    border-bottom-color: var(--border);
-  }
-  :root:not([data-theme='light']) .guide-title {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .guide-close {
-    color: var(--muted);
-  }
-  :root:not([data-theme='light']) .guide-close:hover {
-    background: var(--surface-2);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .guide-standfirst {
-    color: var(--muted-2);
-  }
-  :root:not([data-theme='light']) .guide-section h2 {
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .guide-section p,
-  :root:not([data-theme='light']) .guide-section li {
-    color: var(--muted-2);
-  }
-  :root:not([data-theme='light']) .guide-note {
-    background: rgba(244, 123, 32, 0.12);
-    color: #f9a050;
-  }
-}
+/* No dark block: every colour above is a token, so the Settings toggle and
+   System-on-a-dark-OS paths both resolve through :root. The note's
+   var(--accent-wash) is 16% in dark, which keeps its warm cast. */
 
 /* ---------------------------------------------------------------------------
    The Tracer panel (components/TracerChat.tsx)

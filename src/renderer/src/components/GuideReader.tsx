@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import type { Guide } from '../content/guides'
+import { CloseIcon } from './icons'
 
 /**
  * The reader behind a Resources card.
@@ -20,6 +21,7 @@ export default function GuideReader({
   onClose: () => void
 }): JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
 
   useEffect(() => {
     bodyRef.current?.focus()
@@ -36,7 +38,7 @@ export default function GuideReader({
         className="guide-card"
         role="dialog"
         aria-modal="true"
-        aria-label={guide.title}
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="guide-head">
@@ -44,12 +46,12 @@ export default function GuideReader({
             <p className="guide-kicker">
               Resources · {guide.readMinutes} min read
             </p>
-            <h1 className="guide-title">{guide.title}</h1>
+            <h1 id={titleId} className="guide-title">
+              {guide.title}
+            </h1>
           </div>
           <button className="guide-close" onClick={onClose} aria-label="Close guide">
-            <svg viewBox="0 0 21 21" fill="none" aria-hidden="true">
-              <path d="M4 4l13 13M17 4L4 17" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-            </svg>
+            <CloseIcon size={16} />
           </button>
         </header>
 
