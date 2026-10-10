@@ -3607,7 +3607,6 @@
     .card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
-      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .card[aria-expanded="true"] { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
     .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
