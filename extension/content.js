@@ -3747,7 +3747,8 @@
     .src { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
     .src:hover { background: var(--surface-2); }
     .stance {
-      display: inline-flex; align-items: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
+      display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
+      min-width: 68px; /* one width for supports / refutes / context / manual, so every title starts on one edge */
       font-size: 11px; font-weight: 600; border-radius: var(--r-chip);
       margin-top: 1px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
