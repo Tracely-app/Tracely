@@ -2776,62 +2776,131 @@ textarea:disabled {
 }
 
 /* Floating window */
+/* The window paints its own ground: html/body are transparent, so without
+   --bg here the preview canvas (and a light page) showed through in dark. */
 .floating-app {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background: var(--bg);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
 }
 
+/* Header strip: --surface over the body's --bg, so dark mode gets a dark bar
+   (it was the translucent --surface-2, a white strip in dark). */
 .floating-drag-region {
   -webkit-app-region: drag;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  background: var(--surface-2);
+  height: 40px;
+  padding: 0 8px 0 12px;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  font-weight: 700;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
 }
 
 .floating-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .floating-controls {
   -webkit-app-region: no-drag;
   display: flex;
+  align-items: center;
   gap: 4px;
 }
 
+/* Icon-only controls: 28x28, a 16px icon, the universal accent focus ring. */
 .floating-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
+  border-radius: 6px;
   background: transparent;
-  cursor: pointer;
-  font-size: 14px;
   color: var(--muted);
-  padding: 2px 6px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.floating-controls button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.floating-controls button:active {
+  background: var(--pressed);
+  color: var(--text);
 }
 
 .floating-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 10px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   background: var(--bg);
+}
+
+/* Header 40 -> input >=84 -> Analyze 36 -> results: neither control may be
+   squashed by the overflowing column (the textarea was cut to one line). */
+.floating-body > .textarea {
+  flex: 0 0 auto;
+  min-height: 84px;
+}
+
+.floating-body > .btn {
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.floating-body > .spinner-row {
+  margin: 8px 0;
+}
+
+.floating-body > .error-text {
+  margin: 0;
+}
+
+/* Empty result: the shared dashed-box recipe. */
+.floating-empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .floating-results {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+}
+
+/* No cards yet: no stray gap under the last row. */
+.floating-results:empty {
+  display: none;
 }
 
 /* Density mode (Settings > Appearance) — scopes to the most visibly dense
