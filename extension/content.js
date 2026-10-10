@@ -3742,32 +3742,36 @@
     button.act[disabled] { opacity: .5; cursor: not-allowed; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
-    .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-    .src { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
+    .sources { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .src { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
     .src:hover { background: var(--surface-2); }
     .stance {
-      font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--r-chip);
-      margin-top: 2px; flex-shrink: 0;
+      display: inline-flex; align-items: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
+      font-size: 11px; font-weight: 600; border-radius: var(--r-chip);
+      margin-top: 1px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
     .st-supports { color: #1f7a4d; }
     .st-refutes { color: #b02a2a; }
     .st-context { color: var(--chip-ink); }
     .st-manual { color: #245d99; }
-    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .src-ico:empty { display: none; }
     .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
-    .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
-    .src-title { font-size: 13px; font-weight: 500; color: var(--ink); display: block; }
-    .src a:hover { color: var(--accent-ink); }
-    .src-meta { font-size: 11px; color: var(--label); }
-    .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
+    .src a { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--ink); text-decoration: none; display: block; overflow-wrap: anywhere; }
+    .src-title { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--ink); display: block; overflow-wrap: anywhere; }
+    .src a:not(.src-open):hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+    .src a:not(.src-open):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+    .src-meta { font-size: 12px; line-height: 1.5; color: var(--label); }
+    .src-snip { font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .src-snip b { font-weight: 600; color: var(--ink); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     /* The receipt: the source's own words, and where they were read. */
-    .src-says { font-size: 12px; line-height: 16.8px; color: var(--ink); margin-top: 2px; user-select: text; }
-    .src-from { font-size: 10.5px; color: var(--label); margin-top: 2px; }
-    .src-unread { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+    .src-says { font-size: 12px; line-height: 1.5; color: var(--ink); margin-top: 2px; user-select: text; }
+    .src-from { font-size: 11px; line-height: 1.5; color: var(--label); margin-top: 2px; }
+    .src-unread { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .src-unread-row { opacity: .8; }
     .src-unread-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; background: none; border: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--muted); cursor: pointer; text-align: left; border-radius: 4px; }
     .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
     .src a.src-open {
@@ -3777,7 +3781,7 @@
       transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .src a.src-open:hover { background: var(--surface-2); color: var(--ink); }
-    .loading { font-size: 13px; color: var(--body); }
+    .loading { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
       flex: 1; min-width: 0; height: 32px; padding: 0 10px; font-size: 13px; line-height: 1;
