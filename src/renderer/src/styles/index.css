@@ -7008,10 +7008,10 @@ input[type='checkbox']:focus-visible,
 }
 .home-resource-read svg { flex-shrink: 0; }
 
-/* The exported 40x40 asset, at its designed size.
-   The tinted disc is INSIDE the SVG — it is one shape in the frame — so there
-   is no background here to get out of step with it, and both dimensions are
-   explicit rather than left to the box. */
+/* The exported 40x40 asset, at its designed size: a tinted radius-8 tile
+   with a 20px glyph from the icon set (1.75 stroke, round caps), the same
+   shape as .home-action-icon above. The tile is INSIDE the SVG, so there is
+   no background here to get out of step with it. */
 .home-resource-icon {
   display: block;
   width: 40px;
@@ -7039,12 +7039,12 @@ input[type='checkbox']:focus-visible,
   object-fit: contain;
   flex-shrink: 0;
   margin-left: -8px;
-  /* The supplied artwork has a white background rather than transparency, and
-     Home's ground is grey now — so it was a white tile with a mascot in it.
-     `multiply` drops white to nothing against any lighter ground while leaving
-     the orange disc and the linework untouched. Clipping to a circle was the
-     alternative and it cuts the plane's wing, which overhangs the disc on
-     purpose. */
+  /* The artwork's matte is transparent: its white corners and soft pink halo
+     were faded out inside the canvas (the disc, its white ring, the gloves and
+     the overhanging wing are the original pixels), so no tinted square shows
+     on the grey ground. `multiply` stays as a safety net. Clipping to a circle
+     was the alternative and it cuts the plane's wing, which overhangs the disc
+     on purpose. */
   mix-blend-mode: multiply;
 }
 
