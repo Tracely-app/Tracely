@@ -3589,33 +3589,37 @@
     /* ── Cards ────────────────────────────────────────────────────────── */
     /* Each card is its own box, so where one ends is never a guess; the
        open one (foldCards) is drawn a shade firmer, the folded ones are a
-       title and one line of their sentence. */
+       title and one line of why it was flagged (the sentence itself when a
+       card has no reason), so the writer can choose which to open. Focus is
+       the primitives' ink ring at the end of this sheet. */
     .card {
-      background: var(--surface); border: 1px solid #ececec; border-radius: 12px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .card[aria-expanded="true"] { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
     .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
-    .card.shut:hover { background: #fafafa; border-color: #dcdcdf; }
-    .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .card.shut > :not(.top):not(.quote) { display: none; }
-    .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card.shut:hover { background: var(--surface-2); border-color: var(--border-strong); }
+    .card.shut > :not(.top):not(.expl) { display: none; }
+    .card.shut .expl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+    .card.shut:not(:has(.expl)) > .quote { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .top { display: flex; align-items: center; gap: 8px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
     /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
     .d-quest { background: #ff5900; }
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
-    .d-flow { background: #7344f1; }
+    /* A flow issue is advice, not a finding: the pending grey (MARK_PENDING). */
+    .d-flow { background: #9a9ba1; }
     /* FEATURES: the switched-off controls are drawn and then hidden here, so
        render() stays the code server/test exercises. */
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
+    .ctitle { font-size: 14px; font-weight: 600; line-height: 20px; color: var(--ink); min-width: 0; }
     .x {
       margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; padding: 0;
       display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
@@ -3623,9 +3627,10 @@
       transition: color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
     .x:hover { color: var(--text); background: var(--surface-2); }
-    /* The writer's own words, set off by a rule; the advice under it is the body. */
-    .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
-    .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
+    /* The writer's own words in ink, set off by a rule; the reason under it is
+       muted — ink, muted and label are the card's only three greys. */
+    .quote { font-size: 13px; line-height: 1.5; color: var(--ink); padding-left: 10px; border-left: 2px solid var(--border); }
+    .expl { font-size: 13px; line-height: 1.5; color: var(--muted); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
