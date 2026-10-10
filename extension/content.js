@@ -5090,8 +5090,9 @@
             bar.setAttribute("x", String(rx + sb.f0 * rw));
             bar.setAttribute("y", String(ry + rh - 2));
             bar.setAttribute("width", String(Math.max(2, (sb.f1 - sb.f0) * rw)));
-            bar.setAttribute("height", "2.5");
-            bar.setAttribute("rx", "1.25");
+            // The same line field mode and the legend draw: 2 tall, radius 1.
+            bar.setAttribute("height", String(markLineHeight(pattern, false)));
+            bar.setAttribute("rx", String(MARK_LINE_RADIUS));
             bar.setAttribute("fill", svgMarkFill(color, pattern));
             bar.setAttribute("pointer-events", "none");
             const tf = sb.node.getAttribute("transform");
@@ -5106,7 +5107,7 @@
             wash.setAttribute("data-tracely-bar", "");
             wash.setAttribute("aria-hidden", "true");
             wash.setAttribute("pointer-events", "none");
-            wash.setAttribute("rx", "2");
+            wash.setAttribute("rx", String(MARK_BAND_RADIUS));
             wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above is the line
             if (tf) wash.setAttribute("transform", tf);
             wash.style.opacity = "0";
@@ -5128,8 +5129,8 @@
             const bar = document.createElement("div");
             Object.assign(bar.style, {
               position: "fixed", left: "0", top: "0",
-              width: "0px", height: "3px",
-              background: markFill(color, pattern), borderRadius: "2px", pointerEvents: "none",
+              width: "0px", height: `${markLineHeight(pattern, false)}px`,
+              background: markFill(color, pattern), borderRadius: `${MARK_LINE_RADIUS}px`, pointerEvents: "none",
               willChange: "transform",
             });
             marksLayer.appendChild(bar);
@@ -10299,6 +10300,10 @@
             width: r.width + "px", height: r.height + "px",
             background: "transparent", pointerEvents: "none",
             borderBottom: `2px solid ${color}`, opacity: "0.45",
+            // Inside the rect, not under it: the grey rule sits on the same
+            // bottom edge as the coloured line that replaces it (paintMark's
+            // line is bottom: 0), whatever box-sizing the page sets on divs.
+            boxSizing: "border-box",
           });
           layer.appendChild(bar);
         }
