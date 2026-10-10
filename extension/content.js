@@ -2122,7 +2122,15 @@
      - in the triangle, on the way to the card, nothing changes while the
        pointer moves; once it rests there HOVER_REST_MS, the underline under
        it opens, or over empty page the card closes. */
-  const HOVER_OPEN_MS = 70, HOVER_SWAP_MS = 90, HOVER_REST_MS = 220, HOVER_HIDE_MS = 140;
+  /* And the sweet spot (owner, 2026-10-09: "how come hovering off it doesnt
+     make the overlay go away? … I want the sweet spot where when I go off of
+     it it goes away but not so fast that I cant go back if I suddenly change
+     my mind"). Off the card and its underline it waits HOVER_HIDE_MS, fading
+     as it waits (popLeaving), so the writer sees it going and has the time to
+     come back — the pointer back on it brings it straight back — then it
+     goes. Measured on the stand-in, 2.21.35 closed in 140 ms, before a
+     change of mind could reach it. Opening and swapping stay quick. */
+  const HOVER_OPEN_MS = 70, HOVER_SWAP_MS = 110, HOVER_REST_MS = 300, HOVER_HIDE_MS = 350;
   function hoverIntent(s) {
     if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
     if (s.onCard || s.onOwn) return { act: "stay" };
@@ -3682,6 +3690,14 @@
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
+    /* A note rises in out of the launcher the first time it shows (not on
+       every re-render: the class is only on the render that brings it). */
+    .ready-ping.enter { animation: tracely-ping-in 260ms cubic-bezier(0.34, 1.45, 0.64, 1) both; transform-origin: 100% 100%; }
+    @keyframes tracely-ping-in {
+      from { opacity: 0; transform: translateY(10px) scale(0.95); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .ready-ping.enter { animation: none; } }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -5309,13 +5325,39 @@
       // Grow out of the caret, i.e. the underline — from below when the card
       // sits above its sentence.
       el.style.transformOrigin = `${ax}px ${popAbove ? "100%" : "0px"}`;
+      const dy = popAbove ? 8 : -8;
       const anim = el.animate(
         switching
-          ? [{ opacity: 0 }, { opacity: 1 }]
-          : [{ opacity: 0, transform: `translateY(${popAbove ? 6 : -6}px) scale(0.98)` }, { opacity: 1, transform: "none" }],
-        { duration: switching ? 70 : 120, easing: POP_EASE },
+          ? [{ opacity: 0, transform: `translateY(${dy / 2}px)` }, { opacity: 1, transform: "none" }]
+          : [{ opacity: 0, transform: `translateY(${dy}px) scale(0.92)` }, { opacity: 1, transform: "none" }],
+        { duration: switching ? 130 : 260, easing: switching ? POP_EASE : POP_SPRING },
       );
-      setTimeout(() => anim.cancel(), 500); // never a card held invisible by an animation that did not run
+      setTimeout(() => anim.cancel(), 700); // never a card held invisible by an animation that did not run
+      if (!switching) stepIn(popCard, 60);
+    }
+    // A pop with a little give: it overshoots a hair and settles, like Docs' own menus.
+    const POP_SPRING = "cubic-bezier(0.34, 1.45, 0.64, 1)";
+    /* The card's rows step in one after another — on open, and when its
+       content changes (a fix, the sources, a result) — never on a repaint of
+       the same content. */
+    function stepIn(card, delay = 0) {
+      if (!card || reducedMotion()) return;
+      [...card.children].slice(0, 8).forEach((row, i) => {
+        if (typeof row.animate !== "function") return;
+        const a = row.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 200, delay: delay + i * 40, easing: POP_EASE, fill: "backwards" });
+        setTimeout(() => a.cancel(), delay + i * 40 + 600);
+      });
+    }
+    /* Leaving, with a moment to come back: while a close waits, the card fades
+       toward half and drifts a hair from the pointer's way; the pointer back
+       on it or its underline brings it straight back. `translate` and opacity
+       only — placement owns left and top, the open and close own transform. */
+    function popLeaving(on, ms = HOVER_HIDE_MS) {
+      if (!popEl) return;
+      if (reducedMotion()) { popEl.style.opacity = on ? "0.6" : ""; return; }
+      popEl.style.transition = on ? `opacity ${ms}ms cubic-bezier(0.4, 0, 1, 1), translate ${ms}ms ease-in` : "opacity 150ms ease-out, translate 150ms ease-out";
+      popEl.style.opacity = on ? "0.35" : "";
+      popEl.style.translate = on ? `0 ${popAbove ? -4 : 4}px` : "";
     }
     function animatePopoverOut(el) {
       dropClosingPopover();
@@ -5327,9 +5369,12 @@
       let gone = false;
       const done = () => { if (gone) return; gone = true; el.remove(); if (popClosing === el) popClosing = null; };
       try {
+        // From where it is — part-faded if it was leaving — on out.
+        const from = Math.min(1, Number(getComputedStyle(el).opacity) || 1);
+        el.style.transition = "";
         el.animate(
-          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${popAbove ? 4 : -4}px)` }],
-          { duration: 110, easing: "ease-in", fill: "forwards" },
+          [{ opacity: from, transform: "none" }, { opacity: 0, transform: `translateY(${popAbove ? -6 : 6}px) scale(0.96)` }],
+          { duration: 160, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
         ).finished.then(done, done);
       } catch { done(); return; }
       setTimeout(done, 400); // belt and braces: never leave an invisible card behind
@@ -5761,8 +5806,10 @@
       popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
+      popStepShown = null;
       popEl.addEventListener("pointerenter", () => { popHeld = true; });
-      popEl.addEventListener("pointerleave", () => { popHeld = false; });
+      // Leaving the card is a move the hover hears even if the page swallows the ones after it.
+      popEl.addEventListener("pointerleave", (e) => { popHeld = false; hoverPt = { x: e.clientX, y: e.clientY }; hoverHit(); });
       popEditSyncs.add(paintPop); // every edit-state change repaints the card
       paintPop();
       popEl.style.visibility = "hidden";
@@ -6052,10 +6099,14 @@
       });
     }
 
+    let popStepShown = null; // what the open card shows: a new step steps in (stepIn)
     function paintPop() {
       if (!popEl || !popCard) return;
       popPlanned = false; // new content: its side and size are decided again (popHeld keeps the side)
       const hash = popHash;
+      const stepNow = `${hash}|${stepOf(hash).step}|${popFlowBar?.hash === hash ? "flow" : ""}`;
+      if (popStepShown !== null && popStepShown !== stepNow) Promise.resolve().then(() => stepIn(popCard));
+      popStepShown = stepNow;
       popCard.textContent = "";
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
       const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
@@ -6469,7 +6520,12 @@
        time; when its timer fires the pointer is looked at again, and the
        decision runs only if it still holds. */
     let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
-    function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
+    function clearHoverPending() {
+      if (!hoverPending) return;
+      clearTimeout(hoverPending.timer);
+      if (hoverPending.act === "hide" && !hoverPending.rest) popLeaving(false); // it came back
+      hoverPending = null;
+    }
     // Tracely's own panel and suggestions cover the underlines beneath them.
     function overTracelyUi(x, y) {
       const t = document.elementFromPoint?.(x, y) ?? null;
@@ -6522,6 +6578,9 @@
     }
     function hoverHit() {
       hoverRafBusy = false;
+      try { hoverDecide(); } catch (err) { console.debug(`[tracely] hover: ${err?.message ?? err}`); } // a throw must never leave a card up for good
+    }
+    function hoverDecide() {
       const { x, y } = hoverPt;
       const st = hoverState(x, y);
       const d = hoverIntent(st);
@@ -6543,11 +6602,18 @@
         const again = hoverIntent(now);
         if (again.act === d.act && again.hash === d.hash) runHoverDecision(again, now);
         // Something else holds now and no move may come to say so: decide again.
-        else hoverHit();
+        else {
+          if (pending.act === "hide" && !pending.rest) popLeaving(false);
+          hoverHit();
+        }
       }, d.ms);
       hoverPending = pending;
+      if (d.act === "hide" && !d.rest) popLeaving(true, d.ms); // fading while it waits: time to come back
     }
-    window.addEventListener("mousemove", (e) => {
+    /* Heard in the CAPTURE phase, mouse and pointer both: a page that stops a
+       move from reaching the window on its way up (Docs may, over its own
+       chrome) can never leave a card waiting for a move that never comes. */
+    const onHoverMove = (e) => {
       hoverPt = { x: e.clientX, y: e.clientY };
       if (hoverRafBusy) return;
       hoverRafBusy = true;
@@ -6557,14 +6623,16 @@
       const runHover = (fn) => { if (hoverRan) return; hoverRan = true; fn(); };
       setTimeout(() => runHover(hoverHit), 90);
       requestAnimationFrame(() => runHover(hoverHit));
-    }, { passive: true });
+    };
+    window.addEventListener("mousemove", onHoverMove, { passive: true, capture: true });
+    window.addEventListener("pointermove", onHoverMove, { passive: true, capture: true });
     // Out of the window (the toolbar, another app): no move will come to close
     // the card, so the pointer counts as nowhere.
     window.addEventListener("mouseout", (e) => {
       if (e.relatedTarget) return;
       hoverPt = { x: -1e4, y: -1e4 };
       hoverHit();
-    }, { passive: true });
+    }, { passive: true, capture: true });
     /* Typing closes an open card, as Grammarly's does — not typing into the
        card itself (a page number), not while an edit from it settles, not
        while the pointer is on it. Esc closes it too. */
@@ -6855,12 +6923,15 @@
       readyPing = { hash, n, at };
       setTimeout(() => { if (readyPing?.at === at) { readyPing = null; render(); } }, 15_000);
     }
+    let readyPingShown = null; // the note on screen: only a new one rises in (the panel re-renders often)
     function readyPingHtml() {
       const seg = readyPing ? segments.find((x) => x.hash === readyPing.hash) : null;
-      if (!seg || expanded) return "";
+      if (!seg || expanded) { readyPingShown = null; return ""; }
+      const enter = readyPingShown !== readyPing.hash ? " enter" : "";
+      readyPingShown = readyPing.hash;
       const n = readyPing.n;
       const what = n ? `${n} source${n === 1 ? "" : "s"} ready` : "Search finished";
-      return `<div class="ready-ping" role="status"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
+      return `<div class="ready-ping${enter}" role="status"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
     }
     // Show: the claim's card over its underline when it is on screen, else the panel.
     function showSourcesFor(hash) {
@@ -9243,6 +9314,7 @@
     let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
     let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
     let fixCardsRaf = 0;
+    const fixCardsShown = new Set(); // the suggestions already on the page: only a new one slides in
     function fixBarFor(key) {
       let best = null, top = Infinity;
       for (const b of docsBars) {
@@ -9349,6 +9421,7 @@
       if (!items.length) {
         fixCardsEl?.remove();
         fixCardsEl = null;
+        fixCardsShown.clear();
         if (fixCardsRaf) { cancelAnimationFrame(fixCardsRaf); fixCardsRaf = 0; }
         return;
       }
@@ -9361,7 +9434,16 @@
       if (fixCardsEl.dataset.sig !== sig) {
         fixCardsEl.dataset.sig = sig;
         fixCardsEl.textContent = "";
-        for (const [it, i] of items) fixCardsEl.appendChild(fixCardEl(it, i));
+        let k = 0;
+        for (const [it, i] of items) {
+          const card = fixCardEl(it, i);
+          fixCardsEl.appendChild(card);
+          // New in the margin: it slides in from the page's edge (`translate` — placement owns transform).
+          if (!fixCardsShown.has(it.key)) {
+            fixCardsShown.add(it.key);
+            if (!reducedMotion() && typeof card.animate === "function") card.animate([{ opacity: 0, translate: "18px 0" }, { opacity: 1, translate: "0 0" }], { duration: 260, delay: 40 + 70 * k++, easing: POP_SPRING, fill: "backwards" });
+          }
+        }
       }
       if (!fixCardsRaf) fixCardsRaf = requestAnimationFrame(placeFixCards);
     }
@@ -9397,14 +9479,17 @@
       fixCardsRaf = requestAnimationFrame(placeFixCards);
     }
     // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
+    let fixPingShown = false;
     function fixPingHtml() {
       const b = fixBatch;
-      if (!b || expanded) return "";
+      if (!b || expanded) { fixPingShown = false; return ""; }
       const ready = b.items.filter((it) => it.status === "ready").length;
-      if (!ready && !b.preparing) return "";
+      if (!ready && !b.preparing) { fixPingShown = false; return ""; }
+      const enter = fixPingShown ? "" : " enter";
+      fixPingShown = true;
       const busy = docBusy || b.applying ? " disabled" : "";
       const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
-      return `<div class="ready-ping fix-ping" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
+      return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
         + `${ready > 1 ? `<button class="act primary" data-fxp-all="1"${busy}>Accept all</button>` : ""}${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
     }
     function walkStripHtml() {

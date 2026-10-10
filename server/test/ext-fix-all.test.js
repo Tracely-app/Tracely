@@ -276,7 +276,9 @@ test("Stop leaves what is ready and prepares nothing more; a change whose senten
 test("it goes to each one, then leaves: a suggestion beside every change in the doc, each with Accept and Reject", async () => {
   const { X, log } = load();
   X.prepareFixes();
+  assert.match(X.fixPingHtml(), /class="ready-ping fix-ping enter"/, "it rises in the render that brings it");
   assert.match(X.fixPingHtml(), /Preparing fixes · 0 ready/, "the note above the launcher says it is working");
+  assert.match(X.fixPingHtml(), /class="ready-ping fix-ping"/, "and not again on every re-render after");
   await drain(() => !X.batch().preparing);
   await drain(() => false, 500);
   // The cursor went to each underline, in the order the changes got ready, and left.
