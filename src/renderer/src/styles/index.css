@@ -6231,8 +6231,12 @@ textarea:disabled {
    coloured card behind transparent PNGs. */
 .docmark-row-badge.has-icon,
 .argev-badge.has-icon {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  /* White in BOTH themes: most favicons are drawn for a light page, and a dark
+     tile would put dark-on-dark marks in an invisible box; a small white chip
+     reads as the site's own icon. --primary-contrast is the one token that is
+     white on both paths. The hairline is var(--border), which adapts. */
+  background: var(--primary-contrast);
+  border: 1px solid var(--border);
 }
 
 /* Favicons arrive at whatever size the publisher serves. `contain` keeps a
@@ -6244,24 +6248,6 @@ textarea:disabled {
   height: 16px;
   object-fit: contain;
   display: block;
-}
-
-/* Still white in dark. Most favicons are drawn for a light page and a dark
-   tile puts dark-on-dark marks into an invisible box; a small white chip reads
-   as the site's own icon rather than as a light patch. Only the border-color
-   adapts, and on BOTH dark paths — the bare media query this used to be missed
-   the Settings toggle and also fired under a dark OS with the toggle set to
-   light. */
-:root[data-theme='dark'] .docmark-row-badge.has-icon,
-:root[data-theme='dark'] .argev-badge.has-icon {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .docmark-row-badge.has-icon,
-  :root:not([data-theme='light']) .argev-badge.has-icon {
-    background: #fff;
-    border-color: rgba(255, 255, 255, 0.14);
-  }
 }
 
 /* --- Native window -------------------------------------------------------- */
