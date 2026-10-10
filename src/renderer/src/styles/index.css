@@ -4815,39 +4815,45 @@ textarea:disabled {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 19px 23px 8px;
+  gap: 16px;
+  padding: 24px;
   box-sizing: border-box;
-  /* The card's own chrome, which the frame draws and this view was missing —
-     `bg-white`, a 1px border, 28px radius and the -13px/13px shadow, all
-     read off 58:172. Without it the page rendered straight onto the
-     TRANSPARENT window (createMainWindow sets `transparent: true`), so there
-     was no card at all: text and cards floating over the desktop with the
-     drop shadow drawn around nothing.
-
-     Same four declarations as `.analyze-view` and `.settings-shell` above,
-     because every full-screen view in this app IS the card — see the note on
-     `.app-shell`. */
-  background: #fff;
-  border: 1px solid #000;
-  border-radius: 28px;
-  box-shadow: -13px 13px 4px rgba(0, 0, 0, 0.25);
+  /* The view IS the card, like `.analyze-view` and `.settings-shell`: surface
+     and a 1px line on the app's tokens (the frame's 28px radius and offset
+     shadow are zeroed by the full-bleed override at the end of this file, so
+     they are not restated here). Without a background the page rendered
+     straight onto the TRANSPARENT window (createMainWindow sets
+     `transparent: true`) — see the note on `.app-shell`. */
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   /* The card is the window's drag region; everything interactive below opts
      back out via the global input/button rule. */
   overflow: hidden;
 }
 
+/* Text link back to Home: muted at rest, text on hover, the 14px chevron from
+   the shared icon set. Same recipe as `.settings-back-link`. */
 .docs-back {
   -webkit-app-region: no-drag;
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
   background: none;
   border: none;
   padding: 0;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.5);
+  line-height: 1;
+  color: var(--muted);
   cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.docs-back:hover {
+  color: var(--text);
 }
 
 .docs-head {
@@ -4862,13 +4868,16 @@ textarea:disabled {
   margin: 0;
   font-size: 28px;
   font-weight: 600;
-  color: #212429;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .docs-subtitle {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   font-size: 14px;
-  color: #737880;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 /* The frame stacks the button over the sort control, right-aligned. */
@@ -4876,39 +4885,71 @@ textarea:disabled {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
+/* The app-chrome primary — the same flat accent, 36px box, radius and
+   hover/pressed as `.btn-primary`, with the 16px plus from the icon set. The
+   frame's gradient pill was the one primary in the product drawn differently,
+   and the owner's call was one recipe everywhere. */
 .docs-new {
   -webkit-app-region: no-drag;
-  width: 172px;
-  height: 40px;
-  border: none;
-  border-radius: 10px;
-  /* The frame's gradient, not the app's flat accent — this button is drawn
-     differently from every other primary in the product and copying
-     `--accent` here would quietly lose that. */
-  background: linear-gradient(to right, #f97316, #dc2626);
-  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--ctl-h);
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  background: var(--accent);
+  color: var(--primary-contrast);
   font: inherit;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    filter var(--dur) var(--ease);
+}
+
+.docs-new:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.docs-new:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.docs-new:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* "Sort" + the select, in a row. Box, border, chevron, type and focus ring all
+   come from the global `select` rule; only the 32px height and the width are
+   this page's. */
+.docs-sort-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docs-sort-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--muted);
 }
 
 .docs-sort {
   -webkit-app-region: no-drag;
-  width: 150px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid #d1d4db;
-  border-radius: 8px;
-  background: #fff;
-  color: #212429;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+  height: 32px;
+  min-width: 160px;
 }
 
 .docs-grid {
