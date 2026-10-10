@@ -5562,8 +5562,8 @@
       const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
       const icon = faviconUrl(src.url);
       if (!icon) return box;
-      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
-      const img = el("img", { width: "18px", height: "18px", display: "block" });
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: `1px solid ${DM.rowBorder}`, borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const img = el("img", { width: "16px", height: "16px", display: "block" });
       img.alt = "";
       img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
       img.addEventListener("error", () => wrap.remove(), { once: true });
@@ -5574,15 +5574,15 @@
     }
     function dmRow(src, selected, onSelect) {
       const row = el("button", {
-        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "8px",
         border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
       row.appendChild(dmSourceIcon(src));
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
-      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
-      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
+      meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", lineHeight: "18px", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
+      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.body, fontVariantNumeric: "tabular-nums" });
       sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
       // The app's match column never shrinks; here it says the source's stance on the claim.
       const stance = STANCE_LABEL[src.stance] ?? "Context";
@@ -5604,13 +5604,17 @@
         if (from) meta.appendChild(el("span", { fontSize: "11px", color: DM.hint }, from));
       }
       const trusted = TRUSTED_KINDS.has(src.kind);
-      meta.appendChild(el("span", { alignSelf: "flex-start", fontSize: "10.5px", fontWeight: "600", letterSpacing: "0.3px", borderRadius: "999px", padding: "2px 7px", marginTop: "3px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
       else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
+      if (!selected) {
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(0,0,0,0.03)"; });
+        row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+      }
       return row;
     }
     /* The sources the server could not read (backingSources' `unread`),
@@ -5996,21 +6000,25 @@
        the server's note on top (paintSources' `note`). */
     function dmWorkRow(src, selected, onSelect) {
       const row = el("button", {
-        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "8px",
         border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px" });
-      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflowWrap: "anywhere" }, src.title));
+      meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", lineHeight: "18px", color: DM.ink, overflowWrap: "anywhere" }, src.title));
       const line = citedMetaLine(src);
-      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflowWrap: "anywhere" }, line));
+      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.body, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" }, line));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box", marginTop: "2px" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
       else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
+      if (!selected) {
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(0,0,0,0.03)"; });
+        row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+      }
       return row;
     }
     function paintCited(key, put) {
@@ -6067,9 +6075,9 @@
       // work it meant until the writer picks the one they read.
       put(dmHead(by ? DM.amber : DM.green, by ? CITED_COPY.byAuthorTitle(by.name) : list.length === 1 ? CITED_COPY.one : CITED_COPY.many(list.length), styleChip));
       styleChip.style.marginLeft = "0";
-      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px", padding: "4px", margin: "-4px" }); // room for a row's focus ring
       scroll.appendChild(dmBody(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? "")));
-      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
+      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
       if (c.plan?.noEntry) scroll.appendChild(dmHint(CITED_COPY.noEntry));
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       list.forEach((m, i) => rows.appendChild(dmWorkRow(m, i === sel, () => { c.selected = i; paintPop(); })));
@@ -6409,7 +6417,7 @@
         // Opened, the unread list scrolls; the buttons below never move.
         const unreadBlock = unreadEl();
         if (unreadBlock) {
-          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column" });
+          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", padding: "4px", margin: "-4px" });
           box.appendChild(unreadBlock);
           put(box);
         }
@@ -6426,7 +6434,7 @@
       const styleChip = dmChip(CITE_STYLE_LABEL[style]);
       put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
       styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
-      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px", padding: "4px", margin: "-4px" }); // room for a row's focus ring
       scroll.setAttribute("data-pop-sources", "");
       const note = noteEl();
       if (note) scroll.appendChild(note);
