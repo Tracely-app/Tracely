@@ -3390,7 +3390,7 @@
      throw away what they were typing. */
   const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
   function orphanPillHtml() {
-    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+    return `<div class="pill quiet orphan" id="pill" role="status" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
   }
 
   /* ── the app's design tokens ───────────────────────────────────────────
@@ -9498,11 +9498,11 @@
     function renderDocsConsent() {
       root.innerHTML = `
         ${expanded ? `
-        <div class="panel opening">
-          <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+        <div class="panel opening" role="dialog" aria-labelledby="docsConsentTitle">
+          <div class="head" style="cursor:default"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
-              <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
+              <div class="top"><span class="ctitle" id="docsConsentTitle">Check this document with Tracely?</span></div>
               <div class="expl">${esc(DOCS_CONSENT_TEXT)}</div>
               <div class="row">
                 <button class="act primary" id="docsOn">Turn on for Google Docs</button>
@@ -9510,9 +9510,9 @@
               </div>
             </div>
           </div>
-          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
+          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);font-weight:500;text-decoration:underline;text-underline-offset:2px">Privacy</a></div>
         </div>` : ""}
-        <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
+        <div class="pill quiet" id="pill" role="button" tabindex="0" aria-expanded="${expanded ? "true" : "false"}" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       shadow.getElementById("docsOn")?.addEventListener("click", () => {
         expanded = false;
