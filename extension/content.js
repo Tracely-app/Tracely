@@ -3728,16 +3728,18 @@
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
     button.act {
-      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
-      border-radius: 999px; padding: 7px 14px;
-      font-size: 12.5px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
-      transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+      display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; line-height: 1;
+      border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink);
+      border-radius: var(--r-btn);
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer; white-space: nowrap;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
     button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
-    button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: #111; border-color: #111; color: #fff; }
-    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
-    button.act[disabled] { opacity: .5; cursor: default; }
+    button.act:active:not([disabled]) { background: rgba(0,0,0,.08); }
+    button.act.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+    button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
+    button.act.primary:active:not([disabled]) { background: #000; border-color: #000; }
+    button.act[disabled] { opacity: .5; cursor: not-allowed; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
     .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
