@@ -1378,7 +1378,7 @@
      else is an essay ("prose"). Measured on
      server/test/fixtures/writing-types.js (ext-writing-types.test.js). */
   function detectGenre(text) {
-    const raw = String(text ?? "").replace(/[\u000b\u2028\u2029]/g, "\n");
+    const raw = String(text ?? "").replace(/\r\n?|[\u000b\u2028\u2029]/g, "\n");
     const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
     if (!lines.length) return "prose";
     const letter = letterKind(raw, lines);
