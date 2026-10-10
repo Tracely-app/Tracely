@@ -217,14 +217,26 @@
 
   ul { list-style: none; }
   li {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 2px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.5; color: var(--text);
   }
   li:last-child { border-bottom: none; }
-  li .origin { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  li button { padding: 5px 12px; font-size: 11px; color: var(--body); }
+  li .origin { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The empty list: the app's dashed empty box. */
+  #noSites {
+    border: 1px dashed var(--border); border-radius: 12px; padding: 12px 14px; margin: 0;
+    font-size: 13px; line-height: 1.5; color: var(--muted);
+  }
+  /* Holds its line while the account is still being read, so the card does
+     not jump when the hint arrives. */
+  #acctHint { min-height: 20px; }
   .foot { font-size: 12px; line-height: 1.5; color: var(--label); }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  /* One focus ring for every control the Tab key reaches; the text inputs
+     draw the accent ring instead. */
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -295,7 +307,7 @@
       <h2>Sites with auto-check on</h2>
       <p class="hint">Automatic 10-second checking runs only on these sites. Everywhere else, nothing leaves the page until you click “Check once” in the widget.</p>
       <ul id="sites"></ul>
-      <p id="noSites" class="hint" style="margin-bottom:0">None yet — click into a text field on a site and flip “Auto-check on this site” in the Tracely widget.</p>
+      <p id="noSites" class="hint">None yet — click into a text field on a site and flip “Auto-check on this site” in the Tracely widget.</p>
     </section>
 
     <footer class="page-foot">
