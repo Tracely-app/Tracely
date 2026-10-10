@@ -5475,34 +5475,40 @@ textarea:disabled {
    is marked so a writer can see at a glance which button they are about to
    press; leaving the two identical is how "check" comes to mean two prices. */
 .argscore-checkall-row[data-paid='true'] {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 12px;
 }
 
 .argscore-checkall-row[data-paid='true'] .argscore-checkall {
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--text);
+  border: 1px solid var(--ink);
 }
+.argscore-checkall-row[data-paid='true'] .argscore-checkall:hover { background: var(--hover); }
+.argscore-checkall-row[data-paid='true'] .argscore-checkall:active { background: var(--pressed); }
 
 /* --- Full report: the pieces the Figma report frame adds ------------------ */
 
 /* The paragraph's number, leading its row. Monospaced digits so P1 and P14 are
    the same width and the names beside them stay on one left edge — a ragged
    column of names is what makes a fourteen-row list read as a jumble. */
-/* The frame's tag badge (404:221): 28x19 at 6px radius, #e8e9ec, 11px. */
+/* The tag badge on the shared chip recipe: 20px, 11/600, tabular digits. */
 .argscore-para-index {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 28px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: #e8e9ec;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--hover);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: #55565c;
-  text-align: center;
+  color: var(--muted-2);
 }
 
 /* What the paragraph is doing, where its own text used to be quoted back at
@@ -5511,8 +5517,8 @@ textarea:disabled {
    day someone lengthens one. */
 .argscore-para-blurb {
   margin: 0 0 8px;
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -5531,86 +5537,70 @@ textarea:disabled {
 .argscore-flow-item {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 3px 4px;
+  padding: 4px;
   border: 0;
   border-radius: 6px;
   background: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
 }
 
 .argscore-flow-item:hover {
-  background: var(--surface-3, rgba(127, 127, 127, 0.09));
+  background: var(--hover);
 }
+.argscore-flow-item:active { background: var(--pressed); }
 
 .argscore-flow-where {
   flex-shrink: 0;
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--muted-2);
 }
 
 .argscore-flow-what {
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
 /* The narrowed sentence the critique already produced. Green, and set apart
    from the quote above it, because the two are the same sentence twice and the
-   reader has to be able to tell at a glance which one is theirs. */
+   reader has to be able to tell at a glance which one is theirs. An inset on
+   the score-good wash with the label in score-good — both tokens flip for
+   dark, so no dark rule is needed. */
 .argscore-problem-rewrite {
   margin: 8px 0 0;
-  padding: 7px 9px;
-  border-radius: 8px;
-  background: rgba(28, 160, 96, 0.09);
+  padding: 8px 12px;
+  border-radius: var(--r-ctl);
+  background: var(--score-good-wash);
 }
 
 .argscore-problem-rewrite-label {
   display: block;
-  font-size: 9.5px;
-  font-weight: 750;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #1ca060;
+  color: var(--score-good);
 }
 
 .argscore-problem-rewrite-text {
-  margin: 3px 0 0;
-  font-size: 11.5px;
+  margin: 4px 0 0;
+  font-size: 12px;
   line-height: 1.5;
-  color: #14603b;
-}
-
-/* Dark mode keeps the hue and moves the lightness — the green has to stay
-   legible against a dark card without becoming the brightest thing on it.
-   BOTH dark paths, like every dark rule in this file: the bare media query
-   this used to be missed the Settings toggle (data-theme='dark' under a light
-   OS) and wrongly fired under a dark OS with the toggle set to light. */
-:root[data-theme='dark'] .argscore-problem-rewrite {
-  background: rgba(52, 199, 123, 0.12);
-}
-:root[data-theme='dark'] .argscore-problem-rewrite-text {
-  color: #7fe0ae;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .argscore-problem-rewrite {
-    background: rgba(52, 199, 123, 0.12);
-  }
-  :root:not([data-theme='light']) .argscore-problem-rewrite-text {
-    color: #7fe0ae;
-  }
+  color: var(--text);
 }
 
 /* The closing paragraph. Reads as prose, not as another statistic. */
 .argscore-summary-prose {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.55;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
