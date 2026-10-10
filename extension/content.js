@@ -5455,14 +5455,14 @@
     function dmHead(color, title, right = null) {
       const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
       h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
-      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", lineHeight: "20px", color: DM.ink, minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
       if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
       return h;
     }
-    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" }, text);
+    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.body, flex: "0 0 auto" }, text);
     const dmHint = (text) => el("span", { fontSize: "12px", color: DM.hint }, text);
     function dmChip(text) {
-      return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
+      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
     }
     /* A card's row of buttons. It wraps: the card is 320px and clips what
        overflows, and "Apply revision · Back · Explain in depth PRO" is wider
@@ -5475,11 +5475,15 @@
       return row;
     }
     function dmBtn(label, primary, { disabled = false, wide = false, title } = {}) {
+      // The finding surfaces' button: 32px, radius 8, ink primary / outlined
+      // secondary, colour-only hover, no press transform.
       const b = el("button", {
-        padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
-        fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
-        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
-        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+        display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box", flexShrink: "0",
+        height: "32px", padding: "0 12px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit", lineHeight: "1", opacity: disabled ? ".5" : "1",
+        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : APP.borderStrong}`,
+        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "500", width: wide ? "100%" : "",
+        transition: reducedMotion() ? "none" : "background-color .15s cubic-bezier(.2,.8,.2,1)",
       }, label);
       b.type = "button";
       b.disabled = disabled;
@@ -5493,21 +5497,27 @@
     /* A hint-styled control for what the app puts beside a button row (the
        "Usually 3–5 seconds" hint): the one place "Explain in depth" lives. */
     function dmLink(label) {
-      const b = el("button", { background: "none", border: "none", padding: "0", fontFamily: "inherit", fontSize: "12px", color: DM.hint, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }, label);
+      const b = el("button", { background: "none", border: "none", padding: "6px 0", fontFamily: "inherit", fontSize: "12px", fontWeight: "500", lineHeight: "16px", color: DM.body, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px", transition: reducedMotion() ? "none" : "color .15s cubic-bezier(.2,.8,.2,1)" }, label);
       b.type = "button";
       b.addEventListener("mouseenter", () => { b.style.textDecoration = "underline"; });
       b.addEventListener("mouseleave", () => { b.style.textDecoration = "none"; });
+      // Hover takes a grey link to ink; one a caller gave its own colour
+      // (See plans, in the accent) keeps it.
+      const rest = b.style.color;
+      let lit = false;
+      b.addEventListener("mouseenter", () => { if (b.style.color === rest) { lit = true; b.style.color = DM.ink; } });
+      b.addEventListener("mouseleave", () => { if (lit) { lit = false; b.style.color = rest; } });
       return b;
     }
     function dmBlock(label, ...kids) {
-      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "10px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
-      if (label) b.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.hint, letterSpacing: "0.6px" }, label));
+      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
+      if (label) b.appendChild(el("div", { fontSize: "11px", fontWeight: "600", lineHeight: "16px", color: DM.body, letterSpacing: ".04em", textTransform: "uppercase" }, label));
       for (const k of kids) if (k) b.appendChild(k);
       return b;
     }
-    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.45", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
-    const dmBlockMarker = (text) => el("div", { fontSize: "12.5px", fontWeight: "500", color: DM.ink }, text);
-    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.4", color: DM.body }, text);
+    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.5", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
+    const dmBlockMarker = (text) => el("div", { fontSize: "13px", fontWeight: "500", lineHeight: "1.5", color: DM.ink }, text);
+    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.5", color: DM.body }, text);
     function dmIssue(title, detail) {
       const w = el("div", { display: "flex", flexDirection: "column", gap: "2px", flex: "0 0 auto" });
       if (title) w.appendChild(el("div", { fontSize: "13px", fontWeight: "500", color: DM.ink }, title));
@@ -5635,8 +5645,13 @@
       w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
       for (const [key] of CITE_STYLES) {
         const on = key === current;
-        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        const p = el("button", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "26px", borderRadius: "999px", padding: "0 10px", fontFamily: "inherit", fontSize: "12px", lineHeight: "1", fontVariantNumeric: "tabular-nums", fontWeight: on ? "600" : "500", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : APP.borderStrong}`, cursor: "pointer", transition: reducedMotion() ? "none" : "background-color .15s cubic-bezier(.2,.8,.2,1)" }, CITE_STYLE_LABEL[key]);
         p.type = "button";
+        p.setAttribute("aria-pressed", on ? "true" : "false");
+        if (!on) {
+          p.addEventListener("mouseenter", () => { p.style.background = "rgba(0,0,0,0.04)"; });
+          p.addEventListener("mouseleave", () => { p.style.background = "#fff"; });
+        }
         p.addEventListener("click", () => onSet(key));
         w.appendChild(p);
       }
@@ -5795,7 +5810,20 @@
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
-      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: APP.shadowCard, boxSizing: "border-box", width: "100%", overflow: "hidden", lineHeight: "1.4" });
+      /* Inline styles cannot say :focus-visible or :disabled, so the card's
+         one stylesheet does, once, from APP: the ink ring every finding
+         surface shows on a keyboard stop, the accent ring on the page box,
+         and the disabled look that outlives a button re-enabled by code. */
+      if (!document.querySelector("style[data-tracely-pop-css]")) {
+        const css = el("style");
+        css.setAttribute("data-tracely-pop-css", "");
+        const P = "[data-tracely-docs-popover]";
+        css.textContent = `${P} button:focus-visible{outline:2px solid ${APP.ink};outline-offset:2px}`
+          + `${P} input:focus{outline:none;border-color:${APP.accent}!important;box-shadow:0 0 0 3px ${APP.ring}}`
+          + `${P} button:disabled{opacity:.5!important;cursor:not-allowed!important}${P} button:enabled{cursor:pointer!important}`;
+        (document.head || document.documentElement).appendChild(css);
+      }
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
       popEl.addEventListener("pointerenter", () => { popHeld = true; });
