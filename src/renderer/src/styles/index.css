@@ -3672,28 +3672,44 @@ textarea:disabled {
   border-top: 1px solid var(--border);
 }
 
-/* Full-height pills, not 10px-rounded rects — the shape on 370:135 and 404:129,
-   where the primary is an orange→red gradient and the secondary a white outline. */
-/* Pills at the frame's height (404:327): 41px, fully rounded, orange filled
-   beside a 1.5px outlined white. */
+/* The modal's button pair, on the app-chrome recipe: 36px at the control
+   radius, a 1px strong hairline, 14px type. The primary is the solid accent —
+   the frames' 41px orange→red gradient pills went with the rest of the app's. */
 .argscore-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
-  height: 41px;
-  border-radius: 999px;
+  min-width: 0;
+  height: var(--ctl-h);
+  padding: 0 18px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font: inherit;
   font-size: 14px;
   font-weight: 500;
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
   cursor: pointer;
-  border: 1.5px solid #d3d8d4;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .argscore-btn.primary {
-  background: linear-gradient(90deg, #f97316 0%, #ea3a0c 100%);
+  background: var(--accent);
   border-color: transparent;
-  color: #fff;
+  color: var(--primary-contrast);
+  font-weight: 600;
 }
 .argscore-btn.primary:hover { filter: brightness(1.06); }
+.argscore-btn.primary:active { filter: brightness(0.94); }
 .argscore-btn.secondary { background: var(--surface); color: var(--text); }
-.argscore-btn.secondary:hover { background: var(--surface-2); }
+.argscore-btn.secondary:hover { background: var(--hover); }
+.argscore-btn.secondary:active { background: var(--pressed); }
 
 /* The letter chip, on its own row under OVERALL SCORE as the frames place it. */
 /* The frame's grade pill (404:200): fully rounded, 13px, on the wash of its
