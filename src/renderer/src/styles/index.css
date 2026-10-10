@@ -3264,24 +3264,38 @@ textarea:disabled {
   margin-top: 12px;
 }
 
-/* Settings > Privacy — one row per destructive action. */
+/* Settings > Privacy — one row per destructive action. The row stays
+   neutral; the danger button is what says irreversible. */
 .settings-danger-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .settings-danger-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-tile);
   background: var(--surface-2);
 }
 .settings-danger-row > div:first-child {
   min-width: 0;
+}
+.settings-clear-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.settings-clear-done svg {
+  flex-shrink: 0;
+  color: var(--score-good);
 }
 
 /* Settings > Billing — the plan the account is on, and the way up from it.

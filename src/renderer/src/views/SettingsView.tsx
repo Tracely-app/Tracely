@@ -29,6 +29,7 @@ import {
   BellIcon,
   LinkIcon,
   CardIcon,
+  CheckIcon,
   BackIcon
 } from '../components/icons'
 import { tracelyApi } from '../lib/api'
@@ -969,7 +970,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                       Deletes past analyses, their claims and evidence. Saved sources stay.
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => setClearConfirm('history')} disabled={clearing}>
+                  <Button variant="danger" onClick={() => setClearConfirm('history')} disabled={clearing}>
                     Clear history
                   </Button>
                 </div>
@@ -980,13 +981,18 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                       Everything above, plus every source you saved and every citation generated.
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => setClearConfirm('all')} disabled={clearing}>
+                  <Button variant="danger" onClick={() => setClearConfirm('all')} disabled={clearing}>
                     Clear everything
                   </Button>
                 </div>
               </div>
               {clearError ? <p className="error-text" role="alert">{clearError}</p> : null}
-              {clearDone ? <p className="muted">{clearDone}</p> : null}
+              {clearDone ? (
+                <p className="settings-clear-done" role="status">
+                  <CheckIcon size={14} />
+                  {clearDone}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
