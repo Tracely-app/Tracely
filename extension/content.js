@@ -5909,12 +5909,14 @@
       const findSrc = (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && !(tip.kind === "excuse" && target) && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
       const fix = tipFixControls(tip, put);
       let cited = null, src = null;
+      // One primary to a card: with a fix of its own in the row, the
+      // lookups below it are the full-width secondaries.
       if (target) {
-        cited = dmBtn(CITED_COPY.find, true);
+        cited = dmBtn(CITED_COPY.find, !fix, { wide: Boolean(fix) });
         cited.addEventListener("click", () => { findCitedWork(tip.id); });
       }
       if (findSrc) {
-        src = dmBtn(POP_COPY.findSource, !target, { wide: Boolean(target) });
+        src = dmBtn(POP_COPY.findSource, !target && !fix, { wide: Boolean(target || fix) });
         src.addEventListener("pointerdown", () => prestartClaim(tip.id));
         src.addEventListener("click", () => { findClaimSource(tip.id); });
       }
