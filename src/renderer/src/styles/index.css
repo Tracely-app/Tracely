@@ -2389,20 +2389,6 @@ textarea:disabled {
   color: var(--accent);
 }
 
-/* Settings' primary action is a FLAT accent fill in the frame (33:364), not
-   the accent gradient `.btn-primary` carries elsewhere, and not ink. Scoped to
-   this view because `.btn-dark` is also the Library's "Save notes", which no
-   frame has asked to change. */
-.settings-view .btn-dark {
-  background: var(--accent);
-  color: #fff;
-}
-
-.settings-view .btn-dark:hover:not(:disabled) {
-  background: var(--accent);
-  filter: brightness(1.06);
-}
-
 /* Screen Watch's switch and every app checkbox. `accent-color` is the one-line
    way to tint a native control, and native is worth keeping here: these are
    real checkboxes with real keyboard behaviour, and a hand-built switch would
@@ -2520,45 +2506,64 @@ textarea:disabled {
 .settings-avatar-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .settings-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: var(--surface-2);
+  background: var(--bg);
   color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1;
   flex-shrink: 0;
 }
 
 .settings-avatar-meta {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
 }
 
+/* The secondary button recipe at 32px, beside a 56px avatar. */
 .settings-avatar-upload {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   color: var(--text);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
-  padding: 5px 12px;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.settings-avatar-upload:hover {
+  background-color: var(--hover);
+}
+
+.settings-avatar-upload:active {
+  background-color: var(--pressed);
 }
 
 .settings-avatar-meta p {
   margin: 0;
-  font-size: 10px;
-  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label);
 }
 
 .settings-avatar-photo {

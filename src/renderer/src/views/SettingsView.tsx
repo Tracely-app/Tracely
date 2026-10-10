@@ -434,7 +434,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
 
 
   if (!settings) {
-    return <div className="settings-view">{error ? <p className="error-text">{error}</p> : <p>Loading…</p>}</div>
+    return <div className="settings-view">{error ? <p className="error-text" role="alert">{error}</p> : <p>Loading…</p>}</div>
   }
 
   return (
@@ -555,8 +555,8 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   invited someone to write something that goes nowhere.
                 */}
               </div>
-              {profileError ? <p className="error-text">{profileError}</p> : null}
-              <Button variant="dark" onClick={requestSaveProfile} disabled={profileSaving}>
+              {profileError ? <p className="error-text" role="alert">{profileError}</p> : null}
+              <Button variant="primary" onClick={requestSaveProfile} disabled={profileSaving}>
                 {profileSaving ? 'Saving…' : 'Save changes'}
               </Button>
             </div>
@@ -670,7 +670,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   Add
                 </Button>
               </div>
-              {prefsError ? <p className="error-text">{prefsError}</p> : null}
+              {prefsError ? <p className="error-text" role="alert">{prefsError}</p> : null}
               <p className="muted settings-app-note">
                 Screen Watch only reads text in apps you check below — nothing is enabled anywhere until you pick
                 it. Uncheck an app any time to stop it from being read.
@@ -815,7 +815,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   />
                 </SettingsField>
               </div>
-              {hotkeyError ? <p className="error-text">{hotkeyError}</p> : null}
+              {hotkeyError ? <p className="error-text" role="alert">{hotkeyError}</p> : null}
               <p className="muted settings-app-note">
                 Grading level moves the letter, not the score out of 100 — the rubric measures the same six
                 things at every level. The same draft that earns an A in grade 7 is a C in grade 12, because the
@@ -984,7 +984,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   </Button>
                 </div>
               </div>
-              {clearError ? <p className="error-text">{clearError}</p> : null}
+              {clearError ? <p className="error-text" role="alert">{clearError}</p> : null}
               {clearDone ? <p className="muted">{clearDone}</p> : null}
             </div>
           ) : null}
@@ -1004,7 +1004,7 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
             three have not.
           */}
 
-          {error ? <p className="error-text">{error}</p> : null}
+          {error ? <p className="error-text" role="alert">{error}</p> : null}
         </div>
       </div>
     </div>

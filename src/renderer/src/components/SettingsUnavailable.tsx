@@ -57,7 +57,7 @@ export default function SettingsUnavailable({
           for it to save — a live button that silently does nothing is exactly
           what the earlier version of these pages got wrong. */}
       <div className="settings-actions">
-        <button className="btn btn-dark" disabled>
+        <button className="btn btn-primary" disabled>
           Save changes
         </button>
       </div>
