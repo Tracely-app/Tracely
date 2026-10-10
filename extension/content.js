@@ -3459,19 +3459,20 @@
       box-shadow: var(--shadow-card);
       cursor: pointer; user-select: none;
       font-size: 13px; font-weight: 500;
-      transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+    /* Hover darkens the outline; nothing moves (motion is colour only). */
+    .pill:hover { border-color: var(--border-strong); }
     /* Quiet pills (consent, site off, orphaned): muted text, a grey disc —
        nothing is wrong with the writing. Hovering the clickable ones darkens
        the label; the orphan is not clickable and keeps its resets. */
     .pill.quiet { color: var(--muted); font-weight: 500; }
     /* :where() adds no specificity, so the reduced-motion block below still wins. */
-    .pill:where(.quiet) { transition: transform .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1); }
+    .pill:where(.quiet) { transition: border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1); }
     .pill.quiet .plane { background: var(--border-strong); }
     .pill.quiet:hover { color: var(--text); }
     .pill.orphan { cursor: default; color: var(--muted); font-weight: 500; height: auto; min-height: 40px; padding: 8px 12px 8px 6px; line-height: 1.35; white-space: normal; text-wrap: pretty; max-width: min(360px, calc(100vw - 44px)); }
-    .pill.orphan:hover { transform: none; border-color: var(--border); color: var(--muted); }
+    .pill.orphan:hover { border-color: var(--border); color: var(--muted); }
     .plane {
       width: 24px; height: 24px; border-radius: 50%;
       background: var(--accent-gradient);
@@ -3483,8 +3484,8 @@
     .count, .badge {
       display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
       background: var(--chip-wash); color: var(--chip-ink);
-      border-radius: var(--r-chip);
-      font-size: 11px; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums;
+      border-radius: 999px;
+      font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
     }
     .count.off { color: var(--label); }
 
@@ -3575,9 +3576,12 @@
       position: sticky; bottom: -16px; z-index: 1;
       display: flex; flex-wrap: wrap; gap: 4px 12px; flex-shrink: 0;
       margin: 2px -24px -16px; padding: 8px 24px;
-      background: var(--surface); border-top: 1px solid var(--border);
+      background: var(--surface);
       font-size: 11px; line-height: 16px; color: var(--label);
     }
+    /* Its rule is inset to the content width, like the tally's and the
+       foot's right under it; the white strip itself stays full-bleed. */
+    .legend::before { content: ""; position: absolute; top: 0; left: 24px; right: 24px; border-top: 1px solid var(--border); }
     /* A card brought into view (a header chip, a clicked underline) stops
        above the strip instead of under it. */
     .tips:has(> .legend) > .card { scroll-margin-bottom: 64px; }
@@ -3630,7 +3634,12 @@
     .card.shut > :not(.top):not(.expl) { display: none; }
     .card.shut .expl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
     .card.shut:not(:has(.expl)) > .quote { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .top { display: flex; align-items: center; gap: 8px; }
+    /* Aligned to the title's FIRST line, so a title that wraps in a narrow
+       panel keeps its dot and its dismiss beside its first words: the 8px
+       dot centred on the 20px line, the 24px dismiss centred on it too. */
+    .top { display: flex; align-items: flex-start; gap: 8px; }
+    .top > .dot { margin-top: 6px; }
+    .top > .x { margin-top: -2px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
@@ -3679,7 +3688,7 @@
     .deep-btn.locked:hover { background: var(--surface); color: var(--label); }
     .deep-pro {
       display: inline-flex; align-items: center; margin-left: 6px; height: 16px; line-height: 16px; padding: 0 5px;
-      border-radius: var(--r-chip); background: var(--accent-wash); color: var(--accent-ink);
+      border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink);
       font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
     /* Every inset's label: the panel's one small-caps recipe. */
@@ -3785,7 +3794,7 @@
     .stance {
       display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
       min-width: 68px; /* one width for supports / refutes / context / manual, so every title starts on one edge */
-      font-size: 11px; font-weight: 600; border-radius: var(--r-chip);
+      font-size: 11px; font-weight: 600; border-radius: 999px;
       margin-top: 1px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
@@ -3863,12 +3872,18 @@
     .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
     button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
     .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    /* The two text links outside the source rows ("See plans" under a locked
+       deep dive, the consent foot's privacy link): the same ring, as .src a. */
+    .deep-note a:focus-visible, .foot a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
     .list { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
     .list::-webkit-scrollbar { width: 8px; }
     .list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid var(--surface); }
     .list::-webkit-scrollbar-track { background: transparent; }
     @media (prefers-reduced-motion: reduce) {
-      .launcher, .launcher:hover, .pill, .pill:hover, button.act, .chip, .deep-btn, .x, .src a.src-open, select, .cite-url input { transition: none; transform: none; }
+      /* Every transition in the sheet, not a list that misses the next one
+         (the grip and the close were still easing their colour). */
+      *, *::before, *::after { transition: none !important; }
+      .launcher, .launcher:hover, .pill, .pill:hover { transform: none; }
       .panel.opening, .card.flash, .deep-spin { animation: none; }
     }
   `;
@@ -5514,7 +5529,7 @@
     const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.body, flex: "0 0 auto" }, text);
     const dmHint = (text) => el("span", { fontSize: "12px", lineHeight: "1.5", color: DM.hint, fontVariantNumeric: "tabular-nums" }, text);
     function dmChip(text) {
-      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
+      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
     }
     /* A card's row of buttons. It wraps: the card is 320px and clips what
        overflows, and "Apply revision · Back · Explain in depth PRO" is wider
@@ -5656,7 +5671,7 @@
         if (from) meta.appendChild(el("span", { fontSize: "11px", color: DM.hint }, from));
       }
       const trusted = TRUSTED_KINDS.has(src.kind);
-      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
@@ -6325,7 +6340,7 @@
       if (v.kind === "result") {
         const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
         const w = dmIssue(title, v.text);
-        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", padding: "0 8px", borderRadius: "999px", background: APP.chipWash, color: APP.chipInk, margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", padding: "0 8px", borderRadius: "999px", background: APP.chipWash, color: APP.chipInk, margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
         if (!v.basis && !v.revision) return w;
         // What the fuller answer rests on, and its own fix — applied like the
