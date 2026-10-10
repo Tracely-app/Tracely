@@ -295,6 +295,27 @@ const CHIP_STYLE: CSSProperties = {
 }
 
 /**
+ * A citation-style choice (MLA / APA / Chicago): the chip recipe at 26px and
+ * 12px, the editor's .docmark-style-pill. A pill because it is a chip you can
+ * press, not an action. Its colours live on .tracely-style-pill, keyed off
+ * aria-pressed, so hover can change them.
+ */
+const STYLE_PILL: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  height: 26,
+  padding: '0 10px',
+  border: 'none',
+  borderRadius: 999,
+  fontFamily: 'inherit',
+  fontSize: 12,
+  fontWeight: 600,
+  lineHeight: 1,
+  whiteSpace: 'nowrap',
+  cursor: 'pointer'
+}
+
+/**
  * An icon-only control: 28×28, radius 8, a 16px icon from ICON_SVG, and the
  * chip wash on hover (the .tracely-icon-btn rule). Always with an aria-label.
  */
@@ -2751,13 +2772,15 @@ function CandidateRow({
     // Top-aligned once a receipt wraps under the title, so the icon stays
     // beside the title it names rather than drifting to the middle of a quote.
     alignItems: receipt?.quote ? 'flex-start' : 'center',
-    gap: 10,
+    gap: 8,
     padding: 8,
-    borderRadius: 10,
+    // The control radius: a source row is the editor's .docmark-row.
+    borderRadius: 8,
     // The unselected row keeps a transparent border of the same width, so
     // selecting one does not shift the row's contents by a pixel.
-    border: `1px solid ${selected && pickable ? '#e5e5e5' : 'transparent'}`,
-    background: selected && pickable ? SELECTED_BG : 'transparent',
+    border: `1px solid ${selected && pickable ? HAIRLINE : 'transparent'}`,
+    // Unset when not selected, so the .tracely-row-btn hover wash can show.
+    background: selected && pickable ? SELECTED_BG : undefined,
     textAlign: 'left',
     cursor: pickable ? 'pointer' : 'default',
     fontFamily: 'inherit',
@@ -2792,7 +2815,7 @@ function CandidateRow({
           {meta ? (
             <span
               style={{
-                color: DIM,
+                color: MUTED,
                 minWidth: 0,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
@@ -2821,14 +2844,10 @@ function CandidateRow({
             means "Tracely does not recognise this publisher", which is a fact
             about our list rather than about the site. */}
         <span
+          // The chip recipe, keeping the credibility colours.
           style={{
+            ...CHIP_STYLE,
             alignSelf: 'flex-start',
-            fontSize: 11,
-            fontWeight: 600,
-            borderRadius: 999,
-            padding: '2px 7px',
-            marginTop: 1,
-            whiteSpace: 'nowrap',
             background: candidate.credibility.citable ? '#eef7f0' : CHIP_BG,
             color: candidate.credibility.citable ? POSITIVE : MUTED
           }}
@@ -2840,7 +2859,7 @@ function CandidateRow({
   )
   if (pickable) {
     return (
-      <button onClick={onSelect} style={rowStyle}>
+      <button className="tracely-row-btn" onClick={onSelect} style={rowStyle}>
         {body}
         <Radio selected={selected} />
       </button>
@@ -3081,19 +3100,7 @@ function CitedWorkCard({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: POSITIVE, flexShrink: 0 }} />
         <div style={POPOVER_TITLE}>{citedWorkResultsTitle(response.candidates.length)}</div>
-        <span
-          style={{
-            flexShrink: 0,
-            background: CHIP_BG,
-            color: MUTED,
-            fontSize: 12,
-            fontWeight: 500,
-            borderRadius: 999,
-            padding: '3px 9px'
-          }}
-        >
-          {CITATION_STYLE_LABEL[style]}
-        </span>
+        <span style={{ ...CHIP_STYLE, flexShrink: 0 }}>{CITATION_STYLE_LABEL[style]}</span>
       </div>
       <div style={POPOVER_BODY}>{CITED_WORK_RESULTS_BODY_EXTERNAL}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
@@ -3102,17 +3109,18 @@ function CitedWorkCard({
           return (
             <button
               key={candidate.ref}
+              className="tracely-row-btn"
               data-cited-ref={candidate.ref}
               onClick={() => onSelect(candidate.ref)}
               style={{
                 width: '100%',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
+                gap: 8,
                 padding: 8,
-                borderRadius: 10,
-                border: `1px solid ${on ? '#e5e5e5' : 'transparent'}`,
-                background: on ? SELECTED_BG : 'transparent',
+                borderRadius: 8,
+                border: `1px solid ${on ? HAIRLINE : 'transparent'}`,
+                background: on ? SELECTED_BG : undefined,
                 textAlign: 'left',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
@@ -3132,7 +3140,7 @@ function CitedWorkCard({
                 >
                   {candidate.title}
                 </div>
-                <div style={{ fontSize: 12, color: DIM, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 12, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {citedWorkMeta(candidate)}
                 </div>
                 {/* Neutral, words doing the work — colour here means a finding. */}
@@ -3152,18 +3160,10 @@ function CitedWorkCard({
           return (
             <button
               key={option}
+              className="tracely-style-pill"
+              aria-pressed={active}
               onClick={() => onSetStyle(option)}
-              style={{
-                borderRadius: 999,
-                padding: '5px 11px',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                fontWeight: active ? 600 : 400,
-                color: active ? PAPER : MUTED,
-                background: active ? INK : PAPER,
-                border: active ? 'none' : '1px solid #e0e0e0',
-                cursor: 'pointer'
-              }}
+              style={STYLE_PILL}
             >
               {CITATION_STYLE_LABEL[option]}
             </button>
@@ -3493,19 +3493,7 @@ function CitationFlowCard({
             it that may be cited: a citation style is a question about a
             citation nobody is about to write. */}
         {mode === 'read-only' || !anyPickable ? null : (
-          <span
-            style={{
-              flexShrink: 0,
-              background: CHIP_BG,
-              color: MUTED,
-              fontSize: 12,
-              fontWeight: 500,
-              borderRadius: 999,
-              padding: '3px 9px'
-            }}
-          >
-            {CITATION_STYLE_LABEL[style]}
-          </span>
+          <span style={{ ...CHIP_STYLE, flexShrink: 0 }}>{CITATION_STYLE_LABEL[style]}</span>
         )}
       </div>
       <div style={POPOVER_BODY}>{checked ? receiptsBody(claimText, backing) : RECEIPTS_UNAVAILABLE}</div>
@@ -3522,18 +3510,23 @@ function CitationFlowCard({
           {groups.topic.length ? (
             <div style={column}>
               <button
+                className="tracely-btn-text"
                 onClick={() => setTopicOpen((open) => !open)}
                 aria-expanded={topicOpen}
                 style={{
                   ...groupLabel,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
                   textAlign: 'left',
-                  background: 'none',
+                  background: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
                   fontFamily: 'inherit'
                 }}
               >
-                <span aria-hidden="true">{topicOpen ? '▾' : '▸'}</span> {topicGroupLabel(groups.topic.length)}
+                <InlineIcon svg={topicOpen ? ICON_SVG.chevronDown : ICON_SVG.chevronRight} />
+                {topicGroupLabel(groups.topic.length)}
               </button>
               {topicOpen ? groups.topic.map(row) : null}
             </div>
@@ -3560,18 +3553,10 @@ function CitationFlowCard({
           return (
             <button
               key={option}
+              className="tracely-style-pill"
+              aria-pressed={active}
               onClick={() => onSetStyle(option)}
-              style={{
-                borderRadius: 999,
-                padding: '5px 11px',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                fontWeight: active ? 600 : 400,
-                color: active ? PAPER : MUTED,
-                background: active ? INK : PAPER,
-                border: active ? 'none' : '1px solid #e0e0e0',
-                cursor: 'pointer'
-              }}
+              style={STYLE_PILL}
             >
               {CITATION_STYLE_LABEL[option]}
             </button>
@@ -5375,7 +5360,20 @@ export default function OverlayApp(): JSX.Element {
           background: ${HOVER_WASH};
         }
         .tracely-row-btn {
+          background: transparent;
           transition: background 150ms ${EASE};
+        }
+        .tracely-style-pill {
+          background: ${CHIP_BG};
+          color: ${MUTED};
+          transition: background 150ms ${EASE}, color 150ms ${EASE};
+        }
+        .tracely-style-pill:hover {
+          color: ${INK};
+        }
+        .tracely-style-pill[aria-pressed='true'] {
+          background: ${INK};
+          color: ${PAPER};
         }
         .tracely-row-btn:hover {
           background: ${HOVER_WASH};
@@ -5390,6 +5388,7 @@ export default function OverlayApp(): JSX.Element {
         .tracely-pill:focus-visible,
         .tracely-list-row:focus-visible,
         .tracely-row-btn:focus-visible,
+        .tracely-style-pill:focus-visible,
         .tracely-launcher:focus-visible {
           outline: 2px solid ${INK};
           outline-offset: 2px;
@@ -5491,7 +5490,8 @@ export default function OverlayApp(): JSX.Element {
           .tracely-icon-btn,
           .tracely-pill,
           .tracely-list-row,
-          .tracely-row-btn {
+          .tracely-row-btn,
+          .tracely-style-pill {
             transition: none !important;
           }
         }
