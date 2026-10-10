@@ -3531,7 +3531,8 @@
     .grip { display: flex; color: var(--label); margin-left: 0; transition: color .15s cubic-bezier(.2,.8,.2,1); }
     .head:hover .grip { color: var(--muted); }
     .head .name { font-weight: 600; font-size: 16px; line-height: 1.3; color: var(--ink); white-space: nowrap; }
-    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
+    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 12px; border-bottom: 1px solid var(--border); }
+    .tally:empty { display: none; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
       border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
@@ -3544,13 +3545,17 @@
     .chip-ico svg { width: 12px; height: 12px; display: block; }
     .chip-clear { cursor: default; font-weight: 500; color: var(--ink); }
     .chip-clear:hover { border-color: var(--border); background: var(--surface); }
+    /* Icon-only dismiss: 28px, radius 8, transparent until hovered; its
+       ink focus ring comes from the primitives block. */
     .close {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
-      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
+      margin-left: 8px; flex-shrink: 0; width: 28px; height: 28px; border-radius: var(--r-btn);
+      border: none; background: transparent; color: var(--label); cursor: pointer;
+      font-size: 18px; font-weight: 500; line-height: 1; font-family: inherit;
       display: flex; align-items: center; justify-content: center;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .close:hover { background: #e7e7e7; }
+    .close:hover { background: var(--surface-2); color: var(--text); }
+    .close:active { background: var(--chip-wash); color: var(--text); }
     /* The one legend (never colour alone): what each underline's LINE means. */
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
