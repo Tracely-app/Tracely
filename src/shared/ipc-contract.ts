@@ -1279,3 +1279,117 @@ export interface SourcesVerifyRequest {
 export type SourcesVerifyResponse =
   | { status: 'checked'; receipts: SourceReceipt[] }
   | { status: 'unavailable'; reason: string }
+
+// ── Tracer Voice ────────────────────────────────────────────────────────────
+//
+// A spoken conversation with Tracer on OpenAI gpt-live-1. The renderer owns the
+// WebRTC peer (mic track out, Tracer's voice in, the "oai-events" data channel)
+// and talks to OpenAI directly for MEDIA only; the session itself is created by
+// the Tracely server (POST /api/voice/session), which holds the key, meters the
+// seconds and closes the call at its cap. Main sits between the two: it adds the
+// latest draft as context and relays the offer/answer SDP.
+
+/** Electron's systemPreferences.getMediaAccessStatus vocabulary, verbatim. */
+export type VoiceMicStatus = 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
+
+export type VoiceEnsureMicRequest = Record<string, never>
+/**
+ * macOS: the TCC status, after asking once when it was `not-determined` (the
+ * system prompt appears then, never again). Windows: the privacy toggle's
+ * status, never prompts. Linux and anything else: `unknown` — getUserMedia's
+ * own failure is then the only answer, and the renderer must handle it anyway.
+ */
+export interface VoiceEnsureMicResponse {
+  status: VoiceMicStatus
+}
+
+export interface VoiceStartRequest {
+  /** The renderer's local offer (`v=0…`), at most 20 000 characters (VOICE_MAX_SDP_CHARS, main/services/voice). */
+  sdp: string
+  voiceId: VoiceId
+}
+/**
+ * `sdp` is OpenAI's answer, to apply with setRemoteDescription. It is absent
+ * only when `mock` is true — a keyless server (TRACELY_MOCK=1) or the preview
+ * harness — and then there is no call to connect; the UI plays it as a demo.
+ */
+export interface VoiceStartResponse {
+  sdp?: string
+  sessionId: string
+  voice: { id: VoiceId; name: string }
+  /** This call's cap. The server sends session.close when it is reached. */
+  maxSeconds: number
+  /** Today's voice allowance left, in seconds, as the server counted it when this call started. */
+  remainingSeconds: number
+  mock?: boolean
+}
+
+export interface VoiceEndRequest {
+  sessionId: string
+}
+/** Seconds the server metered. Idempotent: a second end, or an unknown id, answers 0. */
+export interface VoiceEndResponse {
+  seconds: number
+}
+
+export interface VoiceTranscriptTurn {
+  role: 'user' | 'assistant'
+  text: string
+}
+/**
+ * A finished call's final captions, oldest first, added to a Tracer
+ * conversation as ordinary user / tracer messages (no prefix — the chat has no
+ * field to mark a message as spoken). `conversationId` is the conversation the
+ * panel is showing; without it, or when it no longer exists, the latest one.
+ * Consecutive turns by the same speaker are joined into one message.
+ */
+export interface VoiceSaveTranscriptRequest {
+  turns: VoiceTranscriptTurn[]
+  conversationId?: string
+}
+/** `saved` is false when there was nothing to save or the store refused it. */
+export interface VoiceSaveTranscriptResponse {
+  saved: boolean
+}
+
+/**
+ * Why voice.start / voice.end failed, in the renderer's own words — a subset of
+ * renderer/voice/types.ts VoiceErrorKind, so the engine passes it straight on.
+ * Mapped in main from the server's error kinds: plan_limit → plan, voice_daily
+ * → daily-limit, voice_busy → busy, an unreachable server or a timeout →
+ * network, anything else → server.
+ */
+export const VOICE_IPC_ERROR_KINDS = ['plan', 'daily-limit', 'busy', 'network', 'server'] as const
+export type VoiceIpcErrorKind = (typeof VOICE_IPC_ERROR_KINDS)[number]
+export interface VoiceIpcError {
+  kind: VoiceIpcErrorKind
+  /** Plain words a student can read. */
+  message: string
+}
+
+/**
+ * ipcRenderer.invoke keeps only an Error's MESSAGE across the bridge — `kind`
+ * on a thrown object never arrives. So main throws `[voice:<kind>] <message>`
+ * and the renderer's api wrapper reads the tag back with parseVoiceIpcError.
+ * One format, written and read here, so the two ends cannot drift.
+ */
+export function formatVoiceIpcError(error: VoiceIpcError): string {
+  return `[voice:${error.kind}] ${error.message}`
+}
+
+/**
+ * The tag back out of whatever Electron wrapped around it ("Error invoking
+ * remote method 'voice:start': Error: [voice:busy] …"). A message without a
+ * tag — a zod rejection, a programming error — is `server` with the message
+ * as it came, so the caller always gets a kind it can show.
+ */
+export function parseVoiceIpcError(raw: string): VoiceIpcError {
+  const match = /\[voice:([a-z-]+)\]\s*([\s\S]*)$/.exec(raw)
+  const kind = VOICE_IPC_ERROR_KINDS.find((k) => k === match?.[1])
+  if (match && kind) return { kind, message: match[2].trim() }
+  const message = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^[A-Za-z]*Error:\s*/, '')
+    .trim()
+  return { kind: 'server', message: message || 'Voice failed for an unknown reason.' }
+}

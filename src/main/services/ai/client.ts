@@ -207,7 +207,9 @@ export async function callServer<T>(
     | 'grade'
     | 'tracer'
     | 'find-sources'
-    | 'verify-sources',
+    | 'verify-sources'
+    | 'voice/session'
+    | 'voice/end',
   body: Record<string, unknown>,
   options: { model?: ServerModel } = {}
 ): Promise<T> {
