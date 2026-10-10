@@ -236,6 +236,12 @@
   /* One focus ring for every control the Tab key reaches; the text inputs
      draw the accent ring instead. */
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* A narrow tab: the 16px gutter and card padding of the app's small
+     layouts, so the account row keeps its two buttons side by side. */
+  @media (max-width: 480px) {
+    .wrap { padding: 24px 16px 48px; }
+    section { padding: 16px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; }
   }
