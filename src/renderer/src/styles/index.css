@@ -129,6 +129,32 @@
   --ring: rgba(168, 85, 247, 0.32);
 }
 
+/* Polish tokens — geometry, motion and the two neutral press washes every
+   control shares. Additive: no colour or type value above changes. The radii
+   are the whole scale (8 controls, 12 tiles, 16 cards); the two heights are
+   the only two a button or input in app chrome may be. */
+:root {
+  --r-ctl: 8px;
+  --r-tile: 12px;
+  --r-card: 16px;
+  --ctl-h: 36px;
+  --ctl-h-sm: 28px;
+  --dur: 150ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --hover: rgba(0, 0, 0, 0.06);
+  --pressed: rgba(0, 0, 0, 0.1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --hover: rgba(255, 255, 255, 0.08);
+    --pressed: rgba(255, 255, 255, 0.12);
+  }
+}
+:root[data-theme='dark'] {
+  --hover: rgba(255, 255, 255, 0.08);
+  --pressed: rgba(255, 255, 255, 0.12);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -143,15 +169,28 @@ body {
   margin: 0;
   color: var(--text);
   font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3,
 h4 {
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: normal;
   margin: 0;
+}
+
+b,
+strong {
+  font-weight: 600;
+}
+
+/* Every number that sits in a column or changes while you watch — word
+   counts, scores, tallies — lines up instead of jittering. */
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 input,
@@ -178,8 +217,8 @@ a,
 
 /* Custom scrollbar (replaces the OS-default one everywhere) */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -191,7 +230,7 @@ a,
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
+  background: var(--border-strong);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-corner {
