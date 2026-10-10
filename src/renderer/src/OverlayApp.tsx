@@ -931,71 +931,43 @@ const WEAK_VERDICTS: CritiqueVerdict[] = [
 
 /**
  * Widget-surface tokens. The panel runs a slightly different palette from the
- * hover popover in Figma — darker ink, warmer body grey, its own divider — and
- * its buttons are pills where the popover's are 8px rectangles. That is not an
- * inconsistency to reconcile: the popover is a glance over someone's document,
- * the panel is a workspace you have deliberately opened.
+ * hover popover in Figma — darker ink, warmer body grey, its own divider. Its
+ * buttons are the popover's: one 32px, 8px-radius recipe on every finding
+ * surface, so the panel no longer draws pills where the popover draws
+ * rectangles.
  */
 const W_INK = '#1a1a1f'
 const W_DIVIDER = '#e7e7e7'
 const W_TRACK = '#f0f0f0'
 
-// The three pill states the "Widget over Document" frames draw: filled for the
-// action the panel is offering, outlined for the one it isn't, and a flat grey
-// for an action already spent ("✓ Evidence Refreshed").
-//
-// `fontFamily: 'inherit'` is not decoration. A <button> does not inherit the
-// document font, so without it these drew in the UA default while every label
-// around them drew in Instrument Sans — the same class of near-miss that had
-// the overlay never loading the typeface at all.
-const WIDGET_PRIMARY_BTN: CSSProperties = {
-  border: 'none',
-  borderRadius: 999,
-  padding: '12px 18px',
-  fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: 500,
-  color: '#fff',
-  background: '#111',
-  cursor: 'pointer'
-}
+// The three button states the "Widget over Document" frames draw: filled for
+// the action the panel is offering, outlined for the one it isn't, and a flat
+// grey for an action already spent ("✓ Evidence Refreshed"). All three build
+// on PRIMARY/SECONDARY_BTN_STYLE, so the fill comes from the matching
+// .tracely-btn-* class and hover, press, focus and disabled come with it.
+const WIDGET_PRIMARY_BTN: CSSProperties = { ...PRIMARY_BTN_STYLE }
 
 const WIDGET_SECONDARY_BTN: CSSProperties = {
-  border: '1.5px solid #111',
-  borderRadius: 999,
-  padding: '12px 18px',
-  fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: 500,
-  color: W_INK,
-  background: '#fff',
-  cursor: 'pointer'
+  ...SECONDARY_BTN_STYLE,
+  border: `1px solid ${INK}`,
+  color: W_INK
 }
 
 const WIDGET_SPENT_BTN: CSSProperties = {
-  border: 'none',
-  borderRadius: 999,
-  padding: '12px 18px',
-  fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: 500,
-  color: '#8a8b90',
-  background: '#f0f0f0',
+  ...SECONDARY_BTN_STYLE,
+  border: '1px solid transparent',
+  color: LABEL,
+  // Inline on purpose: a spent action does not light up under the pointer.
+  background: W_TRACK,
   cursor: 'default'
 }
 
 /** Full-width, hairline-outlined — the design's "Show all (4)" row. */
 const WIDGET_SHOW_ALL_BTN: CSSProperties = {
+  ...SECONDARY_BTN_STYLE,
   width: '100%',
-  border: '1.5px solid #e2e2e2',
-  borderRadius: 999,
-  padding: '12px 18px',
-  fontFamily: 'inherit',
-  fontSize: 14,
-  fontWeight: 500,
-  color: W_INK,
-  background: '#fff',
-  cursor: 'pointer'
+  border: `1px solid ${HAIRLINE}`,
+  color: W_INK
 }
 
 /**
@@ -1119,17 +1091,8 @@ function CritiqueFixRow({
               () => undefined
             )
           }}
-          style={{
-            fontSize: 11.5,
-            fontWeight: 600,
-            padding: '3px 10px',
-            borderRadius: 999,
-            border: `1px solid ${W_DIVIDER}`,
-            background: '#fff',
-            color: W_BODY,
-            cursor: 'pointer',
-            flexShrink: 0
-          }}
+          // The small (28px) outlined button: same recipe, one step down.
+          style={{ ...SECONDARY_BTN_STYLE, height: 28, padding: '0 10px', fontSize: 12, color: W_BODY, flexShrink: 0 }}
         >
           {copied ? '✓ Copied' : 'Copy'}
         </button>
@@ -1377,7 +1340,7 @@ function WidgetClaimCard({
           otherwise leave its buttons floating mid-card. */}
       <div style={{ flex: 1, minHeight: 0 }} />
 
-      <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+      <div style={{ display: 'flex', gap: 8, width: '100%' }}>
         <button
           className={refreshStyle === WIDGET_PRIMARY_BTN ? 'tracely-btn-primary' : 'tracely-btn-secondary'}
           onClick={onRefreshEvidence}
@@ -1386,9 +1349,7 @@ function WidgetClaimCard({
             ...refreshStyle,
             flex: '1 0 0',
             minWidth: 0,
-            whiteSpace: 'nowrap',
-            opacity: evidenceBusy ? 0.6 : 1,
-            cursor: evidenceBusy ? 'default' : refreshStyle.cursor
+            whiteSpace: 'nowrap'
           }}
         >
           {refreshLabel}
@@ -1401,9 +1362,7 @@ function WidgetClaimCard({
             ...critiqueStyle,
             flex: '1 0 0',
             minWidth: 0,
-            whiteSpace: 'nowrap',
-            opacity: critiqueBusy ? 0.6 : 1,
-            cursor: critiqueBusy ? 'default' : 'pointer'
+            whiteSpace: 'nowrap'
           }}
         >
           {critiqueBusy ? 'Checking…' : claim.critique ? 'Re-check Argument' : 'Critique Argument'}
@@ -1520,6 +1479,7 @@ function ScoreChip({
   const color = structure ? evidenceScoreColor(structure.score) : DIM
   return (
     <button
+      className="tracely-pill"
       onClick={onOpen}
       title={
         structure
@@ -1533,17 +1493,22 @@ function ScoreChip({
         gap: 5,
         flexShrink: 0,
         border: `1px solid ${active ? color : '#e4e4e8'}`,
-        background: active ? `${color}14` : '#fff',
-        borderRadius: 999,
-        padding: '3px 9px',
+        // Transparent at rest (the panel is paper) so the hover wash shows.
+        background: active ? `${color}14` : 'transparent',
+        // A button, so the control radius rather than a chip's pill; 28px,
+        // the header tally size.
+        borderRadius: 8,
+        height: 28,
+        boxSizing: 'border-box',
+        padding: '0 10px',
         cursor: 'pointer',
         font: 'inherit'
       }}
     >
-      <span style={{ fontSize: 13, fontWeight: 700, color, lineHeight: 1 }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
         {structure ? structure.score : '—'}
       </span>
-      <span style={{ fontSize: 10.5, color: DIM, lineHeight: 1 }}>argument</span>
+      <span style={{ fontSize: 11, color: DIM, lineHeight: 1 }}>argument</span>
       {/* A dot rather than the word "provisional" — the header has room for one
           of them, and the tooltip carries the sentence. */}
       {structure && !structure.complete ? (
