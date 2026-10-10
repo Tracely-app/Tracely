@@ -320,7 +320,7 @@ const STYLE_PILL: CSSProperties = {
 }
 
 /**
- * An icon-only control: 28×28, radius 8, a 16px icon from ICON_SVG, and the
+ * An icon-only control: 28x28, radius 8, a 16px icon from ICON_SVG, and the
  * chip wash on hover (the .tracely-icon-btn rule). Always with an aria-label.
  */
 const ICON_BTN_STYLE: CSSProperties = {
