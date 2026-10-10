@@ -612,17 +612,19 @@ textarea:disabled {
 /* `.btn.analyze-cta` stood here — the 200x56 "Create Document" box. No
    renderer element carries the class any more. */
 
-/* New Session source-type picker (Analyze tab, pre-analysis state) */
+/* The editor's loading placeholder (AnalyzeView renders an empty `.analyze-view`
+   while a document opens). Radius and shadow are zeroed by the "Native window"
+   override further down, like every top-level view. */
 .analyze-view {
   position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  background: #fff;
-  border: 1px solid #000;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: 28px;
-  box-shadow: -13px 13px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
   /* The card is the drag handle and NOT the scroller. It was both, and
      Chromium blocks wheel scroll inside a drag region — so `overflow-y: auto`
      here did nothing, and anything below the fold after pasting text was
@@ -632,22 +634,7 @@ textarea:disabled {
   overflow: hidden;
 }
 
-.analyze-close {
-  position: absolute;
-  top: 28px;
-  left: 32px;
-  border: none;
-  background: transparent;
-  color: rgba(0, 0, 0, 0.7);
-  cursor: pointer;
-  padding: 4px;
-  transition: color 0.15s ease;
-}
-
-.analyze-close:hover {
-  color: #000;
-}
-
+/* Live in the Library view. The editor's own back button is `.docedit-back`. */
 .analyze-back {
   position: absolute;
   top: 20px;
@@ -655,125 +642,40 @@ textarea:disabled {
   z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  height: var(--ctl-h-sm);
   border: none;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(0, 0, 0, 0.68);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  padding: 4px;
-  transition: color 0.15s ease;
+  padding: 0 4px;
+  transition: color var(--dur) var(--ease);
 }
 
 .analyze-back:hover {
-  color: #000;
+  color: var(--text);
 }
 
-/* Dark mode for the two survivors above. `.analyze-view`'s only render site is
-   the full-window loading placeholder (AnalyzeView falls back to an empty
-   `.analyze-view` div while a document opens), so it takes --bg rather than
-   --surface: matching the window ground is what stops document-open flashing a
-   white frame in dark mode. `.analyze-back` is live in the Library view.
-   BOTH dark paths, like every dark rule in this file: the explicit Settings
-   toggle and the System-follows-OS fallback. Light mode is untouched — these
-   only ever match a dark root. */
+/* `.analyze-view` is the full-window loading placeholder, so in dark it takes
+   --bg rather than --surface: matching the window ground is what stops
+   document-open flashing a lighter frame. BOTH dark paths, like every dark
+   rule in this file: the explicit Settings toggle and the System-follows-OS
+   fallback. (`.analyze-back` is all tokens now and needs no dark rule.) */
 :root[data-theme='dark'] .analyze-view {
   background: var(--bg);
-  border-color: var(--border-strong);
 }
-:root[data-theme='dark'] .analyze-back { color: var(--muted-2); }
-:root[data-theme='dark'] .analyze-back:hover { color: var(--text); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .analyze-view {
     background: var(--bg);
-    border-color: var(--border-strong);
   }
-  :root:not([data-theme='light']) .analyze-back { color: var(--muted-2); }
-  :root:not([data-theme='light']) .analyze-back:hover { color: var(--text); }
 }
 
-.analyze-feedback {
-  width: 100%;
-  max-width: 620px;
-  margin: 18px 0 0;
-}
-
-.analyze-results {
-  width: 100%;
-  max-width: 620px;
-  margin-top: 24px;
-  text-align: left;
-  -webkit-app-region: no-drag;
-}
-
-.analyze-results .claim-card {
-  padding: 20px 22px;
-  border-radius: 16px;
-}
-
-.analyze-results .claim-actions {
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.analyze-results .claim-actions .btn {
-  flex: 1 1 180px;
-  min-height: 44px;
-}
-
-/* A `@media (max-width: 680px)` block sat here and could never match: the
-   main window is fixed at 870px wide and `resizable: false`, so the viewport
-   never gets near 680. Removed rather than left as a false promise of
-   responsiveness. */
-
-.source-unavailable-note {
-  margin: -20px 0 24px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 12px;
-  max-width: 740px;
-}
-
-/* "Analyzing your source" step-cycle panel — shown while a real detectClaims
-   call is in flight. Steps advance on a fixed timer for perceived progress;
-   there is no real backend sub-progress to bind to for a single request. */
-.analyzing-spinner-ring {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  border: 5px solid rgba(244, 123, 32, 0.15);
-  border-top-color: var(--accent);
-  animation: spin 1s linear infinite;
-  margin-bottom: 16px;
-}
-
-.analyzing-progress-track {
-  width: 100%;
-  max-width: 400px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-
-.analyzing-progress-fill {
-  height: 100%;
-  background: var(--accent-gradient);
-  border-radius: 999px;
-  transition: width 0.4s ease;
-}
-
-.analyzing-progress-label {
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
-  margin: 0 0 24px;
-}
+/* `.analyze-close`, `.analyze-feedback`, `.analyze-results*`, the
+   `.analyzing-*` progress panel and `.source-unavailable-note` stood here. No
+   renderer element carries any of them any more. */
 
 /* "Untitled Doc" editor (Analyze tab, Document source) — a real writing
    surface, not the loading/analyzing state. */
@@ -783,10 +685,10 @@ textarea:disabled {
      hardcoded height that clipped 24px off the bottom under compact density. */
   width: 100%;
   height: 100%;
-  background: #fff;
-  border: 1px solid #000;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: 28px;
-  box-shadow: -13px 13px 4px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
   overflow: hidden;
   display: flex;
   /* Row since the Structure rail: the editor column moved into
@@ -810,11 +712,12 @@ textarea:disabled {
 
 .docedit-toolbar {
   position: relative;
-  height: 42px;
+  height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* 4 inside a group; the dividers' margins make 12 between groups. */
+  gap: 4px;
   /* Right padding clears the window controls — see --winctl-reserve. The
      toolbar is the top row of the card and "AI Insights" is its last item, so
      without this the close button lands on top of it.
@@ -834,41 +737,50 @@ textarea:disabled {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  height: var(--ctl-h-sm);
   border: none;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(0, 0, 0, 0.68);
-  font-size: 12px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  padding: 4px;
+  padding: 0 4px;
   flex-shrink: 0;
-  transition: color 0.15s ease;
+  transition: color var(--dur) var(--ease);
 }
 
 .docedit-back:hover {
-  color: #000;
+  color: var(--text);
 }
 
 .docedit-divider {
   width: 1px;
-  height: 20px;
-  background: rgba(0, 0, 0, 0.18);
+  height: 16px;
+  margin: 0 8px;
+  background: var(--border);
   flex-shrink: 0;
 }
 
 .docedit-icon {
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--muted);
   flex-shrink: 0;
 }
 
 .docedit-name {
+  height: var(--ctl-h-sm);
   border: none;
+  border-radius: 6px;
   background: transparent;
+  font: inherit;
   font-size: 14px;
   font-weight: 500;
-  color: #333;
-  width: 150px;
-  padding: 2px 4px;
+  color: var(--text);
+  width: 220px;
+  padding: 0 6px;
+  text-overflow: ellipsis;
+  transition: background var(--dur) var(--ease);
   /* The one thing in this row that gives way. The toolbar has to reserve
      --winctl-reserve on the right for the window controls, and at the design
      width its items are ~56px wider than what is left — so something shrinks.
@@ -889,50 +801,58 @@ textarea:disabled {
      title still sat at 134px of its 150. There is no ordering primitive in
      flexbox; a lopsided weight is how you say "this one first". */
   flex-shrink: 1000;
-  min-width: 76px;
+  /* The floor is a trade against the formatting group, which scrolls at the
+     default 898 whatever this is (its content is ~440px; there is ~300 left).
+     Measured: at 160 only Font, Size and B stay visible; at 88 B, U and I
+     do, whole, with "Saved" showing, and the title still reads "Untitled d…"
+     (all of it once focused). From ~1180 up nothing shrinks and the title
+     gets its full 220. */
+  min-width: 88px;
 }
 
 .docedit-name::placeholder {
-  color: #848484;
+  color: var(--label);
 }
 
+.docedit-name:hover {
+  background: var(--hover);
+}
+
+/* The formatting buttons: 28px icon buttons, quiet until hovered. */
 .docedit-toolbtn {
-  border: none;
-  background: rgba(0, 0, 0, 0.04);
-  border-radius: 6px;
-  height: 28px;
-  min-width: 22px;
-  padding: 0 6px;
-  font-size: 13px;
-  color: #595959;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
   flex-shrink: 0;
   transition:
-    background 0.12s ease,
-    color 0.12s ease,
-    transform 0.08s ease;
-}
-
-.docedit-toolbtn:active {
-  transform: scale(0.94);
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .docedit-toolbtn:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--hover);
+  color: var(--text);
 }
 
-/* Was `background: var(--accent-wash)`, which is rgba(244,123,32,0.07) in the
-   default theme — a 7% wash over a 4% grey button, i.e. no perceptible
-   difference between "bold is on" and "bold is off". A formatting toggle has
-   to read as pressed at a glance, so this uses the solid accent at a weight
-   that survives being a 22px button. */
+.docedit-toolbtn:active {
+  background: var(--pressed);
+}
+
+/* A formatting toggle has to read as pressed at a glance, so "on" is the solid
+   accent rather than a wash over a grey button. */
 .docedit-toolbtn.active {
   background: var(--accent);
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  color: var(--primary-contrast);
 }
 
 .docedit-toolbtn.active:hover {
@@ -940,8 +860,25 @@ textarea:disabled {
   filter: brightness(0.94);
 }
 
+/* The "A" text-colour button: the letter over a 2px bar in the current colour
+   (the bar's background is set inline once a colour has been picked). */
+.docedit-colorglyph {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.docedit-colorbar {
+  display: block;
+  width: 12px;
+  height: 2px;
+  margin-top: 2px;
+  background: currentColor;
+}
+
 .docedit-toolbtn.bold {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .docedit-toolbtn.italic {
@@ -952,28 +889,62 @@ textarea:disabled {
   text-decoration: underline;
 }
 
+/* The font and size menus: outlined 28px triggers with a trailing chevron,
+   the same shape as every other small control. */
 .docedit-fontname,
 .docedit-fontsize {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
-  color: #595959;
-  background: rgba(0, 0, 0, 0.04);
-  border: none;
-  border-radius: 6px;
+  justify-content: space-between;
+  gap: 4px;
   height: 28px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
   flex-shrink: 0;
-  background-position: right 6px center !important;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.docedit-fontname:hover,
+.docedit-fontsize:hover {
+  border-color: var(--border-strong);
+}
+
+.docedit-fontname[aria-expanded='true'],
+.docedit-fontsize[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  background: var(--hover);
 }
 
 .docedit-fontname {
-  width: 96px;
-  padding: 0 22px 0 8px !important;
+  width: 110px;
 }
 
 .docedit-fontsize {
-  width: 52px;
-  padding: 0 18px 0 8px !important;
+  width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+.docedit-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.docedit-menu-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
 }
 
 .docedit-color-input {
@@ -984,13 +955,11 @@ textarea:disabled {
   pointer-events: none;
 }
 
-.docedit-align-wrap {
-  position: relative;
-  flex-shrink: 0;
-}
+/* `.docedit-align-wrap` stood here; the align/share/more menus hang from
+   `.docedit-menu-wrap` like the font menus. */
 
-/* Replaced by `.docedit-tools`, which takes the free space AND holds the
-   formatting controls, so there is nothing left for a bare spacer to push. */
+/* The formatting group takes the free space AND holds the controls, so there
+   is nothing left for a bare spacer to push. */
 .docedit-tools {
   flex: 1 1 auto;
   /* Without this a flex item refuses to shrink below its content width, which
@@ -999,9 +968,9 @@ textarea:disabled {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   overflow-x: auto;
-  /* No scrollbar track through the middle of a 42px toolbar. The group is
+  /* No scrollbar track through the middle of a 44px toolbar. The group is
      scrolled with the wheel or by dragging, like every other overflow row in
      this app. */
   scrollbar-width: none;
@@ -1011,30 +980,40 @@ textarea:disabled {
   display: none;
 }
 
+/* The toolbar's one primary. 4px of margin on top of the row's 4 gap: two
+   text buttons 4 apart put Tracer's 2px-offset focus ring on this one's edge. */
 .docedit-insights {
+  margin-left: 4px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  border: 1px solid #000;
-  background: #fff;
-  border-radius: 8px;
-  padding: 6px 12px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--accent);
+  font: inherit;
   font-size: 13px;
-  font-weight: 500;
-  color: #212121;
+  font-weight: 600;
+  color: var(--primary-contrast);
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
-  transition: background 0.12s ease;
+  transition: opacity var(--dur) var(--ease);
 }
 
 .docedit-insights:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
+  filter: brightness(1.06);
+}
+
+.docedit-insights:active:not(:disabled) {
+  filter: brightness(0.94);
 }
 
 .docedit-insights:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: not-allowed;
 }
 
 /* `.docedit-share` / `.docedit-more` removed with the two permanently-disabled
@@ -1047,21 +1026,18 @@ textarea:disabled {
   -webkit-app-region: no-drag;
 }
 
-/* The page loses ~300px to the rail, so the generous side padding that suits
-   a full-width page would leave a very narrow measure. */
-.docedit-view.with-structure .docedit-body {
-  padding-left: 28px;
-  padding-right: 28px;
-}
+/* `.docedit-view.with-structure .docedit-body` stood here; the Structure rail
+   is gone and nothing sets the class. */
 
 .docedit-body {
   width: 100%;
   min-height: 100%;
   border: none;
-  padding: 24px 43px 60px;
+  /* 72 at the bottom clears the status row floating over the foot. */
+  padding: 32px 48px 72px;
   font-size: 15px;
   line-height: 1.6;
-  color: #1a1a1a;
+  color: var(--text);
   font-family: inherit;
   background: transparent;
   cursor: text;
@@ -1719,63 +1695,193 @@ textarea:disabled {
 
 .docedit-body:empty::before {
   content: attr(data-placeholder);
-  color: #a1a1a1;
+  color: var(--label);
+  font-size: 15px;
   pointer-events: none;
 }
 
+/* The page itself is the writing surface: its focus indicator is the caret,
+   and a 2px ring around the whole document would frame the prose, not a
+   control. Every control around it keeps the universal ring. */
 .docedit-body:focus {
   outline: none;
 }
 
-.docedit-wordcount {
+/* The status row, floating over the foot of the page: word count, grading
+   level, the underline legend once there are marks, and the evidence sweep's
+   progress while it runs. Every item is in the flow, so nothing can land on
+   top of anything else; `wrap-reverse` sends whatever does not fit to a line
+   ABOVE the word count rather than off the bottom of the window. The row
+   itself takes no pointer events, so the gaps between pills stay part of the
+   page; the pills take them back. */
+.docedit-status {
   position: absolute;
-  left: 23px;
+  left: 24px;
+  right: 24px;
   bottom: 16px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.docedit-status > * {
+  pointer-events: auto;
+}
+
+/* The chip recipe lives on the trigger so its focus ring follows the shape;
+   the wrapper (also `.docedit-menu-wrap`) only positions the menu. */
+.docedit-wordcount {
+  flex-shrink: 0;
+}
+
+.docedit-wordcount-trigger {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: #4d4d4d;
-  -webkit-app-region: no-drag;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
-.docedit-wordcount b {
-  color: #212121;
+.docedit-wordcount-trigger:hover,
+.docedit-wordcount-trigger[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.docedit-wordcount-trigger b {
+  color: var(--text);
   font-weight: 600;
 }
 
-/* `.docedit-wordcount` is position:absolute with a solid white background,
-   pinned bottom-left — and a positioned element paints over a static sibling
-   regardless of DOM order. This <p> is that static sibling, so the first ~80px
-   of every failure message ("Relay request failed: …") rendered underneath the
-   badge and the error read as truncated nonsense, or as nothing happening at
-   all. `.docedit-results` already solves this for itself with position+z-index;
-   this needs the same, plus left room so short messages clear the badge. */
+/* What year the document is graded against, beside the word count. Quieter
+   than the word count (24 to its 28): a property with a way to change it. */
+.docedit-gradelevel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.docedit-gradelevel:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.docedit-gradelevel-prefix {
+  font-weight: 400;
+  color: var(--label);
+}
+
+/* What the underlines mean, once there are any. Samples are 24x2 and drawn
+   with the marks' own patterns: solid 2, dashed 2, double 3 (1+1+1). On a
+   surface fill so prose scrolling under the row cannot run through it. */
+.docedit-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: var(--ctl-h-sm);
+  padding: 0 8px;
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--label);
+  white-space: nowrap;
+}
+
+.docedit-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docedit-legend-line {
+  flex-shrink: 0;
+  width: 24px;
+  height: 0;
+  border-bottom: 2px solid currentColor;
+}
+
+.docedit-legend-line.dashed {
+  border-bottom-style: dashed;
+}
+
+.docedit-legend-line.double {
+  border-bottom: 3px double currentColor;
+}
+
+/* The evidence sweep's progress: the word count's chip recipe with the one
+   spinner before the text. Status, not an alert; it goes away on its own. In
+   the row's flow rather than centred over it, where it landed on the legend
+   whenever marks were already drawn mid-sweep. */
+.docedit-checking {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.docedit-checking .spinner-row {
+  margin: 0;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* Errors and notices under the page. In the flow at the foot of
+   `.docedit-main`, with 56px below them so they sit clear of the status row
+   floating over the bottom 16 + 28 + a 12px breath. */
 .docedit-error {
   position: relative;
   z-index: 1;
-  padding: 10px 24px 10px 130px;
   margin: 0;
+  padding: 8px 24px;
 }
 
-.docedit-results {
-  /* Sits above .docedit-wordcount (see below) — a position:absolute element
-     always paints above a static sibling regardless of DOM order, so
-     without this the pinned-bottom-left word count floated over whatever
-     part of the claims/evidence panel landed underneath it. */
-  position: relative;
-  z-index: 1;
-  background: var(--surface);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  max-height: 220px;
-  overflow-y: auto;
-  padding: 16px 24px;
-  -webkit-app-region: no-drag;
+.docedit-error:last-of-type {
+  margin-bottom: 56px;
 }
+
+/* `.docedit-results`, the ClaimCard panel under the page, stood here. Nothing
+   renders it any more (see the note at the foot of AnalyzeView's editor). */
 
 /* --- Buttons: one recipe ---------------------------------------------------
    Secondary is the base: 36px, radius 8, 1px border-strong on surface, 14/500.
@@ -3312,13 +3418,25 @@ textarea:disabled {
   /* Shrinkable, and first to go: it says "Saved". Losing a few characters of
      it costs nothing next to the toolbar's controls overlapping. */
   flex-shrink: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
   overflow: hidden;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--label);
+  font-variant-numeric: tabular-nums;
   padding: 0 4px;
-  min-width: 46px;
-  text-align: right;
+  /* 8 + the toolbar's 4 = 12 between the formatting group and the actions. */
+  margin-left: 8px;
+  /* Wide enough for "✓ Saved" and "Saving…", so neither shifts the row. */
+  min-width: 56px;
+}
+
+.docedit-savestate svg {
+  flex-shrink: 0;
+  color: var(--score-good);
 }
 
 /* -- Argument Score modal — what "AI Insights" opens -----------------------
@@ -4771,19 +4889,39 @@ textarea:disabled {
   display: inline-flex;
 }
 
-/* The word-count chip is a menu trigger now (234:85), so the chip's own
-   styling moves onto the button and the wrapper only positions. */
-.docedit-wordcount-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
+/* The formatting group is a horizontal scroller, and a scroller clips both
+   axes — so the five menus hanging from it (font, size, align, share, more)
+   opened INSIDE the 44px row and were never visible. Fixed with auto insets
+   puts each at its static place (the trigger's top-left, scroll included) but
+   out of the scroller's clip; the margin drops it 6px below the 28px trigger.
+   `!important` only beats ToolbarMenu's inline left/right: 0, which would
+   otherwise pin it to the window edge. Right-hung menus (share, more) shift
+   back by their own width less the 28px trigger. Position only — the menu's
+   look stays `.toolbar-menu`'s. */
+.docedit-tools .toolbar-menu {
+  position: fixed;
+  top: auto;
+  left: auto !important;
+  right: auto !important;
+  margin-top: 34px;
+  /* A fixed box's static position ignores the scroller's offset; AnalyzeView
+     publishes it as --tools-scroll on scroll so the menu stays under its
+     trigger when the group has been scrolled. */
+  margin-left: calc(-1 * var(--tools-scroll, 0px));
 }
+
+.docedit-tools .toolbar-menu[style*='right'] {
+  transform: translateX(calc(-100% + 28px));
+}
+
+/* The word count sits at the foot of the page, so its menu opens upward. */
+.docedit-wordcount .toolbar-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+/* The word-count chip is a menu trigger (234:85); its recipe is with the
+   status row, under `.docedit-status`. */
 
 /* Visually hidden, still announced. */
 .sr-only {
@@ -5423,10 +5561,12 @@ textarea:disabled {
  * changed to fix. A band that is simply there cannot fail that way. */
 .docedit-flash {
   position: absolute;
-  border-radius: 3px;
+  border-radius: 4px;
   pointer-events: none;
-  background: rgba(255, 89, 0, 0.22);
-  box-shadow: 0 0 0 1.5px rgba(255, 89, 0, 0.75);
+  /* The thin-evidence finding hex at the same 22% / 75% it always was, mixed
+     rather than spelled as rgba so the one orange stays one literal. */
+  background: color-mix(in srgb, #ff5900 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, #ff5900 75%, transparent);
   opacity: 1;
 }
 
@@ -6754,28 +6894,33 @@ textarea:disabled {
 .tracer-send:disabled { opacity: 0.45; cursor: default; }
 .tracer-send svg { width: 19px; height: 19px; }
 
-/* Tracer's launcher in the editor toolbar. Sized and weighted like
-   `.docedit-insights` next to it, in outline rather than fill so the two do
-   not read as a pair of primary actions. */
+/* Tracer's launcher in the editor toolbar: the secondary beside the one
+   primary (`.docedit-insights`), outlined so the two do not read as a pair of
+   primary actions. aria-pressed while its panel is open. */
 .docedit-tracer {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  padding: 6px 12px;
-  border: 1px solid #d9dbe0;
-  border-radius: 8px;
-  background: #fff;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: #4a4f57;
+  color: var(--text);
   white-space: nowrap;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
-.docedit-tracer:hover { border-color: var(--accent); color: var(--accent); }
+.docedit-tracer:hover { background: var(--hover); }
+.docedit-tracer:active,
+.docedit-tracer[aria-pressed='true'] { background: var(--pressed); }
 
 /* A turn is the bubble plus anything attached to it, so the rewrite card sits
    under its own message rather than at the end of the log. */
@@ -6997,177 +7142,25 @@ textarea:disabled {
   }
 }
 
-/* The automatic evidence sweep's progress, beside the word count. Same corner,
-   same weight — it is status, not an alert, and it disappears on its own. */
-.docedit-checking {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--muted-2);
-  box-shadow: 0 2px 10px rgba(16, 18, 22, 0.06);
-  -webkit-app-region: no-drag;
-  pointer-events: none;
-}
-
-/* The grading level, on its own row above the page. Quiet — a label with a way
-   to change it, not an action. Right-aligned so it sits over the page's corner
-   and reads as a property of the document rather than a control. */
-.docedit-docmeta {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: flex-end;
-  padding: 8px 24px 0;
-}
-
-.docedit-gradelevel {
-  flex-shrink: 0;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-2);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--muted-2);
-  white-space: nowrap;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-.docedit-gradelevel:hover { border-color: var(--accent); color: var(--accent); }
+/* `.docedit-checking`, `.docedit-docmeta` and `.docedit-gradelevel` stood here.
+   The checking pill and the grading-level chip live in the status row at the
+   foot of the page now — see `.docedit-status`, beside `.docedit-wordcount`;
+   the meta row above the page is gone. */
 
 /* ── Document editor dark mode ────────────────────────────────────────────
  *
- * The editor page is a transcription of a light Figma frame — #fff sheet,
- * black-on-white chrome — and had no dark equivalents at all, so with a dark
- * theme it stayed a white sheet while its tokenized children (savestate,
- * checking pill, grade-level chip, results panel, error line) themed
- * themselves for the dark card they believed they were on. These rules turn
- * the sheet itself; those children then read correctly with no rule of their
- * own.
+ * Every editor rule reads tokens now, so the sheet, chrome, pills and page
+ * turn with the theme on their own. The one value that still has to flip is
+ * the toolbar's hairline: its light value is a literal 8% black because
+ * var(--border) at 18% reads too heavy under a white toolbar, and that literal
+ * is invisible on a dark sheet.
  *
  * BOTH dark paths, like every dark rule in this file: the explicit Settings
  * toggle AND the System-follows-OS fallback. Light mode is untouched — these
- * selectors only ever match a dark root.
- *
- * Two deliberate shapes in here:
- * - `.docedit-toolbtn` is guarded with `:not(.active)`. The dark base rule
- *   outweighs `.docedit-toolbtn.active` (three simple selectors against two),
- *   so an unguarded version would grey out the accent "bold is on" state.
- * - The `.docedit-insights`/`.docedit-tracer`/`.docedit-back` hovers are
- *   re-stated: the dark base rules outweigh the light `:hover` rules, so
- *   without them hovering would do nothing in dark.
- *
- * `.docedit-view`'s border-color only matters if the card border ever comes
- * back — the "Native window" override zeroes border-width on every top-level
- * view — but it is kept in step with `.library-view`'s var(--border-strong)
- * so a returning border would return correctly. */
-:root[data-theme='dark'] .docedit-view {
-  background: var(--surface);
-  border-color: var(--border-strong);
-}
+ * selectors only ever match a dark root. */
 :root[data-theme='dark'] .docedit-toolbar { border-bottom-color: var(--border); }
-:root[data-theme='dark'] .docedit-back { color: var(--muted-2); }
-:root[data-theme='dark'] .docedit-back:hover { color: var(--text); }
-:root[data-theme='dark'] .docedit-divider { background: var(--border); }
-:root[data-theme='dark'] .docedit-icon { color: var(--muted-2); }
-:root[data-theme='dark'] .docedit-name { color: var(--text); }
-:root[data-theme='dark'] .docedit-name::placeholder { color: var(--muted); }
-:root[data-theme='dark'] .docedit-toolbtn:not(.active) {
-  background: var(--surface-2);
-  color: var(--muted);
-}
-:root[data-theme='dark'] .docedit-toolbtn:not(.active):hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-:root[data-theme='dark'] .docedit-fontname,
-:root[data-theme='dark'] .docedit-fontsize {
-  background-color: var(--surface-2);
-  color: var(--muted);
-}
-:root[data-theme='dark'] .docedit-insights {
-  background: var(--surface);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-:root[data-theme='dark'] .docedit-insights:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
-}
-:root[data-theme='dark'] .docedit-tracer {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--muted-2);
-}
-:root[data-theme='dark'] .docedit-tracer:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-:root[data-theme='dark'] .docedit-body { color: var(--text); }
-:root[data-theme='dark'] .docedit-body:empty::before { color: var(--muted); }
-:root[data-theme='dark'] .docedit-wordcount {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--muted-2);
-}
-:root[data-theme='dark'] .docedit-wordcount b { color: var(--text); }
-:root[data-theme='dark'] .docedit-results { border-top-color: var(--border); }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .docedit-view {
-    background: var(--surface);
-    border-color: var(--border-strong);
-  }
   :root:not([data-theme='light']) .docedit-toolbar { border-bottom-color: var(--border); }
-  :root:not([data-theme='light']) .docedit-back { color: var(--muted-2); }
-  :root:not([data-theme='light']) .docedit-back:hover { color: var(--text); }
-  :root:not([data-theme='light']) .docedit-divider { background: var(--border); }
-  :root:not([data-theme='light']) .docedit-icon { color: var(--muted-2); }
-  :root:not([data-theme='light']) .docedit-name { color: var(--text); }
-  :root:not([data-theme='light']) .docedit-name::placeholder { color: var(--muted); }
-  :root:not([data-theme='light']) .docedit-toolbtn:not(.active) {
-    background: var(--surface-2);
-    color: var(--muted);
-  }
-  :root:not([data-theme='light']) .docedit-toolbtn:not(.active):hover {
-    background: rgba(255, 255, 255, 0.1);
-  }
-  :root:not([data-theme='light']) .docedit-fontname,
-  :root:not([data-theme='light']) .docedit-fontsize {
-    background-color: var(--surface-2);
-    color: var(--muted);
-  }
-  :root:not([data-theme='light']) .docedit-insights {
-    background: var(--surface);
-    border-color: var(--border-strong);
-    color: var(--text);
-  }
-  :root:not([data-theme='light']) .docedit-insights:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.06);
-  }
-  :root:not([data-theme='light']) .docedit-tracer {
-    background: var(--surface);
-    border-color: var(--border);
-    color: var(--muted-2);
-  }
-  :root:not([data-theme='light']) .docedit-tracer:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  :root:not([data-theme='light']) .docedit-body { color: var(--text); }
-  :root:not([data-theme='light']) .docedit-body:empty::before { color: var(--muted); }
-  :root:not([data-theme='light']) .docedit-wordcount {
-    background: var(--surface);
-    border-color: var(--border);
-    color: var(--muted-2);
-  }
-  :root:not([data-theme='light']) .docedit-wordcount b { color: var(--text); }
-  :root:not([data-theme='light']) .docedit-results { border-top-color: var(--border); }
 }
 
 /* ── Home at a wide window ────────────────────────────────────────────────
@@ -7226,16 +7219,16 @@ textarea:disabled {
  */
 @media (min-width: 1180px) {
   .docedit-body {
-    padding-left: max(43px, calc((100% - 820px) / 2));
-    padding-right: max(43px, calc((100% - 820px) / 2));
+    padding-left: max(48px, calc((100% - 820px) / 2));
+    padding-right: max(48px, calc((100% - 820px) / 2));
     font-size: 16px;
   }
 }
 
 @media (min-width: 1440px) {
   .docedit-body {
-    padding-left: max(43px, calc((100% - 900px) / 2));
-    padding-right: max(43px, calc((100% - 900px) / 2));
+    padding-left: max(48px, calc((100% - 900px) / 2));
+    padding-right: max(48px, calc((100% - 900px) / 2));
     font-size: 17px;
   }
 }
