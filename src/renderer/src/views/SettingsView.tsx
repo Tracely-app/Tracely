@@ -19,6 +19,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
 import SettingsField from '../components/SettingsField'
 import SettingsUnavailable from '../components/SettingsUnavailable'
+import Spinner from '../components/Spinner'
 import {
   UserIcon,
   SunIcon,
@@ -638,9 +639,9 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               </label>
               <div className="settings-app-grid">
                 {installedApps === null ? (
-                  <p className="muted">Scanning installed apps…</p>
+                  <Spinner label="Scanning installed apps…" />
                 ) : knownApps.length === 0 ? (
-                  <p className="muted">No apps found. Add one by name below.</p>
+                  <p className="settings-app-empty">No apps found. Add one by name below.</p>
                 ) : (
                   knownApps.map((app: ScannedApp) => {
                     const allowed = allowedApps.some((a) => a.toLowerCase() === app.exe.toLowerCase())
