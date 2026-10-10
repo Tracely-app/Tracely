@@ -3349,7 +3349,7 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 22px 24px 16px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3357,24 +3357,33 @@ textarea:disabled {
   margin: 0;
   flex: 1;
   font-size: 18px;
-  font-weight: 650;
-  letter-spacing: -0.1px;
-  color: #1a1a1f;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
 }
 
+/* The icon-only dismiss: 28x28 at the control radius, a 16px CloseIcon in the
+   muted grey, lifting to the text colour on a hover wash. */
 .argscore-close {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--muted-2);
-  font-size: 15px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-ctl);
+  border: none;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
-.argscore-close:hover { background: var(--border); }
+.argscore-close:hover { background: var(--hover); color: var(--text); }
+.argscore-close:active { background: var(--pressed); }
 
 /* The grading loader — Figma 391:540 "Analyzing Card", values read off the node
    rather than estimated: 340 wide, 32 padding, 24 radius, 16 gap, 1px black
@@ -3382,11 +3391,11 @@ textarea:disabled {
    / 14px radius belongs to the small dialogs. */
 .gradeload-card {
   width: 340px;
-  padding: 32px;
-  border-radius: 24px;
-  background: #fff;
-  border: 1px solid #000;
-  box-shadow: 0 10px 28px -4px rgba(15, 26, 20, 0.14);
+  padding: 28px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3443,45 +3452,42 @@ textarea:disabled {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1f;
+  line-height: 1.3;
+  color: var(--text);
 }
 
 .gradeload-sub {
   margin: 0;
   font-size: 13px;
-  line-height: 1.35;
-  color: #7e7f84;
+  line-height: 1.5;
+  color: var(--muted);
   text-align: center;
 }
 
-/* A writer who has asked the OS to stop moving things gets a still ring rather
-   than no feedback: the arc is already visible, so removing the spin costs
-   nothing but the motion. */
-@media (prefers-reduced-motion: reduce) {
-  .gradeload-spinner {
-    animation: none;
-  }
-  .gradeload-card {
-    animation: none;
-  }
-}
+/* Under reduced motion the sheet's one rule (top of file) stills the spin and
+   the entrance; the arc is already visible, so a still ring still reads as
+   "working". */
 
 .argscore-state {
-  padding: 34px 24px;
+  padding: 32px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   text-align: center;
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
+
+.argscore-state p { margin: 0; }
+.argscore-state .argscore-btn { flex: 0 0 auto; }
 
 .argscore-summary {
   display: flex;
   align-items: center;
-  gap: 28px;
-  padding: 23px 24px 22px;
+  gap: 24px;
+  padding: 24px;
 }
 
 .argscore-summary-text { min-width: 0; }
@@ -3490,18 +3496,32 @@ textarea:disabled {
   display: block;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #9a9ba1;
+  color: var(--label);
+}
+
+/* Chips: 20px pills, 11/600, tabular digits. The band colours are the score
+   tokens and stay as they are. */
+.argscore-provisional,
+.argscore-grade,
+.argscore-verdict-pill,
+.argscore-check-band {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .argscore-provisional {
-  display: inline-block;
-  margin-top: 5px;
-  padding: 2px 8px;
-  border-radius: 20px;
-  font-size: 10.5px;
-  font-weight: 600;
+  margin-top: 8px;
+  margin-right: 4px;
   color: var(--score-mid);
   background: var(--score-mid-wash);
 }
