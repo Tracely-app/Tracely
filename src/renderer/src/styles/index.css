@@ -5358,12 +5358,6 @@ textarea:disabled {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .docpending {
-    animation: none;
-  }
-}
-
 /* The prose POPOVER cannot live in the layer above, and this is why.
  *
  * `.docprose-layer` is z-index 1 on purpose — claim marks should read above
@@ -5405,18 +5399,19 @@ textarea:disabled {
   border: 0;
 }
 
-/* Lighter than the claim popover on purpose: 1px where that card has 2, no
-   dot, no shadow spread. A remark about a doubled word must not arrive with
-   the same weight as one about whether a statistic is real. */
+/* Lighter than the claim popover on purpose: 1px where that card has 2, a
+   tile's radius, no dot. A remark about a doubled word must not arrive with
+   the same weight as one about whether a statistic is real. Tokens, so this
+   is the dark card too. */
 .docprose-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  background: #fff;
-  border: 1px solid #d5d7dd;
-  border-radius: 12px;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tile);
   padding: 12px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
 }
 
 .docprose-card-head {
@@ -5426,9 +5421,10 @@ textarea:disabled {
 }
 
 .docprose-card-kind {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  line-height: 16px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -5436,15 +5432,16 @@ textarea:disabled {
   margin: 0;
   font-size: 13px;
   line-height: 1.45;
-  color: #1c1c1c;
+  color: var(--text);
 }
 
-/* The prose card's buttons are one step smaller than the claim card's, for the
-   same reason its border is thinner. */
+/* The prose card's buttons are one step smaller than the claim card's — the
+   28px small size — for the same reason its border is thinner. */
 .docprose-card .docmark-btn-primary,
 .docprose-card .docmark-btn-secondary {
+  height: 28px;
   font-size: 12px;
-  padding: 6px 10px;
+  padding: 0 10px;
 }
 
 /* The report's "Show me" landing. Fades out on its own — a permanent highlight
