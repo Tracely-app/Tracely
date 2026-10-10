@@ -2291,7 +2291,16 @@ function DocumentEditor({
           Insights" on the right, so the two ends stay reachable at every width
           and the middle scrolls.
         */}
-        <div className="docedit-tools">
+        <div
+          className="docedit-tools"
+          // The menus hanging from this group are position:fixed so its clip
+          // cannot hide them (see `.docedit-tools .toolbar-menu`), and a fixed
+          // box's static position ignores this scroller's offset. Publishing
+          // the offset lets the CSS take it back off. Display only.
+          onScroll={(e) =>
+            e.currentTarget.style.setProperty('--tools-scroll', `${e.currentTarget.scrollLeft}px`)
+          }
+        >
         {/* Custom menus, not <select>. The frames draw both as the same
             bordered dropdown every other toolbar menu uses (226:95, 234:46);
             a native select renders the OS's own popup, which cannot be styled
@@ -2852,7 +2861,9 @@ function DocumentEditor({
           </button>
           {wordMenuOpen ? (
             <ToolbarMenu
-              width={131}
+              // 131 was the frame's, and "Character count · 1,234" ran out of
+              // it; 208 holds five-digit counts at the menu's 13px.
+              width={208}
               onClose={() => setWordMenuOpen(false)}
               items={[
                 { label: `Word count · ${wordCount.toLocaleString()}` },

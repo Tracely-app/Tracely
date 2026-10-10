@@ -4887,6 +4887,37 @@ textarea:disabled {
   display: inline-flex;
 }
 
+/* The formatting group is a horizontal scroller, and a scroller clips both
+   axes — so the five menus hanging from it (font, size, align, share, more)
+   opened INSIDE the 44px row and were never visible. Fixed with auto insets
+   puts each at its static place (the trigger's top-left, scroll included) but
+   out of the scroller's clip; the margin drops it 6px below the 28px trigger.
+   `!important` only beats ToolbarMenu's inline left/right: 0, which would
+   otherwise pin it to the window edge. Right-hung menus (share, more) shift
+   back by their own width less the 28px trigger. Position only — the menu's
+   look stays `.toolbar-menu`'s. */
+.docedit-tools .toolbar-menu {
+  position: fixed;
+  top: auto;
+  left: auto !important;
+  right: auto !important;
+  margin-top: 34px;
+  /* A fixed box's static position ignores the scroller's offset; AnalyzeView
+     publishes it as --tools-scroll on scroll so the menu stays under its
+     trigger when the group has been scrolled. */
+  margin-left: calc(-1 * var(--tools-scroll, 0px));
+}
+
+.docedit-tools .toolbar-menu[style*='right'] {
+  transform: translateX(calc(-100% + 28px));
+}
+
+/* The word count sits at the foot of the page, so its menu opens upward. */
+.docedit-wordcount .toolbar-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 /* The word-count chip is a menu trigger (234:85); its recipe is with the
    status row, under `.docedit-status`. */
 
