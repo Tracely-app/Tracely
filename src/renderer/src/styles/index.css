@@ -2559,14 +2559,40 @@ textarea:disabled {
   margin-top: 4px;
 }
 
-/* Pro's Thorough allowance under the critique model: a thin native meter in
-   the theme's accent, full width of its field. */
+/* Pro's Thorough allowance under the critique model: a thin meter, full width
+   of its field — ink on var(--border) like every progress bar, var(--danger)
+   once it drops under the `low` mark (Chromium's native fill was a literal
+   green/yellow that ignored accent-color). */
 .settings-thorough-meter {
   display: block;
   width: 100%;
   height: 6px;
   margin-top: 6px;
-  accent-color: var(--accent);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  /* The track is the meter-bar below; a fill here would double its alpha. */
+  background: transparent;
+  overflow: hidden;
+}
+
+.settings-thorough-meter::-webkit-meter-bar {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.settings-thorough-meter::-webkit-meter-optimum-value {
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.settings-thorough-meter::-webkit-meter-suboptimum-value,
+.settings-thorough-meter::-webkit-meter-even-less-good-value {
+  border-radius: 999px;
+  background: var(--danger);
 }
 
 /* The row's checkbox drawn as a switch — still the native input, so the
