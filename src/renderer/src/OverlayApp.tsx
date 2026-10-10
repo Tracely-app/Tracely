@@ -828,12 +828,12 @@ const PROVIDER_COLOR: Record<SourceProvider, string> = {
   // Deliberately the same grey as 'manual' rather than a brand colour. An
   // encyclopedia entry is orientation, not evidence, and its badge should not
   // compete for attention with the peer-reviewed sources beside it.
-  wikipedia: '#6b7280',
+  wikipedia: MUTED,
   worldbank: '#0071bc',
   // The design's orange. A web source is the only kind here whose page the
   // writer can actually open and read in full, which is worth showing.
   web: '#ff5900',
-  manual: '#6b7280'
+  manual: MUTED
 }
 
 function ProviderBadge({ provider }: { provider: SourceProvider }): JSX.Element {
@@ -844,7 +844,7 @@ function ProviderBadge({ provider }: { provider: SourceProvider }): JSX.Element 
         height: 28,
         borderRadius: 8,
         background: PROVIDER_COLOR[provider],
-        color: '#fff',
+        color: PAPER,
         fontSize: 11,
         fontWeight: 600,
         display: 'flex',
@@ -881,7 +881,7 @@ function SourceIcon({ provider, faviconDataUrl }: { provider: SourceProvider; fa
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#fff',
+        background: PAPER,
         border: '1px solid #ededed'
       }}
     >
@@ -1264,7 +1264,7 @@ function WidgetClaimCard({
       {/* The design's one-line "score row": what the block below it is a list
           OF, rather than a rating of the claim. */}
       {showCritique ? (
-        <div style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a' }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: W_INK }}>
           {weakVerdict
             ? `${issues.length} issue${issues.length === 1 ? '' : 's'} found`
             : `Reviewed · ${verdictLabel}`}
@@ -1401,7 +1401,7 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
-        background: '#fff',
+        background: PAPER,
         overflow: 'hidden',
         textAlign: 'left',
         cursor: 'pointer',
@@ -1628,7 +1628,7 @@ function AnalyzingCard({ onClose }: { onClose: () => void }): JSX.Element {
       <div style={{ fontSize: 16, fontWeight: 600, color: W_INK, whiteSpace: 'nowrap' }}>
         Grading your writing...
       </div>
-      <div style={{ fontSize: 13, lineHeight: 1.4, color: '#7e7f84', textAlign: 'center' }}>
+      <div style={{ fontSize: 13, lineHeight: 1.4, color: MUTED, textAlign: 'center' }}>
         Checking thesis strength, evidence, and citations across each paragraph
       </div>
     </>
@@ -1715,7 +1715,7 @@ function ParagraphDetailPanel({
             fontFamily: 'inherit',
             fontSize: 13,
             fontWeight: 500,
-            color: '#666',
+            color: MUTED,
             cursor: 'pointer'
           }}
         >
@@ -1744,7 +1744,7 @@ function ParagraphDetailPanel({
         </button>
       </div>
 
-      <div style={{ fontSize: 18, fontWeight: 600, color: '#1a1a1f' }}>
+      <div style={{ fontSize: 18, fontWeight: 600, color: W_INK }}>
         {paragraphNames(structure?.paragraphs ?? [], structure?.titleParagraph)[index - 1] ??
           `Paragraph ${index}`}
         {paragraph ? ` — ${ROLE_LABEL[paragraph.role]}` : ''}
@@ -1780,7 +1780,7 @@ function ParagraphDetailPanel({
           boxSizing: 'border-box',
           fontSize: 13,
           lineHeight: 1.5,
-          color: '#1b1b21'
+          color: W_INK
         }}
       >
         {structure?.previews[index - 1] || 'No text captured for this paragraph.'}
@@ -1829,7 +1829,7 @@ function ParagraphDetailPanel({
               border: 'none',
               borderRadius: 8,
               background: 'linear-gradient(to right, #f97316, #dc2626)',
-              color: '#fff',
+              color: PAPER,
               fontFamily: 'inherit',
               fontSize: 13,
               fontWeight: 500,
@@ -1858,9 +1858,9 @@ function ParagraphDetailPanel({
                       height: 32,
                       borderRadius: 9,
                       overflow: 'hidden',
-                      background: article.faviconDataUrl ? '#fff' : PROVIDER_COLOR[article.provider],
+                      background: article.faviconDataUrl ? PAPER : PROVIDER_COLOR[article.provider],
                       border: article.faviconDataUrl ? '1px solid #ededed' : 'none',
-                      color: '#fff',
+                      color: PAPER,
                       fontSize: 11,
                       fontWeight: 600,
                       display: 'flex',
@@ -1881,7 +1881,7 @@ function ParagraphDetailPanel({
                     style={{
                       fontSize: 14,
                       fontWeight: 600,
-                      color: '#1a1a1f',
+                      color: W_INK,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -2719,7 +2719,7 @@ function Radio({ selected }: { selected: boolean }): JSX.Element {
           height: 18,
           borderRadius: 999,
           border: '1.5px solid #d1d1d1',
-          background: '#fff',
+          background: PAPER,
           flexShrink: 0
         }}
       />
@@ -2738,7 +2738,7 @@ function Radio({ selected }: { selected: boolean }): JSX.Element {
         justifyContent: 'center'
       }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: '#fff' }} />
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: PAPER }} />
     </div>
   )
 }
@@ -3184,8 +3184,8 @@ function CitedWorkCard({
                 fontFamily: 'inherit',
                 fontSize: 12,
                 fontWeight: active ? 600 : 400,
-                color: active ? '#fff' : MUTED,
-                background: active ? INK : '#fff',
+                color: active ? PAPER : MUTED,
+                background: active ? INK : PAPER,
                 border: active ? 'none' : '1px solid #e0e0e0',
                 cursor: 'pointer'
               }}
@@ -3592,8 +3592,8 @@ function CitationFlowCard({
                 fontFamily: 'inherit',
                 fontSize: 12,
                 fontWeight: active ? 600 : 400,
-                color: active ? '#fff' : MUTED,
-                background: active ? INK : '#fff',
+                color: active ? PAPER : MUTED,
+                background: active ? INK : PAPER,
                 border: active ? 'none' : '1px solid #e0e0e0',
                 cursor: 'pointer'
               }}
@@ -4847,7 +4847,7 @@ export default function OverlayApp(): JSX.Element {
                     width: widget.rect.width,
                     height: widget.rect.height,
                     boxSizing: 'border-box',
-                    background: '#fff',
+                    background: PAPER,
                     // `outline`, not `border`. A Figma stroke does not consume
                     // the frame's own padding box, but a CSS border does: with
                     // `border: 1px` the 560px card offers 510px of content
@@ -4921,7 +4921,7 @@ export default function OverlayApp(): JSX.Element {
                       width: finderRect.width,
                       maxHeight: finderRect.maxHeight,
                       boxSizing: 'border-box',
-                      background: '#fff',
+                      background: PAPER,
                       // This card's own chrome, not the hover popover's: no
                       // border at all and a deeper shadow, which is what lifts
                       // it off the panel it is sitting on rather than off the
@@ -4974,7 +4974,7 @@ export default function OverlayApp(): JSX.Element {
                   top: panelPos.y,
                   width: widget.rect.width,
                   height: widget.rect.height,
-                  background: '#fff',
+                  background: PAPER,
                   // The panel's own chrome, which is not the popover's: 1px
                   // rather than 2px, radius 24 rather than 16, and a tighter
                   // shadow. It is a window you opened, not a note pinned over
@@ -5192,7 +5192,7 @@ export default function OverlayApp(): JSX.Element {
                     // The tail is drawn outside this box, so its own height
                     // comes out of the room the card has to grow into.
                     maxHeight: Math.max(1, pos.maxHeight - TAIL_HEIGHT),
-                    background: '#fff',
+                    background: PAPER,
                     border: CARD_BORDER,
                     borderRadius: CARD_RADIUS,
                     boxShadow: CARD_SHADOW,
