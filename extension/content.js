@@ -5478,14 +5478,14 @@
     function dmHead(color, title, right = null) {
       const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
       h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
-      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", lineHeight: "20px", color: DM.ink, minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
       if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
       return h;
     }
-    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" }, text);
-    const dmHint = (text) => el("span", { fontSize: "12px", color: DM.hint }, text);
+    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.body, flex: "0 0 auto" }, text);
+    const dmHint = (text) => el("span", { fontSize: "12px", lineHeight: "1.5", color: DM.hint, fontVariantNumeric: "tabular-nums" }, text);
     function dmChip(text) {
-      return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
+      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
     }
     /* A card's row of buttons. It wraps: the card is 320px and clips what
        overflows, and "Apply revision · Back · Explain in depth PRO" is wider
@@ -5498,11 +5498,15 @@
       return row;
     }
     function dmBtn(label, primary, { disabled = false, wide = false, title } = {}) {
+      // The finding surfaces' button: 32px, radius 8, ink primary / outlined
+      // secondary, colour-only hover, no press transform.
       const b = el("button", {
-        padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
-        fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
-        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
-        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+        display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box", flexShrink: "0",
+        height: "32px", padding: "0 12px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit", lineHeight: "1", opacity: disabled ? ".5" : "1",
+        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : APP.borderStrong}`,
+        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "500", width: wide ? "100%" : "",
+        transition: reducedMotion() ? "none" : "background-color .15s cubic-bezier(.2,.8,.2,1)",
       }, label);
       b.type = "button";
       b.disabled = disabled;
@@ -5516,21 +5520,27 @@
     /* A hint-styled control for what the app puts beside a button row (the
        "Usually 3–5 seconds" hint): the one place "Explain in depth" lives. */
     function dmLink(label) {
-      const b = el("button", { background: "none", border: "none", padding: "0", fontFamily: "inherit", fontSize: "12px", color: DM.hint, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }, label);
+      const b = el("button", { background: "none", border: "none", padding: "6px 0", fontFamily: "inherit", fontSize: "12px", fontWeight: "500", lineHeight: "16px", color: DM.body, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px", transition: reducedMotion() ? "none" : "color .15s cubic-bezier(.2,.8,.2,1)" }, label);
       b.type = "button";
       b.addEventListener("mouseenter", () => { b.style.textDecoration = "underline"; });
       b.addEventListener("mouseleave", () => { b.style.textDecoration = "none"; });
+      // Hover takes a grey link to ink; one a caller gave its own colour
+      // (See plans, in the accent) keeps it.
+      const rest = b.style.color;
+      let lit = false;
+      b.addEventListener("mouseenter", () => { if (b.style.color === rest) { lit = true; b.style.color = DM.ink; } });
+      b.addEventListener("mouseleave", () => { if (lit) { lit = false; b.style.color = rest; } });
       return b;
     }
     function dmBlock(label, ...kids) {
-      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "10px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
-      if (label) b.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.hint, letterSpacing: "0.6px" }, label));
+      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
+      if (label) b.appendChild(el("div", { fontSize: "11px", fontWeight: "600", lineHeight: "16px", color: DM.body, letterSpacing: ".04em", textTransform: "uppercase" }, label));
       for (const k of kids) if (k) b.appendChild(k);
       return b;
     }
-    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.45", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
-    const dmBlockMarker = (text) => el("div", { fontSize: "12.5px", fontWeight: "500", color: DM.ink }, text);
-    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.4", color: DM.body }, text);
+    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.5", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
+    const dmBlockMarker = (text) => el("div", { fontSize: "13px", fontWeight: "500", lineHeight: "1.5", color: DM.ink }, text);
+    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.5", color: DM.body }, text);
     function dmIssue(title, detail) {
       const w = el("div", { display: "flex", flexDirection: "column", gap: "2px", flex: "0 0 auto" });
       if (title) w.appendChild(el("div", { fontSize: "13px", fontWeight: "500", color: DM.ink }, title));
@@ -5572,11 +5582,11 @@
        the design's two-letter tile underneath it otherwise — and again if the
        image fails, so a row never shows an empty square. */
     function dmSourceIcon(src) {
-      const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+      const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "11px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
       const icon = faviconUrl(src.url);
       if (!icon) return box;
-      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
-      const img = el("img", { width: "18px", height: "18px", display: "block" });
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: `1px solid ${DM.rowBorder}`, borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const img = el("img", { width: "16px", height: "16px", display: "block" });
       img.alt = "";
       img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
       img.addEventListener("error", () => wrap.remove(), { once: true });
@@ -5587,15 +5597,15 @@
     }
     function dmRow(src, selected, onSelect) {
       const row = el("button", {
-        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "8px",
         border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
       row.appendChild(dmSourceIcon(src));
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
-      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
-      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
+      meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", lineHeight: "18px", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
+      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.body, fontVariantNumeric: "tabular-nums" });
       sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
       // The app's match column never shrinks; here it says the source's stance on the claim.
       const stance = STANCE_LABEL[src.stance] ?? "Context";
@@ -5617,13 +5627,17 @@
         if (from) meta.appendChild(el("span", { fontSize: "11px", color: DM.hint }, from));
       }
       const trusted = TRUSTED_KINDS.has(src.kind);
-      meta.appendChild(el("span", { alignSelf: "flex-start", fontSize: "10.5px", fontWeight: "600", letterSpacing: "0.3px", borderRadius: "999px", padding: "2px 7px", marginTop: "3px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
       else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
+      if (!selected) {
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(0,0,0,0.03)"; });
+        row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+      }
       return row;
     }
     /* The sources the server could not read (backingSources' `unread`),
@@ -5643,7 +5657,7 @@
           row.appendChild(dmSourceIcon(src));
           const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
           meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
-          meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.publisher || ""));
+          meta.appendChild(el("span", { fontSize: "12px", color: DM.body, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.publisher || ""));
           row.appendChild(meta);
           const go = dmBtn(RECEIPT_COPY.open, false, { title: src.url });
           go.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
@@ -5658,8 +5672,13 @@
       w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
       for (const [key] of CITE_STYLES) {
         const on = key === current;
-        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        const p = el("button", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "26px", borderRadius: "999px", padding: "0 10px", fontFamily: "inherit", fontSize: "12px", lineHeight: "1", fontVariantNumeric: "tabular-nums", fontWeight: on ? "600" : "500", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : APP.borderStrong}`, cursor: "pointer", transition: reducedMotion() ? "none" : "background-color .15s cubic-bezier(.2,.8,.2,1)" }, CITE_STYLE_LABEL[key]);
         p.type = "button";
+        p.setAttribute("aria-pressed", on ? "true" : "false");
+        if (!on) {
+          p.addEventListener("mouseenter", () => { p.style.background = "rgba(0,0,0,0.04)"; });
+          p.addEventListener("mouseleave", () => { p.style.background = "#fff"; });
+        }
         p.addEventListener("click", () => onSet(key));
         w.appendChild(p);
       }
@@ -5818,7 +5837,21 @@
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
-      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: APP.shadowCard, boxSizing: "border-box", width: "100%", overflow: "hidden", lineHeight: "1.4" });
+      /* Inline styles cannot say :focus-visible or :disabled, so the card's
+         one stylesheet does, once, from APP: the ink ring every finding
+         surface shows on a keyboard stop, the accent ring on the page box,
+         and the disabled look that outlives a button re-enabled by code. */
+      if (!document.querySelector("style[data-tracely-pop-css]")) {
+        const css = el("style");
+        css.setAttribute("data-tracely-pop-css", "");
+        const P = "[data-tracely-docs-popover]";
+        css.textContent = `${P} button:focus-visible{outline:2px solid ${APP.ink};outline-offset:2px}`
+          + `${P} input:focus{outline:none;border-color:${APP.accent}!important;box-shadow:0 0 0 3px ${APP.ring}}`
+          + `${P} input::placeholder{color:${APP.label}}`
+          + `${P} button:disabled{opacity:.5!important;cursor:not-allowed!important}${P} button:enabled{cursor:pointer!important}`;
+        (document.head || document.documentElement).appendChild(css);
+      }
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
       popEl.addEventListener("pointerenter", () => { popHeld = true; });
@@ -5871,10 +5904,12 @@
     function dmAlso(tips, backTo, backLabel) {
       const box = el("div", { display: "flex", flexDirection: "column", gap: "4px", flex: "0 0 auto" });
       for (const t of tips) {
-        const b = el("button", { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${DM.rowBorder}`, background: DM.blockBg, font: "inherit", fontSize: "12.5px", color: DM.ink, cursor: "pointer", textAlign: "left", boxSizing: "border-box" });
+        const b = el("button", { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "8px 10px", borderRadius: "8px", border: `1px solid ${DM.rowBorder}`, background: DM.blockBg, font: "inherit", fontSize: "13px", lineHeight: "18px", color: DM.ink, cursor: "pointer", textAlign: "left", boxSizing: "border-box" });
         b.type = "button";
-        b.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: MARK_COLORS[t.markKind ?? "cite_tip"], flexShrink: "0" }), el("span", { flex: "1", minWidth: "0" }, `Also here: ${TIP_LABEL[t.kind] ?? "a note"}`), el("span", { color: DM.hint }, "›"));
+        b.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: MARK_COLORS[t.markKind ?? "cite_tip"], flexShrink: "0" }), el("span", { flex: "1", minWidth: "0" }, `Also here: ${TIP_LABEL[t.kind] ?? "a note"}`), el("span", { color: DM.body }, "›"));
         b.addEventListener("click", () => { popPinned = true; popSteps.set(t.id, { ...stepOf(t.id), backTo, backLabel }); popHash = t.id; paintPop(); });
+        b.addEventListener("mouseenter", () => { b.style.borderColor = APP.borderStrong; });
+        b.addEventListener("mouseleave", () => { b.style.borderColor = DM.rowBorder; });
         box.appendChild(b);
       }
       return box;
@@ -5897,12 +5932,14 @@
       const findSrc = (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && !(tip.kind === "excuse" && target) && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
       const fix = tipFixControls(tip, put);
       let cited = null, src = null;
+      // One primary to a card: with a fix of its own in the row, the
+      // lookups below it are the full-width secondaries.
       if (target) {
-        cited = dmBtn(CITED_COPY.find, true);
+        cited = dmBtn(CITED_COPY.find, !fix, { wide: Boolean(fix) });
         cited.addEventListener("click", () => { findCitedWork(tip.id); });
       }
       if (findSrc) {
-        src = dmBtn(POP_COPY.findSource, !target, { wide: Boolean(target) });
+        src = dmBtn(POP_COPY.findSource, !target && !fix, { wide: Boolean(target || fix) });
         src.addEventListener("pointerdown", () => prestartClaim(tip.id));
         src.addEventListener("click", () => { findClaimSource(tip.id); });
       }
@@ -5933,7 +5970,7 @@
       if (tip.kind === "page") {
         const key = `page:${tip.id}`;
         const busy = editState(key) === "applying";
-        const input = el("input", { flex: "1", minWidth: "0", padding: "8px 10px", borderRadius: "8px", border: "1px solid #d9d9d9", fontSize: "13px", fontFamily: "inherit", color: DM.ink });
+        const input = el("input", { flex: "1", minWidth: "0", boxSizing: "border-box", height: "32px", padding: "0 10px", borderRadius: "8px", border: `1px solid ${APP.borderStrong}`, background: "#fff", fontSize: "13px", fontFamily: "inherit", color: DM.ink, transition: reducedMotion() ? "none" : "border-color .15s cubic-bezier(.2,.8,.2,1)" });
         input.placeholder = "Page number, e.g. 45";
         input.inputMode = "numeric";
         input.value = pageDrafts.get(tip.id) ?? "";
@@ -5991,21 +6028,25 @@
        the server's note on top (paintSources' `note`). */
     function dmWorkRow(src, selected, onSelect) {
       const row = el("button", {
-        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "8px",
         border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px" });
-      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflowWrap: "anywhere" }, src.title));
+      meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", lineHeight: "18px", color: DM.ink, overflowWrap: "anywhere" }, src.title));
       const line = citedMetaLine(src);
-      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflowWrap: "anywhere" }, line));
+      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.body, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" }, line));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box", marginTop: "2px" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
       else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
+      if (!selected) {
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(0,0,0,0.03)"; });
+        row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+      }
       return row;
     }
     function paintCited(key, put) {
@@ -6062,9 +6103,9 @@
       // work it meant until the writer picks the one they read.
       put(dmHead(by ? DM.amber : DM.green, by ? CITED_COPY.byAuthorTitle(by.name) : list.length === 1 ? CITED_COPY.one : CITED_COPY.many(list.length), styleChip));
       styleChip.style.marginLeft = "0";
-      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px", padding: "4px", margin: "-4px" }); // room for a row's focus ring
       scroll.appendChild(dmBody(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? "")));
-      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
+      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
       if (c.plan?.noEntry) scroll.appendChild(dmHint(CITED_COPY.noEntry));
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       list.forEach((m, i) => rows.appendChild(dmWorkRow(m, i === sel, () => { c.selected = i; paintPop(); })));
@@ -6246,7 +6287,8 @@
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading") {
         const w = el("div", { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: DM.body, flex: "0 0 auto" });
-        const spin = el("span", { width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0", border: "2px solid rgba(255,89,0,0.25)", borderTopColor: DM.orange });
+        // Ink on the hairline, as every spinner: a fuller answer on its way is not a finding.
+        const spin = el("span", { width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0", boxSizing: "border-box", border: `2px solid ${DM.rowBorder}`, borderTopColor: DM.ink });
         if (!reducedMotion() && typeof spin.animate === "function") spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
         w.append(spin, document.createTextNode(v.text));
         return w;
@@ -6254,7 +6296,7 @@
       if (v.kind === "result") {
         const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
         const w = dmIssue(title, v.text);
-        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".02em", padding: "0 8px", borderRadius: "999px", background: APP.chipWash, color: APP.chipInk, margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
         if (!v.basis && !v.revision) return w;
         // What the fuller answer rests on, and its own fix — applied like the
@@ -6299,7 +6341,7 @@
       const link = dmLink(v.label);
       if (v.kind === "locked") {
         link.title = v.title;
-        link.appendChild(el("span", { padding: "1px 6px", borderRadius: "20px", background: APP.accentWash, color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em" }, "PRO"));
+        link.appendChild(el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "16px", padding: "0 6px", borderRadius: "999px", background: APP.accentWash, color: APP.accentInk, fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".04em" }, "PRO"));
         link.addEventListener("click", () => { lockDeep(hash); paintPop(); render(); });
       } else {
         link.addEventListener("click", () => { explainSentence(hash); paintPop(); });
@@ -6343,7 +6385,7 @@
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
         const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
-        const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
+        const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
         const done = dmBtn(POP_COPY.done, true);
@@ -6404,7 +6446,7 @@
         // Opened, the unread list scrolls; the buttons below never move.
         const unreadBlock = unreadEl();
         if (unreadBlock) {
-          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column" });
+          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", padding: "4px", margin: "-4px" });
           box.appendChild(unreadBlock);
           put(box);
         }
@@ -6421,7 +6463,7 @@
       const styleChip = dmChip(CITE_STYLE_LABEL[style]);
       put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
       styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
-      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px", padding: "4px", margin: "-4px" }); // room for a row's focus ring
       scroll.setAttribute("data-pop-sources", "");
       const note = noteEl();
       if (note) scroll.appendChild(note);
@@ -6499,7 +6541,7 @@
         put(dmActions(back));
         return;
       }
-      put(dmHead(FLOW_ACCENT, POP_COPY.flowTitle), dmBody(issue.explanation));
+      put(dmHead(MARK_PENDING, POP_COPY.flowTitle), dmBody(issue.explanation)); // grey: flow is advice, not a finding
       if (issue.transition) put(dmBlock(POP_COPY.bridgeLabel, dmQuote(issue.transition)));
       let primary = null;
       if (issue.transition && canEditDoc()) {
@@ -6977,17 +7019,17 @@
         const ico = faviconUrl(src.url);
         let icon;
         if (ico) {
-          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#f2f2f2" });
+          icon = el("img", { width: "20px", height: "20px", borderRadius: "6px", flexShrink: "0", background: "#f2f2f2" });
           icon.src = ico;
           icon.alt = "";
           icon.referrerPolicy = "no-referrer";
           icon.addEventListener("error", () => { icon.style.visibility = "hidden"; });
         } else {
-          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#ebebeb", fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+          icon = el("span", { width: "20px", height: "20px", borderRadius: "6px", flexShrink: "0", background: "#ebebeb", fontSize: "11px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
         }
         const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column" });
         meta.appendChild(el("span", { fontSize: "13px", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, src.title));
-        meta.appendChild(el("span", { fontSize: "11.5px", color: DM.hint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, hostName(src.url)));
+        meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, hostName(src.url)));
         const status = el("span", { fontSize: "12px", color: state === "abstract" || state === "page" ? DM.ink : DM.hint, whiteSpace: "nowrap", flexShrink: "0" }, LIVE_STATUS[state]);
         row.append(icon, meta, status);
         box.appendChild(row);
