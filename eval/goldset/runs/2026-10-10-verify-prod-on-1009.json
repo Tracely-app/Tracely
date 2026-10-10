@@ -1,0 +1,942 @@
+{
+ "meta": {
+  "what": "production /api/verify-sources on a judged run's sources",
+  "base": "https://api.jointracely.com",
+  "judged": "2026-10-09-extension-prod.json",
+  "install": "a8ec68a4-f560-4a58-813c-2f06577a62b2",
+  "startedAt": "2026-10-10T20:18:40.959Z",
+  "finishedAt": "2026-10-10T20:22:45.938Z"
+ },
+ "results": {
+  "ex-01-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-2": {
+   "verdict": "backs",
+   "quote": "Overall, only 17.7% of these public schools started school at 8:30 a.m. or later",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-1": {
+   "verdict": "backs",
+   "quote": "The American Academy of Sleep Medicine recommends that teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-4": {
+   "verdict": "backs",
+   "quote": "CONCLUSIONS: Healthy school start times are important for adolescent health and safety, with study findings highlighting the downstream effects of increased sleep duration following a 70-min delay in secondary school start times on adolescent drowsy driving and teen MVC rates",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-1": {
+   "verdict": "backs",
+   "quote": "Home working led to a 13% performance increase, of which 9% was from working more minutes per shift (fewer breaks and sick days) and 4% from more calls per minute (attributed to a quieter and more convenient working environment). Home workers also reported improved work satisfaction, and their…",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-3": {
+   "verdict": "backs",
+   "quote": "Home working led to a 13% performance increase, of which 9% was from working more minutes per shift (fewer breaks and sick days) and 4% from more calls per minute (attributed to a quieter and more convenient working environment",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-4": {
+   "verdict": "backs",
+   "quote": "They find that the home worker group increased its productivity by 13 percent over the trial's nine month lifetime",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-2": {
+   "verdict": "backs",
+   "quote": "work from home 5 days a week) encounter comparable and diminished prospects for promotion and salary increases",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-3": {
+   "verdict": "contradicts",
+   "quote": "Among full-time teleworkers, reduced career opportunities stem not only from managers’ perceptions of their job performance but also from assumptions that full-time teleworkers are less committed to work",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-1": {
+   "verdict": "backs",
+   "quote": "Around 1450, Johannes Gutenberg introduced the first movable-type printing system in Europe",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-3": {
+   "verdict": "backs",
+   "quote": "By 1500 printing offizins had emerged at around 250 locations",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-4": {
+   "verdict": "backs",
+   "quote": "In the three decades that followed, expansion was rapid and wide-reaching. In about 240 additional towns, printing shops were hopefully installed",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-1": {
+   "verdict": "backs",
+   "quote": "This momentous invention had been anticipated over two centuries before in Korea, where no less than six distinct fonts of metal type had been created by the time the famous Gutenberg Bible was printed",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-2": {
+   "verdict": "backs",
+   "quote": "centuries before Gutenberg's birth around 1400, the Chinese were already familiar with the system of \"movable type",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-3": {
+   "verdict": "backs",
+   "quote": "The first experiments using movable type made of clay and later of wood began in China in the 11th century. The use of metal letters is known from 1234 onwards in Korea",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-3": {
+   "verdict": "backs",
+   "quote": "The Reformation perfected the use of the small booklet or pamphlet as a tool of propaganda and agitation. 4 Frequently in quarto format—that is, made up of sheets folded twice to make four leaves or eight pages—and without a hard cover, these pamphlets were handy, relatively cheap, readily…",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-5": {
+   "verdict": "backs",
+   "quote": "In the early sixteenth century, Martin Luther quickly saw the advantages of making his vernacular treatises available cheaply to a growing body of avid lay followers",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-1": {
+   "verdict": "backs",
+   "quote": "Between 1500 and 1600, European cities where printing presses were established in the 1400s grew 60% faster than otherwise similar cities",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-2": {
+   "verdict": "backs",
+   "quote": "Between 1500 and 1600, European cities where printing presses were established in the 1400s grew 60% faster than otherwise similar cities",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-5": {
+   "verdict": "contradicts",
+   "quote": "the share of people in Sub-Saharan Africa with electricity has doubled , rising from 26% to 53%",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-1": {
+   "verdict": "contradicts",
+   "quote": "with the number of people without electricity dropping to 666.4 million ‒ 18.8 million fewer than in 2022",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-2": {
+   "verdict": "backs",
+   "quote": "In sub-Saharan Africa, due to population growth, the number of people without access has remained stubbornly stagnant since 2010",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-3": {
+   "verdict": "contradicts",
+   "quote": "the region’s access deficit has increased from 556 million people in 2010 to 570 million people in 2019",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-2": {
+   "verdict": "contradicts",
+   "quote": "We found that social media use is not, in and of itself, a strong predictor of life satisfaction across the adolescent population",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-3": {
+   "verdict": "contradicts",
+   "quote": "it led an influential study to conclude there is no relevant association between technology use and teenager mental well-being",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c3-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-1": {
+   "verdict": "backs",
+   "quote": "there were an estimated 4·95 million (3·62-6·57) deaths associated with bacterial AMR in 2019, including 1·27 million (95% UI 0·911-1·71) deaths attributable to bacterial AMR",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-1": {
+   "verdict": "backs",
+   "quote": "At least 30% of outpatient antibiotic prescriptions in the United States are unnecessary",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-3": {
+   "verdict": "backs",
+   "quote": "In U.S. outpatient doctors' offices specifically, 1 out of every 3 antibiotic drugs prescribed is unnecessary",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-1": {
+   "verdict": "backs",
+   "quote": "Here we report targeted metagenomic analyses of rigorously authenticated ancient DNA from 30,000-year-old Beringian permafrost sediments and the identification of a highly diverse collection of genes encoding resistance",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-3": {
+   "verdict": "backs",
+   "quote": "Indeed, we have recently shown that antibiotic resistance elements were abundant and diverse in ancient DNA dating from the Pleistocene (30,000 years ago) [8",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c1-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-1": {
+   "verdict": "contradicts",
+   "quote": "Two blocks from downtown. Two bedroom and one bath upstairs apartment \"B\". Available in August. $1,000 per month",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  }
+ }
+}

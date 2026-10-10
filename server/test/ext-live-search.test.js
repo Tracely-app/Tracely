@@ -138,7 +138,7 @@ test("verifier: one read per source as each settles, then judging — and a thro
   assert.deepEqual(angry.evidence.map((e) => e.i), [0], "the same reading");
 
   const seen = [];
-  const call = async () => ({ parsed: { verdicts: [{ id: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }, usage: { input: 1, output: 1 } });
+  const call = async () => ({ parsed: { parts: ["the claim"], verdicts: [{ id: 0, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }] }, usage: { input: 1, output: 1 } });
   const list = sources.map((s) => ({ ...s }));
   const out = await verifySources({ claim: CLAIM, sources: list, model: "m", call, fetchImpl, deadlineMs: 2000, onProgress: (ev) => seen.push(ev.type === "read" ? `read:${ev.i}:${ev.read}` : `${ev.type}:${ev.count}`) });
   assert.deepEqual(seen.slice(0, 2).sort(), ["read:0:true", "read:1:false"]);
