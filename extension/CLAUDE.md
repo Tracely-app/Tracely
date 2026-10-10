@@ -172,8 +172,17 @@ screen … jumps around"): the card's FULL height decides where it goes
 (`popNaturalHeight` — it used to be measured after its own cap, so near the
 bottom it was squeezed and then judged by the squeezed size); below when it
 fits, else above when it fits, else the roomier side; it keeps its side while
-it fits and always while the pointer is on it (`popHeld`). Tests:
-`server/test/ext-hover-card.test.js`.
+it fits and always while the pointer is on it (`popHeld`). It moves as ONE
+PIECE: side and size are decided when it opens or its content changes
+(`popPlanned`, reset by `paintPop`), never by a scroll, which only carries it
+with its line — half out of view included; it is lost only once the card has
+left the view. Its button rows wrap rather than clip (`dmActions`). On the way
+to it ("the overlay happens to be over another underline, the overlay
+jumps"), another underline takes over only when the pointer STOPS on it, a
+pointer getting closer to the card is on its way there, and near the card
+(140px) it closes only on a 900ms stop (`hoverIntent`, `near`,
+`approaching`). Tests: `server/test/ext-hover-card.test.js`,
+`server/test/ext-hover-intent.test.js`.
 
 "Let Tracely fix these" ("go do all of them and then disappear and just leave
 the accept reject"): the press closes the panel; as each change is ready the
