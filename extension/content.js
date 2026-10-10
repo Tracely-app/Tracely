@@ -3533,17 +3533,17 @@
     .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
     .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
     .chip {
-      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
-      border-radius: 999px; border: 1px solid #e4e4e7; background: #fff;
-      font-family: inherit; font-size: 12.5px; font-weight: 600; color: #1a1a1f; cursor: pointer;
-      transition: border-color .15s ease, background .15s ease;
+      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
+      border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+      font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer;
+      font-variant-numeric: tabular-nums; line-height: 1;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .chip:hover { border-color: #c9c9ce; background: #fafafa; }
-    .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
-    .chip-ico svg { width: 13px; height: 13px; display: block; }
-    .chip-clear { cursor: default; font-weight: 500; color: #3a3b40; }
-    .chip-clear:hover { border-color: #e4e4e7; background: #fff; }
+    .chip:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .chip-ico { display: inline-flex; width: 12px; height: 12px; flex-shrink: 0; }
+    .chip-ico svg { width: 12px; height: 12px; display: block; }
+    .chip-clear { cursor: default; font-weight: 500; color: var(--ink); }
+    .chip-clear:hover { border-color: var(--border); background: var(--surface); }
     .close {
       margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
       border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
