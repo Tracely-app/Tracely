@@ -583,9 +583,12 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                     {ACCENT_COLORS.map((c) => (
                       <button
                         key={c.id}
+                        type="button"
                         className={`accent-swatch ${settings.accentColor === c.id ? 'accent-swatch-active' : ''}`}
                         style={{ background: c.swatch }}
                         title={c.label}
+                        aria-label={c.label}
+                        aria-pressed={settings.accentColor === c.id}
                         onClick={() => changeAccentColor(c.id)}
                       />
                     ))}

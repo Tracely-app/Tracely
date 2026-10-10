@@ -2429,52 +2429,6 @@ textarea:disabled {
   margin-top: 12px;
 }
 
-/* Deliberately the one place in Settings that breaks the neutral palette —
-   red border/wash on both light and dark themes so "this is different from
-   everything else on this screen" reads instantly, matching how every
-   mainstream app marks irreversible account actions. */
-.danger-zone {
-  margin-top: 20px;
-  border: 1px solid var(--danger);
-  border-radius: 12px;
-  padding: 16px;
-  background: var(--score-low-wash);
-}
-
-.danger-zone-header {
-  margin-bottom: 12px;
-}
-
-.danger-zone-header h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--danger);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.danger-zone-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.danger-zone-row-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.danger-zone-row-subtitle {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--muted);
-  margin-top: 2px;
-  max-width: 320px;
-}
-
 .settings-panel-header {
   margin-bottom: 24px;
 }
@@ -2817,29 +2771,37 @@ textarea:disabled {
   white-space: normal;
 }
 
+/* As tall as the Theme select beside it, so the two cells line up. */
 .accent-swatch-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
+  align-items: center;
+  gap: 12px;
+  height: var(--ctl-h);
 }
 
+/* The four gradients are previews of each accent, so they stay as drawn.
+   Hovered or chosen, the 2px border turns surface-coloured — the gap — and a
+   2px ring sits outside it: border-strong on hover, text when chosen. */
 .accent-swatch {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
   transition:
-    transform 0.1s ease,
-    box-shadow 0.12s ease;
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .accent-swatch:hover {
-  transform: scale(1.08);
+  border-color: var(--surface);
+  box-shadow: 0 0 0 2px var(--border-strong);
 }
 
-.accent-swatch-active {
+.accent-swatch-active,
+.accent-swatch-active:hover {
   border-color: var(--surface);
   box-shadow: 0 0 0 2px var(--text);
 }
