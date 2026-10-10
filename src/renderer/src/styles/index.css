@@ -980,8 +980,10 @@ textarea:disabled {
   display: none;
 }
 
-/* The toolbar's one primary. */
+/* The toolbar's one primary. 4px of margin on top of the row's 4 gap: two
+   text buttons 4 apart put Tracer's 2px-offset focus ring on this one's edge. */
 .docedit-insights {
+  margin-left: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
