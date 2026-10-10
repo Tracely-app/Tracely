@@ -6252,48 +6252,26 @@ textarea:disabled {
    `--h-*` palette (the frame's literal light values, see `.home`), so dark
    re-derives each var from the app's dark tokens and every card, border and
    line of text migrated onto the vars follows without per-element rules. */
+/* Each --h-* is the app's own dark token (the same values the literals here
+   used to spell out), and the grade tones take the dark score tokens — wash
+   background, bright text — so no per-element rule is needed for any card,
+   border, control or chip. The accent hairline on the primary action card and
+   the hover shadow are app tokens already and flip on their own. */
 :root[data-theme='dark'] .home {
-  --h-ink: #f6f6f8;
-  --h-strong: #f6f6f8;
-  --h-muted: rgba(246, 246, 248, 0.66);
-  --h-subtle: rgba(255, 255, 255, 0.04);
-  --h-line: rgba(255, 255, 255, 0.18);
-  --h-card-line: rgba(255, 255, 255, 0.18);
-  --h-accent-wash: rgba(244, 123, 32, 0.16);
-  --h-foot: rgba(246, 246, 248, 0.62);
-  --h-page: #0b0b0d;
-  --h-card: #17171b;
-}
-/* The peach border reads as a glow on a dark card; the dark accent-border
-   token is the same family at dark strength. */
-:root[data-theme='dark'] .home-action.primary {
-  border-color: rgba(244, 123, 32, 0.3);
-}
-/* The settings pill is a filled light-grey control in the frame; on a dark
-   card the fill becomes a white wash so it still reads as a pill. */
-:root[data-theme='dark'] .home-settings {
-  background: rgba(255, 255, 255, 0.08);
-}
-:root[data-theme='dark'] .home-settings:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-:root[data-theme='dark'] .home-resource:hover {
-  border-color: var(--border-strong);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-}
-/* The grade chips are hardcoded light bg/fg pairs; in dark they take the
-   app's dark score tokens (wash background, bright text). */
-:root[data-theme='dark'] .home-doc-grade.tone-good {
-  background: var(--score-good-wash);
-  color: var(--score-good);
-}
-:root[data-theme='dark'] .home-doc-grade.tone-mid {
-  background: var(--score-mid-wash);
-  color: var(--score-mid);
-}
-:root[data-theme='dark'] .home-doc-grade.tone-low {
-  background: var(--score-low-wash);
-  color: var(--score-low);
+  --h-ink: var(--text);
+  --h-strong: var(--text);
+  --h-muted: var(--muted);
+  --h-subtle: var(--surface-2);
+  --h-line: var(--border);
+  --h-card-line: var(--border);
+  --h-page: var(--bg);
+  --h-card: var(--surface);
+  --h-good-bg: var(--score-good-wash);
+  --h-good: var(--score-good);
+  --h-mid-bg: var(--score-mid-wash);
+  --h-mid: var(--score-mid);
+  --h-low-bg: var(--score-low-wash);
+  --h-low: var(--score-low);
 }
 /* `multiply` drops the artwork's white tile against a LIGHT ground; on a dark
    ground it multiplies the whole image toward black. Dark shows the tile as a
@@ -6305,41 +6283,20 @@ textarea:disabled {
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .home {
-    --h-ink: #f6f6f8;
-    --h-strong: #f6f6f8;
-    --h-muted: rgba(246, 246, 248, 0.66);
-    --h-subtle: rgba(255, 255, 255, 0.04);
-    --h-line: rgba(255, 255, 255, 0.18);
-    --h-card-line: rgba(255, 255, 255, 0.18);
-    --h-accent-wash: rgba(244, 123, 32, 0.16);
-    --h-foot: rgba(246, 246, 248, 0.62);
-    --h-page: #0b0b0d;
-    --h-card: #17171b;
-  }
-  :root:not([data-theme='light']) .home-action.primary {
-    border-color: rgba(244, 123, 32, 0.3);
-  }
-  :root:not([data-theme='light']) .home-settings {
-    background: rgba(255, 255, 255, 0.08);
-  }
-  :root:not([data-theme='light']) .home-settings:hover {
-    background: rgba(255, 255, 255, 0.14);
-  }
-  :root:not([data-theme='light']) .home-resource:hover {
-    border-color: var(--border-strong);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  }
-  :root:not([data-theme='light']) .home-doc-grade.tone-good {
-    background: var(--score-good-wash);
-    color: var(--score-good);
-  }
-  :root:not([data-theme='light']) .home-doc-grade.tone-mid {
-    background: var(--score-mid-wash);
-    color: var(--score-mid);
-  }
-  :root:not([data-theme='light']) .home-doc-grade.tone-low {
-    background: var(--score-low-wash);
-    color: var(--score-low);
+    --h-ink: var(--text);
+    --h-strong: var(--text);
+    --h-muted: var(--muted);
+    --h-subtle: var(--surface-2);
+    --h-line: var(--border);
+    --h-card-line: var(--border);
+    --h-page: var(--bg);
+    --h-card: var(--surface);
+    --h-good-bg: var(--score-good-wash);
+    --h-good: var(--score-good);
+    --h-mid-bg: var(--score-mid-wash);
+    --h-mid: var(--score-mid);
+    --h-low-bg: var(--score-low-wash);
+    --h-low: var(--score-low);
   }
   :root:not([data-theme='light']) .home-tracer-badge {
     mix-blend-mode: normal;
@@ -7169,27 +7126,24 @@ textarea:disabled {
  * of removing the old whole-app zoom (see shared/windowSize.ts).
  */
 @media (min-width: 1180px) {
-  .home-greeting { font-size: 36px; }
-  .home-stat { min-height: 84px; padding: 0 18px; }
-  .home-stat b { font-size: 26px; }
-  .home-stat span { font-size: 11px; }
-  .home-action { min-height: 74px; padding: 0 18px; }
-  .home-resource { min-height: 158px; padding: 16px; }
+  .home-greeting { font-size: 32px; }
+  .home-stat { min-height: 84px; padding: 0 20px; }
+  .home-stat b { font-size: 28px; }
+  .home-action { min-height: 80px; padding: 20px; }
+  .home-resource { min-height: 158px; }
   .home-doc { min-height: 186px; }
   .home-doc-thumb { height: 116px; }
-  .home-doc-title { font-size: 13.5px; }
+  .home-doc-title { font-size: 14px; }
 }
 
+/* The type stops stepping here — the greeting holds at 32, the stat numbers
+   at 28 over their 12px labels — and only the cards keep growing. */
 @media (min-width: 1440px) {
-  .home-greeting { font-size: 40px; }
-  .home-stat { min-height: 96px; padding: 0 22px; }
-  .home-stat b { font-size: 30px; }
-  .home-stat span { font-size: 12px; }
-  .home-action { min-height: 82px; padding: 0 22px; }
-  .home-resource { min-height: 172px; padding: 18px; }
+  .home-stat { min-height: 96px; padding: 0 24px; }
+  .home-action { min-height: 88px; padding: 24px; }
+  .home-resource { min-height: 172px; padding: 20px; }
   .home-doc { min-height: 204px; }
   .home-doc-thumb { height: 130px; }
-  .home-doc-title { font-size: 14.5px; }
 }
 
 /* ── The editor at a wide window ──────────────────────────────────────────
