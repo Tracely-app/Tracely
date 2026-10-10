@@ -1,0 +1,25 @@
+/* Tracer's voice orb (components/voice/VoiceOrb.tsx).
+ *
+ * The orb's layout box is exactly `size` square; the canvas inside is larger
+ * and centred on it so the halo and the swell can spill past the box without
+ * moving anything around it. Everything visible is drawn on the canvas from
+ * the theme tokens (--accent, --accent-2, --accent-gradient, --surface,
+ * --muted), so there are no colours here.
+ */
+.voice-orb {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.voice-orb-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
