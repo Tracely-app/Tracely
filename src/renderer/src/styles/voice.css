@@ -213,7 +213,15 @@
   outline: none;
   box-shadow: 0 0 0 3px var(--ring);
 }
+/* A toggle that is on (captions) is tinted; muted is the one loud toggle,
+   because a muted mic the student forgot about is the failure to prevent. */
 .voice-round[aria-pressed='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.voice-round-mute[aria-pressed='true'],
+.voice-round-mute[aria-pressed='true']:hover:not(:disabled) {
   border-color: transparent;
   background: var(--ink);
   color: var(--ink-contrast);

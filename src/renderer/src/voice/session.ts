@@ -294,8 +294,8 @@ export function micDeniedMessage(platform: VoicePlatform): string {
 }
 
 const KIND_COPY: Record<'plan' | 'daily-limit' | 'busy' | 'network', string> = {
-  plan: 'Voice is part of Pro. You can keep chatting with Tracer by text.',
-  'daily-limit': "You've used today's voice minutes. They reset tomorrow — you can keep chatting by text until then.",
+  plan: 'Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.',
+  'daily-limit': "You've used today's voice minutes. They reset tomorrow; until then, Tracer is here by text.",
   busy: 'Another voice call is still open on this account. Wait a minute for it to close, then try again.',
   network: "Couldn't reach Tracely. Check your internet connection, then try again."
 }

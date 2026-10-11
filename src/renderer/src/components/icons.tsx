@@ -135,7 +135,7 @@ export function MicOffIcon({ size = 20, className }: IconProps): JSX.Element {
 /** Hang up: a handset turned down. */
 export function PhoneOffIcon({ size = 22, className }: IconProps): JSX.Element {
   return (
-    <svg {...base(size)} className={className} fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg {...base(size)} className={className} fill="currentColor" stroke="currentColor" strokeWidth="1.2">
       <path
         d="M3.2 13.6c4.9-4.4 12.7-4.4 17.6 0 .5.5.5 1.2 0 1.7l-1.9 1.6c-.4.4-1 .4-1.5.1l-2.2-1.4a1.1 1.1 0 01-.5-1v-1.9a12.5 12.5 0 00-5.4 0v1.9c0 .4-.2.8-.5 1l-2.2 1.4c-.5.3-1.1.3-1.5-.1l-1.9-1.6a1.2 1.2 0 010-1.7z"
         strokeLinejoin="round"

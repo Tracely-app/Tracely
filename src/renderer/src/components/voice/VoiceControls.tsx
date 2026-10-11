@@ -28,9 +28,9 @@ export default function VoiceControls({
       <div className="voice-control">
         <button
           type="button"
-          className="voice-round"
+          className="voice-round voice-round-mute"
           aria-pressed={muted}
-          aria-label={muted ? 'Unmute microphone (M)' : 'Mute microphone (M)'}
+          aria-label="Mute microphone (M)"
           title={muted ? 'Unmute (M)' : 'Mute (M)'}
           disabled={disabled}
           onClick={onToggleMute}
@@ -47,7 +47,7 @@ export default function VoiceControls({
           title="End call (Esc)"
           onClick={onEnd}
         >
-          <PhoneOffIcon size={24} />
+          <PhoneOffIcon size={26} />
         </button>
         <span aria-hidden="true">End</span>
       </div>
