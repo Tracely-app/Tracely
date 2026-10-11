@@ -800,6 +800,38 @@ describe('levels and who is speaking', () => {
     ok(!b.speaking('user', 5000 + INPUT_HOLD_MS))
   })
 
+  it("says when Tracer's voice can't be played, and retries on the student's next click or key press", async () => {
+    let gesture: (() => void) | null = null
+    let resumes = 0
+    const speaker = {
+      play: async () => { throw Object.assign(new Error('play() failed'), { name: 'NotAllowedError' }) },
+      resume: async () => { if (++resumes === 1) throw new Error('still blocked') },
+      stop() {}
+    }
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      const r = await connected({
+        deps: { createSpeaker: () => speaker, onUserGesture: (fn) => { gesture = fn; return () => { gesture = null } } }
+      })
+      const remote = fakeStream()
+      r.peer.ontrack!({ streams: [remote], track: remote.track })
+      await flush()
+      strictEqual(r.engine.getSnapshot().notice, 'no-playback')
+      strictEqual(voiceStateLine(r.engine.getSnapshot(), 'Atlas'), "Can't play Atlas's voice. Check your speakers or output device")
+      gesture!()
+      await flush()
+      strictEqual(r.engine.getSnapshot().notice, 'no-playback')
+      gesture!()
+      await flush()
+      strictEqual(r.engine.getSnapshot().notice, null)
+      strictEqual(gesture, null)
+      strictEqual(resumes, 2)
+    } finally {
+      console.warn = warn
+    }
+  })
+
   it('mute disables the mic track, zeroes the input level and keeps the call where it is', async () => {
     const r = await connected()
     r.rms.input = 0.1

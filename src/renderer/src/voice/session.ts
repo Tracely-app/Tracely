@@ -100,7 +100,10 @@ export interface VoiceMeter {
 
 /** Where Tracer's voice plays: an <audio autoplay> the engine keeps (never in the DOM). */
 export interface VoiceSpeaker {
-  play(stream: MediaStream): void
+  /** Rejects (or throws) when the voice can't be played: autoplay policy, an unusable output device. */
+  play(stream: MediaStream): void | Promise<void>
+  /** Try playing again, after a click or key press (which autoplay policy wants). */
+  resume?(): Promise<void>
   stop(): void
 }
 
@@ -129,6 +132,8 @@ export interface VoiceDeps {
   previewEvents: EventTarget | null
   /** Hang up when the window goes away (or main closes it to the tray); returns the unsubscribe. */
   onUnload(fn: () => void): () => void
+  /** The student's next clicks and key presses, until unsubscribed (to retry playback). */
+  onUserGesture(fn: () => void): () => void
 }
 
 export interface VoiceSessionOptions {
@@ -801,7 +806,10 @@ function browserSpeaker(): VoiceSpeaker {
       el ??= new Audio()
       el.autoplay = true
       el.srcObject = stream
-      void el.play().catch(() => {})
+      return el.play()
+    },
+    resume() {
+      return el ? el.play() : Promise.resolve()
     },
     stop() {
       if (!el) return
@@ -827,6 +835,15 @@ export function browserDeps(): VoiceDeps {
     // Only the dev server (the preview harness, npm run dev) listens for the
     // harness's forced states; a built app never does.
     previewEvents: dev && typeof window !== 'undefined' ? window : null,
+    onUserGesture(fn) {
+      if (typeof window === 'undefined') return () => {}
+      window.addEventListener('pointerdown', fn, true)
+      window.addEventListener('keydown', fn, true)
+      return () => {
+        window.removeEventListener('pointerdown', fn, true)
+        window.removeEventListener('keydown', fn, true)
+      }
+    },
     onUnload(fn) {
       // pagehide: a reload or a real close. onHangUp: main closed the window,
       // which only hides it to the tray (no pagehide), or is quitting.
@@ -909,6 +926,9 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   let idleWarnAt: number | null = null
   /** 'answer-blocked' shows until then */
   let blockedUntil = -Infinity
+  /** The persona's voice failed to play; retried on the student's next click or key press. */
+  let playbackFailed = false
+  let offGesture: (() => void) | null = null
 
   let startPromise: Promise<void> | null = null
   let finishPromise: Promise<void> | null = null
@@ -942,6 +962,8 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   /** Close every part of the call. Safe to repeat. */
   function teardownMedia(): void {
     stopTimers()
+    offGesture?.()
+    offGesture = null
     if (channel) {
       channel.onmessage = null
       channel.onclose = null
@@ -1108,8 +1130,8 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   function onRemoteTrack(ev: { streams: readonly MediaStream[]; track: MediaStreamTrack }): void {
     if (over) return
     const stream = ev.streams[0] ?? new MediaStream([ev.track])
-    speaker ??= deps.createSpeaker()
-    speaker.play(stream)
+    const out = (speaker ??= deps.createSpeaker())
+    playVoice(() => out.play(stream))
     outMeter?.dispose()
     outMeter = deps.createMeter(stream)
     outHeardSound = false
@@ -1133,8 +1155,40 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   /** The notice the state line should carry now, most pressing first. */
   function currentNotice(now = deps.now()): VoiceNotice | null {
     if (idleWarnAt !== null) return 'still-there'
+    if (playbackFailed) return 'no-playback'
     if (now < blockedUntil) return 'answer-blocked'
     return null
+  }
+
+  /** Play (or retry) the persona's voice, and say so when it can't be heard. */
+  function playVoice(play: () => void | Promise<void>): void {
+    let attempt: Promise<void>
+    try {
+      attempt = Promise.resolve(play())
+    } catch (e) {
+      attempt = Promise.reject(e)
+    }
+    attempt.then(
+      () => onPlayback(true),
+      (e: unknown) => {
+        console.warn("[voice] can't play the voice", e)
+        onPlayback(false)
+      }
+    )
+  }
+
+  function onPlayback(playing: boolean): void {
+    if (over) return
+    playbackFailed = !playing
+    if (playing) {
+      offGesture?.()
+      offGesture = null
+    } else if (offGesture === null && speaker?.resume) {
+      offGesture = deps.onUserGesture(() => {
+        if (!over && speaker?.resume) playVoice(() => speaker!.resume!())
+      })
+    }
+    if (!forced) update({ notice: currentNotice() })
   }
 
   /** A data-channel `error`. Moderation that only cut the answer short is said; the call goes on. */
