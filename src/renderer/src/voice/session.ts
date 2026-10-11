@@ -88,6 +88,12 @@ export interface VoicePeer {
 /** Reads one direction's loudness, 0..1 RMS of the latest audio frame. */
 export interface VoiceMeter {
   rms(): number
+  /**
+   * Whether the audio graph behind rms() is running right now (a suspended
+   * AudioContext keeps answering with a stale or silent frame). Absent: assumed
+   * live. Either way the engine trusts a meter only once it has heard sound.
+   */
+  live?(): boolean
   dispose(): void
 }
 
@@ -103,7 +109,10 @@ export type VoicePlatform = 'mac' | 'windows' | 'other'
 export interface VoiceDeps {
   getUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream>
   createPeer(): VoicePeer
-  /** null when Web Audio is unavailable: levels then stay at 0 and the call still works. */
+  /**
+   * null when Web Audio is unavailable. The call still works, and who is
+   * speaking then comes from the transcripts (createTranscriptActivity).
+   */
   createMeter(stream: MediaStream): VoiceMeter | null
   createSpeaker(): VoiceSpeaker
   now(): number
@@ -249,6 +258,65 @@ export function createSpeechGate(on = 0.24, off = 0.12, onMs = 80, offMs = 500):
       return active
     }
   }
+}
+
+// ── Who is speaking when the levels can't say ───────────────────────────────
+// Web Audio can be missing or dead: no AudioContext, a context suspended by a
+// device change or sleep, or a graph that renders silence (it did in every
+// automated live run). GPT-Live sends no speech events, but its transcripts
+// keep coming, so they stand in for the levels until a meter proves it works.
+
+/** A raw RMS above this proves a meter hears something (−80 dBFS). */
+export const LEVEL_FLOOR = 1e-4
+/** Without a timeline, one transcript delta stands for this much speech. */
+export const DELTA_SPEECH_MS = 300
+/** Tracer still counts as speaking this long after its transcript runs out. */
+export const OUTPUT_TAIL_MS = 400
+/** The student's transcript lags their voice: they count as speaking this long after a delta. */
+export const INPUT_HOLD_MS = 900
+/** Never run the assistant's estimate further ahead of now than this. */
+const MAX_AHEAD_MS = 8000
+
+export interface TranscriptActivity {
+  /** A transcript delta for `role` arrived at `now`, covering [startMs, endMs) on the session timeline when known. */
+  note(role: VoiceCaption['role'], now: number, startMs?: number, endMs?: number): void
+  /** Whether `role` is speaking at `now`, judged by its transcript alone. */
+  speaking(role: VoiceCaption['role'], now: number): boolean
+}
+
+/**
+ * Transcript timing per speaker. Tracer's fragments can arrive faster than
+ * they play, so each one queues its stretch of the timeline (counted once
+ * when fragments overlap) after the speech already queued; the student's
+ * arrive after they were said, so each holds them "speaking" a moment.
+ */
+export function createTranscriptActivity(): TranscriptActivity {
+  let outUntil = -Infinity
+  let outTimelineEnd: number | null = null
+  let inUntil = -Infinity
+  return {
+    note(role, now, startMs, endMs) {
+      if (role === 'user') {
+        inUntil = now + INPUT_HOLD_MS
+        return
+      }
+      let dur = DELTA_SPEECH_MS
+      if (typeof startMs === 'number' && typeof endMs === 'number' && endMs >= startMs) {
+        const from = outTimelineEnd === null ? startMs : Math.max(startMs, outTimelineEnd)
+        dur = Math.min(Math.max(0, endMs - from), 4000)
+        outTimelineEnd = Math.max(outTimelineEnd ?? endMs, endMs)
+      }
+      outUntil = Math.min(now + MAX_AHEAD_MS, Math.max(outUntil, now) + dur)
+    },
+    speaking(role, now) {
+      return role === 'user' ? now < inUntil : now < outUntil + OUTPUT_TAIL_MS
+    }
+  }
+}
+
+/** A stand-in level for a voice the meters can't hear: a gentle 0.4–0.6 syllable envelope. */
+export function syntheticLevel(msIntoTurn: number): number {
+  return 0.35 + 0.3 * speechEnvelope(msIntoTurn, 5.2, 0)
 }
 
 // ── Captions ────────────────────────────────────────────────────────────────
@@ -626,6 +694,11 @@ function browserMeter(stream: MediaStream): VoiceMeter | null {
   try {
     const ctx = new Ctx()
     void ctx.resume().catch(() => {})
+    // A device change or sleep can suspend the context mid-call; ask again.
+    ctx.onstatechange = () => {
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+    }
+    let lastTime = -1
     const source = ctx.createMediaStreamSource(stream)
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 1024
@@ -638,7 +711,14 @@ function browserMeter(stream: MediaStream): VoiceMeter | null {
         for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
         return Math.sqrt(sum / buf.length)
       },
+      live() {
+        const t = ctx.currentTime
+        const advanced = t > lastTime
+        lastTime = t
+        return ctx.state === 'running' && advanced
+      },
       dispose() {
+        ctx.onstatechange = null
         source.disconnect()
         void ctx.close().catch(() => {})
       }
@@ -747,6 +827,16 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   let captionLog: CaptionLog = EMPTY_CAPTIONS
   const inGate = createSpeechGate()
   const outGate = createSpeechGate()
+  /** Who is speaking by the transcripts, for when the meters can't say. */
+  const heard = createTranscriptActivity()
+  /** Each meter has produced real sound at least once: only then are its levels trusted. */
+  let inHeardSound = false
+  let outHeardSound = false
+  /** When the transcript fallback last started a turn, for the stand-in level's envelope. */
+  let inTurnAt = 0
+  let outTurnAt = 0
+  let textInWas = false
+  let textOutWas = false
 
   let startPromise: Promise<void> | null = null
   let finishPromise: Promise<void> | null = null
@@ -895,14 +985,11 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       case 'session.output_transcript.delta': {
         if (typeof ev.delta !== 'string') return
         const role = ev.type === 'session.input_transcript.delta' ? 'user' : 'assistant'
-        captionLog = addTranscriptDelta(
-          captionLog,
-          role,
-          ev.delta,
-          deps.now(),
-          typeof ev.start_ms === 'number' ? ev.start_ms : undefined,
-          typeof ev.end_ms === 'number' ? ev.end_ms : undefined
-        )
+        const now = deps.now()
+        const startMs = typeof ev.start_ms === 'number' ? ev.start_ms : undefined
+        const endMs = typeof ev.end_ms === 'number' ? ev.end_ms : undefined
+        heard.note(role, now, startMs, endMs)
+        captionLog = addTranscriptDelta(captionLog, role, ev.delta, now, startMs, endMs)
         if (!forced) update({ captions: captionLog.captions })
         return
       }
@@ -947,6 +1034,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     speaker.play(stream)
     outMeter?.dispose()
     outMeter = deps.createMeter(stream)
+    outHeardSound = false
   }
 
   /** 25 times a second: levels, who is speaking, the timer, the caption pause rule, the cap. */
@@ -965,14 +1053,31 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
         captions: captionLog.captions
       })
     } else {
-      const inputLevel = smoothLevel(snap.inputLevel, snap.muted ? 0 : rmsToLevel(inMeter?.rms() ?? 0))
-      const outputLevel = smoothLevel(snap.outputLevel, rmsToLevel(outMeter?.rms() ?? 0))
+      const rawIn = snap.muted ? 0 : (inMeter?.rms() ?? 0)
+      const rawOut = outMeter?.rms() ?? 0
+      if (rawIn > LEVEL_FLOOR) inHeardSound = true
+      if (rawOut > LEVEL_FLOOR) outHeardSound = true
+      // Real levels once a meter has heard sound and its graph is running;
+      // otherwise the transcripts say who is speaking and a stand-in level
+      // keeps the orb moving.
+      const inReal = inMeter !== null && inHeardSound && (inMeter.live?.() ?? true)
+      const outReal = outMeter !== null && outHeardSound && (outMeter.live?.() ?? true)
+      const textIn = !inReal && !snap.muted && heard.speaking('user', now)
+      const textOut = !outReal && heard.speaking('assistant', now)
+      if (textIn && !textInWas) inTurnAt = now
+      if (textOut && !textOutWas) outTurnAt = now
+      textInWas = textIn
+      textOutWas = textOut
+      const inTarget = inReal ? rmsToLevel(rawIn) : textIn ? syntheticLevel(now - inTurnAt) : 0
+      const outTarget = outReal ? rmsToLevel(rawOut) : textOut ? syntheticLevel(now - outTurnAt) : 0
+      const inputLevel = smoothLevel(snap.inputLevel, inTarget)
+      const outputLevel = smoothLevel(snap.outputLevel, outTarget)
       if (!LIVE_STATES.includes(snap.state)) {
         update({ inputLevel, outputLevel })
         return
       }
-      const userOn = inGate.update(inputLevel, now) && !snap.muted
-      const assistantOn = outGate.update(outputLevel, now)
+      const userOn = (inReal ? inGate.update(inputLevel, now) : textIn) && !snap.muted
+      const assistantOn = outReal ? outGate.update(outputLevel, now) : textOut
       captionLog = settleCaptions(captionLog, now)
       update({
         state: assistantOn ? 'assistant-speaking' : userOn ? 'user-speaking' : 'listening',

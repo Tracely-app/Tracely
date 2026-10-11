@@ -2,7 +2,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
-  CAPTION_PAUSE_MS, EMPTY_CAPTIONS, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
+  CAPTION_PAUSE_MS, EMPTY_CAPTIONS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
   addTranscriptDelta, browserDeps, closedError, createSpeechGate, frameText, createVoiceSession, formatClock, micError, mockFrame,
   mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceStateLine,
   type VoiceApi, type VoiceDeps,
@@ -647,6 +647,74 @@ describe('levels and who is speaking', () => {
     r.clock.advance(TICK_MS * 5)
     strictEqual(r.engine.getSnapshot().state, 'user-speaking')
     ok(r.engine.getSnapshot().inputLevel > 0.5)
+  })
+
+  /** Streams `n` output (or input) deltas, one per `every` ms, with a contiguous timeline. */
+  function speak(r: Awaited<ReturnType<typeof connected>>, type: 'output' | 'input', n: number, every = 200) {
+    const states = new Set<string>()
+    let maxLevel = 0
+    for (let i = 0; i < n; i++) {
+      r.peer.channel!.emit({ type: `session.${type}_transcript.delta`, delta: ' word', start_ms: i * every, end_ms: (i + 1) * every })
+      r.clock.advance(every)
+      const s = r.engine.getSnapshot()
+      states.add(s.state)
+      maxLevel = Math.max(maxLevel, type === 'output' ? s.outputLevel : s.inputLevel)
+    }
+    return { states, maxLevel }
+  }
+
+  it('with no Web Audio at all, the transcripts say who is speaking and the orb still moves', async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    const out = speak(r, 'output', 20)
+    ok(out.states.has('assistant-speaking'), [...out.states].join())
+    ok(out.maxLevel > 0.3, String(out.maxLevel))
+    r.clock.advance(OUTPUT_TAIL_MS + 200)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+    const inp = speak(r, 'input', 10)
+    ok(inp.states.has('user-speaking'), [...inp.states].join())
+    ok(inp.maxLevel > 0.3)
+    r.clock.advance(INPUT_HOLD_MS + 100)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+  })
+
+  it('a meter that only ever reads 0 (a graph that renders silence) falls back to the transcripts too', async () => {
+    const r = await connected()
+    const remote = fakeStream()
+    r.peer.ontrack!({ streams: [remote], track: remote.track })
+    ok(speak(r, 'output', 10).states.has('assistant-speaking'))
+  })
+
+  it("a suspended meter's stale level is ignored; a working meter's real level wins", async () => {
+    let live = false
+    const r = await connected({ deps: { createMeter: () => ({ rms: () => 0.1, live: () => live, dispose() {} }) } })
+    const remote = fakeStream()
+    r.peer.ontrack!({ streams: [remote], track: remote.track })
+    r.clock.advance(TICK_MS * 10)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+    live = true
+    r.clock.advance(TICK_MS * 10)
+    strictEqual(r.engine.getSnapshot().state, 'assistant-speaking')
+  })
+
+  it("the student's transcript doesn't make them 'speaking' while muted", async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.engine.setMuted(true)
+    strictEqual(speak(r, 'input', 5).states.has('user-speaking'), false)
+  })
+
+  it("createTranscriptActivity queues Tracer's fragments that arrive faster than they play, counting overlap once", () => {
+    const a = createTranscriptActivity()
+    // A burst: 2 s of speech arrives in one instant.
+    for (let i = 0; i < 10; i++) a.note('assistant', 1000, i * 200, (i + 1) * 200)
+    ok(a.speaking('assistant', 2900))
+    ok(!a.speaking('assistant', 1000 + 2000 + OUTPUT_TAIL_MS + 1))
+    const b = createTranscriptActivity()
+    b.note('assistant', 0, 0, 1000)
+    b.note('assistant', 0, 500, 1000)
+    ok(!b.speaking('assistant', 1000 + OUTPUT_TAIL_MS + 1))
+    b.note('user', 5000)
+    ok(b.speaking('user', 5000 + INPUT_HOLD_MS - 1))
+    ok(!b.speaking('user', 5000 + INPUT_HOLD_MS))
   })
 
   it('mute disables the mic track, zeroes the input level and keeps the call where it is', async () => {
