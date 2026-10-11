@@ -146,11 +146,35 @@ test("a row of buttons wraps instead of being cut off at the card's edge", () =>
 test("wired: a new card starts with no side; the pointer on the card holds it", () => {
   assert.match(SRC, /popAbove = false;\n\s+popSide = null;\n\s+popHeld = false;/);
   assert.match(SRC, /popEl\.addEventListener\("pointerenter", \(\) => \{ popHeld = true; \}\);/);
-  assert.match(SRC, /popEl\.addEventListener\("pointerleave", \(\) => \{ popHeld = false; \}\);/);
+  assert.match(SRC, /popEl\.addEventListener\("pointerleave", \(e\) => \{ popHeld = false; hoverPt = \{ x: e\.clientX, y: e\.clientY \}; hoverHit\(\); \}\);/);
   assert.ok(!/const cardH = popCard\.offsetHeight;/.test(SRC), "never the capped height");
   assert.match(SRC, /popPlanned = false; \/\/ new content: its side and size are decided again/, "a repaint plans it again; a scroll never does");
   assert.ok(!/topPx = `\$\{Math\.max\(4, top\)\}px`/.test(SRC), "never pinned to the screen's edge");
   const follow = sliceBetween(SRC, "    function popFollowFrame() {", "    /* ── open / paint");
   assert.match(follow, /popLastTop = r\.top;\n\s+placeDocsPopover\(/, "placed with its line even when the line is out of view");
   assert.match(follow, /if \(!clip \|\| \(pb\.bottom > clip\.top \+ 8 && pb\.top < clip\.bottom - 8\)\) \{/, "lost only once the card itself has left the view");
+});
+
+test("motion: calm — a fade and a 4px rise on open, a cross-fade between cards, fades while a close waits, nothing bounces", () => {
+  // Owner, 2026-10-09: "Also add animations for the overlay popups" — then "still keep jumping around":
+  // 2.21.36's spring (an overshoot), 8px slide, scale and drift added motion to every open and swap.
+  assert.match(SRC, /const POP_SPRING = POP_EASE;/, "no overshoot anywhere");
+  assert.match(SRC, /\? \[\{ opacity: 0 \}, \{ opacity: 1 \}\]\n\s+: \[\{ opacity: 0, transform: `translateY\(\$\{popAbove \? 4 : -4\}px\)` \}, \{ opacity: 1, transform: "none" \}\],\n\s+\{ duration: switching \? 100 : 150, easing: POP_EASE \},/);
+  const motion = SRC.slice(SRC.indexOf("    function animatePopoverIn(el, switching) {"), SRC.indexOf("    function hideDocsPopover({ instant = false } = {}) {"));
+  assert.ok(motion.length > 500 && !/scale\(/.test(motion), "no scaling in or out");
+  assert.match(SRC, /if \(!switching\) stepIn\(popCard, 40\);/, "its rows fade in after it");
+  assert.match(SRC, /const a = row\.animate\(\[\{ opacity: 0 \}, \{ opacity: 1 \}\]/, "a fade, no slide");
+  assert.match(SRC, /if \(popStepShown !== null && popStepShown !== stepNow\) Promise\.resolve\(\)\.then\(\(\) => stepIn\(popCard\)\);/, "and again when what it shows changes — never on a repaint of the same");
+  // Leaving: opacity only — it does not move while it waits.
+  assert.match(SRC, /popEl\.style\.transition = on \? `opacity \$\{ms\}ms cubic-bezier\(0\.4, 0, 1, 1\)` : "opacity 150ms ease-out";\n\s+popEl\.style\.opacity = on \? "0\.35" : "";\n/);
+  assert.ok(!/popEl\.style\.translate/.test(SRC));
+  assert.match(SRC, /\[\{ opacity: from \}, \{ opacity: 0 \}\],/, "and goes with a fade");
+  assert.match(SRC, /const from = Math\.min\(1, Number\(getComputedStyle\(el\)\.opacity\) \|\| 1\);/, "it leaves from where the fade got to, not from full");
+  // Reduced motion: no movement at all, only the dimming that says it is leaving.
+  assert.match(SRC, /if \(reducedMotion\(\)\) \{ popEl\.style\.opacity = on \? "0\.6" : ""; return; \}/);
+  assert.match(SRC, /function stepIn\(card, delay = 0\) \{\n\s+if \(!card \|\| reducedMotion\(\)\) return;/);
+  // The suggestions in the margin slide in once each; the notes above the launcher rise in once.
+  assert.match(SRC, /if \(!fixCardsShown\.has\(it\.key\)\) \{\n\s+fixCardsShown\.add\(it\.key\);\n\s+if \(!reducedMotion\(\) && typeof card\.animate === "function"\) card\.animate\(\[\{ opacity: 0, translate: "10px 0" \}/);
+  assert.match(SRC, /\.ready-ping\.enter \{ animation: tracely-ping-in 200ms cubic-bezier\(0\.2, 0\.8, 0\.2, 1\)/);
+  assert.match(SRC, /@media \(prefers-reduced-motion: reduce\) \{ \.ready-ping\.enter \{ animation: none; \} \}/);
 });

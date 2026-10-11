@@ -2122,7 +2122,26 @@
      - in the triangle, on the way to the card, nothing changes while the
        pointer moves; once it rests there HOVER_REST_MS, the underline under
        it opens, or over empty page the card closes. */
-  const HOVER_OPEN_MS = 70, HOVER_SWAP_MS = 90, HOVER_REST_MS = 220, HOVER_HIDE_MS = 140;
+  /* And the sweet spot (owner, 2026-10-09: "how come hovering off it doesnt
+     make the overlay go away? … I want the sweet spot where when I go off of
+     it it goes away but not so fast that I cant go back if I suddenly change
+     my mind"). Off the card and its underline it waits HOVER_HIDE_MS, fading
+     as it waits (popLeaving), so the writer sees it going and has the time to
+     come back — the pointer back on it brings it straight back — then it
+     goes. Measured on the stand-in, 2.21.35 closed in 140 ms, before a
+     change of mind could reach it. Opening and swapping stay quick. */
+  /* And steady (owner, 2026-10-09: "overlay when hovering over underlines
+     still keep jumping around"). Measured on the stand-in with motion off, a
+     card held its place on its underline — what moved was everything around
+     it: a card opened on a 70 ms touch, so a pointer crossing a paragraph
+     popped cards; another underline took over in 110 ms; each card opened
+     wherever the pointer entered its line (x=380 from the start of a line,
+     x=640 from its end); and 2.21.36's spring and drift added motion to every
+     one. Now a card opens once the pointer has been on an underline
+     HOVER_OPEN_MS, another takes over after HOVER_SWAP_MS on it, the card
+     hangs from the START of its line (POP_LINE_IN), the same place every
+     time, and opens and leaves with a fade. */
+  const HOVER_OPEN_MS = 160, HOVER_SWAP_MS = 220, HOVER_REST_MS = 300, HOVER_HIDE_MS = 350;
   function hoverIntent(s) {
     if (!s.open) return s.under ? { act: "open", hash: s.under, ms: HOVER_OPEN_MS } : { act: "none" };
     if (s.onCard || s.onOwn) return { act: "stay" };
@@ -3801,6 +3820,14 @@
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ready-ping button.act { flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
+    /* A note rises in out of the launcher the first time it shows (not on
+       every re-render: the class is only on the render that brings it). */
+    .ready-ping.enter { animation: tracely-ping-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
+    @keyframes tracely-ping-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .ready-ping.enter { animation: none; } }
     /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
     .walk-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -5490,13 +5517,38 @@
       // Grow out of the caret, i.e. the underline — from below when the card
       // sits above its sentence.
       el.style.transformOrigin = `${ax}px ${popAbove ? "100%" : "0px"}`;
+      // A fade and a 4px rise out of its line on open; a plain cross-fade from one card to the next.
       const anim = el.animate(
         switching
           ? [{ opacity: 0 }, { opacity: 1 }]
-          : [{ opacity: 0, transform: `translateY(${popAbove ? 6 : -6}px) scale(0.98)` }, { opacity: 1, transform: "none" }],
-        { duration: switching ? 70 : 120, easing: POP_EASE },
+          : [{ opacity: 0, transform: `translateY(${popAbove ? 4 : -4}px)` }, { opacity: 1, transform: "none" }],
+        { duration: switching ? 100 : 150, easing: POP_EASE },
       );
       setTimeout(() => anim.cancel(), 500); // never a card held invisible by an animation that did not run
+      if (!switching) stepIn(popCard, 40);
+    }
+    // The suggestions and notes ease in without overshoot: nothing on the page bounces.
+    const POP_SPRING = POP_EASE;
+    /* The card's rows step in one after another — on open, and when its
+       content changes (a fix, the sources, a result) — never on a repaint of
+       the same content. */
+    function stepIn(card, delay = 0) {
+      if (!card || reducedMotion()) return;
+      [...card.children].slice(0, 8).forEach((row, i) => {
+        if (typeof row.animate !== "function") return;
+        const a = row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, delay: delay + i * 25, easing: POP_EASE, fill: "backwards" });
+        setTimeout(() => a.cancel(), delay + i * 25 + 500);
+      });
+    }
+    /* Leaving, with a moment to come back: while a close waits, the card fades
+       toward a third — it does not move; the pointer back on it or its
+       underline brings it straight back. Opacity only: placement owns left and
+       top, the open and close own transform. */
+    function popLeaving(on, ms = HOVER_HIDE_MS) {
+      if (!popEl) return;
+      if (reducedMotion()) { popEl.style.opacity = on ? "0.6" : ""; return; }
+      popEl.style.transition = on ? `opacity ${ms}ms cubic-bezier(0.4, 0, 1, 1)` : "opacity 150ms ease-out";
+      popEl.style.opacity = on ? "0.35" : "";
     }
     function animatePopoverOut(el) {
       dropClosingPopover();
@@ -5508,9 +5560,12 @@
       let gone = false;
       const done = () => { if (gone) return; gone = true; el.remove(); if (popClosing === el) popClosing = null; };
       try {
+        // From where it is — part-faded if it was leaving — on out.
+        const from = Math.min(1, Number(getComputedStyle(el).opacity) || 1);
+        el.style.transition = "";
         el.animate(
-          [{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateY(${popAbove ? 4 : -4}px)` }],
-          { duration: 110, easing: "ease-in", fill: "forwards" },
+          [{ opacity: from }, { opacity: 0 }],
+          { duration: 140, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
         ).finished.then(done, done);
       } catch { done(); return; }
       setTimeout(done, 400); // belt and braces: never leave an invisible card behind
@@ -5548,7 +5603,7 @@
        got — "Explain in depth" — sits inside the fix card as one more of its
        issue blocks, so no action row gains a button the app's lacks. */
     // POP_CARET: the caret's distance from the card's left edge — it hangs from the word, as Grammarly's does.
-    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10, TAIL_W = 16, TAIL_H = 10, TAIL_NET = TAIL_H - 2, POP_CARET = 40;
+    const POP_WIDTH = 320, POP_WIDTH_FLOW = 380, POP_GAP = 10, TAIL_W = 16, TAIL_H = 10, TAIL_NET = TAIL_H - 2, POP_CARET = 40, POP_LINE_IN = 24;
     const MIN_CARD = 180; // shared/popoverPlacement.ts MIN_CARD_HEIGHT
     const DM = { // index.css .docmark-*
       ink: "#1c1c1c", body: "#737373", hint: "#9a9ba1", green: "#16a34a", red: "#d93636", amber: "#ffb800", orange: "#ff5900",
@@ -5898,9 +5953,11 @@
       }
       // Carried with its line, wherever that is — half out of view included.
       const top = above ? markTop - POP_GAP - popCard.offsetHeight - TAIL_NET : below;
-      const leftPx = `${left}px`, topPx = `${Math.round(top)}px`;
-      if (popEl.style.left !== leftPx) popEl.style.left = leftPx;
-      if (popEl.style.top !== topPx) popEl.style.top = topPx;
+      // A sub-pixel or 1px change in its line's measured box is not a move: the card stays put for it.
+      const moved = (now, want) => now === "" || Math.abs((parseFloat(now) || 0) - want) >= 1.5;
+      const L = Math.round(left), T = Math.round(top);
+      if (moved(popEl.style.left, L)) popEl.style.left = `${L}px`;
+      if (moved(popEl.style.top, T)) popEl.style.top = `${T}px`;
       const tail = popEl.querySelector("[data-pop-arrow]");
       if (tail) tail.style.left = `${Math.max(12, Math.min(cx - left - TAIL_W / 2, width - 28))}px`;
     }
@@ -5980,8 +6037,10 @@
       }
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
+      popStepShown = null;
       popEl.addEventListener("pointerenter", () => { popHeld = true; });
-      popEl.addEventListener("pointerleave", () => { popHeld = false; });
+      // Leaving the card is a move the hover hears even if the page swallows the ones after it.
+      popEl.addEventListener("pointerleave", (e) => { popHeld = false; hoverPt = { x: e.clientX, y: e.clientY }; hoverHit(); });
       popEditSyncs.add(paintPop); // every edit-state change repaints the card
       paintPop();
       popEl.style.visibility = "hidden";
@@ -6279,10 +6338,14 @@
       });
     }
 
+    let popStepShown = null; // what the open card shows: a new step steps in (stepIn)
     function paintPop() {
       if (!popEl || !popCard) return;
       popPlanned = false; // new content: its side and size are decided again (popHeld keeps the side)
       const hash = popHash;
+      const stepNow = `${hash}|${stepOf(hash).step}|${popFlowBar?.hash === hash ? "flow" : ""}`;
+      if (popStepShown !== null && popStepShown !== stepNow) Promise.resolve().then(() => stepIn(popCard));
+      popStepShown = stepNow;
       popCard.textContent = "";
       const put = (...kids) => { for (const k of kids) if (k) popCard.appendChild(k); };
       const flow = popFlowBar && popFlowBar.hash === hash ? popFlowBar.flow : null;
@@ -6699,7 +6762,12 @@
        time; when its timer fires the pointer is looked at again, and the
        decision runs only if it still holds. */
     let hoverRafBusy = false, hoverPt = { x: -1, y: -1 }, hoverPending = null;
-    function clearHoverPending() { if (hoverPending) { clearTimeout(hoverPending.timer); hoverPending = null; } }
+    function clearHoverPending() {
+      if (!hoverPending) return;
+      clearTimeout(hoverPending.timer);
+      if (hoverPending.act === "hide" && !hoverPending.rest) popLeaving(false); // it came back
+      hoverPending = null;
+    }
     // Tracely's own panel and suggestions cover the underlines beneath them.
     function overTracelyUi(x, y) {
       const t = document.elementFromPoint?.(x, y) ?? null;
@@ -6744,14 +6812,18 @@
     function runHoverDecision(d, st) {
       if (d.act === "hide") { hideDocsPopover(); return; }
       if (!st.bar) return;
-      // Hung from the pointer's spot on the line, not the line's middle.
-      const hit = { ...st.hit, centerX: Math.max(st.hit.left, Math.min(st.hit.right ?? st.hit.left, hoverPt.x)) };
+
+      // From the START of the hovered line — the same place every time it opens, as Grammarly's hangs from its word.
+      const hit = { ...st.hit, centerX: st.hit.left + Math.min(POP_LINE_IN, ((st.hit.right ?? st.hit.left) - st.hit.left) / 2) };
       if (st.bar.flow) showFlowPopover(st.bar, hit, st.bar);
       else showDocsPopover(st.bar.hash, hit, st.bar);
       popApex = { x: hoverPt.x, y: hoverPt.y };
     }
     function hoverHit() {
       hoverRafBusy = false;
+      try { hoverDecide(); } catch (err) { console.debug(`[tracely] hover: ${err?.message ?? err}`); } // a throw must never leave a card up for good
+    }
+    function hoverDecide() {
       const { x, y } = hoverPt;
       const st = hoverState(x, y);
       const d = hoverIntent(st);
@@ -6773,11 +6845,18 @@
         const again = hoverIntent(now);
         if (again.act === d.act && again.hash === d.hash) runHoverDecision(again, now);
         // Something else holds now and no move may come to say so: decide again.
-        else hoverHit();
+        else {
+          if (pending.act === "hide" && !pending.rest) popLeaving(false);
+          hoverHit();
+        }
       }, d.ms);
       hoverPending = pending;
+      if (d.act === "hide" && !d.rest) popLeaving(true, d.ms); // fading while it waits: time to come back
     }
-    window.addEventListener("mousemove", (e) => {
+    /* Heard in the CAPTURE phase, mouse and pointer both: a page that stops a
+       move from reaching the window on its way up (Docs may, over its own
+       chrome) can never leave a card waiting for a move that never comes. */
+    const onHoverMove = (e) => {
       hoverPt = { x: e.clientX, y: e.clientY };
       if (hoverRafBusy) return;
       hoverRafBusy = true;
@@ -6787,14 +6866,16 @@
       const runHover = (fn) => { if (hoverRan) return; hoverRan = true; fn(); };
       setTimeout(() => runHover(hoverHit), 90);
       requestAnimationFrame(() => runHover(hoverHit));
-    }, { passive: true });
+    };
+    window.addEventListener("mousemove", onHoverMove, { passive: true, capture: true });
+    window.addEventListener("pointermove", onHoverMove, { passive: true, capture: true });
     // Out of the window (the toolbar, another app): no move will come to close
     // the card, so the pointer counts as nowhere.
     window.addEventListener("mouseout", (e) => {
       if (e.relatedTarget) return;
       hoverPt = { x: -1e4, y: -1e4 };
       hoverHit();
-    }, { passive: true });
+    }, { passive: true, capture: true });
     /* Typing closes an open card, as Grammarly's does — not typing into the
        card itself (a page number), not while an edit from it settles, not
        while the pointer is on it. Esc closes it too. */
@@ -7085,12 +7166,15 @@
       readyPing = { hash, n, at };
       setTimeout(() => { if (readyPing?.at === at) { readyPing = null; render(); } }, 15_000);
     }
+    let readyPingShown = null; // the note on screen: only a new one rises in (the panel re-renders often)
     function readyPingHtml() {
       const seg = readyPing ? segments.find((x) => x.hash === readyPing.hash) : null;
-      if (!seg || expanded) return "";
+      if (!seg || expanded) { readyPingShown = null; return ""; }
+      const enter = readyPingShown !== readyPing.hash ? " enter" : "";
+      readyPingShown = readyPing.hash;
       const n = readyPing.n;
       const what = n ? `${n} source${n === 1 ? "" : "s"} ready` : "Search finished";
-      return `<div class="ready-ping" role="status" aria-live="polite"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
+      return `<div class="ready-ping${enter}" role="status" aria-live="polite"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
     }
     // Show: the claim's card over its underline when it is on screen, else the panel.
     function showSourcesFor(hash) {
@@ -7472,7 +7556,8 @@
       if (canEditDoc() !== was) render();
     }
 
-    const canEditDoc = () => !harness && (inDoc.editable || bridgeReady);
+    // A test page may opt in (harness.canEdit) to see fix-all's suggestions; its edits go nowhere (editPath "none").
+    const canEditDoc = () => (harness ? harness.canEdit === true : inDoc.editable || bridgeReady);
     /* Why the doc cannot be edited from here, in the words the card shows
        under its Copy button — never a silent swap to Copy. */
     function editBlockReason() {
@@ -9423,16 +9508,19 @@
       const b = fixBatch;
       if (!b || b.applying) return;
       b.applying = true;
+      let toured = false; // the cursor came out to click: it goes again at the end
       render();
       try {
         for (let i = 0; i < b.items.length; i++) {
           if (fixBatch !== b) break;
           if (b.items[i].status !== "ready") continue;
+          if (await fixClickAccept(b.items[i])) toured = true;
           const before = docText;
           if (await acceptFix(i)) await fixFreshRead(before);
         }
       } finally {
         b.applying = false;
+        if (toured) tcCursorHide();
         render();
       }
     }
@@ -9479,6 +9567,7 @@
     let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
     let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
     let fixCardsRaf = 0;
+    const fixCardsShown = new Set(); // the suggestions already on the page: only a new one slides in
     function fixBarFor(key) {
       let best = null, top = Infinity;
       for (const b of docsBars) {
@@ -9510,6 +9599,23 @@
         while (t.queue.length && fixTour === t) {
           const it = t.queue.shift();
           if (it.status !== "ready" || it.dropped) continue;
+          // In its place when the page shows it: struck, then typed, with its answers beside it.
+          const geo = fixInlineGeo(it);
+          if (geo) {
+            it.inline = true;
+            const m = fixMarkMake(it, fixBatch.items.indexOf(it), geo);
+            const start = fixMarkStart(m);
+            const seen = Boolean(start && start.top >= 0 && start.top <= innerHeight && !document.hidden);
+            if (seen) {
+              await fixGlide(start.left + 2, start.top + start.height * 0.55);
+              for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
+            }
+            it.dropped = true;
+            await fixMarkReveal(m, seen);
+            paintFixCards();
+            if (seen) await tcSleep(120);
+            continue;
+          }
           const bar = fixBarFor(it.key);
           const r = bar?.el.getBoundingClientRect();
           const seen = Boolean(r && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && !document.hidden);
@@ -9581,11 +9687,13 @@
     }
     // Built when what they show changes; placed every frame (placeFixCards).
     function paintFixCards() {
+      paintFixMarks();
       const b = fixBatch;
-      const items = b ? b.items.map((it, i) => [it, i]).filter(([it]) => it.dropped && ["ready", "applying", "failed"].includes(it.status)) : [];
+      const items = b ? b.items.map((it, i) => [it, i]).filter(([it]) => it.dropped && !it.inline && ["ready", "applying", "failed"].includes(it.status)) : [];
       if (!items.length) {
         fixCardsEl?.remove();
         fixCardsEl = null;
+        fixCardsShown.clear();
         if (fixCardsRaf) { cancelAnimationFrame(fixCardsRaf); fixCardsRaf = 0; }
         return;
       }
@@ -9598,7 +9706,16 @@
       if (fixCardsEl.dataset.sig !== sig) {
         fixCardsEl.dataset.sig = sig;
         fixCardsEl.textContent = "";
-        for (const [it, i] of items) fixCardsEl.appendChild(fixCardEl(it, i));
+        let k = 0;
+        for (const [it, i] of items) {
+          const card = fixCardEl(it, i);
+          fixCardsEl.appendChild(card);
+          // New in the margin: it slides in from the page's edge (`translate` — placement owns transform).
+          if (!fixCardsShown.has(it.key)) {
+            fixCardsShown.add(it.key);
+            if (!reducedMotion() && typeof card.animate === "function") card.animate([{ opacity: 0, translate: "10px 0" }, { opacity: 1, translate: "0 0" }], { duration: 200, delay: 40 + 70 * k++, easing: POP_SPRING, fill: "backwards" });
+          }
+        }
       }
       if (!fixCardsRaf) fixCardsRaf = requestAnimationFrame(placeFixCards);
     }
@@ -9633,15 +9750,211 @@
       }
       fixCardsRaf = requestAnimationFrame(placeFixCards);
     }
+    /* ── each change IN the text (owner, 2026-10-09: "when you click accept
+       all there is no cursor but I want tracely cursor to go around and change
+       each one and leave the accept or reject choice next to each change that
+       it makes") ──────────────────────────────────────────────────────────────
+       The tour shows each ready change where it is: the words it takes out
+       struck through on their exact runs (svgRangeRects, the Type preview's
+       own locating), and what it puts in, typed into a chip right under the
+       change with ✓ Accept and ✕ Reject. Nothing reaches the Doc until Accept
+       (acceptFix, as before), and Accept all sends the cursor round again to
+       click each ✓. A change the page can't show in place — the Works Cited
+       list, a sentence Docs isn't drawing whole — keeps its card in the margin
+       (fixCardEl). Ink only: colour is for findings. */
+    const FIX_WASH = "rgba(28,28,28,0.07)", FIX_STRIKE = "rgba(28,28,28,0.78)";
+    let fixMarksEl = null, fixMarksRaf = 0;
+    const fixMarks = new Map(); // item key → { key, i, geo, strikes, chip, words, accept, text, typed, sig }
+    // Where a change is on the page now — its struck pieces and where its new words go — or null.
+    function fixInlineGeo(it) {
+      const plan = it.job ? previewPlan(it.job) : null;
+      const e = plan?.edits[0];
+      if (!e || plan.edits.length > 1 || plan.other) return null;
+      const d = previewDiff(e.find, e.next);
+      if (!d.removed.trim() && !d.inserted.trim()) return null;
+      const a = nrm(d.keepBefore).length, z = a + nrm(d.removed).length;
+      const bar = fixBarFor(it.key);
+      const geo = svgRangeRects(e.find, a, z, bar ? barTextRect(bar) : null);
+      if (!geo?.at?.node || (z > a && !geo.pieces?.length)) return null;
+      return { pieces: geo.pieces ?? [], at: geo.at, inserted: d.inserted.trim(), removed: d.removed.trim(), lines: plan.lines.map((l) => l.line), found: Date.now() };
+    }
+    // What its chip says: the words that go in, else that the words go.
+    const fixMarkText = (geo) => (geo.inserted ? tpClip(geo.inserted, 90, false) : geo.lines.length ? `+ ${tpClip(geo.lines[geo.lines.length - 1], 70, false)}` : "Delete");
+    function fixMarkMake(it, i, geo) {
+      if (!fixMarksEl?.isConnected) {
+        fixMarksEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "900", pointerEvents: "none" });
+        fixMarksEl.setAttribute("data-tracely-fix-marks", "");
+        document.documentElement.appendChild(fixMarksEl);
+      }
+      fixMarks.get(it.key)?.chip.remove();
+      const strikes = geo.pieces.map(() => {
+        const s = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
+          background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
+        fixMarksEl.appendChild(s);
+        return s;
+      });
+      const chip = el("div", {
+        position: "fixed", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
+        padding: "3px 3px 3px 7px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
+        fontFamily: APP.font, fontSize: "12px", lineHeight: "1.3", color: DM.ink, pointerEvents: "auto", visibility: "hidden", WebkitFontSmoothing: "antialiased",
+      });
+      chip.setAttribute("data-tracely-fix-chip", "");
+      chip.dataset.key = it.key;
+      fixMarksEl.appendChild(chip);
+      const m = { key: it.key, i, geo, strikes, chip, words: null, accept: null, text: fixMarkText(geo), typed: 0, sig: "", shown: false };
+      fixMarks.set(it.key, m);
+      if (!fixMarksRaf) fixMarksRaf = requestAnimationFrame(placeFixMarks);
+      return m;
+    }
+    // Where the change starts on screen (the cursor's stop): its first struck run, else where the words go in.
+    function fixMarkStart(m) {
+      const r = m.geo.pieces.length ? barTextRect(m.geo.pieces[0]) : null;
+      if (r && r.width > 0) return r;
+      const a = m.geo.at.node.getBoundingClientRect?.();
+      return a && a.width > 0 ? { left: a.left + m.geo.at.f * a.width, top: a.top, width: 0, height: a.height } : null;
+    }
+    // Struck, then its new words typed into its chip — or all at once off screen, or with reduced motion.
+    async function fixMarkReveal(m, animate) {
+      m.shown = true;
+      const it = fixBatch?.items[m.i];
+      if (!it) return;
+      m.typed = animate && !reducedMotion() ? 0 : m.text.length;
+      fillFixChip(m, it, m.i);
+      placeFixMarks();
+      if (!animate || reducedMotion()) return;
+      for (const sEl of m.strikes) if (typeof sEl.animate === "function") sEl.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: TP_STRIKE_MS, easing: "ease-out" });
+      await tcSleep(m.strikes.length ? TP_STRIKE_MS : 0);
+      const per = Math.max(8, Math.min(TP_CHAR_MS, TP_TYPE_MAX_MS / Math.max(1, m.text.length)));
+      for (let k = 1; k <= m.text.length && fixBatch?.items[m.i] === it; k++) {
+        m.typed = k;
+        if (m.words) m.words.textContent = m.text.slice(0, k);
+        const wr = m.words?.getBoundingClientRect?.();
+        if (wr && wr.width > 0) tcCursorAt(wr.left + wr.width + 2, wr.top + wr.height * 0.55);
+        await tcSleep(per);
+      }
+    }
+    // Its chip, for the change's state: the words and ✓ ✕ while it waits; "Putting it in…"; why it couldn't.
+    function fillFixChip(m, it, i) {
+      m.chip.textContent = "";
+      m.words = null;
+      m.accept = null;
+      if (it.status === "ready") {
+        m.words = el("span", { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: "600", background: FIX_WASH, borderRadius: "3px", padding: "1px 4px" }, m.text.slice(0, m.typed));
+        m.words.setAttribute("title", m.geo.inserted || m.geo.removed);
+        const busy = docBusy || Boolean(fixBatch?.applying);
+        const yes = dmBtn("✓ Accept", true, { disabled: busy });
+        const no = dmBtn("✕ Reject", false, { disabled: busy });
+        for (const b of [yes, no]) Object.assign(b.style, { padding: "3px 9px", fontSize: "11.5px", flex: "0 0 auto" });
+        yes.addEventListener("click", () => acceptFix(i));
+        no.addEventListener("click", () => skipFix(i));
+        m.accept = yes;
+        m.chip.append(m.words, yes, no);
+      } else {
+        const why = it.status === "applying" ? FIX_COPY.applying : it.why;
+        m.chip.append(el("span", { color: DM.body, padding: "2px 4px" }, why));
+        if (it.status === "failed") {
+          const x = dmBtn("✕", false);
+          Object.assign(x.style, { padding: "3px 8px", fontSize: "11px" });
+          x.addEventListener("click", () => { it.status = "skipped"; render(); });
+          m.chip.appendChild(x);
+        }
+      }
+    }
+    // Every change of state redraws what it touches; an answered change leaves the page.
+    function paintFixMarks() {
+      const b = fixBatch;
+      const live = new Map();
+      if (b) b.items.forEach((it, i) => { if (it.inline && ["ready", "applying", "failed"].includes(it.status)) live.set(it.key, [it, i]); });
+      for (const [key, m] of fixMarks) {
+        if (live.has(key)) continue;
+        m.chip.remove();
+        for (const sEl of m.strikes) sEl.remove();
+        fixMarks.delete(key);
+      }
+      for (const [key, [it, i]] of live) {
+        const m = fixMarks.get(key);
+        if (!m || !m.shown) continue;
+        m.i = i;
+        const sig = `${it.status}|${it.why}|${docBusy || b.applying ? 1 : 0}`;
+        if (m.sig !== sig) { m.sig = sig; fillFixChip(m, it, i); }
+      }
+      if (!fixMarks.size) {
+        fixMarksEl?.remove();
+        fixMarksEl = null;
+        if (fixMarksRaf) { cancelAnimationFrame(fixMarksRaf); fixMarksRaf = 0; }
+      } else if (!fixMarksRaf) fixMarksRaf = requestAnimationFrame(placeFixMarks);
+    }
+    // Every frame: the strikes on their runs, each chip under its change, none on another, only while in view.
+    function placeFixMarks() {
+      fixMarksRaf = 0;
+      if (!fixMarksEl?.isConnected || !fixMarks.size) return;
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+      const chips = [], struck = [];
+      for (const m of fixMarks.values()) {
+        // Docs redrew the line: find the change again (its pieces' runs are gone).
+        if (![m.geo.at.node, ...m.geo.pieces.map((p) => p.node)].every((n) => n.isConnected !== false) && Date.now() - m.geo.found > 200) {
+          const it = fixBatch?.items[m.i];
+          const again = it ? fixInlineGeo(it) : null;
+          if (again && again.pieces.length === m.strikes.length) m.geo = again;
+          else m.geo.found = Date.now();
+        }
+        const rects = m.geo.pieces.map((p) => barTextRect(p));
+        const onScreen = (r) => r && r.top + r.height > clip.top && r.top < clip.bottom;
+        const inView = (r) => r && r.width > 0 && onScreen(r);
+        m.strikes.forEach((sEl, k) => {
+          const r = rects[k];
+          if (!m.shown || !inView(r)) { sEl.style.visibility = "hidden"; return; }
+          Object.assign(sEl.style, { visibility: "visible", left: `${Math.round(r.left)}px`, top: `${Math.round(r.top)}px`, width: `${Math.round(r.width)}px`, height: `${Math.round(r.height)}px` });
+          struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
+        });
+        const last = [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
+        if (!m.shown || !last) { m.chip.style.visibility = "hidden"; continue; }
+        const first = rects.find(inView) ?? last;
+        chips.push({ m, left: first.left, top: last.top + last.height + 4 });
+      }
+      chips.sort((p, q) => p.top - q.top || p.left - q.left);
+      const placed = [];
+      for (const c of chips) {
+        const w = c.m.chip.offsetWidth || 220, h = c.m.chip.offsetHeight || 30;
+        const left = Math.max(8, Math.min(c.left, innerWidth - w - 8));
+        let top = c.top;
+        // Down past anything it would cover — another chip, or words another change strikes — until it covers none.
+        for (let moved = true, n = 0; moved && n < 12; n++) {
+          moved = false;
+          for (const p of [...placed, ...struck]) {
+            if (left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) { top = p.top + p.h + 4; moved = true; }
+          }
+        }
+        c.m.chip.style.left = `${Math.round(left)}px`;
+        c.m.chip.style.top = `${Math.round(top)}px`;
+        c.m.chip.style.visibility = top + Math.min(h, 24) > clip.bottom ? "hidden" : "visible";
+        placed.push({ left, top, w, h });
+      }
+      fixMarksRaf = requestAnimationFrame(placeFixMarks);
+    }
+    // Accept all, one by one: the cursor goes to the change's ✓ and clicks it when the page shows it. True when it did.
+    async function fixClickAccept(it) {
+      const btn = fixMarks.get(it.key)?.accept;
+      const r = btn?.isConnected && btn.getBoundingClientRect ? btn.getBoundingClientRect() : null;
+      if (!r || !(r.width > 0) || r.top < 0 || r.bottom > innerHeight || document.hidden) return false;
+      await fixGlide(r.left + r.width / 2, r.top + r.height / 2);
+      for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
+      return true;
+    }
+
     // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
+    let fixPingShown = false;
     function fixPingHtml() {
       const b = fixBatch;
-      if (!b || expanded) return "";
+      if (!b || expanded) { fixPingShown = false; return ""; }
       const ready = b.items.filter((it) => it.status === "ready").length;
-      if (!ready && !b.preparing) return "";
+      if (!ready && !b.preparing) { fixPingShown = false; return ""; }
+      const enter = fixPingShown ? "" : " enter";
+      fixPingShown = true;
       const busy = docBusy || b.applying ? " disabled" : "";
       const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
-      return `<div class="ready-ping fix-ping" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
+      return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
         + `${ready > 1 ? `<button class="act primary" data-fxp-all="1"${busy}>Accept all</button>` : ""}${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
     }
     function walkStripHtml() {

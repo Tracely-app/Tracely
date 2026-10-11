@@ -33,11 +33,17 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   three judges found 16 of 51 "relevant" sources backed the sentence). Every
   source `/api/sources` returns is READ — the OpenAlex abstract, its
   open-access copy when the abstract does not settle it, else the page; never
-  a PDF — and judged in the one existing verify call. It is
-  `supports`/`refutes` only with a verbatim `quote` from that text, checked
-  by `matchQuote` (whitespace, quote marks, dashes, case folded; word
-  boundaries kept), and carries `verified`, `readFrom`, `quote` — additive,
-  optional. Unread or unjudged is `context` + `verified: false`, never
+  a PDF — and judged in the one existing verify call. Since 2026-10-10 that
+  call splits the claim into its checkable PARTS once (1-4; framing and the
+  writer's comment left out) and says which parts each source states: a
+  source is `supports` only when EVERY part has a verbatim quote, `refutes`
+  when any part is ruled out by one, else `context` (some parts only:
+  tallied `partial`, log line only). Every quote is checked by `matchQuote`
+  (whitespace, quote marks, dashes, case folded; word boundaries kept); the
+  receipt is the parts' spans joined with " … ". Measured on 310 judged
+  sources first (`eval/goldset/run-verify-prod.mjs`): the one-verdict judge
+  decided two-part sentences both ways. It carries `verified`, `readFrom`,
+  `quote` — additive, optional. Unread or unjudged is `context` + `verified: false`, never
   backing, which every installed extension already honours. Retracted works
   (Crossref `updated-by`/`update-to`, PubMed, OpenAlex `is_retracted`) are
   dropped; a DOI whose registered title or year is another work's is not

@@ -3,7 +3,8 @@
  * only with the words from it that back the sentence — checked to be there.
  * Owner, 2026-10-04: Ord & Davies (2022) was offered for a sentence it never
  * makes; 2026-10-07: of 51 sources ranked relevant, three judges found 16
- * (31%) back the sentence. The model is a fake here; what is tested is
+ * (31%) back the sentence; 2026-10-10: a sentence in parts is backed only
+ * with a receipt for every part. The model is a fake here; what is tested is
  * everything around it — the text it is given, the quote check, and what its
  * verdicts (or its silence) do to the list. */
 import test from "node:test";
@@ -15,6 +16,7 @@ import { setHostResolver } from "../lib/citeMeta.js";
 import {
   abstractFromIndex, pageText, claimTerms, abstractSettles, selectExcerpts, foldForMatch, matchQuote, openAccessPage,
   gatherEvidence, applyVerdicts, markUnverified, verifySources, VERIFY_SYSTEM, VERIFY_SCHEMA, OPENALEX_WORK, EXCERPT_CHARS, EXCERPT_WINDOWS, MAX_QUOTE_CHARS,
+  joinQuotes, MULTI_QUOTE_CHARS, MAX_PARTS, VERIFY_MAX_TOKENS,
 } from "../lib/sourceVerify.js";
 
 // A stubbed fetch never needs DNS; safeFetch still checks every host, against this.
@@ -223,6 +225,9 @@ test("OpenAlex's is_retracted (live: Wakefield 1998, the Lancet's 2010 notice, S
 
 // ── what the verdicts do ──────────────────────────────────────────────────
 
+// The judge's answer for a one-part claim: the old single verdict.
+const ONE = (verdicts) => ({ parts: ["spending on youth facilities fell by 73% between 2010/11 and 2022/23"], verdicts });
+
 test("backs with a quote that is there: supports, verified, the quote, where it was read — and the snippet is the quote", () => {
   const sources = [
     { title: "Ord & Davies", stance: "supports", snippet: "Says support for youth leadership increased." },
@@ -234,35 +239,86 @@ test("backs with a quote that is there: supports, verified, the quote, where it 
     { i: 1, passages: [{ from: "page", text: "Between 2010/11 and 2022/23, spending on youth facilities fell by 73%, leaving gaps in services." }] },
     { i: 2, passages: [{ from: "abstract", text: "Spending on youth facilities rose by 12% between 2010/11 and 2022/23." }] },
   ];
-  const t = applyVerdicts(sources, evidence, [
-    { id: 0, verdict: "topic", quote: "" },
-    { id: 1, verdict: "backs", quote: "spending on youth facilities fell by 73%" },
-    { id: 2, verdict: "contradicts", quote: "Spending on youth facilities rose by 12%" },
-  ]);
-  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, unjudged: 0 });
+  const t = applyVerdicts(sources, evidence, ONE([
+    { id: 0, found: [] },
+    { id: 1, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] },
+    { id: 2, found: [{ part: 0, verdict: "contradicts", quote: "Spending on youth facilities rose by 12%" }] },
+  ]));
+  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, unjudged: 0, partial: 0 });
   assert.deepEqual(sources[0], { title: "Ord & Davies", stance: "context", snippet: "Says support for youth leadership increased.", verified: true, readFrom: "abstract" }, "on the topic, read, not backing: no quote");
   assert.deepEqual(sources[1], { title: "GOV.UK", stance: "supports", snippet: "“spending on youth facilities fell by 73%”", verified: true, readFrom: "page", quote: "spending on youth facilities fell by 73%" });
   assert.equal(sources[2].stance, "refutes");
   assert.equal(sources[2].quote, "Spending on youth facilities rose by 12%");
 });
 
-test("a verdict whose quote is not in the text falls to topic; a source the judge skipped is unverified", () => {
-  const sources = [{ stance: "supports", snippet: "orig" }, { stance: "supports", snippet: "orig" }, { stance: "context" }];
-  const evidence = [{ i: 0, passages: [{ from: "page", text: "The report covers loneliness among young people in England." }] }, { i: 1, passages: [{ from: "abstract", text: "Anything at all that was read here." }] }, { i: 2, passages: [{ from: "page", text: "x".repeat(100) }] }];
-  const t = applyVerdicts(sources, evidence, [{ id: 0, verdict: "backs", quote: "an invented line that is not there at all" }, { id: 2, verdict: "nonsense", quote: "" }]);
-  assert.deepEqual(t, { changed: 2, quoted: 0, unquoted: 1, unjudged: 2 });
-  assert.deepEqual(sources[0], { stance: "context", snippet: "orig", verified: true, readFrom: "page" }, "read, but the receipt was not real: not backing");
-  assert.deepEqual(sources[1], { stance: "context", snippet: "orig", verified: false }, "no verdict came back: unverified");
-  assert.equal(sources[2].verified, false, "an answer outside the enum is no verdict");
+test("a sentence in parts is backed only with a receipt for EVERY part — from anywhere in what was read; one part alone is context, tallied partial", () => {
+  // Live, 2026-10-09: the AASM's "8 to 10 hours" was shown as backing a
+  // sentence whose checkable half is the 70%; the 1831-preface page backed
+  // both of its sentence's parts, in two different passages.
+  const judged = {
+    parts: ["teenagers need 8 to 10 hours of sleep", "roughly 70 percent of teenagers sleep less than seven hours"],
+    verdicts: [
+      { id: 0, found: [{ part: 0, verdict: "backs", quote: "teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours" }] },
+      { id: 1, found: [
+        { part: 1, verdict: "backs", quote: "About 72 percent of high school students sleep less than 7 hours on school nights" },
+        { part: 0, verdict: "backs", quote: "Teens need 8 to 10 hours of sleep each night" },
+      ] },
+      { id: 2, found: [
+        { part: 0, verdict: "backs", quote: "Teens need 8 to 10 hours of sleep each night" },
+        { part: 1, verdict: "contradicts", quote: "Only 15 percent of teens sleep less than seven hours" },
+      ] },
+    ],
+  };
+  const sources = [{ title: "AASM", stance: "supports" }, { title: "CDC", stance: "context" }, { title: "Survey", stance: "supports" }];
+  const evidence = [
+    { i: 0, passages: [{ from: "page", text: "The AASM recommends that teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours on a regular basis." }] },
+    { i: 1, passages: [{ from: "abstract", text: "Teens need 8 to 10 hours of sleep each night." }, { from: "page", text: "About 72 percent of high school students sleep less than 7 hours on school nights." }] },
+    { i: 2, passages: [{ from: "page", text: "Teens need 8 to 10 hours of sleep each night. Only 15 percent of teens sleep less than seven hours." }] },
+  ];
+  const t = applyVerdicts(sources, evidence, judged);
+  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, unjudged: 0, partial: 1 });
+  assert.deepEqual(sources[0], { title: "AASM", stance: "context", verified: true, readFrom: "page" }, "the setup half alone: not backing, no receipt");
+  assert.equal(sources[1].stance, "supports");
+  assert.equal(sources[1].quote, "Teens need 8 to 10 hours of sleep each night … About 72 percent of high school students sleep less than 7 hours on school nights", "the claim's order, each the source's own words");
+  assert.equal(sources[1].readFrom, "page", "a receipt with any words from the page is from the page");
+  assert.equal(sources[1].snippet, `“${sources[1].quote}”`);
+  assert.equal(sources[2].stance, "refutes", "a part ruled out outweighs a part backed");
+  assert.equal(sources[2].quote, "Only 15 percent of teens sleep less than seven hours");
 });
 
-test("a long quote is cut for display at a word, still the source's own words", () => {
+test("a part whose quote is not in the text is not found; a source the judge skipped, or an answer without parts, is unverified; nonsense entries count for nothing", () => {
+  const sources = [{ stance: "supports", snippet: "orig" }, { stance: "supports", snippet: "orig" }, { stance: "context" }];
+  const evidence = [{ i: 0, passages: [{ from: "page", text: "The report covers loneliness among young people in England." }] }, { i: 1, passages: [{ from: "abstract", text: "Anything at all that was read here." }] }, { i: 2, passages: [{ from: "page", text: "x".repeat(100) }] }];
+  const t = applyVerdicts(sources, evidence, ONE([
+    { id: 0, found: [{ part: 0, verdict: "backs", quote: "an invented line that is not there at all" }] },
+    { id: 2, found: [{ part: 0, verdict: "nonsense", quote: "x".repeat(40) }, { part: 7, verdict: "backs", quote: "x".repeat(40) }, { part: "0", verdict: "backs", quote: "x".repeat(40) }] },
+  ]));
+  assert.deepEqual(t, { changed: 2, quoted: 0, unquoted: 1, unjudged: 1, partial: 0 });
+  assert.deepEqual(sources[0], { stance: "context", snippet: "orig", verified: true, readFrom: "page" }, "read, but the receipt was not real: not backing");
+  assert.deepEqual(sources[1], { stance: "context", snippet: "orig", verified: false }, "no verdict came back: unverified");
+  assert.deepEqual(sources[2], { stance: "context", verified: true, readFrom: "page" }, "judged, but nothing it said is a part with a receipt");
+
+  const noParts = [{ stance: "supports" }];
+  const u = applyVerdicts(noParts, [{ i: 0, passages: [{ from: "page", text: "spending on youth facilities fell by 73% in the period" }] }], { parts: [], verdicts: [{ id: 0, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }] });
+  assert.deepEqual([u.unjudged, noParts[0].stance, noParts[0].verified], [1, "context", false], "no parts: nothing to have backed");
+  assert.equal(MAX_PARTS, 4);
+});
+
+test("a long quote is cut for display at a word, still the source's own words; several parts' spans are cut shorter, and a span inside another is shown once", () => {
   const long = `${"Youth facilities across England were studied in great detail over many years ".repeat(6)}and spending fell by 73%.`;
   const sources = [{ stance: "context" }];
-  applyVerdicts(sources, [{ i: 0, passages: [{ from: "page", text: long }] }], [{ id: 0, verdict: "backs", quote: long }]);
+  applyVerdicts(sources, [{ i: 0, passages: [{ from: "page", text: long }] }], ONE([{ id: 0, found: [{ part: 0, verdict: "backs", quote: long }] }]));
   assert.equal(sources[0].stance, "supports");
   assert.ok(sources[0].quote.length <= MAX_QUOTE_CHARS + 1 && sources[0].quote.endsWith("…"));
   assert.ok(long.startsWith(sources[0].quote.slice(0, -1)));
+
+  const two = joinQuotes([long, "spending fell by 73%", "a second, separate finding"]);
+  const [first, second, ...rest] = two.split(" … ");
+  assert.ok(first.length <= MULTI_QUOTE_CHARS + 1 && first.endsWith("…") && long.startsWith(first.slice(0, -1)));
+  assert.equal(second, "a second, separate finding", "\"spending fell by 73%\" is inside the first span: shown once");
+  assert.deepEqual(rest, []);
+  assert.equal(joinQuotes(["same words here", "same words here"]), "same words here");
+  assert.equal(joinQuotes([]), "");
 });
 
 test("unverified: never supports or refutes, no receipt", () => {
@@ -280,13 +336,15 @@ test("verifySources: unreadable → context + verified:false; one call for the r
     { title: "Walled", url: "https://paywall.example/x", stance: "supports", snippet: "s" },
   ];
   let calls = 0, sent = null;
-  const call = async (req) => { calls++; sent = req; return { parsed: { verdicts: [{ id: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }, usage: { input: 900, output: 60, cached: 0, cacheWrite: 0 } }; };
+  const call = async (req) => { calls++; sent = req; return { parsed: ONE([{ id: 0, found: [{ part: 0, verdict: "backs", quote: "spending on youth facilities fell by 73%" }] }]), usage: { input: 900, output: 60, cached: 0, cacheWrite: 0 } }; };
   const r = await verifySources({ claim: CLAIM, sources, model: "gpt-5.6-luna", call, fetchImpl });
   assert.equal(calls, 1);
   assert.equal(sent.effort, "low");
   assert.equal(sent.system, VERIFY_SYSTEM);
   assert.equal(sent.schema, VERIFY_SCHEMA);
+  assert.equal(sent.maxTokens, VERIFY_MAX_TOKENS);
   assert.match(sent.user, /SOURCE 0: GOV\.UK\n"""\n/);
+  assert.match(sent.user, /Return the claim's parts once, then one verdict per source id \(0\)\.$/);
   assert.doesNotMatch(sent.user, /SOURCE 1/, "nothing was read, so nothing is judged");
   assert.deepEqual([r.checked, r.changed, r.quoted, r.unread, r.usage.input], [1, 2, 1, 1, 900]);
   assert.deepEqual([sources[0].stance, sources[0].verified, sources[0].readFrom], ["supports", true, "page"]);
@@ -304,14 +362,21 @@ test("verifySources: unreadable → context + verified:false; one call for the r
   assert.deepEqual([nothing.checked, nothing.unread, none[0].stance, none[0].verified], [0, 1, "context", false], "nothing read: no call, nothing backing");
 });
 
-test("the judge works from the text alone, defaults to topic, is told topic includes the on-topic source that says something else, and must quote", () => {
+test("the judge works from the text alone, splits the claim into parts once, leaves a part it is only about unfound, and must quote every part", () => {
   assert.match(VERIFY_SYSTEM, /Judge from that text ONLY/);
+  assert.match(VERIFY_SYSTEM, /split the CLAIM into its checkable parts, ONCE, the same for every source/);
+  assert.match(VERIFY_SYSTEM, /Leave out framing/);
+  assert.match(VERIFY_SYSTEM, /Keep each part's figures and its strength/);
   assert.match(VERIFY_SYSTEM, /This is the answer whenever you are unsure/);
   assert.match(VERIFY_SYSTEM, /"facilities" or "services" when the text means the same figure/);
-  assert.match(VERIFY_SYSTEM, /A source about the same subject that does not state this sentence's specific proposition is "topic"/);
+  assert.match(VERIFY_SYSTEM, /A part an excerpt is only ABOUT is not found/);
   assert.match(VERIFY_SYSTEM, /character for character, as one contiguous span: no ellipses/);
-  assert.match(VERIFY_SYSTEM, /a verdict whose quote is not there is discarded as "topic"/);
-  assert.match(VERIFY_SCHEMA.properties.verdicts.items.properties.quote.description, /at most 300 characters/);
+  assert.match(VERIFY_SYSTEM, /a part whose quote is not there counts as not found/);
+  assert.match(VERIFY_SYSTEM, /backing the sentence only when EVERY part is backed/);
+  assert.deepEqual(VERIFY_SCHEMA.required, ["parts", "verdicts"]);
+  const found = VERIFY_SCHEMA.properties.verdicts.items.properties.found.items;
+  assert.deepEqual(found.properties.verdict.enum, ["backs", "contradicts"], "a part is backed, ruled out, or left out");
+  assert.match(found.properties.quote.description, /at most 300 characters/);
 });
 
 test("wired: after the page lookups, billed with the search, retracted dropped, tallies kept out of the frozen response", () => {
@@ -320,5 +385,5 @@ test("wired: after the page lookups, billed with the search, retracted dropped, 
   assert.match(FACTCHECK, /const gone = new Set\(verified\.retracted \?\? \[\]\);/);
   assert.match(SERVER, /answer = await findSources\(/);
   assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, \.\.\.result \} = answer;/, "the tallies never reach the extension");
-  assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
+  assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} partial=\$\{verified\?\.partial \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
 });
