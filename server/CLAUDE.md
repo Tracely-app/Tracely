@@ -182,6 +182,11 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   re-attaches at once, then backing off 1, 2, 4… 30 s, until cap + 5 s +
   the 10 s close wait; the caller's slot stays claimed meanwhile and a close
   asked for in the gap goes out on the new socket.
+- **Safety**: the sideband reads `session.input_transcript.delta` into a
+  500-character window on the session (memory only; never logged or
+  stored) and checks it against `SAFETY_RULES` (distress/abuse, sexual);
+  a hit sends that rule's conditional `session.instructions.append` once per
+  call (trusted adult, 988 in the US). The model's own words aren't checked.
 - **Restarts**: SIGTERM/SIGINT (server.js) closes and charges every open call
   (`shutdownVoice`, ≤ 2 s); each handed-out call has a `voice_open` row
   (db.js migration v4) until charged, and boot re-attaches to leftovers

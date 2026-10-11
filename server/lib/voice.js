@@ -267,6 +267,7 @@ function newSession({ key, callerId, enforced, maxSeconds, id = null, createdAt 
     // closeWanted: we asked for the end (cap, /end, shutdown); closeSent: and
     // session.close went out on an open sideband.
     closeWanted: false, closeSent: false, finalized: false, reason: null,
+    heard: "", steered: new Set(), // the safety window (in memory only) and the rules already sent
     capTimer: null, closeTimer: null, retryTimer: null, waiters: [],
   };
 }
@@ -371,10 +372,51 @@ function finalize(s, reason, { confirmed = false } = {}) {
   for (const wake of s.waiters.splice(0)) wake();
 }
 
+/* Student safety on the sideband. Many students are under 18, and OpenAI's
+ * under-18 guidance asks for an escalation path for high-risk moments; its
+ * voice guide puts transcript guardrails on exactly this connection
+ * (guides/voice-server-controls, "Apply conversation guardrails"). The
+ * student's words arrive as session.input_transcript.delta: the last
+ * HEARD_CHARS are kept on the session, in memory only — never logged, never
+ * stored — and checked against two short lists. A hit sends that rule's
+ * session.instructions.append once per call. Each instruction is
+ * conditional, so a student only DISCUSSING a hard topic in their writing
+ * (a character's suicide, a history of abuse) is not derailed. */
+export const HEARD_CHARS = 500;
+const HURTER = "(?:he|she|they|someone|somebody|my (?:dad|mom|mum|father|mother|step ?(?:dad|mom|mum|father|mother)|brother|sister|boyfriend|girlfriend|parents?|uncle|aunt|cousin|teacher|coach))";
+export const SAFETY_RULES = Object.freeze([
+  Object.freeze({
+    id: "distress",
+    pattern: new RegExp(
+      "\\b(?:kill(?:ing)? my ?self|suicid\\w*|end(?:ing)? (?:it all|my life)|take my (?:own )?life|(?:want|wanna|going) to die|wish i (?:was|were) dead|better off dead" +
+      "|don'?t want to (?:live|be alive|be here anymore)|no reason to live|self[- ]?harm\\w*|hurt(?:ing)? my ?self|cut(?:ting)? my ?self" +
+      `|${HURTER} (?:hits|hurts|beats|touches|touched|hit|hurt|abuses|abused) me|i(?:'?m| am|'?ve been| have been) (?:being )?(?:abused|beaten)` +
+      "|(?:not safe|unsafe) at home|(?:scared|afraid) to go home)\\b"),
+    content: "The student may have just said they are in distress or unsafe. If they are talking about themselves, or about someone hurting them, stop the writing help, respond with warmth, don't ask for details, and encourage them to talk to a trusted adult right now; tell them that in the US they can call or text 988 any time, and elsewhere they should contact local emergency services. Don't end the conversation abruptly. If they were only discussing a topic in their writing, carry on gently and age-appropriately.",
+  }),
+  Object.freeze({
+    id: "sexual",
+    pattern: /\b(?:sex|sexual(?:ly)?|sexy|nudes?|naked|porn\w*|horny)\b/,
+    content: "The student just mentioned something sexual. Keep the conversation age-appropriate: don't engage with sexual content or role-play, and kindly steer back to their writing. If they say someone is pressuring or hurting them, respond with warmth, encourage them to talk to a trusted adult right away, and tell them that in the US they can call or text 988 any time. If it is only a topic in their writing, stay factual and age-appropriate.",
+  }),
+]);
+
+/** The student said `delta`: keep the window, check it, steer once per rule. */
+function heard(s, delta) {
+  s.heard = (s.heard + delta).slice(-HEARD_CHARS);
+  const text = s.heard.toLowerCase().replace(/[‘’ʼ]/g, "'");
+  for (const rule of SAFETY_RULES) {
+    if (s.steered.has(rule.id) || !rule.pattern.test(text)) continue;
+    // Marked only once it went out: in a re-attach gap the window still
+    // holds the words, and the next delta tries again.
+    if (send(s, { type: "session.instructions.append", delegation_id: null, content: rule.content })) s.steered.add(rule.id);
+  }
+}
+
 /* Reflected audio (PCM16 at 24 kHz, both directions) is nearly all of the
  * sideband's traffic and is never read, so only frames that can name an
  * event we act on are parsed. */
-const WANTED = /"session\.(usage\.updated|closed|delegation\.created)"/;
+const WANTED = /"session\.(usage\.updated|closed|delegation\.created|input_transcript\.delta)"/;
 
 function onMessage(s, data) {
   if (s.finalized) return;
@@ -392,6 +434,8 @@ function onMessage(s, data) {
     finalize(s, typeof ev.reason === "string" ? ev.reason : "closed", { confirmed: true });
   } else if (ev?.type === "session.delegation.created" && typeof ev.delegation?.id === "string") {
     send(s, { type: "session.commentary.append", delegation_id: ev.delegation.id, content: DELEGATION_REPLY });
+  } else if (ev?.type === "session.input_transcript.delta" && typeof ev.delta === "string") {
+    heard(s, ev.delta);
   }
 }
 

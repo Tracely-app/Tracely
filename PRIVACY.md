@@ -107,6 +107,10 @@ to Tracer, its writing coach, out loud. This is what happens when you do:
   the call, follows it only to count the minutes used and to end it at the
   time limit. A copy of the call's audio reaches our server on that
   connection; it reads only the minute count from it and discards the rest.
+  It also checks your words, in memory, for signs that you may be in danger
+  or that the talk has turned sexual, so it can tell Tracer to respond
+  safely (for example, to point you to a trusted adult or a crisis line); it
+  keeps nothing it checked.
   **We do not record or store the audio, and we do not keep transcripts.** We
   keep only the number of voice seconds used per day, with the other usage
   counts below. If you choose to save a call's transcript to your Tracer

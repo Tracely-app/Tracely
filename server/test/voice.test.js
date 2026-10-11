@@ -190,6 +190,39 @@ test("a client-mode delegation is answered aloud (commentary) so the model never
   assert.deepEqual(ws.sent, [{ type: "session.commentary.append", delegation_id: "item_9", content: V.DELEGATION_REPLY }]);
 });
 
+test("safety: the student's words are checked in memory; a high-risk moment steers the model once per call", async () => {
+  await start(gateFor("pro", "safe"));
+  const ws = lastWS();
+  const said = (delta) => ws.emit({ type: "session.input_transcript.delta", delta, start_ms: 0, end_ms: 1 });
+  said("So my thesis is that ");
+  said("school should start later.");
+  ws.emit({ type: "session.output_transcript.delta", delta: "I want to die laughing" }); // the model's words aren't checked
+  assert.deepEqual(ws.sent, []);
+  said("Honestly I don’t want to ");
+  said("live anymore");
+  const steer = { type: "session.instructions.append", delegation_id: null, content: V.SAFETY_RULES.find((r) => r.id === "distress").content };
+  assert.deepEqual(ws.sent, [steer], "fragments are joined; curly apostrophes are read");
+  assert.match(steer.content, /trusted adult/);
+  assert.match(steer.content, /988/);
+  said("I want to die");
+  assert.equal(ws.sent.length, 1, "once per call");
+  said(" can we talk about sex");
+  assert.deepEqual(ws.types(), ["session.instructions.append", "session.instructions.append"]);
+  assert.equal(ws.sent[1].content, V.SAFETY_RULES.find((r) => r.id === "sexual").content);
+  ws.emit({ type: "session.closed", reason: "client_hangup", usage: { seconds: 30 } });
+});
+
+test("safety: a hard topic in the essay or an idiom isn't a crisis", () => {
+  const hits = (text) => V.SAFETY_RULES.filter((r) => r.pattern.test(text)).map((r) => r.id);
+  for (const ok of ["it just hit me that my thesis is weak", "beats me why that works", "the character kills himself in act five", "sexism in the workplace", "this paragraph is killing me"]) {
+    assert.deepEqual(hits(ok), [], ok);
+  }
+  for (const [text, id] of [["my stepdad hurts me", "distress"], ["im being abused", "distress"], ["i keep thinking about self harm", "distress"], ["i'm scared to go home", "distress"], ["send nudes", "sexual"]]) {
+    assert.deepEqual(hits(text), [id], text);
+  }
+  assert.equal(V.HEARD_CHARS, 500);
+});
+
 test("policy: off switch, Pro only when enforced, the key, the daily cap", async () => {
   const pro = gateFor("pro", "policy");
   await assert.rejects(start(pro, {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "0" }), (e) => e.status === 503 && e.kind === "voice_off");
