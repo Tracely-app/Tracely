@@ -15,6 +15,7 @@ deploys or ships, in the same PR or right after. Dates are UTC.
 
 ## Not yet deployed / pending
 
+- **Server (feature/voice, Tracer Voice):** adds `/api/voice/session` (APP_AI_ROUTES) and `/api/voice/end` (ungated), `TRACELY_VOICE_MAX_SECONDS` / `TRACELY_VOICE_DAILY_SECONDS` and the optional `TRACELY_SAFETY_ID_SECRET` (server/DEPLOY.md "Tracer Voice"), and database migration v4 (`voice_open`, created at boot). Deploy before any desktop build with voice (preflight fails the ship on 404). Check `/opt/node22/bin/node -v` ≥ 22.4 (the sideband's WebSocket headers), and consider raising `TRACELY_APP_DAILY_BUDGET_USD` (each open call holds 75¢). From this deploy on, a restart ends every voice call in progress (each is charged first).
 - **Server:** main has #293, #275 and #300 since the live `618188c`. #300 adds `/api/compare-source` to `EXTENSION_API`, which extension 2.21.24's "Find the cited work" calls — deploy before uploading that zip (on the current server the button falls back to Find a source).
 - Website (Tracely-app/Tracely-Website) waits on the Vercel reconnect above: #8 is the site rebuild with the pricing copy; #9 the `/privacy` and `/terms` pages (supersedes #7, held for legal review); #10 puts Explain in depth back on Pro once extension 2.21.24 is live.
 - Repo PR #297 (launch legal documents) — drafts for legal review, do not merge until read by a lawyer.

@@ -104,13 +104,26 @@ to Tracer, its writing coach, out loud. This is what happens when you do:
   your IP address, as any service you connect to does.
 - **What our server does.** It sets the call up for you (it passes the
   connection details and your draft to OpenAI, with our API key) and, during
-  the call, follows it only to count the minutes used and to end it at the
-  time limit. A copy of the call's audio reaches our server on that
-  connection; it reads only the minute count from it and discards the rest.
+  the call, follows it to count the minutes used, to end it at the time
+  limit, and to tell Tracer it has no lookup tool when it asks for one. It
+  also sends OpenAI a one-way hash of your account id, which OpenAI uses only
+  to investigate abuse. A copy of the call's audio and its live transcript
+  reaches our server on that connection; it reads only what it needs for
+  those jobs and discards the rest. It also checks your words, in memory, for
+  signs that you may be in danger or that the talk has turned sexual, so it
+  can tell Tracer to respond safely (for example, to point you to a trusted
+  adult or a crisis line); it keeps nothing it checked.
   **We do not record or store the audio, and we do not keep transcripts.** We
-  keep only the number of voice seconds used per day, with the other usage
-  counts below. If you choose to save a call's transcript to your Tracer
-  chat, the app saves it on your computer, not on our server.
+  keep the number of voice seconds used per day, with the other usage counts
+  below, and, only while a call is open, a note of it (your account id, when
+  it started and its time limit) so that a server restart can't lose track
+  of it; the note is deleted when the call ends.
+- **Saved transcripts stay on your computer, in your Tracer chat.** By
+  default the app adds the call's words to your Tracer chat on this computer
+  when the call ends (Settings → Voice → Save transcripts turns this off).
+  Like the rest of that chat, recent messages are sent with your next typed
+  question to Tracer (through our server to OpenAI) so Tracer can follow the
+  conversation; our server doesn't store them.
 - **What OpenAI keeps.** OpenAI does not use API data to train its models.
   It keeps abuse-monitoring logs for up to 30 days, and the call is not stored
   as a recording (we ask OpenAI not to store it).
@@ -118,8 +131,10 @@ to Tracer, its writing coach, out loud. This is what happens when you do:
   OpenAI with their own names and styles; none imitates a real person, and
   Tracer says so if asked.
 - **Students.** Voice is for writing, research and study help. Tracer is told
-  to keep every conversation age-appropriate and to point a student who seems
-  to be in danger to a trusted adult or emergency services.
+  to keep every conversation age-appropriate, never to ask for personal
+  details, and, if a student says they are unsafe or want to hurt
+  themselves, to stop the coaching, respond with care and point them to a
+  trusted adult and a crisis line (988 in the US) or emergency services.
 
 ## What we keep, and for how long
 
@@ -128,6 +143,7 @@ On our server:
 | what | keyed by | kept |
 |---|---|---|
 | Usage counts (checks, source searches, flow checks and resume reviews per day and month; voice seconds per day in the desktop app; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
+| A voice call in progress (OpenAI's call id, when it started, its time limit) | account id | only while the call is open; deleted when it ends |
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |
@@ -210,7 +226,7 @@ Tracely is for writers of school age and older, but the paid plans require a
 parent or guardian to pay if you are under 18. We do not knowingly collect
 data from children under 13. Voice conversations in the desktop app are part of
 the Pro plan, so a student under 18 uses them on a plan a parent or guardian
-pays for; nothing said on a call is kept by us (see "Voice conversations").
+pays for; our server keeps nothing said on a call (see "Voice conversations").
 
 ## Changes and contact
 

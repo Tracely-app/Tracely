@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { voiceHarness, fakeSupabase, bootServer, post, readLog, ledger, seedLedger, until } from "./helpers/voice-harness.js";
+import { voiceHarness, fakeSupabase, bootServer, post, readLog, ledger, seedLedger, until, openVoiceRows } from "./helpers/voice-harness.js";
 import { VOICE_BASE_PROMPT, VOICE_PERSONAS } from "../lib/voices.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -33,10 +33,11 @@ const sha = (s) => createHash("sha256").update(s).digest("hex");
 const offer = (mode = "ok") => `v=0\r\no=- 46117 2 IN IP4 127.0.0.1\r\na=x-test:${mode}\r\n`;
 const APP_POOL = "__global_app__";
 
-test("wired: both routes are APP routes, never the extension's", () => {
+test("wired: start is an APP route; end spends nothing and is gated by nothing; never the extension's", () => {
   const set = (name) => new RegExp(`const ${name} = new Set\\(\\[([^\\]]*)\\]\\)`).exec(SERVER_SRC)[1];
+  assert.ok(set("APP_AI_ROUTES").includes(`"/api/voice/session"`), "/api/voice/session in APP_AI_ROUTES");
+  assert.ok(!set("APP_AI_ROUTES").includes(`"/api/voice/end"`), "/api/voice/end is not behind appGate (budget, limiter)");
   for (const p of ["/api/voice/session", "/api/voice/end"]) {
-    assert.ok(set("APP_AI_ROUTES").includes(`"${p}"`), `${p} in APP_AI_ROUTES`);
     assert.ok(!set("EXTENSION_API").includes(`"${p}"`), `${p} not in EXTENSION_API`);
     assert.ok(!set("PAID_ROUTES").includes(`"${p}"`), `${p} not in PAID_ROUTES`);
   }
@@ -88,8 +89,10 @@ test.describe("hosted (enforcement on)", () => {
     assert.equal(create.body.session.model, "gpt-live-1");
     assert.equal(create.body.session.audio.output.voice, "willow");
     assert.equal(create.body.session.store, false);
-    assert.equal(create.body.session.instructions,
-      `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.rory.prompt}\n\nThe student's current draft (for reference; never read it back at length):\n\nThesis: school should start later.`);
+    assert.equal(create.body.session.instructions, `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.rory.prompt}`, "trusted text only");
+    assert.deepEqual(create.body.session.input, [{ type: "message", role: "user", content: [{ type: "input_text",
+      text: "The student's current draft (for reference; never read it back at length):\n\n<student_draft>\nThesis: school should start later.\n</student_draft>" }] }],
+      "the draft is startup history, never instructions");
     assert.deepEqual(create.body.session.client.data_channel.allowed_client_events, []);
     assert.deepEqual(create.body.session.client.data_channel.allowed_server_events.map((e) => e.type),
       ["session.started", "session.input_transcript.delta", "session.output_transcript.delta", "session.closed", "error"]);
@@ -108,7 +111,7 @@ test.describe("hosted (enforcement on)", () => {
     assert.deepEqual(end, { status: 200, body: { seconds: 62 } });
     assert.ok(readLog(LOG).some((e) => e.kind === "send" && e.sessionId === r.body.sessionId && e.message.type === "session.close"));
     assert.equal(ledger(S.dataDir, "user:u-pro-alice", "voice_seconds"), 62);
-    assert.equal(ledger(S.dataDir, "user:u-pro-alice", "account_ucents"), voiceCostMicroCents(61.5));
+    assert.equal(ledger(S.dataDir, "user:u-pro-alice", "account_ucents"), 0, "voice is not fair-use spend (its daily cap bounds it)");
     assert.equal(ledger(S.dataDir, APP_POOL, "spend_ucents"), voiceCostMicroCents(61.5));
     assert.equal(voiceCostMicroCents(61.5), 5_125_000, "61.5 s at $0.05/min");
 
@@ -197,11 +200,66 @@ test.describe("hosted, a 3 s cap and a two-cent pool", () => {
     assert.equal(close.atSeconds, 3, "sent when the meter reached the cap");
     await until(() => ledger(S.dataDir, "user:u-pro-gus", "voice_seconds") > 0);
     assert.equal(ledger(S.dataDir, "user:u-pro-gus", "voice_seconds"), 15, "billed at least the 15 s set-up");
-    assert.equal(ledger(S.dataDir, "user:u-pro-gus", "account_ucents"), voiceCostMicroCents(15));
+    assert.equal(ledger(S.dataDir, "user:u-pro-gus", "account_ucents"), 0);
     assert.equal(ledger(S.dataDir, APP_POOL, "spend_ucents"), 2 * voiceCostMicroCents(15));
     assert.equal(readLog(LOG).filter((e) => e.kind === "send" && e.message.type === "session.close").length, 1, "once");
+    assert.equal((await start("tok-pro-gus", "ticks")).status, 503, "the pool is spent: a new call is refused");
     const end = await post(S.base, "/api/voice/end", { token: "tok-pro-gus", body: { sessionId: r.body.sessionId } });
-    assert.equal(end.status, 503, "the pool is spent: appGate refuses every app route, end included");
+    assert.equal(end.status, 200, "but hanging up is never refused for the budget");
+  });
+});
+
+test.describe("restarts never un-meter a call", () => {
+  const supabase = fakeSupabase();
+  let LOG; // one per test: every server's stub numbers its sessions from 1
+  let env;
+  test.before(async () => {
+    await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
+    env = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon",
+      OPENAI_API_KEY: KEY, TRACELY_APP_DAILY_BUDGET_USD: "20" };
+  });
+  test.beforeEach((t) => { LOG = H.newLog(`restart-${t.name.slice(0, 12).replace(/\W/g, "_")}`); });
+  test.after(() => supabase.close());
+  const boot = (dataDir) => bootServer({ tmp: TMP, stub: H.stub, serverJs: SERVER_JS, env: { ...env, TRACELY_TEST_VOICE_LOG: LOG }, dataDir });
+  const call = (S, token) => post(S.base, "/api/voice/session", { token, body: { sdp: offer(), voiceId: "wren" } });
+  const attached = (id) => readLog(LOG).filter((e) => e.kind === "attach" && e.sessionId === id).length;
+  const exitOf = (child) => new Promise((r) => child.once("exit", (code) => r(code)));
+
+  test("SIGTERM (a deploy) closes and charges every open call before the process exits", async () => {
+    const S = await boot();
+    const r = await call(S, "tok-pro-ivy");
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await until(() => attached(r.body.sessionId));
+    assert.equal(openVoiceRows(S.dataDir), 1);
+    const exited = exitOf(S.child);
+    S.child.kill("SIGTERM");
+    assert.equal(await exited, 0);
+    assert.ok(readLog(LOG).some((e) => e.kind === "send" && e.sessionId === r.body.sessionId && e.message.type === "session.close"));
+    assert.equal(ledger(S.dataDir, "user:u-pro-ivy", "voice_seconds"), 62);
+    assert.equal(openVoiceRows(S.dataDir), 0);
+  });
+
+  test("a crash leaves the call's row; the next boot re-attaches and the call is metered and closable again", async () => {
+    const A = await boot();
+    const r = await call(A, "tok-pro-jo");
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await until(() => attached(r.body.sessionId));
+    const exited = exitOf(A.child);
+    A.child.kill("SIGKILL");
+    await exited;
+    assert.equal(ledger(A.dataDir, "user:u-pro-jo", "voice_seconds"), 0, "nothing charged by the dead process");
+    const B = await boot(A.dataDir);
+    try {
+      await until(() => attached(r.body.sessionId) === 2);
+      assert.match(B.output(), /voice: resuming 1 call/);
+      assert.equal((await call(B, "tok-pro-jo")).status, 409, "the slot is claimed again");
+      const end = await post(B.base, "/api/voice/end", { token: "tok-pro-jo", body: { sessionId: r.body.sessionId } });
+      assert.deepEqual(end, { status: 200, body: { seconds: 62 } });
+      assert.equal(ledger(B.dataDir, "user:u-pro-jo", "voice_seconds"), 62);
+      assert.equal(openVoiceRows(B.dataDir), 0);
+    } finally {
+      B.child.kill();
+    }
   });
 });
 
