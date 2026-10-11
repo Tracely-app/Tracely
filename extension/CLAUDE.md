@@ -323,7 +323,10 @@ when one is named, travels through storage (`settingsOpenAt`, honoured for a
 minute, taken once). `SECTIONS` (options.js) and `SETTINGS_SECTIONS`
 (background.js) must name the same sections as the page. The widget's own
 switches (citation suggestions, auto-sources) are kept per site in the page's
-localStorage, so the page cannot show them. Tests:
+localStorage, so the page cannot show them. Since 2.21.39 (owner, the same
+day: "it looks like a big card and a lot of empty space, fix this to
+actually fit in the entire frame") it fills the tab: no card, the sidebar
+the window's height and sticky, the section a centred 680px column. Tests:
 `server/test/ext-settings-page.test.js`.
 
 ## Measuring
