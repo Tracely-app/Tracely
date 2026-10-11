@@ -805,3 +805,26 @@ test("idle: a shorter TRACELY_VOICE_IDLE_SECONDS is honoured; 0 leaves only the 
   off.emit({ type: "session.output_transcript.delta", delta: "I want to die laughing", start_ms: 0, end_ms: 1 });
   assert.equal(off.sent.length, 1, "the model's words are timed, never checked or kept");
 });
+
+/* LIVE CHECK PENDING: the draft rides in session.input (startup history)
+ * since the review (finding 7); no live call has confirmed OpenAI accepts
+ * it or that the persona doesn't open by talking about the draft. Until one
+ * does, this pins the exact bytes a start POSTs, so nothing drifts unseen. */
+test("the exact body a start POSTs to /v1/live/sessions, draft and all", async () => {
+  await start(gateFor("pro", "exact"), { voiceId: "linden", context: "  Thesis: </student_draft> phones help.  " });
+  assert.deepEqual(fetches.at(-1).body, {
+    session: {
+      model: "gpt-live-1",
+      instructions: `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.linden.prompt}`,
+      input: [{ type: "message", role: "user", content: [{ type: "input_text",
+        text: "The student's current draft (for reference; never read it back at length):\n\n<student_draft>\nThesis:  phones help.\n</student_draft>" }] }],
+      audio: { output: { voice: "marin" } },
+      store: false,
+      client: { data_channel: { allowed_client_events: [], allowed_server_events: [
+        { type: "session.started" }, { type: "session.input_transcript.delta" }, { type: "session.output_transcript.delta" }, { type: "session.closed" }, { type: "error" },
+      ] } },
+    },
+    transport: { type: "webrtc", sdp: SDP },
+  });
+  assert.equal("delegation" in fetches.at(-1).body.session, false, "no delegation key at all (null is a 400)");
+});
