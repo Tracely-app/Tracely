@@ -2679,7 +2679,7 @@
       <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
       <span class="name">Tracely</span>
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
-      <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
+      <button class="close" id="panelClose" title="Close" aria-label="Close">✕</button>
     </div>
     <div class="tally" role="group" aria-label="Tracely findings">${chips.join("")}</div>`;
   }
@@ -3447,6 +3447,7 @@
       --chip-wash: ${APP.chipWash};
       --shadow-sm: ${APP.shadowSm}; --shadow-card: ${APP.shadowCard}; --shadow-lg: ${APP.shadowLg};
       --r-card: ${APP.rCard}; --r-btn: ${APP.rBtn}; --r-chip: ${APP.rChip};
+      --hover: rgba(0,0,0,.04); --pressed: rgba(0,0,0,.08);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
@@ -3483,7 +3484,7 @@
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
       display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
-      background: var(--chip-wash); color: var(--chip-ink);
+      background: var(--bg); color: var(--muted);
       border-radius: 999px;
       font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
     }
@@ -3536,7 +3537,7 @@
        close; the counts sit under it (.tally) and carry the rule. */
     .head {
       display: flex; align-items: center; gap: 10px;
-      margin: 0 24px; padding: 14px 0 10px; cursor: grab; user-select: none; touch-action: none;
+      margin: 0 24px; padding: 18px 0 12px; cursor: grab; user-select: none; touch-action: none;
     }
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
@@ -3552,7 +3553,8 @@
       font-variant-numeric: tabular-nums; line-height: 1;
       transition: border-color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .chip:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .chip:hover { border-color: var(--border-strong); background: var(--hover); }
+    .chip:active { background: var(--pressed); }
     .chip-ico { display: inline-flex; width: 12px; height: 12px; flex-shrink: 0; }
     .chip-ico svg { width: 12px; height: 12px; display: block; }
     .chip-clear { cursor: default; font-weight: 500; color: var(--ink); }
@@ -3560,21 +3562,23 @@
     /* Icon-only dismiss: 28px, radius 8, transparent until hovered; its
        ink focus ring comes from the primitives block. */
     .close {
-      margin-left: 8px; flex-shrink: 0; width: 28px; height: 28px; border-radius: var(--r-btn);
+      margin-left: 8px; margin-right: -6px; flex-shrink: 0; width: 28px; height: 28px; border-radius: var(--r-btn);
       border: none; background: transparent; color: var(--label); cursor: pointer;
-      font-size: 18px; font-weight: 500; line-height: 1; font-family: inherit;
+      font-size: 14px; font-weight: 400; line-height: 1; font-family: inherit;
       display: flex; align-items: center; justify-content: center;
       transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .close:hover { background: var(--surface-2); color: var(--text); }
-    .close:active { background: var(--chip-wash); color: var(--text); }
+    .close:hover { background: var(--hover); color: var(--text); }
+    .close:active { background: var(--pressed); color: var(--text); }
     /* The one legend (never colour alone): what each underline's LINE means.
        A strip stuck to the list's bottom edge while the Claims group is in
        view (sticky inside that group); the negative margins take it to the
        list's edges and onto its 16px bottom padding, so it sits flush. */
     .legend {
       position: sticky; bottom: -16px; z-index: 1;
-      display: flex; flex-wrap: wrap; gap: 4px 12px; flex-shrink: 0;
+      /* Two aligned columns (a ragged flex wrap started each row's second
+         item at a different x); one column when the panel is narrow. */
+      display: grid; grid-template-columns: max-content max-content; column-gap: 16px; row-gap: 4px; flex-shrink: 0;
       margin: 2px -24px -16px; padding: 8px 24px;
       background: var(--surface);
       font-size: 11px; line-height: 16px; color: var(--label);
@@ -3582,9 +3586,26 @@
     /* Its rule is inset to the content width, like the tally's and the
        foot's right under it; the white strip itself stays full-bleed. */
     .legend::before { content: ""; position: absolute; top: 0; left: 24px; right: 24px; border-top: 1px solid var(--border); }
-    /* A card brought into view (a header chip, a clicked underline) stops
-       above the strip instead of under it. */
-    .tips:has(> .legend) > .card { scroll-margin-bottom: 64px; }
+    /* A neutral fade above the strip, so what scrolls under it (or the top
+       of the next card) reads as "more below" rather than a broken box. */
+    .legend::after { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px; background: linear-gradient(to bottom, transparent, var(--surface)); pointer-events: none; }
+    /* Whatever the browser scrolls into view — a card, a focused button, an
+       input — stops above the strip instead of under it. */
+    .list:has(.legend) { scroll-padding-bottom: 64px; }
+    @media (max-width: 520px) { .legend { grid-template-columns: 1fr; } }
+    /* Short or narrow: the strip ends the Claims group instead of covering a
+       fifth of the list; at phone width the icon carries the kind (every
+       line is solid), so the items pair two to a row. */
+    @media (max-height: 760px), (max-width: 420px) {
+      .legend { position: static; margin: 8px -24px -16px; }
+      .legend::after { display: none; }
+      .list:has(.legend) { scroll-padding-bottom: 0; }
+    }
+    @media (max-width: 420px) {
+      .legend { grid-template-columns: max-content max-content; }
+      .legend .legend-line { display: none; }
+      .list:has(.legend) { scroll-padding-bottom: 0; }
+    }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
     .legend-line { display: inline-block; width: 24px; border-radius: 1px; }
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
@@ -3593,14 +3614,14 @@
     .evidence { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding-top: 8px; border-top: 1px solid var(--border); }
     .ev-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; border: none; background: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); cursor: pointer; border-radius: 4px; }
     .ev-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
-    .ev-intro { font-size: 12px; line-height: 1.5; color: var(--label); margin-top: -2px; padding: 0 2px; }
+    .ev-intro { font-size: 12px; line-height: 1.5; color: var(--label); margin-top: -2px; padding: 0; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
     .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
     .tips + .tips { margin-top: 8px; }
-    .tips-head { font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label); text-transform: uppercase; letter-spacing: .04em; padding: 4px 2px 0; font-variant-numeric: tabular-nums; }
-    .genre-line { font-size: 12px; line-height: 1.5; color: var(--label); padding: 0 2px; flex-shrink: 0; }
+    .tips-head { font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label); text-transform: uppercase; letter-spacing: .04em; padding: 4px 0 0; font-variant-numeric: tabular-nums; }
+    .genre-line { font-size: 12px; line-height: 1.5; color: var(--label); padding: 0; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--label); max-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
     .status.error { color: var(--danger); }
@@ -3615,8 +3636,10 @@
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .list { overflow-y: auto; overscroll-behavior: contain; padding: 12px 24px 16px; display: flex; flex-direction: column; gap: 8px; }
-    /* Nothing to show: the app's dashed empty box, muted, one short measure. */
-    .empty { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; padding: 32px 16px; width: 100%; max-width: 300px; margin: 0 auto; border: 1px dashed var(--border); border-radius: 12px; }
+    /* Nothing to show: the app's dashed empty box, the column's width (on the
+       grid of the rules and cards around it), its text at one short measure. */
+    .empty { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; padding: 32px 24px; width: 100%; max-width: none; margin: 0 auto; border: 1px dashed var(--border); border-radius: 12px; }
+    .empty > span { display: block; max-width: 300px; margin: 0 auto; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
     /* Each card is its own box, so where one ends is never a guess; the
@@ -3626,11 +3649,12 @@
        the primitives' ink ring at the end of this sheet. */
     .card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+      padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;
     }
     .card[aria-expanded="true"] { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
-    .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
-    .card.shut:hover { background: var(--surface-2); border-color: var(--border-strong); }
+    .card.shut { gap: 4px; padding: 12px 16px; cursor: pointer; }
+    .card.shut:hover { background: var(--hover); border-color: var(--border-strong); }
+    .card.shut:active { background: var(--pressed); }
     .card.shut > :not(.top):not(.expl) { display: none; }
     .card.shut .expl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
     .card.shut:not(:has(.expl)) > .quote { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3662,10 +3686,11 @@
       background: none; border: none; color: var(--label); cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit;
       transition: color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .x:hover { color: var(--text); background: var(--surface-2); }
+    .x:hover { color: var(--text); background: var(--hover); }
+    .x:active { color: var(--text); background: var(--pressed); }
     /* The writer's own words in ink, set off by a rule; the reason under it is
        muted — ink, muted and label are the card's only three greys. */
-    .quote { font-size: 13px; line-height: 1.5; color: var(--ink); padding-left: 10px; border-left: 2px solid var(--border); }
+    .quote { font-size: 13px; line-height: 1.5; color: var(--ink); padding-left: 14px; border-left: 2px solid var(--border); }
     .expl { font-size: 13px; line-height: 1.5; color: var(--muted); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
@@ -3676,16 +3701,22 @@
     }
     .deep-row { margin: 0; }
     .deep-row .deep-note { margin-top: 6px; }
+    /* A ghost: the quiet way to more, as the Docs card's text link — not a
+       fourth bordered control competing with the card's ink primary. The
+       negative margin puts its label on the text column. */
     .deep-btn {
-      display: inline-flex; align-items: center; height: 32px; padding: 0 12px; line-height: 1;
-      background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-btn);
+      display: inline-flex; align-items: center; height: 32px; padding: 0 12px; margin-left: -12px; line-height: 1;
+      background: transparent; border: 1px solid transparent; border-radius: var(--r-btn);
       font-family: ${JAKARTA}; font-size: 13px; font-weight: 500;
-      color: var(--ink); cursor: pointer;
-      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
+      color: var(--muted); cursor: pointer;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .deep-btn:hover { background: rgba(0,0,0,.04); }
-    .deep-btn.locked { color: var(--label); cursor: not-allowed; }
-    .deep-btn.locked:hover { background: var(--surface); color: var(--label); }
+    .deep-btn:hover { background: var(--hover); color: var(--text); }
+    .deep-btn:active { background: var(--pressed); }
+    /* Locked still responds (it opens the Pro note), so it looks live: the
+       PRO tag is what says it is gated. */
+    .deep-btn.locked { color: var(--muted); cursor: pointer; }
+    .deep-btn.locked:hover { background: var(--hover); color: var(--ink); }
     .deep-pro {
       display: inline-flex; align-items: center; margin-left: 6px; height: 16px; line-height: 16px; padding: 0 5px;
       border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink);
@@ -3715,6 +3746,8 @@
        filled: a full-width bar per button outweighed the advice. */
     .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
     .row > button.act { flex: 0 0 auto; }
+    /* Wide enough for "Copied ✓", so the button beside it does not jump. */
+    button.act[data-copy-fix] { min-width: 86px; }
     .edit-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -3742,10 +3775,15 @@
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 8px 8px 8px 12px; line-height: 1.4;
+      border-radius: var(--r-btn); padding: 8px 12px; line-height: 1.4;
     }
-    .walk-strip > span { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .walk-strip > span { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: balance; }
     .walk-strip .act { flex-shrink: 0; }
+    /* The open card's own primary is the one ink action in view; this offer
+       is the outlined secondary. */
+    .walk-strip .act.primary { background: var(--surface); color: var(--ink); border-color: var(--border-strong); }
+    .walk-strip .act.primary:hover:not([disabled]) { background: var(--hover); border-color: var(--border-strong); color: var(--ink); }
+    .walk-strip .act.primary:active:not([disabled]) { background: var(--pressed); border-color: var(--border-strong); }
     /* "Let Tracely fix these": the prepared changes, each waiting for the
        writer. Ink only — a removed word struck through, an added one
        underlined; the dot is the flag's own finding colour. */
@@ -3780,9 +3818,11 @@
       font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer; white-space: nowrap;
       transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
-    button.act:active:not([disabled]) { background: rgba(0,0,0,.08); }
-    button.act.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+    button.act:hover:not([disabled]) { background: var(--hover); }
+    button.act:active:not([disabled]) { background: var(--pressed); }
+    /* Every finding-surface primary is 13/600 (the Docs card's, the editor
+       popover's, the overlay's); the secondaries stay 500. */
+    button.act.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
     button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
     button.act.primary:active:not([disabled]) { background: #000; border-color: #000; }
     button.act[disabled] { opacity: .5; cursor: not-allowed; }
@@ -3790,7 +3830,7 @@
     /* ── Sources ──────────────────────────────────────────────────────── */
     .sources { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
     .src { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
-    .src:hover { background: var(--surface-2); }
+    .src:hover { background: var(--hover); }
     .stance {
       display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
       min-width: 68px; /* one width for supports / refutes / context / manual, so every title starts on one edge */
@@ -3829,7 +3869,8 @@
       border: 1px solid var(--border-strong); border-radius: var(--r-btn); background: var(--surface);
       transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .src a.src-open:hover { background: var(--surface-2); color: var(--ink); }
+    .src a.src-open:hover { background: var(--hover); color: var(--ink); }
+    .src a.src-open:active { background: var(--pressed); }
     .loading { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
@@ -3842,14 +3883,16 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
-    .foot { margin: 0 24px; padding: 10px 0 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .foot { margin: 0 24px; padding: 12px 0; border-top: 1px solid var(--border); font-size: 12px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     /* The footer's switch is a ghost button — the quiet action of the panel —
        unless it turns the site ON, which is the panel's one ink primary. Its
        hover and pressed fills are the shared button.act ones (they outrank
        the transparent rest here), so only the text darkens locally. */
     .foot .act { border-color: transparent; background: none; color: var(--muted); font-weight: 500; flex-shrink: 0; }
     .foot .act:not(.primary):hover:not([disabled]), .foot .act:not(.primary):active:not([disabled]) { color: var(--text); }
-    .foot .act.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .foot .act.primary { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
+    /* The ghost's label lands on the content edge the rule and cards share. */
+    .foot .act:not(.primary):last-child { margin-right: -10px; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion (the primitives block at
        the end of this sheet): it just appears. */
