@@ -87,13 +87,47 @@ you are signed in, requests also carry your session token. The extension
 checks whether our server is reachable about once a minute while your browser
 is open; that request carries no content.
 
+## Voice conversations (Tracely desktop app)
+
+The Tracely desktop app (not the Chrome extension) lets a Pro account talk
+to Tracer, its writing coach, out loud. This is what happens when you do:
+
+- **Nothing is heard until you start a call.** The app asks for microphone
+  permission the first time, and shows a notice before your first call. Your
+  microphone is used only while a call is open; ending the call (or closing
+  the app) stops it.
+- **What is sent, and to whom.** While a call is open, your microphone audio
+  goes to OpenAI so Tracer can answer out loud, and when the call starts the
+  app also sends the draft you are working on (up to about 4,000 characters)
+  so Tracer can talk about it. The audio travels directly between your
+  computer and OpenAI over an encrypted WebRTC connection, so OpenAI receives
+  your IP address, as any service you connect to does.
+- **What our server does.** It sets the call up for you (it passes the
+  connection details and your draft to OpenAI, with our API key) and, during
+  the call, follows it only to count the minutes used and to end it at the
+  time limit. A copy of the call's audio reaches our server on that
+  connection; it reads only the minute count from it and discards the rest.
+  **We do not record or store the audio, and we do not keep transcripts.** We
+  keep only the number of voice seconds used per day, with the other usage
+  counts below. If you choose to save a call's transcript to your Tracer
+  chat, the app saves it on your computer, not on our server.
+- **What OpenAI keeps.** OpenAI does not use API data to train its models.
+  It keeps abuse-monitoring logs for up to 30 days, and the call is not stored
+  as a recording (we ask OpenAI not to store it).
+- **The voice is AI-generated.** Tracer's voices are synthetic voices from
+  OpenAI with their own names and styles; none imitates a real person, and
+  Tracer says so if asked.
+- **Students.** Voice is for writing, research and study help. Tracer is told
+  to keep every conversation age-appropriate and to point a student who seems
+  to be in danger to a trusted adult or emergency services.
+
 ## What we keep, and for how long
 
 On our server:
 
 | what | keyed by | kept |
 |---|---|---|
-| Usage counts (checks, source searches, flow checks and resume reviews per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
+| Usage counts (checks, source searches, flow checks and resume reviews per day and month; voice seconds per day in the desktop app; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |
@@ -117,7 +151,9 @@ removes the rest.
 ## Who else processes your data
 
 - **OpenAI** (api.openai.com) — judges the text and runs source searches, on
-  our API key, under OpenAI's API data-usage terms.
+  our API key, under OpenAI's API data-usage terms. In the desktop app's voice
+  conversations it also receives your microphone audio and your current draft
+  while a call is open (see "Voice conversations").
 - **Crossref** (api.crossref.org), **OpenAlex** (api.openalex.org) and **the
   publishers of the sources we find** — after a source search, our server
   looks up each source's DOI at Crossref and reads the source's own web page
@@ -172,7 +208,9 @@ processors above for those features, or as required by law.
 
 Tracely is for writers of school age and older, but the paid plans require a
 parent or guardian to pay if you are under 18. We do not knowingly collect
-data from children under 13.
+data from children under 13. Voice conversations in the desktop app are part of
+the Pro plan, so a student under 18 uses them on a plan a parent or guardian
+pays for; nothing said on a call is kept by us (see "Voice conversations").
 
 ## Changes and contact
 
