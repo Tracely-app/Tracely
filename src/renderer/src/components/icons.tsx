@@ -6,8 +6,10 @@ interface IconProps {
   className?: string
 }
 
-function base(size: number): { width: number; height: number; viewBox: string } {
-  return { width: size, height: size, viewBox: '0 0 24 24' }
+// Hidden from assistive tech: every icon here sits inside a control or label
+// that carries the words, so an unnamed `img` in the tree is only noise.
+function base(size: number): { width: number; height: number; viewBox: string; 'aria-hidden': true } {
+  return { width: size, height: size, viewBox: '0 0 24 24', 'aria-hidden': true }
 }
 
 export function UserIcon({ size = 15, className }: IconProps): JSX.Element {

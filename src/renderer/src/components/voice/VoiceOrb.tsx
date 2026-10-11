@@ -114,6 +114,12 @@ export interface VoiceOrbProps {
   reducedMotion?: boolean
   /** the speaking voice's name for the accessible label ("Linden is speaking"); defaults to "Tracer" */
   label?: string
+  /**
+   * Hidden from assistive tech: for a page that already says the state in
+   * words (the voice view's state line and live region), where the orb's own
+   * label would only repeat it — or contradict it a beat later.
+   */
+  decorative?: boolean
 }
 
 /** For diagnostics (the demo page measures frame cost through it). */
@@ -426,7 +432,7 @@ class OrbRenderer {
       this.halo.style.filter = GRAY_STEPS[haloGray]
     }
 
-    const morph = reduced ? 0 : 0.02 * p.outputDrive * clamp01(outL) + 0.008 * p.inputDrive * clamp01(inL)
+    const morph = reduced ? 0 : 0.035 * p.outputDrive * clamp01(outL) + 0.008 * p.inputDrive * clamp01(inL)
     this.traceOutline(ctx, c, R, morph)
     ctx.save()
     ctx.clip()
@@ -630,10 +636,10 @@ const NO_STATS: Readonly<FrameStats> = Object.freeze(createFrameStats())
 /**
  * The orb. Purely visual: it reads the call state and the two levels and
  * draws; it never touches the call. role="img" with a label naming the state,
- * because the live state line beside it is what screen readers should follow.
+ * unless `decorative`, where the words beside it carry the state instead.
  */
 const VoiceOrb = forwardRef<VoiceOrbHandle, VoiceOrbProps>(function VoiceOrb(
-  { state, inputLevel, outputLevel, muted, size = 168, reducedMotion, label },
+  { state, inputLevel, outputLevel, muted, size = 168, reducedMotion, label, decorative = false },
   ref,
 ) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -678,7 +684,8 @@ const VoiceOrb = forwardRef<VoiceOrbHandle, VoiceOrbProps>(function VoiceOrb(
 
   const canvasSide = canvasCss(size)
   return (
-    <div ref={rootRef} className="voice-orb" role="img" aria-label={stateLabel(state, muted, label)}
+    <div ref={rootRef} className="voice-orb" role={decorative ? undefined : 'img'}
+      aria-label={decorative ? undefined : stateLabel(state, muted, label)} aria-hidden={decorative || undefined}
       data-state={state} style={{ width: size, height: size }}>
       <div ref={haloRef} className="voice-orb-halo" aria-hidden="true" />
       <canvas ref={canvasRef} className="voice-orb-canvas" aria-hidden="true"

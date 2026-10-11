@@ -2,7 +2,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   BUFFER_QUALITY, DRAW_BUDGET_MS, QUALITY_WINDOW, createQualityMeter, meterFrame,
-  CROSSFADE_TAU, ORB_SCALE_MAX, ORB_SCALE_MIN, approach, approachParams, blobBrightness, breath, clamp, clamp01,
+  CROSSFADE_TAU, ORB_SCALE_MAX, ORB_SCALE_MIN, ORB_SIZE_MAX, ORB_SIZE_MIN, orbSizeFor, approach, approachParams, blobBrightness, breath, clamp, clamp01,
   createFrameStats, createOrbParams, gradientColors, haloStrength, levelCurve, mixRgb, orbPalette, orbScale,
   paramsSettled, parseColor, recordFrame, relativeLuminance, shiftHue, springSettled, springStep, stateLabel,
   stateTargets, toRgba, type Rgb, type Spring,
@@ -137,9 +137,14 @@ describe('level → radius and brightness', () => {
   })
 
   it('swells with the mic only while the student speaks, and with the voice only while it speaks', () => {
-    ok(orbScale(p('user-speaking'), 1, 0, 0) > orbScale(p('user-speaking'), 0, 0, 0) + 0.08)
+    ok(orbScale(p('user-speaking'), 1, 0, 0) > orbScale(p('user-speaking'), 0, 0, 0) + 0.05)
     ok(near(orbScale(p('assistant-speaking'), 1, 0, 0), orbScale(p('assistant-speaking'), 0, 0, 0)))
-    ok(orbScale(p('assistant-speaking'), 0, 1, 0) > orbScale(p('assistant-speaking'), 0, 0, 0) + 0.05)
+    ok(orbScale(p('assistant-speaking'), 0, 1, 0) > orbScale(p('assistant-speaking'), 0, 0, 0) + 0.08)
+    ok(
+      orbScale(p('assistant-speaking'), 0, 1, 0) - orbScale(p('assistant-speaking'), 0, 0, 0) >
+        orbScale(p('user-speaking'), 1, 0, 0) - orbScale(p('user-speaking'), 0, 0, 0),
+      "the persona's voice moves the orb more than the student's"
+    )
     ok(near(orbScale(p('user-speaking', true), 1, 0, 0), orbScale(p('user-speaking', true), 0, 0, 0)), 'muted mic moves nothing')
     ok(orbScale(p('idle'), 0, 0, 0) < 1, 'idle sits slightly smaller')
   })
@@ -324,5 +329,21 @@ describe('adaptive quality', () => {
     ok(!meterFrame(q, Number.NaN))
     ok(!meterFrame(q, -1))
     strictEqual(q.frames, 0)
+  })
+})
+
+describe('orbSizeFor', () => {
+  it('is the full 168px in a roomy stage and shrinks to fit a short one', () => {
+    strictEqual(orbSizeFor(400), ORB_SIZE_MAX)
+    strictEqual(orbSizeFor(16 + 168 * ORB_SCALE_MAX), ORB_SIZE_MAX)
+    strictEqual(orbSizeFor(150), Math.floor(134 / ORB_SCALE_MAX))
+    ok(orbSizeFor(150) * ORB_SCALE_MAX + 16 <= 150, 'the fullest swell fits the stage')
+  })
+
+  it('never goes below the floor, even for a collapsed or garbage height', () => {
+    for (const h of [0, -50, 40, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const s = orbSizeFor(h)
+      ok(s >= ORB_SIZE_MIN && s <= ORB_SIZE_MAX, `${h} → ${s}`)
+    }
   })
 })

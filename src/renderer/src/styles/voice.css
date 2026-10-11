@@ -26,6 +26,9 @@
   color: var(--text);
   outline: none;
   overflow: hidden;
+  /* For the short-panel query below; the panel has a fixed height, so the
+     view's size never comes from its contents. */
+  container-type: size;
 }
 :root[data-theme='dark'] .voice-mode {
   --vm-bg: var(--bg);
@@ -81,8 +84,9 @@
 
 /* ── Stage and status ─────────────────────────────────────────────────── */
 
-/* The orb's layout box is 168px; its halo spills ~0.8× past it and takes no
-   space, so the stage leaves that room and nothing here clips it. */
+/* The orb's layout box is up to 168px, sized to this band by VoiceMode
+   (orbSizeFor); its halo spills past it and takes no space, so nothing here
+   clips it. */
 .voice-stage {
   flex: 1;
   min-height: 0;
@@ -119,7 +123,22 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
-.voice-meta-near { color: var(--score-mid); font-weight: 600; }
+/* Near the cap: the warning colour goes on a dot, the time stays in --text
+   (--score-mid as 12px text is ~3.9:1 on the light panel). */
+.voice-meta-near {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+.voice-meta-near::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--score-mid);
+}
 .voice-demo {
   padding: 1px 7px;
   border-radius: 999px;
@@ -223,8 +242,8 @@
   background: var(--accent-wash);
   color: var(--accent);
 }
-.voice-round-mute[aria-pressed='true'],
-.voice-round-mute[aria-pressed='true']:hover:not(:disabled) {
+.voice-round-mute[data-muted],
+.voice-round-mute[data-muted]:hover:not(:disabled) {
   border-color: transparent;
   background: var(--ink);
   color: var(--ink-contrast);
@@ -241,7 +260,9 @@
   border-color: transparent;
   filter: brightness(1.06);
 }
-.voice-round-end:focus-visible { box-shadow: 0 0 0 3px var(--score-low-wash), 0 0 0 5px var(--danger); }
+/* A gap in the view's background between the button and the ring, so focus
+   reads on a red button in a red ring (a wash ring only made it look bigger). */
+.voice-round-end:focus-visible { box-shadow: 0 0 0 3px var(--vm-bg), 0 0 0 5px var(--danger); }
 
 /* ── Notice: an error or the call's summary, in the bottom band ───────── */
 
@@ -262,13 +283,16 @@
   line-height: 1.55;
   color: var(--muted);
 }
+/* The check carries the green; the words stay in --text (green 13px text is
+   ~3.2:1 on the light panel). */
 .voice-notice-saved {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--score-good) !important;
+  color: var(--text) !important;
   font-weight: 500;
 }
+.voice-notice-saved svg { flex-shrink: 0; color: var(--score-good); }
 .voice-actions {
   display: flex;
   gap: 10px;
@@ -300,6 +324,15 @@
 }
 .voice-link:hover { text-decoration: underline; }
 
+/* A short panel (small window, or zoomed): captions drop to two lines and the
+   notice tightens before the orb shrinks much below 120px. Kept after the
+   base rules so these win. */
+@container (max-height: 470px) {
+  .voice-bottom { height: 174px; }
+  .voice-captions { height: 42px; }
+  .voice-notice { gap: 10px; padding-top: 4px; }
+}
+
 /* ── First use: the consent sheet ─────────────────────────────────────── */
 
 .voice-sheet-scrim {
@@ -319,6 +352,9 @@
   flex-direction: column;
   gap: 12px;
   padding: 22px 22px 20px;
+  /* Never over the chip (the voice can still be changed); scrolls in a short panel. */
+  max-height: calc(100% - 56px);
+  overflow-y: auto;
   border-radius: 16px 16px 0 0;
   background: var(--vm-raised);
   box-shadow: 0 -10px 30px rgba(16, 18, 22, 0.14);
@@ -336,6 +372,41 @@
   line-height: 1.55;
   color: var(--muted-2);
 }
+/* The sheet's two answers: the app's checkbox in the accent, label beside it. */
+.voice-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: pointer;
+}
+.voice-check input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.voice-check input:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); border-radius: 4px; }
+.voice-check span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.voice-check small {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.voice-sheet .voice-sheet-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 12.5px;
+}
+.voice-link-quiet { color: var(--muted); font-weight: 400; }
 .voice-sheet .voice-actions { margin-top: 6px; }
 .voice-sheet .voice-actions .btn { flex: 1; }
 
@@ -362,6 +433,7 @@
   box-shadow: var(--shadow-lg);
   transform: translateX(-50%);
   animation: voice-pop 0.16s var(--vm-ease);
+  outline: none;
 }
 .voice-picker-title {
   margin: 0;
@@ -389,16 +461,38 @@
 }
 .voice-option-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .voice-option-text b { font-size: 13px; font-weight: 600; color: var(--text); }
-.voice-option-text span { font-size: 11.5px; color: var(--muted); }
+.voice-option-text > span:last-child { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+/* "AI voice · British" beside the name: the Settings cards' label recipe. */
+.voice-option-name { display: flex; align-items: baseline; gap: 6px; }
+.voice-option-name em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--label);
+}
 .voice-option-check { display: grid; color: var(--accent); opacity: 0; }
 .voice-option-selected { background: var(--accent-wash); }
 .voice-option-selected:hover { background: var(--accent-wash); }
 .voice-option-selected .voice-option-check { opacity: 1; }
+/* Each row: the choice, and a ▶ to hear it (Settings' preview recipe), which
+   sits over the row's right edge so the row stays one click target. */
+.voice-option-row { position: relative; }
+.voice-option-row .voice-option { padding-right: 50px; }
+.voice-option-row .voice-preview {
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: var(--vm-raised);
+}
+.voice-option-row .voice-preview[aria-pressed='true'] { background: var(--accent); }
 
 /* ── Entry points in TracerChat ───────────────────────────────────────── */
 
 /* Beside Send: the same 42px circle, in the accent's wash, so Send stays the
-   one filled action in the composer. */
+   one filled action in the composer. With nothing typed it takes Send's slot
+   and Send's fill (.tracer-talk-primary). */
 .tracer-talk {
   flex-shrink: 0;
   display: grid;
@@ -414,11 +508,34 @@
   transition: background 0.15s ease, transform 0.1s ease;
 }
 .tracer-talk:hover:not(:disabled) { background: var(--accent-border); }
+.tracer-talk-primary { background: var(--accent); color: #fff; }
+.tracer-talk-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.06); }
 .tracer-talk:active:not(:disabled) { transform: scale(0.96); }
 .tracer-talk:disabled { opacity: 0.45; cursor: default; }
 .tracer-talk:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* Where a saved voice call starts in the chat log: a centred label between
+   hairlines, drawn by the panel only (the stored messages stay plain). */
+.tracer-voice-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-align: center;
+}
+.tracer-voice-divider::before,
+.tracer-voice-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 /* In the orange header: the close button's recipe. */
@@ -485,6 +602,10 @@
   box-shadow: none;
   accent-color: var(--accent);
 }
+/* :root's `color-scheme: light dark` follows the OS, not the theme picked in
+   Settings, so the native radios are told which scheme the cards are in. */
+:root[data-theme='dark'] .voice-persona input[type='radio'] { color-scheme: dark; }
+:root[data-theme='light'] .voice-persona input[type='radio'] { color-scheme: light; }
 .voice-persona-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .voice-persona-name { display: flex; align-items: baseline; gap: 6px; }
 .voice-persona-name b { font-size: 13px; font-weight: 600; color: var(--text); }

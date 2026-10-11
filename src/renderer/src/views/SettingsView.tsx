@@ -42,21 +42,16 @@ import {
   UPGRADE_URL,
   modelTierUnlocked,
   monthDayLabel,
+  planRank,
   resolveModelTier,
   type ModelTier
 } from '@shared/plan'
 import { applyTheme } from '../lib/theme'
-import { VOICES, voiceById, type VoiceId } from '@shared/voices'
+import { VOICES, voiceById } from '@shared/voices'
 import { WaveformIcon, PlayIcon, PauseIcon } from '../components/icons'
-import { VOICE_DISCLOSURE } from '../components/voice/VoiceConsent'
+import { VOICE_DISCLOSURE, VOICE_PRIVACY_URL } from '../components/voice/VoiceConsent'
 import { readVoiceRemaining } from '../voice/useVoiceSession'
-import lindenClip from '../assets/voices/linden.mp3'
-import atlasClip from '../assets/voices/atlas.mp3'
-import wrenClip from '../assets/voices/wren.mp3'
-import roryClip from '../assets/voices/rory.mp3'
-import kipClip from '../assets/voices/kip.mp3'
-import hollisClip from '../assets/voices/hollis.mp3'
-import sterlingClip from '../assets/voices/sterling.mp3'
+import { useVoicePreview } from '../components/voice/voiceClips'
 import '../styles/voice.css'
 import { applyAccentColor, applyDensity, applyFontSize } from '../lib/appearance'
 import type { Tab } from '../App'
@@ -1023,26 +1018,12 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
   )
 }
 
-/** Each persona's recorded preview (gpt-live-1, about ten seconds). */
-const VOICE_CLIPS: Record<VoiceId, string> = {
-  linden: lindenClip,
-  atlas: atlasClip,
-  wren: wrenClip,
-  rory: roryClip,
-  kip: kipClip,
-  hollis: hollisClip,
-  sterling: sterlingClip
-}
-
-/** The voice section of PRIVACY.md (the website has no /privacy page yet). */
-const VOICE_PRIVACY_URL =
-  'https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md#voice-conversations-tracely-desktop-app'
-
 /**
  * Settings → Voice: which persona Tracer talks in (a card each, with a
  * recorded preview, one playing at a time), live captions, saving
- * transcripts, the disclosure the first call shows, and today's minutes as
- * last seen. Every control persists on change, like the rest of Settings.
+ * transcripts, the disclosure the first call shows (and a way to show it
+ * again), and today's minutes as last seen. Every control persists on
+ * change, like the rest of Settings.
  */
 function VoicePane({
   settings,
@@ -1052,33 +1033,9 @@ function VoicePane({
   onSave: (patch: Parameters<typeof tracelyApi.setSettings>[0]) => Promise<void>
 }): JSX.Element {
   const selected = voiceById(settings.voiceId).id
-  const [playing, setPlaying] = useState<VoiceId | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const needsPro = planRank(usePlan()) < planRank('pro')
+  const { playing, toggle: togglePreview } = useVoicePreview()
   const remaining = readVoiceRemaining()
-
-  useEffect(
-    () => () => {
-      audioRef.current?.pause()
-      audioRef.current = null
-    },
-    []
-  )
-
-  function togglePreview(id: VoiceId): void {
-    const audio = (audioRef.current ??= new Audio())
-    if (playing === id) {
-      audio.pause()
-      setPlaying(null)
-      return
-    }
-    audio.pause()
-    audio.src = VOICE_CLIPS[id]
-    audio.currentTime = 0
-    audio.onended = () => setPlaying(null)
-    audio.onerror = () => setPlaying(null)
-    setPlaying(id)
-    void audio.play().catch(() => setPlaying(null))
-  }
 
   return (
     <div key="voice" className="settings-panel-content">
@@ -1086,6 +1043,7 @@ function VoicePane({
         <h3>Voice</h3>
         <p>
           Talk to Tracer out loud from the Tracer panel. Pick the voice you like best.
+          {needsPro ? ' Voice is part of Pro.' : ''}
           {remaining !== null
             ? ` About ${Math.floor(remaining / 60)} ${Math.floor(remaining / 60) === 1 ? 'minute' : 'minutes'} of voice left today.`
             : ''}
@@ -1109,7 +1067,7 @@ function VoicePane({
                 <span className="voice-persona-text">
                   <span className="voice-persona-name">
                     <b>{v.name}</b>
-                    <em>{v.accent}</em>
+                    <em>AI voice · {v.accent}</em>
                   </span>
                   <span className="voice-persona-tagline">{v.tagline}</span>
                   <span className="voice-persona-desc">{v.description}</span>
@@ -1145,7 +1103,8 @@ function VoicePane({
         <div>
           <div className="settings-toggle-row-title">Save transcripts to the chat</div>
           <div className="settings-toggle-row-subtitle">
-            When a call ends, its words are added to your Tracer chat, on this computer only.
+            When a call ends, its words are added to your Tracer chat on this computer. Like your typed chat, recent
+            messages are sent along with your next question to Tracer.
           </div>
         </div>
         <input
@@ -1160,6 +1119,17 @@ function VoicePane({
         <button type="button" className="voice-link" onClick={() => void tracelyApi.openExternal(VOICE_PRIVACY_URL)}>
           How voice uses your data
         </button>
+      </p>
+      {/* Consent is per install: on a shared computer, or to read it again,
+          this puts the first-call notice (and its age question) back. */}
+      <p className="muted settings-app-note">
+        {settings.voiceConsent ? (
+          <button type="button" className="voice-link" onClick={() => void onSave({ voiceConsent: false })}>
+            Show the voice notice before my next call
+          </button>
+        ) : (
+          'The voice notice will show before your next call.'
+        )}
       </p>
     </div>
   )
