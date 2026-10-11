@@ -133,6 +133,23 @@ test.describe("hosted (enforcement on)", () => {
     await post(S.base, "/api/voice/end", { token: "tok-pro-dora", body: { sessionId: ok.body.sessionId } });
   });
 
+  test("a start the desktop gave up on is closed at once, so the retry isn't 409", async () => {
+    const ac = new AbortController();
+    const aborted = fetch(`${S.base}/api/voice/session`, {
+      method: "POST", signal: ac.signal,
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-pro-hal" },
+      body: JSON.stringify({ sdp: offer("slow"), voiceId: "kip" }),
+    }).catch((e) => e.name);
+    setTimeout(() => ac.abort(), 100);
+    assert.equal(await aborted, "AbortError");
+    const closed = await until(() => readLog(LOG).find((e) => e.kind === "send" && /^live_slow_/.test(e.sessionId) && e.message.type === "session.close"));
+    assert.ok(closed, "the orphan call is closed");
+    await until(() => ledger(S.dataDir, "user:u-pro-hal", "voice_seconds") > 0);
+    const retry = await start("tok-pro-hal");
+    assert.equal(retry.status, 200, JSON.stringify(retry.body));
+    await post(S.base, "/api/voice/end", { token: "tok-pro-hal", body: { sessionId: retry.body.sessionId } });
+  });
+
   test("a stranger can't end someone else's session", async () => {
     const r = await start("tok-pro-erin");
     const stranger = await post(S.base, "/api/voice/end", { token: "tok-pro-fay", body: { sessionId: r.body.sessionId } });

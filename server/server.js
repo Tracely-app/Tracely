@@ -1691,6 +1691,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/voice/session") {
       loadEnvFile();
       const out = await voice.startSession({ gate, readBody: () => parseJsonBody(req), mock: MOCK });
+      // The desktop gave up waiting (its timeout aborted the request): nobody
+      // will ever connect, so close the call now rather than hold the
+      // caller's one slot — and 409 their retry — until the cap.
+      if (res.destroyed && !out.mock) {
+        await voice.endSession({ gate, body: { sessionId: out.sessionId }, waitMs: 0 });
+        return;
+      }
       json(res, 200, out, cors);
       return;
     }

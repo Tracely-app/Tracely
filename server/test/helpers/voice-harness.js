@@ -11,7 +11,8 @@
  * The test picks a script per call through the SDP offer: a line
  * "a=x-test:<mode>" becomes the session id "live_<mode>_<n>", which the fake
  * socket reads from its URL. Modes: ok (usage 61.5 s, closes on
- * session.close), ticks (one second every 30 ms), nows (the attach fails).
+ * session.close), ticks (one second every 30 ms), nows (the attach fails),
+ * slow (ok, but OpenAI takes 300 ms to answer).
  * Nothing touches the network. */
 import http from "node:http";
 import net from "node:net";
@@ -32,6 +33,7 @@ globalThis.fetch = async (url, init = {}) => {
   const body = JSON.parse(init.body);
   const mode = (/a=x-test:(\w+)/.exec(body?.transport?.sdp ?? "") || [])[1] || "ok";
   log({ kind: "create", url: String(url), headers: init.headers, body });
+  if (mode === "slow") await new Promise((r) => setTimeout(r, 300));
   return new Response(JSON.stringify({ session: { id: "live_" + mode + "_" + ++n }, transport: { type: "webrtc", sdp: "v=0\r\no=openai answer\r\n" } }), { status: 201, headers: { "Content-Type": "application/json" } });
 };
 class FakeSideband extends EventTarget {
