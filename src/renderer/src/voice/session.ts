@@ -724,33 +724,49 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   function finish(err: VoiceError | null): Promise<void> {
     if (finishPromise) return finishPromise
     over = true
-    finishPromise = (async () => {
-      const seconds = elapsedNow()
-      const captions = captionLog.captions.map((c) => (c.final ? c : { ...c, final: true }))
-      captionLog = { ...captionLog, captions }
-      teardownMedia()
-      update({
-        state: err ? 'error' : 'ending',
-        error: err,
-        inputLevel: 0,
-        outputLevel: 0,
-        elapsedSec: seconds,
-        captions
-      })
-      const id = sessionId
-      if (id) await api.end(id).catch(() => undefined)
-      let transcriptSaved: boolean | null = null
-      const turns = transcriptTurns(captions)
-      if (turns.length > 0 && options.shouldSaveTranscript?.()) {
-        transcriptSaved = await api
-          .saveTranscript(turns, options.conversationId?.() ?? undefined)
-          .then((r) => r.saved)
-          .catch(() => false)
+    // The promise exists before the body runs: the body's first update()
+    // calls listeners synchronously, and one that awaits settled() then must
+    // wait for this call's result rather than read a null one.
+    let settle!: () => void
+    finishPromise = new Promise<void>((resolve) => (settle = resolve))
+    void (async () => {
+      try {
+        await finishBody(err)
+      } finally {
+        settle()
       }
-      result = { seconds, transcriptSaved }
-      if (!err) update({ state: 'ended' })
     })()
     return finishPromise
+  }
+
+  async function finishBody(err: VoiceError | null): Promise<void> {
+    const seconds = elapsedNow()
+    const captions = captionLog.captions.map((c) => (c.final ? c : { ...c, final: true }))
+    captionLog = { ...captionLog, captions }
+    teardownMedia()
+    update({
+      state: err ? 'error' : 'ending',
+      error: err,
+      inputLevel: 0,
+      outputLevel: 0,
+      elapsedSec: seconds,
+      captions
+    })
+    const id = sessionId
+    if (id) await api.end(id).catch(() => undefined)
+    let transcriptSaved: boolean | null = null
+    const turns = transcriptTurns(captions)
+    if (turns.length > 0 && options.shouldSaveTranscript?.()) {
+      transcriptSaved = await api
+        .saveTranscript(turns, options.conversationId?.() ?? undefined)
+        .then((r) => r.saved)
+        .catch(() => false)
+    }
+    result = { seconds, transcriptSaved }
+    if (!err) update({ state: 'ended' })
+    // An error stays the snapshot; tell subscribers once more so the ones
+    // that read result() see it now that it exists.
+    else for (const fn of [...listeners]) fn(snap)
   }
 
   function onStarted(): void {

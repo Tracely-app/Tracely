@@ -432,6 +432,22 @@ describe('createVoiceSession: unasked endings', () => {
     deepStrictEqual(r.api.calls.end, ['sess_1'])
   })
 
+  it("a call that ends in an error still settles with its result for a subscriber like useVoiceSession's", async () => {
+    const r = rig()
+    // Subscribed before the call, exactly as the hook does: on an end state, read settled().
+    const seen: unknown[] = []
+    r.engine.subscribe((s) => {
+      if (s.state === 'ended' || s.state === 'error') void r.engine.settled().then((res) => seen.push(res))
+    })
+    await r.engine.start()
+    r.peer.channel!.emit({ type: 'session.started' })
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'One more thing' })
+    r.peer.channel!.emit({ type: 'session.closed', reason: 'close_requested' })
+    await flush()
+    ok(seen.length > 0)
+    for (const res of seen) deepStrictEqual(res, { seconds: 0, transcriptSaved: true })
+  })
+
   it('closedError: the daily allowance, a safety filter, a dropped line', () => {
     ok(closedError('expired', 600, 600).message.includes("today's voice minutes"))
     strictEqual(closedError('content', 900, 1800).kind, 'server')
