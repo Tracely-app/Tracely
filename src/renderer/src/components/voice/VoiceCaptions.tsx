@@ -1,4 +1,4 @@
-import type { VoiceCaption } from '../../voice/types'
+import type { VoiceCaption, VoiceState } from '../../voice/types'
 
 /** How many captions are drawn; the band's fixed height and fade show the last few lines of them. */
 const SHOWN = 3
@@ -13,11 +13,14 @@ const SHOWN = 3
 export default function VoiceCaptions({
   captions,
   on,
-  personaName
+  personaName,
+  state
 }: {
   captions: readonly VoiceCaption[]
   on: boolean
   personaName: string
+  /** The call's state: before anyone has spoken, the band tells the student to go first. */
+  state: VoiceState
 }): JSX.Element {
   if (!on) {
     return (
@@ -27,6 +30,16 @@ export default function VoiceCaptions({
     )
   }
   const recent = captions.filter((c) => c.text.trim()).slice(-SHOWN)
+  if (recent.length === 0 && state === 'listening') {
+    // The persona waits for the student (no greeting), so the empty band says
+    // whose turn it is. Muted style, and not announced: the live region has
+    // already said the call is on.
+    return (
+      <div className="voice-captions">
+        <p className="voice-captions-off">Go ahead. Ask {personaName} about your draft.</p>
+      </div>
+    )
+  }
   return (
     <div className="voice-captions" role="group" aria-label="Live captions">
       {recent.map((c) => (

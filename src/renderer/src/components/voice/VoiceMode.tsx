@@ -477,7 +477,12 @@ export default function VoiceMode({
       <div className="voice-bottom">
         {notice ?? (
           <>
-            <VoiceCaptions captions={snap.captions} on={prefs?.captions ?? true} personaName={persona.name} />
+            <VoiceCaptions
+              captions={snap.captions}
+              on={prefs?.captions ?? true}
+              personaName={persona.name}
+              state={snap.state}
+            />
             {prefs === null || showConsent || snap.state === 'idle' ? null : (
               <VoiceControls
                 muted={snap.muted}
