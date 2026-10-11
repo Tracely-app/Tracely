@@ -98,6 +98,13 @@ import type {
   TracerNewConversationResponse,
   TracerSendRequest,
   TracerSendResponse,
+  VoiceEndRequest,
+  VoiceEndResponse,
+  VoiceEnsureMicResponse,
+  VoiceSaveTranscriptRequest,
+  VoiceSaveTranscriptResponse,
+  VoiceStartRequest,
+  VoiceStartResponse,
   StructureGetResponse,
   ShellOpenExternalRequest,
   ShellOpenExternalResponse,
@@ -192,6 +199,19 @@ const api = {
       ipcRenderer.invoke(IPC.TRACER_SEND, req),
     newConversation: (): Promise<TracerNewConversationResponse> =>
       ipcRenderer.invoke(IPC.TRACER_NEW_CONVERSATION, {})
+  },
+  // Tracer Voice. The call's audio is WebRTC from the renderer to OpenAI; these
+  // are main's four parts of it. start and end reject with a tagged message
+  // ('[voice:<kind>] …') — read it with parseVoiceIpcError, or go through
+  // tracelyApi.voice, which does.
+  voice: {
+    /** The OS mic permission; prompts once on macOS when it was never asked. */
+    ensureMic: (): Promise<VoiceEnsureMicResponse> => ipcRenderer.invoke(IPC.VOICE_ENSURE_MIC, {}),
+    /** Offer SDP in, answer SDP out (absent when `mock`). Paid while the call is open. */
+    start: (req: VoiceStartRequest): Promise<VoiceStartResponse> => ipcRenderer.invoke(IPC.VOICE_START, req),
+    end: (req: VoiceEndRequest): Promise<VoiceEndResponse> => ipcRenderer.invoke(IPC.VOICE_END, req),
+    saveTranscript: (req: VoiceSaveTranscriptRequest): Promise<VoiceSaveTranscriptResponse> =>
+      ipcRenderer.invoke(IPC.VOICE_SAVE_TRANSCRIPT, req)
   },
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET, {}),

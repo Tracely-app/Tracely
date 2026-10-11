@@ -51,6 +51,17 @@ const DEFAULTS: Record<string, string> = {
   // expensive model": a free account resolves it to `fast` and never leaves it.
   // Anyone who wants quicker answers than they pay for can still choose down.
   modelTier: 'thorough',
+  // Tracer Voice. Which persona answers (an id from shared/voices.ts, read
+  // through voiceById so a row naming a persona this build lacks reads as the
+  // default), whether live captions show, whether a call's transcript is added
+  // to the Tracer chat afterwards, and whether the user has accepted the
+  // first-use disclosure. Consent starts false on purpose: the sheet that says
+  // the microphone and the draft go to OpenAI has to be seen once before any
+  // call can start.
+  voiceId: 'linden',
+  voiceCaptions: 'true',
+  voiceSaveTranscript: 'true',
+  voiceConsent: 'false',
   // Names Tracely taught the spellchecker for the open document, as JSON.
   // Bookkeeping, not a preference: it exists so a crash cannot make
   // session-scoped name learning permanent. Read and cleared at startup — see
