@@ -344,6 +344,7 @@ describe('end()', () => {
     strictEqual(r.engine.getSnapshot().state, 'ended')
     ok(r.engine.getSnapshot().captions.every((c) => c.final))
     deepStrictEqual(r.engine.result(), { seconds: 65, transcriptSaved: true })
+    deepStrictEqual(await r.engine.settled(), { seconds: 65, transcriptSaved: true })
     deepStrictEqual(r.states.slice(-2), ['ending', 'ended'])
     strictEqual(r.clock.pending(), 0)
   })
@@ -392,6 +393,14 @@ describe('end()', () => {
     await c.engine.start()
     strictEqual(c.api.calls.start.length, 1)
     strictEqual(c.engine.getSnapshot().state, 'ended')
+  })
+
+  it('a disposed engine never starts', async () => {
+    const r = rig()
+    r.engine.dispose()
+    await r.engine.start()
+    strictEqual(r.api.calls.ensureMic, 0)
+    strictEqual(r.engine.getSnapshot().state, 'idle')
   })
 
   it('the window closing and dispose() both hang up an open call', async () => {

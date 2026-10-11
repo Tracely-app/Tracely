@@ -140,6 +140,8 @@ export interface VoiceCallResult {
 /** The engine is a VoiceSessionHandle plus a little the UI needs after End. */
 export interface VoiceEngine extends VoiceSessionHandle {
   result(): VoiceCallResult | null
+  /** Resolves with result() once a finished call has told the server and saved its transcript. */
+  settled(): Promise<VoiceCallResult | null>
   /** Drop listeners and timers; ends a call that is still open. */
   dispose(): void
 }
@@ -1016,13 +1018,22 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       }
     },
     result: () => result,
+    settled: async () => {
+      await finishPromise
+      return result
+    },
     dispose() {
       if (disposed) return
       disposed = true
       deps.previewEvents?.removeEventListener(PREVIEW_VOICE_EVENT, onPreview)
       offUnload()
       if (startPromise) void finish(null)
-      else stopTimers()
+      else {
+        // Never started: it never will (React StrictMode disposes the first
+        // engine it makes; a start queued for that one must not open a call).
+        over = true
+        stopTimers()
+      }
     }
   }
 }
