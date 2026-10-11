@@ -258,6 +258,25 @@ test("no sideband, no session: a 502 with no SDP, the hold released, the 15 s se
 
 const T0 = Date.parse("2026-10-10T15:00:00Z");
 
+test("a create that may have made a session anyway (timeout, dropped, unreadable 2xx) charges the pool its 15 s set-up; a clean refusal doesn't", async () => {
+  const pool = () => usageCount(SPEND_POOLS.app.account, today(), "spend_ucents");
+  const tryWith = async (name, fetchImpl) => {
+    const before = pool();
+    const err = await V.startSession({ gate: gateFor("pro", name), env: ENV, readBody: async () => ({ sdp: SDP, voiceId: "wren" }), fetchImpl, WebSocketImpl: FakeWS }).catch((e) => e);
+    assert.equal(err.status, 502, name);
+    assert.equal(usageCount(`user:u-${name}`, today(), "voice_seconds"), 0, "never the student");
+    assert.equal(reservedMicroCents("app"), 0);
+    return pool() - before;
+  };
+  const fifteen = V.voiceCostMicroCents(15);
+  assert.equal(await tryWith("amb-net", async () => { throw new DOMException("timed out", "TimeoutError"); }), fifteen);
+  assert.equal(await tryWith("amb-junk", async () => new Response("<html>gateway</html>", { status: 200 })), fifteen);
+  assert.equal(await tryWith("amb-half", async () => new Response(JSON.stringify({ session: { id: "live_h" } }), { status: 201 })), fifteen);
+  assert.equal(await tryWith("amb-500", async () => new Response("{}", { status: 500 })), 0);
+  assert.equal(await tryWith("amb-quota", async () => new Response(JSON.stringify({ error: { code: "insufficient_quota" } }), { status: 429 })), 0);
+  assert.equal(V.liveSessionCount(), 0);
+});
+
 test("a dropped sideband re-attaches at once and the meter carries on; a second drop backs off, the slot held throughout", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
   const gate = gateFor("pro", "drop");

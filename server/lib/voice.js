@@ -162,8 +162,17 @@ function upstream(reason, message = "Couldn't start the voice conversation. Try 
   return err;
 }
 
+/* A failure after which OpenAI may have created (and billed the 15 s set-up
+ * of) a session we never saw: the request timed out or dropped, or a 2xx
+ * answer was unreadable. A clean HTTP refusal created nothing. */
+function ambiguous(err) {
+  err.ambiguous = true;
+  return err;
+}
+
 /** POST /v1/live/sessions → { id, sdp }. `fetchImpl` defaults to the global
- *  fetch AT CALL TIME, so a test's preloaded stub is the one used. */
+ *  fetch AT CALL TIME, so a test's preloaded stub is the one used. Errors
+ *  carry `ambiguous` when a session may exist anyway. */
 export async function startLiveSession({ key, body, safetyId, fetchImpl = globalThis.fetch, timeoutMs = CREATE_TIMEOUT_MS }) {
   let res;
   try {
@@ -178,7 +187,7 @@ export async function startLiveSession({ key, body, safetyId, fetchImpl = global
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
-    throw upstream("network");
+    throw ambiguous(upstream("network"));
   }
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -187,7 +196,7 @@ export async function startLiveSession({ key, body, safetyId, fetchImpl = global
   }
   const id = data?.session?.id;
   const sdp = data?.transport?.sdp;
-  if (typeof id !== "string" || !id || typeof sdp !== "string" || !sdp.startsWith("v=0")) throw upstream("bad_answer");
+  if (typeof id !== "string" || !id || typeof sdp !== "string" || !sdp.startsWith("v=0")) throw ambiguous(upstream("bad_answer"));
   return { id, sdp };
 }
 
@@ -490,9 +499,10 @@ export async function startSession({ gate, readBody, mock = false, env = process
     persist(s);
     return { sdp, sessionId: id, voice, maxSeconds, remainingSeconds };
   } catch (err) {
-    // OpenAI billed the 15 s set-up of a session we never handed out: the
-    // pool pays it; the student isn't charged for our failure.
-    if (created && enforced) chargePool(voiceCostMicroCents(VOICE_MIN_BILLED_SECONDS), Date.now());
+    // OpenAI billed (or may have billed: a timeout, a dropped or unreadable
+    // answer) the 15 s set-up of a session we never handed out: the pool
+    // pays it; the student isn't charged for our failure.
+    if (enforced && (created || err?.ambiguous)) chargePool(voiceCostMicroCents(VOICE_MIN_BILLED_SECONDS), Date.now());
     abandon(s);
     throw err;
   }
