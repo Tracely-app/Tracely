@@ -233,6 +233,13 @@ mac:
   # which carries an Electron-11-era entitlement this app must not ship.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
+  # Tracer Voice. macOS shows this sentence in the one-time microphone prompt
+  # (systemPreferences.askForMediaAccess, main/services/voice/micAccess.ts).
+  # Without it the request is refused outright — or the hardened-runtime app is
+  # terminated — instead of prompting. Pairs with the audio-input entitlement
+  # in build/entitlements.mac.plist. Windows needs neither.
+  extendInfo:
+    NSMicrophoneUsageDescription: Tracely uses the microphone only while you talk to Tracer.
   # Boolean on purpose. The object form (notarize: {teamId}) is deprecated in
   # electron-builder 25 and removed in 26; the Team ID comes from APPLE_TEAM_ID.
   notarize: true
