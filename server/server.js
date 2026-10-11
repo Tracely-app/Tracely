@@ -199,12 +199,15 @@ const PAID_ROUTES = new Set([
  * /api/verify-sources (2026-10-07) is the desktop's receipts: the extension's
  * verifier (lib/sourceVerify.js) behind the desktop's gate, so reading the
  * sources in a list a writer opened can never spend the extension's day.
- * /api/voice/* (2026-10-10) is Tracer Voice on gpt-live-1 (lib/voice.js):
- * the app pool reserves a session's worst case for as long as it is open. */
+ * /api/voice/session (2026-10-10) is Tracer Voice on gpt-live-1
+ * (lib/voice.js): the app pool reserves a session's worst case for as long
+ * as it is open. /api/voice/end is deliberately NOT here: hanging up spends
+ * nothing, so neither a spent pool nor the app limiter may refuse it (a
+ * refused End left the call open and the caller's retry 409 voice_busy). */
 const APP_AI_ROUTES = new Set([
   "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
   "/api/correction", "/api/find-sources", "/api/verify-sources",
-  "/api/voice/session", "/api/voice/end",
+  "/api/voice/session",
 ]);
 
 /* Routes whose failures are MODEL failures, logged by the central error
@@ -1702,7 +1705,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/voice/end") {
-      const out = await voice.endSession({ gate, body: (await parseJsonBody(req)) ?? {} });
+      // No appGate (see APP_AI_ROUTES): the caller only, to find its session.
+      const ent = await planForRequest(req);
+      const out = await voice.endSession({ gate: { ent, callerId: callerId(req, ent) }, body: (await parseJsonBody(req)) ?? {} });
       json(res, 200, out, cors);
       return;
     }

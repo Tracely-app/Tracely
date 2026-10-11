@@ -148,8 +148,10 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   WebRTC offer for OpenAI's answer (`POST /v1/live/sessions`, our key, the
   `OpenAI-Safety-Identifier` header = sha256 of the caller id); media then
   flows renderer ⇄ OpenAI directly. `POST /api/voice/end {sessionId}` →
-  `{seconds}`, idempotent (unknown or someone else's id → 0). Both are
-  `APP_AI_ROUTES` (appGate, the app pool), never `EXTENSION_API`.
+  `{seconds}`, idempotent (unknown or someone else's id → 0). Start is in
+  `APP_AI_ROUTES` (appGate, the app pool); end is NOT — hanging up spends
+  nothing, so no budget or rate limit may refuse it. Neither is in
+  `EXTENSION_API`.
 - **Where**: `lib/voices.js` is who each persona is (VOICE_BASE_PROMPT + seven
   personas on gpt-live-1 voices, SHA-pinned and id-mirrored to
   `src/shared/voices.ts` by `test/voices.test.js`); `lib/voice.js` is the

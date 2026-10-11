@@ -226,6 +226,13 @@ test("a Pro account over its fair-use month still gets voice, and voice never ad
   assert.equal(usageCount("user:u-fairuse", today(), "voice_seconds"), 600);
 });
 
+test("voice switched off is the operator's choice, not a model failure for the failure log", async () => {
+  const { isModelFailure } = await import("../lib/failureLog.js");
+  const err = await start(gateFor("pro", "off"), {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "0" }).catch((e) => e);
+  assert.equal(err.kind, "voice_off");
+  assert.equal(isModelFailure(err), false);
+});
+
 test("the app pool: no room is a 503 before OpenAI is asked", async () => {
   const before = fetches.length;
   usageAdd(SPEND_POOLS.app.account, today(), "spend_ucents", 20_000); // more than the $0.0001 day below

@@ -33,10 +33,11 @@ const sha = (s) => createHash("sha256").update(s).digest("hex");
 const offer = (mode = "ok") => `v=0\r\no=- 46117 2 IN IP4 127.0.0.1\r\na=x-test:${mode}\r\n`;
 const APP_POOL = "__global_app__";
 
-test("wired: both routes are APP routes, never the extension's", () => {
+test("wired: start is an APP route; end spends nothing and is gated by nothing; never the extension's", () => {
   const set = (name) => new RegExp(`const ${name} = new Set\\(\\[([^\\]]*)\\]\\)`).exec(SERVER_SRC)[1];
+  assert.ok(set("APP_AI_ROUTES").includes(`"/api/voice/session"`), "/api/voice/session in APP_AI_ROUTES");
+  assert.ok(!set("APP_AI_ROUTES").includes(`"/api/voice/end"`), "/api/voice/end is not behind appGate (budget, limiter)");
   for (const p of ["/api/voice/session", "/api/voice/end"]) {
-    assert.ok(set("APP_AI_ROUTES").includes(`"${p}"`), `${p} in APP_AI_ROUTES`);
     assert.ok(!set("EXTENSION_API").includes(`"${p}"`), `${p} not in EXTENSION_API`);
     assert.ok(!set("PAID_ROUTES").includes(`"${p}"`), `${p} not in PAID_ROUTES`);
   }
@@ -200,8 +201,9 @@ test.describe("hosted, a 3 s cap and a two-cent pool", () => {
     assert.equal(ledger(S.dataDir, "user:u-pro-gus", "account_ucents"), 0);
     assert.equal(ledger(S.dataDir, APP_POOL, "spend_ucents"), 2 * voiceCostMicroCents(15));
     assert.equal(readLog(LOG).filter((e) => e.kind === "send" && e.message.type === "session.close").length, 1, "once");
+    assert.equal((await start("tok-pro-gus", "ticks")).status, 503, "the pool is spent: a new call is refused");
     const end = await post(S.base, "/api/voice/end", { token: "tok-pro-gus", body: { sessionId: r.body.sessionId } });
-    assert.equal(end.status, 503, "the pool is spent: appGate refuses every app route, end included");
+    assert.equal(end.status, 200, "but hanging up is never refused for the budget");
   });
 });
 

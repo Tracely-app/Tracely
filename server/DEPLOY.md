@@ -372,9 +372,9 @@ is on; one open call per account.
   75 cents, released when the call is charged its real seconds (at least the
   15 s OpenAI bills to set a call up). On the default $10 app pool that is
   about 13 calls at once before new ones get 503 `budget` — raise
-  `TRACELY_APP_DAILY_BUDGET_USD` if voice is used. When the pool is spent,
-  appGate refuses `/api/voice/end` too; the desktop hangs up regardless and
-  the sideband still charges the call.
+  `TRACELY_APP_DAILY_BUDGET_USD` if voice is used. `/api/voice/end` is not
+  behind appGate: a spent pool or the app rate limiter never refuses a
+  hang-up.
 - **A restart drops every live meter.** A call open at restart is never
   charged to the ledger (OpenAI still bills it) and keeps running until the
   desktop's own timer or the student hangs up. Don't restart mid-afternoon
