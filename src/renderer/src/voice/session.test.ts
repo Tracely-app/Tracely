@@ -288,10 +288,35 @@ describe('captions', () => {
     deepStrictEqual(log.captions, [{ id: 'c1', role: 'assistant', text: 'What is your claim?', final: false }])
   })
 
-  it('finalizes on a speaker switch', () => {
+  // Behaviour change (finding 7): a speaker switch used to finalize the other
+  // speaker's caption at once. GPT-Live is full duplex, so each speaker's
+  // caption now closes on that speaker's own pause.
+  it("a speaker switch starts the other speaker's caption without closing the first; each closes on its own pause", () => {
     let log = addTranscriptDelta(EMPTY_CAPTIONS, 'assistant', 'Read it to me.', 5000)
     log = addTranscriptDelta(log, 'user', ' Okay so', 5400)
-    deepStrictEqual(log.captions.map((c) => [c.role, c.text, c.final]), [['assistant', 'Read it to me.', true], ['user', 'Okay so', false]])
+    deepStrictEqual(log.captions.map((c) => [c.role, c.text, c.final]), [['assistant', 'Read it to me.', false], ['user', 'Okay so', false]])
+    log = settleCaptions(log, 5000 + CAPTION_PAUSE_MS + 1)
+    deepStrictEqual(log.captions.map((c) => c.final), [true, false])
+    log = settleCaptions(log, 5400 + CAPTION_PAUSE_MS + 1)
+    deepStrictEqual(log.captions.map((c) => c.final), [true, true])
+  })
+
+  it('keeps both sentences whole when the two speakers interleave (a backchannel, a late ASR tail)', () => {
+    let log = addTranscriptDelta(EMPTY_CAPTIONS, 'user', 'Can you look at my', 5000, 0, 900)
+    log = addTranscriptDelta(log, 'assistant', 'Sure,', 5300, 1100, 1300)
+    log = addTranscriptDelta(log, 'user', ' second paragraph?', 5500, 900, 1400)
+    log = addTranscriptDelta(log, 'assistant', " let's look at it.", 5700, 1300, 2000)
+    deepStrictEqual(transcriptTurns(log.captions), [
+      { role: 'user', text: 'Can you look at my second paragraph?' },
+      { role: 'assistant', text: "Sure, let's look at it." }
+    ])
+  })
+
+  it("orders a new caption by its start on the session timeline, not by when its text arrived", () => {
+    let log = addTranscriptDelta(EMPTY_CAPTIONS, 'assistant', 'Go on.', 5000, 4000, 4400)
+    // The student's next turn began before that reply; its transcript came late.
+    log = addTranscriptDelta(log, 'user', 'And then', 5100, 3800, 4100)
+    deepStrictEqual(log.captions.map((c) => c.role), ['user', 'assistant'])
   })
 
   it('starts a new caption after a pause over 1.2 s, by the clock or by the session timeline', () => {
@@ -334,7 +359,10 @@ describe('captions', () => {
     const r = await connected()
     r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: 'What would a', start_ms: 100, end_ms: 400 })
     r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: ' skeptic ask?', start_ms: 400, end_ms: 900 })
+    r.clock.advance(500)
     r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'Whether it', start_ms: 1500, end_ms: 1800 })
+    // Each speaker's caption closes on that speaker's own pause (finding 7).
+    r.clock.advance(800)
     deepStrictEqual(r.engine.getSnapshot().captions.map((c) => [c.role, c.text, c.final]), [
       ['assistant', 'What would a skeptic ask?', true],
       ['user', 'Whether it', false]

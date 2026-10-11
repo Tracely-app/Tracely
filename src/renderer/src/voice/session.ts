@@ -253,62 +253,98 @@ export function createSpeechGate(on = 0.24, off = 0.12, onMs = 80, offMs = 500):
 
 // ── Captions ────────────────────────────────────────────────────────────────
 
-/** The captions plus what merging the next delta needs to know. Immutable. */
+type Role = VoiceCaption['role']
+
+/**
+ * The captions plus what merging the next delta needs to know. Immutable.
+ *
+ * GPT-Live is full duplex: the persona backchannels ("mm-hm") while the
+ * student talks, and the tail of the student's transcript can arrive after
+ * the reply's first words. So each speaker has their own open caption and
+ * their own pause clock, and one speaker's words never close the other's.
+ */
 export interface CaptionLog {
   captions: VoiceCaption[]
-  /** engine clock (ms) of the last delta, for the pause rule */
-  lastDeltaAt: number
-  /** end_ms of the last delta on the session timeline, when the event carried one */
-  lastEndMs: number | null
+  /** each speaker's open caption, by id; null when theirs is closed */
+  open: Record<Role, string | null>
+  /** engine clock (ms) of each speaker's last delta, for the pause rule */
+  lastDeltaAt: Record<Role, number>
+  /** end_ms of each speaker's last delta on the session timeline, when events carry one */
+  lastEndMs: Record<Role, number | null>
+  /** start_ms of each caption's first delta, when known: captions are ordered by it */
+  startMs: Record<string, number>
   nextId: number
 }
 
-export const EMPTY_CAPTIONS: CaptionLog = { captions: [], lastDeltaAt: 0, lastEndMs: null, nextId: 1 }
+export const EMPTY_CAPTIONS: CaptionLog = {
+  captions: [],
+  open: { user: null, assistant: null },
+  lastDeltaAt: { user: 0, assistant: 0 },
+  lastEndMs: { user: null, assistant: null },
+  startMs: {},
+  nextId: 1
+}
 
-function closeLast(captions: VoiceCaption[]): VoiceCaption[] {
-  const last = captions[captions.length - 1]
-  if (!last || last.final) return captions
-  return [...captions.slice(0, -1), { ...last, final: true }]
+function finalize(captions: VoiceCaption[], id: string | null): VoiceCaption[] {
+  if (id === null) return captions
+  return captions.map((c) => (c.id === id && !c.final ? { ...c, final: true } : c))
+}
+
+/** Where a caption that began at `startMs` goes: before the first one known to begin later. */
+function insertAt(log: CaptionLog, startMs: number | undefined): number {
+  if (typeof startMs !== 'number') return log.captions.length
+  const i = log.captions.findIndex((c) => typeof log.startMs[c.id] === 'number' && log.startMs[c.id] > startMs)
+  return i === -1 ? log.captions.length : i
 }
 
 /**
- * Merge one transcript delta. It extends the open caption when that caption
- * is the same speaker's and no pause came between (on the engine's clock, or
- * on the session timeline when the event carries start_ms); otherwise the
- * open caption is finalized and a new one starts.
+ * Merge one transcript delta. It extends that speaker's open caption unless
+ * they paused (on the engine's clock, or on the session timeline when the
+ * event carries start_ms); otherwise their open caption is finalized and a
+ * new one starts, placed by its start_ms when there is one.
  */
 export function addTranscriptDelta(
   log: CaptionLog,
-  role: VoiceCaption['role'],
+  role: Role,
   delta: string,
   now: number,
   startMs?: number,
   endMs?: number
 ): CaptionLog {
   if (!delta) return log
-  const last = log.captions[log.captions.length - 1]
-  const timelineGap =
-    typeof startMs === 'number' && log.lastEndMs !== null ? startMs - log.lastEndMs : 0
-  const paused = now - log.lastDeltaAt > CAPTION_PAUSE_MS || timelineGap > CAPTION_PAUSE_MS
-  const lastEndMs = typeof endMs === 'number' ? endMs : log.lastEndMs
-  if (last && !last.final && last.role === role && !paused) {
-    const captions = [...log.captions.slice(0, -1), { ...last, text: last.text + delta }]
-    return { captions, lastDeltaAt: now, lastEndMs, nextId: log.nextId }
+  const lastEnd = log.lastEndMs[role]
+  const timelineGap = typeof startMs === 'number' && lastEnd !== null ? startMs - lastEnd : 0
+  const paused = now - log.lastDeltaAt[role] > CAPTION_PAUSE_MS || timelineGap > CAPTION_PAUSE_MS
+  const openId = log.open[role]
+  const lastDeltaAt = { ...log.lastDeltaAt, [role]: now }
+  const lastEndMs = { ...log.lastEndMs, [role]: typeof endMs === 'number' ? endMs : lastEnd }
+  if (openId !== null && !paused) {
+    const captions = log.captions.map((c) => (c.id === openId ? { ...c, text: c.text + delta } : c))
+    return { ...log, captions, lastDeltaAt, lastEndMs }
   }
-  const caption: VoiceCaption = { id: `c${log.nextId}`, role, text: delta.replace(/^\s+/, ''), final: false }
+  const id = `c${log.nextId}`
+  const caption: VoiceCaption = { id, role, text: delta.replace(/^\s+/, ''), final: false }
+  const closed = { ...log, captions: finalize(log.captions, openId) }
+  const at = insertAt(closed, startMs)
   return {
-    captions: [...closeLast(log.captions), caption],
-    lastDeltaAt: now,
+    captions: [...closed.captions.slice(0, at), caption, ...closed.captions.slice(at)],
+    open: { ...log.open, [role]: id },
+    lastDeltaAt,
     lastEndMs,
+    startMs: typeof startMs === 'number' ? { ...log.startMs, [id]: startMs } : log.startMs,
     nextId: log.nextId + 1
   }
 }
 
-/** Finalize the open caption once its speaker has been quiet for CAPTION_PAUSE_MS. */
+/** Finalize each speaker's open caption once that speaker has been quiet for CAPTION_PAUSE_MS. */
 export function settleCaptions(log: CaptionLog, now: number): CaptionLog {
-  const last = log.captions[log.captions.length - 1]
-  if (!last || last.final || now - log.lastDeltaAt <= CAPTION_PAUSE_MS) return log
-  return { ...log, captions: closeLast(log.captions) }
+  let next = log
+  for (const role of ['user', 'assistant'] as const) {
+    const id = next.open[role]
+    if (id === null || now - next.lastDeltaAt[role] <= CAPTION_PAUSE_MS) continue
+    next = { ...next, captions: finalize(next.captions, id), open: { ...next.open, [role]: null } }
+  }
+  return next
 }
 
 /** The finished call's captions as transcript turns (empty ones dropped), oldest first. */
