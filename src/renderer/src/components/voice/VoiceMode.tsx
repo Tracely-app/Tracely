@@ -141,11 +141,19 @@ export default function VoiceMode({
     call.restart()
   }
 
-  // Focus lands in the view so Esc and M work at once.
+  // Focus lands in the view so Esc and M work at once, and comes back to it
+  // when the focused control goes away (the consent sheet, a notice's
+  // button) — but only when focus fell to the page, never taken from
+  // somewhere the student moved it (typing in the draft during a call).
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     rootRef.current?.focus()
   }, [])
+  const showingConsent = prefs !== null && !prefs.consent
+  useEffect(() => {
+    const active = document.activeElement
+    if (!active || active === document.body) rootRef.current?.focus()
+  }, [snap.state, showingConsent])
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>): void {
     if (pickerOpen || e.defaultPrevented) return
