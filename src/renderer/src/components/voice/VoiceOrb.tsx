@@ -13,10 +13,11 @@
  *   unit coordinate space and placed with setTransform; the outline is traced
  *   from preallocated tables; the per-state targets are written in place;
  *   style values come from preformatted string tables.
- * - Few pixels per frame. The inside of the sphere (all soft gradients) is
- *   painted into a small buffer and drawn in through a full-resolution clip;
- *   the halo and the dimming are compositor work (a CSS layer's transform and
- *   opacity, the canvas's opacity), not canvas pixels.
+ * - Cheap frames. The inside of the sphere (all soft gradients) is painted
+ *   into a buffer and drawn in through a full-resolution clip; if frames run
+ *   over budget (a canvas rasterised in software, no GPU) the buffer steps
+ *   down in resolution. The halo and the dimming are compositor work (a CSS
+ *   layer's transform and opacity, the canvas's opacity), not canvas pixels.
  * - The loop runs only when it has something to show: it stops while the page
  *   is hidden or the orb is scrolled off-screen, and it sleeps once a still
  *   state (idle, ended, error, anything under reduced motion) has settled,
@@ -28,9 +29,10 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import type { VoiceState } from '../../voice/types'
 import {
-  CROSSFADE_TAU, approachParams, blobBrightness, breath, clamp01, createFrameStats, createOrbParams, haloStrength,
-  ORB_SCALE_MAX, ORB_SCALE_MIN, levelCurve, orbPalette, orbScale, paramsSettled, recordFrame, resetFrameStats, springSettled, springStep,
-  stateLabel, stateTargets, toRgba, type FrameStats, type OrbPalette, type Rgb, type Spring,
+  BUFFER_QUALITY, CROSSFADE_TAU, ORB_SCALE_MAX, ORB_SCALE_MIN, approachParams, blobBrightness, breath, clamp01,
+  createFrameStats, createOrbParams, createQualityMeter, haloStrength, levelCurve, meterFrame, orbPalette, orbScale,
+  paramsSettled, recordFrame, resetFrameStats, springSettled, springStep, stateLabel, stateTargets, toRgba,
+  type FrameStats, type OrbPalette, type Rgb, type Spring,
 } from './orbMath'
 import '../../styles/voice-orb.css'
 
@@ -38,14 +40,6 @@ import '../../styles/voice-orb.css'
 const RING_MARGIN = 16
 /** The canvas's side in CSS pixels: the sphere at its largest swell plus the rings. */
 const canvasCss = (size: number): number => Math.ceil(size * ORB_SCALE_MAX + RING_MARGIN * 2)
-/**
- * The inside of the sphere is all soft gradients, so it is drawn into a buffer
- * at 40% of the device resolution and scaled up on the way in; the outline
- * stays crisp because the clip is traced at full resolution.
- * It cuts the pixels the frame touches several times over, which matters where
- * the canvas falls back to software rasterisation.
- */
-const BUFFER_RES = 0.4
 /**
  * The dim cross-fade (the canvas's opacity) and the halo (a CSS layer the
  * compositor scales and fades) are set from preformatted strings, quantised
@@ -124,15 +118,25 @@ export interface VoiceOrbProps {
 export interface VoiceOrbHandle {
   frameStats(): Readonly<FrameStats>
   resetFrameStats(): void
+  /** the inner buffer's current fraction of the device resolution (BUFFER_QUALITY) */
+  bufferQuality(): number
 }
 
 /** Owns the canvas, the observers and the animation loop for one orb. */
 class OrbRenderer {
   readonly stats = createFrameStats()
+  get bufferQuality(): number {
+    return BUFFER_QUALITY[this.quality.level]
+  }
   private ctx: CanvasRenderingContext2D | null
-  /** the inside of the sphere, redrawn each frame at BUFFER_RES (see there) */
+  /**
+   * The inside of the sphere (all soft gradients), redrawn each frame into this
+   * buffer and drawn in through a clip traced at full resolution, so the
+   * outline stays crisp whatever the buffer's resolution (BUFFER_QUALITY).
+   */
   private readonly inner: HTMLCanvasElement
   private readonly ictx: CanvasRenderingContext2D | null
+  private readonly quality = createQualityMeter()
   private opacityStep = -1
   private haloOpacityStep = -1
   private haloScaleStep = -1
@@ -251,15 +255,19 @@ class OrbRenderer {
     }
     this.side = side
     this.dpr = side / css
-    // The buffer holds the sphere at its largest swell, out to INNER_EXTENT, at BUFFER_RES.
-    const unit = this.size * 0.5 * this.dpr * ORB_SCALE_MAX * BUFFER_RES
-    const innerSide = Math.max(8, Math.ceil(unit * INNER_EXTENT * 2))
-    if (this.inner.width !== innerSide) this.inner.width = this.inner.height = innerSide
+    this.sizeInner()
     // A window dragged to a screen with another pixel ratio changes dpr; listen for the next change.
     this.dprQuery?.removeEventListener('change', this.onDprChange)
     this.dprQuery = window.matchMedia?.(`(resolution: ${dpr}dppx)`) ?? null
     this.dprQuery?.addEventListener('change', this.onDprChange)
     this.wake()
+  }
+
+  /** The buffer holds the sphere at its largest swell, out to INNER_EXTENT, at the current quality. */
+  private sizeInner(): void {
+    const unit = this.size * 0.5 * this.dpr * ORB_SCALE_MAX * BUFFER_QUALITY[this.quality.level]
+    const innerSide = Math.max(8, Math.ceil(unit * INNER_EXTENT * 2))
+    if (this.inner.width !== innerSide) this.inner.width = this.inner.height = innerSide
   }
 
   private onVisibility(): void {
@@ -299,7 +307,9 @@ class OrbRenderer {
     this.step(dt)
     const t0 = performance.now()
     this.draw()
-    recordFrame(this.stats, performance.now() - t0)
+    const ms = performance.now() - t0
+    recordFrame(this.stats, ms)
+    if (meterFrame(this.quality, ms)) this.sizeInner()
     if (this.settled()) {
       this.running = false
       return
@@ -382,7 +392,7 @@ class OrbRenderer {
 
     const ictx = this.ictx
     if (!ictx) return
-    // The inside of the sphere, at BUFFER_RES, in unit space: the swell is applied when it is drawn in below.
+    // The inside of the sphere, in the buffer's own space: the swell is applied when it is drawn in below.
     const iw = this.inner.width
     ictx.setTransform(1, 0, 0, 1, 0, 0)
     ictx.globalCompositeOperation = 'source-over'
@@ -655,6 +665,7 @@ const VoiceOrb = forwardRef<VoiceOrbHandle, VoiceOrbProps>(function VoiceOrb(
     resetFrameStats: () => {
       if (engineRef.current) resetFrameStats(engineRef.current.stats)
     },
+    bufferQuality: () => engineRef.current?.bufferQuality ?? BUFFER_QUALITY[0],
   }), [])
 
   const canvasSide = canvasCss(size)

@@ -1,6 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  BUFFER_QUALITY, DRAW_BUDGET_MS, QUALITY_WINDOW, createQualityMeter, meterFrame,
   CROSSFADE_TAU, ORB_SCALE_MAX, ORB_SCALE_MIN, approach, approachParams, blobBrightness, breath, clamp, clamp01,
   createFrameStats, createOrbParams, gradientColors, haloStrength, levelCurve, mixRgb, orbPalette, orbScale,
   paramsSettled, parseColor, recordFrame, relativeLuminance, shiftHue, springSettled, springStep, stateLabel,
@@ -282,5 +283,46 @@ describe('frame stats', () => {
     recordFrame(s, Number.NaN)
     recordFrame(s, 2)
     deepStrictEqual(s, { frames: 3, totalMs: 6, lastMs: 2, maxMs: 3 })
+  })
+})
+
+describe('adaptive quality', () => {
+  const runWindow = (q: ReturnType<typeof createQualityMeter>, ms: number): boolean[] =>
+    Array.from({ length: QUALITY_WINDOW }, () => meterFrame(q, ms))
+
+  it('starts at full resolution and keeps it while frames are under budget', () => {
+    const q = createQualityMeter()
+    strictEqual(BUFFER_QUALITY[q.level], 1)
+    for (let w = 0; w < 5; w++) ok(!runWindow(q, DRAW_BUDGET_MS * 0.9).includes(true))
+    strictEqual(q.level, 0)
+  })
+
+  it('steps down once per slow window, only at the end of the window, and stops at the floor', () => {
+    const q = createQualityMeter()
+    const first = runWindow(q, DRAW_BUDGET_MS * 3)
+    deepStrictEqual(first.indexOf(true), QUALITY_WINDOW - 1)
+    strictEqual(q.level, 1)
+    for (let w = 0; w < BUFFER_QUALITY.length + 3; w++) runWindow(q, DRAW_BUDGET_MS * 3)
+    strictEqual(q.level, BUFFER_QUALITY.length - 1)
+    ok(!runWindow(q, DRAW_BUDGET_MS * 3).includes(true))
+    for (let i = 1; i < BUFFER_QUALITY.length; i++) ok(BUFFER_QUALITY[i] < BUFFER_QUALITY[i - 1])
+  })
+
+  it('never steps back up, and one stalled frame alone cannot step it', () => {
+    const q = createQualityMeter()
+    meterFrame(q, 500)
+    for (let i = 1; i < QUALITY_WINDOW; i++) meterFrame(q, 0.2)
+    strictEqual(q.level, 0)
+    runWindow(q, DRAW_BUDGET_MS * 2)
+    strictEqual(q.level, 1)
+    runWindow(q, 0.1)
+    strictEqual(q.level, 1)
+  })
+
+  it('ignores garbage timings', () => {
+    const q = createQualityMeter()
+    ok(!meterFrame(q, Number.NaN))
+    ok(!meterFrame(q, -1))
+    strictEqual(q.frames, 0)
   })
 })

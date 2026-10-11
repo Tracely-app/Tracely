@@ -439,3 +439,50 @@ export function resetFrameStats(s: FrameStats): void {
   s.lastMs = 0
   s.maxMs = 0
 }
+
+// ---------------------------------------------------------------------------
+// Adaptive quality
+
+/**
+ * The inside of the sphere is drawn into a buffer at one of these fractions of
+ * the device resolution, best first. Full resolution is the look. The steps
+ * down exist for machines where the canvas is rasterised in software (no GPU):
+ * there a frame costs roughly buffer rows × layers, and a smaller buffer
+ * trades a little softness (upscaled gradients band faintly) for a cheaper
+ * frame. On a GPU canvas the draw call only records commands and never steps.
+ */
+export const BUFFER_QUALITY: readonly number[] = [1, 0.6, 0.42, 0.3]
+/** Main-thread draw budget per frame, in ms; a window averaging more steps the buffer down. */
+export const DRAW_BUDGET_MS = 2
+/** Frames per measuring window. */
+export const QUALITY_WINDOW = 40
+
+export interface QualityMeter {
+  /** index into BUFFER_QUALITY */
+  level: number
+  frames: number
+  totalMs: number
+}
+
+export function createQualityMeter(): QualityMeter {
+  return { level: 0, frames: 0, totalMs: 0 }
+}
+
+/**
+ * Count one frame's draw time. Each full window that averages over the budget
+ * steps one level down (never back up: a slow machine stays slow). One stalled
+ * frame counts at most four budgets, so a hiccup alone cannot step it.
+ * Returns true when the level changed, so the caller resizes its buffer.
+ */
+export function meterFrame(q: QualityMeter, ms: number): boolean {
+  if (!(ms >= 0)) return false
+  q.frames += 1
+  q.totalMs += Math.min(ms, DRAW_BUDGET_MS * 4)
+  if (q.frames < QUALITY_WINDOW) return false
+  const avg = q.totalMs / q.frames
+  q.frames = 0
+  q.totalMs = 0
+  if (avg <= DRAW_BUDGET_MS || q.level >= BUFFER_QUALITY.length - 1) return false
+  q.level += 1
+  return true
+}
