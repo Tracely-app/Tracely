@@ -61,11 +61,16 @@ export const ALLOWED_SERVER_EVENTS = Object.freeze([
   "session.started", "session.input_transcript.delta", "session.output_transcript.delta", "session.closed", "error",
 ]);
 
-/* When GPT-Live asks for backend help it waits for an answer, and with no
- * `delegation` configured (client mode) the answer is ours to send. Tracer has no
- * lookup tool, so the sideband says so instead of leaving the model hanging. */
+/* When GPT-Live asks for backend help ("lemme take a look…") it waits for the
+ * result, and with no `delegation` configured (client mode) the result is ours
+ * to send. Tracer has no lookup tool, so the sideband answers at once with
+ * session.commentary.append, the event for results the model should say aloud.
+ * session.thinking.append is only quiet background context: measured live on
+ * 2026-10-10 it left the model silent until the cap, while commentary got a
+ * spoken answer from the draft within a second (2 of 2 delegations; the model
+ * delegated on 3 of 9 calls about "what's weak in my thesis"). */
 export const DELEGATION_REPLY =
-  "There is no lookup tool in this conversation. Answer from what you know, say plainly when you are not sure, and tell the student how they could check it themselves.";
+  "There is no lookup or tool in this conversation, and you already have the student's whole draft in your instructions. Answer the student right now from that draft, in your own voice, in one to three sentences, then ask one question. If something can't be answered from the draft, say so plainly and tell them how they could check it.";
 
 // ── configuration, read per request ──────────────────────────────────────
 
@@ -320,7 +325,7 @@ function onMessage(s, data) {
     s.seconds = Math.max(s.seconds, seen);
     finalize(s, typeof ev.reason === "string" ? ev.reason : "closed");
   } else if (ev?.type === "session.delegation.created" && typeof ev.delegation?.id === "string") {
-    send(s, { type: "session.thinking.append", delegation_id: ev.delegation.id, content: DELEGATION_REPLY });
+    send(s, { type: "session.commentary.append", delegation_id: ev.delegation.id, content: DELEGATION_REPLY });
   }
 }
 

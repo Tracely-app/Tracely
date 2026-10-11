@@ -183,11 +183,11 @@ test("the cap: session.close once at maxSeconds, then session.closed finalizes",
   assert.equal(usageCount("user:u-cap", today(), "voice_seconds"), 22);
 });
 
-test("a client-mode delegation is answered so the model never waits on a tool", async () => {
+test("a client-mode delegation is answered aloud (commentary) so the model never waits on a tool", async () => {
   await start(gateFor("pro", "deleg"));
   const ws = lastWS();
   ws.emit({ type: "session.delegation.created", offset_ms: 900, delegation: { id: "item_9", type: "delegation", target: "client" } });
-  assert.deepEqual(ws.sent, [{ type: "session.thinking.append", delegation_id: "item_9", content: V.DELEGATION_REPLY }]);
+  assert.deepEqual(ws.sent, [{ type: "session.commentary.append", delegation_id: "item_9", content: V.DELEGATION_REPLY }]);
 });
 
 test("policy: off switch, Pro only when enforced, the key, the daily cap", async () => {
