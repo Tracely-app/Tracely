@@ -142,14 +142,74 @@ describe('voice start, the edges', () => {
     strictEqual(svc.openSessionId(), null)
   })
 
-  it('refuses a second start while the first is still connecting', async () => {
+  it('a second start waits for the first, closes what it opened, then starts (End during Connecting, then Talk again)', async () => {
+    // Behaviour change (finding 9): this used to answer busy at once, which
+    // the student saw as "Another call is open" for a call they had ended.
     let finish: (v: unknown) => void = () => {}
-    const server = fakeServer({ 'voice/session': () => new Promise((resolve) => (finish = resolve)) })
+    let n = 0
+    const server = fakeServer({
+      'voice/session': () => (++n === 1 ? new Promise((resolve) => (finish = resolve)) : Promise.resolve({ ...OK_START, sessionId: 'live_2' })),
+      'voice/end': async () => ({ seconds: 0 })
+    })
     const { svc } = service(server)
     const first = svc.start({ sdp: OFFER, voiceId: 'linden' })
-    strictEqual((await voiceError(svc.start({ sdp: OFFER, voiceId: 'linden' }))).kind, 'busy')
+    const second = svc.start({ sdp: OFFER, voiceId: 'linden' })
+    await new Promise((r) => setTimeout(r, 5))
+    deepStrictEqual(server.calls.map((c) => c.endpoint), ['voice/session'])
     finish(OK_START)
     strictEqual((await first).sessionId, 'live_1')
+    strictEqual((await second).sessionId, 'live_2')
+    deepStrictEqual(server.calls.map((c) => [c.endpoint, c.body.sessionId ?? null]), [
+      ['voice/session', null],
+      ['voice/end', 'live_1'],
+      ['voice/session', null]
+    ])
+    strictEqual(svc.openSessionId(), 'live_2')
+  })
+
+  it('a start waits for a hang-up still in flight, so Try again is not told the line is busy', async () => {
+    let endDone: (v: unknown) => void = () => {}
+    const order: string[] = []
+    const server = fakeServer({
+      'voice/session': async () => (order.push('session'), OK_START),
+      'voice/end': () => (order.push('end sent'), new Promise((resolve) => (endDone = resolve)))
+    })
+    const { svc } = service(server)
+    await svc.start({ sdp: OFFER, voiceId: 'linden' })
+    const ended = svc.end('live_1')
+    const again = svc.start({ sdp: OFFER, voiceId: 'linden' })
+    await new Promise((r) => setTimeout(r, 5))
+    deepStrictEqual(order, ['session', 'end sent'])
+    endDone({ seconds: 3 })
+    await ended
+    await again
+    deepStrictEqual(order, ['session', 'end sent', 'session'])
+  })
+
+  it('remembers a call whose hang-up failed and ends it before the next start; one end per call at a time', async () => {
+    let failEnd = true
+    const server = fakeServer({
+      'voice/session': async () => OK_START,
+      'voice/end': async () => {
+        if (failEnd) throw Object.assign(new Error('offline'), { stage: 'network', kind: 'network' })
+        return { seconds: 9 }
+      }
+    })
+    const { svc } = service(server)
+    await svc.start({ sdp: OFFER, voiceId: 'linden' })
+    await rejects(svc.end('live_1'), VoiceCallError)
+    strictEqual(svc.openSessionId(), 'live_1')
+    failEnd = false
+    await svc.start({ sdp: OFFER, voiceId: 'linden' })
+    deepStrictEqual(server.calls.map((c) => [c.endpoint, c.body.sessionId ?? null]), [
+      ['voice/session', null],
+      ['voice/end', 'live_1'],
+      ['voice/end', 'live_1'],
+      ['voice/session', null]
+    ])
+    const before = server.calls.length
+    await Promise.all([svc.end('live_1'), svc.endOpen(), svc.end('live_1')])
+    strictEqual(server.calls.length, before + 1)
   })
 
   it('closes the call it opened before starting another, so a reloaded renderer is not told it is busy', async () => {
