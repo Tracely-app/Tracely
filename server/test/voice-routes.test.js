@@ -89,8 +89,10 @@ test.describe("hosted (enforcement on)", () => {
     assert.equal(create.body.session.model, "gpt-live-1");
     assert.equal(create.body.session.audio.output.voice, "willow");
     assert.equal(create.body.session.store, false);
-    assert.equal(create.body.session.instructions,
-      `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.rory.prompt}\n\nThe student's current draft (for reference; never read it back at length):\n\nThesis: school should start later.`);
+    assert.equal(create.body.session.instructions, `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.rory.prompt}`, "trusted text only");
+    assert.deepEqual(create.body.session.input, [{ type: "message", role: "user", content: [{ type: "input_text",
+      text: "The student's current draft (for reference; never read it back at length):\n\n<student_draft>\nThesis: school should start later.\n</student_draft>" }] }],
+      "the draft is startup history, never instructions");
     assert.deepEqual(create.body.session.client.data_channel.allowed_client_events, []);
     assert.deepEqual(create.body.session.client.data_channel.allowed_server_events.map((e) => e.type),
       ["session.started", "session.input_transcript.delta", "session.output_transcript.delta", "session.closed", "error"]);

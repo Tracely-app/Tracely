@@ -91,7 +91,9 @@ test("the session body: gpt-live-1, the persona's voice, nothing stored, caption
   assert.deepEqual(body, {
     session: {
       model: "gpt-live-1",
-      instructions: `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.hollis.prompt}\n\nThe student's current draft (for reference; never read it back at length):\n\nDraft text.`,
+      instructions: `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.hollis.prompt}`,
+      input: [{ type: "message", role: "user", content: [{ type: "input_text",
+        text: "The student's current draft (for reference; never read it back at length):\n\n<student_draft>\nDraft text.\n</student_draft>" }] }],
       audio: { output: { voice: "delta" } },
       store: false,
       client: { data_channel: { allowed_client_events: [], allowed_server_events: [
@@ -100,6 +102,12 @@ test("the session body: gpt-live-1, the persona's voice, nothing stored, caption
     },
     transport: { type: "webrtc", sdp: SDP },
   });
+});
+
+test("no draft, no startup history", () => {
+  const body = V.buildSessionBody({ voiceId: "kip", context: "  ", sdp: SDP });
+  assert.equal("input" in body.session, false);
+  assert.equal(body.session.instructions, `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.kip.prompt}`);
 });
 
 test("the body is checked: an SDP offer, a known voice, a bounded draft", () => {

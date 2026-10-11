@@ -156,6 +156,12 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   personas on gpt-live-1 voices, SHA-pinned and id-mirrored to
   `src/shared/voices.ts` by `test/voices.test.js`); `lib/voice.js` is the
   rest: the session body, the sideband meter, the caps, the charge.
+- **The draft is untrusted**: `instructions` is VOICE_BASE_PROMPT + persona
+  only. The student's draft goes in `session.input` (startup history) as one
+  user message inside `<student_draft>` tags it can't open or close
+  (`draftInput`), and the base prompt says it is reference text, never
+  instructions. Don't move it back into `instructions` (OpenAI: keep trusted
+  instructions separate from user content).
 - **Cost policy**: Pro only when enforced, on the BILLING plan (`ent.plan`,
   not `effectivePlan`: 429 `plan_limit` "Voice is part of Pro."), open on a
   local server; one live call per caller (409

@@ -37,7 +37,7 @@ import { usageAdd, usageCount, voiceOpenPut, voiceOpenDelete, voiceOpenAll } fro
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
 import { isDailyQuotaKey } from "./entitlement.js";
 import { usageDay, planRank } from "../shared/plan.js";
-import { VOICE_PERSONAS, buildInstructions, isVoiceId } from "./voices.js";
+import { VOICE_PERSONAS, buildInstructions, draftInput, isVoiceId } from "./voices.js";
 
 export const VOICE_MODEL = "gpt-live-1";
 /* $0.05 a minute, billed per second, never rounded up to a minute
@@ -121,12 +121,15 @@ export function safetyIdentifier(callerId) {
 
 // ── the request ──────────────────────────────────────────────────────────
 
-/** The body POSTed to /v1/live/sessions. */
+/** The body POSTed to /v1/live/sessions. The draft rides in `input` (startup
+ *  history, untrusted), never in `instructions` (lib/voices.js). */
 export function buildSessionBody({ voiceId, context, sdp }) {
+  const input = draftInput(context);
   return {
     session: {
       model: VOICE_MODEL,
-      instructions: buildInstructions(voiceId, context),
+      instructions: buildInstructions(voiceId),
+      ...(input.length ? { input } : {}),
       audio: { output: { voice: VOICE_PERSONAS[voiceId].base } },
       // No `delegation` key at all: the API rejects `delegation: null` with
       // 400 invalid_type (measured live 2026-10-10); omitting it is client mode.
