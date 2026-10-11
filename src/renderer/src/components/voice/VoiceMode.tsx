@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { UPGRADE_URL } from '@shared/plan'
 import { DEFAULT_VOICE_ID, voiceById, type VoiceId } from '@shared/voices'
 import { tracelyApi } from '../../lib/api'
@@ -203,7 +203,10 @@ export default function VoiceMode({
   )
   const savedLine =
     call.result?.transcriptSaved === true ? (
-      <p className="voice-notice-saved">Transcript saved to the chat</p>
+      <p className="voice-notice-saved">
+        <Check size={14} strokeWidth={2.4} aria-hidden="true" />
+        Transcript saved to the chat
+      </p>
     ) : call.result?.transcriptSaved === false ? (
       <p>The transcript couldn't be saved.</p>
     ) : null

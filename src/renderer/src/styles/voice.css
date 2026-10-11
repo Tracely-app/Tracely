@@ -119,7 +119,22 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
-.voice-meta-near { color: var(--score-mid); font-weight: 600; }
+/* Near the cap: the warning colour goes on a dot, the time stays in --text
+   (--score-mid as 12px text is ~3.9:1 on the light panel). */
+.voice-meta-near {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+.voice-meta-near::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--score-mid);
+}
 .voice-demo {
   padding: 1px 7px;
   border-radius: 999px;
@@ -241,7 +256,9 @@
   border-color: transparent;
   filter: brightness(1.06);
 }
-.voice-round-end:focus-visible { box-shadow: 0 0 0 3px var(--score-low-wash), 0 0 0 5px var(--danger); }
+/* A gap in the view's background between the button and the ring, so focus
+   reads on a red button in a red ring (a wash ring only made it look bigger). */
+.voice-round-end:focus-visible { box-shadow: 0 0 0 3px var(--vm-bg), 0 0 0 5px var(--danger); }
 
 /* ── Notice: an error or the call's summary, in the bottom band ───────── */
 
@@ -262,13 +279,16 @@
   line-height: 1.55;
   color: var(--muted);
 }
+/* The check carries the green; the words stay in --text (green 13px text is
+   ~3.2:1 on the light panel). */
 .voice-notice-saved {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--score-good) !important;
+  color: var(--text) !important;
   font-weight: 500;
 }
+.voice-notice-saved svg { flex-shrink: 0; color: var(--score-good); }
 .voice-actions {
   display: flex;
   gap: 10px;
@@ -485,6 +505,10 @@
   box-shadow: none;
   accent-color: var(--accent);
 }
+/* :root's `color-scheme: light dark` follows the OS, not the theme picked in
+   Settings, so the native radios are told which scheme the cards are in. */
+:root[data-theme='dark'] .voice-persona input[type='radio'] { color-scheme: dark; }
+:root[data-theme='light'] .voice-persona input[type='radio'] { color-scheme: light; }
 .voice-persona-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .voice-persona-name { display: flex; align-items: baseline; gap: 6px; }
 .voice-persona-name b { font-size: 13px; font-weight: 600; color: var(--text); }
