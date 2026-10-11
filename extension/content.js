@@ -8530,7 +8530,7 @@
       path.setAttribute("fill", DM.ink); path.setAttribute("stroke", "#fff"); path.setAttribute("stroke-width", "1.5"); path.setAttribute("stroke-linejoin", "round");
       arrow.appendChild(path);
       const pill = el("div", {
-        position: "absolute", left: "13px", top: "19px", background: DM.ink, color: "#fff", fontFamily: APP.font, fontSize: "11.5px",
+        position: "absolute", left: "13px", top: "19px", background: DM.ink, color: "#fff", fontFamily: APP.font, fontSize: "12px",
         fontWeight: "600", lineHeight: "18px", padding: "0 7px", borderRadius: "6px", whiteSpace: "nowrap", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
       }, "Tracely");
       root.append(ring, arrow, pill);
@@ -8726,13 +8726,13 @@
       // way Docs puts a suggestion's card in its margin: opaque, so nothing ever shows through it.
       const bubble = el("div", compact ? {
         position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
-        padding: "8px 10px 10px", background: "#fff", border: "1px solid #dadce0", borderRadius: "8px",
-        boxShadow: "0 1px 3px rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
+        padding: "12px", background: "#fff", border: `1px solid ${APP.border}`, borderRadius: "12px",
+        boxShadow: APP.shadowLg,
         fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "8px", opacity: "1", outline: "none", WebkitFontSmoothing: "antialiased",
       } : {
         position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
-        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
-        borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", fontFamily: APP.font, color: DM.ink,
+        minWidth: "240px", maxWidth: "380px", padding: "16px", background: "#fff", border: `2px solid ${DM.ink}`,
+        borderRadius: "16px", boxShadow: APP.shadowLg, fontFamily: APP.font, color: DM.ink,
         display: "none", flexDirection: "column", gap: "8px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
       });
       bubble.setAttribute("role", "dialog");
@@ -8742,7 +8742,7 @@
       const head = el("div", { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
       head.appendChild(el("span", { background: DM.ink, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
       if (mode === "strike" && diff) head.appendChild(el("span", { fontSize: "12px", color: DM.ink }, diff.removed.trim() ? TP_COPY.deletes : TP_COPY.same));
-      const status = el("span", { fontSize: "11.5px", color: DM.body }, TP_COPY.typing);
+      const status = el("span", { fontSize: "12px", color: DM.body }, TP_COPY.typing);
       head.appendChild(status);
       bubble.appendChild(head);
 
@@ -8769,7 +8769,7 @@
         text.appendChild(el("span", { fontSize: "13px", color: DM.body }, diff.removed ? TP_COPY.deletes : TP_COPY.same));
       }
       if (diff) bubble.appendChild(text);
-      if (main && mode === "pinned") bubble.appendChild(el("div", { fontSize: "11.5px", color: DM.body }, TP_COPY.offscreen));
+      if (main && mode === "pinned") bubble.appendChild(el("div", { fontSize: "12px", color: DM.body }, TP_COPY.offscreen));
       const change = (d) => {
         const out = tpClip(d.removed.trim(), 80, false), put = tpClip(d.inserted.trim(), 120, false);
         return out && put ? `“${out}” → “${put}”` : out ? `deletes “${out}”` : put ? `adds “${put}”` : "nothing";
@@ -8781,21 +8781,21 @@
       ];
       for (const r of rows) {
         const row = el("div", { display: "flex", flexDirection: "column", gap: "2px" });
-        row.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.body, letterSpacing: "0.4px", textTransform: "uppercase", whiteSpace: "nowrap" }, r.label));
-        row.appendChild(el("div", { fontSize: "12.5px", lineHeight: "1.4", color: DM.ink, wordBreak: "break-word" }, tpClip(String(r.text), 220, false)));
+        row.appendChild(el("div", { fontSize: "11px", fontWeight: "600", color: DM.body, letterSpacing: ".04em", textTransform: "uppercase", whiteSpace: "nowrap" }, r.label));
+        row.appendChild(el("div", { fontSize: "13px", lineHeight: "1.5", color: DM.ink, wordBreak: "break-word" }, tpClip(String(r.text), 220, false)));
         bubble.appendChild(row);
       }
       const accept = dmBtn(TP_COPY.accept, true);
       const reject = dmBtn(TP_COPY.reject, false);
       accept.setAttribute("data-tracely-type-accept", "");
       reject.setAttribute("data-tracely-type-reject", "");
-      if (compact) for (const b of [accept, reject]) Object.assign(b.style, { padding: "5px 12px", fontSize: "12.5px" });
+      if (compact) for (const b of [accept, reject]) Object.assign(b.style, { height: "28px", padding: "0 10px", fontSize: "12px" });
       // Our own focus ring, in ink: the browser's can be amber, which means a missing citation.
       for (const btn of [accept, reject]) {
         btn.addEventListener("focus", () => { btn.style.outline = `2px solid ${DM.ink}`; btn.style.outlineOffset = "2px"; });
         btn.addEventListener("blur", () => { btn.style.outline = ""; btn.style.outlineOffset = ""; });
       }
-      const actions = dmActions(accept, reject, el("span", { fontSize: "11.5px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
+      const actions = dmActions(accept, reject, el("span", { fontSize: "12px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
       actions.style.display = "none";
       bubble.appendChild(actions);
       const summary = !diff ? "" : diff.removed.trim() && ins.length ? `Replaces “${diff.removed.trim()}” with “${diff.inserted.trim()}”.`
@@ -9531,15 +9531,16 @@
       const color = it.verdict ? MARK_COLORS[it.verdict] : MARK_COLORS[CITE_TIP_KINDS.includes(it.kind) ? "cite_tip" : "note_tip"];
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
       const card = el("div", {
-        position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "10px 12px 12px",
-        background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
-        pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "6px", fontFamily: APP.font, color: DM.ink,
-        fontSize: "12.5px", lineHeight: "1.45", visibility: "hidden", WebkitFontSmoothing: "antialiased",
+        position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "12px",
+        // A margin card: the 1px hairline at radius 12 and the one transient shadow.
+        background: "#fff", border: `1px solid ${APP.border}`, borderRadius: "12px", boxShadow: APP.shadowLg,
+        pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "8px", fontFamily: APP.font, color: DM.ink,
+        fontSize: "13px", lineHeight: "1.5", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
       card.setAttribute("data-tracely-fix-card", "");
       card.dataset.key = it.key;
       if (it.act === "list") card.dataset.loose = "1";
-      const top = el("div", { display: "flex", alignItems: "center", gap: "7px", fontWeight: "600", fontSize: "12px" });
+      const top = el("div", { display: "flex", alignItems: "center", gap: "8px", fontWeight: "600", fontSize: "12px" });
       top.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" }), el("span", {}, `${FIX_ACT[it.act]} · ${flag}`));
       card.appendChild(top);
       const plan = it.job ? previewPlan(it.job) : { edits: [], lines: [] };
@@ -9553,14 +9554,14 @@
         diff.append(document.createTextNode(tpClip(d.keepAfter, 30, false)));
         card.appendChild(diff);
       }
-      for (const l of plan.lines) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px" }, `+ ${tpClip(l.line, 80, false)}`));
-      if (it.src) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, `Source: ${it.src.title}`));
+      for (const l of plan.lines) card.appendChild(el("div", { color: DM.body, fontSize: "12px" }, `+ ${tpClip(l.line, 80, false)}`));
+      if (it.src) card.appendChild(el("div", { color: DM.body, fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, `Source: ${it.src.title}`));
       if (it.status === "ready") {
-        const row = el("div", { display: "flex", gap: "6px", marginTop: "2px" });
+        const row = el("div", { display: "flex", gap: "8px", marginTop: "2px" });
         const busy = docBusy || Boolean(fixBatch?.applying);
         const yes = dmBtn("✓ Accept", true, { disabled: busy });
         const no = dmBtn("✕ Reject", false, { disabled: busy });
-        for (const b of [yes, no]) Object.assign(b.style, { padding: "5px 11px", fontSize: "12px" });
+        for (const b of [yes, no]) Object.assign(b.style, { height: "28px", padding: "0 10px", fontSize: "12px" });
         yes.addEventListener("click", () => acceptFix(i));
         no.addEventListener("click", () => skipFix(i));
         row.append(yes, no);
