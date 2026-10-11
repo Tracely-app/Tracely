@@ -274,9 +274,9 @@ function newSession({ key, callerId, enforced, maxSeconds, id = null, createdAt 
     id, ws: null, reattach: null, attempts: 0, seconds: 0, createdAt, reservation: null,
     // closeWanted: we asked for the end (cap, /end, shutdown); closeSent: and
     // session.close went out on an open sideband.
-    closeWanted: false, closeSent: false, finalized: false, reason: null,
+    closeWanted: false, closeSent: false, closeSentAt: null, finalized: false, reason: null,
     heard: "", steered: new Set(), // the safety window (in memory only) and the rules already sent
-    capTimer: null, closeTimer: null, retryTimer: null, waiters: [],
+    capTimer: null, closeTimer: null, retryTimer: null, backstopTimer: null, waiters: [],
   };
 }
 
@@ -294,8 +294,8 @@ function unpersist(id) {
 }
 
 function clearTimers(s) {
-  for (const t of [s.capTimer, s.closeTimer, s.retryTimer]) clearTimeout(t);
-  s.capTimer = s.closeTimer = s.retryTimer = null;
+  for (const t of [s.capTimer, s.closeTimer, s.retryTimer, s.backstopTimer]) clearTimeout(t);
+  s.capTimer = s.closeTimer = s.retryTimer = s.backstopTimer = null;
 }
 
 /** A session that never reached the student: free the slot and the hold. */
@@ -325,6 +325,7 @@ function sendClose(s) {
   s.closeWanted = true;
   if (s.closeSent || !send(s, { type: "session.close" })) return;
   s.closeSent = true;
+  s.closeSentAt ??= Date.now();
   s.closeTimer = unref(setTimeout(() => finalize(s, "close_unconfirmed"), CLOSE_WAIT_MS));
 }
 
@@ -339,6 +340,9 @@ const deadlineOf = (s) => s.createdAt + (s.maxSeconds + CAP_GRACE_SECONDS) * 100
 function armCapGuard(s) {
   const ms = s.createdAt + (s.maxSeconds + CAP_GRACE_SECONDS) * 1000 - Date.now();
   s.capTimer = unref(setTimeout(() => sendClose(s), Math.max(0, ms)));
+  // And a backstop, one close wait past the deadline, so no session can sit
+  // in memory (holding a slot and a hold) if every other path went quiet.
+  s.backstopTimer = unref(setTimeout(() => finalize(s, "deadline"), Math.max(0, deadlineOf(s) + CLOSE_WAIT_MS - Date.now())));
 }
 
 /* Charge once, whatever ended it: the app pool in micro-cents and the
@@ -346,8 +350,9 @@ function armCapGuard(s) {
  * least VOICE_MIN_BILLED_SECONDS). Never account_ucents (see the top).
  * Only `session.closed` (confirmed) carries the real total. Otherwise the
  * meter is stale by design: a close that went out bills the wall clock since
- * the session was created; a close that never could (no sideband to the
- * end) bills the client's cap, since the call may have run that long. */
+ * the session was created (to its close wait at most); a close that never
+ * could (no sideband to the end) bills the client's cap, since the call may
+ * have run that long. */
 function finalize(s, reason, { confirmed = false } = {}) {
   if (s.finalized) return;
   s.finalized = true;
@@ -355,7 +360,11 @@ function finalize(s, reason, { confirmed = false } = {}) {
   clearTimers(s);
   const at = Date.now();
   if (!confirmed && s.createdAt != null) {
-    s.seconds = Math.max(s.seconds, s.closeSent ? (at - s.createdAt) / 1000 : s.maxSeconds);
+    // When did it end? Now, if a close is out on the live socket; a close
+    // wait after the first close that went out, if that socket was lost
+    // since; and if no close ever went out, it may have run to the cap.
+    const endAt = s.closeSent ? at : s.closeSentAt != null ? Math.min(at, s.closeSentAt + CLOSE_WAIT_MS) : null;
+    s.seconds = Math.max(s.seconds, endAt != null ? (endAt - s.createdAt) / 1000 : s.maxSeconds);
   }
   try {
     if (s.enforced) {

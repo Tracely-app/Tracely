@@ -187,7 +187,8 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   still read. A dropped sideband (the only way to close a live session)
   re-attaches at once, then backing off 1, 2, 4… 30 s, until cap + 5 s +
   the 10 s close wait; the caller's slot stays claimed meanwhile and a close
-  asked for in the gap goes out on the new socket.
+  asked for in the gap goes out on the new socket. A backstop timer
+  finalizes any session one close wait past that, whatever went quiet.
 - **Safety**: the sideband reads `session.input_transcript.delta` into a
   500-character window on the session (memory only; never logged or
   stored) and checks it against `SAFETY_RULES` (distress/abuse, sexual);

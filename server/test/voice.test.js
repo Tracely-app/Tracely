@@ -399,6 +399,35 @@ test("a close asked for while the sideband is down goes out on the re-attached s
   assert.equal(usageCount("user:u-gap", today(), "voice_seconds"), 66);
 });
 
+test("a close that went out before the sideband was lost bills to its close wait, not the cap", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const gate = gateFor("pro", "lostclose");
+  const out = await start(gate, {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "600" });
+  const ws = lastWS();
+  t.mock.timers.tick(100_000);
+  void V.endSession({ gate, body: { sessionId: out.sessionId }, waitMs: 0 });
+  assert.deepEqual(ws.types(), ["session.close"]);
+  FakeWS.mode = "error";
+  ws.close(); // lost before session.closed; it never comes back
+  for (let i = 0; i < 200 && V.liveSessionCount(); i++) { t.mock.timers.tick(5000); await tick(); }
+  assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-lostclose", today(), "voice_seconds"), 100 + V.CLOSE_WAIT_MS / 1000);
+});
+
+test("a backstop: a sideband that goes quiet without closing can't hold the slot forever", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  await start(gateFor("pro", "quiet"), {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "60" });
+  const ws = lastWS();
+  ws.readyState = 3; // CLOSED, but no close event ever arrives
+  t.mock.timers.tick((60 + V.CAP_GRACE_SECONDS) * 1000);
+  assert.deepEqual(ws.sent, [], "nothing can go out on it");
+  assert.equal(V.liveSessionCount(), 1);
+  t.mock.timers.tick(2 * V.CLOSE_WAIT_MS);
+  assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-quiet", today(), "voice_seconds"), 60, "no close ever went out: the cap");
+  assert.equal(reservedMicroCents("app"), 0);
+});
+
 test("usage events that never come: the wall-clock guard closes, and an unconfirmed close bills the wall clock", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
   const gate = gateFor("pro", "stale");
