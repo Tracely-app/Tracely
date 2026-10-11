@@ -224,6 +224,8 @@ export const IDLE_WARN_MS = 90_000
 export const MUTED_WARN_MS = 120_000
 /** …and the call ends this long after asking, unless they talk (or unmute). */
 export const IDLE_GRACE_MS = 15_000
+/** How long 'answer-blocked' stays on the state line. */
+export const BLOCKED_NOTICE_MS = 6000
 
 // ── Levels and who is speaking ──────────────────────────────────────────────
 
@@ -425,6 +427,30 @@ export function settleCaptions(log: CaptionLog, now: number): CaptionLog {
     next = { ...next, captions: finalize(next.captions, id), open: { ...next.open, [role]: null } }
   }
   return next
+}
+
+/** What a caption cut off by a safety check ends with (it is saved that way too). */
+export const BLOCKED_MARK = ' [stopped by a safety check]'
+
+/** Close the persona's open caption as cut off by a safety check. Nothing open: unchanged. */
+export function markAnswerBlocked(log: CaptionLog): CaptionLog {
+  const id = log.open.assistant
+  if (id === null) return log
+  const captions = log.captions.map((c) => (c.id === id ? { ...c, text: c.text + BLOCKED_MARK, final: true } : c))
+  return { ...log, captions, open: { ...log.open, assistant: null } }
+}
+
+/**
+ * Whether a data-channel `error` is moderation. Some moderation cuts the
+ * persona off for the rest of its answer and emits `error` without ending the
+ * session (developers.openai.com, live-conversations "Handle moderation"); no
+ * code is documented for it, so its words decide. The client may send no
+ * events at all, so a rejected command cannot be what arrived.
+ */
+export function isModerationError(error: unknown): boolean {
+  const e = (error ?? {}) as { code?: unknown; type?: unknown; message?: unknown }
+  const words = [e.code, e.type, e.message].filter((v) => typeof v === 'string').join(' ')
+  return /moderat|content|safety|policy|filter/i.test(words)
 }
 
 /** The finished call's captions as transcript turns (empty ones dropped), oldest first. */
@@ -881,6 +907,8 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   let mutedAt = 0
   /** when 'still-there' went up; null while the call is active */
   let idleWarnAt: number | null = null
+  /** 'answer-blocked' shows until then */
+  let blockedUntil = -Infinity
 
   let startPromise: Promise<void> | null = null
   let finishPromise: Promise<void> | null = null
@@ -1014,7 +1042,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   }
 
   function onServerEvent(data: unknown): void {
-    let ev: { type?: unknown; delta?: unknown; start_ms?: unknown; end_ms?: unknown; reason?: unknown }
+    let ev: { type?: unknown; delta?: unknown; start_ms?: unknown; end_ms?: unknown; reason?: unknown; error?: unknown }
     const text = frameText(data)
     if (text === null) return
     try {
@@ -1046,6 +1074,9 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       // 'error' is deliberately not an end: some moderation errors only cut
       // Tracer off mid-sentence and the call carries on. If the call does end,
       // session.closed or the peer closing says so.
+      case 'error':
+        onErrorEvent(ev.error)
+        return
       default:
         return
     }
@@ -1100,9 +1131,22 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   }
 
   /** The notice the state line should carry now, most pressing first. */
-  function currentNotice(): VoiceNotice | null {
+  function currentNotice(now = deps.now()): VoiceNotice | null {
     if (idleWarnAt !== null) return 'still-there'
+    if (now < blockedUntil) return 'answer-blocked'
     return null
+  }
+
+  /** A data-channel `error`. Moderation that only cut the answer short is said; the call goes on. */
+  function onErrorEvent(error: unknown): void {
+    if (!isModerationError(error)) {
+      console.warn('[voice] error event from the call', error)
+      return
+    }
+    const now = deps.now()
+    captionLog = markAnswerBlocked(captionLog)
+    blockedUntil = now + BLOCKED_NOTICE_MS
+    if (!forced) update({ captions: captionLog.captions, notice: currentNotice(now) })
   }
 
   /** 25 times a second: levels, who is speaking, the timer, the caption pause rule, the cap. */

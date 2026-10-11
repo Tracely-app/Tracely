@@ -2,7 +2,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
-  CAPTION_PAUSE_MS, EMPTY_CAPTIONS, IDLE_GRACE_MS, IDLE_WARN_MS, MUTED_WARN_MS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
+  BLOCKED_NOTICE_MS, CAPTION_PAUSE_MS, EMPTY_CAPTIONS, isModerationError, IDLE_GRACE_MS, IDLE_WARN_MS, MUTED_WARN_MS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
   addTranscriptDelta, browserDeps, closedError, createSpeechGate, frameText, createVoiceSession, formatClock, micError, mockFrame,
   mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceAnnouncement, voiceStateLine,
   type VoiceApi, type VoiceDeps,
@@ -591,6 +591,31 @@ describe('createVoiceSession: unasked endings', () => {
     r.clock.advance(1000)
     strictEqual(r.engine.getSnapshot().state, 'listening')
     strictEqual(r.engine.getSnapshot().error, null)
+  })
+
+  it("moderation that cuts Tracer off marks the caption, says so for a few seconds, and keeps the call", async () => {
+    const r = await connected()
+    r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: 'Here is the part' })
+    r.peer.channel!.emit({ type: 'error', error: { type: 'server_error', code: 'content_moderation', message: 'Audio was stopped.' } })
+    const s = r.engine.getSnapshot()
+    deepStrictEqual(s.captions.map((c) => [c.text, c.final]), [['Here is the part [stopped by a safety check]', true]])
+    strictEqual(s.notice, 'answer-blocked')
+    strictEqual(voiceStateLine(s, 'Atlas'), 'Atlas stopped: part of that answer was blocked')
+    strictEqual(s.error, null)
+    r.clock.advance(BLOCKED_NOTICE_MS + 100)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+    // An error that isn't moderation changes nothing on screen.
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      r.peer.channel!.emit({ type: 'error', error: { type: 'server_error', message: 'Something odd' } })
+    } finally {
+      console.warn = warn
+    }
+    strictEqual(r.engine.getSnapshot().notice, null)
+    ok(isModerationError({ message: 'moderation' }))
+    ok(!isModerationError(null))
   })
 
   it('hangs up by itself if the cap passes and no close arrives', async () => {
