@@ -433,6 +433,7 @@
   box-shadow: var(--shadow-lg);
   transform: translateX(-50%);
   animation: voice-pop 0.16s var(--vm-ease);
+  outline: none;
 }
 .voice-picker-title {
   margin: 0;

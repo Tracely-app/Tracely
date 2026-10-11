@@ -41,6 +41,10 @@ export default function VoicePicker({
         className="voice-picker"
         role="radiogroup"
         aria-labelledby="voice-picker-title"
+        // Focusable (not tabbable) so a press on a row's text keeps focus in
+        // here instead of falling to the voice view, which onBlur would read
+        // as leaving and close the list before the click picked the voice.
+        tabIndex={-1}
         onKeyDown={(e) => {
           // Enter on a ▶ plays it; Enter anywhere else, or Esc, closes.
           const onButton = e.target instanceof HTMLButtonElement
