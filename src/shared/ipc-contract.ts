@@ -1368,6 +1368,20 @@ export interface VoiceIpcError {
 }
 
 /**
+ * What a student reads for each account-level refusal — the one copy, used by
+ * main when it tags the error and by the renderer when it shows it (under a
+ * headline of its own, renderer/voice/session.ts errorTitle, so each sentence
+ * is the next step rather than a repeat of the headline). The server's own
+ * sentences for these are written for its log and are not shown.
+ */
+export const VOICE_KIND_COPY: Readonly<Record<Exclude<VoiceIpcErrorKind, 'server'>, string>> = {
+  plan: 'Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.',
+  'daily-limit': "You've used today's voice minutes. They reset tomorrow; until then, Tracer is here by text.",
+  busy: 'Another voice call is still open on this account. Wait a minute for it to close, then try again.',
+  network: "Couldn't reach Tracely. Check your internet connection, then try again."
+}
+
+/**
  * ipcRenderer.invoke keeps only an Error's MESSAGE across the bridge — `kind`
  * on a thrown object never arrives. So main throws `[voice:<kind>] <message>`
  * and the renderer's api wrapper reads the tag back with parseVoiceIpcError.

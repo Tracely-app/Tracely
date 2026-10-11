@@ -43,6 +43,8 @@ import type {
   VoiceTranscriptTurn
 } from '@shared/ipc-contract'
 import type { VoiceId } from '@shared/voices'
+// Relative with `.ts` so node --test can load it (the alias resolves only in the build).
+import { VOICE_KIND_COPY } from '../../../shared/ipc-contract.ts'
 import type {
   VoiceCaption,
   VoiceErrorKind,
@@ -293,20 +295,17 @@ export function micDeniedMessage(platform: VoicePlatform): string {
   return "Tracely can't use your microphone. Allow microphone access for Tracely in your system settings, then try again."
 }
 
-const KIND_COPY: Record<'plan' | 'daily-limit' | 'busy' | 'network', string> = {
-  plan: 'Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.',
-  'daily-limit': "You've used today's voice minutes. They reset tomorrow; until then, Tracer is here by text.",
-  busy: 'Another voice call is still open on this account. Wait a minute for it to close, then try again.',
-  network: "Couldn't reach Tracely. Check your internet connection, then try again."
-}
-
 const SERVER_FALLBACK = "Tracely couldn't start the call. Try again in a moment."
 
-/** voice.start's rejection (a VoiceApiError carries `kind`) as the snapshot's error. */
+/**
+ * voice.start's rejection (a VoiceApiError carries `kind`) as the snapshot's
+ * error. The account kinds read the one shared wording (VOICE_KIND_COPY, which
+ * main tags them with too); a server error keeps main's sentence.
+ */
 export function startError(err: unknown): VoiceError {
   const kind = (err as { kind?: unknown } | null)?.kind
   if (kind === 'plan' || kind === 'daily-limit' || kind === 'busy' || kind === 'network') {
-    return { kind, message: KIND_COPY[kind] }
+    return { kind, message: VOICE_KIND_COPY[kind] }
   }
   const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
   return { kind: 'server', message: raw.trim() || SERVER_FALLBACK }

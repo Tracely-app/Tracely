@@ -1,7 +1,7 @@
 import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { parseVoiceIpcError } from '../../../shared/ipc-contract.ts'
+import { VOICE_KIND_COPY, parseVoiceIpcError } from '../../../shared/ipc-contract.ts'
 import type { TranscriptMessage } from './transcript.ts'
 import { VoiceCallError } from './voiceErrors.ts'
 import { VOICE_START_TIMEOUT_MS, clipVoiceContext, createVoiceService, normalizeStart, type VoiceEndpoint } from './voiceSession.ts'
@@ -107,7 +107,7 @@ describe('voice start', () => {
       strictEqual(svc.openSessionId(), null)
     }
     const { svc } = service(fakeServer({ 'voice/session': async () => Promise.reject(httpError(429, 'plan_limit', 'Voice is part of Pro.')) }))
-    strictEqual((await voiceError(svc.start({ sdp: OFFER, voiceId: 'linden' }))).message, 'Voice is part of Pro.')
+    strictEqual((await voiceError(svc.start({ sdp: OFFER, voiceId: 'linden' }))).message, VOICE_KIND_COPY.plan)
   })
 })
 
