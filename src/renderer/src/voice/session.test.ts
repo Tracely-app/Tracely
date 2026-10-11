@@ -2,7 +2,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
-  BLOCKED_NOTICE_MS, CAPTION_PAUSE_MS, EMPTY_CAPTIONS, isModerationError, IDLE_GRACE_MS, IDLE_WARN_MS, MUTED_WARN_MS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
+  BLOCKED_NOTICE_MS, MIC_MUTED_NOTICE_MS, MIC_ZERO_NOTICE_MS, CAPTION_PAUSE_MS, EMPTY_CAPTIONS, isModerationError, IDLE_GRACE_MS, IDLE_WARN_MS, MUTED_WARN_MS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
   addTranscriptDelta, browserDeps, closedError, createSpeechGate, frameText, createVoiceSession, formatClock, micError, mockFrame,
   mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceAnnouncement, voiceStateLine,
   type VoiceApi, type VoiceDeps,
@@ -845,6 +845,86 @@ describe('levels and who is speaking', () => {
     strictEqual(voiceStateLine(s, 'Atlas'), 'Muted')
     r.engine.setMuted(false)
     strictEqual(r.mic.track.enabled, true)
+  })
+})
+
+// ── A microphone that goes away mid-call ───────────────────────────────────
+
+class EventTrack extends EventTarget {
+  kind = 'audio'
+  enabled = true
+  muted = false
+  stopped = false
+  stop() { this.stopped = true }
+}
+function eventStream() {
+  const track = new EventTrack()
+  return { track, getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream & { track: EventTrack }
+}
+
+describe('createVoiceSession: the microphone mid-call', () => {
+  async function micRig(nextMic: () => Promise<MediaStream>) {
+    const first = eventStream()
+    let opens = 0
+    const swapped: unknown[] = []
+    const r = rig({ deps: { getUserMedia: async () => (opens++ === 0 ? first : nextMic()) } })
+    r.peer.addTrack = (() => ({ replaceTrack: async (t: unknown) => void swapped.push(t) })) as never
+    await r.engine.start()
+    r.peer.channel!.emit({ type: 'session.started' })
+    return { r, first, swapped, opens: () => opens }
+  }
+
+  it('a mic that disappears is opened again and swapped into the call, muted if the student was', async () => {
+    const next = eventStream()
+    const m = await micRig(async () => next)
+    m.r.engine.setMuted(true)
+    m.first.track.dispatchEvent(new Event('ended'))
+    await flush()
+    strictEqual(m.opens(), 2)
+    deepStrictEqual(m.swapped, [next.track])
+    ok(m.first.track.stopped)
+    strictEqual(next.track.enabled, false)
+    strictEqual(m.r.engine.getSnapshot().error, null)
+    // The new track is watched too.
+    next.track.dispatchEvent(new Event('ended'))
+    await flush()
+    strictEqual(m.opens(), 3)
+  })
+
+  it('if no microphone can be opened again, the call ends saying so', async () => {
+    const m = await micRig(async () => { throw Object.assign(new Error('x'), { name: 'NotFoundError' }) })
+    m.first.track.dispatchEvent(new Event('ended'))
+    await flush()
+    strictEqual(m.r.engine.getSnapshot().error?.kind, 'mic-missing')
+    deepStrictEqual(m.r.api.calls.end, ['sess_1'])
+  })
+
+  it("a track its source muted for over 3 s reads 'Your microphone stopped sending sound' until it unmutes", async () => {
+    const m = await micRig(async () => eventStream())
+    m.first.track.dispatchEvent(new Event('mute'))
+    m.r.clock.advance(MIC_MUTED_NOTICE_MS - 500)
+    strictEqual(m.r.engine.getSnapshot().notice, null)
+    m.r.clock.advance(1000)
+    strictEqual(m.r.engine.getSnapshot().notice, 'mic-silent')
+    strictEqual(voiceStateLine(m.r.engine.getSnapshot(), 'Atlas'), 'Your microphone stopped sending sound')
+    m.first.track.dispatchEvent(new Event('unmute'))
+    strictEqual(m.r.engine.getSnapshot().notice, null)
+  })
+
+  it('exact digital silence from a meter that heard sound before is the same problem; sound clears it', async () => {
+    const r = await connected()
+    r.rms.input = 0.01
+    r.clock.advance(TICK_MS * 3)
+    r.rms.input = 0
+    r.clock.advance(MIC_ZERO_NOTICE_MS + 200)
+    strictEqual(r.engine.getSnapshot().notice, 'mic-silent')
+    r.engine.setMuted(true)
+    r.clock.advance(TICK_MS)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    r.engine.setMuted(false)
+    r.rms.input = 0.002
+    r.clock.advance(TICK_MS * 2)
+    strictEqual(r.engine.getSnapshot().notice, null)
   })
 })
 

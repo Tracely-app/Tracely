@@ -70,6 +70,11 @@ export interface VoiceDataChannel {
   close(): void
 }
 
+/** The RTCRtpSender pc.addTrack returns: a replacement microphone goes in through it. */
+export interface VoiceSender {
+  replaceTrack(track: MediaStreamTrack | null): Promise<void>
+}
+
 /** The few RTCPeerConnection members the engine touches (a fake in tests). */
 export interface VoicePeer {
   readonly iceGatheringState: string
@@ -78,7 +83,7 @@ export interface VoicePeer {
   onicegatheringstatechange: (() => void) | null
   onconnectionstatechange: (() => void) | null
   ontrack: ((ev: { streams: readonly MediaStream[]; track: MediaStreamTrack }) => void) | null
-  addTrack(track: MediaStreamTrack, stream: MediaStream): unknown
+  addTrack(track: MediaStreamTrack, stream: MediaStream): VoiceSender | void
   createDataChannel(label: string): VoiceDataChannel
   createOffer(): Promise<{ type: string; sdp?: string }>
   setLocalDescription(desc: { type: string; sdp?: string }): Promise<void>
@@ -231,6 +236,12 @@ export const MUTED_WARN_MS = 120_000
 export const IDLE_GRACE_MS = 15_000
 /** How long 'answer-blocked' stays on the state line. */
 export const BLOCKED_NOTICE_MS = 6000
+/** The mic track muted by its source (not by us) this long reads as a problem… */
+export const MIC_MUTED_NOTICE_MS = 3000
+/** …and so does exact digital silence from a meter that has heard sound before. */
+export const MIC_ZERO_NOTICE_MS = 5000
+const MIC_LOST_MESSAGE =
+  'Your microphone was disconnected. Plug it back in or choose another in your sound settings, then start a new call.'
 
 // ── Levels and who is speaking ──────────────────────────────────────────────
 
@@ -926,6 +937,14 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   let idleWarnAt: number | null = null
   /** 'answer-blocked' shows until then */
   let blockedUntil = -Infinity
+  /** Where the mic track went, to swap a new one in if the device disappears. */
+  let micSender: VoiceSender | null = null
+  let unwatchMic: (() => void) | null = null
+  let replacingMic = false
+  /** when the mic track's source muted it (a device that stopped delivering), or null */
+  let micMutedAt: number | null = null
+  /** since when a working meter has read exact digital silence, or null */
+  let zeroSince: number | null = null
   /** The persona's voice failed to play; retried on the student's next click or key press. */
   let playbackFailed = false
   let offGesture: (() => void) | null = null
@@ -962,6 +981,9 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   /** Close every part of the call. Safe to repeat. */
   function teardownMedia(): void {
     stopTimers()
+    unwatchMic?.()
+    unwatchMic = null
+    micSender = null
     offGesture?.()
     offGesture = null
     if (channel) {
@@ -1086,6 +1108,8 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
         const endMs = typeof ev.end_ms === 'number' ? ev.end_ms : undefined
         heard.note(role, now, startMs, endMs)
         lastActivityAt = now
+        // The student's words arriving prove the mic works.
+        if (role === 'user') zeroSince = null
         captionLog = addTranscriptDelta(captionLog, role, ev.delta, now, startMs, endMs)
         if (!forced) update({ captions: captionLog.captions })
         return
@@ -1155,9 +1179,82 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   /** The notice the state line should carry now, most pressing first. */
   function currentNotice(now = deps.now()): VoiceNotice | null {
     if (idleWarnAt !== null) return 'still-there'
+    if (micSilent(now)) return 'mic-silent'
     if (playbackFailed) return 'no-playback'
     if (now < blockedUntil) return 'answer-blocked'
     return null
+  }
+
+  /** The mic is unmuted but has sent no sound for a while: its source muted it, or digital silence. */
+  function micSilent(now: number): boolean {
+    if (snap.muted) return false
+    if (micMutedAt !== null && now - micMutedAt > MIC_MUTED_NOTICE_MS) return true
+    return zeroSince !== null && now - zeroSince > MIC_ZERO_NOTICE_MS
+  }
+
+  /** Listen for the mic going away (unplugged, a headset off, permission revoked) or going quiet. */
+  function watchMic(track: MediaStreamTrack): void {
+    unwatchMic?.()
+    unwatchMic = null
+    if (typeof track.addEventListener !== 'function') return
+    const onEnded = (): void => void replaceMic()
+    const onMute = (): void => {
+      micMutedAt = deps.now()
+    }
+    const onUnmute = (): void => {
+      micMutedAt = null
+      if (!forced && !over) update({ notice: currentNotice() })
+    }
+    track.addEventListener('ended', onEnded)
+    track.addEventListener('mute', onMute)
+    track.addEventListener('unmute', onUnmute)
+    micMutedAt = track.muted ? deps.now() : null
+    unwatchMic = () => {
+      track.removeEventListener('ended', onEnded)
+      track.removeEventListener('mute', onMute)
+      track.removeEventListener('unmute', onUnmute)
+    }
+  }
+
+  /** The mic track ended: open the microphone again and swap it into the call, or end the call. */
+  async function replaceMic(): Promise<void> {
+    if (over || replacingMic) return
+    replacingMic = true
+    try {
+      let next: MediaStream
+      try {
+        next = await deps.getUserMedia(MIC_CONSTRAINTS)
+      } catch (e) {
+        if (!over) void finish(micError(e, deps.platform))
+        return
+      }
+      const track = next.getAudioTracks()[0]
+      const sender = micSender
+      let swapped = false
+      if (!over && track && sender) {
+        track.enabled = !snap.muted
+        swapped = await Promise.resolve()
+          .then(() => sender.replaceTrack(track))
+          .then(() => true, () => false)
+      }
+      if (over || !swapped) {
+        next.getTracks().forEach((t) => t.stop())
+        if (!over) void finish({ kind: 'mic-missing', message: MIC_LOST_MESSAGE })
+        return
+      }
+      mic?.getTracks().forEach((t) => t.stop())
+      mic = next
+      if (inMeter) {
+        inMeter.dispose()
+        inMeter = deps.createMeter(next)
+        inHeardSound = false
+      }
+      zeroSince = null
+      watchMic(track)
+      if (!forced) update({ notice: currentNotice() })
+    } finally {
+      replacingMic = false
+    }
   }
 
   /** Play (or retry) the persona's voice, and say so when it can't be heard. */
@@ -1228,6 +1325,9 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       // keeps the orb moving.
       const inReal = inMeter !== null && inHeardSound && (inMeter.live?.() ?? true)
       const outReal = outMeter !== null && outHeardSound && (outMeter.live?.() ?? true)
+      // Exact zeros from a meter that has heard sound: the device sends digital silence.
+      if (inReal && !snap.muted && rawIn === 0) zeroSince ??= now
+      else zeroSince = null
       const textIn = !inReal && !snap.muted && heard.speaking('user', now)
       const textOut = !outReal && heard.speaking('assistant', now)
       if (textIn && !textInWas) inTurnAt = now
@@ -1310,7 +1410,12 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     // 3. The peer: mic track out, the event channel BEFORE the offer.
     const pc = deps.createPeer()
     peer = pc
-    for (const track of stream.getAudioTracks()) pc.addTrack(track, stream)
+    for (const track of stream.getAudioTracks()) {
+      const sender = pc.addTrack(track, stream)
+      if (!micSender && sender && typeof sender.replaceTrack === 'function') micSender = sender
+    }
+    const micTrack = stream.getAudioTracks()[0]
+    if (micTrack) watchMic(micTrack)
     const dc = pc.createDataChannel(DATA_CHANNEL_LABEL)
     channel = dc
     dc.onmessage = (ev) => onServerEvent(ev.data)
@@ -1339,7 +1444,8 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     }
     sessionId = res.sessionId
     update({ maxSec: res.maxSeconds, remainingTodaySec: res.remainingSeconds, mock: res.mock === true })
-    inMeter = deps.createMeter(stream)
+    // `mic`, not `stream`: the microphone may have been swapped meanwhile.
+    inMeter = deps.createMeter(mic ?? stream)
 
     if (res.mock === true || !res.sdp) {
       // Keyless: no call to connect. Let go of the mic and the peer (nothing
