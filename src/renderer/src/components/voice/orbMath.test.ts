@@ -137,9 +137,14 @@ describe('level → radius and brightness', () => {
   })
 
   it('swells with the mic only while the student speaks, and with the voice only while it speaks', () => {
-    ok(orbScale(p('user-speaking'), 1, 0, 0) > orbScale(p('user-speaking'), 0, 0, 0) + 0.08)
+    ok(orbScale(p('user-speaking'), 1, 0, 0) > orbScale(p('user-speaking'), 0, 0, 0) + 0.05)
     ok(near(orbScale(p('assistant-speaking'), 1, 0, 0), orbScale(p('assistant-speaking'), 0, 0, 0)))
-    ok(orbScale(p('assistant-speaking'), 0, 1, 0) > orbScale(p('assistant-speaking'), 0, 0, 0) + 0.05)
+    ok(orbScale(p('assistant-speaking'), 0, 1, 0) > orbScale(p('assistant-speaking'), 0, 0, 0) + 0.08)
+    ok(
+      orbScale(p('assistant-speaking'), 0, 1, 0) - orbScale(p('assistant-speaking'), 0, 0, 0) >
+        orbScale(p('user-speaking'), 1, 0, 0) - orbScale(p('user-speaking'), 0, 0, 0),
+      "the persona's voice moves the orb more than the student's"
+    )
     ok(near(orbScale(p('user-speaking', true), 1, 0, 0), orbScale(p('user-speaking', true), 0, 0, 0)), 'muted mic moves nothing')
     ok(orbScale(p('idle'), 0, 0, 0) < 1, 'idle sits slightly smaller')
   })

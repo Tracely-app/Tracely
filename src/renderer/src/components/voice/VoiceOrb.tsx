@@ -432,7 +432,7 @@ class OrbRenderer {
       this.halo.style.filter = GRAY_STEPS[haloGray]
     }
 
-    const morph = reduced ? 0 : 0.02 * p.outputDrive * clamp01(outL) + 0.008 * p.inputDrive * clamp01(inL)
+    const morph = reduced ? 0 : 0.035 * p.outputDrive * clamp01(outL) + 0.008 * p.inputDrive * clamp01(inL)
     this.traceOutline(ctx, c, R, morph)
     ctx.save()
     ctx.clip()

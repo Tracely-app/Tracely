@@ -102,9 +102,13 @@ export function levelCurve(level: number): number {
 /** The orb never shrinks below this or swells past ORB_SCALE_MAX. */
 export const ORB_SCALE_MIN = 0.94
 export const ORB_SCALE_MAX = 1.14
-/** How far each driver can swell the orb, as a fraction of its radius. */
-export const INPUT_SWELL = 0.11
-export const OUTPUT_SWELL = 0.07
+/**
+ * How far each driver can swell the orb, as a fraction of its radius. The
+ * persona's voice moves it most (as in ChatGPT's orb): the student watches it
+ * while it talks, and while they talk the halo already shows they're heard.
+ */
+export const INPUT_SWELL = 0.07
+export const OUTPUT_SWELL = 0.11
 
 /** The orb's diameter in a roomy panel, and the smallest it is drawn at. */
 export const ORB_SIZE_MAX = 168
