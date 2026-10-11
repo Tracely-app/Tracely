@@ -50,6 +50,16 @@ function micSettingsUrl(): string | null {
   return null
 }
 
+/** 245 → "4 minutes 5 seconds", for the live region (a clock reads badly aloud). */
+function spokenDuration(totalSec: number): string {
+  const s = Math.max(0, Math.round(totalSec))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  const part = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`
+  if (m === 0) return part(r, 'second')
+  return r === 0 ? part(m, 'minute') : `${part(m, 'minute')} ${part(r, 'second')}`
+}
+
 interface VoicePrefs {
   voiceId: VoiceId
   captions: boolean
@@ -259,6 +269,11 @@ export default function VoiceMode({
           ? `Talk with ${persona.name}, Tracer's AI voice`
           : voiceStateLine(snap, persona.name)
   const left = snap.maxSec - snap.elapsedSec
+  const nearLimit = live && snap.maxSec > 0 && left <= NEAR_LIMIT_SEC
+  // The same test closedError makes from the same snapshot: this call's cap
+  // comes from what is left of today's allowance, not the per-call limit.
+  const dailyBound = snap.remainingTodaySec !== null && snap.remainingTodaySec <= snap.maxSec
+  const minutesToday = Math.max(1, Math.ceil(snap.maxSec / 60))
   // Notices that aren't failures (a plan, a limit) rest the orb like an ended
   // call; the desaturated error look is kept for mic, network and server faults.
   const calmError = snap.state === 'error' && ['plan', 'daily-limit', 'ended-by-limit'].includes(snap.error?.kind ?? '')
@@ -266,14 +281,16 @@ export default function VoiceMode({
 
   let meta: JSX.Element | string | null = null
   if (live) {
-    meta =
-      snap.maxSec > 0 && left <= NEAR_LIMIT_SEC ? (
-        <span className="voice-meta-near">
-          {formatClock(snap.elapsedSec)} / {formatClock(snap.maxSec)}
-        </span>
-      ) : (
-        formatClock(snap.elapsedSec)
-      )
+    meta = nearLimit ? (
+      <span className="voice-meta-near">
+        {formatClock(snap.elapsedSec)} / {formatClock(snap.maxSec)}
+      </span>
+    ) : dailyBound && snap.elapsedSec < 5 ? (
+      // A call capped by today's allowance says so as it starts.
+      `${formatClock(snap.elapsedSec)} · About ${minutesToday} min left today`
+    ) : (
+      formatClock(snap.elapsedSec)
+    )
   } else if (snap.state === 'requesting-mic') {
     meta = 'Allow the microphone if your computer asks.'
   } else if (snap.state === 'idle' && !showPlanGate) {
@@ -334,9 +351,7 @@ export default function VoiceMode({
     )
   } else if (snap.state === 'error' && snap.error) {
     const kind = snap.error.kind
-    // The same test closedError makes from the same snapshot: a call cut by
-    // today's allowance (not the per-call cap) has nothing left to retry with.
-    const dailyBound = snap.remainingTodaySec !== null && snap.remainingTodaySec <= snap.maxSec
+    // A call cut by today's allowance (not the per-call cap) has nothing left to retry with.
     const canRetry = kind !== 'plan' && kind !== 'daily-limit' && !(kind === 'ended-by-limit' && dailyBound)
     const settingsUrl = kind === 'mic-denied' ? micSettingsUrl() : null
     notice = (
@@ -379,6 +394,25 @@ export default function VoiceMode({
         </div>
       </div>
     )
+  }
+
+  // What the polite live region says. Built here so the end of a call and
+  // the limits are heard, not only seen: the summary before the chat comes
+  // back, today's cap once as the call connects, and the last minute once.
+  let announcement = ''
+  if (prefs !== null) {
+    if (showPlanGate) {
+      announcement = 'Voice is part of Pro. Upgrade to Pro to talk with Tracer out loud.'
+    } else if (snap.state === 'idle') {
+      announcement = stateLine
+    } else if (snap.state === 'ended') {
+      announcement = `Call ended. Talked for ${spokenDuration(call.result?.seconds ?? snap.elapsedSec)}.${saved ? ' Transcript saved to the chat.' : ''}`
+    } else {
+      announcement = voiceAnnouncement(snap, persona.name)
+      if (live && dailyBound) announcement += ` About ${minutesToday} ${minutesToday === 1 ? 'minute' : 'minutes'} left today.`
+      if (nearLimit) announcement += ' One minute left.'
+      if (snap.state === 'error' && saved) announcement += ' Transcript saved to the chat.'
+    }
   }
 
   return (
@@ -459,7 +493,7 @@ export default function VoiceMode({
       </div>
 
       <div className="sr-only" aria-live="polite">
-        {prefs === null ? '' : voiceAnnouncement(snap, persona.name)}
+        {announcement}
       </div>
 
       {pickerOpen && !chipLocked ? (
