@@ -12,6 +12,7 @@ import VoiceCaptions from './VoiceCaptions'
 import VoiceConsent from './VoiceConsent'
 import VoiceControls from './VoiceControls'
 import VoiceOrb from './VoiceOrb'
+import { ORB_SIZE_MAX, orbSizeFor } from './orbMath'
 import VoicePicker from './VoicePicker'
 import '../../styles/voice.css'
 
@@ -155,6 +156,21 @@ export default function VoiceMode({
     setStayOpen(false)
     call.restart()
   }
+
+  // The orb is sized to its band, so a short or zoomed window shrinks it
+  // rather than letting it cover the state line, timer and captions.
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [orbSize, setOrbSize] = useState(ORB_SIZE_MAX)
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[entries.length - 1]?.contentRect.height
+      if (h !== undefined) setOrbSize(orbSizeFor(h))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // Focus lands in the view so Esc and M work at once, and comes back to it
   // when the focused control goes away (the consent sheet, a notice's
@@ -343,14 +359,14 @@ export default function VoiceMode({
         </button>
       </div>
 
-      <div className="voice-stage">
+      <div ref={stageRef} className="voice-stage">
         <VoiceOrb
           state={snap.state}
           inputLevel={snap.inputLevel}
           outputLevel={snap.outputLevel}
           muted={snap.muted}
           label={persona.name}
-          size={168}
+          size={orbSize}
           decorative
         />
       </div>

@@ -106,6 +106,20 @@ export const ORB_SCALE_MAX = 1.14
 export const INPUT_SWELL = 0.11
 export const OUTPUT_SWELL = 0.07
 
+/** The orb's diameter in a roomy panel, and the smallest it is drawn at. */
+export const ORB_SIZE_MAX = 168
+export const ORB_SIZE_MIN = 88
+
+/**
+ * The diameter that fits a stage `stageHeight` CSS px tall: the orb at its
+ * fullest swell (ORB_SCALE_MAX) plus 8px either side, so in a short or zoomed
+ * window it shrinks instead of covering the state line and captions.
+ */
+export function orbSizeFor(stageHeight: number): number {
+  const h = Number.isFinite(stageHeight) ? stageHeight : 0
+  return Math.max(ORB_SIZE_MIN, Math.min(ORB_SIZE_MAX, Math.floor((h - 16) / ORB_SCALE_MAX)))
+}
+
 /**
  * The orb's motion, as numbers that cross-fade between states. Each state sets
  * targets (stateTargets); the orb eases its current values toward them every

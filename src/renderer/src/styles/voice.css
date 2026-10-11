@@ -26,6 +26,9 @@
   color: var(--text);
   outline: none;
   overflow: hidden;
+  /* For the short-panel query below; the panel has a fixed height, so the
+     view's size never comes from its contents. */
+  container-type: size;
 }
 :root[data-theme='dark'] .voice-mode {
   --vm-bg: var(--bg);
@@ -81,8 +84,9 @@
 
 /* ── Stage and status ─────────────────────────────────────────────────── */
 
-/* The orb's layout box is 168px; its halo spills ~0.8× past it and takes no
-   space, so the stage leaves that room and nothing here clips it. */
+/* The orb's layout box is up to 168px, sized to this band by VoiceMode
+   (orbSizeFor); its halo spills past it and takes no space, so nothing here
+   clips it. */
 .voice-stage {
   flex: 1;
   min-height: 0;
@@ -319,6 +323,15 @@
   cursor: pointer;
 }
 .voice-link:hover { text-decoration: underline; }
+
+/* A short panel (small window, or zoomed): captions drop to two lines and the
+   notice tightens before the orb shrinks much below 120px. Kept after the
+   base rules so these win. */
+@container (max-height: 470px) {
+  .voice-bottom { height: 174px; }
+  .voice-captions { height: 42px; }
+  .voice-notice { gap: 10px; padding-top: 4px; }
+}
 
 /* ── First use: the consent sheet ─────────────────────────────────────── */
 
