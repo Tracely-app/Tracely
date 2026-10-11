@@ -141,6 +141,96 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   model, or to the caller's own plan — instead of ever 503ing. A pool that
   can reach expensive models must never share a day with free users.
 
+## Voice (Tracer Voice, 2026-10-10)
+
+- **What**: the desktop talks to Tracer out loud on OpenAI `gpt-live-1`.
+  `POST /api/voice/session {sdp, voiceId, context?}` trades the renderer's
+  WebRTC offer for OpenAI's answer (`POST /v1/live/sessions`, our key, the
+  `OpenAI-Safety-Identifier` header = sha256 of the caller id); media then
+  flows renderer ⇄ OpenAI directly. `POST /api/voice/end {sessionId}` →
+  `{seconds}`, idempotent (unknown or someone else's id → 0).
+  `POST /api/voice/eligibility` (body ignored) runs the start's checks in
+  the start's order — switch, plan, busy, day, month — with no key, no
+  OpenAI call and no hold: `{allowed:true, maxSeconds, remainingSeconds,
+  remainingMonthSeconds, resetAt}` or `{allowed:false, reason:
+  plan|daily-limit|monthly-limit|off|busy, message, resetAt?}`; the desktop
+  asks it before the consent sheet and the mic prompt. Start and
+  eligibility are in `APP_AI_ROUTES` (appGate, the app pool); end is NOT —
+  hanging up spends nothing, so no budget or rate limit may refuse it. None
+  is in `EXTENSION_API`.
+- **Where**: `lib/voices.js` is who each persona is (VOICE_BASE_PROMPT + seven
+  personas on gpt-live-1 voices, SHA-pinned and id-mirrored to
+  `src/shared/voices.ts` by `test/voices.test.js`); `lib/voice.js` is the
+  rest: the session body, the sideband meter, the caps, the charge.
+- **The draft is untrusted**: `instructions` is VOICE_BASE_PROMPT + persona
+  only. The student's draft goes in `session.input` (startup history) as one
+  user message inside `<student_draft>` tags it can't open or close
+  (`draftInput`), and the base prompt says it is reference text, never
+  instructions. Don't move it back into `instructions` (OpenAI: keep trusted
+  instructions separate from user content).
+- **Cost policy**: Pro only when enforced, on the BILLING plan (`ent.plan`,
+  not `effectivePlan`: 429 `plan_limit` "Voice is part of Pro."), open on a
+  local server; one live call per caller (409
+  `voice_busy`); `TRACELY_VOICE_MAX_SECONDS` (900) per call, sent as
+  `session.close` by the sideband at the cap; `TRACELY_VOICE_DAILY_SECONDS`
+  (1800) per account per day and `TRACELY_VOICE_MONTHLY_SECONDS` (7200, a
+  placeholder price) per UTC month, kind `voice_seconds` on a day row and a
+  `YYYY-MM` row (429 `voice_daily` / `voice_monthly`, each with `resetAt`;
+  the session answer carries `remainingMonthSeconds`, null when uncapped,
+  and `resetAt`, the next usage-day boundary); an explicit 0 in the per-call
+  or daily variable is 503 `voice_off`, in the monthly one no monthly cap. The app pool RESERVES the call's
+  worst case at start — on the session, not on `gate`, whose `finally` runs
+  when the request ends — and the real seconds (at least the 15 s set-up)
+  are charged once on `session.closed`, a lost sideband or `end`: app pool
+  (integer micro-cents) and `voice_seconds`. NEVER `account_ucents`: 30 min a
+  day is $1.50, so voice in fair use would trip Pro's $8 month in ~5 days and
+  run a paying account at Free on every feature. The price is
+  `VOICE_PRICE_PER_MIN_USD` in lib/voice.js, deliberately NOT in
+  `shared/prices.js` or `MODEL_TIERS` (`models.test.js` pins those).
+- **No meter, no call**: if the sideband can't attach in 5 s the route answers
+  502 and never hands out the SDP. OpenAI sends `session.usage.updated` only
+  around the close (measured live), so the meter is NOT a live reading: the
+  wall-clock guard (cap + 5 s) is what closes a call, only `session.closed`
+  carries the real seconds, and any end it didn't confirm bills the wall
+  clock since create (or the cap, if `session.close` could never be
+  delivered). `/end` never charges by itself: a late `session.closed` is
+  still read. A dropped sideband (the only way to close a live session)
+  re-attaches at once, then backing off 1, 2, 4… 30 s, until cap + 5 s +
+  the 10 s close wait; the caller's slot stays claimed meanwhile and a close
+  asked for in the gap goes out on the new socket. A backstop timer
+  finalizes any session one close wait past that, whatever went quiet.
+- **When OpenAI's side fails**: 3 start-time sideband attach failures in
+  60 s open a breaker — 502 `upstream` (reason `breaker_open`) for 120 s
+  with no OpenAI call — and 5 failed set-ups per caller in 10 min are 429
+  `rate_limit` (`keyedRateLimiter`). A live call's re-attach loop never
+  counts. In memory.
+- **Idle close**: every transcript delta either way stamps
+  `s.lastTranscriptAt` (output deltas: the time only); with neither for
+  `TRACELY_VOICE_IDLE_SECONDS` (180; 0 = off) the sideband sends
+  `session.close`.
+- **Safety**: the sideband reads `session.input_transcript.delta` into a
+  500-character window on the session (memory only; never logged or
+  stored) and checks it against `SAFETY_RULES` (distress/abuse, sexual);
+  a hit sends that rule's conditional `session.instructions.append` once per
+  call (trusted adult, 988 in the US). The model's own words aren't checked.
+- **Restarts**: SIGTERM/SIGINT (server.js) closes and charges every open call
+  (`shutdownVoice`, ≤ 2 s); each handed-out call has a `voice_open` row
+  (db.js migration v4) until charged, and boot re-attaches to leftovers
+  (`resumeOpenSessions`) — "crash the server to reset the meter" is not a
+  way out (`DEPLOY.md`).
+- **Client-mode delegation** (no `delegation` key at all; OpenAI 400s
+  `delegation: null`): when the model hands off a lookup
+  (`session.delegation.created`, ~1 call in 3), the sideband answers at once
+  with `session.commentary.append` + DELEGATION_REPLY.
+  `session.thinking.append` is background context only and left the model
+  silent until the cap (measured live 2026-10-10).
+- **Testing**: `test/voice.test.js` (in process, fake fetch/WebSocket) and
+  `test/voice-routes.test.js` (a real server.js; `test/helpers/voice-harness.js`
+  preloads stubs for the create call and the sideband, scripted per call by an
+  `a=x-test:<mode>` line in the SDP). Never call OpenAI from a test.
+  `TRACELY_MOCK=1` answers `{mock:true, sessionId:"mock_<n>", …}` with no
+  network.
+
 ## Accounts and billing
 
 - One Supabase project, `sxifbtelrtbsgnnwnmdf`, for every surface. Stripe

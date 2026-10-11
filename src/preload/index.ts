@@ -98,6 +98,14 @@ import type {
   TracerNewConversationResponse,
   TracerSendRequest,
   TracerSendResponse,
+  VoiceEligibilityResponse,
+  VoiceEndRequest,
+  VoiceEndResponse,
+  VoiceEnsureMicResponse,
+  VoiceSaveTranscriptRequest,
+  VoiceSaveTranscriptResponse,
+  VoiceStartRequest,
+  VoiceStartResponse,
   StructureGetResponse,
   ShellOpenExternalRequest,
   ShellOpenExternalResponse,
@@ -112,6 +120,22 @@ import type {
   WindowTargetResponse
 } from '@shared/ipc-contract'
 import type { AppSettings, AuthUser } from '@shared/types'
+
+/** window.tracely.voice. onHangUp is desktop-only, so optional for the other bridges. */
+interface VoiceBridge {
+  /**
+   * Whether this bridge can hold a call at all: true here, false in the web
+   * bridge (renderer/bridge/httpApi.ts), whose Talk buttons are disabled.
+   */
+  readonly available: boolean
+  /** May this account start a call now? Rejects (tagged) only when the server couldn't be asked. */
+  eligibility(): Promise<VoiceEligibilityResponse>
+  ensureMic(): Promise<VoiceEnsureMicResponse>
+  start(req: VoiceStartRequest): Promise<VoiceStartResponse>
+  end(req: VoiceEndRequest): Promise<VoiceEndResponse>
+  saveTranscript(req: VoiceSaveTranscriptRequest): Promise<VoiceSaveTranscriptResponse>
+  onHangUp?(callback: () => void): () => void
+}
 
 const api = {
   analyze: {
@@ -193,6 +217,33 @@ const api = {
     newConversation: (): Promise<TracerNewConversationResponse> =>
       ipcRenderer.invoke(IPC.TRACER_NEW_CONVERSATION, {})
   },
+  // Tracer Voice. The call's audio is WebRTC from the renderer to OpenAI; these
+  // are main's four parts of it. start and end reject with a tagged message
+  // ('[voice:<kind>] …') — read it with parseVoiceIpcError, or go through
+  // tracelyApi.voice, which does.
+  voice: {
+    available: true,
+    /** Plan, voice switched on, a free line, minutes left. Free: no OpenAI call. */
+    eligibility: (): Promise<VoiceEligibilityResponse> => ipcRenderer.invoke(IPC.VOICE_ELIGIBILITY, {}),
+    /** The OS mic permission; prompts once on macOS when it was never asked. */
+    ensureMic: (): Promise<VoiceEnsureMicResponse> => ipcRenderer.invoke(IPC.VOICE_ENSURE_MIC, {}),
+    /** Offer SDP in, answer SDP out (absent when `mock`). Paid while the call is open. */
+    start: (req: VoiceStartRequest): Promise<VoiceStartResponse> => ipcRenderer.invoke(IPC.VOICE_START, req),
+    end: (req: VoiceEndRequest): Promise<VoiceEndResponse> => ipcRenderer.invoke(IPC.VOICE_END, req),
+    saveTranscript: (req: VoiceSaveTranscriptRequest): Promise<VoiceSaveTranscriptResponse> =>
+      ipcRenderer.invoke(IPC.VOICE_SAVE_TRANSCRIPT, req),
+    /**
+     * Main asks for the call to end: the window was closed (it hides to the
+     * tray, so no pagehide fires). Returns the unsubscribe. Optional in the
+     * type because only the desktop has a window to close — the web bridge
+     * and the preview harness leave it out.
+     */
+    onHangUp: (callback: () => void): (() => void) => {
+      const listener = (): void => callback()
+      ipcRenderer.on(IPC_EVENTS.VOICE_HANG_UP, listener)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.VOICE_HANG_UP, listener)
+    }
+  } as VoiceBridge,
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET, {}),
     set: (req: SettingsSetRequest): Promise<SettingsSetResponse> =>

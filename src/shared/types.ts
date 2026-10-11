@@ -1,4 +1,5 @@
 import type { ModelTier } from './plan'
+import type { VoiceId } from './voices'
 
 export type ClaimType = 'statistic' | 'causal' | 'factual' | 'prediction' | 'opinion'
 
@@ -310,6 +311,22 @@ export interface AppSettings {
    * or Settings will name a model the app is not using.
    */
   modelTier: ModelTier
+  /**
+   * Tracer Voice's persona — an id from shared/voices.ts. Read through
+   * voiceById, so a stored id this build does not know reads as the default
+   * (linden) rather than reaching a picker that has no card for it.
+   */
+  voiceId: VoiceId
+  /** Live captions under the orb during a voice call. On by default. */
+  voiceCaptions: boolean
+  /** Add a finished call's transcript to the Tracer chat. On by default. */
+  voiceSaveTranscript: boolean
+  /**
+   * The user has accepted the first-use disclosure (microphone audio and the
+   * current draft go to OpenAI while a call is open). False until they do; no
+   * call starts before it is true.
+   */
+  voiceConsent: boolean
 }
 
 // The document editor's saved work. Rich text rather than plain: the editor is

@@ -69,7 +69,14 @@ export const settings: AppSettings = {
   autoCritiqueCited: true,
   // The stored request, not what runs: the harness's default scenario is a free
   // account, so Preferences resolves this to Fast with the other two locked.
-  modelTier: 'thorough'
+  modelTier: 'thorough',
+  // Tracer Voice, at the real defaults — consent false, so the harness shows
+  // the first-use disclosure sheet before any call, and transcripts off until
+  // the student ticks the sheet's box.
+  voiceId: 'linden',
+  voiceCaptions: true,
+  voiceSaveTranscript: false,
+  voiceConsent: false
 }
 
 export const sources: Source[] = [

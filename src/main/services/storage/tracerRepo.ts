@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { TracerConversation, TracerMessage, TracerRole } from '@shared/types'
-import { queryAll, queryOne, run } from './db'
+import { queryAll, queryOne, run, transaction } from './db'
+import { transcriptTimestamps, type TranscriptMessage } from '../voice/transcript'
 
 // The one place in Screen Watch that persists anything. Everything else
 // there is deliberately ephemeral (see screenWatchService.ts) so passive
@@ -113,6 +114,63 @@ export function addMessage(conversationId: string, role: TracerRole, content: st
   }
 
   return message
+}
+
+/**
+ * A finished voice call's transcript, appended to a conversation in one write.
+ *
+ * Not addMessage in a loop, for two reasons. Order: addMessage stamps each row
+ * with `new Date()`, and rows written in one burst share a millisecond, which
+ * leaves their order — this table is read ORDER BY created_at — to SQLite. And
+ * cost: every run() re-serializes the whole database to disk, so a call's
+ * forty turns would be forty full writes; transaction() makes it one.
+ *
+ * Lands in `conversationId` when it still exists, else the latest
+ * conversation (the one the panel resumes into). Takes the first user turn as
+ * the title while the conversation is untitled, exactly like addMessage.
+ */
+export function appendVoiceTranscript(
+  conversationId: string | undefined,
+  messages: TranscriptMessage[]
+): TracerMessage[] {
+  if (messages.length === 0) return []
+  const conversation = (conversationId ? getConversation(conversationId) : null) ?? getOrCreateLatestConversation()
+  const newest = queryOne<{ created_at: string }>(
+    'SELECT created_at FROM tracer_messages WHERE conversation_id = $id ORDER BY created_at DESC LIMIT 1',
+    { $id: conversation.id }
+  )
+  const stamps = transcriptTimestamps(newest?.created_at ?? null, Date.now(), messages.length)
+  const written = messages.map(
+    (m, i): TracerMessage => ({
+      id: randomUUID(),
+      conversationId: conversation.id,
+      role: m.role,
+      content: m.content,
+      createdAt: stamps[i]
+    })
+  )
+  const firstUser = written.find((m) => m.role === 'user')
+  const title =
+    conversation.title === UNTITLED && firstUser
+      ? firstUser.content.length > MAX_TITLE_CHARS
+        ? `${firstUser.content.slice(0, MAX_TITLE_CHARS).trimEnd()}…`
+        : firstUser.content
+      : conversation.title
+
+  transaction(() => {
+    for (const m of written) {
+      run(
+        'INSERT INTO tracer_messages (id, conversation_id, role, content, created_at) VALUES ($id, $conv, $role, $content, $created)',
+        { $id: m.id, $conv: m.conversationId, $role: m.role, $content: m.content, $created: m.createdAt }
+      )
+    }
+    run('UPDATE tracer_conversations SET title = $title, updated_at = $updated WHERE id = $id', {
+      $title: title,
+      $updated: written[written.length - 1].createdAt,
+      $id: conversation.id
+    })
+  })
+  return written
 }
 
 /**

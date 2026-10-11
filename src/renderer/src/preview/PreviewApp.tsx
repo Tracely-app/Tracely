@@ -174,6 +174,17 @@ export default function PreviewApp(): JSX.Element {
               <option value="none">Never analyzed</option>
             </select>
           </Field>
+          <Field label="Voice">
+            <select value={scenario.voice} onChange={(e) => update('voice', e.target.value as Scenario['voice'])}>
+              <option value="allowed">Allowed</option>
+              <option value="plan">Refused: not Pro</option>
+              <option value="daily-limit">Refused: today's minutes used</option>
+              <option value="monthly-limit">Refused: this month's minutes used</option>
+              <option value="busy">Refused: another call open</option>
+              <option value="off">Refused: voice off</option>
+              <option value="unavailable">Web bridge (no voice)</option>
+            </select>
+          </Field>
           <Field label="Latency">
             <select value={scenario.latencyMs} onChange={(e) => update('latencyMs', Number(e.target.value))}>
               <option value={0}>None</option>

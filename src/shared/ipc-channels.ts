@@ -94,7 +94,20 @@ export const IPC = {
   AUTH_GET_THOROUGH: 'auth:getThorough',
   SOURCES_FAVICONS: 'sources:favicons',
   // Receipts for the list a surface is showing — shared/sourceReceipts.ts.
-  SOURCES_VERIFY: 'sources:verify'
+  SOURCES_VERIFY: 'sources:verify',
+  // Tracer Voice (main/ipc/voiceHandlers.ts). The call itself is WebRTC from
+  // the renderer straight to OpenAI; these four are the parts main owns: the
+  // OS microphone permission, the server round trip that trades the offer SDP
+  // for an answer (the key never leaves the server), hanging up, and adding
+  // the transcript to the Tracer chat.
+  VOICE_ENSURE_MIC: 'voice:ensure-mic',
+  VOICE_START: 'voice:start',
+  VOICE_END: 'voice:end',
+  VOICE_SAVE_TRANSCRIPT: 'voice:save-transcript',
+  // Whether this account may start a call right now (plan, voice switched on,
+  // a free line, minutes left today and this month). Asked before the consent
+  // sheet and the microphone prompt; costs nothing (no OpenAI call).
+  VOICE_ELIGIBILITY: 'voice:eligibility'
 } as const
 
 export const IPC_EVENTS = {
@@ -105,7 +118,11 @@ export const IPC_EVENTS = {
   TRACER_CONTEXT_CHANGED: 'tracer:contextChanged',
   TRACER_OPENED: 'tracer:opened',
   AUTH_STATE_CHANGED: 'auth:stateChanged',
-  AUTH_OAUTH_ERROR: 'auth:oauthError'
+  AUTH_OAUTH_ERROR: 'auth:oauthError',
+  // Main tells the renderer to hang up a voice call: the main window's close
+  // button only hides it to the tray, the renderer stays alive, and no
+  // pagehide fires (main/windows/mainWindow.ts).
+  VOICE_HANG_UP: 'voice:hangUp'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

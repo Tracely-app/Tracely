@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS billing_pending (
 CREATE INDEX IF NOT EXISTS billing_pending_email ON billing_pending (email);
 `);
   },
+  // v4 — Tracer Voice calls in progress (lib/voice.js). One row per open
+  // call, written when the call is handed out and deleted when it is
+  // charged, so a crash can't un-meter a call: the next boot re-attaches to
+  // each leftover session, or charges it. No audio, no text, no IP.
+  () => {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS voice_open (
+  session_id TEXT PRIMARY KEY, caller_key TEXT NOT NULL, caller_id TEXT,
+  created_at INTEGER NOT NULL, max_seconds INTEGER NOT NULL, enforced INTEGER NOT NULL
+);
+`);
+  },
 ];
 
 export function migrate() {
@@ -292,6 +304,18 @@ export function accountPurge({ userId, email }) {
     throw e;
   }
   return out;
+}
+
+/* Tracer Voice's open calls (migration v4). */
+export function voiceOpenPut({ sessionId, callerKey, callerId, createdAt, maxSeconds, enforced }) {
+  db.prepare("INSERT OR REPLACE INTO voice_open (session_id, caller_key, caller_id, created_at, max_seconds, enforced) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(sessionId, callerKey, callerId ?? null, createdAt, maxSeconds, enforced ? 1 : 0);
+}
+export function voiceOpenDelete(sessionId) {
+  db.prepare("DELETE FROM voice_open WHERE session_id = ?").run(sessionId);
+}
+export function voiceOpenAll() {
+  return db.prepare("SELECT session_id, caller_key, caller_id, created_at, max_seconds, enforced FROM voice_open ORDER BY created_at").all();
 }
 
 /* Retention: usage counters older than the cutoff day ("YYYY-MM-DD") go.

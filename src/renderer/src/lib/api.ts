@@ -1,5 +1,25 @@
-import type { ResizeHandle } from '@shared/ipc-contract'
+import type { ResizeHandle, VoiceIpcErrorKind, VoiceStartRequest, VoiceTranscriptTurn } from '@shared/ipc-contract'
+import { parseVoiceIpcError } from '@shared/ipc-contract'
 export class TracelyApiError extends Error {}
+
+/**
+ * A voice.start / voice.end failure with the kind the voice UI switches on
+ * (plan, daily-limit, monthly-limit, busy, network, server) and a message
+ * without the tag.
+ * Still a TracelyApiError, so code that only shows `message` keeps working.
+ */
+export class VoiceApiError extends TracelyApiError {
+  readonly kind: VoiceIpcErrorKind
+  /** The limits: when the minutes come back (ISO-8601), when the server said. */
+  readonly resetAt?: string
+
+  constructor(kind: VoiceIpcErrorKind, message: string, resetAt?: string) {
+    super(message)
+    this.name = 'VoiceApiError'
+    this.kind = kind
+    if (resetAt) this.resetAt = resetAt
+  }
+}
 
 async function call<T>(promise: Promise<T>): Promise<T> {
   try {
@@ -7,6 +27,16 @@ async function call<T>(promise: Promise<T>): Promise<T> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new TracelyApiError(message.replace(/^Error invoking remote method '[^']*':\s*/, ''))
+  }
+}
+
+/** call(), plus reading main's `[voice:<kind>]` tag back into a VoiceApiError. */
+async function callVoice<T>(promise: Promise<T>): Promise<T> {
+  try {
+    return await promise
+  } catch (error) {
+    const { kind, message, resetAt } = parseVoiceIpcError(error instanceof Error ? error.message : String(error))
+    throw new VoiceApiError(kind, message, resetAt)
   }
 }
 
@@ -47,6 +77,24 @@ export const tracelyApi = {
   sendToTracer: (conversationId: string, message: string) =>
     call(window.tracely.tracer.send({ conversationId, message })),
   newTracerConversation: () => call(window.tracely.tracer.newConversation()),
+
+  /** Tracer Voice — main's half of a call; the audio is the renderer's WebRTC peer. */
+  voice: {
+    /**
+     * May this account start a call now — asked before the consent sheet and
+     * the mic prompt. A refusal resolves (`allowed: false`); it rejects with a
+     * VoiceApiError only when the server couldn't be asked.
+     */
+    eligibility: () => callVoice(window.tracely.voice.eligibility()),
+    /** OS mic permission; prompts once on macOS. Never rejects for a refusal — read `status`. */
+    ensureMic: () => call(window.tracely.voice.ensureMic()),
+    /** Rejects with a VoiceApiError carrying `kind`. */
+    start: (req: VoiceStartRequest) => callVoice(window.tracely.voice.start(req)),
+    /** Rejects with a VoiceApiError; the server closes the call at its cap regardless. */
+    end: (sessionId: string) => callVoice(window.tracely.voice.end({ sessionId })),
+    saveTranscript: (turns: VoiceTranscriptTurn[], conversationId?: string) =>
+      call(window.tracely.voice.saveTranscript(conversationId ? { turns, conversationId } : { turns }))
+  },
 
   analyzeStructure: (input: Parameters<typeof window.tracely.structure.analyze>[0]) =>
     call(window.tracely.structure.analyze(input)),
