@@ -11,7 +11,12 @@
  * Engineering rules this file keeps:
  * - Nothing is allocated per frame. Gradients are built once per theme in a
  *   unit coordinate space and placed with setTransform; the outline is traced
- *   from preallocated tables; the per-state targets are written in place.
+ *   from preallocated tables; the per-state targets are written in place;
+ *   style values come from preformatted string tables.
+ * - Few pixels per frame. The inside of the sphere (all soft gradients) is
+ *   painted into a small buffer and drawn in through a full-resolution clip;
+ *   the halo and the dimming are compositor work (a CSS layer's transform and
+ *   opacity, the canvas's opacity), not canvas pixels.
  * - The loop runs only when it has something to show: it stops while the page
  *   is hidden or the orb is scrolled off-screen, and it sleeps once a still
  *   state (idle, ended, error, anything under reduced motion) has settled,
@@ -24,20 +29,40 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, us
 import type { VoiceState } from '../../voice/types'
 import {
   CROSSFADE_TAU, approachParams, blobBrightness, breath, clamp01, createFrameStats, createOrbParams, haloStrength,
-  levelCurve, orbPalette, orbScale, paramsSettled, recordFrame, resetFrameStats, springSettled, springStep,
+  ORB_SCALE_MAX, ORB_SCALE_MIN, levelCurve, orbPalette, orbScale, paramsSettled, recordFrame, resetFrameStats, springSettled, springStep,
   stateLabel, stateTargets, toRgba, type FrameStats, type OrbPalette, type Rgb, type Spring,
 } from './orbMath'
 import '../../styles/voice-orb.css'
 
-/** The canvas is this many times the orb's size, so the halo and swell fit. */
-const PAD = 2
-/** The halo fades out at this multiple of the sphere's radius. */
-const HALO_EXTENT = 1.75
+/** Room around the largest swell for the muted and level rings, in CSS pixels. */
+const RING_MARGIN = 16
+/** The canvas's side in CSS pixels: the sphere at its largest swell plus the rings. */
+const canvasCss = (size: number): number => Math.ceil(size * ORB_SCALE_MAX + RING_MARGIN * 2)
+/**
+ * The inside of the sphere is all soft gradients, so it is drawn into a buffer
+ * at 40% of the device resolution and scaled up on the way in; the outline
+ * stays crisp because the clip is traced at full resolution.
+ * It cuts the pixels the frame touches several times over, which matters where
+ * the canvas falls back to software rasterisation.
+ */
+const BUFFER_RES = 0.4
+/**
+ * The dim cross-fade (the canvas's opacity) and the halo (a CSS layer the
+ * compositor scales and fades) are set from preformatted strings, quantised
+ * finely enough not to show, so a frame allocates nothing.
+ */
+const OPACITY_STEPS: readonly string[] = Array.from({ length: 101 }, (_, i) => String(i / 100))
+const SCALE_STEP = 0.002
+const SCALE_STEPS: readonly string[] = Array.from({ length: Math.round((ORB_SCALE_MAX - ORB_SCALE_MIN) / SCALE_STEP) + 1 },
+  (_, i) => `scale(${(ORB_SCALE_MIN + i * SCALE_STEP).toFixed(3)})`)
 const BREATH_PERIOD_SEC = 4
 /** Spring speeds for the two levels; the voice is a little quicker, to catch syllables. */
 const INPUT_OMEGA = 16
 const OUTPUT_OMEGA = 22
 const TAU = Math.PI * 2
+
+/** The inner buffer covers the sphere out to this multiple of its radius. */
+const INNER_EXTENT = 1.1
 
 /** Points on the outline that ripples while the voice speaks. */
 const OUTLINE_POINTS = 48
@@ -72,12 +97,12 @@ interface BlobSpec {
 }
 
 const BLOBS: readonly BlobSpec[] = [
-  { color: 'deep', light: false, orbit: 0.46, speed: 0.42, phase: 0.0, size: 0.8, stretch: 1.4, alpha: 0.62, pulse: 0.31 },
-  { color: 'warm', light: false, orbit: 0.38, speed: -0.33, phase: 2.1, size: 0.66, stretch: 1.55, alpha: 0.55, pulse: 0.27 },
-  { color: 'mid', light: false, orbit: 0.24, speed: 0.51, phase: 4.0, size: 0.6, stretch: 1.25, alpha: 0.5, pulse: 0.37 },
-  { color: 'cool', light: true, orbit: 0.34, speed: -0.47, phase: 1.0, size: 0.52, stretch: 1.7, alpha: 0.5, pulse: 0.43 },
-  { color: 'cloud', light: true, orbit: 0.3, speed: 0.36, phase: 3.2, size: 0.46, stretch: 1.9, alpha: 0.5, pulse: 0.23 },
-  { color: 'core', light: true, orbit: 0.16, speed: -0.58, phase: 5.1, size: 0.4, stretch: 1.3, alpha: 0.4, pulse: 0.51 },
+  { color: 'cool', light: false, orbit: 0.42, speed: 0.4, phase: 0.0, size: 0.86, stretch: 1.3, alpha: 0.42, pulse: 0.31 },
+  { color: 'warm', light: false, orbit: 0.44, speed: -0.31, phase: 2.4, size: 0.8, stretch: 1.45, alpha: 0.4, pulse: 0.27 },
+  { color: 'mid', light: false, orbit: 0.2, speed: 0.5, phase: 4.2, size: 0.7, stretch: 1.2, alpha: 0.3, pulse: 0.37 },
+  { color: 'cloud', light: true, orbit: 0.34, speed: -0.44, phase: 1.1, size: 0.72, stretch: 1.75, alpha: 0.4, pulse: 0.43 },
+  { color: 'cloud', light: true, orbit: 0.3, speed: 0.35, phase: 3.6, size: 0.58, stretch: 1.95, alpha: 0.32, pulse: 0.23 },
+  { color: 'core', light: true, orbit: 0.14, speed: -0.56, phase: 5.1, size: 0.52, stretch: 1.2, alpha: 0.3, pulse: 0.51 },
 ]
 
 export interface VoiceOrbProps {
@@ -105,6 +130,12 @@ export interface VoiceOrbHandle {
 class OrbRenderer {
   readonly stats = createFrameStats()
   private ctx: CanvasRenderingContext2D | null
+  /** the inside of the sphere, redrawn each frame at BUFFER_RES (see there) */
+  private readonly inner: HTMLCanvasElement
+  private readonly ictx: CanvasRenderingContext2D | null
+  private opacityStep = -1
+  private haloOpacityStep = -1
+  private haloScaleStep = -1
   private size = 168
   private dpr = 1
   private side = 0
@@ -127,11 +158,9 @@ class OrbRenderer {
   private themeDirty = true
   private palette: OrbPalette | null = null
   private gBase: CanvasGradient | null = null
-  private gHalo: CanvasGradient | null = null
   private gRim: CanvasGradient | null = null
   private gSpec: CanvasGradient | null = null
   private gBounce: CanvasGradient | null = null
-  private gShimmer: CanvasGradient | null = null
   private readonly gBlobs: (CanvasGradient | null)[] = BLOBS.map(() => null)
   private ringStroke = 'rgba(0, 0, 0, 0.6)'
   private levelStroke = 'rgba(249, 115, 22, 1)'
@@ -141,8 +170,11 @@ class OrbRenderer {
   private readonly schemeQuery: MediaQueryList | null
   private dprQuery: MediaQueryList | null = null
 
-  constructor(private readonly root: HTMLElement, private readonly canvas: HTMLCanvasElement) {
+  constructor(private readonly root: HTMLElement, private readonly canvas: HTMLCanvasElement,
+    private readonly halo: HTMLElement) {
     this.ctx = canvas.getContext('2d')
+    this.inner = document.createElement('canvas')
+    this.ictx = this.inner.getContext('2d')
     this.tick = this.tick.bind(this)
     this.onVisibility = this.onVisibility.bind(this)
     this.onThemeChange = this.onThemeChange.bind(this)
@@ -173,9 +205,11 @@ class OrbRenderer {
   }
 
   setLevels(input: number, output: number): void {
+    // Jitter under the noise floor curves to the same target: no reason to wake a sleeping orb.
+    const changed = levelCurve(input) !== levelCurve(this.inLevel) || levelCurve(output) !== levelCurve(this.outLevel)
     this.inLevel = input
     this.outLevel = output
-    this.wake()
+    if (changed) this.wake()
   }
 
   setReduced(reduced: boolean): void {
@@ -203,11 +237,13 @@ class OrbRenderer {
     this.dprQuery?.removeEventListener('change', this.onDprChange)
     document.removeEventListener('visibilitychange', this.onVisibility)
     this.ctx = null
+    // Let the buffer's backing store go now rather than at garbage collection.
+    this.inner.width = this.inner.height = 0
   }
 
   private resize(): void {
     const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1))
-    const css = Math.ceil(this.size * PAD)
+    const css = canvasCss(this.size)
     const side = Math.round(css * dpr)
     if (this.canvas.width !== side || this.canvas.height !== side) {
       this.canvas.width = side
@@ -215,6 +251,10 @@ class OrbRenderer {
     }
     this.side = side
     this.dpr = side / css
+    // The buffer holds the sphere at its largest swell, out to INNER_EXTENT, at BUFFER_RES.
+    const unit = this.size * 0.5 * this.dpr * ORB_SCALE_MAX * BUFFER_RES
+    const innerSide = Math.max(8, Math.ceil(unit * INNER_EXTENT * 2))
+    if (this.inner.width !== innerSide) this.inner.width = this.inner.height = innerSide
     // A window dragged to a screen with another pixel ratio changes dpr; listen for the next change.
     this.dprQuery?.removeEventListener('change', this.onDprChange)
     this.dprQuery = window.matchMedia?.(`(resolution: ${dpr}dppx)`) ?? null
@@ -289,8 +329,9 @@ class OrbRenderer {
   /** Re-read the accent tokens and rebuild every gradient (theme changes only, never per frame). */
   private readTheme(): void {
     this.themeDirty = false
-    const ctx = this.ctx
-    if (!ctx) return
+    // Every gradient is painted into the inner buffer, so it is built on that context.
+    const ctx = this.ictx
+    if (!this.ctx || !ctx) return
     const cs = getComputedStyle(this.root)
     const pal = orbPalette({
       accent: cs.getPropertyValue('--accent'),
@@ -306,38 +347,30 @@ class OrbRenderer {
     // Lit from the upper left: pale core → body → shadowed edge.
     const base = ctx.createRadialGradient(-0.34, -0.4, 0.02, 0, 0, 1.04)
     base.addColorStop(0, toRgba(pal.core, 1))
-    base.addColorStop(0.42, toRgba(pal.mid, 1))
+    base.addColorStop(0.38, toRgba(pal.mid, 1))
+    base.addColorStop(0.74, toRgba(pal.halo, 1))
     base.addColorStop(1, toRgba(pal.deep, 1))
     this.gBase = base
-
-    const halo = ctx.createRadialGradient(0, 0, 0.86, 0, 0, HALO_EXTENT)
-    halo.addColorStop(0, toRgba(pal.halo, 0.9))
-    halo.addColorStop(0.16, toRgba(pal.halo, 0.5))
-    halo.addColorStop(0.42, toRgba(pal.halo, 0.17))
-    halo.addColorStop(0.72, toRgba(pal.halo, 0.05))
-    halo.addColorStop(1, toRgba(pal.halo, 0))
-    this.gHalo = halo
 
     for (let i = 0; i < BLOBS.length; i++) this.gBlobs[i] = softDisc(ctx, blobColor(pal, BLOBS[i].color))
 
     // The edge of a sphere turns away from the light: a darker band gives it volume.
     const rim = ctx.createRadialGradient(0, 0, 0.5, 0, 0, 1)
-    const rimMax = pal.dark ? 0.68 : 0.5
+    const rimMax = pal.dark ? 0.55 : 0.4
     rim.addColorStop(0, toRgba(pal.deep, 0))
-    rim.addColorStop(0.6, toRgba(pal.deep, rimMax * 0.18))
-    rim.addColorStop(0.88, toRgba(pal.deep, rimMax * 0.6))
+    rim.addColorStop(0.7, toRgba(pal.deep, rimMax * 0.12))
+    rim.addColorStop(0.9, toRgba(pal.deep, rimMax * 0.5))
     rim.addColorStop(1, toRgba(pal.deep, rimMax))
     this.gRim = rim
 
     this.gSpec = softDisc(ctx, { r: 255, g: 255, b: 255, a: 1 })
     this.gBounce = softDisc(ctx, pal.cloud)
-    this.gShimmer = shimmerGradient(ctx, pal.cloud)
   }
 
   private draw(): void {
     const ctx = this.ctx
     const pal = this.palette
-    if (!ctx || !pal || !this.gBase || !this.gHalo || !this.gRim || !this.gSpec) return
+    if (!ctx || !pal || !this.gBase || !this.gRim || !this.gSpec) return
     const p = this.cur
     const D = this.side
     const c = D / 2
@@ -347,36 +380,47 @@ class OrbRenderer {
     const scale = reduced ? 1 - 0.04 * p.dim : orbScale(p, inL, outL, breath(this.realT, BREATH_PERIOD_SEC))
     const R = this.size * 0.5 * this.dpr * scale
 
+    const ictx = this.ictx
+    if (!ictx) return
+    // The inside of the sphere, at BUFFER_RES, in unit space: the swell is applied when it is drawn in below.
+    const iw = this.inner.width
+    ictx.setTransform(1, 0, 0, 1, 0, 0)
+    ictx.globalCompositeOperation = 'source-over'
+    ictx.globalAlpha = 1
+    ictx.clearRect(0, 0, iw, iw)
+    this.drawInside(ictx, pal, iw / 2, iw / (2 * INNER_EXTENT), inL, outL)
+
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.globalCompositeOperation = 'source-over'
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, D, D)
 
+    // The halo is a CSS layer: hand the compositor its scale and opacity (only when a step changes).
     const halo = reduced ? haloStrength(p, 0, 0) : haloStrength(p, inL, outL)
-    if (halo > 0.004) {
-      ctx.globalAlpha = halo * (pal.dark ? 0.62 : 0.42)
-      ctx.setTransform(R, 0, 0, R, c, c)
-      ctx.fillStyle = this.gHalo
-      ctx.fillRect(-HALO_EXTENT, -HALO_EXTENT, HALO_EXTENT * 2, HALO_EXTENT * 2)
-      ctx.globalAlpha = 1
+    const haloOpacity = Math.round(clamp01(halo * (pal.dark ? 0.8 : 0.45)) * 100)
+    if (haloOpacity !== this.haloOpacityStep) {
+      this.haloOpacityStep = haloOpacity
+      this.halo.style.opacity = OPACITY_STEPS[haloOpacity]
+    }
+    const haloScale = Math.round((Math.min(ORB_SCALE_MAX, Math.max(ORB_SCALE_MIN, scale)) - ORB_SCALE_MIN) / SCALE_STEP)
+    if (haloScale !== this.haloScaleStep) {
+      this.haloScaleStep = haloScale
+      this.halo.style.transform = SCALE_STEPS[haloScale]
     }
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    const morph = reduced ? 0 : 0.03 * p.outputDrive * clamp01(outL) + 0.012 * p.inputDrive * clamp01(inL)
+    const morph = reduced ? 0 : 0.02 * p.outputDrive * clamp01(outL) + 0.008 * p.inputDrive * clamp01(inL)
     this.traceOutline(ctx, c, R, morph)
     ctx.save()
     ctx.clip()
-    this.drawInside(ctx, pal, c, R, inL, outL)
+    const e = INNER_EXTENT * R
+    ctx.drawImage(this.inner, c - e, c - e, e * 2, e * 2)
     ctx.restore()
 
-    if (p.dim > 0.004) {
-      // Fade the whole orb toward whatever is behind it, not toward a guessed colour.
-      ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.globalCompositeOperation = 'destination-out'
-      ctx.globalAlpha = p.dim * 0.55
-      ctx.fillStyle = '#000'
-      ctx.fillRect(0, 0, D, D)
-      ctx.globalCompositeOperation = 'source-over'
+    // Dimming fades the whole orb toward whatever is behind it: the canvas's own opacity, which costs no pixels.
+    const step = Math.round(clamp01(1 - p.dim * 0.55) * 100)
+    if (step !== this.opacityStep) {
+      this.opacityStep = step
+      this.canvas.style.opacity = OPACITY_STEPS[step]
     }
     if (p.mutedRing > 0.01) {
       this.strokeRing(ctx, c, R + 7 * this.dpr, 1.5 * this.dpr, this.ringStroke, p.mutedRing * 0.9)
@@ -437,15 +481,21 @@ class OrbRenderer {
       ctx.fillRect(-1, -1, 2, 2)
     }
 
-    if (!reduced && p.shimmer > 0.01 && this.gShimmer) {
-      const a = this.shimmerT * 1.7
-      const ca = Math.cos(a) * R
-      const sa = Math.sin(a) * R
-      ctx.setTransform(ca, sa, -sa, ca, c, c)
+    if (!reduced && p.shimmer > 0.01 && this.gBounce) {
+      // Two soft streaks of light chasing each other round just inside the rim.
       ctx.globalCompositeOperation = 'screen'
-      ctx.globalAlpha = p.shimmer * (pal.dark ? 0.5 : 0.65)
-      ctx.fillStyle = this.gShimmer
-      ctx.fillRect(-1.1, -1.1, 2.2, 2.2)
+      for (let j = 0; j < 2; j++) {
+        const a = this.shimmerT * 1.9 + j * Math.PI
+        const ca = Math.cos(a)
+        const sa = Math.sin(a)
+        const sx = R * 0.5
+        const sy = R * 0.17
+        // long axis along the tangent: rotate by a + 90 degrees
+        ctx.setTransform(-sa * sx, ca * sx, -ca * sy, -sa * sy, c + ca * R * 0.7, c + sa * R * 0.7)
+        ctx.globalAlpha = p.shimmer * (pal.dark ? 0.6 : 0.75) * (j === 0 ? 1 : 0.55)
+        ctx.fillStyle = this.gBounce
+        ctx.fillRect(-1, -1, 2, 2)
+      }
     }
 
     ctx.globalCompositeOperation = 'source-over'
@@ -483,7 +533,7 @@ class OrbRenderer {
       ctx.globalCompositeOperation = 'saturation'
       ctx.globalAlpha = clamp01(p.desat)
       ctx.fillStyle = '#808080'
-      ctx.fillRect(0, 0, this.side, this.side)
+      ctx.fillRect(0, 0, this.inner.width, this.inner.height)
     }
     ctx.globalCompositeOperation = 'source-over'
     ctx.globalAlpha = 1
@@ -540,20 +590,6 @@ function blobColor(pal: OrbPalette, name: BlobColor): Rgb {
   return pal[name]
 }
 
-/** Two soft wedges of light that sweep round the sphere while the call connects. */
-function shimmerGradient(ctx: CanvasRenderingContext2D, color: Rgb): CanvasGradient | null {
-  if (typeof ctx.createConicGradient !== 'function') return null
-  const g = ctx.createConicGradient(0, 0, 0)
-  g.addColorStop(0, toRgba(color, 0))
-  g.addColorStop(0.1, toRgba(color, 0.85))
-  g.addColorStop(0.24, toRgba(color, 0))
-  g.addColorStop(0.5, toRgba(color, 0))
-  g.addColorStop(0.6, toRgba(color, 0.45))
-  g.addColorStop(0.72, toRgba(color, 0))
-  g.addColorStop(1, toRgba(color, 0))
-  return g
-}
-
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 function usePrefersReducedMotion(): boolean {
@@ -584,6 +620,7 @@ const VoiceOrb = forwardRef<VoiceOrbHandle, VoiceOrbProps>(function VoiceOrb(
 ) {
   const rootRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const haloRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<OrbRenderer | null>(null)
   const systemReduced = usePrefersReducedMotion()
   const reduced = reducedMotion ?? systemReduced
@@ -593,8 +630,9 @@ const VoiceOrb = forwardRef<VoiceOrbHandle, VoiceOrbProps>(function VoiceOrb(
   useLayoutEffect(() => {
     const root = rootRef.current
     const canvas = canvasRef.current
-    if (!root || !canvas) return
-    const engine = new OrbRenderer(root, canvas)
+    const halo = haloRef.current
+    if (!root || !canvas || !halo) return
+    const engine = new OrbRenderer(root, canvas, halo)
     const now = latest.current
     engine.setSize(now.size)
     engine.setReduced(now.reduced)
@@ -619,10 +657,11 @@ const VoiceOrb = forwardRef<VoiceOrbHandle, VoiceOrbProps>(function VoiceOrb(
     },
   }), [])
 
-  const canvasSide = Math.ceil(size * PAD)
+  const canvasSide = canvasCss(size)
   return (
     <div ref={rootRef} className="voice-orb" role="img" aria-label={stateLabel(state, muted, label)}
       data-state={state} style={{ width: size, height: size }}>
+      <div ref={haloRef} className="voice-orb-halo" aria-hidden="true" />
       <canvas ref={canvasRef} className="voice-orb-canvas" aria-hidden="true"
         style={{ width: canvasSide, height: canvasSide }} />
     </div>

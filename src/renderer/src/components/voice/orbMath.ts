@@ -177,16 +177,17 @@ export function stateTargets(state: VoiceState, muted: boolean, out: OrbParams):
     case 'user-speaking': setParams(out, 0.65, 0.008, 0, 1, 0, 0, 0, 0.85); break
     case 'assistant-speaking': setParams(out, 1, 0.006, 0, 0, 1, 0, 0, 0.9); break
     case 'ending': setParams(out, 0.15, 0, 0, 0, 0, 0.22, 0.15, 0.45); break
-    case 'ended': setParams(out, 0, 0, 0, 0, 0, 0.32, 0.22, 0.32); break
+    case 'ended': setParams(out, 0, 0, 0, 0, 0, 0.32, 0.14, 0.32); break
     case 'error': setParams(out, 0, 0, 0, 0, 0, 0.42, 0.6, 0.2); break
     case 'idle':
-    default: setParams(out, 0, 0, 0, 0, 0, 0.28, 0.15, 0.35); break
+    default: setParams(out, 0, 0, 0, 0, 0, 0.26, 0.08, 0.35); break
   }
   if (muted && isLiveState(state)) {
     out.inputDrive = 0
     out.flow *= 0.5
     out.glow *= 0.6
-    out.desat = Math.max(out.desat, 0.85)
+    out.desat = Math.max(out.desat, 0.92)
+    out.dim = Math.max(out.dim, 0.12)
     out.mutedRing = 1
   }
   return out
@@ -376,14 +377,16 @@ export function orbPalette(t: OrbTokens): OrbPalette {
   const surface = parseColor(t.surface) ?? WHITE
   const dark = relativeLuminance(surface) < 0.25
   const ring = parseColor(t.muted) ?? (dark ? { r: 246, g: 246, b: 248, a: 0.66 } : { r: 0, g: 0, b: 0, a: 0.6 })
+  // Shadows are the accent turned toward red and only slightly darkened: a
+  // dark orange reads as brown, and a brown orb reads as dirty.
   return {
     dark,
-    core: mixRgb(g1, WHITE, dark ? 0.3 : 0.5),
-    mid: mixRgb(g0, g1, 0.5),
-    deep: shiftHue(mixRgb(g0, BLACK, dark ? 0.38 : 0.22), -8),
-    cloud: mixRgb(g1, WHITE, 0.72),
-    warm: shiftHue(accent, -26),
-    cool: shiftHue(accent2, 24),
+    core: mixRgb(g1, WHITE, dark ? 0.5 : 0.6),
+    mid: mixRgb(g0, g1, 0.55),
+    deep: shiftHue(mixRgb(g0, BLACK, dark ? 0.16 : 0.08), -14),
+    cloud: mixRgb(g1, WHITE, 0.82),
+    warm: mixRgb(shiftHue(accent, -18), WHITE, 0.08),
+    cool: shiftHue(accent2, 18),
     halo: accent,
     ring,
   }
