@@ -46,6 +46,18 @@ import {
   type ModelTier
 } from '@shared/plan'
 import { applyTheme } from '../lib/theme'
+import { VOICES, voiceById, type VoiceId } from '@shared/voices'
+import { WaveformIcon, PlayIcon, PauseIcon } from '../components/icons'
+import { VOICE_DISCLOSURE } from '../components/voice/VoiceConsent'
+import { readVoiceRemaining } from '../voice/useVoiceSession'
+import lindenClip from '../assets/voices/linden.mp3'
+import atlasClip from '../assets/voices/atlas.mp3'
+import wrenClip from '../assets/voices/wren.mp3'
+import roryClip from '../assets/voices/rory.mp3'
+import kipClip from '../assets/voices/kip.mp3'
+import hollisClip from '../assets/voices/hollis.mp3'
+import sterlingClip from '../assets/voices/sterling.mp3'
+import '../styles/voice.css'
 import { applyAccentColor, applyDensity, applyFontSize } from '../lib/appearance'
 import type { Tab } from '../App'
 
@@ -130,6 +142,7 @@ type Section =
   | 'profile'
   | 'appearance'
   | 'preferences'
+  | 'voice'
   | 'notifications'
   | 'security'
   | 'integrations'
@@ -140,6 +153,7 @@ const NAV: { id: Section; label: string; icon: (props: { size?: number }) => JSX
   { id: 'profile', label: 'Profile', icon: UserIcon },
   { id: 'appearance', label: 'Appearance', icon: SunIcon },
   { id: 'preferences', label: 'Preferences', icon: SlidersIcon },
+  { id: 'voice', label: 'Voice', icon: WaveformIcon },
   { id: 'notifications', label: 'Notifications', icon: (p) => <Bell size={p.size ?? 15} /> },
   { id: 'security', label: 'Security', icon: (p) => <ShieldCheck size={p.size ?? 15} /> },
   { id: 'integrations', label: 'Integrations', icon: (p) => <Link2 size={p.size ?? 15} /> },
@@ -839,6 +853,8 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
           {/* The four sections the Figma file draws and the product does not
               have. Labels and order are each frame's own; the values are not —
               see SettingsUnavailable for why. */}
+          {section === 'voice' ? <VoicePane settings={settings} onSave={save} /> : null}
+
           {section === 'notifications' ? (
             <SettingsUnavailable
               key="notifications"
@@ -1003,6 +1019,148 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
           {error ? <p className="error-text">{error}</p> : null}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Each persona's recorded preview (gpt-live-1, about ten seconds). */
+const VOICE_CLIPS: Record<VoiceId, string> = {
+  linden: lindenClip,
+  atlas: atlasClip,
+  wren: wrenClip,
+  rory: roryClip,
+  kip: kipClip,
+  hollis: hollisClip,
+  sterling: sterlingClip
+}
+
+/** The voice section of PRIVACY.md (the website has no /privacy page yet). */
+const VOICE_PRIVACY_URL =
+  'https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md#voice-conversations-tracely-desktop-app'
+
+/**
+ * Settings → Voice: which persona Tracer talks in (a card each, with a
+ * recorded preview, one playing at a time), live captions, saving
+ * transcripts, the disclosure the first call shows, and today's minutes as
+ * last seen. Every control persists on change, like the rest of Settings.
+ */
+function VoicePane({
+  settings,
+  onSave
+}: {
+  settings: AppSettings
+  onSave: (patch: Parameters<typeof tracelyApi.setSettings>[0]) => Promise<void>
+}): JSX.Element {
+  const selected = voiceById(settings.voiceId).id
+  const [playing, setPlaying] = useState<VoiceId | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const remaining = readVoiceRemaining()
+
+  useEffect(
+    () => () => {
+      audioRef.current?.pause()
+      audioRef.current = null
+    },
+    []
+  )
+
+  function togglePreview(id: VoiceId): void {
+    const audio = (audioRef.current ??= new Audio())
+    if (playing === id) {
+      audio.pause()
+      setPlaying(null)
+      return
+    }
+    audio.pause()
+    audio.src = VOICE_CLIPS[id]
+    audio.currentTime = 0
+    audio.onended = () => setPlaying(null)
+    audio.onerror = () => setPlaying(null)
+    setPlaying(id)
+    void audio.play().catch(() => setPlaying(null))
+  }
+
+  return (
+    <div key="voice" className="settings-panel-content">
+      <div className="settings-panel-header">
+        <h3>Voice</h3>
+        <p>
+          Talk to Tracer out loud from the Tracer panel. Pick the voice you like best.
+          {remaining !== null
+            ? ` About ${Math.floor(remaining / 60)} ${Math.floor(remaining / 60) === 1 ? 'minute' : 'minutes'} of voice left today.`
+            : ''}
+        </p>
+      </div>
+
+      <div className="voice-persona-grid" role="radiogroup" aria-label="Tracer's voice">
+        {VOICES.map((v) => {
+          const isSelected = v.id === selected
+          const isPlaying = playing === v.id
+          return (
+            <div key={v.id} className={`voice-persona ${isSelected ? 'voice-persona-selected' : ''}`}>
+              <label className="voice-persona-pick">
+                <input
+                  type="radio"
+                  name="settings-voice"
+                  value={v.id}
+                  checked={isSelected}
+                  onChange={() => void onSave({ voiceId: v.id })}
+                />
+                <span className="voice-persona-text">
+                  <span className="voice-persona-name">
+                    <b>{v.name}</b>
+                    <em>{v.accent}</em>
+                  </span>
+                  <span className="voice-persona-tagline">{v.tagline}</span>
+                  <span className="voice-persona-desc">{v.description}</span>
+                </span>
+              </label>
+              <button
+                type="button"
+                className="voice-preview"
+                aria-label={`Hear ${v.name}`}
+                aria-pressed={isPlaying}
+                title={isPlaying ? 'Stop' : `Hear ${v.name}`}
+                onClick={() => togglePreview(v.id)}
+              >
+                {isPlaying ? <PauseIcon size={13} /> : <PlayIcon size={13} />}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      <label className="settings-toggle-row">
+        <div>
+          <div className="settings-toggle-row-title">Live captions</div>
+          <div className="settings-toggle-row-subtitle">Show what you and Tracer say under the orb during a call.</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.voiceCaptions}
+          onChange={(e) => void onSave({ voiceCaptions: e.target.checked })}
+        />
+      </label>
+      <label className="settings-toggle-row">
+        <div>
+          <div className="settings-toggle-row-title">Save transcripts to the chat</div>
+          <div className="settings-toggle-row-subtitle">
+            When a call ends, its words are added to your Tracer chat, on this computer only.
+          </div>
+        </div>
+        <input
+          type="checkbox"
+          checked={settings.voiceSaveTranscript}
+          onChange={(e) => void onSave({ voiceSaveTranscript: e.target.checked })}
+        />
+      </label>
+
+      <p className="muted settings-app-note">
+        {VOICE_DISCLOSURE}{' '}
+        <button type="button" className="voice-link" onClick={() => void tracelyApi.openExternal(VOICE_PRIVACY_URL)}>
+          How voice uses your data
+        </button>
+      </p>
     </div>
   )
 }
