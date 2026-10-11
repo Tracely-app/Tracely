@@ -356,7 +356,8 @@ function newSession({ key, callerId, enforced, maxSeconds, id = null, createdAt 
     // session.close went out on an open sideband.
     closeWanted: false, closeSent: false, closeSentAt: null, finalized: false, reason: null,
     heard: "", steered: new Set(), // the safety window (in memory only) and the rules already sent
-    capTimer: null, closeTimer: null, retryTimer: null, backstopTimer: null, waiters: [],
+    idleSeconds: 0, lastTranscriptAt: null, // the idle close: when either side last said anything
+    capTimer: null, closeTimer: null, retryTimer: null, backstopTimer: null, idleTimer: null, waiters: [],
   };
 }
 
@@ -374,8 +375,8 @@ function unpersist(id) {
 }
 
 function clearTimers(s) {
-  for (const t of [s.capTimer, s.closeTimer, s.retryTimer, s.backstopTimer]) clearTimeout(t);
-  s.capTimer = s.closeTimer = s.retryTimer = s.backstopTimer = null;
+  for (const t of [s.capTimer, s.closeTimer, s.retryTimer, s.backstopTimer, s.idleTimer]) clearTimeout(t);
+  s.capTimer = s.closeTimer = s.retryTimer = s.backstopTimer = s.idleTimer = null;
 }
 
 /** A session that never reached the student: free the slot and the hold. */
@@ -423,6 +424,27 @@ function armCapGuard(s) {
   // And a backstop, one close wait past the deadline, so no session can sit
   // in memory (holding a slot and a hold) if every other path went quiet.
   s.backstopTimer = unref(setTimeout(() => finalize(s, "deadline"), Math.max(0, deadlineOf(s) + CLOSE_WAIT_MS - Date.now())));
+}
+
+/* The idle close: when neither side has said anything (no transcript delta
+ * either way) for s.idleSeconds, the sideband sends session.close. A muted
+ * or forgotten window would otherwise bill to the cap ($0.75 and half a
+ * student's day); OpenAI's guide leaves inactivity to the application
+ * (guides/live-conversations, "Close idle sessions and resume"). One timer
+ * per idle window: when it fires early (words came since) it re-arms for the
+ * new deadline. Only times are kept here, never the words. */
+function armIdle(s) {
+  clearTimeout(s.idleTimer);
+  s.idleTimer = null;
+  if (s.finalized || !(s.idleSeconds > 0) || s.lastTranscriptAt == null) return;
+  const dueAt = () => s.lastTranscriptAt + s.idleSeconds * 1000;
+  s.idleTimer = unref(setTimeout(() => {
+    s.idleTimer = null;
+    if (s.finalized || s.closeWanted) return;
+    if (Date.now() < dueAt()) { armIdle(s); return; }
+    console.log(`[tracely] voice: closing a call with no words either way for ${s.idleSeconds} s`);
+    sendClose(s);
+  }, Math.max(0, dueAt() - Date.now())));
 }
 
 /* Charge once, whatever ended it: the app pool in micro-cents and the
@@ -517,7 +539,7 @@ function heard(s, delta) {
 /* Reflected audio (PCM16 at 24 kHz, both directions) is nearly all of the
  * sideband's traffic and is never read, so only frames that can name an
  * event we act on are parsed. */
-const WANTED = /"session\.(usage\.updated|closed|delegation\.created|input_transcript\.delta)"/;
+const WANTED = /"session\.(usage\.updated|closed|delegation\.created|input_transcript\.delta|output_transcript\.delta)"/;
 
 function onMessage(s, data) {
   if (s.finalized) return;
@@ -536,7 +558,10 @@ function onMessage(s, data) {
   } else if (ev?.type === "session.delegation.created" && typeof ev.delegation?.id === "string") {
     send(s, { type: "session.commentary.append", delegation_id: ev.delegation.id, content: DELEGATION_REPLY });
   } else if (ev?.type === "session.input_transcript.delta" && typeof ev.delta === "string") {
+    s.lastTranscriptAt = Date.now();
     heard(s, ev.delta);
+  } else if (ev?.type === "session.output_transcript.delta") {
+    s.lastTranscriptAt = Date.now(); // the model's words: only the time is kept
   }
 }
 
@@ -687,6 +712,9 @@ export async function startSession({ gate, readBody, mock = false, env = process
     byId.set(id, s);
     listen(s, ws);
     armCapGuard(s);
+    s.idleSeconds = voiceIdleSeconds(env);
+    s.lastTranscriptAt = s.createdAt; // silence is counted from the start
+    armIdle(s);
     persist(s);
     return { sdp, sessionId: id, voice, ...quota };
   } catch (err) {
@@ -814,6 +842,11 @@ export function resumeOpenSessions({ env = process.env, WebSocketImpl } = {}) {
     const safetyId = safetyIdentifier(s.callerId, env.TRACELY_SAFETY_ID_SECRET ?? "");
     s.reattach = () => attachSideband({ url: attachUrl(s.id), key, headers: safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {}, WebSocketImpl });
     armCapGuard(s);
+    // A resumed call gets a fresh idle window: what was said before the
+    // restart is unknown.
+    s.idleSeconds = voiceIdleSeconds(env);
+    s.lastTranscriptAt = Date.now();
+    armIdle(s);
     reattachSoon(s);
   }
   if (rows.length) console.log(`[tracely] voice: resuming ${rows.length} call(s) left open by the last process`);

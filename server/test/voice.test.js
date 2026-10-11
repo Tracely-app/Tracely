@@ -752,3 +752,56 @@ test("per caller: 5 failed set-ups in 10 minutes → 429 rate_limit before OpenA
   await ending;
   assert.match((await start(pro)).sessionId, /^live_/, "eight busy refusals counted for nothing");
 });
+
+// ── the server-side idle close ───────────────────────────────────────────
+
+test("env: the idle close defaults to 180 s; junk is the default; an explicit 0 turns it off", () => {
+  assert.equal(V.DEFAULT_IDLE_SECONDS, 180);
+  assert.equal(V.voiceIdleSeconds({}), 180);
+  for (const junk of ["", "soon", "-1", "2.5"]) assert.equal(V.voiceIdleSeconds({ TRACELY_VOICE_IDLE_SECONDS: junk }), 180, junk);
+  assert.equal(V.voiceIdleSeconds({ TRACELY_VOICE_IDLE_SECONDS: "60" }), 60);
+  assert.equal(V.voiceIdleSeconds({ TRACELY_VOICE_IDLE_SECONDS: "0" }), 0);
+});
+
+test("idle: 180 s with no words either way sends session.close; the student's or the model's words push it back", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const gate = gateFor("pro", "idle");
+  await start(gate);
+  const ws = lastWS();
+  const at = (s) => t.mock.timers.tick(s * 1000 - (Date.now() - T0)); // advance the clock to T0 + s
+  at(100);
+  ws.emit({ type: "session.input_transcript.delta", delta: "so my thesis", start_ms: 0, end_ms: 1 });
+  at(200);
+  assert.deepEqual(ws.types(), [], "180 s from the start, but the student spoke at 100 s");
+  ws.emit({ type: "session.output_transcript.delta", delta: "What's your evidence?", start_ms: 0, end_ms: 1 });
+  at(279); at(280);
+  assert.deepEqual(ws.types(), [], "the model spoke at 200 s");
+  at(379);
+  assert.deepEqual(ws.types(), []);
+  at(380);
+  assert.deepEqual(ws.types(), ["session.close"], "180 s of silence on both sides");
+  assert.equal(V.liveSessionCount(), 1, "ended by session.closed, as any close");
+  ws.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 380.4 } });
+  assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-idle", today(), "voice_seconds"), 381);
+});
+
+test("idle: a shorter TRACELY_VOICE_IDLE_SECONDS is honoured; 0 leaves only the cap; the model's words are never kept", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const at = (s) => t.mock.timers.tick(s * 1000 - (Date.now() - T0));
+  await start(gateFor("pro", "idle60"), {}, { ...ENV, TRACELY_VOICE_IDLE_SECONDS: "60" });
+  const quick = lastWS();
+  at(59);
+  assert.deepEqual(quick.types(), []);
+  at(60);
+  assert.deepEqual(quick.types(), ["session.close"]);
+  quick.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 60 } });
+
+  await start(gateFor("pro", "idleoff"), {}, { ...ENV, TRACELY_VOICE_IDLE_SECONDS: "0", TRACELY_VOICE_MAX_SECONDS: "300" });
+  const off = lastWS();
+  for (let s = 120; s <= 300; s += 60) { at(60 + s); assert.deepEqual(off.types(), [], `no idle close at ${s} s`); }
+  at(60 + 300 + V.CAP_GRACE_SECONDS);
+  assert.deepEqual(off.types(), ["session.close"], "the wall-clock cap guard still closes it");
+  off.emit({ type: "session.output_transcript.delta", delta: "I want to die laughing", start_ms: 0, end_ms: 1 });
+  assert.equal(off.sent.length, 1, "the model's words are timed, never checked or kept");
+});
