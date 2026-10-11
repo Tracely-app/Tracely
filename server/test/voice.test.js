@@ -158,7 +158,7 @@ test("startLiveSession: what an upstream failure looks like", async () => {
 test("a metered session: one per caller, the hold, the cumulative meter, the charge", async () => {
   const gate = gateFor("pro", "meter");
   const out = await start(gate, { context: "My essay." });
-  assert.deepEqual(out, { sdp: "v=0\r\nanswer", sessionId: out.sessionId, voice: { id: "wren", name: "Wren" }, maxSeconds: 900, remainingSeconds: 1800 });
+  assert.deepEqual(out, { sdp: "v=0\r\nanswer", sessionId: out.sessionId, voice: { id: "wren", name: "Wren" }, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
   const sent = fetches.at(-1);
   assert.equal(sent.url, "https://api.openai.com/v1/live/sessions");
   assert.equal(sent.headers.Authorization, "Bearer sk-test-not-a-real-key");
@@ -535,7 +535,7 @@ test("mock: the canned answer, no network, no slot taken", async () => {
   const before = fetches.length;
   const a = await V.startSession({ gate: LOCAL, env: {}, mock: true, readBody: async () => ({ sdp: SDP, voiceId: "kip" }) });
   const b = await V.startSession({ gate: LOCAL, env: {}, mock: true, readBody: async () => ({ sdp: SDP, voiceId: "kip" }) });
-  assert.deepEqual(a, { mock: true, sessionId: "mock_1", voice: { id: "kip", name: "Kip" }, maxSeconds: 900, remainingSeconds: 1800 });
+  assert.deepEqual(a, { mock: true, sessionId: "mock_1", voice: { id: "kip", name: "Kip" }, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
   assert.equal(b.sessionId, "mock_2");
   assert.equal(fetches.length, before);
   assert.deepEqual(await V.endSession({ gate: LOCAL, body: { sessionId: "mock_1" } }), { seconds: 0 });
@@ -557,4 +557,274 @@ test("end: unknown ids and other callers' ids answer 0; a missing id is a 400", 
   assert.equal(V.liveSessionCount(), 0);
   assert.equal(usageCount("user:u-owner", today(), "voice_seconds"), 35);
   assert.deepEqual(await V.endSession({ gate: gateFor("pro", "owner"), body: { sessionId: out.sessionId } }), { seconds: 34 });
+});
+
+// ── the monthly allowance and resetAt (follow-up round, 2026-10-10) ──────
+
+const thisMonth = async () => (await import("../shared/plan.js")).usageMonth(Date.now());
+
+test("env: the monthly allowance defaults to 2 hours; junk is the default; an explicit 0 is NO monthly cap", () => {
+  assert.equal(V.DEFAULT_MONTHLY_SECONDS, 7200);
+  assert.equal(V.voiceMonthlySeconds({}), 7200);
+  for (const junk of ["", "  ", "lots", "-5", "1.5"]) assert.equal(V.voiceMonthlySeconds({ TRACELY_VOICE_MONTHLY_SECONDS: junk }), 7200, junk);
+  assert.equal(V.voiceMonthlySeconds({ TRACELY_VOICE_MONTHLY_SECONDS: " 600 " }), 600);
+  assert.equal(V.voiceMonthlySeconds({ TRACELY_VOICE_MONTHLY_SECONDS: "0" }), 0);
+});
+
+test("resetAt: today's seconds come back at the server's next local midnight, the month's at 00:00 UTC on the 1st", () => {
+  const at = new Date(2026, 9, 10, 15, 30).getTime(); // 10 Oct 2026, 15:30 local
+  assert.equal(V.dayResetAt(at), new Date(2026, 9, 11).toISOString());
+  assert.equal(usageDay(Date.parse(V.dayResetAt(at))), "2026-10-11", "the instant the next usage day starts");
+  assert.equal(usageDay(Date.parse(V.dayResetAt(at)) - 1), "2026-10-10");
+  assert.equal(V.dayResetAt(new Date(2026, 11, 31, 23, 59).getTime()), new Date(2027, 0, 1).toISOString(), "year end");
+  assert.equal(V.monthResetAt(Date.UTC(2026, 9, 10, 12)), "2026-11-01T00:00:00.000Z");
+  assert.equal(V.monthResetAt(Date.UTC(2026, 11, 31, 23, 59)), "2027-01-01T00:00:00.000Z");
+  assert.equal(V.monthResetAt(Date.UTC(2026, 9, 31, 23, 59, 59)), "2026-11-01T00:00:00.000Z");
+});
+
+test("the month: a call is charged to the month row too, capped by what is left, refused under 15 s with resetAt", async () => {
+  const month = await thisMonth();
+  const pro = gateFor("pro", "monthly");
+  const out = await start(pro);
+  assert.equal(out.remainingMonthSeconds, 7200);
+  assert.equal(out.resetAt, V.dayResetAt());
+  const ending = V.endSession({ gate: pro, body: { sessionId: out.sessionId } });
+  lastWS().emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 40.2 } });
+  await ending;
+  assert.equal(usageCount("user:u-monthly", today(), "voice_seconds"), 41, "the day row");
+  assert.equal(usageCount("user:u-monthly", month, "voice_seconds"), 41, "and the month row");
+
+  usageAdd("user:u-monthly", month, "voice_seconds", 7200 - 41 - 100); // 100 s left this month
+  const capped = await start(pro);
+  assert.equal(capped.remainingMonthSeconds, 100);
+  assert.equal(capped.maxSeconds, 100, "a call never outlasts the month");
+  assert.equal(capped.remainingSeconds, 1800 - 41, "today's is its own figure");
+  V._resetVoiceForTests();
+  usageAdd("user:u-monthly", month, "voice_seconds", 90); // 10 s left
+  const err = await start(pro).catch((e) => e);
+  assert.equal(err.kind, "voice_monthly");
+  assert.equal(err.status, 429);
+  assert.equal(err.message, "You've used this month's voice minutes. They come back on the 1st.");
+  assert.equal(err.resetAt, V.monthResetAt());
+  assert.equal(V.liveSessionCount(), 0, "nothing claimed");
+});
+
+test("voice_daily carries resetAt; the month wins when both are spent; 0 means no monthly cap", async () => {
+  const month = await thisMonth();
+  const pro = gateFor("pro", "both");
+  usageAdd("user:u-both", today(), "voice_seconds", 1795);
+  const daily = await start(pro).catch((e) => e);
+  assert.equal(daily.kind, "voice_daily");
+  assert.equal(daily.resetAt, V.dayResetAt());
+  usageAdd("user:u-both", month, "voice_seconds", 7195);
+  const monthly = await start(pro).catch((e) => e);
+  assert.equal(monthly.kind, "voice_monthly", "the month comes back later, so it is the answer");
+  assert.equal(monthly.resetAt, V.monthResetAt());
+
+  const uncapped = { ...ENV, TRACELY_VOICE_MONTHLY_SECONDS: "0" };
+  const pro2 = gateFor("pro", "uncapped");
+  usageAdd("user:u-uncapped", month, "voice_seconds", 1_000_000);
+  const out = await start(pro2, {}, uncapped);
+  assert.equal(out.remainingMonthSeconds, null, "no monthly cap: nothing to count down");
+  assert.equal(out.maxSeconds, 900);
+});
+
+test("a local server: the configured allowances, nothing read from the ledger", () => {
+  usageAdd("user:u-local-ledger", today(), "voice_seconds", 1800);
+  const a = V.voiceAllowance({ ent: { enforced: false, plan: "free" }, callerId: "user:u-local-ledger" }, {});
+  assert.deepEqual(a, { remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
+});
+
+test("eligibility: allowed, with the same numbers a start would get; no fetch, no socket, no hold, no slot", async () => {
+  const before = { fetches: fetches.length, sockets: FakeWS.all.length };
+  const pro = gateFor("pro", "elig");
+  usageAdd("user:u-elig", today(), "voice_seconds", 300);
+  usageAdd("user:u-elig", await thisMonth(), "voice_seconds", 6000);
+  assert.deepEqual(V.checkEligibility({ gate: pro, env: {} }), {
+    allowed: true, maxSeconds: 900, remainingSeconds: 1500, remainingMonthSeconds: 1200, resetAt: V.dayResetAt(),
+  }, "no OPENAI_API_KEY needed");
+  assert.deepEqual({ fetches: fetches.length, sockets: FakeWS.all.length }, before);
+  assert.equal(reservedMicroCents("app"), 0);
+  assert.equal(V.liveSessionCount(), 0);
+  assert.deepEqual(V.checkEligibility({ gate: LOCAL, env: {} }), { allowed: true, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
+});
+
+test("eligibility: each refusal as {allowed:false, reason, message}, resetAt on the two limits", async () => {
+  const elig = (gate, env = ENV) => V.checkEligibility({ gate, env });
+  for (const plan of ["free", "student"]) {
+    assert.deepEqual(elig(gateFor(plan, `e-${plan}`)), { allowed: false, reason: "plan", message: "Voice is part of Pro." });
+  }
+  for (const off of [{ TRACELY_VOICE_MAX_SECONDS: "0" }, { TRACELY_VOICE_DAILY_SECONDS: "0" }]) {
+    assert.deepEqual(elig(gateFor("pro", "e-off"), off), { allowed: false, reason: "off", message: "Voice conversations are turned off on this server." });
+  }
+  assert.equal(elig(gateFor("free", "e-off2"), { TRACELY_VOICE_MAX_SECONDS: "0" }).reason, "off", "the switch first, like a start");
+
+  const busyGate = gateFor("pro", "e-busy");
+  await start(busyGate);
+  assert.deepEqual(elig(busyGate), { allowed: false, reason: "busy", message: "You already have a voice conversation open. End it before starting another." });
+
+  usageAdd("user:u-e-day", today(), "voice_seconds", 1790);
+  assert.deepEqual(elig(gateFor("pro", "e-day")), { allowed: false, reason: "daily-limit", message: "You've used today's voice time. It resets at midnight.", resetAt: V.dayResetAt() });
+  usageAdd("user:u-e-month", await thisMonth(), "voice_seconds", 7190);
+  assert.deepEqual(elig(gateFor("pro", "e-month")), { allowed: false, reason: "monthly-limit", message: "You've used this month's voice minutes. They come back on the 1st.", resetAt: V.monthResetAt() });
+  const bad = await (async () => { try { V.checkEligibility({ gate: { get ent() { throw new TypeError("boom"); } }, env: ENV }); } catch (e) { return e; } })();
+  assert.ok(bad instanceof TypeError, "anything that isn't a voice refusal is still an error");
+});
+
+// ── the sideband breaker and the per-caller limit on failed set-ups ──────
+
+test("breaker: 3 sideband attach failures in 60 s → 502 upstream for 120 s with no OpenAI call; then tried again", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  FakeWS.mode = "error";
+  for (const name of ["br-a", "br-b"]) await assert.rejects(start(gateFor("pro", name)), (e) => e.reason === "sideband");
+  t.mock.timers.tick(59_000);
+  assert.equal(V.voiceBreakerOpen(), false, "two failures: still closed");
+  await assert.rejects(start(gateFor("pro", "br-c")), (e) => e.reason === "sideband");
+  assert.equal(V.voiceBreakerOpen(), true, "the third within 60 s opens it");
+
+  FakeWS.mode = "open";
+  const before = { fetches: fetches.length, sockets: FakeWS.all.length };
+  const err = await start(gateFor("pro", "br-d")).catch((e) => e);
+  assert.equal(err.status, 502);
+  assert.equal(err.kind, "upstream");
+  assert.equal(err.reason, "breaker_open");
+  assert.deepEqual({ fetches: fetches.length, sockets: FakeWS.all.length }, before, "OpenAI never asked");
+  assert.equal(reservedMicroCents("app"), 0, "nothing held");
+  assert.equal(V.liveSessionCount(), 0, "no slot claimed");
+  await assert.rejects(start(gateFor("free", "br-e")), (e) => e.kind === "plan_limit", "policy refusals still come first");
+
+  t.mock.timers.tick(V.BREAKER_OPEN_MS - 1); // 120 s from the failure that opened it
+  assert.equal(V.voiceBreakerOpen(), true);
+  t.mock.timers.tick(1);
+  assert.equal(V.voiceBreakerOpen(), false, "closed after 120 s");
+  const out = await start(gateFor("pro", "br-d"));
+  assert.match(out.sessionId, /^live_/);
+});
+
+test("breaker: failures spread over more than 60 s, or a success between them, don't open it; re-attaches don't count", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  FakeWS.mode = "error";
+  await assert.rejects(start(gateFor("pro", "sp-a")));
+  await assert.rejects(start(gateFor("pro", "sp-b")));
+  t.mock.timers.tick(61_000);
+  await assert.rejects(start(gateFor("pro", "sp-c")));
+  assert.equal(V.voiceBreakerOpen(), false, "the first fell out of the window");
+  FakeWS.mode = "open";
+  await start(gateFor("pro", "sp-ok"));
+  const okWS = lastWS();
+  FakeWS.mode = "error";
+  await assert.rejects(start(gateFor("pro", "sp-d")));
+  assert.equal(V.voiceBreakerOpen(), false, "a success forgets the earlier failures");
+
+  const before = FakeWS.all.length;
+  okWS.close(); // the live call's sideband drops and can't come back
+  for (let i = 0; i < 4; i++) { t.mock.timers.tick(5000); await tick(); }
+  assert.ok(FakeWS.all.length - before >= 3, "it kept re-attaching (and failing)");
+  assert.equal(V.voiceBreakerOpen(), false, "a live call's failed re-attaches are its own business");
+});
+
+test("per caller: 5 failed set-ups in 10 minutes → 429 rate_limit before OpenAI is asked; others unaffected", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const refused = async () => new Response(JSON.stringify({ error: { code: "invalid_sdp" } }), { status: 400 }); // a clean refusal: no breaker
+  const tryWith = (name, fetchImpl = refused) =>
+    V.startSession({ gate: gateFor("pro", name), env: ENV, readBody: async () => ({ sdp: SDP, voiceId: "wren" }), fetchImpl, WebSocketImpl: FakeWS });
+  let asked = 0;
+  const counting = async (...a) => { asked++; return refused(...a); };
+  for (let i = 0; i < V.VOICE_FAILED_SETUPS; i++) await assert.rejects(tryWith("lim", counting), (e) => e.status === 502);
+  assert.equal(V.voiceBreakerOpen(), false, "a clean refusal is not a sideband failure");
+  const err = await tryWith("lim", counting).catch((e) => e);
+  assert.equal(err.status, 429);
+  assert.equal(err.kind, "rate_limit");
+  assert.equal(err.message, "Too many voice calls failed to start. Try again in a few minutes.");
+  assert.equal(err.retryAfter, 600);
+  assert.equal(asked, V.VOICE_FAILED_SETUPS, "the sixth never reached OpenAI");
+  assert.equal(reservedMicroCents("app"), 0);
+  await assert.rejects(tryWith("other"), (e) => e.status === 502, "another caller still gets through to OpenAI");
+  t.mock.timers.tick(V.VOICE_FAILED_SETUP_WINDOW_MS);
+  await assert.rejects(tryWith("lim", counting), (e) => e.status === 502, "the window passed: OpenAI is asked again");
+  assert.equal(asked, V.VOICE_FAILED_SETUPS + 1);
+  // Refusals before OpenAI is asked (busy, the daily cap) are not failed set-ups.
+  const pro = gateFor("pro", "lim-busy");
+  const first = await start(pro);
+  for (let i = 0; i < 8; i++) await assert.rejects(start(pro), (e) => e.kind === "voice_busy");
+  const ending = V.endSession({ gate: pro, body: { sessionId: first.sessionId } });
+  lastWS().emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 20 } });
+  await ending;
+  assert.match((await start(pro)).sessionId, /^live_/, "eight busy refusals counted for nothing");
+});
+
+// ── the server-side idle close ───────────────────────────────────────────
+
+test("env: the idle close defaults to 180 s; junk is the default; an explicit 0 turns it off", () => {
+  assert.equal(V.DEFAULT_IDLE_SECONDS, 180);
+  assert.equal(V.voiceIdleSeconds({}), 180);
+  for (const junk of ["", "soon", "-1", "2.5"]) assert.equal(V.voiceIdleSeconds({ TRACELY_VOICE_IDLE_SECONDS: junk }), 180, junk);
+  assert.equal(V.voiceIdleSeconds({ TRACELY_VOICE_IDLE_SECONDS: "60" }), 60);
+  assert.equal(V.voiceIdleSeconds({ TRACELY_VOICE_IDLE_SECONDS: "0" }), 0);
+});
+
+test("idle: 180 s with no words either way sends session.close; the student's or the model's words push it back", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const gate = gateFor("pro", "idle");
+  await start(gate);
+  const ws = lastWS();
+  const at = (s) => t.mock.timers.tick(s * 1000 - (Date.now() - T0)); // advance the clock to T0 + s
+  at(100);
+  ws.emit({ type: "session.input_transcript.delta", delta: "so my thesis", start_ms: 0, end_ms: 1 });
+  at(200);
+  assert.deepEqual(ws.types(), [], "180 s from the start, but the student spoke at 100 s");
+  ws.emit({ type: "session.output_transcript.delta", delta: "What's your evidence?", start_ms: 0, end_ms: 1 });
+  at(279); at(280);
+  assert.deepEqual(ws.types(), [], "the model spoke at 200 s");
+  at(379);
+  assert.deepEqual(ws.types(), []);
+  at(380);
+  assert.deepEqual(ws.types(), ["session.close"], "180 s of silence on both sides");
+  assert.equal(V.liveSessionCount(), 1, "ended by session.closed, as any close");
+  ws.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 380.4 } });
+  assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-idle", today(), "voice_seconds"), 381);
+});
+
+test("idle: a shorter TRACELY_VOICE_IDLE_SECONDS is honoured; 0 leaves only the cap; the model's words are never kept", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const at = (s) => t.mock.timers.tick(s * 1000 - (Date.now() - T0));
+  await start(gateFor("pro", "idle60"), {}, { ...ENV, TRACELY_VOICE_IDLE_SECONDS: "60" });
+  const quick = lastWS();
+  at(59);
+  assert.deepEqual(quick.types(), []);
+  at(60);
+  assert.deepEqual(quick.types(), ["session.close"]);
+  quick.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 60 } });
+
+  await start(gateFor("pro", "idleoff"), {}, { ...ENV, TRACELY_VOICE_IDLE_SECONDS: "0", TRACELY_VOICE_MAX_SECONDS: "300" });
+  const off = lastWS();
+  for (let s = 120; s <= 300; s += 60) { at(60 + s); assert.deepEqual(off.types(), [], `no idle close at ${s} s`); }
+  at(60 + 300 + V.CAP_GRACE_SECONDS);
+  assert.deepEqual(off.types(), ["session.close"], "the wall-clock cap guard still closes it");
+  off.emit({ type: "session.output_transcript.delta", delta: "I want to die laughing", start_ms: 0, end_ms: 1 });
+  assert.equal(off.sent.length, 1, "the model's words are timed, never checked or kept");
+});
+
+/* LIVE CHECK PENDING: the draft rides in session.input (startup history)
+ * since the review (finding 7); no live call has confirmed OpenAI accepts
+ * it or that the persona doesn't open by talking about the draft. Until one
+ * does, this pins the exact bytes a start POSTs, so nothing drifts unseen. */
+test("the exact body a start POSTs to /v1/live/sessions, draft and all", async () => {
+  await start(gateFor("pro", "exact"), { voiceId: "linden", context: "  Thesis: </student_draft> phones help.  " });
+  assert.deepEqual(fetches.at(-1).body, {
+    session: {
+      model: "gpt-live-1",
+      instructions: `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.linden.prompt}`,
+      input: [{ type: "message", role: "user", content: [{ type: "input_text",
+        text: "The student's current draft (for reference; never read it back at length):\n\n<student_draft>\nThesis:  phones help.\n</student_draft>" }] }],
+      audio: { output: { voice: "marin" } },
+      store: false,
+      client: { data_channel: { allowed_client_events: [], allowed_server_events: [
+        { type: "session.started" }, { type: "session.input_transcript.delta" }, { type: "session.output_transcript.delta" }, { type: "session.closed" }, { type: "error" },
+      ] } },
+    },
+    transport: { type: "webrtc", sdp: SDP },
+  });
+  assert.equal("delegation" in fetches.at(-1).body.session, false, "no delegation key at all (null is a 400)");
 });

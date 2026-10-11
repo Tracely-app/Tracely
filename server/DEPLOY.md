@@ -87,7 +87,8 @@ step. If one ever appears, this document is wrong.
 the daily budgets (`TRACELY_DAILY_BUDGET_USD`, `TRACELY_PAID_DAILY_BUDGET_USD`,
 `TRACELY_BETA_DAILY_BUDGET_USD`, `TRACELY_APP_DAILY_BUDGET_USD`), the Stripe
 values, `TRACELY_BETA_TOKENS` and the voice caps (`TRACELY_VOICE_MAX_SECONDS`,
-`TRACELY_VOICE_DAILY_SECONDS`).
+`TRACELY_VOICE_DAILY_SECONDS`, `TRACELY_VOICE_MONTHLY_SECONDS`; the idle
+close `TRACELY_VOICE_IDLE_SECONDS` is read when each call starts).
 
 Anything captured in a module-level `const` does not. Those are read once at
 boot:
@@ -354,20 +355,28 @@ grep 'model call failed' /var/log/tracely.log | awk '{print $5, $6, $8}' | sort 
 
 ## Tracer Voice (2026-10-10)
 
-`POST /api/voice/session` and `/api/voice/end` are desktop-only app routes
-(`lib/voice.js`): the server trades the desktop's WebRTC offer for OpenAI
-`gpt-live-1`'s answer and attaches a sideband WebSocket to meter the call.
+`POST /api/voice/session`, `/api/voice/end` and `/api/voice/eligibility` are
+desktop-only app routes (`lib/voice.js`): the server trades the desktop's
+WebRTC offer for OpenAI `gpt-live-1`'s answer and attaches a sideband
+WebSocket to meter the call. Eligibility answers whether a call would start
+(plan, switch, busy, today's and this month's seconds) with no OpenAI call
+and no key, so the desktop asks before the microphone prompt.
 **Deploy the server before any desktop build that calls `voice/*`.**
 
 | variable | default | meaning |
 |---|---|---|
 | `TRACELY_VOICE_MAX_SECONDS` | 900 | one call's cap; the server sends `session.close` there |
 | `TRACELY_VOICE_DAILY_SECONDS` | 1800 | per account per day (`entitlement_usage` kind `voice_seconds`) |
+| `TRACELY_VOICE_MONTHLY_SECONDS` | 7200 | per account per usage month (UTC; a `YYYY-MM` row of the same kind); **0 = no monthly cap**; a placeholder until Sam prices voice (`BILLING.md`) |
+| `TRACELY_VOICE_IDLE_SECONDS` | 180 | the sideband closes a call after this long with no words either way; 0 = no idle close |
 | `TRACELY_SAFETY_ID_SECRET` | unset | keys the `OpenAI-Safety-Identifier` hash (HMAC) so it can't be recomputed from a user id; set once, never change it (OpenAI ties abuse reports to the hash) |
 
-Empty or junk is the default; an explicit `0` in either turns voice OFF
-(503 `voice_off`). Both are re-read per request. Pro only when enforcement
-is on; one open call per account.
+Empty or junk is the default; an explicit `0` in the per-call or daily
+variable turns voice OFF (503 `voice_off`); `0` in the monthly one removes
+the monthly cap and in the idle one the idle close. All are re-read per
+request. Pro only when enforcement is on; one open call per account. A spent
+allowance is 429 `voice_daily` or `voice_monthly`, each with `resetAt`
+(ISO-8601: the server's next local midnight, or 00:00 UTC on the 1st).
 
 - **The app pool holds each open call's worst case**: 900 s at $0.05/min =
   75 cents, released when the call is charged its real seconds (at least the
@@ -399,7 +408,17 @@ is on; one open call per account.
   concurrent sessions on the Build tier).
 - Failures log as `model call failed route=/api/voice/session kind=<reason>`:
   `sideband`/`sideband_timeout` (no meter, so no SDP handed out), `http`,
-  `auth`, `rate`, `out_of_credit`, `network`, `bad_answer`.
+  `auth`, `rate`, `out_of_credit`, `network`, `bad_answer`, `breaker_open`.
+- **The breaker**: after 3 sideband attach failures within 60 s (process-wide)
+  every start answers 502 (`kind=breaker_open` in the log) for 120 s without
+  calling OpenAI — each failed attach costs the pool a 15 s set-up — and
+  then tries again; `voice: sideband breaker open` is logged once when it
+  trips. Per caller, 5 failed set-ups in 10 minutes give 429 `rate_limit`
+  until the window passes. Both live in memory: a restart clears them.
+- **Idle calls**: a call with no transcript delta either way for
+  `TRACELY_VOICE_IDLE_SECONDS` is closed by the sideband
+  (`voice: closing a call with no words either way` in the log), so a muted
+  or forgotten window doesn't bill to the cap.
 
 ## Resource ceilings
 
@@ -464,11 +483,11 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
 - **Application log** (`/var/log/tracely.log`): route, kind, status, model —
   never text, emails, tokens or IPs. Rotate it: there is no logrotate entry
   yet (Apache's own logs rotate daily, 14 kept).
-- **Voice conversations**: nothing but the `voice_seconds` and app-pool
-  counters above (voice is not added to `account_ucents`), and while a call
+- **Voice conversations**: nothing but the `voice_seconds` (day and month
+  rows) and app-pool counters above (voice is not added to `account_ucents`), and while a call
   is open its `voice_open` row (session id, caller id, start time, cap),
   deleted when the call is charged. Audio and transcripts reach the server
-  only as sideband frames: it reads usage, lookup requests and the
-  student's words (a 500-character safety window in memory, never logged)
-  and drops the rest (lib/voice.js); one log line per call, `voice session
+  only as sideband frames: it reads usage, lookup requests, the student's
+  words (a 500-character safety window in memory, never logged) and when
+  either side last spoke (the idle close; no words kept) and drops the rest (lib/voice.js); one log line per call, `voice session
   ended reason=… seconds=…`, with no id.

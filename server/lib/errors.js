@@ -3,12 +3,16 @@
  * Lives in its own module so the provider layer (lib/llm.js) can throw it
  * without importing factcheck.js, which imports the provider — a cycle.
  * factcheck.js re-exports it, so every existing importer is unaffected.
- * The constructor shape is unchanged from where it used to live. */
+ * The constructor shape is unchanged from where it used to live.
+ * `resetAt` (ISO-8601, optional) is when a refused allowance comes back
+ * (Tracer Voice's voice_daily / voice_monthly); set only when given, so
+ * every other error's body is unchanged. */
 export class CheckError extends Error {
-  constructor(kind, message, { status = 400, retryAfter } = {}) {
+  constructor(kind, message, { status = 400, retryAfter, resetAt } = {}) {
     super(message);
     this.kind = kind;
     this.status = status;
     this.retryAfter = retryAfter;
+    if (resetAt !== undefined) this.resetAt = resetAt;
   }
 }

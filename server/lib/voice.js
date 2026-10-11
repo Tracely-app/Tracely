@@ -36,7 +36,8 @@ import { CheckError } from "./errors.js";
 import { usageAdd, usageCount, voiceOpenPut, voiceOpenDelete, voiceOpenAll } from "./db.js";
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
 import { isDailyQuotaKey } from "./entitlement.js";
-import { usageDay, planRank } from "../shared/plan.js";
+import { rollingCounter, keyedRateLimiter } from "../shared/guards.js";
+import { usageDay, usageMonth, planRank } from "../shared/plan.js";
 import { VOICE_PERSONAS, buildInstructions, draftInput, isVoiceId } from "./voices.js";
 
 export const VOICE_MODEL = "gpt-live-1";
@@ -52,6 +53,14 @@ export const attachUrl = (sessionId) => `wss://api.openai.com/v1/live/sessions/$
 
 export const DEFAULT_MAX_SECONDS = 900;
 export const DEFAULT_DAILY_SECONDS = 1800;
+/* 2 hours a month (about $6 at the price above): a PLACEHOLDER until Sam
+ * prices voice (server/BILLING.md). Without it a Pro account could talk the
+ * daily 30 min every day, about $46 a month. */
+export const DEFAULT_MONTHLY_SECONDS = 7200;
+/* The sideband closes a call when neither side has said anything for this
+ * long (no transcript delta either way): a forgotten or muted window would
+ * otherwise bill to the cap. */
+export const DEFAULT_IDLE_SECONDS = 180;
 export const MAX_SDP_CHARS = 20_000;
 export const MAX_CONTEXT_CHARS = 4000;
 export const ATTACH_TIMEOUT_MS = 5000;
@@ -98,6 +107,37 @@ export function voiceLimits(env = process.env) {
     maxSeconds: envSeconds(env.TRACELY_VOICE_MAX_SECONDS, DEFAULT_MAX_SECONDS),
     dailySeconds: envSeconds(env.TRACELY_VOICE_DAILY_SECONDS, DEFAULT_DAILY_SECONDS),
   };
+}
+
+/** TRACELY_VOICE_MONTHLY_SECONDS per account per usage month. Same rule as
+ *  the others for empty or junk (the default), but an explicit 0 means NO
+ *  monthly cap — unlike the daily and per-call variables, where 0 is voice
+ *  off. */
+export function voiceMonthlySeconds(env = process.env) {
+  return envSeconds(env.TRACELY_VOICE_MONTHLY_SECONDS, DEFAULT_MONTHLY_SECONDS);
+}
+
+/** TRACELY_VOICE_IDLE_SECONDS: silence on both sides before the server
+ *  closes a call. Empty or junk is the default; an explicit 0 turns the idle
+ *  close off (the per-call cap still bounds every call). */
+export function voiceIdleSeconds(env = process.env) {
+  return envSeconds(env.TRACELY_VOICE_IDLE_SECONDS, DEFAULT_IDLE_SECONDS);
+}
+
+// ── when allowances come back ─────────────────────────────────────────────
+
+/** When today's voice seconds reset, as ISO-8601: the next usage-day
+ *  boundary, i.e. the server's local midnight (shared/plan.js usageDay). */
+export function dayResetAt(at = Date.now()) {
+  const d = new Date(at);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();
+}
+
+/** When this month's voice seconds reset, as ISO-8601: 00:00 UTC on the 1st
+ *  of next month (shared/plan.js usageMonth is a UTC month). */
+export function monthResetAt(at = Date.now()) {
+  const d = new Date(at);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
 }
 
 // ── money ────────────────────────────────────────────────────────────────
@@ -240,6 +280,46 @@ export function attachSideband({ url, key, headers = {}, WebSocketImpl = globalT
   });
 }
 
+// ── when OpenAI's side is failing: a breaker and a per-caller limit ─────
+
+/* Every start that reaches OpenAI costs the pool a 15 s set-up when the
+ * sideband then fails, and a student pressing "Try again" during an outage
+ * would pay for each one. After BREAKER_FAILURES sideband attach failures
+ * within BREAKER_WINDOW_MS, starts answer 502 for BREAKER_OPEN_MS without
+ * calling OpenAI; then they're tried again (a success forgets the failures).
+ * Only a start's own attach counts: a live call's re-attach loop can fail for
+ * reasons of its own (the call ended at OpenAI). Process-wide, in memory. */
+export const BREAKER_FAILURES = 3;
+export const BREAKER_WINDOW_MS = 60_000;
+export const BREAKER_OPEN_MS = 120_000;
+/* And per caller: VOICE_FAILED_SETUPS failed set-ups (any start that asked
+ * OpenAI and got no call: a refusal, a timeout, no sideband) in
+ * VOICE_FAILED_SETUP_WINDOW_MS, then 429 rate_limit — one client can't
+ * hammer OpenAI with offers it rejects, and appRate's 30 a minute is too
+ * loose for a call that bills 15 s. */
+export const VOICE_FAILED_SETUPS = 5;
+export const VOICE_FAILED_SETUP_WINDOW_MS = 600_000;
+
+let sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+let breakerOpenUntil = 0;
+let failedSetups = keyedRateLimiter(VOICE_FAILED_SETUPS, VOICE_FAILED_SETUP_WINDOW_MS);
+
+function noteSidebandFailure(now = Date.now()) {
+  sidebandFailures.stamp();
+  if (sidebandFailures.ok()) return;
+  breakerOpenUntil = now + BREAKER_OPEN_MS;
+  sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+  console.error(`[tracely] voice: sideband breaker open for ${BREAKER_OPEN_MS / 1000} s after ${BREAKER_FAILURES} attach failures in ${BREAKER_WINDOW_MS / 1000} s`);
+}
+function noteSidebandSuccess() {
+  sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+}
+
+/** Whether starts are being refused without asking OpenAI (introspection, tests). */
+export function voiceBreakerOpen(now = Date.now()) {
+  return now < breakerOpenUntil;
+}
+
 // ── live sessions, metered ───────────────────────────────────────────────
 
 const live = new Map();  // caller key -> its one session (starting or open)
@@ -276,7 +356,8 @@ function newSession({ key, callerId, enforced, maxSeconds, id = null, createdAt 
     // session.close went out on an open sideband.
     closeWanted: false, closeSent: false, closeSentAt: null, finalized: false, reason: null,
     heard: "", steered: new Set(), // the safety window (in memory only) and the rules already sent
-    capTimer: null, closeTimer: null, retryTimer: null, backstopTimer: null, waiters: [],
+    idleSeconds: 0, lastTranscriptAt: null, // the idle close: when either side last said anything
+    capTimer: null, closeTimer: null, retryTimer: null, backstopTimer: null, idleTimer: null, waiters: [],
   };
 }
 
@@ -294,8 +375,8 @@ function unpersist(id) {
 }
 
 function clearTimers(s) {
-  for (const t of [s.capTimer, s.closeTimer, s.retryTimer, s.backstopTimer]) clearTimeout(t);
-  s.capTimer = s.closeTimer = s.retryTimer = s.backstopTimer = null;
+  for (const t of [s.capTimer, s.closeTimer, s.retryTimer, s.backstopTimer, s.idleTimer]) clearTimeout(t);
+  s.capTimer = s.closeTimer = s.retryTimer = s.backstopTimer = s.idleTimer = null;
 }
 
 /** A session that never reached the student: free the slot and the hold. */
@@ -345,8 +426,29 @@ function armCapGuard(s) {
   s.backstopTimer = unref(setTimeout(() => finalize(s, "deadline"), Math.max(0, deadlineOf(s) + CLOSE_WAIT_MS - Date.now())));
 }
 
+/* The idle close: when neither side has said anything (no transcript delta
+ * either way) for s.idleSeconds, the sideband sends session.close. A muted
+ * or forgotten window would otherwise bill to the cap ($0.75 and half a
+ * student's day); OpenAI's guide leaves inactivity to the application
+ * (guides/live-conversations, "Close idle sessions and resume"). One timer
+ * per idle window: when it fires early (words came since) it re-arms for the
+ * new deadline. Only times are kept here, never the words. */
+function armIdle(s) {
+  clearTimeout(s.idleTimer);
+  s.idleTimer = null;
+  if (s.finalized || !(s.idleSeconds > 0) || s.lastTranscriptAt == null) return;
+  const dueAt = () => s.lastTranscriptAt + s.idleSeconds * 1000;
+  s.idleTimer = unref(setTimeout(() => {
+    s.idleTimer = null;
+    if (s.finalized || s.closeWanted) return;
+    if (Date.now() < dueAt()) { armIdle(s); return; }
+    console.log(`[tracely] voice: closing a call with no words either way for ${s.idleSeconds} s`);
+    sendClose(s);
+  }, Math.max(0, dueAt() - Date.now())));
+}
+
 /* Charge once, whatever ended it: the app pool in micro-cents and the
- * account's voice seconds for the daily cap, both on what OpenAI bills (at
+ * account's voice seconds for the daily and monthly caps, both on what OpenAI bills (at
  * least VOICE_MIN_BILLED_SECONDS). Never account_ucents (see the top).
  * Only `session.closed` (confirmed) carries the real total. Otherwise the
  * meter is stale by design: a close that went out bills the wall clock since
@@ -370,7 +472,11 @@ function finalize(s, reason, { confirmed = false } = {}) {
     if (s.enforced) {
       const billed = billedSeconds(s.seconds);
       chargePool(voiceCostMicroCents(billed), at);
-      if (isDailyQuotaKey(s.callerId)) usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
+      if (isDailyQuotaKey(s.callerId)) {
+        // The day row (the daily cap) and the month row (the monthly one).
+        usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
+        usageAdd(s.callerId, usageMonth(at), VOICE_SECONDS_KIND, Math.ceil(billed));
+      }
     }
   } catch (e) {
     console.error("[tracely] could not record a voice session's spend:", e?.message);
@@ -433,7 +539,7 @@ function heard(s, delta) {
 /* Reflected audio (PCM16 at 24 kHz, both directions) is nearly all of the
  * sideband's traffic and is never read, so only frames that can name an
  * event we act on are parsed. */
-const WANTED = /"session\.(usage\.updated|closed|delegation\.created|input_transcript\.delta)"/;
+const WANTED = /"session\.(usage\.updated|closed|delegation\.created|input_transcript\.delta|output_transcript\.delta)"/;
 
 function onMessage(s, data) {
   if (s.finalized) return;
@@ -452,7 +558,10 @@ function onMessage(s, data) {
   } else if (ev?.type === "session.delegation.created" && typeof ev.delegation?.id === "string") {
     send(s, { type: "session.commentary.append", delegation_id: ev.delegation.id, content: DELEGATION_REPLY });
   } else if (ev?.type === "session.input_transcript.delta" && typeof ev.delta === "string") {
+    s.lastTranscriptAt = Date.now();
     heard(s, ev.delta);
+  } else if (ev?.type === "session.output_transcript.delta") {
+    s.lastTranscriptAt = Date.now(); // the model's words: only the time is kept
   }
 }
 
@@ -502,22 +611,64 @@ function reattachSoon(s) {
 
 let mockSessions = 0;
 
-/**
- * POST /api/voice/session. The order is the policy: feature switch, plan,
- * key, body, one-at-a-time, daily cap, then money held before OpenAI is
- * asked. `readBody` is a thunk so a refusal never needs the body.
- */
-export async function startSession({ gate, readBody, mock = false, env = process.env, fetchImpl, WebSocketImpl }) {
-  const limits = voiceLimits(env);
+/** The feature switch and the plan: the refusals that need neither the body
+ *  nor the ledger. */
+function checkSwitchAndPlan(gate, limits) {
   if (limits.maxSeconds <= 0 || limits.dailySeconds <= 0) {
     throw new CheckError("voice_off", "Voice conversations are turned off on this server.", { status: 503 });
   }
-  const enforced = Boolean(gate?.ent?.enforced);
   // The billing plan, not effectivePlan: a Pro account over its fair-use
   // limit is still paying for Pro, and voice has its own daily cap.
-  if (enforced && planRank(gate.ent.plan) < planRank("pro")) {
+  if (gate?.ent?.enforced && planRank(gate.ent.plan) < planRank("pro")) {
     throw new CheckError("plan_limit", "Voice is part of Pro.", { status: 429 });
   }
+}
+
+/**
+ * What the caller may still talk: today's seconds (usageDay row), this
+ * month's (usageMonth row, the source-search month pattern) and when today's
+ * come back. Only an enforced caller with a quota identity is metered; a
+ * local server answers the configured allowances untouched.
+ * `remainingMonthSeconds` is null when there is no monthly cap
+ * (TRACELY_VOICE_MONTHLY_SECONDS=0).
+ */
+export function voiceAllowance(gate, env = process.env, at = Date.now()) {
+  const { dailySeconds } = voiceLimits(env);
+  const monthlySeconds = voiceMonthlySeconds(env);
+  const metered = Boolean(gate?.ent?.enforced) && isDailyQuotaKey(gate?.callerId);
+  const used = (period) => (metered ? usageCount(gate.callerId, period, VOICE_SECONDS_KIND) : 0);
+  return {
+    remainingSeconds: Math.max(0, dailySeconds - used(usageDay(at))),
+    remainingMonthSeconds: monthlySeconds > 0 ? Math.max(0, monthlySeconds - used(usageMonth(at))) : null,
+    resetAt: dayResetAt(at),
+  };
+}
+
+/** The allowance, refused when less than one billed minimum (15 s) is left:
+ *  the month first when both are spent, since it comes back later. Returns
+ *  the allowance and the longest call it allows. */
+function checkAllowance(gate, env, limits, at = Date.now()) {
+  const a = voiceAllowance(gate, env, at);
+  if (a.remainingMonthSeconds !== null && a.remainingMonthSeconds < VOICE_MIN_BILLED_SECONDS) {
+    throw new CheckError("voice_monthly", "You've used this month's voice minutes. They come back on the 1st.", { status: 429, resetAt: monthResetAt(at) });
+  }
+  if (a.remainingSeconds < VOICE_MIN_BILLED_SECONDS) {
+    throw new CheckError("voice_daily", "You've used today's voice time. It resets at midnight.", { status: 429, resetAt: a.resetAt });
+  }
+  const maxSeconds = Math.min(limits.maxSeconds, a.remainingSeconds, a.remainingMonthSeconds ?? Infinity);
+  return { allowance: a, maxSeconds };
+}
+
+/**
+ * POST /api/voice/session. The order is the policy: feature switch, plan,
+ * key, body, one-at-a-time, the day's and the month's seconds, the breaker
+ * and the caller's failed set-ups, then money held before OpenAI is asked.
+ * `readBody` is a thunk so a refusal never needs the body.
+ */
+export async function startSession({ gate, readBody, mock = false, env = process.env, fetchImpl, WebSocketImpl }) {
+  const limits = voiceLimits(env);
+  checkSwitchAndPlan(gate, limits);
+  const enforced = Boolean(gate?.ent?.enforced);
   const key = String(env.OPENAI_API_KEY ?? "").trim();
   if (!key && !mock) {
     throw new CheckError("no_key", "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env", { status: 503 });
@@ -526,18 +677,20 @@ export async function startSession({ gate, readBody, mock = false, env = process
   const voice = { id: request.voiceId, name: VOICE_PERSONAS[request.voiceId].name };
   if (live.has(callerKeyOf(gate))) throw busy();
 
-  let remainingSeconds = limits.dailySeconds;
-  if (enforced && isDailyQuotaKey(gate.callerId)) {
-    remainingSeconds = Math.max(0, limits.dailySeconds - usageCount(gate.callerId, usageDay(), VOICE_SECONDS_KIND));
-    if (remainingSeconds < VOICE_MIN_BILLED_SECONDS) {
-      throw new CheckError("voice_daily", "You've used today's voice time. It resets at midnight.", { status: 429 });
-    }
+  const { allowance: { remainingSeconds, remainingMonthSeconds, resetAt }, maxSeconds } = checkAllowance(gate, env, limits);
+  const quota = { maxSeconds, remainingSeconds, remainingMonthSeconds, resetAt };
+  if (mock) return { mock: true, sessionId: `mock_${++mockSessions}`, voice, ...quota };
+
+  // OpenAI's side is failing (the breaker), or this caller's starts keep
+  // failing: refuse before anything is asked or held.
+  if (voiceBreakerOpen()) throw upstream("breaker_open");
+  if (!failedSetups.ok(callerKeyOf(gate))) {
+    throw new CheckError("rate_limit", "Too many voice calls failed to start. Try again in a few minutes.", { status: 429, retryAfter: VOICE_FAILED_SETUP_WINDOW_MS / 1000 });
   }
-  const maxSeconds = Math.min(limits.maxSeconds, remainingSeconds);
-  if (mock) return { mock: true, sessionId: `mock_${++mockSessions}`, voice, maxSeconds, remainingSeconds };
 
   const s = claim(gate, maxSeconds);
   let created = false;
+  let asked = false;
   try {
     if (enforced) {
       if (!poolRoom({ pool: "app", env }).room) {
@@ -546,26 +699,59 @@ export async function startSession({ gate, readBody, mock = false, env = process
       s.reservation = reserveSpend("app", voiceCostMicroCents(billedSeconds(maxSeconds)));
     }
     const safetyId = safetyIdentifier(gate?.callerId, env.TRACELY_SAFETY_ID_SECRET ?? "");
+    asked = true;
     const { id, sdp } = await startLiveSession({ key, body: buildSessionBody(request), safetyId, fetchImpl });
     created = true;
     s.createdAt = Date.now();
     // "Include the same connection headers required when creating the session."
     const headers = safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {};
     s.reattach = () => attachSideband({ url: attachUrl(id), key, headers, WebSocketImpl });
-    const ws = await s.reattach();
+    const ws = await s.reattach().catch((err) => { noteSidebandFailure(); throw err; });
+    noteSidebandSuccess();
     s.id = id;
     byId.set(id, s);
     listen(s, ws);
     armCapGuard(s);
+    s.idleSeconds = voiceIdleSeconds(env);
+    s.lastTranscriptAt = s.createdAt; // silence is counted from the start
+    armIdle(s);
     persist(s);
-    return { sdp, sessionId: id, voice, maxSeconds, remainingSeconds };
+    return { sdp, sessionId: id, voice, ...quota };
   } catch (err) {
     // OpenAI billed (or may have billed: a timeout, a dropped or unreadable
     // answer) the 15 s set-up of a session we never handed out: the pool
     // pays it; the student isn't charged for our failure.
     if (enforced && (created || err?.ambiguous)) chargePool(voiceCostMicroCents(VOICE_MIN_BILLED_SECONDS), Date.now());
+    if (asked) failedSetups.stamp(s.key);
     abandon(s);
     throw err;
+  }
+}
+
+/* A refusal's kind → the eligibility answer's `reason`. */
+const ELIGIBILITY_REASON = Object.freeze({
+  plan_limit: "plan", voice_daily: "daily-limit", voice_monthly: "monthly-limit", voice_off: "off", voice_busy: "busy",
+});
+
+/**
+ * POST /api/voice/eligibility: would a call start now? The same checks as
+ * startSession in the same order — switch, plan, one-at-a-time, the day and
+ * the month — with no body, no key, no OpenAI call and nothing reserved, so
+ * the desktop can ask before the consent sheet and the microphone prompt.
+ * → {allowed:true, maxSeconds, remainingSeconds, remainingMonthSeconds, resetAt}
+ * | {allowed:false, reason, message, resetAt?} (resetAt on the two limits).
+ */
+export function checkEligibility({ gate, env = process.env, at = Date.now() }) {
+  try {
+    const limits = voiceLimits(env);
+    checkSwitchAndPlan(gate, limits);
+    if (live.has(callerKeyOf(gate))) throw busy();
+    const { allowance, maxSeconds } = checkAllowance(gate, env, limits, at);
+    return { allowed: true, maxSeconds, ...allowance };
+  } catch (err) {
+    const reason = err instanceof CheckError ? ELIGIBILITY_REASON[err.kind] : undefined;
+    if (!reason) throw err;
+    return { allowed: false, reason, message: err.message, ...(err.resetAt ? { resetAt: err.resetAt } : {}) };
   }
 }
 
@@ -656,6 +842,11 @@ export function resumeOpenSessions({ env = process.env, WebSocketImpl } = {}) {
     const safetyId = safetyIdentifier(s.callerId, env.TRACELY_SAFETY_ID_SECRET ?? "");
     s.reattach = () => attachSideband({ url: attachUrl(s.id), key, headers: safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {}, WebSocketImpl });
     armCapGuard(s);
+    // A resumed call gets a fresh idle window: what was said before the
+    // restart is unknown.
+    s.idleSeconds = voiceIdleSeconds(env);
+    s.lastTranscriptAt = Date.now();
+    armIdle(s);
     reattachSoon(s);
   }
   if (rows.length) console.log(`[tracely] voice: resuming ${rows.length} call(s) left open by the last process`);
@@ -675,4 +866,7 @@ export function _resetVoiceForTests() {
   byId.clear();
   ended.clear();
   mockSessions = 0;
+  sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+  breakerOpenUntil = 0;
+  failedSetups = keyedRateLimiter(VOICE_FAILED_SETUPS, VOICE_FAILED_SETUP_WINDOW_MS);
 }
