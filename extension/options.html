@@ -231,6 +231,8 @@
   .autosrc input:disabled { opacity: .5; cursor: not-allowed; }
 
   ul { list-style: none; }
+  /* An empty list takes no gap of its own above the "None yet" box. */
+  #sites:empty { display: none; }
   li {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.5; color: var(--text);
