@@ -2008,10 +2008,15 @@ textarea:disabled {
 .docedit-legend {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  /* Shrinks (its labels ellipsize) rather than wrapping onto a second status
+     row, which would sit over the prose's 72px foot clearance. */
+  flex: 1 1 0;
   min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
   height: var(--ctl-h-sm);
-  padding: 0 8px;
+  padding: 0 4px;
   border-radius: var(--r-ctl);
   background: var(--surface);
   font-size: 11px;
