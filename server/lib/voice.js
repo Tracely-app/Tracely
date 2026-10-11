@@ -36,6 +36,7 @@ import { CheckError } from "./errors.js";
 import { usageAdd, usageCount, voiceOpenPut, voiceOpenDelete, voiceOpenAll } from "./db.js";
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
 import { isDailyQuotaKey } from "./entitlement.js";
+import { rollingCounter, keyedRateLimiter } from "../shared/guards.js";
 import { usageDay, usageMonth, planRank } from "../shared/plan.js";
 import { VOICE_PERSONAS, buildInstructions, draftInput, isVoiceId } from "./voices.js";
 
@@ -277,6 +278,46 @@ export function attachSideband({ url, key, headers = {}, WebSocketImpl = globalT
     ws.addEventListener("error", () => fail("sideband"));
     ws.addEventListener("close", () => fail("sideband"));
   });
+}
+
+// ── when OpenAI's side is failing: a breaker and a per-caller limit ─────
+
+/* Every start that reaches OpenAI costs the pool a 15 s set-up when the
+ * sideband then fails, and a student pressing "Try again" during an outage
+ * would pay for each one. After BREAKER_FAILURES sideband attach failures
+ * within BREAKER_WINDOW_MS, starts answer 502 for BREAKER_OPEN_MS without
+ * calling OpenAI; then they're tried again (a success forgets the failures).
+ * Only a start's own attach counts: a live call's re-attach loop can fail for
+ * reasons of its own (the call ended at OpenAI). Process-wide, in memory. */
+export const BREAKER_FAILURES = 3;
+export const BREAKER_WINDOW_MS = 60_000;
+export const BREAKER_OPEN_MS = 120_000;
+/* And per caller: VOICE_FAILED_SETUPS failed set-ups (any start that asked
+ * OpenAI and got no call: a refusal, a timeout, no sideband) in
+ * VOICE_FAILED_SETUP_WINDOW_MS, then 429 rate_limit — one client can't
+ * hammer OpenAI with offers it rejects, and appRate's 30 a minute is too
+ * loose for a call that bills 15 s. */
+export const VOICE_FAILED_SETUPS = 5;
+export const VOICE_FAILED_SETUP_WINDOW_MS = 600_000;
+
+let sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+let breakerOpenUntil = 0;
+let failedSetups = keyedRateLimiter(VOICE_FAILED_SETUPS, VOICE_FAILED_SETUP_WINDOW_MS);
+
+function noteSidebandFailure(now = Date.now()) {
+  sidebandFailures.stamp();
+  if (sidebandFailures.ok()) return;
+  breakerOpenUntil = now + BREAKER_OPEN_MS;
+  sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+  console.error(`[tracely] voice: sideband breaker open for ${BREAKER_OPEN_MS / 1000} s after ${BREAKER_FAILURES} attach failures in ${BREAKER_WINDOW_MS / 1000} s`);
+}
+function noteSidebandSuccess() {
+  sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+}
+
+/** Whether starts are being refused without asking OpenAI (introspection, tests). */
+export function voiceBreakerOpen(now = Date.now()) {
+  return now < breakerOpenUntil;
 }
 
 // ── live sessions, metered ───────────────────────────────────────────────
@@ -595,8 +636,9 @@ function checkAllowance(gate, env, limits, at = Date.now()) {
 
 /**
  * POST /api/voice/session. The order is the policy: feature switch, plan,
- * key, body, one-at-a-time, daily cap, then money held before OpenAI is
- * asked. `readBody` is a thunk so a refusal never needs the body.
+ * key, body, one-at-a-time, the day's and the month's seconds, the breaker
+ * and the caller's failed set-ups, then money held before OpenAI is asked.
+ * `readBody` is a thunk so a refusal never needs the body.
  */
 export async function startSession({ gate, readBody, mock = false, env = process.env, fetchImpl, WebSocketImpl }) {
   const limits = voiceLimits(env);
@@ -614,8 +656,16 @@ export async function startSession({ gate, readBody, mock = false, env = process
   const quota = { maxSeconds, remainingSeconds, remainingMonthSeconds, resetAt };
   if (mock) return { mock: true, sessionId: `mock_${++mockSessions}`, voice, ...quota };
 
+  // OpenAI's side is failing (the breaker), or this caller's starts keep
+  // failing: refuse before anything is asked or held.
+  if (voiceBreakerOpen()) throw upstream("breaker_open");
+  if (!failedSetups.ok(callerKeyOf(gate))) {
+    throw new CheckError("rate_limit", "Too many voice calls failed to start. Try again in a few minutes.", { status: 429, retryAfter: VOICE_FAILED_SETUP_WINDOW_MS / 1000 });
+  }
+
   const s = claim(gate, maxSeconds);
   let created = false;
+  let asked = false;
   try {
     if (enforced) {
       if (!poolRoom({ pool: "app", env }).room) {
@@ -624,13 +674,15 @@ export async function startSession({ gate, readBody, mock = false, env = process
       s.reservation = reserveSpend("app", voiceCostMicroCents(billedSeconds(maxSeconds)));
     }
     const safetyId = safetyIdentifier(gate?.callerId, env.TRACELY_SAFETY_ID_SECRET ?? "");
+    asked = true;
     const { id, sdp } = await startLiveSession({ key, body: buildSessionBody(request), safetyId, fetchImpl });
     created = true;
     s.createdAt = Date.now();
     // "Include the same connection headers required when creating the session."
     const headers = safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {};
     s.reattach = () => attachSideband({ url: attachUrl(id), key, headers, WebSocketImpl });
-    const ws = await s.reattach();
+    const ws = await s.reattach().catch((err) => { noteSidebandFailure(); throw err; });
+    noteSidebandSuccess();
     s.id = id;
     byId.set(id, s);
     listen(s, ws);
@@ -642,6 +694,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
     // answer) the 15 s set-up of a session we never handed out: the pool
     // pays it; the student isn't charged for our failure.
     if (enforced && (created || err?.ambiguous)) chargePool(voiceCostMicroCents(VOICE_MIN_BILLED_SECONDS), Date.now());
+    if (asked) failedSetups.stamp(s.key);
     abandon(s);
     throw err;
   }
@@ -780,4 +833,7 @@ export function _resetVoiceForTests() {
   byId.clear();
   ended.clear();
   mockSessions = 0;
+  sidebandFailures = rollingCounter(BREAKER_FAILURES, BREAKER_WINDOW_MS);
+  breakerOpenUntil = 0;
+  failedSetups = keyedRateLimiter(VOICE_FAILED_SETUPS, VOICE_FAILED_SETUP_WINDOW_MS);
 }

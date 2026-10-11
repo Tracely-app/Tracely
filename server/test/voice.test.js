@@ -670,3 +670,85 @@ test("eligibility: each refusal as {allowed:false, reason, message}, resetAt on 
   const bad = await (async () => { try { V.checkEligibility({ gate: { get ent() { throw new TypeError("boom"); } }, env: ENV }); } catch (e) { return e; } })();
   assert.ok(bad instanceof TypeError, "anything that isn't a voice refusal is still an error");
 });
+
+// ── the sideband breaker and the per-caller limit on failed set-ups ──────
+
+test("breaker: 3 sideband attach failures in 60 s → 502 upstream for 120 s with no OpenAI call; then tried again", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  FakeWS.mode = "error";
+  for (const name of ["br-a", "br-b"]) await assert.rejects(start(gateFor("pro", name)), (e) => e.reason === "sideband");
+  t.mock.timers.tick(59_000);
+  assert.equal(V.voiceBreakerOpen(), false, "two failures: still closed");
+  await assert.rejects(start(gateFor("pro", "br-c")), (e) => e.reason === "sideband");
+  assert.equal(V.voiceBreakerOpen(), true, "the third within 60 s opens it");
+
+  FakeWS.mode = "open";
+  const before = { fetches: fetches.length, sockets: FakeWS.all.length };
+  const err = await start(gateFor("pro", "br-d")).catch((e) => e);
+  assert.equal(err.status, 502);
+  assert.equal(err.kind, "upstream");
+  assert.equal(err.reason, "breaker_open");
+  assert.deepEqual({ fetches: fetches.length, sockets: FakeWS.all.length }, before, "OpenAI never asked");
+  assert.equal(reservedMicroCents("app"), 0, "nothing held");
+  assert.equal(V.liveSessionCount(), 0, "no slot claimed");
+  await assert.rejects(start(gateFor("free", "br-e")), (e) => e.kind === "plan_limit", "policy refusals still come first");
+
+  t.mock.timers.tick(V.BREAKER_OPEN_MS - 1); // 120 s from the failure that opened it
+  assert.equal(V.voiceBreakerOpen(), true);
+  t.mock.timers.tick(1);
+  assert.equal(V.voiceBreakerOpen(), false, "closed after 120 s");
+  const out = await start(gateFor("pro", "br-d"));
+  assert.match(out.sessionId, /^live_/);
+});
+
+test("breaker: failures spread over more than 60 s, or a success between them, don't open it; re-attaches don't count", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  FakeWS.mode = "error";
+  await assert.rejects(start(gateFor("pro", "sp-a")));
+  await assert.rejects(start(gateFor("pro", "sp-b")));
+  t.mock.timers.tick(61_000);
+  await assert.rejects(start(gateFor("pro", "sp-c")));
+  assert.equal(V.voiceBreakerOpen(), false, "the first fell out of the window");
+  FakeWS.mode = "open";
+  await start(gateFor("pro", "sp-ok"));
+  const okWS = lastWS();
+  FakeWS.mode = "error";
+  await assert.rejects(start(gateFor("pro", "sp-d")));
+  assert.equal(V.voiceBreakerOpen(), false, "a success forgets the earlier failures");
+
+  const before = FakeWS.all.length;
+  okWS.close(); // the live call's sideband drops and can't come back
+  for (let i = 0; i < 4; i++) { t.mock.timers.tick(5000); await tick(); }
+  assert.ok(FakeWS.all.length - before >= 3, "it kept re-attaching (and failing)");
+  assert.equal(V.voiceBreakerOpen(), false, "a live call's failed re-attaches are its own business");
+});
+
+test("per caller: 5 failed set-ups in 10 minutes → 429 rate_limit before OpenAI is asked; others unaffected", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const refused = async () => new Response(JSON.stringify({ error: { code: "invalid_sdp" } }), { status: 400 }); // a clean refusal: no breaker
+  const tryWith = (name, fetchImpl = refused) =>
+    V.startSession({ gate: gateFor("pro", name), env: ENV, readBody: async () => ({ sdp: SDP, voiceId: "wren" }), fetchImpl, WebSocketImpl: FakeWS });
+  let asked = 0;
+  const counting = async (...a) => { asked++; return refused(...a); };
+  for (let i = 0; i < V.VOICE_FAILED_SETUPS; i++) await assert.rejects(tryWith("lim", counting), (e) => e.status === 502);
+  assert.equal(V.voiceBreakerOpen(), false, "a clean refusal is not a sideband failure");
+  const err = await tryWith("lim", counting).catch((e) => e);
+  assert.equal(err.status, 429);
+  assert.equal(err.kind, "rate_limit");
+  assert.equal(err.message, "Too many voice calls failed to start. Try again in a few minutes.");
+  assert.equal(err.retryAfter, 600);
+  assert.equal(asked, V.VOICE_FAILED_SETUPS, "the sixth never reached OpenAI");
+  assert.equal(reservedMicroCents("app"), 0);
+  await assert.rejects(tryWith("other"), (e) => e.status === 502, "another caller still gets through to OpenAI");
+  t.mock.timers.tick(V.VOICE_FAILED_SETUP_WINDOW_MS);
+  await assert.rejects(tryWith("lim", counting), (e) => e.status === 502, "the window passed: OpenAI is asked again");
+  assert.equal(asked, V.VOICE_FAILED_SETUPS + 1);
+  // Refusals before OpenAI is asked (busy, the daily cap) are not failed set-ups.
+  const pro = gateFor("pro", "lim-busy");
+  const first = await start(pro);
+  for (let i = 0; i < 8; i++) await assert.rejects(start(pro), (e) => e.kind === "voice_busy");
+  const ending = V.endSession({ gate: pro, body: { sessionId: first.sessionId } });
+  lastWS().emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 20 } });
+  await ending;
+  assert.match((await start(pro)).sessionId, /^live_/, "eight busy refusals counted for nothing");
+});
