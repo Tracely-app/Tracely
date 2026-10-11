@@ -23,15 +23,17 @@
  * price is its own constant here, NOT shared/prices.js or MODEL_TIERS
  * (test/models.test.js pins those).
  *
- * In memory on purpose, like spend.js's reservations: a restart drops every
- * live meter (server/DEPLOY.md). The client hangs up on its own timer anyway.
+ * The meter lives in memory, but a restart can't un-meter a call: SIGTERM
+ * closes and charges every open call (shutdownVoice), and each call handed
+ * out has a voice_open row until it is charged, which the next boot resumes
+ * after a crash (resumeOpenSessions; server/DEPLOY.md).
  *
  * Docs read 2026-10-10 (developers.openai.com/api/docs/guides/voice-webrtc,
  * live-conversations, voice-server-controls, live-delegation; reference
  * resources/live/sideband-websocket). */
 import { createHash } from "node:crypto";
 import { CheckError } from "./errors.js";
-import { usageAdd, usageCount } from "./db.js";
+import { usageAdd, usageCount, voiceOpenPut, voiceOpenDelete, voiceOpenAll } from "./db.js";
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
 import { isDailyQuotaKey } from "./entitlement.js";
 import { usageDay, planRank } from "../shared/plan.js";
@@ -241,19 +243,36 @@ function busy() {
 }
 
 /** Take the caller's one slot, synchronously (no await between check and set). */
-function claim(gate, voiceId, maxSeconds) {
+function claim(gate, maxSeconds) {
   const key = callerKeyOf(gate);
   if (live.has(key)) throw busy();
-  const s = {
-    key, callerId: gate?.callerId ?? null, enforced: Boolean(gate?.ent?.enforced), voiceId, maxSeconds,
-    id: null, ws: null, reattach: null, attempts: 0, seconds: 0, createdAt: null, reservation: null,
+  const s = newSession({ key, callerId: gate?.callerId ?? null, enforced: Boolean(gate?.ent?.enforced), maxSeconds });
+  live.set(key, s);
+  return s;
+}
+
+function newSession({ key, callerId, enforced, maxSeconds, id = null, createdAt = null }) {
+  return {
+    key, callerId, enforced, maxSeconds,
+    id, ws: null, reattach: null, attempts: 0, seconds: 0, createdAt, reservation: null,
     // closeWanted: we asked for the end (cap, /end, shutdown); closeSent: and
     // session.close went out on an open sideband.
     closeWanted: false, closeSent: false, finalized: false, reason: null,
     capTimer: null, closeTimer: null, retryTimer: null, waiters: [],
   };
-  live.set(key, s);
-  return s;
+}
+
+/* The open call's row (db.js voice_open): a crash leaves it for the next boot
+ * (resumeOpenSessions). Bookkeeping must never fail a call or a charge. */
+function persist(s) {
+  try {
+    voiceOpenPut({ sessionId: s.id, callerKey: s.key, callerId: s.callerId, createdAt: s.createdAt, maxSeconds: s.maxSeconds, enforced: s.enforced });
+  } catch (e) {
+    console.error("[tracely] could not record an open voice session:", e?.message);
+  }
+}
+function unpersist(id) {
+  try { voiceOpenDelete(id); } catch (e) { console.error("[tracely] could not clear an open voice session:", e?.message); }
 }
 
 function clearTimers(s) {
@@ -333,6 +352,7 @@ function finalize(s, reason, { confirmed = false } = {}) {
   }
   if (live.get(s.key) === s) live.delete(s.key);
   if (s.id) {
+    unpersist(s.id);
     byId.delete(s.id);
     ended.set(s.id, { key: s.key, seconds: Math.round(s.seconds) });
     if (ended.size > ENDED_KEEP) ended.delete(ended.keys().next().value);
@@ -446,7 +466,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
   const maxSeconds = Math.min(limits.maxSeconds, remainingSeconds);
   if (mock) return { mock: true, sessionId: `mock_${++mockSessions}`, voice, maxSeconds, remainingSeconds };
 
-  const s = claim(gate, request.voiceId, maxSeconds);
+  const s = claim(gate, maxSeconds);
   let created = false;
   try {
     if (enforced) {
@@ -467,6 +487,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
     byId.set(id, s);
     listen(s, ws);
     armCapGuard(s);
+    persist(s);
     return { sdp, sessionId: id, voice, maxSeconds, remainingSeconds };
   } catch (err) {
     // OpenAI billed the 15 s set-up of a session we never handed out: the
@@ -509,6 +530,67 @@ export async function endSession({ gate, body, waitMs = 3000 }) {
   return { seconds: Math.round(Math.max(s.seconds, (Date.now() - s.createdAt) / 1000)) };
 }
 
+// ── restarts: never an un-metered call ───────────────────────────────────
+
+/**
+ * SIGTERM/SIGINT (server.js): close every open call, wait up to `waitMs` for
+ * `session.closed`, and charge what is left on the wall clock ("shutdown").
+ * A call whose close could not go out (its sideband was down) is not
+ * charged here: its voice_open row stays for the next boot, which resumes
+ * it. "Restart the server to reset the meter" must not be a way out
+ * (lib/spend.js says the same of the budget).
+ */
+export async function shutdownVoice({ waitMs = 2000 } = {}) {
+  const open = [...byId.values()].filter((s) => !s.finalized);
+  for (const s of open) sendClose(s);
+  await new Promise((resolve) => {
+    let left = open.length;
+    if (!left) return resolve();
+    const t = unref(setTimeout(resolve, waitMs));
+    for (const s of open) s.waiters.push(() => { if (--left === 0) { clearTimeout(t); resolve(); } });
+  });
+  let charged = 0, kept = 0;
+  for (const s of open) {
+    if (s.finalized) { charged++; continue; }
+    if (s.closeSent) { finalize(s, "shutdown"); charged++; continue; }
+    abandon(s); // the row stays: resumeOpenSessions picks it up
+    byId.delete(s.id);
+    kept++;
+  }
+  return { charged, kept };
+}
+
+/**
+ * At boot (server.js): every voice_open row is a call the last process never
+ * charged (a crash, or a close that couldn't go out at shutdown). Re-attach
+ * to each to resume the meter, the cap guard and the close — the same loop
+ * as a lost sideband, so one that never answers is billed its cap once it
+ * can no longer be running. A row already past that point (or with no key
+ * to attach with) is charged its cap at once.
+ */
+export function resumeOpenSessions({ env = process.env, WebSocketImpl } = {}) {
+  let rows = [];
+  try { rows = voiceOpenAll(); } catch (e) { console.error("[tracely] could not read open voice sessions:", e?.message); }
+  const key = String(env.OPENAI_API_KEY ?? "").trim();
+  for (const r of rows) {
+    if (byId.has(r.session_id)) continue;
+    const s = newSession({
+      key: r.caller_key, callerId: r.caller_id, enforced: Boolean(r.enforced), maxSeconds: Number(r.max_seconds) || 0,
+      id: r.session_id, createdAt: Number(r.created_at) || 0,
+    });
+    if (!key || Date.now() > deadlineOf(s)) { finalize(s, "resumed_expired"); continue; }
+    if (!live.has(s.key)) live.set(s.key, s);
+    byId.set(s.id, s);
+    if (s.enforced) s.reservation = reserveSpend("app", voiceCostMicroCents(billedSeconds(s.maxSeconds)));
+    const safetyId = safetyIdentifier(s.callerId);
+    s.reattach = () => attachSideband({ url: attachUrl(s.id), key, headers: safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {}, WebSocketImpl });
+    armCapGuard(s);
+    reattachSoon(s);
+  }
+  if (rows.length) console.log(`[tracely] voice: resuming ${rows.length} call(s) left open by the last process`);
+  return rows.length;
+}
+
 /** For tests and /api/status-style introspection: how many sessions are live. */
 export function liveSessionCount() {
   return live.size;
@@ -516,7 +598,8 @@ export function liveSessionCount() {
 
 /** Tests only: forget every session without charging. */
 export function _resetVoiceForTests() {
-  for (const s of live.values()) abandon(s);
+  for (const s of [...live.values(), ...byId.values()]) abandon(s);
+  for (const r of voiceOpenAll()) voiceOpenDelete(r.session_id);
   live.clear();
   byId.clear();
   ended.clear();

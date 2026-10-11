@@ -341,6 +341,83 @@ test("usage events that never come: the wall-clock guard closes, and an unconfir
   assert.equal(usageCount("user:u-stale", today(), "voice_seconds"), 300 + V.CAP_GRACE_SECONDS + V.CLOSE_WAIT_MS / 1000, "the wall clock, not the stale 10 s");
 });
 
+test("an open call has a voice_open row until it is charged", async () => {
+  const { voiceOpenAll } = await import("../lib/db.js");
+  const gate = gateFor("pro", "row");
+  const out = await start(gate, {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "600" });
+  const [row] = voiceOpenAll();
+  assert.deepEqual({ ...row, created_at: typeof row.created_at }, {
+    session_id: out.sessionId, caller_key: "user:u-row", caller_id: "user:u-row", created_at: "number", max_seconds: 600, enforced: 1,
+  });
+  lastWS().emit({ type: "session.closed", reason: "client_hangup", usage: { seconds: 20 } });
+  assert.deepEqual(voiceOpenAll(), []);
+});
+
+test("shutdown: every open call is closed and charged, on the wall clock when unconfirmed", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const { voiceOpenAll } = await import("../lib/db.js");
+  await start(gateFor("pro", "sd-a"));
+  const a = lastWS();
+  await start(gateFor("pro", "sd-b"));
+  const b = lastWS();
+  t.mock.timers.tick(60_000);
+  const down = V.shutdownVoice({ waitMs: 2000 });
+  assert.deepEqual(a.types(), ["session.close"]);
+  assert.deepEqual(b.types(), ["session.close"]);
+  a.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 58.5 } });
+  t.mock.timers.tick(2000); // b never confirms
+  assert.deepEqual(await down, { charged: 2, kept: 0 });
+  assert.equal(usageCount("user:u-sd-a", today(), "voice_seconds"), 59, "confirmed: the real seconds");
+  assert.equal(usageCount("user:u-sd-b", today(), "voice_seconds"), 62, "unconfirmed: the wall clock");
+  assert.deepEqual(voiceOpenAll(), []);
+  assert.equal(V.liveSessionCount(), 0);
+});
+
+test("shutdown with the sideband down keeps the row; the next boot re-attaches and meters the call", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const { voiceOpenAll } = await import("../lib/db.js");
+  const gate = gateFor("pro", "resume");
+  const out = await start(gate);
+  FakeWS.mode = "hang";
+  lastWS().close();
+  const down = V.shutdownVoice({ waitMs: 2000 });
+  t.mock.timers.tick(2000);
+  assert.deepEqual(await down, { charged: 0, kept: 1 });
+  assert.equal(usageCount("user:u-resume", today(), "voice_seconds"), 0, "not charged twice: the next boot charges it");
+  assert.equal(voiceOpenAll().length, 1);
+  assert.equal(V.liveSessionCount(), 0);
+  // The next process (here: the same module, everything in memory dropped).
+  FakeWS.mode = "open";
+  t.mock.timers.tick(30_000);
+  assert.equal(V.resumeOpenSessions({ env: ENV, WebSocketImpl: FakeWS }), 1);
+  await tick();
+  const ws = lastWS();
+  assert.equal(ws.url, V.attachUrl(out.sessionId));
+  assert.equal(ws.opts.headers["OpenAI-Safety-Identifier"], V.safetyIdentifier("user:u-resume"));
+  await assert.rejects(start(gate), (e) => e.kind === "voice_busy", "the slot is claimed again");
+  assert.equal(reservedMicroCents("app"), 75_000_000);
+  const ending = V.endSession({ gate, body: { sessionId: out.sessionId } });
+  assert.deepEqual(ws.types(), ["session.close"], "the resumed call can be ended");
+  ws.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 80 } });
+  assert.deepEqual(await ending, { seconds: 80 });
+  assert.equal(usageCount("user:u-resume", today(), "voice_seconds"), 80);
+  assert.deepEqual(voiceOpenAll(), []);
+  assert.equal(reservedMicroCents("app"), 0);
+});
+
+test("boot: a leftover row already past its deadline is charged its cap at once", async () => {
+  const { voiceOpenPut, voiceOpenAll } = await import("../lib/db.js");
+  const pool0 = usageCount(SPEND_POOLS.app.account, today(), "spend_ucents");
+  voiceOpenPut({ sessionId: "live_old_1", callerKey: "user:u-crashed", callerId: "user:u-crashed", createdAt: Date.now() - 3600_000, maxSeconds: 300, enforced: true });
+  const before = FakeWS.all.length;
+  assert.equal(V.resumeOpenSessions({ env: ENV, WebSocketImpl: FakeWS }), 1);
+  assert.equal(FakeWS.all.length, before, "no attach for a call that can't be running");
+  assert.equal(usageCount("user:u-crashed", today(), "voice_seconds"), 300);
+  assert.equal(usageCount(SPEND_POOLS.app.account, today(), "spend_ucents") - pool0, V.voiceCostMicroCents(300));
+  assert.deepEqual(voiceOpenAll(), []);
+  assert.equal(V.liveSessionCount(), 0);
+});
+
 test("a local server (enforcement off): open to every plan, nothing metered", async () => {
   const out = await start(LOCAL);
   assert.equal(out.remainingSeconds, 1800);

@@ -375,11 +375,18 @@ is on; one open call per account.
   `TRACELY_APP_DAILY_BUDGET_USD` if voice is used. `/api/voice/end` is not
   behind appGate: a spent pool or the app rate limiter never refuses a
   hang-up.
-- **A restart drops every live meter.** A call open at restart is never
-  charged to the ledger (OpenAI still bills it) and keeps running until the
-  desktop's own timer or the student hangs up. Don't restart mid-afternoon
-  for nothing; `grep 'voice session ended' /var/log/tracely.log` shows the
-  calls that did finish.
+- **A restart can't un-meter a call.** On SIGTERM (`systemctl restart`)
+  or SIGINT the server sends `session.close` to every open call, waits up to
+  2 s for OpenAI's final seconds, charges the rest on the wall clock, then
+  exits — so a deploy ENDS every call in progress (the desktop says the call
+  ended). Each call handed out also has a `voice_open` row (session id,
+  caller, start, cap) until it is charged; after a crash (SIGKILL, OOM) the
+  next boot re-attaches to each leftover call and meters it as before,
+  logging `voice: resuming N call(s)`. One that never answers is billed its
+  cap once it can no longer be running (cap + 20 s after it started), and
+  holds that student's slot until then. Don't restart mid-afternoon for
+  nothing; `grep 'voice session ended' /var/log/tracely.log` shows each
+  call's end (`reason=shutdown`, `reason=resumed_expired`, …).
 - **Bandwidth**: the sideband receives a copy of both audio directions
   (PCM16 at 24 kHz, base64): 64 KB/s for the microphone, up to 130 KB/s
   while Tracer talks too, so up to ~115 MB per 15-minute call, inbound. It is streamed and dropped, never buffered, but it is real
@@ -456,7 +463,9 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
 - **Application log** (`/var/log/tracely.log`): route, kind, status, model —
   never text, emails, tokens or IPs.
 - **Voice conversations**: nothing but the `voice_seconds` and app-pool
-  counters above (voice is not added to `account_ucents`). Audio and transcripts reach the server only as
+  counters above (voice is not added to `account_ucents`), and while a call
+  is open its `voice_open` row (session id, caller id, start time, cap),
+  deleted when the call is charged. Audio and transcripts reach the server only as
   sideband frames it reads for usage and drops (lib/voice.js); one log line
   per call, `voice session ended reason=… seconds=…`, with no id. Rotate it: there is no logrotate entry
   yet (Apache's own logs rotate daily, 14 kept).

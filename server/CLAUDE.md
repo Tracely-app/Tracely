@@ -181,8 +181,12 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   still read. A dropped sideband (the only way to close a live session)
   re-attaches at once, then backing off 1, 2, 4… 30 s, until cap + 5 s +
   the 10 s close wait; the caller's slot stays claimed meanwhile and a close
-  asked for in the gap goes out on the new socket. A restart drops every
-  live meter (`DEPLOY.md`).
+  asked for in the gap goes out on the new socket.
+- **Restarts**: SIGTERM/SIGINT (server.js) closes and charges every open call
+  (`shutdownVoice`, ≤ 2 s); each handed-out call has a `voice_open` row
+  (db.js migration v4) until charged, and boot re-attaches to leftovers
+  (`resumeOpenSessions`) — "crash the server to reset the meter" is not a
+  way out (`DEPLOY.md`).
 - **Client-mode delegation** (`delegation: null`): when the model asks for
   help, the sideband answers with `session.thinking.append` ("no lookup tool")
   so it never waits on a tool that doesn't exist.

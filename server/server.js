@@ -1969,6 +1969,20 @@ const server = http.createServer(async (req, res) => {
 
 process.on("unhandledRejection", (err) => console.error("[tracely] unhandled rejection:", err));
 
+/* A deploy (systemctl restart) or Ctrl-C must not un-meter an open Tracer
+ * Voice call: close and charge each one (at most ~2 s), then exit. A call
+ * whose close couldn't go out keeps its voice_open row, and the next boot
+ * resumes it (voice.resumeOpenSessions below). A second signal exits at once. */
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.once(signal, () => {
+    server.close();
+    voice.shutdownVoice({ waitMs: 2000 })
+      .then(({ charged, kept }) => { if (charged || kept) console.log(`[tracely] voice: ${charged} call(s) charged at shutdown, ${kept} left for the next boot`); })
+      .catch((e) => console.error("[tracely] voice shutdown failed:", e?.message))
+      .finally(() => process.exit(0));
+  });
+}
+
 server.listen(PORT, "127.0.0.1", () => {
   /* Retention: usage counters are kept 13 months — long enough for a month
    * limit to be argued about, not forever. Swept at boot and once a day. */
@@ -1982,6 +1996,8 @@ server.listen(PORT, "127.0.0.1", () => {
   if (!hasApiKey() && !MOCK) {
     console.log("No OPENAI_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");
   }
+  // Tracer Voice calls the last process never charged (a crash): resume.
+  if (!MOCK) voice.resumeOpenSessions();
   // Screen Watch survives restarts: resume when the user left it on.
   if (process.platform === "darwin" && store.prefs.get().watchEnabled) {
     watch.setEnabled(true);

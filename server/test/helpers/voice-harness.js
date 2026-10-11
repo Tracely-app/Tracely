@@ -97,12 +97,13 @@ const freePort = () => new Promise((resolve, reject) => {
   probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
 });
 
-/** Boot server.js with the stub preloaded; resolves once /api/status answers. */
-export async function bootServer({ tmp, stub, env, serverJs }) {
+/** Boot server.js with the stub preloaded; resolves once /api/status answers.
+ *  `dataDir` reuses an earlier server's database (a restart). */
+export async function bootServer({ tmp, stub, env, serverJs, dataDir: reuse = null }) {
   const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SCRUB.includes(k)));
   for (let attempt = 0; attempt < 5; attempt++) {
     const port = await freePort();
-    const dataDir = mkdtempSync(path.join(tmp, "data-"));
+    const dataDir = reuse ?? mkdtempSync(path.join(tmp, "data-"));
     const child = spawn(process.execPath, ["--import", pathToFileURL(stub).href, serverJs], {
       env: { ...baseEnv, PORT: String(port), TRACELY_DATA_DIR: dataDir, ...env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -136,6 +137,16 @@ export function ledger(dataDir, account, kind) {
   const db = new DatabaseSync(path.join(dataDir, "tracely.db"));
   try {
     return db.prepare("SELECT count FROM entitlement_usage WHERE account_id = ? AND day = ? AND kind = ?").get(account, usageDay(Date.now()), kind)?.count ?? 0;
+  } finally {
+    db.close();
+  }
+}
+
+/** How many Tracer Voice calls a server's database still lists as open. */
+export function openVoiceRows(dataDir) {
+  const db = new DatabaseSync(path.join(dataDir, "tracely.db"));
+  try {
+    return db.prepare("SELECT COUNT(*) AS n FROM voice_open").get().n;
   } finally {
     db.close();
   }
