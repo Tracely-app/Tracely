@@ -1,0 +1,572 @@
+/* Tracer Voice — the voice view inside the Tracer panel (components/voice/*)
+ * and its two entry points in TracerChat. Imported by VoiceMode.tsx; the orb
+ * has its own sheet (voice-orb.css), and nothing here touches .voice-orb*.
+ *
+ * Layout rule: the orb never moves. The view is a column of fixed-height
+ * bands — chip, stage (the orb), status, bottom (captions + controls, or a
+ * notice) — so captions arriving, an error, or the call ending change what is
+ * in a band, never the band's height.
+ *
+ * Colour comes from the app tokens. The panel's light surfaces are the same
+ * hardcoded greys TracerChat uses (#f5f6f8 under #fff); dark swaps them for
+ * --bg / --surface, both ways dark is reachable, like the rest of the panel.
+ */
+
+.voice-mode {
+  --vm-bg: #f5f6f8;
+  --vm-raised: #ffffff;
+  --vm-line: #e4e6ea;
+  --vm-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--vm-bg);
+  color: var(--text);
+  outline: none;
+  overflow: hidden;
+}
+:root[data-theme='dark'] .voice-mode {
+  --vm-bg: var(--bg);
+  --vm-raised: var(--surface);
+  --vm-line: var(--border);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .voice-mode {
+    --vm-bg: var(--bg);
+    --vm-raised: var(--surface);
+    --vm-line: var(--border);
+  }
+}
+
+/* ── The persona chip ─────────────────────────────────────────────────── */
+
+/* Above the consent sheet's scrim: the voice can be changed before the first call. */
+.voice-top {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 16px 16px 0;
+}
+
+.voice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--vm-line);
+  border-radius: 16px;
+  background: var(--vm-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.voice-chip:hover:not(:disabled) { border-color: var(--accent); }
+.voice-chip:disabled { cursor: default; }
+.voice-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-gradient);
+}
+.voice-chip b { font-weight: 600; }
+.voice-chip-accent { color: var(--muted); }
+.voice-chip-caret { display: grid; color: var(--muted); }
+
+/* ── Stage and status ─────────────────────────────────────────────────── */
+
+/* The orb's layout box is 168px; its halo spills ~0.8× past it and takes no
+   space, so the stage leaves that room and nothing here clips it. */
+.voice-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.voice-status {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 46px;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.voice-state {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  animation: voice-fade 0.2s var(--vm-ease);
+}
+
+.voice-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.voice-meta-near { color: var(--score-mid); font-weight: 600; }
+.voice-demo {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── The bottom band: captions + controls, or a notice ───────────────── */
+
+.voice-bottom {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 216px;
+}
+
+/* Last few lines only, newest at the bottom, the older ones fading out
+   under the top edge. Fixed height, so captions never push the orb. */
+.voice-captions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 84px;
+  margin: 10px 22px 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 30px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 30px);
+}
+.voice-caption {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: center;
+  overflow-wrap: anywhere;
+  animation: voice-fade 0.2s var(--vm-ease);
+}
+.voice-caption-assistant { color: var(--text); }
+.voice-caption-user { color: var(--muted); }
+.voice-captions-off {
+  margin: auto 0 4px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ── Controls: Mute · End · Captions ──────────────────────────────────── */
+
+.voice-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 30px;
+  margin-top: auto;
+  padding: 0 16px 22px;
+}
+
+.voice-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* One recipe for the round controls; End is the same recipe in danger. */
+.voice-round {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 4px 0;
+  padding: 0;
+  border: 1px solid var(--vm-line);
+  border-radius: 50%;
+  background: var(--vm-raised);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.voice-round:hover:not(:disabled) { border-color: var(--accent); }
+.voice-round:active:not(:disabled) { transform: scale(0.96); }
+.voice-round:disabled { opacity: 0.45; cursor: default; }
+.voice-round:focus-visible,
+.voice-chip:focus-visible,
+.voice-option:has(input:focus-visible),
+.voice-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+/* A toggle that is on (captions) is tinted; muted is the one loud toggle,
+   because a muted mic the student forgot about is the failure to prevent. */
+.voice-round[aria-pressed='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.voice-round-mute[aria-pressed='true'],
+.voice-round-mute[aria-pressed='true']:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ink);
+  color: var(--ink-contrast);
+}
+.voice-round-end {
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  border-color: transparent;
+  background: var(--danger);
+  color: #fff;
+}
+.voice-round-end:hover:not(:disabled) {
+  border-color: transparent;
+  filter: brightness(1.06);
+}
+.voice-round-end:focus-visible { box-shadow: 0 0 0 3px var(--score-low-wash), 0 0 0 5px var(--danger); }
+
+/* ── Notice: an error or the call's summary, in the bottom band ───────── */
+
+.voice-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  height: 100%;
+  padding: 12px 28px 22px;
+  text-align: center;
+  animation: voice-rise 0.22s var(--vm-ease);
+}
+.voice-notice p {
+  margin: 0;
+  max-width: 300px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.voice-notice-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--score-good) !important;
+  font-weight: 500;
+}
+.voice-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+}
+/* The app's buttons, sized for the panel: 8px radius, 38px tall. */
+.voice-actions .btn {
+  min-width: 112px;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.voice-actions .btn-primary { box-shadow: none; }
+.voice-actions .btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.voice-link {
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.voice-link:hover { text-decoration: underline; }
+
+/* ── First use: the consent sheet ─────────────────────────────────────── */
+
+.voice-sheet-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(16, 18, 22, 0.18);
+  animation: voice-fade 0.2s ease;
+}
+.voice-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 22px 20px;
+  border-radius: 16px 16px 0 0;
+  background: var(--vm-raised);
+  box-shadow: 0 -10px 30px rgba(16, 18, 22, 0.14);
+  animation: voice-sheet-in 0.24s var(--vm-ease);
+}
+.voice-sheet h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.voice-sheet p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted-2);
+}
+.voice-sheet .voice-actions { margin-top: 6px; }
+.voice-sheet .voice-actions .btn { flex: 1; }
+
+/* ── The voice picker (from the chip, before a call) ──────────────────── */
+
+.voice-picker-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+.voice-picker {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  z-index: 5;
+  width: min(320px, calc(100% - 28px));
+  max-height: calc(100% - 70px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--vm-line);
+  border-radius: 12px;
+  background: var(--vm-raised);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
+  animation: voice-pop 0.16s var(--vm-ease);
+}
+.voice-picker-title {
+  margin: 0;
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--label);
+}
+.voice-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.voice-option:hover { background: var(--surface-2); }
+.voice-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.voice-option-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.voice-option-text b { font-size: 13px; font-weight: 600; color: var(--text); }
+.voice-option-text span { font-size: 11.5px; color: var(--muted); }
+.voice-option-check { display: grid; color: var(--accent); opacity: 0; }
+.voice-option-selected { background: var(--accent-wash); }
+.voice-option-selected:hover { background: var(--accent-wash); }
+.voice-option-selected .voice-option-check { opacity: 1; }
+
+/* ── Entry points in TracerChat ───────────────────────────────────────── */
+
+/* Beside Send: the same 42px circle, in the accent's wash, so Send stays the
+   one filled action in the composer. */
+.tracer-talk {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.tracer-talk:hover:not(:disabled) { background: var(--accent-border); }
+.tracer-talk:active:not(:disabled) { transform: scale(0.96); }
+.tracer-talk:disabled { opacity: 0.45; cursor: default; }
+.tracer-talk:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* In the orange header: the close button's recipe. */
+.tracer-head-talk {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+}
+.tracer-head-talk:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
+.tracer-head-talk:disabled { opacity: 0.5; cursor: default; }
+.tracer-head-talk:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+/* ── Settings → Voice: persona cards ──────────────────────────────────── */
+
+/* The settings toggle-row recipe (1px --border-strong, 10px radius) as a
+   two-column grid of cards; the chosen one takes the accent. */
+.voice-persona-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.voice-persona {
+  position: relative;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.voice-persona:hover { border-color: var(--accent-border); }
+.voice-persona-selected,
+.voice-persona-selected:hover {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+/* The ring for keyboard focus on the radio only; the preview button rings itself. */
+.voice-persona:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--ring); }
+.voice-persona-pick {
+  display: flex;
+  gap: 10px;
+  padding: 12px 48px 12px 12px;
+  cursor: pointer;
+}
+/* Out-specifies `.settings-panel input` (full width, padded, bordered),
+   which is meant for the text fields. */
+.voice-persona .voice-persona-pick input[type='radio'] {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  accent-color: var(--accent);
+}
+.voice-persona-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.voice-persona-name { display: flex; align-items: baseline; gap: 6px; }
+.voice-persona-name b { font-size: 13px; font-weight: 600; color: var(--text); }
+.voice-persona-name em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--label);
+}
+.voice-persona-tagline { font-size: 12px; font-weight: 500; color: var(--muted-2); }
+.voice-persona-desc { font-size: 11px; line-height: 1.45; color: var(--muted); }
+
+.voice-preview {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.voice-preview svg { margin-left: 1px; }
+.voice-preview:hover { border-color: var(--accent); color: var(--accent); }
+.voice-preview[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+}
+.voice-preview[aria-pressed='true'] svg { margin-left: 0; }
+.voice-preview:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* ── Dark extras, motion ──────────────────────────────────────────────── */
+
+:root[data-theme='dark'] .voice-sheet-scrim { background: rgba(0, 0, 0, 0.42); }
+:root[data-theme='dark'] .voice-sheet { box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .voice-sheet-scrim { background: rgba(0, 0, 0, 0.42); }
+  :root:not([data-theme='light']) .voice-sheet { box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); }
+}
+
+@keyframes voice-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes voice-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes voice-pop {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+@keyframes voice-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-state,
+  .voice-caption,
+  .voice-notice,
+  .voice-sheet,
+  .voice-sheet-scrim,
+  .voice-picker {
+    animation: none;
+  }
+  .voice-round,
+  .voice-persona,
+  .voice-preview,
+  .tracer-talk {
+    transition: none;
+  }
+}
