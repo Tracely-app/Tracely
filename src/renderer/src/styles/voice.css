@@ -238,8 +238,8 @@
   background: var(--accent-wash);
   color: var(--accent);
 }
-.voice-round-mute[aria-pressed='true'],
-.voice-round-mute[aria-pressed='true']:hover:not(:disabled) {
+.voice-round-mute[data-muted],
+.voice-round-mute[data-muted]:hover:not(:disabled) {
   border-color: transparent;
   background: var(--ink);
   color: var(--ink-contrast);

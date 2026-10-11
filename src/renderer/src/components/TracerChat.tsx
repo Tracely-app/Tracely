@@ -183,8 +183,8 @@ export default function TracerChat({
             type="button"
             className="tracer-head-talk"
             onClick={() => setVoiceOpen(true)}
-            aria-label="Talk to Tracer"
-            title="Talk to Tracer"
+            aria-label="Start a voice call"
+            title="Start a voice call"
             disabled={talkDisabled}
           >
             <WaveformIcon size={17} />

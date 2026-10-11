@@ -28,7 +28,7 @@ export default function VoiceCaptions({
   }
   const recent = captions.filter((c) => c.text.trim()).slice(-SHOWN)
   return (
-    <div className="voice-captions" aria-label="Live captions">
+    <div className="voice-captions" role="group" aria-label="Live captions">
       {recent.map((c) => (
         <p
           key={c.id}

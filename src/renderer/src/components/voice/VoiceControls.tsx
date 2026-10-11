@@ -3,9 +3,11 @@ import { CaptionsIcon, MicIcon, MicOffIcon, PhoneOffIcon } from '../icons'
 /**
  * The call's three controls: Mute, End (centred, the danger recipe, larger),
  * Captions. Labels sit under each circle so the controls read without
- * hovering; the buttons carry the same words for screen readers, and the
- * toggles say their state with aria-pressed. Keyboard: M mutes and Esc ends,
- * handled by VoiceMode while the voice view has focus.
+ * hovering; each button's name contains its visible word (WCAG 2.5.3), so
+ * Mute's name flips with its label rather than using aria-pressed, and the
+ * shortcuts live in aria-keyshortcuts and the tooltip, not the name. Captions
+ * says its state with aria-pressed. Keyboard: M mutes and Esc ends, handled
+ * by VoiceMode while the voice view has focus.
  */
 export default function VoiceControls({
   muted,
@@ -29,8 +31,9 @@ export default function VoiceControls({
         <button
           type="button"
           className="voice-round voice-round-mute"
-          aria-pressed={muted}
-          aria-label="Mute microphone (M)"
+          data-muted={muted || undefined}
+          aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-keyshortcuts="M"
           title={muted ? 'Unmute (M)' : 'Mute (M)'}
           disabled={disabled}
           onClick={onToggleMute}
@@ -43,7 +46,8 @@ export default function VoiceControls({
         <button
           type="button"
           className="voice-round voice-round-end"
-          aria-label="End call (Esc)"
+          aria-label="End call"
+          aria-keyshortcuts="Escape"
           title="End call (Esc)"
           onClick={onEnd}
         >

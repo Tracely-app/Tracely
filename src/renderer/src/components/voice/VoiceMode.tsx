@@ -309,6 +309,7 @@ export default function VoiceMode({
           muted={snap.muted}
           label={persona.name}
           size={168}
+          decorative
         />
       </div>
 
