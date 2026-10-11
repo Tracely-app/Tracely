@@ -120,6 +120,15 @@ import type {
 } from '@shared/ipc-contract'
 import type { AppSettings, AuthUser } from '@shared/types'
 
+/** window.tracely.voice. onHangUp is desktop-only, so optional for the other bridges. */
+interface VoiceBridge {
+  ensureMic(): Promise<VoiceEnsureMicResponse>
+  start(req: VoiceStartRequest): Promise<VoiceStartResponse>
+  end(req: VoiceEndRequest): Promise<VoiceEndResponse>
+  saveTranscript(req: VoiceSaveTranscriptRequest): Promise<VoiceSaveTranscriptResponse>
+  onHangUp?(callback: () => void): () => void
+}
+
 const api = {
   analyze: {
     detectClaims: (req: AnalyzeDetectClaimsRequest): Promise<AnalyzeDetectClaimsResponse> =>
@@ -211,8 +220,19 @@ const api = {
     start: (req: VoiceStartRequest): Promise<VoiceStartResponse> => ipcRenderer.invoke(IPC.VOICE_START, req),
     end: (req: VoiceEndRequest): Promise<VoiceEndResponse> => ipcRenderer.invoke(IPC.VOICE_END, req),
     saveTranscript: (req: VoiceSaveTranscriptRequest): Promise<VoiceSaveTranscriptResponse> =>
-      ipcRenderer.invoke(IPC.VOICE_SAVE_TRANSCRIPT, req)
-  },
+      ipcRenderer.invoke(IPC.VOICE_SAVE_TRANSCRIPT, req),
+    /**
+     * Main asks for the call to end: the window was closed (it hides to the
+     * tray, so no pagehide fires). Returns the unsubscribe. Optional in the
+     * type because only the desktop has a window to close — the web bridge
+     * and the preview harness leave it out.
+     */
+    onHangUp: (callback: () => void): (() => void) => {
+      const listener = (): void => callback()
+      ipcRenderer.on(IPC_EVENTS.VOICE_HANG_UP, listener)
+      return () => ipcRenderer.removeListener(IPC_EVENTS.VOICE_HANG_UP, listener)
+    }
+  } as VoiceBridge,
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.SETTINGS_GET, {}),
     set: (req: SettingsSetRequest): Promise<SettingsSetResponse> =>

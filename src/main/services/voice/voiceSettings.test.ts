@@ -8,14 +8,15 @@ const schema = z.object(voiceSettingsShape)
 
 // The DEFAULTS rows settingsRepo seeds — what getAllSettingsRaw answers for an
 // install that never touched a voice setting.
-const DEFAULT_ROWS = { voiceId: 'linden', voiceCaptions: 'true', voiceSaveTranscript: 'true', voiceConsent: 'false' }
+// Behaviour change (finding 14): transcripts are no longer saved by default.
+const DEFAULT_ROWS = { voiceId: 'linden', voiceCaptions: 'true', voiceSaveTranscript: 'false', voiceConsent: 'false' }
 
 describe('voice settings', () => {
-  it('reads the defaults as linden, captions on, transcripts saved, no consent', () => {
+  it('reads the defaults as linden, captions on, transcripts not saved, no consent', () => {
     deepStrictEqual(readVoiceSettings(DEFAULT_ROWS), {
       voiceId: 'linden',
       voiceCaptions: true,
-      voiceSaveTranscript: true,
+      voiceSaveTranscript: false,
       voiceConsent: false
     })
     strictEqual(DEFAULT_VOICE_ID, 'linden')
@@ -31,11 +32,12 @@ describe('voice settings', () => {
     for (const v of VOICES) strictEqual(readVoiceSettings({ voiceId: v.id }).voiceId, v.id)
   })
 
-  it('never reads a junk consent row as consent, and never a junk flag as off', () => {
+  it('reads a junk flag as its default: never consent, never saving, captions still on', () => {
     const junk = readVoiceSettings({ voiceCaptions: 'yes', voiceSaveTranscript: '', voiceConsent: 'TRUE' })
     strictEqual(junk.voiceConsent, false)
     strictEqual(junk.voiceCaptions, true)
-    strictEqual(junk.voiceSaveTranscript, true)
+    strictEqual(junk.voiceSaveTranscript, false)
+    strictEqual(readVoiceSettings({ voiceSaveTranscript: 'true' }).voiceSaveTranscript, true)
     deepStrictEqual(
       readVoiceSettings({ voiceCaptions: 'false', voiceSaveTranscript: 'false', voiceConsent: 'true' }),
       { voiceId: 'linden', voiceCaptions: false, voiceSaveTranscript: false, voiceConsent: true }

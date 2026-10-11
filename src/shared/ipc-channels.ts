@@ -114,7 +114,11 @@ export const IPC_EVENTS = {
   TRACER_CONTEXT_CHANGED: 'tracer:contextChanged',
   TRACER_OPENED: 'tracer:opened',
   AUTH_STATE_CHANGED: 'auth:stateChanged',
-  AUTH_OAUTH_ERROR: 'auth:oauthError'
+  AUTH_OAUTH_ERROR: 'auth:oauthError',
+  // Main tells the renderer to hang up a voice call: the main window's close
+  // button only hides it to the tray, the renderer stays alive, and no
+  // pagehide fires (main/windows/mainWindow.ts).
+  VOICE_HANG_UP: 'voice:hangUp'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]

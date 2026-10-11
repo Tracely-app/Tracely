@@ -33,16 +33,17 @@ export const voiceSettingsShape = {
  * The read half. A stored row is not trusted the way a patch is checked: a
  * hand edit, or a newer build that added a persona and was then downgraded,
  * can leave an id this build has no card for, and that reads as the default.
- * A junk flag reads as its default: the two that default on are turned off
- * only by a row saying 'false', and consent is given only by a row saying
- * 'true' — a corrupted row must never count as having accepted the
- * disclosure.
+ * A junk flag reads as its default: captions (on by default) are turned off
+ * only by a row saying 'false'; saving transcripts and consent (off by
+ * default) are turned on only by a row saying 'true' — a corrupted row must
+ * never count as having accepted the disclosure, or as permission to keep a
+ * transcript.
  */
 export function readVoiceSettings(raw: Record<string, string | undefined>): VoiceSettings {
   return {
     voiceId: voiceById(raw.voiceId).id,
     voiceCaptions: raw.voiceCaptions !== 'false',
-    voiceSaveTranscript: raw.voiceSaveTranscript !== 'false',
+    voiceSaveTranscript: raw.voiceSaveTranscript === 'true',
     voiceConsent: raw.voiceConsent === 'true'
   }
 }

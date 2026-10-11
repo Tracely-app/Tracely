@@ -57,10 +57,12 @@ const DEFAULTS: Record<string, string> = {
   // to the Tracer chat afterwards, and whether the user has accepted the
   // first-use disclosure. Consent starts false on purpose: the sheet that says
   // the microphone and the draft go to OpenAI has to be seen once before any
-  // call can start.
+  // call can start. Saving transcripts starts off too (privacy by default for
+  // a product used by minors: a saved transcript is re-sent to OpenAI as
+  // history with later typed messages); the student turns it on.
   voiceId: 'linden',
   voiceCaptions: 'true',
-  voiceSaveTranscript: 'true',
+  voiceSaveTranscript: 'false',
   voiceConsent: 'false',
   // Names Tracely taught the spellchecker for the open document, as JSON.
   // Bookkeeping, not a preference: it exists so a crash cannot make

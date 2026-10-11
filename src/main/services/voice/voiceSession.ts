@@ -6,6 +6,7 @@ import type {
   VoiceStartResponse
 } from '@shared/ipc-contract'
 import { voiceById } from '../../../shared/voices.ts'
+import { VOICE_DEFAULT_MAX_SECONDS } from '../../../shared/voicePolicy.ts'
 import { VoiceCallError, voiceIpcErrorFrom } from './voiceErrors.ts'
 import { VOICE_MAX_CONTEXT_CHARS } from './voiceSchemas.ts'
 import { transcriptMessages, type TranscriptMessage } from './transcript.ts'
@@ -21,12 +22,15 @@ import { transcriptMessages, type TranscriptMessage } from './transcript.ts'
  */
 
 /**
- * The server creates the OpenAI session and attaches its meter (5 s budget)
- * before answering, so a healthy start is a few seconds. callServer's own
- * deadline is a minute, which is far longer than anyone will watch "Connecting…";
- * this is the deadline the student actually waits on.
+ * The server creates the OpenAI session (up to its CREATE_TIMEOUT_MS, 15 s)
+ * and then attaches its meter (ATTACH_TIMEOUT_MS, 5 s) before answering, so a
+ * healthy start is a few seconds and a slow one that still succeeds can take
+ * 20. This deadline sits above that sum with room for the network, or a slow
+ * success would be abandoned and its paid set-up wasted (pinned against the
+ * server's numbers in voiceSession.test.ts). callServer's own deadline is a
+ * minute, which is far longer than anyone will watch "Connecting…".
  */
-export const VOICE_START_TIMEOUT_MS = 20_000
+export const VOICE_START_TIMEOUT_MS = 25_000
 /** Hanging up must never hold the UI; the server also closes on its own. */
 export const VOICE_END_TIMEOUT_MS = 8_000
 
@@ -70,8 +74,6 @@ export function clipVoiceContext(context: string): string {
   return context.slice(0, VOICE_MAX_CONTEXT_CHARS - TRUNCATED.length) + TRUNCATED
 }
 
-const DEFAULT_MAX_SECONDS = 900
-
 function seconds(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
@@ -91,7 +93,7 @@ export function normalizeStart(raw: RawStart | null | undefined, req: VoiceStart
   }
   const persona = voiceById(typeof r.voice?.id === 'string' ? r.voice.id : req.voiceId)
   const name = typeof r.voice?.name === 'string' && r.voice.name ? r.voice.name : persona.name
-  const maxSeconds = seconds(r.maxSeconds) || DEFAULT_MAX_SECONDS
+  const maxSeconds = seconds(r.maxSeconds) || VOICE_DEFAULT_MAX_SECONDS
   const response: VoiceStartResponse = {
     sessionId,
     voice: { id: persona.id, name },
@@ -128,73 +130,102 @@ export function createVoiceService(deps: VoiceServiceDeps): VoiceService {
   const endMs = deps.endTimeoutMs ?? VOICE_END_TIMEOUT_MS
   // The server allows one open call per account and answers a second start
   // with 409 voice_busy. A renderer that reloaded mid-call (or crashed) never
-  // sent its end, so main remembers what it opened and closes it first.
+  // sent its end, so main remembers what it opened and closes it first. It is
+  // forgotten only once the server confirms the end: a hang-up that failed
+  // (offline after a drop, sleep) is retried before the next start.
   let open: string | null = null
-  let starting = false
+  /** Ends in flight, by session id: a second end of the same call joins the first. */
+  const ending = new Map<string, Promise<VoiceEndResponse>>()
+  /** The start in flight, if any: a new start waits for it rather than racing it. */
+  let starting: Promise<unknown> | null = null
 
-  async function end(sessionId: string): Promise<VoiceEndResponse> {
-    if (open === sessionId) open = null
-    try {
-      const raw = await withDeadline(
-        deps.callServer<{ seconds?: unknown }>('voice/end', { sessionId }),
-        endMs,
-        () => {}
-      )
-      return { seconds: seconds(raw?.seconds) ?? 0 }
-    } catch (error) {
-      throw new VoiceCallError(voiceIpcErrorFrom(error, 'end'))
-    }
+  function end(sessionId: string): Promise<VoiceEndResponse> {
+    const inFlight = ending.get(sessionId)
+    if (inFlight) return inFlight
+    const p = (async (): Promise<VoiceEndResponse> => {
+      try {
+        const raw = await withDeadline(
+          deps.callServer<{ seconds?: unknown }>('voice/end', { sessionId }),
+          endMs,
+          () => {}
+        )
+        if (open === sessionId) open = null
+        return { seconds: seconds(raw?.seconds) ?? 0 }
+      } catch (error) {
+        throw new VoiceCallError(voiceIpcErrorFrom(error, 'end'))
+      } finally {
+        ending.delete(sessionId)
+      }
+    })()
+    ending.set(sessionId, p)
+    return p
   }
 
-  async function start(req: VoiceStartRequest): Promise<VoiceStartResponse> {
-    // A double click, not a second call: the first start owns the line.
-    if (starting) throw new VoiceCallError({ kind: 'busy', message: 'A call is already starting.' })
-    starting = true
+  /** Every end in flight, settled (each has its own deadline). */
+  function endsSettled(): Promise<unknown> {
+    return Promise.allSettled([...ending.values()])
+  }
+
+  function start(req: VoiceStartRequest): Promise<VoiceStartResponse> {
+    const previous = starting
+    const p = runStart(req, previous)
+    const mine: Promise<unknown> = p.catch(() => undefined)
+    starting = mine
+    void mine.then(() => {
+      if (starting === mine) starting = null
+    })
+    return p
+  }
+
+  async function runStart(req: VoiceStartRequest, previous: Promise<unknown> | null): Promise<VoiceStartResponse> {
+    // A start still in flight belongs to a renderer that has since given up
+    // on it (End during "Connecting…", then Talk again): let it finish, then
+    // close what it opened below, rather than answer this one busy.
+    if (previous) await previous
+    // The server holds the account's line until a hang-up it was just sent
+    // completes ("Try again" right after an error races it otherwise).
+    await endsSettled()
+    if (open) await end(open).catch(() => undefined)
+
+    let context = ''
     try {
-      if (open) await end(open).catch(() => undefined)
-
-      let context = ''
-      try {
-        context = clipVoiceContext(deps.currentContext())
-      } catch {
-        // No draft to read is not a reason to refuse a conversation.
-      }
-
-      const pending = deps.callServer<RawStart>('voice/session', { sdp: req.sdp, voiceId: req.voiceId, context })
-      let late = false
-      let raw: RawStart
-      try {
-        raw = await withDeadline(pending, startMs, () => (late = true))
-      } catch (error) {
-        if (!late) throw new VoiceCallError(voiceIpcErrorFrom(error, 'start'))
-        // The server may still answer — with a session nobody will ever
-        // connect to, holding the account's one line and its reservation until
-        // the cap. Hang that one up the moment it arrives.
-        pending.then(
-          (answer) => {
-            const id = answer?.sessionId
-            if (typeof id === 'string' && id) void end(id).catch(() => undefined)
-          },
-          () => undefined
-        )
-        throw new VoiceCallError({ kind: 'network', message: 'Tracely took too long to start the call. Try again.' })
-      }
-
-      let response: VoiceStartResponse
-      try {
-        response = normalizeStart(raw, req)
-      } catch (error) {
-        // A session id with no answer SDP is a session the server opened and
-        // nobody can join: close it rather than let it hold the line.
-        const id = raw?.sessionId
-        if (typeof id === 'string' && id) void end(id).catch(() => undefined)
-        throw error
-      }
-      open = response.sessionId
-      return response
-    } finally {
-      starting = false
+      context = clipVoiceContext(deps.currentContext())
+    } catch {
+      // No draft to read is not a reason to refuse a conversation.
     }
+
+    const pending = deps.callServer<RawStart>('voice/session', { sdp: req.sdp, voiceId: req.voiceId, context })
+    let late = false
+    let raw: RawStart
+    try {
+      raw = await withDeadline(pending, startMs, () => (late = true))
+    } catch (error) {
+      if (!late) throw new VoiceCallError(voiceIpcErrorFrom(error, 'start'))
+      // The server may still answer — with a session nobody will ever
+      // connect to, holding the account's one line and its reservation until
+      // the cap. Hang that one up the moment it arrives.
+      pending.then(
+        (answer) => {
+          const id = answer?.sessionId
+          if (typeof id === 'string' && id) void end(id).catch(() => undefined)
+        },
+        () => undefined
+      )
+      throw new VoiceCallError({ kind: 'network', message: 'Tracely took too long to start the call. Try again.' })
+    }
+
+    let response: VoiceStartResponse
+    try {
+      response = normalizeStart(raw, req)
+    } catch (error) {
+      // A session id with no answer SDP is a session the server opened and
+      // nobody can join: close it rather than let it hold the line.
+      const id = raw?.sessionId
+      if (typeof id === 'string' && id) void end(id).catch(() => undefined)
+      throw error
+    }
+    open = response.sessionId
+    return response
   }
 
   function saveTranscript(req: VoiceSaveTranscriptRequest): VoiceSaveTranscriptResponse {

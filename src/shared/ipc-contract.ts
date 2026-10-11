@@ -1327,7 +1327,10 @@ export interface VoiceStartResponse {
 export interface VoiceEndRequest {
   sessionId: string
 }
-/** Seconds the server metered. Idempotent: a second end, or an unknown id, answers 0. */
+/**
+ * Seconds the server metered for the call. Idempotent: a second end answers the
+ * same seconds; an unknown id, or another caller's, answers 0.
+ */
 export interface VoiceEndResponse {
   seconds: number
 }
@@ -1365,6 +1368,20 @@ export interface VoiceIpcError {
   kind: VoiceIpcErrorKind
   /** Plain words a student can read. */
   message: string
+}
+
+/**
+ * What a student reads for each account-level refusal — the one copy, used by
+ * main when it tags the error and by the renderer when it shows it (under a
+ * headline of its own, renderer/voice/session.ts errorTitle, so each sentence
+ * is the next step rather than a repeat of the headline). The server's own
+ * sentences for these are written for its log and are not shown.
+ */
+export const VOICE_KIND_COPY: Readonly<Record<Exclude<VoiceIpcErrorKind, 'server'>, string>> = {
+  plan: 'Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.',
+  'daily-limit': "You've used today's voice minutes. They reset tomorrow; until then, Tracer is here by text.",
+  busy: 'Another voice call is still open on this account. Wait a minute for it to close, then try again.',
+  network: "Couldn't reach Tracely. Check your internet connection, then try again."
 }
 
 /**

@@ -2,9 +2,9 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
-  CAPTION_PAUSE_MS, EMPTY_CAPTIONS, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
-  addTranscriptDelta, closedError, createSpeechGate, createVoiceSession, formatClock, micError, mockFrame,
-  mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceStateLine,
+  BLOCKED_NOTICE_MS, MIC_MUTED_NOTICE_MS, MIC_ZERO_NOTICE_MS, CAPTION_PAUSE_MS, EMPTY_CAPTIONS, isModerationError, IDLE_GRACE_MS, IDLE_WARN_MS, MUTED_WARN_MS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
+  addTranscriptDelta, browserDeps, closedError, createSpeechGate, frameText, createVoiceSession, formatClock, micError, mockFrame,
+  mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceAnnouncement, voiceStateLine,
   type VoiceApi, type VoiceDeps,
 } from './session.ts'
 import type { VoiceSnapshot } from './types'
@@ -265,8 +265,16 @@ describe('createVoiceSession: server refusals', () => {
   it('a broken peer (createOffer throws) is a server error, not an unhandled rejection', async () => {
     const r = rig()
     r.peer.createOffer = async () => { throw new Error('no codecs') }
-    await r.engine.start()
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      await r.engine.start()
+    } finally {
+      console.warn = warn
+    }
     strictEqual(r.engine.getSnapshot().error?.kind, 'server')
+    // The browser's exception text stays in the console.
+    strictEqual(r.engine.getSnapshot().error?.message, "Tracely couldn't set up the call. Try again in a moment.")
     ok(r.mic.track.stopped)
   })
 })
@@ -280,10 +288,35 @@ describe('captions', () => {
     deepStrictEqual(log.captions, [{ id: 'c1', role: 'assistant', text: 'What is your claim?', final: false }])
   })
 
-  it('finalizes on a speaker switch', () => {
+  // Behaviour change (finding 7): a speaker switch used to finalize the other
+  // speaker's caption at once. GPT-Live is full duplex, so each speaker's
+  // caption now closes on that speaker's own pause.
+  it("a speaker switch starts the other speaker's caption without closing the first; each closes on its own pause", () => {
     let log = addTranscriptDelta(EMPTY_CAPTIONS, 'assistant', 'Read it to me.', 5000)
     log = addTranscriptDelta(log, 'user', ' Okay so', 5400)
-    deepStrictEqual(log.captions.map((c) => [c.role, c.text, c.final]), [['assistant', 'Read it to me.', true], ['user', 'Okay so', false]])
+    deepStrictEqual(log.captions.map((c) => [c.role, c.text, c.final]), [['assistant', 'Read it to me.', false], ['user', 'Okay so', false]])
+    log = settleCaptions(log, 5000 + CAPTION_PAUSE_MS + 1)
+    deepStrictEqual(log.captions.map((c) => c.final), [true, false])
+    log = settleCaptions(log, 5400 + CAPTION_PAUSE_MS + 1)
+    deepStrictEqual(log.captions.map((c) => c.final), [true, true])
+  })
+
+  it('keeps both sentences whole when the two speakers interleave (a backchannel, a late ASR tail)', () => {
+    let log = addTranscriptDelta(EMPTY_CAPTIONS, 'user', 'Can you look at my', 5000, 0, 900)
+    log = addTranscriptDelta(log, 'assistant', 'Sure,', 5300, 1100, 1300)
+    log = addTranscriptDelta(log, 'user', ' second paragraph?', 5500, 900, 1400)
+    log = addTranscriptDelta(log, 'assistant', " let's look at it.", 5700, 1300, 2000)
+    deepStrictEqual(transcriptTurns(log.captions), [
+      { role: 'user', text: 'Can you look at my second paragraph?' },
+      { role: 'assistant', text: "Sure, let's look at it." }
+    ])
+  })
+
+  it("orders a new caption by its start on the session timeline, not by when its text arrived", () => {
+    let log = addTranscriptDelta(EMPTY_CAPTIONS, 'assistant', 'Go on.', 5000, 4000, 4400)
+    // The student's next turn began before that reply; its transcript came late.
+    log = addTranscriptDelta(log, 'user', 'And then', 5100, 3800, 4100)
+    deepStrictEqual(log.captions.map((c) => c.role), ['user', 'assistant'])
   })
 
   it('starts a new caption after a pause over 1.2 s, by the clock or by the session timeline', () => {
@@ -311,11 +344,25 @@ describe('captions', () => {
     ]), [{ role: 'user', text: 'Hi there' }, { role: 'assistant', text: 'Hello.' }])
   })
 
+  it('reads binary data-channel frames as text (session.started in an ArrayBuffer still connects)', async () => {
+    strictEqual(frameText('{"a":1}'), '{"a":1}')
+    strictEqual(frameText(new TextEncoder().encode('hi').buffer), 'hi')
+    strictEqual(frameText(new TextEncoder().encode('hi')), 'hi')
+    strictEqual(frameText(42), null)
+    const r = rig()
+    await r.engine.start()
+    r.peer.channel!.onmessage!({ data: new TextEncoder().encode(JSON.stringify({ type: 'session.started' })).buffer })
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+  })
+
   it('the engine shows transcript deltas from the data channel as captions', async () => {
     const r = await connected()
     r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: 'What would a', start_ms: 100, end_ms: 400 })
     r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: ' skeptic ask?', start_ms: 400, end_ms: 900 })
+    r.clock.advance(500)
     r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'Whether it', start_ms: 1500, end_ms: 1800 })
+    // Each speaker's caption closes on that speaker's own pause (finding 7).
+    r.clock.advance(800)
     deepStrictEqual(r.engine.getSnapshot().captions.map((c) => [c.role, c.text, c.final]), [
       ['assistant', 'What would a skeptic ask?', true],
       ['user', 'Whether it', false]
@@ -343,10 +390,26 @@ describe('end()', () => {
     ok(r.peer.channel!.closed)
     strictEqual(r.engine.getSnapshot().state, 'ended')
     ok(r.engine.getSnapshot().captions.every((c) => c.final))
-    deepStrictEqual(r.engine.result(), { seconds: 65, transcriptSaved: true })
-    deepStrictEqual(await r.engine.settled(), { seconds: 65, transcriptSaved: true })
+    // serverSeconds (finding 28) is the server's metered answer to voice:end.
+    deepStrictEqual(r.engine.result(), { seconds: 65, transcriptSaved: true, serverSeconds: 12 })
+    deepStrictEqual(await r.engine.settled(), { seconds: 65, transcriptSaved: true, serverSeconds: 12 })
     deepStrictEqual(r.states.slice(-2), ['ending', 'ended'])
     strictEqual(r.clock.pending(), 0)
+  })
+
+  it("saves the transcript in the same tick as the hang-up, without waiting for the server's answer", async () => {
+    let answerEnd!: (v: { seconds: number }) => void
+    const api = fakeApi({ end: () => new Promise((res) => { answerEnd = res }) })
+    const r = await connected({ api })
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'Keep this.' })
+    const ending = r.engine.end()
+    strictEqual(api.calls.save.length, 1)
+    answerEnd({ seconds: 30 })
+    await ending
+    deepStrictEqual(r.engine.result(), { seconds: 0, transcriptSaved: true, serverSeconds: 30 })
+    const failing = await connected({ api: fakeApi({ end: async () => { throw new Error('offline') } }) })
+    await failing.engine.end()
+    strictEqual(failing.engine.result()?.serverSeconds, null)
   })
 
   it("doesn't save when saving transcripts is off, or when nothing was said", async () => {
@@ -416,6 +479,35 @@ describe('end()', () => {
   })
 })
 
+describe('browserDeps().onUnload', () => {
+  it("hangs up on pagehide and on main's hang-up (the window closed to the tray), and unsubscribes both", () => {
+    const g = globalThis as { window?: unknown }
+    const had = 'window' in g
+    const prev = g.window
+    const win = new EventTarget() as EventTarget & { tracely?: unknown }
+    let hangUp: (() => void) | null = null
+    win.tracely = { voice: { onHangUp: (cb: () => void) => { hangUp = cb; return () => { hangUp = null } } } }
+    g.window = win
+    try {
+      let calls = 0
+      const off = browserDeps().onUnload(() => { calls++ })
+      win.dispatchEvent(new Event('pagehide'))
+      hangUp!()
+      strictEqual(calls, 2)
+      off()
+      strictEqual(hangUp, null)
+      win.dispatchEvent(new Event('pagehide'))
+      strictEqual(calls, 2)
+      // No desktop bridge (web, preview): pagehide alone, no throw.
+      win.tracely = undefined
+      browserDeps().onUnload(() => { calls++ })()
+    } finally {
+      if (had) g.window = prev
+      else delete g.window
+    }
+  })
+})
+
 // ── How a call ends when the student didn't end it ─────────────────────────
 
 describe('createVoiceSession: unasked endings', () => {
@@ -432,12 +524,45 @@ describe('createVoiceSession: unasked endings', () => {
     deepStrictEqual(r.api.calls.end, ['sess_1'])
   })
 
+  it("a call that ends in an error still settles with its result for a subscriber like useVoiceSession's", async () => {
+    const r = rig()
+    // Subscribed before the call, exactly as the hook does: on an end state, read settled().
+    const seen: unknown[] = []
+    r.engine.subscribe((s) => {
+      if (s.state === 'ended' || s.state === 'error') void r.engine.settled().then((res) => seen.push(res))
+    })
+    await r.engine.start()
+    r.peer.channel!.emit({ type: 'session.started' })
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'One more thing' })
+    r.peer.channel!.emit({ type: 'session.closed', reason: 'close_requested' })
+    await flush()
+    ok(seen.length > 0)
+    for (const res of seen) deepStrictEqual(res, { seconds: 0, transcriptSaved: true, serverSeconds: 12 })
+  })
+
   it('closedError: the daily allowance, a safety filter, a dropped line', () => {
     ok(closedError('expired', 600, 600).message.includes("today's voice minutes"))
-    strictEqual(closedError('content', 900, 1800).kind, 'server')
-    ok(closedError('content', 900, 1800).message.includes('safety filter'))
+    // Behaviour change (finding 4): a safety stop was a generic 'server' error
+    // ("Something went wrong"); it is its own kind with supportive words now.
+    deepStrictEqual(closedError('content', 900, 1800), {
+      kind: 'safety',
+      message: 'This call was stopped by an automatic safety check. If something is worrying you, please talk to a trusted adult. In the US you can call or text 988 any time; elsewhere, contact your local emergency number.'
+    })
+    strictEqual(voiceStateLine({ state: 'error', muted: false, error: closedError('content', 900, 1800) }, 'Atlas'), 'Call ended')
     strictEqual(closedError('connection_lost', 900, 1800).kind, 'network')
     strictEqual(closedError('remote_hangup', 900, null).kind, 'network')
+  })
+
+  it("a safety stop shows the supportive notice and doesn't save the transcript", async () => {
+    const r = await connected()
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'Something worrying' })
+    r.peer.channel!.emit({ type: 'session.closed', reason: 'content' })
+    await flush()
+    strictEqual(r.engine.getSnapshot().error?.kind, 'safety')
+    ok(r.engine.getSnapshot().error?.message.includes('988'))
+    deepStrictEqual(r.api.calls.save, [])
+    deepStrictEqual(r.api.calls.end, ['sess_1'])
+    strictEqual((await r.engine.settled())?.transcriptSaved, null)
   })
 
   it('a failed peer ends the call as a dropped line; a brief disconnect that recovers does not', async () => {
@@ -468,6 +593,31 @@ describe('createVoiceSession: unasked endings', () => {
     strictEqual(r.engine.getSnapshot().error, null)
   })
 
+  it("moderation that cuts Tracer off marks the caption, says so for a few seconds, and keeps the call", async () => {
+    const r = await connected()
+    r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: 'Here is the part' })
+    r.peer.channel!.emit({ type: 'error', error: { type: 'server_error', code: 'content_moderation', message: 'Audio was stopped.' } })
+    const s = r.engine.getSnapshot()
+    deepStrictEqual(s.captions.map((c) => [c.text, c.final]), [['Here is the part [stopped by a safety check]', true]])
+    strictEqual(s.notice, 'answer-blocked')
+    strictEqual(voiceStateLine(s, 'Atlas'), 'Atlas stopped: part of that answer was blocked')
+    strictEqual(s.error, null)
+    r.clock.advance(BLOCKED_NOTICE_MS + 100)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+    // An error that isn't moderation changes nothing on screen.
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      r.peer.channel!.emit({ type: 'error', error: { type: 'server_error', message: 'Something odd' } })
+    } finally {
+      console.warn = warn
+    }
+    strictEqual(r.engine.getSnapshot().notice, null)
+    ok(isModerationError({ message: 'moderation' }))
+    ok(!isModerationError(null))
+  })
+
   it('hangs up by itself if the cap passes and no close arrives', async () => {
     const api = fakeApi({ start: async () => ({ sdp: 'v=0', sessionId: 's', voice: { id: 'atlas', name: 'Atlas' }, maxSeconds: 60, remainingSeconds: 60 }) })
     const r = await connected({ api })
@@ -476,6 +626,64 @@ describe('createVoiceSession: unasked endings', () => {
     r.clock.advance(1_100)
     await flush()
     strictEqual(r.engine.getSnapshot().error?.kind, 'ended-by-limit')
+  })
+})
+
+// ── An idle call hangs up ──────────────────────────────────────────────────
+
+describe('createVoiceSession: idle calls', () => {
+  it("asks 'Still there?' after a quiet spell, then hangs up and says why", async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.clock.advance(IDLE_WARN_MS - 1000)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    r.clock.advance(2000)
+    const s = r.engine.getSnapshot()
+    strictEqual(s.notice, 'still-there')
+    strictEqual(voiceStateLine(s, 'Atlas'), 'Still there? Say something to keep talking')
+    ok(voiceAnnouncement(s, 'Atlas').includes('Still there?'))
+    r.clock.advance(IDLE_GRACE_MS)
+    await flush()
+    const end = r.engine.getSnapshot()
+    strictEqual(end.state, 'ended')
+    strictEqual(end.notice, 'ended-idle')
+    strictEqual(voiceStateLine(end, 'Atlas'), 'Call ended after a quiet spell')
+    deepStrictEqual(r.api.calls.end, ['sess_1'])
+  })
+
+  it('takes the question down when the student talks again', async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.clock.advance(IDLE_WARN_MS + 1000)
+    strictEqual(r.engine.getSnapshot().notice, 'still-there')
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: "I'm here" })
+    r.clock.advance(IDLE_GRACE_MS + 1000)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+  })
+
+  it('a muted call is asked after two minutes even while Tracer talks, and unmuting keeps it', async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.engine.setMuted(true)
+    for (let t = 0; t < MUTED_WARN_MS + 1000; t += 5000) {
+      r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: ' more' })
+      r.clock.advance(5000)
+    }
+    strictEqual(r.engine.getSnapshot().notice, 'still-there')
+    strictEqual(voiceStateLine(r.engine.getSnapshot(), 'Atlas'), 'Still there? Unmute to keep talking')
+    r.engine.setMuted(false)
+    r.clock.advance(IDLE_GRACE_MS + 1000)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    strictEqual(r.engine.getSnapshot().error, null)
+    ok(['listening', 'assistant-speaking'].includes(r.engine.getSnapshot().state))
+  })
+
+  it('a voice the meters really hear keeps the call alive without transcripts', async () => {
+    const r = await connected()
+    const remote = fakeStream()
+    r.peer.ontrack!({ streams: [remote], track: remote.track })
+    r.rms.output = 0.1
+    r.clock.advance(IDLE_WARN_MS + IDLE_GRACE_MS + 5000)
+    strictEqual(r.engine.getSnapshot().state, 'assistant-speaking')
+    strictEqual(r.engine.getSnapshot().notice, null)
   })
 })
 
@@ -524,6 +732,106 @@ describe('levels and who is speaking', () => {
     ok(r.engine.getSnapshot().inputLevel > 0.5)
   })
 
+  /** Streams `n` output (or input) deltas, one per `every` ms, with a contiguous timeline. */
+  function speak(r: Awaited<ReturnType<typeof connected>>, type: 'output' | 'input', n: number, every = 200) {
+    const states = new Set<string>()
+    let maxLevel = 0
+    for (let i = 0; i < n; i++) {
+      r.peer.channel!.emit({ type: `session.${type}_transcript.delta`, delta: ' word', start_ms: i * every, end_ms: (i + 1) * every })
+      r.clock.advance(every)
+      const s = r.engine.getSnapshot()
+      states.add(s.state)
+      maxLevel = Math.max(maxLevel, type === 'output' ? s.outputLevel : s.inputLevel)
+    }
+    return { states, maxLevel }
+  }
+
+  it('with no Web Audio at all, the transcripts say who is speaking and the orb still moves', async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    const out = speak(r, 'output', 20)
+    ok(out.states.has('assistant-speaking'), [...out.states].join())
+    ok(out.maxLevel > 0.3, String(out.maxLevel))
+    r.clock.advance(OUTPUT_TAIL_MS + 200)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+    const inp = speak(r, 'input', 10)
+    ok(inp.states.has('user-speaking'), [...inp.states].join())
+    ok(inp.maxLevel > 0.3)
+    r.clock.advance(INPUT_HOLD_MS + 100)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+  })
+
+  it('a meter that only ever reads 0 (a graph that renders silence) falls back to the transcripts too', async () => {
+    const r = await connected()
+    const remote = fakeStream()
+    r.peer.ontrack!({ streams: [remote], track: remote.track })
+    ok(speak(r, 'output', 10).states.has('assistant-speaking'))
+  })
+
+  it("a suspended meter's stale level is ignored; a working meter's real level wins", async () => {
+    let live = false
+    const r = await connected({ deps: { createMeter: () => ({ rms: () => 0.1, live: () => live, dispose() {} }) } })
+    const remote = fakeStream()
+    r.peer.ontrack!({ streams: [remote], track: remote.track })
+    r.clock.advance(TICK_MS * 10)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+    live = true
+    r.clock.advance(TICK_MS * 10)
+    strictEqual(r.engine.getSnapshot().state, 'assistant-speaking')
+  })
+
+  it("the student's transcript doesn't make them 'speaking' while muted", async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.engine.setMuted(true)
+    strictEqual(speak(r, 'input', 5).states.has('user-speaking'), false)
+  })
+
+  it("createTranscriptActivity queues Tracer's fragments that arrive faster than they play, counting overlap once", () => {
+    const a = createTranscriptActivity()
+    // A burst: 2 s of speech arrives in one instant.
+    for (let i = 0; i < 10; i++) a.note('assistant', 1000, i * 200, (i + 1) * 200)
+    ok(a.speaking('assistant', 2900))
+    ok(!a.speaking('assistant', 1000 + 2000 + OUTPUT_TAIL_MS + 1))
+    const b = createTranscriptActivity()
+    b.note('assistant', 0, 0, 1000)
+    b.note('assistant', 0, 500, 1000)
+    ok(!b.speaking('assistant', 1000 + OUTPUT_TAIL_MS + 1))
+    b.note('user', 5000)
+    ok(b.speaking('user', 5000 + INPUT_HOLD_MS - 1))
+    ok(!b.speaking('user', 5000 + INPUT_HOLD_MS))
+  })
+
+  it("says when Tracer's voice can't be played, and retries on the student's next click or key press", async () => {
+    let gesture: (() => void) | null = null
+    let resumes = 0
+    const speaker = {
+      play: async () => { throw Object.assign(new Error('play() failed'), { name: 'NotAllowedError' }) },
+      resume: async () => { if (++resumes === 1) throw new Error('still blocked') },
+      stop() {}
+    }
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      const r = await connected({
+        deps: { createSpeaker: () => speaker, onUserGesture: (fn) => { gesture = fn; return () => { gesture = null } } }
+      })
+      const remote = fakeStream()
+      r.peer.ontrack!({ streams: [remote], track: remote.track })
+      await flush()
+      strictEqual(r.engine.getSnapshot().notice, 'no-playback')
+      strictEqual(voiceStateLine(r.engine.getSnapshot(), 'Atlas'), "Can't play Atlas's voice. Check your speakers or output device")
+      gesture!()
+      await flush()
+      strictEqual(r.engine.getSnapshot().notice, 'no-playback')
+      gesture!()
+      await flush()
+      strictEqual(r.engine.getSnapshot().notice, null)
+      strictEqual(gesture, null)
+      strictEqual(resumes, 2)
+    } finally {
+      console.warn = warn
+    }
+  })
+
   it('mute disables the mic track, zeroes the input level and keeps the call where it is', async () => {
     const r = await connected()
     r.rms.input = 0.1
@@ -537,6 +845,86 @@ describe('levels and who is speaking', () => {
     strictEqual(voiceStateLine(s, 'Atlas'), 'Muted')
     r.engine.setMuted(false)
     strictEqual(r.mic.track.enabled, true)
+  })
+})
+
+// ── A microphone that goes away mid-call ───────────────────────────────────
+
+class EventTrack extends EventTarget {
+  kind = 'audio'
+  enabled = true
+  muted = false
+  stopped = false
+  stop() { this.stopped = true }
+}
+function eventStream() {
+  const track = new EventTrack()
+  return { track, getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream & { track: EventTrack }
+}
+
+describe('createVoiceSession: the microphone mid-call', () => {
+  async function micRig(nextMic: () => Promise<MediaStream>) {
+    const first = eventStream()
+    let opens = 0
+    const swapped: unknown[] = []
+    const r = rig({ deps: { getUserMedia: async () => (opens++ === 0 ? first : nextMic()) } })
+    r.peer.addTrack = (() => ({ replaceTrack: async (t: unknown) => void swapped.push(t) })) as never
+    await r.engine.start()
+    r.peer.channel!.emit({ type: 'session.started' })
+    return { r, first, swapped, opens: () => opens }
+  }
+
+  it('a mic that disappears is opened again and swapped into the call, muted if the student was', async () => {
+    const next = eventStream()
+    const m = await micRig(async () => next)
+    m.r.engine.setMuted(true)
+    m.first.track.dispatchEvent(new Event('ended'))
+    await flush()
+    strictEqual(m.opens(), 2)
+    deepStrictEqual(m.swapped, [next.track])
+    ok(m.first.track.stopped)
+    strictEqual(next.track.enabled, false)
+    strictEqual(m.r.engine.getSnapshot().error, null)
+    // The new track is watched too.
+    next.track.dispatchEvent(new Event('ended'))
+    await flush()
+    strictEqual(m.opens(), 3)
+  })
+
+  it('if no microphone can be opened again, the call ends saying so', async () => {
+    const m = await micRig(async () => { throw Object.assign(new Error('x'), { name: 'NotFoundError' }) })
+    m.first.track.dispatchEvent(new Event('ended'))
+    await flush()
+    strictEqual(m.r.engine.getSnapshot().error?.kind, 'mic-missing')
+    deepStrictEqual(m.r.api.calls.end, ['sess_1'])
+  })
+
+  it("a track its source muted for over 3 s reads 'Your microphone stopped sending sound' until it unmutes", async () => {
+    const m = await micRig(async () => eventStream())
+    m.first.track.dispatchEvent(new Event('mute'))
+    m.r.clock.advance(MIC_MUTED_NOTICE_MS - 500)
+    strictEqual(m.r.engine.getSnapshot().notice, null)
+    m.r.clock.advance(1000)
+    strictEqual(m.r.engine.getSnapshot().notice, 'mic-silent')
+    strictEqual(voiceStateLine(m.r.engine.getSnapshot(), 'Atlas'), 'Your microphone stopped sending sound')
+    m.first.track.dispatchEvent(new Event('unmute'))
+    strictEqual(m.r.engine.getSnapshot().notice, null)
+  })
+
+  it('exact digital silence from a meter that heard sound before is the same problem; sound clears it', async () => {
+    const r = await connected()
+    r.rms.input = 0.01
+    r.clock.advance(TICK_MS * 3)
+    r.rms.input = 0
+    r.clock.advance(MIC_ZERO_NOTICE_MS + 200)
+    strictEqual(r.engine.getSnapshot().notice, 'mic-silent')
+    r.engine.setMuted(true)
+    r.clock.advance(TICK_MS)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    r.engine.setMuted(false)
+    r.rms.input = 0.002
+    r.clock.advance(TICK_MS * 2)
+    strictEqual(r.engine.getSnapshot().notice, null)
   })
 })
 

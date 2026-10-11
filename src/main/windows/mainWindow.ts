@@ -3,6 +3,7 @@ import { BrowserWindow, screen, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import type { FontSize } from '@shared/types'
 import type { ResizeHandle } from '@shared/ipc-contract'
+import { IPC_EVENTS } from '@shared/ipc-channels'
 import {
   clampWindowBounds,
   LAYOUT_HEIGHT,
@@ -17,6 +18,7 @@ import { getAppIconPath } from '../icon'
 import { hideFloatingWindow } from './floatingWindow'
 import { hideOverlay } from './overlayWindow'
 import { installSpellcheck } from '../spellcheck'
+import { voiceService } from '../services/voice'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -259,8 +261,21 @@ export function createMainWindow(): BrowserWindow {
   win.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault()
+      // Closing hides to the tray and the renderer lives on, so a voice call
+      // would keep streaming the mic and billing the student's minutes from
+      // a window nobody can see. Hang it up: the renderer (which stops the
+      // mic and saves the transcript) and main itself, in case the renderer
+      // is too busy to answer. Minimizing or switching windows leaves a call
+      // alone — talking while looking at the draft is the point.
+      win.webContents.send(IPC_EVENTS.VOICE_HANG_UP)
+      void voiceService.endOpen()
       win.hide()
     }
+  })
+  // A crashed renderer never sends its end; the server would hold the line
+  // until OpenAI noticed the peer had gone.
+  win.webContents.on('render-process-gone', () => {
+    void voiceService.endOpen()
   })
 
   win.webContents.setWindowOpenHandler((details) => {

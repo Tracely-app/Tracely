@@ -1,4 +1,9 @@
-import { formatVoiceIpcError, type VoiceIpcError, type VoiceIpcErrorKind } from '../../../shared/ipc-contract.ts'
+import {
+  VOICE_KIND_COPY,
+  formatVoiceIpcError,
+  type VoiceIpcError,
+  type VoiceIpcErrorKind
+} from '../../../shared/ipc-contract.ts'
 
 /**
  * A failed voice call to the server, turned into something the voice UI can
@@ -43,13 +48,6 @@ export function voiceKindFor(failure: FailureLike): VoiceIpcErrorKind {
   return 'server'
 }
 
-const PLAIN: Record<Exclude<VoiceIpcErrorKind, 'server'>, string> = {
-  plan: 'Voice is part of Pro.',
-  'daily-limit': "You've used today's voice minutes. They come back tomorrow.",
-  busy: 'A voice call is already open on this account. End it, then try again.',
-  network: "Couldn't reach Tracely. Check your connection and try again."
-}
-
 /**
  * Plain words for the `server` kinds worth naming. The server's own message is
  * written for a developer log as often as for a student, so the ones a student
@@ -66,6 +64,8 @@ function serverSentence(failure: FailureLike, action: VoiceAction): string {
   if (action === 'end') return fallback
   if (failure.status === 404) return "Voice isn't available on this Tracely server yet."
   switch (failure.kind) {
+    // appGate's per-minute limiter answers 429 rate_limit ('rate' kept as an alias).
+    case 'rate_limit':
     case 'rate':
       return 'Too many tries in a row. Wait a minute, then try again.'
     case 'budget':
@@ -86,10 +86,6 @@ export function voiceIpcErrorFrom(error: unknown, action: VoiceAction): VoiceIpc
   const failure: FailureLike = typeof error === 'object' && error !== null ? (error as FailureLike) : {}
   const kind = voiceKindFor(failure)
   if (kind === 'server') return { kind, message: serverSentence(failure, action) }
-  // The server's own sentence for these three ("Voice is part of Pro.") is the
-  // one the spec wrote for students; ours is only the fallback — including for
-  // the placeholder readErrorEnvelope writes when the body had no message.
-  const raw = kind !== 'network' && typeof failure.message === 'string' ? failure.message.trim() : ''
-  const serverMessage = /^Tracely server request failed/.test(raw) ? '' : raw
-  return { kind, message: serverMessage || PLAIN[kind] }
+  // The account kinds have one wording, shared with the renderer that shows it.
+  return { kind, message: VOICE_KIND_COPY[kind] }
 }
