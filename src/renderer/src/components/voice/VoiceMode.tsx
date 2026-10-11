@@ -178,7 +178,10 @@ export default function VoiceMode({
 
   const showConsent = prefs !== null && !prefs.consent && snap.state === 'idle'
   const chipLocked = prefs === null || !UNLOCKED.includes(snap.state)
-  const stateLine = prefs === null ? '' : voiceStateLine(snap, persona.name)
+  // The AI-voice disclosure stays on screen for the whole call (the chip), and
+  // the line under the orb says it again before one starts.
+  const stateLine =
+    prefs === null ? '' : snap.state === 'idle' ? `Talk with ${persona.name}, Tracer's AI voice` : voiceStateLine(snap, persona.name)
   const left = snap.maxSec - snap.elapsedSec
 
   let meta: JSX.Element | string | null = null
@@ -289,13 +292,13 @@ export default function VoiceMode({
           disabled={chipLocked}
           aria-haspopup="true"
           aria-expanded={pickerOpen}
-          aria-label={chipLocked ? `Voice: ${persona.name}, ${persona.accent}` : `Voice: ${persona.name}, ${persona.accent}. Change voice`}
+          aria-label={`Voice: ${persona.name}, an AI voice, ${persona.accent}${chipLocked ? '' : '. Change voice'}`}
           title={chipLocked && inCall ? 'The voice can be changed between calls' : undefined}
           onClick={() => setPickerOpen(true)}
         >
           <i className="voice-chip-dot" aria-hidden="true" />
           <b>{persona.name}</b>
-          <span className="voice-chip-accent">· {persona.accent}</span>
+          <span className="voice-chip-accent">· AI voice · {persona.accent}</span>
           {chipLocked ? null : (
             <span className="voice-chip-caret" aria-hidden="true">
               <ChevronDown size={14} strokeWidth={2.2} />

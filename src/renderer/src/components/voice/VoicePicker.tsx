@@ -72,10 +72,11 @@ export default function VoicePicker({
                 }}
               />
               <span className="voice-option-text">
-                <b>{v.name}</b>
-                <span>
-                  {v.tagline} · {v.accent}
+                <span className="voice-option-name">
+                  <b>{v.name}</b>
+                  <em>AI voice · {v.accent}</em>
                 </span>
+                <span>{v.description}</span>
               </span>
               <span className="voice-option-check" aria-hidden="true">
                 <Check size={16} strokeWidth={2.2} />

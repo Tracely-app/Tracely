@@ -1105,7 +1105,7 @@ function VoicePane({
                 <span className="voice-persona-text">
                   <span className="voice-persona-name">
                     <b>{v.name}</b>
-                    <em>{v.accent}</em>
+                    <em>AI voice · {v.accent}</em>
                   </span>
                   <span className="voice-persona-tagline">{v.tagline}</span>
                   <span className="voice-persona-desc">{v.description}</span>

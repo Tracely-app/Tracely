@@ -447,7 +447,17 @@
 }
 .voice-option-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .voice-option-text b { font-size: 13px; font-weight: 600; color: var(--text); }
-.voice-option-text span { font-size: 11.5px; color: var(--muted); }
+.voice-option-text > span:last-child { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+/* "AI voice · British" beside the name: the Settings cards' label recipe. */
+.voice-option-name { display: flex; align-items: baseline; gap: 6px; }
+.voice-option-name em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--label);
+}
 .voice-option-check { display: grid; color: var(--accent); opacity: 0; }
 .voice-option-selected { background: var(--accent-wash); }
 .voice-option-selected:hover { background: var(--accent-wash); }
