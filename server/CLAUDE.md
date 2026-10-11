@@ -141,6 +141,44 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   model, or to the caller's own plan — instead of ever 503ing. A pool that
   can reach expensive models must never share a day with free users.
 
+## Voice (Tracer Voice, 2026-10-10)
+
+- **What**: the desktop talks to Tracer out loud on OpenAI `gpt-live-1`.
+  `POST /api/voice/session {sdp, voiceId, context?}` trades the renderer's
+  WebRTC offer for OpenAI's answer (`POST /v1/live/sessions`, our key, the
+  `OpenAI-Safety-Identifier` header = sha256 of the caller id); media then
+  flows renderer ⇄ OpenAI directly. `POST /api/voice/end {sessionId}` →
+  `{seconds}`, idempotent (unknown or someone else's id → 0). Both are
+  `APP_AI_ROUTES` (appGate, the app pool), never `EXTENSION_API`.
+- **Where**: `lib/voices.js` is who each persona is (VOICE_BASE_PROMPT + seven
+  personas on gpt-live-1 voices, SHA-pinned and id-mirrored to
+  `src/shared/voices.ts` by `test/voices.test.js`); `lib/voice.js` is the
+  rest: the session body, the sideband meter, the caps, the charge.
+- **Cost policy**: Pro only when enforced (429 `plan_limit` "Voice is part of
+  Pro."), open on a local server; one live call per caller (409
+  `voice_busy`); `TRACELY_VOICE_MAX_SECONDS` (900) per call, sent as
+  `session.close` by the sideband at the cap; `TRACELY_VOICE_DAILY_SECONDS`
+  (1800) per account per day, kind `voice_seconds` (429 `voice_daily`); an
+  explicit 0 in either is 503 `voice_off`. The app pool RESERVES the call's
+  worst case at start — on the session, not on `gate`, whose `finally` runs
+  when the request ends — and the real seconds (at least the 15 s set-up)
+  are charged once on `session.closed`, a lost sideband or `end`: app pool,
+  `account_ucents`, `voice_seconds`, integer micro-cents. The price is
+  `VOICE_PRICE_PER_MIN_USD` in lib/voice.js, deliberately NOT in
+  `shared/prices.js` or `MODEL_TIERS` (`models.test.js` pins those).
+- **No meter, no call**: if the sideband can't attach in 5 s the route answers
+  502 and never hands out the SDP. A dropped sideband re-attaches once (usage
+  is cumulative). A restart drops every live meter (`DEPLOY.md`).
+- **Client-mode delegation** (`delegation: null`): when the model asks for
+  help, the sideband answers with `session.thinking.append` ("no lookup tool")
+  so it never waits on a tool that doesn't exist.
+- **Testing**: `test/voice.test.js` (in process, fake fetch/WebSocket) and
+  `test/voice-routes.test.js` (a real server.js; `test/helpers/voice-harness.js`
+  preloads stubs for the create call and the sideband, scripted per call by an
+  `a=x-test:<mode>` line in the SDP). Never call OpenAI from a test.
+  `TRACELY_MOCK=1` answers `{mock:true, sessionId:"mock_<n>", …}` with no
+  network.
+
 ## Accounts and billing
 
 - One Supabase project, `sxifbtelrtbsgnnwnmdf`, for every surface. Stripe

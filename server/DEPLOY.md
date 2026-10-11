@@ -86,7 +86,8 @@ step. If one ever appears, this document is wrong.
 `process.env` AT REQUEST TIME picks up an edit with no restart — the API key,
 the daily budgets (`TRACELY_DAILY_BUDGET_USD`, `TRACELY_PAID_DAILY_BUDGET_USD`,
 `TRACELY_BETA_DAILY_BUDGET_USD`, `TRACELY_APP_DAILY_BUDGET_USD`), the Stripe
-values and `TRACELY_BETA_TOKENS`.
+values, `TRACELY_BETA_TOKENS` and the voice caps (`TRACELY_VOICE_MAX_SECONDS`,
+`TRACELY_VOICE_DAILY_SECONDS`).
 
 Anything captured in a module-level `const` does not. Those are read once at
 boot:
@@ -351,6 +352,47 @@ grep -c 'model call failed' /var/log/tracely.log
 grep 'model call failed' /var/log/tracely.log | awk '{print $5, $6, $8}' | sort | uniq -c
 ```
 
+## Tracer Voice (2026-10-10)
+
+`POST /api/voice/session` and `/api/voice/end` are desktop-only app routes
+(`lib/voice.js`): the server trades the desktop's WebRTC offer for OpenAI
+`gpt-live-1`'s answer and attaches a sideband WebSocket to meter the call.
+**Deploy the server before any desktop build that calls `voice/*`.**
+
+| variable | default | meaning |
+|---|---|---|
+| `TRACELY_VOICE_MAX_SECONDS` | 900 | one call's cap; the server sends `session.close` there |
+| `TRACELY_VOICE_DAILY_SECONDS` | 1800 | per account per day (`entitlement_usage` kind `voice_seconds`) |
+
+Empty or junk is the default; an explicit `0` in either turns voice OFF
+(503 `voice_off`). Both are re-read per request. Pro only when enforcement
+is on; one open call per account.
+
+- **The app pool holds each open call's worst case**: 900 s at $0.05/min =
+  75 cents, released when the call is charged its real seconds (at least the
+  15 s OpenAI bills to set a call up). On the default $10 app pool that is
+  about 13 calls at once before new ones get 503 `budget` — raise
+  `TRACELY_APP_DAILY_BUDGET_USD` if voice is used. When the pool is spent,
+  appGate refuses `/api/voice/end` too; the desktop hangs up regardless and
+  the sideband still charges the call.
+- **A restart drops every live meter.** A call open at restart is never
+  charged to the ledger (OpenAI still bills it) and keeps running until the
+  desktop's own timer or the student hangs up. Don't restart mid-afternoon
+  for nothing; `grep 'voice session ended' /var/log/tracely.log` shows the
+  calls that did finish.
+- **Bandwidth**: the sideband receives a copy of both audio directions
+  (PCM16 at 24 kHz, base64): 64 KB/s for the microphone, up to 130 KB/s
+  while Tracer talks too, so up to ~115 MB per 15-minute call, inbound. It is streamed and dropped, never buffered, but it is real
+  traffic on the shared box.
+- **Node**: the sideband uses Node's global `WebSocket` with an
+  `Authorization` header (undici), stable from Node 22.4. Check
+  `/opt/node22/bin/node -v` before the first deploy.
+- **OpenAI**: the project's key needs `gpt-live-1` access (no Free tier; 50
+  concurrent sessions on the Build tier).
+- Failures log as `model call failed route=/api/voice/session kind=<reason>`:
+  `sideband`/`sideband_timeout` (no meter, so no SDP handed out), `http`,
+  `auth`, `rate`, `out_of_credit`, `network`, `bad_answer`.
+
 ## Resource ceilings
 
 The unit sets `MemoryMax=600M`, `MemoryHigh=450M`, `CPUQuota=120%`,
@@ -412,5 +454,9 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
   lib/billing.js `deleteSupabaseUser`). Refused (409) while a paid plan is
   active — the subscription is Stripe's to end. The options page offers it.
 - **Application log** (`/var/log/tracely.log`): route, kind, status, model —
-  never text, emails, tokens or IPs. Rotate it: there is no logrotate entry
+  never text, emails, tokens or IPs.
+- **Voice conversations**: nothing but the `voice_seconds`, `account_ucents`
+  and app-pool counters above. Audio and transcripts reach the server only as
+  sideband frames it reads for usage and drops (lib/voice.js); one log line
+  per call, `voice session ended reason=… seconds=…`, with no id. Rotate it: there is no logrotate entry
   yet (Apache's own logs rotate daily, 14 kept).
