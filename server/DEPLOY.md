@@ -455,8 +455,8 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
   active — the subscription is Stripe's to end. The options page offers it.
 - **Application log** (`/var/log/tracely.log`): route, kind, status, model —
   never text, emails, tokens or IPs.
-- **Voice conversations**: nothing but the `voice_seconds`, `account_ucents`
-  and app-pool counters above. Audio and transcripts reach the server only as
+- **Voice conversations**: nothing but the `voice_seconds` and app-pool
+  counters above (voice is not added to `account_ucents`). Audio and transcripts reach the server only as
   sideband frames it reads for usage and drops (lib/voice.js); one log line
   per call, `voice session ended reason=… seconds=…`, with no id. Rotate it: there is no logrotate entry
   yet (Apache's own logs rotate daily, 14 kept).

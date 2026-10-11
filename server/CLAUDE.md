@@ -154,16 +154,19 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   personas on gpt-live-1 voices, SHA-pinned and id-mirrored to
   `src/shared/voices.ts` by `test/voices.test.js`); `lib/voice.js` is the
   rest: the session body, the sideband meter, the caps, the charge.
-- **Cost policy**: Pro only when enforced (429 `plan_limit` "Voice is part of
-  Pro."), open on a local server; one live call per caller (409
+- **Cost policy**: Pro only when enforced, on the BILLING plan (`ent.plan`,
+  not `effectivePlan`: 429 `plan_limit` "Voice is part of Pro."), open on a
+  local server; one live call per caller (409
   `voice_busy`); `TRACELY_VOICE_MAX_SECONDS` (900) per call, sent as
   `session.close` by the sideband at the cap; `TRACELY_VOICE_DAILY_SECONDS`
   (1800) per account per day, kind `voice_seconds` (429 `voice_daily`); an
   explicit 0 in either is 503 `voice_off`. The app pool RESERVES the call's
   worst case at start — on the session, not on `gate`, whose `finally` runs
   when the request ends — and the real seconds (at least the 15 s set-up)
-  are charged once on `session.closed`, a lost sideband or `end`: app pool,
-  `account_ucents`, `voice_seconds`, integer micro-cents. The price is
+  are charged once on `session.closed`, a lost sideband or `end`: app pool
+  (integer micro-cents) and `voice_seconds`. NEVER `account_ucents`: 30 min a
+  day is $1.50, so voice in fair use would trip Pro's $8 month in ~5 days and
+  run a paying account at Free on every feature. The price is
   `VOICE_PRICE_PER_MIN_USD` in lib/voice.js, deliberately NOT in
   `shared/prices.js` or `MODEL_TIERS` (`models.test.js` pins those).
 - **No meter, no call**: if the sideband can't attach in 5 s the route answers

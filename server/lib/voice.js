@@ -12,9 +12,13 @@
  * session per caller; TRACELY_VOICE_MAX_SECONDS per session (900) and
  * TRACELY_VOICE_DAILY_SECONDS per account per day (1800, entitlement_usage
  * kind "voice_seconds"); the app pool reserves the session's worst case at
- * start and is charged the real seconds at the end, with the account's
- * fair-use total, in integer micro-cents. The price is its own constant here,
- * NOT shared/prices.js or MODEL_TIERS (test/models.test.js pins those).
+ * start and is charged the real seconds at the end, in integer micro-cents.
+ * Voice is NOT added to the account's fair-use total (account_ucents): the
+ * daily seconds cap bounds it, and 30 min a day ($1.50) would trip Pro's $8
+ * month in about five days and drop a paying account to Free on every
+ * feature. The plan check reads the billing plan for the same reason. The
+ * price is its own constant here, NOT shared/prices.js or MODEL_TIERS
+ * (test/models.test.js pins those).
  *
  * In memory on purpose, like spend.js's reservations: a restart drops every
  * live meter (server/DEPLOY.md). The client hangs up on its own timer anyway.
@@ -26,7 +30,7 @@ import { createHash } from "node:crypto";
 import { CheckError } from "./errors.js";
 import { usageAdd, usageCount } from "./db.js";
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
-import { recordAccountSpend, isDailyQuotaKey, effectivePlan } from "./entitlement.js";
+import { isDailyQuotaKey } from "./entitlement.js";
 import { usageDay, planRank } from "../shared/plan.js";
 import { VOICE_PERSONAS, buildInstructions, isVoiceId } from "./voices.js";
 
@@ -270,9 +274,9 @@ function sendClose(s) {
   s.timers.push(unref(setTimeout(() => finalize(s, "close_unconfirmed"), CLOSE_WAIT_MS)));
 }
 
-/* Charge once, whatever ended it: the app pool and the account's fair-use
- * total in micro-cents, and the account's voice seconds for the daily cap,
- * all on what OpenAI bills (at least VOICE_MIN_BILLED_SECONDS). */
+/* Charge once, whatever ended it: the app pool in micro-cents and the
+ * account's voice seconds for the daily cap, both on what OpenAI bills (at
+ * least VOICE_MIN_BILLED_SECONDS). Never account_ucents (see the top). */
 function finalize(s, reason) {
   if (s.finalized) return;
   s.finalized = true;
@@ -284,10 +288,7 @@ function finalize(s, reason) {
       const billed = billedSeconds(s.seconds);
       const cost = voiceCostMicroCents(billed);
       chargePool(cost, at);
-      if (isDailyQuotaKey(s.callerId)) {
-        recordAccountSpend(s.callerId, cost, at);
-        usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
-      }
+      if (isDailyQuotaKey(s.callerId)) usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
     }
   } catch (e) {
     console.error("[tracely] could not record a voice session's spend:", e?.message);
@@ -367,7 +368,9 @@ export async function startSession({ gate, readBody, mock = false, env = process
     throw new CheckError("voice_off", "Voice conversations are turned off on this server.", { status: 503 });
   }
   const enforced = Boolean(gate?.ent?.enforced);
-  if (enforced && planRank(effectivePlan(gate.ent, gate.callerId)) < planRank("pro")) {
+  // The billing plan, not effectivePlan: a Pro account over its fair-use
+  // limit is still paying for Pro, and voice has its own daily cap.
+  if (enforced && planRank(gate.ent.plan) < planRank("pro")) {
     throw new CheckError("plan_limit", "Voice is part of Pro.", { status: 429 });
   }
   const key = String(env.OPENAI_API_KEY ?? "").trim();

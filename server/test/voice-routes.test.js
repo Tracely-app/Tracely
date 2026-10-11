@@ -108,7 +108,7 @@ test.describe("hosted (enforcement on)", () => {
     assert.deepEqual(end, { status: 200, body: { seconds: 62 } });
     assert.ok(readLog(LOG).some((e) => e.kind === "send" && e.sessionId === r.body.sessionId && e.message.type === "session.close"));
     assert.equal(ledger(S.dataDir, "user:u-pro-alice", "voice_seconds"), 62);
-    assert.equal(ledger(S.dataDir, "user:u-pro-alice", "account_ucents"), voiceCostMicroCents(61.5));
+    assert.equal(ledger(S.dataDir, "user:u-pro-alice", "account_ucents"), 0, "voice is not fair-use spend (its daily cap bounds it)");
     assert.equal(ledger(S.dataDir, APP_POOL, "spend_ucents"), voiceCostMicroCents(61.5));
     assert.equal(voiceCostMicroCents(61.5), 5_125_000, "61.5 s at $0.05/min");
 
@@ -197,7 +197,7 @@ test.describe("hosted, a 3 s cap and a two-cent pool", () => {
     assert.equal(close.atSeconds, 3, "sent when the meter reached the cap");
     await until(() => ledger(S.dataDir, "user:u-pro-gus", "voice_seconds") > 0);
     assert.equal(ledger(S.dataDir, "user:u-pro-gus", "voice_seconds"), 15, "billed at least the 15 s set-up");
-    assert.equal(ledger(S.dataDir, "user:u-pro-gus", "account_ucents"), voiceCostMicroCents(15));
+    assert.equal(ledger(S.dataDir, "user:u-pro-gus", "account_ucents"), 0);
     assert.equal(ledger(S.dataDir, APP_POOL, "spend_ucents"), 2 * voiceCostMicroCents(15));
     assert.equal(readLog(LOG).filter((e) => e.kind === "send" && e.message.type === "session.close").length, 1, "once");
     const end = await post(S.base, "/api/voice/end", { token: "tok-pro-gus", body: { sessionId: r.body.sessionId } });

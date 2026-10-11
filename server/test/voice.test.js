@@ -161,7 +161,7 @@ test("a metered session: one per caller, the hold, the cumulative meter, the cha
   assert.equal(ws.closed, true);
   assert.equal(reservedMicroCents("app"), 0, "the hold is released");
   assert.equal(usageCount("user:u-meter", today(), "voice_seconds"), 61, "seconds rounded up for the daily cap");
-  assert.equal(usageCount("user:u-meter", today(), "account_ucents"), V.voiceCostMicroCents(60.4));
+  assert.equal(usageCount("user:u-meter", today(), "account_ucents"), 0, "voice is not fair-use spend: its own daily cap bounds it");
   assert.equal(usageCount(SPEND_POOLS.app.account, today(), "spend_ucents"), V.voiceCostMicroCents(60.4));
   assert.deepEqual(await V.endSession({ gate, body: { sessionId: out.sessionId } }), { seconds: 60 }, "idempotent");
   assert.equal(V.liveSessionCount(), 0);
@@ -209,6 +209,21 @@ test("policy: off switch, Pro only when enforced, the key, the daily cap", async
   V._resetVoiceForTests();
   usageAdd("user:u-policy", today(), "voice_seconds", 90); // 10 s left: less than the 15 s minimum
   await assert.rejects(start(pro), (e) => e.status === 429 && e.kind === "voice_daily");
+});
+
+test("a Pro account over its fair-use month still gets voice, and voice never adds to fair use", async () => {
+  const { usageMonth } = await import("../shared/plan.js");
+  const { effectivePlan } = await import("../lib/entitlement.js");
+  const gate = gateFor("pro", "fairuse");
+  usageAdd("user:u-fairuse", usageMonth(Date.now()), "account_ucents", 8 * 100_000_000); // Pro's $8 month, spent
+  assert.equal(effectivePlan(gate.ent, gate.callerId), "free", "the account runs at Free limits elsewhere");
+  const out = await start(gate);
+  const ws = lastWS();
+  const ending = V.endSession({ gate, body: { sessionId: out.sessionId } });
+  ws.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 600 } });
+  await ending;
+  assert.equal(usageCount("user:u-fairuse", usageMonth(Date.now()), "account_ucents"), 8 * 100_000_000, "unchanged by the call");
+  assert.equal(usageCount("user:u-fairuse", today(), "voice_seconds"), 600);
 });
 
 test("the app pool: no room is a 503 before OpenAI is asked", async () => {
