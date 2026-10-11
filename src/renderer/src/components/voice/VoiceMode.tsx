@@ -138,9 +138,17 @@ export default function VoiceMode({
     await call.end()
   }
   const saved = call.result?.transcriptSaved === true
+  // Sticky across engines: changing the voice after a call, or a Talk again
+  // that fails, makes a new engine and clears call.result — but the earlier
+  // transcript is still in the chat, which has to re-read to show it.
+  const savedAny = useRef(false)
+  useEffect(() => {
+    if (call.result?.transcriptSaved) savedAny.current = true
+  }, [call.result])
+  const exit = (): void => onExit(saved || savedAny.current)
   useEffect(() => {
     if (snap.state !== 'ended' || !endedByStudent.current || !call.result || stayOpen) return
-    const timer = window.setTimeout(() => onExit(saved), RETURN_AFTER_MS)
+    const timer = window.setTimeout(() => onExit(saved || savedAny.current), RETURN_AFTER_MS)
     return () => window.clearTimeout(timer)
   }, [snap.state, call.result, stayOpen, saved, onExit])
 
@@ -192,7 +200,7 @@ export default function VoiceMode({
       e.preventDefault()
       e.stopPropagation()
       if (inCall) void hangUp()
-      else onExit(saved)
+      else exit()
       return
     }
     // Moving around the summary keeps it open; it only leaves by itself untouched.
@@ -218,6 +226,10 @@ export default function VoiceMode({
           ? `Talk with ${persona.name}, Tracer's AI voice`
           : voiceStateLine(snap, persona.name)
   const left = snap.maxSec - snap.elapsedSec
+  // Notices that aren't failures (a plan, a limit) rest the orb like an ended
+  // call; the desaturated error look is kept for mic, network and server faults.
+  const calmError = snap.state === 'error' && ['plan', 'daily-limit', 'ended-by-limit'].includes(snap.error?.kind ?? '')
+  const orbState: VoiceState = calmError ? 'ended' : snap.state
 
   let meta: JSX.Element | string | null = null
   if (live) {
@@ -235,10 +247,13 @@ export default function VoiceMode({
     meta = persona.tagline
   } else if (snap.state === 'ended' || snap.error?.kind === 'ended-by-limit') {
     meta = `Talked for ${formatClock(call.result?.seconds ?? snap.elapsedSec)}`
+  } else if (snap.state === 'error' && (call.result?.seconds ?? 0) > 0) {
+    // A call that dropped after it was live still says how long it ran.
+    meta = `Talked for ${formatClock(call.result?.seconds ?? 0)}`
   }
 
   const back = (
-    <Button variant="secondary" onClick={() => onExit(saved)}>
+    <Button variant="secondary" onClick={exit}>
       Back to chat
     </Button>
   )
@@ -286,11 +301,15 @@ export default function VoiceMode({
     )
   } else if (snap.state === 'error' && snap.error) {
     const kind = snap.error.kind
-    const canRetry = kind !== 'plan' && kind !== 'daily-limit' && !(kind === 'ended-by-limit' && /today/.test(snap.error.message))
+    // The same test closedError makes from the same snapshot: a call cut by
+    // today's allowance (not the per-call cap) has nothing left to retry with.
+    const dailyBound = snap.remainingTodaySec !== null && snap.remainingTodaySec <= snap.maxSec
+    const canRetry = kind !== 'plan' && kind !== 'daily-limit' && !(kind === 'ended-by-limit' && dailyBound)
     notice = (
       <div className="voice-notice">
         <p>{snap.error.message}</p>
-        {kind === 'ended-by-limit' ? savedLine : null}
+        {/* Whatever ended it, a call that had words saves them (finish() always does). */}
+        {savedLine}
         <div className="voice-actions">
           {back}
           {kind === 'plan' ? (
@@ -361,7 +380,7 @@ export default function VoiceMode({
 
       <div ref={stageRef} className="voice-stage">
         <VoiceOrb
-          state={snap.state}
+          state={orbState}
           inputLevel={snap.inputLevel}
           outputLevel={snap.outputLevel}
           muted={snap.muted}
@@ -423,7 +442,7 @@ export default function VoiceMode({
           saveTranscript={prefs.saveTranscript}
           onSaveTranscriptChange={(save) => savePrefs({ saveTranscript: save })}
           onAccept={() => void acceptConsent()}
-          onDecline={() => onExit(false)}
+          onDecline={exit}
         />
       ) : null}
     </div>
