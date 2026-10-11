@@ -3,6 +3,8 @@ import type { TracerMessage } from '@shared/types'
 import { parseTracerReply, type TracerRewrite } from '@shared/tracerRewrite'
 import { tracelyApi, TracelyApiError } from '../lib/api'
 import tracerBadge from '../assets/tracer-badge.png'
+import { WaveformIcon } from './icons'
+import VoiceMode from './voice/VoiceMode'
 
 /**
  * The Tracer chat panel, opened from Home's launcher.
@@ -59,6 +61,10 @@ export default function TracerChat({
   // rather than held on the message so re-fetching the conversation cannot
   // resurrect an offer the writer has already taken.
   const [applied, setApplied] = useState<Record<string, 'done' | 'missing' | 'dismissed'>>({})
+  // Tracer Voice: the voice view replaces the log and the composer while open.
+  // Everything above stays mounted, so a typed question, an Apply offer and
+  // the conversation are all where they were when the chat comes back.
+  const [voiceOpen, setVoiceOpen] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -144,6 +150,23 @@ export default function TracerChat({
 
   const shown = greeting ? [greeting] : messages
 
+  function closeVoice(transcriptSaved: boolean): void {
+    setVoiceOpen(false)
+    // A saved call is in the conversation now; read it back so it shows.
+    if (transcriptSaved && conversationId) {
+      tracelyApi
+        .getTracerConversation(conversationId)
+        .then((res) => setMessages(res.messages))
+        .catch(() => {})
+    }
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }
+  const talkDisabled = !serverConfigured || conversationId === null
+
   return (
     <div className="tracer-panel" role="dialog" aria-label="Chat with Tracer">
       <header className="tracer-head">
@@ -155,6 +178,18 @@ export default function TracerChat({
             Online — here to help
           </span>
         </div>
+        {voiceOpen ? null : (
+          <button
+            type="button"
+            className="tracer-head-talk"
+            onClick={() => setVoiceOpen(true)}
+            aria-label="Talk to Tracer"
+            title="Talk to Tracer"
+            disabled={talkDisabled}
+          >
+            <WaveformIcon size={17} />
+          </button>
+        )}
         <button className="tracer-close" onClick={onClose} aria-label="Close chat">
           <svg viewBox="0 0 21 21" fill="none" aria-hidden="true">
             <path d="M4 4l13 13M17 4L4 17" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
@@ -162,6 +197,10 @@ export default function TracerChat({
         </button>
       </header>
 
+      {voiceOpen ? (
+        <VoiceMode conversationId={conversationId} onExit={closeVoice} />
+      ) : (
+      <>
       <div className="tracer-log" ref={scrollRef}>
         {shown.map((m) => {
           // Parsed at render, not at receipt, so a conversation reopened
@@ -252,6 +291,16 @@ export default function TracerChat({
           disabled={!serverConfigured || conversationId === null}
         />
         <button
+          type="button"
+          className="tracer-talk"
+          aria-label="Talk to Tracer"
+          title="Talk to Tracer"
+          disabled={talkDisabled}
+          onClick={() => setVoiceOpen(true)}
+        >
+          <WaveformIcon size={19} />
+        </button>
+        <button
           type="submit"
           className="tracer-send"
           aria-label="Send"
@@ -268,6 +317,8 @@ export default function TracerChat({
           </svg>
         </button>
       </form>
+      </>
+      )}
     </div>
   )
 }
