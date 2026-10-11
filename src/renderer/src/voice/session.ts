@@ -330,6 +330,14 @@ export function micError(err: unknown, platform: VoicePlatform): VoiceError {
 }
 
 /**
+ * When OpenAI's safety filter ends a call. The student may be under 18 and
+ * may just have said something worrying, so this is supportive and names
+ * where to get help rather than reading as a fault.
+ */
+export const SAFETY_ENDED_MESSAGE =
+  'This call was stopped by an automatic safety check. If something is worrying you, please talk to a trusted adult. In the US you can call or text 988 any time; elsewhere, contact your local emergency number.'
+
+/**
  * Why the call ended when the student didn't end it (session.closed's reason,
  * or 'connection_lost' for a peer that dropped). The server's close at the cap
  * arrives as close_requested; OpenAI's own limit as expired.
@@ -344,9 +352,7 @@ export function closedError(reason: unknown, maxSec: number, remainingTodaySec: 
         : `That's the ${Math.round(maxSec / 60)}-minute limit for one call. Start a new call any time.`
     }
   }
-  if (reason === 'content') {
-    return { kind: 'server', message: 'The call was ended by a safety filter. You can start a new one.' }
-  }
+  if (reason === 'content') return { kind: 'safety', message: SAFETY_ENDED_MESSAGE }
   return { kind: 'network', message: 'The call dropped. Check your internet connection, then start a new call.' }
 }
 
@@ -399,6 +405,8 @@ export function errorTitle(kind: VoiceErrorKind | undefined): string {
       return "Couldn't connect"
     case 'ended-by-limit':
       return 'Time limit reached'
+    case 'safety':
+      return 'Call ended'
     default:
       return 'Something went wrong'
   }
@@ -767,7 +775,9 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     if (id) await api.end(id).catch(() => undefined)
     let transcriptSaved: boolean | null = null
     const turns = transcriptTurns(captions)
-    if (turns.length > 0 && options.shouldSaveTranscript?.()) {
+    // Not after a safety stop: the transcript may hold what tripped the filter,
+    // and a saved one is re-sent as history with the next typed message.
+    if (turns.length > 0 && err?.kind !== 'safety' && options.shouldSaveTranscript?.()) {
       transcriptSaved = await api
         .saveTranscript(turns, options.conversationId?.() ?? undefined)
         .then((r) => r.saved)

@@ -479,10 +479,27 @@ describe('createVoiceSession: unasked endings', () => {
 
   it('closedError: the daily allowance, a safety filter, a dropped line', () => {
     ok(closedError('expired', 600, 600).message.includes("today's voice minutes"))
-    strictEqual(closedError('content', 900, 1800).kind, 'server')
-    ok(closedError('content', 900, 1800).message.includes('safety filter'))
+    // Behaviour change (finding 4): a safety stop was a generic 'server' error
+    // ("Something went wrong"); it is its own kind with supportive words now.
+    deepStrictEqual(closedError('content', 900, 1800), {
+      kind: 'safety',
+      message: 'This call was stopped by an automatic safety check. If something is worrying you, please talk to a trusted adult. In the US you can call or text 988 any time; elsewhere, contact your local emergency number.'
+    })
+    strictEqual(voiceStateLine({ state: 'error', muted: false, error: closedError('content', 900, 1800) }, 'Atlas'), 'Call ended')
     strictEqual(closedError('connection_lost', 900, 1800).kind, 'network')
     strictEqual(closedError('remote_hangup', 900, null).kind, 'network')
+  })
+
+  it("a safety stop shows the supportive notice and doesn't save the transcript", async () => {
+    const r = await connected()
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'Something worrying' })
+    r.peer.channel!.emit({ type: 'session.closed', reason: 'content' })
+    await flush()
+    strictEqual(r.engine.getSnapshot().error?.kind, 'safety')
+    ok(r.engine.getSnapshot().error?.message.includes('988'))
+    deepStrictEqual(r.api.calls.save, [])
+    deepStrictEqual(r.api.calls.end, ['sess_1'])
+    strictEqual((await r.engine.settled())?.transcriptSaved, null)
   })
 
   it('a failed peer ends the call as a dropped line; a brief disconnect that recovers does not', async () => {

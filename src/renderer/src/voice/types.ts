@@ -31,6 +31,8 @@ export type VoiceErrorKind =
   | 'network'
   | 'server'
   | 'ended-by-limit'
+  /** OpenAI's safety filter ended the call (session.closed reason "content"). */
+  | 'safety'
 
 export interface VoiceSnapshot {
   state: VoiceState
