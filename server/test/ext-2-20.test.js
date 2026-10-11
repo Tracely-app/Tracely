@@ -558,7 +558,7 @@ async function renderOptions(answer) {
     }
     return els.get(id);
   };
-  for (const id of ["signedIn", "signedOut", "betaPlanOut", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
+  for (const id of ["signedIn", "signedOut", "manageLink", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
   const chrome = {
     runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? { ok: true, configured: true, ...answer } : { ok: true }) },
     storage: { local: { get: (d, cb) => cb?.({ ...d }), set() {}, remove() {} }, onChanged: { addListener() {} } },

@@ -518,7 +518,7 @@ async function renderOptions(answer, { stored = {} } = {}) {
     return els.get(id);
   };
   // What options.html starts with: both account blocks and the beta badges hidden.
-  for (const id of ["signedIn", "signedOut", "betaPlanOut", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
+  for (const id of ["signedIn", "signedOut", "manageLink", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
   const chrome = {
     runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? answer : { ok: true }) },
     storage: {
@@ -542,8 +542,9 @@ const BASE = { ok: true, configured: true, email: null, userId: null, unenforced
 test("options: a signed-out beta tester sees Pro (beta) and no way to pay", async () => {
   const $ = await renderOptions({ ...BASE, signedIn: false, plan: "pro", beta: true });
   assert.equal($("signedOut").hidden, false);
-  assert.equal($("betaPlanOut").hidden, false);
-  assert.equal($("betaPlanLabel").textContent, "Pro");
+  assert.equal($("acctPlan").textContent, "Pro", "the plan card names the plan signed out too");
+  assert.equal($("acctBeta").hidden, false, "and badges it Beta");
+  assert.equal($("manageLink").hidden, true, "signed out, the account's own link is not offered");
   assert.equal($("seePlans").hidden, true, "See plans is a pay link");
   assert.equal($("thoroughLocked").hidden, true, "a beta tester has Thorough, so no upgrade note");
   assert.equal($("thoroughPro").hidden, false);
@@ -559,13 +560,14 @@ test("options: a signed-in beta tester sees Pro with a beta tag, no Upgrade — 
   assert.equal($("manageLink").hidden, false);
   assert.notEqual($("manageLink").textContent, "Upgrade", "never offered a plan to buy");
   assert.ok(["Manage subscription", "Email us to cancel"].includes($("manageLink").textContent));
-  assert.equal($("betaPlanOut").hidden, true);
+  assert.equal($("seePlans").hidden, true, "signed in, the card's one link is the account's own");
   assert.match($("acctHint").textContent, /Manage subscription/);
 });
 
 test("options: nothing changes for a user who is not on the test build", async () => {
   const out = await renderOptions({ ...BASE, signedIn: false, plan: "free" });
-  assert.equal(out("betaPlanOut").hidden, true);
+  assert.equal(out("acctBeta").hidden, true);
+  assert.equal(out("acctPlan").textContent, "Free");
   assert.equal(out("seePlans").hidden, false);
   assert.equal(out("thoroughLocked").hidden, false);
   assert.equal(out("thoroughPro").hidden, true);
@@ -612,7 +614,7 @@ test("options.html lets `hidden` beat the link and badge display rules", () => {
   // Upgrade link would stay visible with hidden = true.
   const html = read("options.html");
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
-  for (const id of ["betaPlanOut", "betaPlanLabel", "acctBeta", "seePlans", "manageLink", "thoroughPro", "thoroughLocked"]) {
+  for (const id of ["acctPlan", "acctBeta", "seePlans", "manageLink", "deleteRow", "thoroughPro", "thoroughLocked"]) {
     assert.match(html, new RegExp(`id="${id}"`), `options.html is missing #${id}`);
   }
 });

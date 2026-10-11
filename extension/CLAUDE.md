@@ -300,6 +300,32 @@ at the foot of the margin). Replace citation now starts the list too where
 the kind of writing keeps one. Tests: `server/test/ext-docs-edit.test.js`,
 `server/test/ext-fix-all.test.js`, `server/test/ext-writing-types.test.js`.
 
+## Settings (options.html)
+
+Since 2.21.38 (owner, 2026-10-11: "fix this page on the extension to look
+more like the rest of the app in terms of UI and UX, and also make this easy
+to navigate to from the overlay widget extension") the options page is laid
+out like the desktop's Settings, from the desktop's own rules (`.settings-*`,
+`.btn*`; its tokens, light and dark): a sidebar of sections — Account,
+Checking, Google Docs, Sites, Privacy — one panel at a time, the section in
+the address (`#sites`, so a reload or bookmark comes back to it). Account is
+a "Signed in as …" row (Sign in with Google / Sign out) and a plan card: the
+plan's name in every state (`acctPlan`; a tester signed out reads Pro with a
+Beta badge, `acctBeta`), what the plan includes from the SERVER's own limits
+(`renderIncludes` — never a copy of the price page; nothing for a server that
+meters nothing), the usage lines, and one link (See plans signed out, else the
+account's own: Upgrade or the subscription). Google Docs is the desktop's
+switch row; deleting the account is a danger row under Privacy, signed in
+only. The widget's header has a gear (`panelSettings` → `openSettings` →
+background.js `tracely-openSettings`): the worker opens Settings with
+`openOptionsPage`, which brings an open Settings tab forward, and a section,
+when one is named, travels through storage (`settingsOpenAt`, honoured for a
+minute, taken once). `SECTIONS` (options.js) and `SETTINGS_SECTIONS`
+(background.js) must name the same sections as the page. The widget's own
+switches (citation suggestions, auto-sources) are kept per site in the page's
+localStorage, so the page cannot show them. Tests:
+`server/test/ext-settings-page.test.js`.
+
 ## Measuring
 
 Prompt and model changes go through `eval/models/harness` and get a dated

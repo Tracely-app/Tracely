@@ -45,6 +45,8 @@ let SERVER = LOCAL_SERVER;
 // the account lives. It used to do nothing at all, while the listing said it
 // was how you enabled a site.
 chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
+// options.html's sections (its SECTIONS), the ones the widget may open it at.
+const SETTINGS_SECTIONS = new Set(["account", "checking", "docs", "sites", "privacy"]);
 
 const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream"]);
 // The routes that answer as a stream of events (relayStream, over a port).
@@ -707,6 +709,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const ent = await fetchEntitlement();
         await chrome.tabs.create({ url: orderUrl(ent?.userId) });
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, message: err?.message });
+      }
+    })();
+    return true; // async sendResponse
+  }
+
+  /* The widget's gear (content.js openSettings): Settings, at the section it
+     names. openOptionsPage brings an open Settings tab forward instead of
+     stacking another, and takes no address, so the section travels through
+     storage — options.js reads it on load, and hears it while it is open.
+     chrome.storage and openOptionsPage need no new permission. */
+  if (msg?.type === "tracely-openSettings") {
+    (async () => {
+      try {
+        const section = SETTINGS_SECTIONS.has(msg.section) ? msg.section : null;
+        if (section) await chrome.storage.local.set({ settingsOpenAt: { section, at: Date.now() } });
+        await chrome.runtime.openOptionsPage();
         sendResponse({ ok: true });
       } catch (err) {
         sendResponse({ ok: false, message: err?.message });

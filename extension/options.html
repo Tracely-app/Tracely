@@ -3,218 +3,407 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tracely — Options</title>
+<title>Tracely — Settings</title>
 <style>
-  /* The desktop app's tokens (src/renderer/src/styles/index.css), light mode.
-     Dark is deliberately absent here as it is in the widget: the app has a
-     full dark palette (--bg #131316, --surface #1c1c1f, --text #f7f7f8,
-     --border rgba(255,255,255,.14)) and shipping half of one is worse than
-     none. Whoever does it starts there. */
+  /* Tracely's Settings, laid out like the desktop app's (owner, 2026-10-11:
+     "look more like the rest of the app in terms of UI and UX"): the same
+     shell — a sidebar of sections, one panel at a time, the panel's title and
+     one line under it — and the same rows, switches, plan card and buttons,
+     built from the desktop's own rules (src/renderer/src/styles/index.css:
+     .settings-*, .btn*). The tokens are the desktop's, light then dark. */
   :root {
+    color-scheme: light dark;
+    --font: 'Instrument Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif;
+    --font-display: 'Inter', 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --bg: #f0f0f1;
     --surface: #ffffff;
     --surface-2: rgba(0,0,0,.02);
     --text: #000000;
     --ink: #1c1c1c;
-    --body: #737373;
+    --muted: rgba(0,0,0,.6);
     --label: rgba(0,0,0,.56);
-    --chip-ink: #55555c;
     --chip-wash: rgba(0,0,0,.07);
     --border: rgba(0,0,0,.18);
     --border-strong: rgba(0,0,0,.26);
     --accent: #f97316;
-    /* Accent as TEXT: #f97316 on white is 2.80:1, under AA for the 10-12px
-       labels below. Same hue and saturation at 4.87:1. Fills keep --accent. */
+    /* Accent as TEXT: #f97316 on white is 2.80:1, under AA for small labels.
+       Same hue and saturation at 4.87:1. Fills keep --accent. */
     --accent-ink: #bd5005;
-    --accent-2: #f9a050;
     --accent-gradient: linear-gradient(164deg,#f47b20 0%,#f9a050 100%);
     --accent-wash: rgba(244,123,32,.07);
+    --accent-border: rgba(244,123,32,.18);
+    --primary-contrast: #ffffff;
+    --danger: #d93636;
+    --danger-wash: rgba(214,48,26,.08);
     --ring: rgba(244,123,32,.25);
     --ok: #1f7a4d;
+    --warn: #b45309;
     --shadow-sm: 0 1px 3px rgba(15,15,16,.06);
+    --shadow-lg: 0 20px 40px rgba(15,15,16,.12);
+    --r-ctl: 8px;
+    --r-tile: 12px;
     --r-card: 16px;
-    --r-btn: 8px;
-    --r-chip: 20px;
+    --ctl-h: 36px;
+    --ctl-h-sm: 28px;
+    --hover: rgba(0,0,0,.06);
+    --pressed: rgba(0,0,0,.1);
+    --dur: 150ms;
+    --ease: cubic-bezier(.2,.8,.2,1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0d;
+      --surface: #17171b;
+      --surface-2: rgba(255,255,255,.04);
+      --text: #f6f6f8;
+      --ink: #f6f6f8;
+      --muted: rgba(246,246,248,.66);
+      --label: rgba(246,246,248,.62);
+      --chip-wash: rgba(255,255,255,.08);
+      --border: rgba(255,255,255,.18);
+      --border-strong: rgba(255,255,255,.28);
+      --accent-ink: #f97316;
+      --accent-wash: rgba(244,123,32,.16);
+      --accent-border: rgba(244,123,32,.3);
+      --danger: #ff5c4d;
+      --danger-wash: rgba(255,90,54,.14);
+      --ring: rgba(244,123,32,.4);
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.4);
+      --shadow-lg: 0 12px 34px rgba(0,0,0,.55);
+      --hover: rgba(255,255,255,.08);
+      --pressed: rgba(255,255,255,.12);
+    }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  /* `hidden` must win over the display rules below (.linkbtn, .acct), or
-     hiding "See plans" or the beta badge silently does nothing. */
+  /* `hidden` must win over the display rules below (.btn, .badge, the
+     panels), or hiding "See plans" or the beta badge silently does nothing. */
   [hidden] { display: none !important; }
   body {
-    font-family: 'Instrument Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Roboto, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
+    font-family: var(--font); font-size: 14px; line-height: 1.45;
+    background: var(--bg); color: var(--text); min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 44px 24px 72px; }
+  a { color: var(--accent-ink); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+  a:hover { color: var(--text); }
+  /* One focus ring for everything that takes focus, the desktop's. */
+  :focus { outline: none; }
+  :focus-visible { box-shadow: 0 0 0 3px var(--ring); border-radius: var(--r-ctl); }
 
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  /* ── the shell: sidebar + panel, the desktop's .settings-shell ───────── */
+  .page { display: flex; justify-content: center; padding: 40px 24px; min-height: 100vh; }
+  .shell {
+    display: flex; align-self: flex-start; width: 100%; max-width: 960px; min-height: 620px;
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 24px;
+    overflow: hidden; box-shadow: var(--shadow-lg);
+  }
+  .sidebar {
+    width: 240px; flex-shrink: 0; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border); padding: 24px 0 16px;
+  }
+  .sidebar-head { padding: 0 24px; }
+  .brand { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; line-height: 1; color: var(--text); }
   .plane {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: var(--accent-gradient);
-    display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0;
+    width: 24px; height: 24px; border-radius: 6px; background: var(--accent-gradient); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .plane svg { width: 19px; height: 19px; }
-  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
-  /* --body (#737373) is 4.16:1 on --bg; this is the one line that sits on the
-     page rather than a card, so it takes a darker grey (5.6:1). */
-  .tag { color: rgba(0,0,0,.66); font-size: 13px; line-height: 18.2px; margin: 4px 0 24px; }
-
-  .status {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 12px; font-weight: 500; color: var(--body);
-    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-    padding: 7px 14px; margin-bottom: 24px;
+  .plane svg { width: 13px; height: 13px; }
+  h1 {
+    font-family: var(--font-display); font-size: 28px; font-weight: 500; line-height: 1.3;
+    letter-spacing: -0.01em; color: var(--text); padding: 12px 0 16px;
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+  .nav { display: flex; flex-direction: column; gap: 4px; padding: 0 12px; flex: 1; }
+  .nav-item {
+    position: relative; display: flex; align-items: center; gap: 10px; height: var(--ctl-h);
+    padding: 0 12px; border: none; border-radius: var(--r-ctl); background: transparent;
+    color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1;
+    text-align: left; cursor: pointer;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); transition: color var(--dur) var(--ease); }
+  .nav-item:hover { background: var(--hover); color: var(--text); }
+  .nav-item:hover svg { color: var(--text); }
+  .nav-item:active { background: var(--pressed); }
+  .nav-item.active { background: var(--accent-wash); color: var(--text); font-weight: 600; }
+  .nav-item.active svg { color: var(--accent); }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+    border-radius: 999px; background: var(--accent);
+  }
+  .sidebar-foot { padding: 16px 24px 0; display: flex; flex-direction: column; gap: 6px; }
+  /* The live server line: a dot and what it means, wrapping beside the dot. */
+  .status { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; color: var(--label); }
+  .dot { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
   .status.on .dot { background: var(--ok); }
   .status.off .dot { background: var(--accent); }
+  .version { font-size: 11px; line-height: 1.5; color: var(--label); font-variant-numeric: tabular-nums; }
 
-  section {
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
-    padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
-  }
-  h2 { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
-  .hint { font-size: 13px; line-height: 18.2px; color: var(--body); margin-bottom: 14px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  input[type="password"], input[type="text"] {
-    flex: 1; min-width: 0;
-    border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 8px 12px;
-    font-size: 12px; color: var(--text); background: var(--surface); outline: none;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    transition: border-color .15s, box-shadow .15s;
-  }
-  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+  .panel { flex: 1; min-width: 0; padding: 32px 40px 40px; }
+  .panel-content { max-width: 560px; display: flex; flex-direction: column; gap: 12px; animation: panel-in .16s var(--ease); }
+  @keyframes panel-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .panel-head { margin-bottom: 12px; }
+  h2 { font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--text); margin-bottom: 4px; }
+  .panel-head p { font-size: 13px; line-height: 1.5; color: var(--muted); }
+  h3 { font-size: 13px; font-weight: 600; line-height: 1.45; color: var(--text); }
 
-  /* The app's .btn / .btn-primary, down to the 0.98 press. */
-  button {
+  /* ── rows and tiles, the desktop's .settings-toggle-row ─────────────── */
+  .tile {
+    border: 1px solid var(--border); border-radius: var(--r-tile); padding: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .tile.soft { background: var(--surface-2); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .row > .grow { min-width: 0; flex: 1; }
+  .row-title { font-size: 13px; font-weight: 600; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+  .row-sub { font-size: 12px; line-height: 1.5; color: var(--muted); margin-top: 4px; }
+  .note { font-size: 12px; line-height: 1.5; color: var(--muted); }
+  .note.warn { color: var(--warn); }
+  .saved { font-size: 12px; line-height: 1.5; color: var(--ok); }
+  .saved.warn { color: var(--danger); }
+  .saved:empty { display: none; }
+
+  /* The account row: who is signed in, and the one action that changes it. */
+  .avatar {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent-wash); border: 1px solid var(--accent-border); color: var(--accent-ink);
+    font-size: 14px; font-weight: 600; line-height: 1;
+  }
+  .avatar svg { width: 16px; height: 16px; }
+  .acct-row { display: flex; align-items: center; gap: 12px; }
+  .acct-row > .grow { min-width: 0; flex: 1; }
+
+  /* The plan card, the desktop's .settings-plan-card. */
+  .plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .plan-name { font-family: var(--font-display); font-size: 20px; font-weight: 500; line-height: 1.3; color: var(--text); }
+  .badges { display: inline-flex; gap: 6px; flex-shrink: 0; margin-top: 3px; }
+  .badge {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px;
+    border: 1px solid var(--accent-border); background: var(--accent-wash); color: var(--accent-ink);
+    font-size: 11px; font-weight: 600; line-height: 1; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .badge.quiet { border-color: var(--border); background: var(--chip-wash); color: var(--muted); }
+  .includes { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .includes li { position: relative; padding-left: 16px; font-size: 13px; line-height: 1.5; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .includes li::before { content: ""; position: absolute; left: 0; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* ── controls, the desktop's .btn recipe ───────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: var(--ctl-h); padding: 0 14px; border-radius: var(--r-ctl);
     border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-    border-radius: var(--r-btn); padding: 8px 16px; font-size: 12px; font-weight: 500; cursor: pointer;
-    font-family: inherit;
-    transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+    font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1; white-space: nowrap;
+    text-decoration: none; cursor: pointer; flex-shrink: 0;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), filter var(--dur) var(--ease);
   }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
-  button:active:not(:disabled) { transform: scale(.98); }
-  button:disabled { opacity: .5; cursor: default; }
-  button.ghost { color: var(--body); }
-  .saved { font-size: 12px; color: var(--ok); font-weight: 500; margin-top: 10px; min-height: 16px; }
-  .saved.warn { color: var(--accent-ink); }
+  .btn:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .btn:active:not(:disabled) { background: var(--pressed); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .btn-sm { height: var(--ctl-h-sm); padding: 0 10px; font-size: 12px; }
+  .btn-primary { background: var(--accent); color: var(--primary-contrast); border-color: transparent; font-weight: 600; padding: 0 18px; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent); color: var(--primary-contrast); filter: brightness(1.06); }
+  .btn-primary:active:not(:disabled) { background: var(--accent); filter: brightness(.94); }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-wash); color: var(--danger); }
+  /* "Sign in with Google": the G on a white disc reads in both themes. */
+  .g { width: 18px; height: 18px; border-radius: 50%; background: #fff; display: inline-flex; align-items: center; justify-content: center; }
+  .g svg { width: 12px; height: 12px; }
 
-  /* account */
-  .linkbtn {
-    display: inline-flex; align-items: center; text-decoration: none;
-    border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 600;
-    background: var(--accent-gradient); color: #fff; border: 1px solid transparent;
-    box-shadow: 0 4px 8px rgba(244,123,32,.35);
-    transition: filter .15s ease, box-shadow .15s ease, transform .1s ease;
+  /* The switch, the desktop's toggle-row checkbox. */
+  .toggle { cursor: pointer; }
+  .switch {
+    appearance: none; -webkit-appearance: none; position: relative; flex-shrink: 0;
+    width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong);
+    cursor: pointer; transition: background-color var(--dur) var(--ease);
   }
-  .linkbtn:hover { filter: brightness(1.05); box-shadow: 0 5px 10px rgba(244,123,32,.4); }
-  .linkbtn:active { transform: scale(.98); }
-  .acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .acct-email { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
-  .plan {
-    font-size: 10px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
-    padding: 1px 6px; border-radius: var(--r-chip);
-    background: var(--chip-wash); color: var(--chip-ink);
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--primary-contrast); box-shadow: var(--shadow-sm); transition: transform var(--dur) var(--ease);
   }
-  .plan.paid { background: var(--accent-wash); color: var(--accent-ink); }
-  .beta-tag { font-size: 11px; font-weight: 500; color: var(--label); }
+  .switch:checked { background: var(--accent); }
+  .switch:checked::after { transform: translateX(16px); }
+  .switch:focus-visible { border-radius: 999px; }
+  .tile.toggle:hover { border-color: var(--border-strong); }
 
-  /* plan meters */
-  h3.sub { font-size: 13px; font-weight: 600; color: var(--ink); margin: 18px 0 6px; }
-  .meter { display: block; height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
-  .meter-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent-gradient); }
-  .upgrade-link { font-size: 12px; font-weight: 500; color: var(--accent-ink); text-decoration: none; }
-  .upgrade-link:hover { text-decoration: underline; }
-  .model-note { font-size: 12px; line-height: 16.8px; color: var(--label); margin-top: 10px; }
-  .model-note.warn { color: var(--accent-ink); }
+  /* The Thorough allowance meter. */
+  .meter { display: block; height: 6px; border-radius: 999px; background: var(--chip-wash); overflow: hidden; }
+  .meter-fill { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .3s var(--ease); }
 
-  ul { list-style: none; }
-  li {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 2px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text);
+  /* The sites list: one row per origin, Remove at its end. */
+  #sites { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  #sites li {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 8px 8px 16px; border: 1px solid var(--border); border-radius: var(--r-tile);
   }
-  li:last-child { border-bottom: none; }
-  li .origin { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  li button { padding: 5px 12px; font-size: 11px; color: var(--body); }
-  .foot { font-size: 12px; line-height: 16.8px; color: var(--label); margin-top: 24px; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  #sites .origin { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  #sites button {
+    height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--r-ctl); border: 1px solid transparent;
+    background: transparent; color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  #sites button:hover { background: var(--hover); color: var(--text); }
+  .empty { padding: 16px; border: 1px dashed var(--border); border-radius: var(--r-tile); font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+  /* Narrow windows: the sidebar becomes a row of tabs over the panel. */
+  @media (max-width: 760px) {
+    .page { padding: 16px; }
+    .shell { flex-direction: column; border-radius: var(--r-card); min-height: 0; }
+    .sidebar { width: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 16px 0 12px; }
+    .sidebar-head { display: flex; align-items: baseline; gap: 12px; }
+    h1 { font-size: 22px; padding: 8px 0 12px; }
+    .nav { flex-direction: row; overflow-x: auto; gap: 4px; padding: 0 16px; }
+    .nav-item { flex-shrink: 0; }
+    .nav-item.active::before { display: none; }
+    .sidebar-foot { padding: 12px 16px 0; }
+    .panel { padding: 24px 16px 32px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <span class="plane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>
-      <h1>Tracely</h1>
-    </header>
-    <p class="tag">Live fact-checking while you write — anywhere on the web.</p>
-
-    <span id="serverStatus" class="status"><span class="dot"></span><span id="serverStatusText">Checking for a local Tracely server…</span></span>
-
-    <section>
-      <h2>Tracely account</h2>
-      <p class="hint" id="acctHint">Checking your account…</p>
-      <div id="signedOut" hidden>
-        <div class="acct" id="betaPlanOut" hidden style="margin-bottom:14px">
-          <span class="plan paid" id="betaPlanLabel">Pro</span>
-          <span class="beta-tag">beta</span>
+  <div class="page">
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <span class="brand"><span class="plane"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>Tracely</span>
+          <h1>Settings</h1>
         </div>
-        <div class="row">
-          <button id="signIn">Sign in</button>
-          <a class="linkbtn" id="seePlans" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
+        <nav class="nav" aria-label="Settings sections">
+          <button class="nav-item" data-nav="account" aria-controls="sec-account"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Account</button>
+          <button class="nav-item" data-nav="checking" aria-controls="sec-checking"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Checking</button>
+          <button class="nav-item" data-nav="docs" aria-controls="sec-docs"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>Google Docs</button>
+          <button class="nav-item" data-nav="sites" aria-controls="sec-sites"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>Sites</button>
+          <button class="nav-item" data-nav="privacy" aria-controls="sec-privacy"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6z"/></svg>Privacy</button>
+        </nav>
+        <div class="sidebar-foot">
+          <span id="serverStatus" class="status"><span class="dot"></span><span id="serverStatusText">Checking for a local Tracely server…</span></span>
+          <span class="version" id="buildVersion"></span>
         </div>
-        <p class="hint" style="margin:10px 0 0">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a class="upgrade-link" href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
-      </div>
-      <div id="signedIn" hidden>
-        <div class="acct">
-          <span class="acct-email" id="acctEmail"></span>
-          <span class="plan" id="acctPlan"></span>
-          <span class="beta-tag" id="acctBeta" hidden>beta</span>
-        </div>
-        <div class="row" style="margin-top:14px">
-          <a class="linkbtn" id="manageLink" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">Upgrade</a>
-          <button id="signOut" class="ghost">Sign out</button>
-        </div>
-        <p class="hint" style="margin:12px 0 0">Your usage counts and payment record are kept with your account. <button id="deleteAccount" class="ghost" style="padding:5px 10px;font-size:11px">Delete my account and data</button></p>
-      </div>
-      <p id="acctStatus" class="saved"></p>
-    </section>
+      </aside>
 
-    <section>
-      <h2>Checking model</h2>
-      <!-- Tier names, never model names. This page read "Haiku / Sonnet /
-           Opus" for a fortnight after the move to OpenAI, because the model
-           ids in options.js were updated and the words here were not. It is
-           the part of the screen someone reads to find out what they are
-           buying, and it is the part a provider swap cannot reach. -->
-      <p class="hint" id="modelHint">Every plan checks with the same model — the most accurate fact-checker in our blind tests. Bigger models weren’t better at catching false or uncited claims; they wrote longer explanations.</p>
+      <main class="panel">
+        <section class="panel-content" id="sec-account" data-panel="account">
+          <header class="panel-head">
+            <h2>Account</h2>
+            <p>Your account, your plan, and what it unlocks.</p>
+          </header>
 
-      <div id="thoroughPro" hidden>
-        <h3 class="sub">Thorough explanations (Pro)</h3>
-        <p class="hint" style="margin-bottom:12px">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
-        <span class="meter" id="thoroughMeter" hidden><span class="meter-fill" id="thoroughFill"></span></span>
-        <p class="model-note" id="thoroughMeterText" hidden></p>
-      </div>
-      <p class="model-note" id="thoroughLocked" hidden>Thorough explanations come with Pro. <a class="upgrade-link" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
-      <p class="model-note" id="sourcesLine" hidden></p>
-      <p class="model-note warn" id="fairUseLine" hidden></p>
-    </section>
+          <div class="tile">
+            <div id="signedOut" hidden>
+              <div class="acct-row">
+                <span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
+                <div class="grow">
+                  <div class="row-title">Not signed in</div>
+                  <div class="row-sub">Use the Google account you use in the Tracely desktop app: one account, one plan, on both.</div>
+                </div>
+                <button class="btn btn-primary" id="signIn"><span class="g" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span>Sign in with Google</button>
+              </div>
+              <p class="note" style="margin-top:12px">Signing in with Google shares your email address and account id with Tracely, to identify your plan. <a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+            </div>
+            <div id="signedIn" hidden>
+              <div class="acct-row">
+                <span class="avatar" id="acctAvatar" aria-hidden="true"></span>
+                <div class="grow">
+                  <div class="row-title" id="acctEmail"></div>
+                  <div class="row-sub">Signed in with Google. The same account works in the Tracely desktop app.</div>
+                </div>
+                <button class="btn" id="signOut">Sign out</button>
+              </div>
+            </div>
+            <p id="acctStatus" class="saved" role="status"></p>
+          </div>
 
-    <section>
-      <h2>Google Docs</h2>
-      <p class="hint">In Google Docs, Tracely checks the whole document while you write. The first Doc you open asks once; this is the same switch.</p>
-      <label class="autosrc" style="font-size:13px;color:var(--text)"><input type="checkbox" id="docsTgl" /><span>Check Google Docs automatically — sends the document text to Tracely's server</span></label>
-    </section>
+          <div class="tile soft">
+            <div class="plan-head">
+              <div class="plan-name" id="acctPlan">Free</div>
+              <span class="badges"><span class="badge">Current plan</span><span class="badge quiet" id="acctBeta" hidden>Beta</span></span>
+            </div>
+            <p class="note" id="acctHint">Checking your account…</p>
+            <ul class="includes" id="planIncludes" hidden></ul>
+            <p class="note" id="sourcesLine" hidden></p>
+            <p class="note warn" id="fairUseLine" hidden></p>
+            <div class="actions">
+              <a class="btn" id="seePlans" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans</a>
+              <a class="btn" id="manageLink" href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer" hidden>Upgrade</a>
+            </div>
+          </div>
+          <p class="note">Plans are bought and cancelled on jointracely.com. Nothing on this page charges you.</p>
+        </section>
 
-    <section>
-      <h2>Sites with auto-check on</h2>
-      <p class="hint">Automatic 10-second checking runs only on these sites. Everywhere else, nothing leaves the page until you click “Check once” in the widget.</p>
-      <ul id="sites"></ul>
-      <p id="noSites" class="hint" style="margin-bottom:0">None yet — click into a text field on a site and flip “Auto-check on this site” in the Tracely widget.</p>
-    </section>
+        <section class="panel-content" id="sec-checking" data-panel="checking">
+          <header class="panel-head">
+            <h2>Checking model</h2>
+            <!-- Tier names, never model names. This page read "Haiku / Sonnet /
+                 Opus" for a fortnight after the move to OpenAI, because the model
+                 ids in options.js were updated and the words here were not. It is
+                 the part of the screen someone reads to find out what they are
+                 buying, and it is the part a provider swap cannot reach. -->
+            <p id="modelHint">Every plan checks with the same model — the most accurate fact-checker in our blind tests. Bigger models weren’t better at catching false or uncited claims; they wrote longer explanations.</p>
+          </header>
 
-    <p class="foot">Tracely never sends your writing anywhere except the Tracely server that checks it. Google Docs checks read the doc through your own signed-in session.</p>
+          <div class="tile" id="thoroughPro" hidden>
+            <div>
+              <h3>Thorough explanations (Pro)</h3>
+              <p class="row-sub">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
+            </div>
+            <span class="meter" id="thoroughMeter" hidden><span class="meter-fill" id="thoroughFill"></span></span>
+            <p class="note" id="thoroughMeterText" hidden></p>
+          </div>
+          <p class="note" id="thoroughLocked" hidden>Thorough explanations come with Pro. <a href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
+        </section>
+
+        <section class="panel-content" id="sec-docs" data-panel="docs">
+          <header class="panel-head">
+            <h2>Google Docs</h2>
+            <p>In Google Docs, Tracely checks the whole document while you write.</p>
+          </header>
+          <label class="tile toggle">
+            <span class="row">
+              <span class="grow">
+                <span class="row-title" style="display:block">Check Google Docs automatically</span>
+                <span class="row-sub" style="display:block">Sends the document text to Tracely's server every few seconds while you write. The first Doc you open asks once; this is the same switch.</span>
+              </span>
+              <input type="checkbox" class="switch" id="docsTgl" />
+            </span>
+          </label>
+        </section>
+
+        <section class="panel-content" id="sec-sites" data-panel="sites">
+          <header class="panel-head">
+            <h2>Sites with auto-check on</h2>
+            <p>Automatic 10-second checking runs only on these sites. Everywhere else, nothing leaves the page until you click “Check once” in the widget.</p>
+          </header>
+          <ul id="sites"></ul>
+          <p id="noSites" class="empty">None yet. Click into a text field on a site, open the Tracely widget and press “Turn on for this site”.</p>
+        </section>
+
+        <section class="panel-content" id="sec-privacy" data-panel="privacy">
+          <header class="panel-head">
+            <h2>Privacy</h2>
+            <p>What leaves your browser, and what Tracely keeps.</p>
+          </header>
+          <div class="tile">
+            <p class="note">Tracely never sends your writing anywhere except the Tracely server that checks it. Google Docs checks read the doc through your own signed-in session.</p>
+            <p class="note"><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Read the privacy policy</a></p>
+          </div>
+          <div class="tile" id="deleteRow" hidden>
+            <div class="row">
+              <div class="grow">
+                <div class="row-title">Delete my account and data</div>
+                <div class="row-sub">Your usage counts and payment record are kept with your account. This removes them and the sign-in, and can't be undone. Cancel a paid plan first.</div>
+              </div>
+              <button class="btn btn-danger" id="deleteAccount">Delete account</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
   <script src="options.js"></script>
 </body>

@@ -1,5 +1,7 @@
-/* Tracely options page — the account (sign in, plan, upgrade), the model
-   stop, the per-site auto-check list, and a live probe of the server.
+/* Tracely's Settings page (options.html) — the account (sign in, plan,
+   upgrade), the checking model, Google Docs, the per-site auto-check list,
+   privacy, and a live probe of the server; one section at a time, chosen in
+   the sidebar like the desktop's Settings.
 
    The sign-in itself lives in the background worker (it holds the token and
    the Supabase constants); this page only sends it messages. */
@@ -118,6 +120,7 @@ function renderPlanState() {
   const pro = hasThorough();
   $("thoroughPro").hidden = !pro;
   $("thoroughLocked").hidden = pro;
+  renderIncludes();
   renderThoroughMeter();
   renderSourcesLine();
   renderFairUseLine();
@@ -159,6 +162,30 @@ function pausedUntil(allowanceResetsOn) {
   if (f?.state === "day") return "midnight";
   if (f?.state === "month" && f.resetsOn) return monthDayLabel(f.resetsOn);
   return allowanceResetsOn;
+}
+
+/* What the plan card lists under the plan's name — the desktop's "includes"
+   — from the server's own limits, never a copy of the price page: a check
+   allowance, the source searches, and Thorough where it comes with the plan.
+   A server that meters nothing reports no limits, and the list stays hidden. */
+const escHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function renderIncludes() {
+  const list = $("planIncludes");
+  const l = account.limits;
+  const items = [];
+  if (l && !account.unenforced) {
+    if (l.checksPerDay === null) items.push("No daily check limit");
+    else if (Number.isFinite(l.checksPerDay)) items.push(`${l.checksPerDay} checks a day`);
+    const s = l.sources;
+    if (s && (s.day != null || s.month != null)) {
+      items.push(s.month == null ? `${s.day} source searches a day`
+        : s.day == null ? `${s.month} source searches a month`
+          : `${s.month} source searches a month, up to ${s.day} a day`);
+    }
+  }
+  if (items.length && hasThorough()) items.push("Thorough explanations from our largest model");
+  list.innerHTML = items.map((t) => `<li>${escHtml(t)}</li>`).join("");
+  list.hidden = items.length === 0;
 }
 
 function renderSourcesLine() {
@@ -209,10 +236,15 @@ function renderAccount() {
      and a paying one must still be able to reach the portal and cancel.
      Without `beta` none of this changes anything. */
   const beta = account.beta === true;
-  $("betaPlanOut").hidden = !(beta && !signedIn);
-  $("betaPlanLabel").textContent = PLAN_LABEL[account.plan] ?? PLAN_LABEL.pro;
-  $("seePlans").hidden = beta;
+  // The plan card names the plan whether or not anyone is signed in: a tester
+  // signed out is on Pro too, and the Beta badge says why.
+  $("acctPlan").textContent = PLAN_LABEL[account.plan] ?? (beta ? PLAN_LABEL.pro : PLAN_LABEL.free);
   $("acctBeta").hidden = !beta;
+  // One link on the card: See plans signed out (never for a tester), and
+  // signed in the account's own — Upgrade, or the subscription.
+  $("seePlans").hidden = beta || signedIn;
+  $("manageLink").hidden = !signedIn;
+  $("deleteRow").hidden = !signedIn;
 
   if (!account.configured) {
     $("acctHint").textContent = "This build has no Tracely accounts configured, so everything runs unmetered against whichever server answered.";
@@ -223,14 +255,13 @@ function renderAccount() {
 
   if (signedIn) {
     $("acctEmail").textContent = account.email ?? "Signed in";
-    const label = PLAN_LABEL[account.plan] ?? PLAN_LABEL.free;
-    $("acctPlan").textContent = label;
-    $("acctPlan").className = account.plan === "free" ? "plan" : "plan paid";
+    $("acctAvatar").textContent = String(account.email ?? "").trim().charAt(0).toUpperCase() || "T";
     // Three states, because two of them used to render as the same wrong link:
     // upgrading (go to pricing), managing a real subscription (go to the
     // portal), and managing one with no portal configured yet (say so, rather
     // than sending a subscriber to the pricing page).
     const manage = $("manageLink");
+    manage.className = account.plan === "free" ? "btn btn-primary" : "btn";
     if (account.plan === "free") {
       manage.textContent = "Upgrade";
       manage.href = orderUrl(account.userId);
@@ -315,6 +346,45 @@ $("signOut").addEventListener("click", async () => {
 function load() {
   chrome.storage.local.get({ enabledSites: [], docsEnabled: false }, (cfg) => { renderSites(cfg.enabledSites); $("docsTgl").checked = cfg.docsEnabled === true; });
   refreshAccount(); // fills the plan meters too, once the server has answered
+  // Which section to show: the address's #section (a reload, a bookmark), or
+  // the one the widget asked for (background.js "tracely-openSettings"),
+  // else Account.
+  const asked = typeof location !== "undefined" ? location.hash.replace(/^#/, "") : "";
+  showSection(asked || "account");
+  chrome.storage.local.get({ settingsOpenAt: null }, (cfg) => takeOpenAt(cfg.settingsOpenAt));
+  const version = typeof chrome.runtime.getManifest === "function" ? chrome.runtime.getManifest()?.version : null;
+  if (version) $("buildVersion").textContent = `Version ${version}`;
+}
+
+/* ── sections: the sidebar, like the desktop's Settings ──────────────────
+   One panel at a time. The address carries the section (#account …), so a
+   reload or a bookmark comes back to it, and the widget's gear can open the
+   page at the section it is about. */
+const SECTIONS = ["account", "checking", "docs", "sites", "privacy"];
+function showSection(id) {
+  const want = SECTIONS.includes(id) ? id : "account";
+  for (const panel of document.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== want;
+  for (const item of document.querySelectorAll("[data-nav]")) {
+    const on = item.dataset.nav === want;
+    item.classList.toggle("active", on);
+    if (on) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  }
+  if (typeof history !== "undefined" && typeof location !== "undefined" && location.hash !== `#${want}`) {
+    history.replaceState(null, "", `#${want}`);
+  }
+  return want;
+}
+for (const item of document.querySelectorAll("[data-nav]")) {
+  item.addEventListener("click", () => showSection(item.dataset.nav));
+}
+if (typeof window !== "undefined") window.addEventListener("hashchange", () => showSection(location.hash.replace(/^#/, "")));
+// The widget's request, once: a fresh one (the last minute) moves the page,
+// and it is cleared either way so a later visit opens where it was.
+function takeOpenAt(req) {
+  if (!req || typeof req !== "object") return;
+  if (Date.now() - Number(req.at) < 60_000) showSection(req.section);
+  chrome.storage.local.remove("settingsOpenAt");
 }
 // The same switch the first Doc asks for (content.js renderDocsConsent).
 $("docsTgl").addEventListener("change", (e) => chrome.storage.local.set({ docsEnabled: e.target.checked === true }));
@@ -367,6 +437,8 @@ function renderSites(sites) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabledSites) renderSites(changes.enabledSites.newValue ?? []);
+  // The widget's gear while this page is already open in a tab.
+  if (changes.settingsOpenAt?.newValue) takeOpenAt(changes.settingsOpenAt.newValue);
   // The worker refreshes the entitlement cache on its own schedule; a plan
   // that changed after a checkout should land here without a reload.
   if (changes.entitlement) refreshAccount();

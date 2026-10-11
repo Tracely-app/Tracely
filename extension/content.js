@@ -342,6 +342,14 @@
      so the checkout still maps to the account; the plain page is the fallback
      when the worker cannot answer. */
   const ORDER_URL = "https://jointracely.com/order";
+  /* Tracely's Settings page (options.html): the account, the plan, Google Docs,
+     the sites with auto-check on. A content script cannot open an extension
+     page, so the worker does (background.js "tracely-openSettings") — bringing
+     an open Settings tab forward rather than stacking another — at `section`
+     ("account", "checking", "docs", "sites", "privacy") when one is given. */
+  function openSettings(section) {
+    return Promise.resolve(sendMsg({ type: "tracely-openSettings", section: section ?? null })).catch(() => null);
+  }
   function openOrderPage() {
     Promise.resolve(sendMsg({ type: "tracely-open-order" })).catch(() => null).then((r) => {
       if (!r?.ok) window.open(ORDER_URL, "_blank", "noopener,noreferrer");
@@ -2682,6 +2690,8 @@
     for (const t of tips ?? []) c[tipCat(t)]++;
     return c;
   }
+  // Settings (options.html), the gear in the header (owner, 2026-10-11).
+  const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const GRIP_SVG = `<svg viewBox="0 0 10 16" width="8" height="14"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>`;
   function panelHeadHtml(counts, statusMsg, statusErr) {
     const c = counts ?? {};
@@ -2695,6 +2705,7 @@
       <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
       <span class="name">Tracely</span>
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
+      <button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings">${GEAR_SVG}</button>
       <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
     </div>
     <div class="tally">${chips.join("")}</div>`;
@@ -3119,6 +3130,7 @@
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
+    shadow.getElementById("panelSettings")?.addEventListener("click", () => openSettings());
     // A count in the header opens the first card of its kind.
     for (const chip of shadow.querySelectorAll("[data-jump]")) {
       chip.addEventListener("click", () => {
@@ -3569,6 +3581,16 @@
       display: flex; align-items: center; justify-content: center;
     }
     .close:hover { background: #e7e7e7; }
+    /* Settings: a 30px circle like the close, quiet until hovered. */
+    .hbtn {
+      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; padding: 0;
+      border: none; background: transparent; color: #6b6c72; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: background .15s ease, color .15s ease;
+    }
+    .hbtn svg { width: 16px; height: 16px; display: block; }
+    .hbtn:hover { background: #f2f2f2; color: #1a1a1f; }
+    .hbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .hbtn + .close { margin-left: 4px; }
     /* The one legend (never colour alone): what each underline's LINE means. */
     .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
@@ -9923,7 +9945,7 @@
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or its options.">Turn off</button>
+            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or Settings.">Turn off</button>
           </div>
         </div>`;
       }
