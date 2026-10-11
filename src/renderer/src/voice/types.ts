@@ -27,6 +27,8 @@ export type VoiceErrorKind =
   | 'mic-missing'
   | 'plan'
   | 'daily-limit'
+  /** This month's voice minutes are used (the server's voice_monthly). */
+  | 'monthly-limit'
   | 'busy'
   | 'network'
   | 'server'
@@ -54,6 +56,10 @@ export interface VoiceSnapshot {
   elapsedSec: number
   maxSec: number
   remainingTodaySec: number | null
+  /** This month's allowance left when the call started; absent or null when the server didn't say. */
+  remainingMonthSec?: number | null
+  /** When today's minutes come back (ISO-8601, from the start answer); absent or null when unknown. */
+  resetAt?: string | null
   /** 0..1, smoothed microphone level */
   inputLevel: number
   /** 0..1, smoothed level of the voice speaking back */

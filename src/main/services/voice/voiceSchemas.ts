@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { VOICE_IDS } from './voiceSettings.ts'
 
 /**
- * What the four voice channels accept from the renderer. A leaf (zod and the
+ * What the five voice channels accept from the renderer. A leaf (zod and the
  * persona ids only) so voiceSchemas.test.ts can load it; voiceHandlers.ts
  * parses every payload with these before anything reaches the service.
  *
@@ -50,3 +50,6 @@ export const voiceSaveTranscriptSchema = z.object({
 
 /** voice:ensure-mic takes nothing; the preload sends {}. */
 export const voiceEnsureMicSchema = z.object({})
+
+/** voice:eligibility takes nothing either; the preload sends {}. */
+export const voiceEligibilitySchema = z.object({})

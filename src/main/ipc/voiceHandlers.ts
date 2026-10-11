@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
 import type {
+  VoiceEligibilityResponse,
   VoiceEndResponse,
   VoiceEnsureMicResponse,
   VoiceSaveTranscriptResponse,
@@ -8,6 +9,7 @@ import type {
 } from '@shared/ipc-contract'
 import { ensureMicAccess, voiceService } from '../services/voice'
 import {
+  voiceEligibilitySchema,
   voiceEndSchema,
   voiceEnsureMicSchema,
   voiceSaveTranscriptSchema,
@@ -15,7 +17,7 @@ import {
 } from '../services/voice/voiceSchemas'
 
 /**
- * Tracer Voice. Four channels, each parsed with its zod schema
+ * Tracer Voice. Five channels, each parsed with its zod schema
  * (services/voice/voiceSchemas.ts) before the service sees it.
  *
  * The audio never comes through here: the renderer's RTCPeerConnection talks to
@@ -49,5 +51,12 @@ export function registerVoiceHandlers(): void {
   ipcMain.handle(IPC.VOICE_SAVE_TRANSCRIPT, (_event, raw): VoiceSaveTranscriptResponse => {
     const req = voiceSaveTranscriptSchema.parse(raw)
     return voiceService.saveTranscript(req)
+  })
+
+  // Asked before the consent sheet and the mic prompt. Rejects (tagged) only
+  // when the server couldn't be asked; a refusal is an answer.
+  ipcMain.handle(IPC.VOICE_ELIGIBILITY, async (_event, raw): Promise<VoiceEligibilityResponse> => {
+    voiceEligibilitySchema.parse(raw ?? {})
+    return await voiceService.eligibility()
   })
 }

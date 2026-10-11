@@ -71,10 +71,11 @@ export const settings: AppSettings = {
   // account, so Preferences resolves this to Fast with the other two locked.
   modelTier: 'thorough',
   // Tracer Voice, at the real defaults — consent false, so the harness shows
-  // the first-use disclosure sheet before any call.
+  // the first-use disclosure sheet before any call, and transcripts off until
+  // the student ticks the sheet's box.
   voiceId: 'linden',
   voiceCaptions: true,
-  voiceSaveTranscript: true,
+  voiceSaveTranscript: false,
   voiceConsent: false
 }
 

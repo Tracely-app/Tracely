@@ -4,16 +4,20 @@ export class TracelyApiError extends Error {}
 
 /**
  * A voice.start / voice.end failure with the kind the voice UI switches on
- * (plan, daily-limit, busy, network, server) and a message without the tag.
+ * (plan, daily-limit, monthly-limit, busy, network, server) and a message
+ * without the tag.
  * Still a TracelyApiError, so code that only shows `message` keeps working.
  */
 export class VoiceApiError extends TracelyApiError {
   readonly kind: VoiceIpcErrorKind
+  /** The limits: when the minutes come back (ISO-8601), when the server said. */
+  readonly resetAt?: string
 
-  constructor(kind: VoiceIpcErrorKind, message: string) {
+  constructor(kind: VoiceIpcErrorKind, message: string, resetAt?: string) {
     super(message)
     this.name = 'VoiceApiError'
     this.kind = kind
+    if (resetAt) this.resetAt = resetAt
   }
 }
 
@@ -31,8 +35,8 @@ async function callVoice<T>(promise: Promise<T>): Promise<T> {
   try {
     return await promise
   } catch (error) {
-    const { kind, message } = parseVoiceIpcError(error instanceof Error ? error.message : String(error))
-    throw new VoiceApiError(kind, message)
+    const { kind, message, resetAt } = parseVoiceIpcError(error instanceof Error ? error.message : String(error))
+    throw new VoiceApiError(kind, message, resetAt)
   }
 }
 
@@ -76,6 +80,12 @@ export const tracelyApi = {
 
   /** Tracer Voice — main's half of a call; the audio is the renderer's WebRTC peer. */
   voice: {
+    /**
+     * May this account start a call now — asked before the consent sheet and
+     * the mic prompt. A refusal resolves (`allowed: false`); it rejects with a
+     * VoiceApiError only when the server couldn't be asked.
+     */
+    eligibility: () => callVoice(window.tracely.voice.eligibility()),
     /** OS mic permission; prompts once on macOS. Never rejects for a refusal — read `status`. */
     ensureMic: () => call(window.tracely.voice.ensureMic()),
     /** Rejects with a VoiceApiError carrying `kind`. */

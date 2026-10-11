@@ -194,7 +194,9 @@ const DEFAULT_EXTRAS: SettingsExtras = {
   modelTier: 'thorough',
   voiceId: DEFAULT_VOICE_ID,
   voiceCaptions: true,
-  voiceSaveTranscript: true,
+  // Off until the student turns it on (the consent sheet's checkbox, or
+  // Settings → Voice) — the same default as main's settingsRepo.
+  voiceSaveTranscript: false,
   voiceConsent: false
 }
 
@@ -940,6 +942,14 @@ export function createHttpApi(): TracelyApi {
     // key never leaves. This bridge has neither, so it says so in the tagged
     // form the voice UI reads (shared/ipc-contract.ts) rather than pretending.
     voice: {
+      // The Talk buttons read this and stay disabled, so nothing below runs
+      // from the UI; the answers are still the honest ones.
+      available: false,
+      eligibility: async () => ({
+        allowed: false as const,
+        reason: 'off' as const,
+        message: "Voice isn't available in this build."
+      }),
       ensureMic: async () => ({ status: 'unknown' as const }),
       start: async () => {
         throw new Error(formatVoiceIpcError({ kind: 'server', message: "Voice isn't available in this build." }))

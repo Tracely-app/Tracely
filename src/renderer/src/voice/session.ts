@@ -45,6 +45,7 @@ import type {
 import type { VoiceId } from '@shared/voices'
 // Relative with `.ts` so node --test can load it (the alias resolves only in the build).
 import { VOICE_KIND_COPY } from '../../../shared/ipc-contract.ts'
+import { REFUSAL_TITLE, limitMessage, nextUsageMonth, whenBack } from './limits.ts'
 import type {
   VoiceCaption,
   VoiceErrorKind,
@@ -495,11 +496,16 @@ const SERVER_FALLBACK = "Tracely couldn't start the call. Try again in a moment.
 /**
  * voice.start's rejection (a VoiceApiError carries `kind`) as the snapshot's
  * error. The account kinds read the one shared wording (VOICE_KIND_COPY, which
- * main tags them with too); a server error keeps main's sentence.
+ * main tags them with too) — the limits with the time their minutes come back
+ * when the server said (VoiceApiError.resetAt); a server error keeps main's sentence.
  */
-export function startError(err: unknown): VoiceError {
+export function startError(err: unknown, now: Date = new Date()): VoiceError {
   const kind = (err as { kind?: unknown } | null)?.kind
-  if (kind === 'plan' || kind === 'daily-limit' || kind === 'busy' || kind === 'network') {
+  if (kind === 'daily-limit' || kind === 'monthly-limit') {
+    const resetAt = (err as { resetAt?: unknown }).resetAt
+    return { kind, message: limitMessage(kind, typeof resetAt === 'string' ? resetAt : null, now) }
+  }
+  if (kind === 'plan' || kind === 'busy' || kind === 'network') {
     return { kind, message: VOICE_KIND_COPY[kind] }
   }
   const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
@@ -532,19 +538,57 @@ export function micError(err: unknown, platform: VoicePlatform): VoiceError {
 export const SAFETY_ENDED_MESSAGE =
   'This call was stopped by an automatic safety check. If something is worrying you, please talk to a trusted adult. In the US you can call or text 988 any time; elsewhere, contact your local emergency number.'
 
+/** What else closedError needs to say when a used-up allowance comes back. */
+export interface LimitContext {
+  /** When today's minutes come back (the start answer's resetAt). */
+  resetAt?: string | null
+  /** This month's allowance left when the call started. */
+  remainingMonthSec?: number | null
+  now?: Date
+}
+
+/**
+ * What capped this call: the month's allowance, today's, or the per-call
+ * limit — the smallest of the three, as the server chose maxSec. The same
+ * test drives the ended-by-limit sentence and whether "New call" is offered.
+ */
+export function voiceCallBound(maxSec: number, todaySec: number | null, monthSec: number | null): 'month' | 'day' | 'call' {
+  if (monthSec !== null && monthSec <= maxSec && (todaySec === null || monthSec <= todaySec)) return 'month'
+  if (todaySec !== null && todaySec <= maxSec) return 'day'
+  return 'call'
+}
+
 /**
  * Why the call ended when the student didn't end it (session.closed's reason,
  * or 'connection_lost' for a peer that dropped). The server's close at the cap
  * arrives as close_requested; OpenAI's own limit as expired.
  */
-export function closedError(reason: unknown, maxSec: number, remainingTodaySec: number | null): VoiceError {
+export function closedError(
+  reason: unknown,
+  maxSec: number,
+  remainingTodaySec: number | null,
+  ctx: LimitContext = {}
+): VoiceError {
   if (reason === 'expired' || reason === 'close_requested') {
-    const dailyBound = remainingTodaySec !== null && remainingTodaySec <= maxSec
+    const now = ctx.now ?? new Date()
+    const bound = voiceCallBound(maxSec, remainingTodaySec, ctx.remainingMonthSec ?? null)
+    if (bound === 'month') {
+      const when = whenBack(nextUsageMonth(now), now) ?? 'next month'
+      return {
+        kind: 'ended-by-limit',
+        message: `That's all of this month's voice minutes. They come back ${when} — you can keep chatting by text.`
+      }
+    }
+    if (bound === 'day') {
+      const when = whenBack(ctx.resetAt, now) ?? 'tomorrow'
+      return {
+        kind: 'ended-by-limit',
+        message: `That's all of today's voice minutes. They come back ${when} — you can keep chatting by text.`
+      }
+    }
     return {
       kind: 'ended-by-limit',
-      message: dailyBound
-        ? "That's all of today's voice minutes. They reset tomorrow — you can keep chatting by text."
-        : `That's the ${Math.round(maxSec / 60)}-minute limit for one call. Start a new call any time.`
+      message: `That's the ${Math.round(maxSec / 60)}-minute limit for one call. Start a new call any time.`
     }
   }
   if (reason === 'content') return { kind: 'safety', message: SAFETY_ENDED_MESSAGE }
@@ -615,12 +659,12 @@ export function errorTitle(kind: VoiceErrorKind | undefined): string {
       return 'Microphone is off for Tracely'
     case 'mic-missing':
       return 'No microphone available'
+    // The same headlines the eligibility refusals show (voice/limits.ts).
     case 'plan':
-      return 'Voice is part of Pro'
     case 'daily-limit':
-      return "Today's voice minutes are used"
+    case 'monthly-limit':
     case 'busy':
-      return 'Another call is open'
+      return REFUSAL_TITLE[kind]
     case 'network':
       return "Couldn't connect"
     case 'ended-by-limit':
@@ -1019,6 +1063,13 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
    * told (non-fatal — closing the peer already ended the call, and the server
    * charges from its own meter) and the transcript is saved when that is on.
    */
+  /** What closedError needs from this call's start answer to say when used-up minutes come back. */
+  function limitContext(): LimitContext {
+    // No `now`: deps.now() is a monotonic clock (performance.now), and a reset
+    // time is said against the wall clock.
+    return { resetAt: snap.resetAt ?? null, remainingMonthSec: snap.remainingMonthSec ?? null }
+  }
+
   function finish(err: VoiceError | null, notice: VoiceNotice | null = null): Promise<void> {
     if (finishPromise) return finishPromise
     over = true
@@ -1115,7 +1166,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
         return
       }
       case 'session.closed':
-        void finish(closedError(ev.reason, snap.maxSec, snap.remainingTodaySec))
+        void finish(closedError(ev.reason, snap.maxSec, snap.remainingTodaySec, limitContext()))
         return
       // 'error' is deliberately not an end: some moderation errors only cut
       // Tracer off mid-sentence and the call carries on. If the call does end,
@@ -1363,7 +1414,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     }
     // The server closes the call at its cap; if that close never arrives, hang up anyway.
     if (snap.maxSec > 0 && snap.elapsedSec >= snap.maxSec + CAP_GRACE_SEC) {
-      void finish(closedError('expired', snap.maxSec, snap.remainingTodaySec))
+      void finish(closedError('expired', snap.maxSec, snap.remainingTodaySec, limitContext()))
     }
   }
 
@@ -1443,7 +1494,13 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       return
     }
     sessionId = res.sessionId
-    update({ maxSec: res.maxSeconds, remainingTodaySec: res.remainingSeconds, mock: res.mock === true })
+    update({
+      maxSec: res.maxSeconds,
+      remainingTodaySec: res.remainingSeconds,
+      remainingMonthSec: res.remainingMonthSeconds ?? null,
+      resetAt: res.resetAt ?? null,
+      mock: res.mock === true
+    })
     // `mic`, not `stream`: the microphone may have been swapped meanwhile.
     inMeter = deps.createMeter(mic ?? stream)
 

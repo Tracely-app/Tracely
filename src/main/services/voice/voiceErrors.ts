@@ -7,7 +7,8 @@ import {
 
 /**
  * A failed voice call to the server, turned into something the voice UI can
- * show: one of five kinds, and a sentence a student can read.
+ * show: one of six kinds, and a sentence a student can read (and, for the
+ * two limits, when they lift).
  *
  * Reads the shape client.ts's ServerCallError carries (`stage`, `status`, the
  * server's `kind`, `message`) structurally, so this file stays a leaf `npm
@@ -18,6 +19,8 @@ export interface FailureLike {
   status?: number
   kind?: string
   message?: string
+  /** When a quota lifts (ISO-8601) — ServerCallError.resetAt, from voice_daily / voice_monthly. */
+  resetAt?: string
 }
 
 export type VoiceAction = 'start' | 'end'
@@ -30,12 +33,14 @@ export type VoiceAction = 'start' | 'end'
 export class VoiceCallError extends Error {
   readonly kind: VoiceIpcErrorKind
   readonly plain: string
+  readonly resetAt?: string
 
   constructor(error: VoiceIpcError) {
     super(formatVoiceIpcError(error))
     this.name = 'VoiceCallError'
     this.kind = error.kind
     this.plain = error.message
+    if (error.resetAt) this.resetAt = error.resetAt
   }
 }
 
@@ -43,6 +48,7 @@ export class VoiceCallError extends Error {
 export function voiceKindFor(failure: FailureLike): VoiceIpcErrorKind {
   if (failure.kind === 'plan_limit') return 'plan'
   if (failure.kind === 'voice_daily') return 'daily-limit'
+  if (failure.kind === 'voice_monthly') return 'monthly-limit'
   if (failure.kind === 'voice_busy') return 'busy'
   if (failure.stage === 'network' || failure.stage === 'timeout') return 'network'
   return 'server'
@@ -82,10 +88,19 @@ function serverSentence(failure: FailureLike, action: VoiceAction): string {
 
 /** Any failure from a voice server call, as the typed error the renderer shows. */
 export function voiceIpcErrorFrom(error: unknown, action: VoiceAction): VoiceIpcError {
-  if (error instanceof VoiceCallError) return { kind: error.kind, message: error.plain }
+  if (error instanceof VoiceCallError) {
+    const known: VoiceIpcError = { kind: error.kind, message: error.plain }
+    if (error.resetAt) known.resetAt = error.resetAt
+    return known
+  }
   const failure: FailureLike = typeof error === 'object' && error !== null ? (error as FailureLike) : {}
   const kind = voiceKindFor(failure)
   if (kind === 'server') return { kind, message: serverSentence(failure, action) }
   // The account kinds have one wording, shared with the renderer that shows it.
+  // The limits also say when they lift; the renderer puts that in local time.
+  const limit = kind === 'daily-limit' || kind === 'monthly-limit'
+  if (limit && typeof failure.resetAt === 'string' && failure.resetAt) {
+    return { kind, message: VOICE_KIND_COPY[kind], resetAt: failure.resetAt }
+  }
   return { kind, message: VOICE_KIND_COPY[kind] }
 }

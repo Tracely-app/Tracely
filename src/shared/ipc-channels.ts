@@ -103,7 +103,11 @@ export const IPC = {
   VOICE_ENSURE_MIC: 'voice:ensure-mic',
   VOICE_START: 'voice:start',
   VOICE_END: 'voice:end',
-  VOICE_SAVE_TRANSCRIPT: 'voice:save-transcript'
+  VOICE_SAVE_TRANSCRIPT: 'voice:save-transcript',
+  // Whether this account may start a call right now (plan, voice switched on,
+  // a free line, minutes left today and this month). Asked before the consent
+  // sheet and the microphone prompt; costs nothing (no OpenAI call).
+  VOICE_ELIGIBILITY: 'voice:eligibility'
 } as const
 
 export const IPC_EVENTS = {

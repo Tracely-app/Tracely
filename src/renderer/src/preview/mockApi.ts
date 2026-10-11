@@ -2,7 +2,12 @@ import { hasInlineCitation } from '@shared/inlineCitation'
 import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
 import { MAX_VERIFY_SOURCES, abstractToSend, type SourceReceipt } from '@shared/sourceReceipts'
 import { DEFAULT_WIDGET_VIEW_MODE, formatVoiceIpcError } from '@shared/ipc-contract'
-import { VOICE_DEFAULT_DAILY_SECONDS, VOICE_DEFAULT_MAX_SECONDS } from '@shared/voicePolicy'
+import type { VoiceEligibilityReason, VoiceEligibilityResponse, VoiceIpcErrorKind } from '@shared/ipc-contract'
+import {
+  VOICE_DEFAULT_DAILY_SECONDS,
+  VOICE_DEFAULT_MAX_SECONDS,
+  VOICE_DEFAULT_MONTHLY_SECONDS
+} from '@shared/voicePolicy'
 import { voiceById } from '@shared/voices'
 import type { VoiceSnapshot } from '../voice/types'
 import type { Plan } from '@shared/plan'
@@ -85,6 +90,14 @@ export type Scenario = {
    * long as one detection pass, which is not long enough to review.
    */
   watchAnalyzing: boolean
+  /**
+   * What voice:eligibility answers: 'allowed' (the default, like a local
+   * server with plans unenforced), or one refusal, so each refusal screen is
+   * reachable. voice:start refuses the same way, as the server would.
+   * 'unavailable' is the web bridge (bridge/httpApi.ts): voice.available is
+   * false, so the Talk buttons are disabled.
+   */
+  voice: 'allowed' | VoiceEligibilityReason | 'unavailable'
 }
 
 /** What a claim's breakdown looks like once a search has found something. */
@@ -103,7 +116,48 @@ export const defaultScenario: Scenario = {
   failRelay: false,
   latencyMs: 0,
   structure: 'heuristic',
-  watchAnalyzing: false
+  watchAnalyzing: false,
+  voice: 'allowed'
+}
+
+/**
+ * When the mock server's minutes come back: its usage day and month run on
+ * UTC (like a server on a UTC host), so a student west of Greenwich sees an
+ * evening hour — the case the reset-time copy exists for.
+ */
+function mockDayReset(now = new Date()): string {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString()
+}
+function mockMonthReset(now = new Date()): string {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString()
+}
+
+/** The server's sentence for each refusal (the app words plan and the limits itself). */
+const MOCK_REFUSAL: Record<VoiceEligibilityReason, string> = {
+  plan: 'Voice is part of Pro.',
+  'daily-limit': "You've used today's voice minutes.",
+  'monthly-limit': "You've used this month's voice minutes. They come back on the 1st.",
+  off: "Voice isn't available right now.",
+  busy: 'A voice call is already open for this account.'
+}
+
+export function mockEligibility(voice: Scenario['voice']): VoiceEligibilityResponse {
+  if (voice === 'unavailable') {
+    return { allowed: false, reason: 'off', message: "Voice isn't available in this build." }
+  }
+  if (voice === 'allowed') {
+    return {
+      allowed: true,
+      maxSeconds: VOICE_DEFAULT_MAX_SECONDS,
+      remainingSeconds: VOICE_DEFAULT_DAILY_SECONDS,
+      remainingMonthSeconds: VOICE_DEFAULT_MONTHLY_SECONDS,
+      resetAt: mockDayReset()
+    }
+  }
+  const resetAt = voice === 'daily-limit' ? mockDayReset() : voice === 'monthly-limit' ? mockMonthReset() : undefined
+  return resetAt
+    ? { allowed: false, reason: voice, message: MOCK_REFUSAL[voice], resetAt }
+    : { allowed: false, reason: voice, message: MOCK_REFUSAL[voice] }
 }
 
 /**
@@ -632,6 +686,15 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     // call would push are driven from outside with window.__previewEmitVoice
     // (installed below). A saved transcript lands in the chat like the real one.
     voice: {
+      available: scenario.voice !== 'unavailable',
+      eligibility: async () => {
+        log('voice.eligibility')
+        if (latency > 0) await new Promise((r) => setTimeout(r, latency))
+        if (scenario.failRelay) {
+          throw new Error(formatVoiceIpcError({ kind: 'network', message: "Couldn't reach Tracely (preview scenario)." }))
+        }
+        return mockEligibility(scenario.voice)
+      },
       ensureMic: () => ok('voice.ensureMic', { status: 'granted' as const }),
       start: async (req) => {
         log('voice.start')
@@ -641,14 +704,23 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
             formatVoiceIpcError({ kind: 'server', message: "Tracely couldn't start the call. Try again in a moment." })
           )
         }
+        // A refusal scenario refuses the start too, the way the server would
+        // (the voice view normally never gets this far: eligibility said no).
+        const check = mockEligibility(scenario.voice)
+        if (!check.allowed) {
+          const kind: VoiceIpcErrorKind = check.reason === 'off' ? 'server' : check.reason
+          throw new Error(formatVoiceIpcError({ kind, message: check.message, resetAt: check.resetAt }))
+        }
         voiceStartedAt = performance.now()
         const persona = voiceById(req.voiceId)
         return {
           mock: true,
           sessionId: `mock_${++voiceSessions}`,
           voice: { id: persona.id, name: persona.name },
-          maxSeconds: VOICE_DEFAULT_MAX_SECONDS,
-          remainingSeconds: VOICE_DEFAULT_DAILY_SECONDS
+          maxSeconds: check.maxSeconds,
+          remainingSeconds: check.remainingSeconds,
+          remainingMonthSeconds: check.remainingMonthSeconds,
+          resetAt: check.resetAt
         }
       },
       end: () =>

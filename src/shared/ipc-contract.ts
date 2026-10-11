@@ -1321,8 +1321,41 @@ export interface VoiceStartResponse {
   maxSeconds: number
   /** Today's voice allowance left, in seconds, as the server counted it when this call started. */
   remainingSeconds: number
+  /** This month's allowance left, in seconds; absent from an older server or one with no monthly cap. */
+  remainingMonthSeconds?: number
+  /** When today's minutes come back (ISO-8601: the server's next usage day); absent from an older server. */
+  resetAt?: string
   mock?: boolean
 }
+
+/**
+ * voice:eligibility — may this account start a call right now? Asked before
+ * the consent sheet and the microphone prompt, so a refusal is shown without
+ * either. POST /api/voice/eligibility costs nothing: no OpenAI call, no
+ * reservation. Main answers a refusal it can name (the server's daily budget
+ * spent) as `off`, and rejects (tagged, like voice:start) only when it could
+ * not ask — then the renderer goes ahead and lets voice:start decide.
+ */
+export type VoiceEligibilityRequest = Record<string, never>
+export type VoiceEligibilityReason = 'plan' | 'daily-limit' | 'monthly-limit' | 'off' | 'busy'
+export type VoiceEligibilityResponse =
+  | {
+      allowed: true
+      /** What one call may last right now. */
+      maxSeconds: number
+      remainingSeconds: number
+      remainingMonthSeconds?: number
+      /** When today's minutes come back (ISO-8601). */
+      resetAt?: string
+    }
+  | {
+      allowed: false
+      reason: VoiceEligibilityReason
+      /** The server's sentence; the renderer has its own words for plan and the limits. */
+      message: string
+      /** daily-limit: the next usage day; monthly-limit: the 1st of next month (UTC). */
+      resetAt?: string
+    }
 
 export interface VoiceEndRequest {
   sessionId: string
@@ -1359,15 +1392,20 @@ export interface VoiceSaveTranscriptResponse {
  * Why voice.start / voice.end failed, in the renderer's own words — a subset of
  * renderer/voice/types.ts VoiceErrorKind, so the engine passes it straight on.
  * Mapped in main from the server's error kinds: plan_limit → plan, voice_daily
- * → daily-limit, voice_busy → busy, an unreachable server or a timeout →
- * network, anything else → server.
+ * → daily-limit, voice_monthly → monthly-limit, voice_busy → busy, an
+ * unreachable server or a timeout → network, anything else → server.
  */
-export const VOICE_IPC_ERROR_KINDS = ['plan', 'daily-limit', 'busy', 'network', 'server'] as const
+export const VOICE_IPC_ERROR_KINDS = ['plan', 'daily-limit', 'monthly-limit', 'busy', 'network', 'server'] as const
 export type VoiceIpcErrorKind = (typeof VOICE_IPC_ERROR_KINDS)[number]
 export interface VoiceIpcError {
   kind: VoiceIpcErrorKind
   /** Plain words a student can read. */
   message: string
+  /**
+   * The limits only: when the minutes come back (ISO-8601), from the
+   * refusal's body. The renderer says it in the student's local time.
+   */
+  resetAt?: string
 }
 
 /**
@@ -1379,19 +1417,27 @@ export interface VoiceIpcError {
  */
 export const VOICE_KIND_COPY: Readonly<Record<Exclude<VoiceIpcErrorKind, 'server'>, string>> = {
   plan: 'Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.',
-  'daily-limit': "You've used today's voice minutes. They reset tomorrow; until then, Tracer is here by text.",
+  // The two limits' fallbacks, for a refusal without resetAt; the renderer
+  // says the time instead when it has one (renderer/voice/limits.ts).
+  'daily-limit': "You've used today's voice minutes. They come back tomorrow; until then, Tracer is here by text.",
+  'monthly-limit': "You've used this month's voice minutes. They come back next month; until then, Tracer is here by text.",
   busy: 'Another voice call is still open on this account. Wait a minute for it to close, then try again.',
   network: "Couldn't reach Tracely. Check your internet connection, then try again."
 }
 
+/** What a resetAt may look like inside the tag: an ISO-8601 instant, nothing that could close it early. */
+const VOICE_RESET_AT = /^[0-9][0-9T:.+\-Z]{0,39}$/
+
 /**
  * ipcRenderer.invoke keeps only an Error's MESSAGE across the bridge — `kind`
  * on a thrown object never arrives. So main throws `[voice:<kind>] <message>`
- * and the renderer's api wrapper reads the tag back with parseVoiceIpcError.
+ * (`[voice:<kind>@<resetAt>] …` for a limit that said when it lifts) and the
+ * renderer's api wrapper reads the tag back with parseVoiceIpcError.
  * One format, written and read here, so the two ends cannot drift.
  */
 export function formatVoiceIpcError(error: VoiceIpcError): string {
-  return `[voice:${error.kind}] ${error.message}`
+  const at = error.resetAt && VOICE_RESET_AT.test(error.resetAt) ? `@${error.resetAt}` : ''
+  return `[voice:${error.kind}${at}] ${error.message}`
 }
 
 /**
@@ -1401,9 +1447,13 @@ export function formatVoiceIpcError(error: VoiceIpcError): string {
  * as it came, so the caller always gets a kind it can show.
  */
 export function parseVoiceIpcError(raw: string): VoiceIpcError {
-  const match = /\[voice:([a-z-]+)\]\s*([\s\S]*)$/.exec(raw)
+  const match = /\[voice:([a-z-]+)(?:@([0-9][0-9T:.+\-Z]{0,39}))?\]\s*([\s\S]*)$/.exec(raw)
   const kind = VOICE_IPC_ERROR_KINDS.find((k) => k === match?.[1])
-  if (match && kind) return { kind, message: match[2].trim() }
+  if (match && kind) {
+    const error: VoiceIpcError = { kind, message: match[3].trim() }
+    if (match[2]) error.resetAt = match[2]
+    return error
+  }
   const message = raw
     .replace(/^Error invoking remote method '[^']*':\s*/, '')
     .replace(/^[A-Za-z]*Error:\s*/, '')
