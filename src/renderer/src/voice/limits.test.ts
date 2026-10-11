@@ -1,7 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { VOICE_KIND_COPY } from '../../../shared/ipc-contract.ts'
-import { REFUSAL_TITLE, limitMessage, nextUsageMonth, refusalFor, whenBack } from './limits.ts'
+import { REFUSAL_TITLE, limitMessage, nextUsageMonth, refusalFor, settingsVoiceLine, whenBack } from './limits.ts'
 
 // A student in Chicago (CDT, UTC-5 in October), on a server whose day turns at UTC midnight.
 const CHI = { locale: 'en-US', timeZone: 'America/Chicago' }
@@ -83,5 +83,27 @@ describe('nextUsageMonth', () => {
   it('is the 1st of next month at 00:00 UTC, across a year end', () => {
     strictEqual(nextUsageMonth(afternoon), '2026-11-01T00:00:00.000Z')
     strictEqual(nextUsageMonth(new Date('2026-12-31T23:59:00Z')), '2027-01-01T00:00:00.000Z')
+  })
+})
+
+describe("settingsVoiceLine: Settings' word on the allowance", () => {
+  const none = { todaySec: null, monthSec: null }
+  it("an allowed answer's figures, today and this month", () => {
+    const e = { allowed: true as const, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200 }
+    strictEqual(settingsVoiceLine({ eligibility: e, seen: none, needsPro: true }), 'About 30 minutes of voice left today, 120 this month.')
+  })
+
+  it('why not, and when it lifts', () => {
+    const daily = { allowed: false as const, reason: 'daily-limit' as const, message: 'x', resetAt: '2026-10-11T00:00:00Z' }
+    strictEqual(settingsVoiceLine({ eligibility: daily, seen: none, needsPro: false }, afternoon, CHI), "Today's voice minutes are used; they come back at 7:00 PM.")
+    const monthly = { allowed: false as const, reason: 'monthly-limit' as const, message: 'x' }
+    strictEqual(settingsVoiceLine({ eligibility: monthly, seen: none, needsPro: false }), "This month's voice minutes are used; they come back next month.")
+    strictEqual(settingsVoiceLine({ eligibility: { allowed: false, reason: 'plan', message: 'x' }, seen: none, needsPro: false }), 'Voice is part of Pro.')
+  })
+
+  it('without an answer: the figures last seen, and the plan this window knows', () => {
+    strictEqual(settingsVoiceLine({ eligibility: null, seen: { todaySec: 61, monthSec: null }, needsPro: false }), 'About 1 minute of voice left today.')
+    strictEqual(settingsVoiceLine({ eligibility: null, seen: { todaySec: null, monthSec: 3000 }, needsPro: true }), 'Voice is part of Pro. About 50 minutes of voice left this month.')
+    strictEqual(settingsVoiceLine({ eligibility: null, seen: none, needsPro: false }), '')
   })
 })

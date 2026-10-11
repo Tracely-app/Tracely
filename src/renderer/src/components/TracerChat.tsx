@@ -222,10 +222,16 @@ export default function TracerChat({
       })
       .catch(() => {})
   }
-  const talkDisabled = !serverConfigured || conversationId === null
+  // The web bridge (renderer/bridge/httpApi.ts) has no main process to hold a
+  // call: its Talk buttons stay disabled and say why, instead of running the
+  // consent sheet and a browser mic prompt only to fail.
+  const voiceAvailable = window.tracely.voice.available === true
+  const talkDisabled = !serverConfigured || conversationId === null || !voiceAvailable
   // Voice is Pro-only; the tooltips say so before the click (VoiceMode then
-  // explains, and the server decides).
+  // asks the server, which decides).
   const proHint = planRank(usePlan()) < planRank('pro') ? ' (Pro)' : ''
+  const talkTitle = (label: string): string =>
+    voiceAvailable ? `${label}${proHint}` : "Voice isn't available in this build"
 
   return (
     <div className="tracer-panel" role="dialog" aria-label="Chat with Tracer">
@@ -244,7 +250,7 @@ export default function TracerChat({
             className="tracer-head-talk"
             onClick={() => setVoiceOpen(true)}
             aria-label="Start a voice call"
-            title={`Start a voice call${proHint}`}
+            title={talkTitle('Start a voice call')}
             disabled={talkDisabled}
           >
             <WaveformIcon size={17} />
@@ -366,7 +372,7 @@ export default function TracerChat({
           type="button"
           className={`tracer-talk ${input.trim() ? '' : 'tracer-talk-primary'}`}
           aria-label="Talk to Tracer"
-          title={`Talk to Tracer${proHint}`}
+          title={talkTitle('Talk to Tracer')}
           disabled={talkDisabled}
           onClick={() => setVoiceOpen(true)}
         >

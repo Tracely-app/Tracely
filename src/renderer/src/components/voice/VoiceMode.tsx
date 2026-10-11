@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import { UPGRADE_URL, planRank } from '@shared/plan'
+import { UPGRADE_URL } from '@shared/plan'
 import { DEFAULT_VOICE_ID, voiceById, type VoiceId } from '@shared/voices'
 import { tracelyApi } from '../../lib/api'
-import { usePlan } from '../../lib/plan'
-import { formatClock, voiceAnnouncement, voiceStateLine } from '../../voice/session'
+import { refusalFor, type VoiceRefusal } from '../../voice/limits'
+import {
+  LIVE_STATES,
+  errorTitle,
+  formatClock,
+  startError,
+  voiceAnnouncement,
+  voiceCallBound,
+  voiceStateLine,
+  type VoiceError
+} from '../../voice/session'
 import type { VoiceState } from '../../voice/types'
-import { rememberVoiceRemaining, useVoiceSession } from '../../voice/useVoiceSession'
+import { rememberVoiceAllowance, rememberVoiceRemaining, useVoiceSession } from '../../voice/useVoiceSession'
 import Button from '../Button'
 import VoiceCaptions from './VoiceCaptions'
 import VoiceConsent from './VoiceConsent'
@@ -23,8 +32,11 @@ import '../../styles/voice.css'
  * the call does comes from the engine's snapshot (useVoiceSession); this file
  * only draws it and turns clicks and keys into start / end / mute.
  *
- * Flow: open → (first time) the consent sheet → the call starts by itself →
- * End → "Talked for 4:05 · Transcript saved to the chat" → back to the chat.
+ * Flow: open → the server says whether a call may start (eligibility: plan,
+ * voice on, a free line, minutes left) → (first time) the consent sheet → the
+ * call starts by itself → End → "Talked for 4:05 · Transcript saved to the
+ * chat" → back to the chat. A refusal is shown before the consent sheet and
+ * the microphone prompt, never after them; "Talk again" asks again first.
  * Keys while the view has focus: Esc ends the call (or leaves), M mutes.
  */
 
@@ -32,8 +44,7 @@ import '../../styles/voice.css'
 const NEAR_LIMIT_SEC = 60
 /** After the student hangs up, the summary stays this long, then the chat comes back. */
 const RETURN_AFTER_MS = 3000
-const LIVE: readonly VoiceState[] = ['listening', 'user-speaking', 'assistant-speaking']
-const IN_CALL: readonly VoiceState[] = ['requesting-mic', 'connecting', ...LIVE]
+const IN_CALL: readonly VoiceState[] = ['requesting-mic', 'connecting', ...LIVE_STATES]
 /** States in which the persona can still be changed: nothing is connected. */
 const UNLOCKED: readonly VoiceState[] = ['idle', 'ended', 'error']
 
@@ -59,6 +70,14 @@ function spokenDuration(totalSec: number): string {
   if (m === 0) return part(r, 'second')
   return r === 0 ? part(m, 'minute') : `${part(m, 'minute')} ${part(r, 'second')}`
 }
+
+/** The eligibility answer as the view uses it. */
+type EligibilityCheck =
+  | { status: 'checking' }
+  | { status: 'ok' }
+  | { status: 'refused'; refusal: VoiceRefusal }
+  /** Couldn't reach Tracely to ask: shown like a failed start, with Try again. */
+  | { status: 'unreachable'; error: VoiceError }
 
 interface VoicePrefs {
   voiceId: VoiceId
@@ -87,10 +106,11 @@ export default function VoiceMode({
       .then((s) => ({
         voiceId: voiceById(s.voiceId).id,
         captions: s.voiceCaptions !== false,
-        saveTranscript: s.voiceSaveTranscript !== false,
+        // Off unless the student turned it on (the default is false).
+        saveTranscript: s.voiceSaveTranscript === true,
         consent: s.voiceConsent === true
       }))
-      .catch(() => ({ voiceId: DEFAULT_VOICE_ID, captions: true, saveTranscript: true, consent: false }))
+      .catch(() => ({ voiceId: DEFAULT_VOICE_ID, captions: true, saveTranscript: false, consent: false }))
       .then((p) => {
         if (!cancelled) setPrefs(p)
       })
@@ -103,28 +123,58 @@ export default function VoiceMode({
   const persona = voiceById(voiceId)
   const call = useVoiceSession(voiceId, { saveTranscript: prefs?.saveTranscript, conversationId })
   const snap = call.snapshot
-  const live = LIVE.includes(snap.state)
+  const live = LIVE_STATES.includes(snap.state)
   const inCall = IN_CALL.includes(snap.state)
 
-  // Voice is Pro-only. The plan this window knows is checked first, so a
-  // Free or Student account sees why before the consent sheet, the OS mic
-  // prompt and a connection attempt — not after. The server stays the
-  // authority: "I have Pro, try anyway" goes ahead for a stale plan read or a
-  // local server that doesn't enforce plans, and a real refusal still comes
-  // back as the 'plan' error.
-  const plan = usePlan()
-  const [tryAnyway, setTryAnyway] = useState(false)
-  const gated = planRank(plan) < planRank('pro') && !tryAnyway
+  // May a call start? The server answers (plan, voice switched on, a free
+  // line, minutes left today and this month) before the consent sheet and the
+  // OS mic prompt, so a refusal costs the student neither. It is asked again
+  // before every new call. When it can't be asked: offline is said at once;
+  // anything else (an older server) goes ahead and lets the start decide.
+  const [check, setCheck] = useState<EligibilityCheck>({ status: 'checking' })
+  const checkSeq = useRef(0)
+  const mounted = useRef(true)
+  useEffect(
+    () => () => {
+      mounted.current = false
+    },
+    []
+  )
+  async function checkEligibility(): Promise<boolean> {
+    const seq = ++checkSeq.current
+    setCheck({ status: 'checking' })
+    let next: EligibilityCheck
+    try {
+      const e = await tracelyApi.voice.eligibility()
+      if (e.allowed) {
+        rememberVoiceAllowance(e)
+        next = { status: 'ok' }
+      } else {
+        next = { status: 'refused', refusal: refusalFor(e) }
+      }
+    } catch (err) {
+      const kind = (err as { kind?: unknown } | null)?.kind
+      next = kind === 'network' ? { status: 'unreachable', error: startError(err) } : { status: 'ok' }
+    }
+    if (seq !== checkSeq.current || !mounted.current) return false
+    setCheck(next)
+    return next.status === 'ok'
+  }
+  useEffect(() => {
+    void checkEligibility()
+    // Once, as the view opens; retry() asks again before each new call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const allowed = check.status === 'ok'
 
   // The call starts by itself once — when the view opens with consent given,
-  // or the moment consent is (and once the plan allows it: usePlan reads
-  // 'free' until the first plan read lands).
+  // or the moment consent is — and only once the server has said yes.
   const autoStarted = useRef(false)
   useEffect(() => {
-    if (!prefs?.consent || gated || autoStarted.current) return
+    if (!prefs?.consent || !allowed || autoStarted.current) return
     autoStarted.current = true
     void call.start()
-  }, [prefs?.consent, gated, call])
+  }, [prefs?.consent, allowed, call])
 
   const [consentBusy, setConsentBusy] = useState(false)
   async function acceptConsent(): Promise<void> {
@@ -133,7 +183,11 @@ export default function VoiceMode({
     // the student agreed, and the sheet will simply ask again next time.
     // The sheet only enables Start talking once "I'm 13 or older" is ticked,
     // so voiceConsent=true records that answer too.
-    await tracelyApi.setSettings({ voiceConsent: true }).catch(() => undefined)
+    // The transcript answer is written with it, explicitly, whether or not
+    // the box was touched: what the student saw on the sheet is what applies.
+    await tracelyApi
+      .setSettings({ voiceConsent: true, voiceSaveTranscript: prefs?.saveTranscript === true })
+      .catch(() => undefined)
     setConsentBusy(false)
     setPrefs((p) => (p ? { ...p, consent: true } : p))
   }
@@ -188,17 +242,36 @@ export default function VoiceMode({
     return () => window.clearTimeout(timer)
   }, [snap.state, call.result, stayOpen, saved, onExit])
 
-  // Settings shows today's minutes as last seen.
+  // Settings shows the minutes as last seen: what was left at the start less
+  // what the server metered (its hang-up answer), else the app's own clock.
   useEffect(() => {
     if (call.result && snap.remainingTodaySec !== null && !snap.mock) {
-      rememberVoiceRemaining(snap.remainingTodaySec, call.result.seconds)
+      rememberVoiceRemaining(snap.remainingTodaySec, call.result.serverSeconds ?? call.result.seconds, {
+        resetAt: snap.resetAt,
+        remainingMonthSec: snap.remainingMonthSec
+      })
     }
-  }, [call.result, snap.remainingTodaySec, snap.mock])
+  }, [call.result, snap.remainingTodaySec, snap.mock, snap.resetAt, snap.remainingMonthSec])
 
-  function retry(): void {
+  // "Try again" / "Talk again" / "New call": ask the server again first, so a
+  // call that used up today's minutes, or a line still busy, is said without
+  // lighting the microphone.
+  const [rechecking, setRechecking] = useState(false)
+  async function checkThen(go: () => void): Promise<void> {
+    setRechecking(true)
+    const ok = await checkEligibility()
+    if (!mounted.current) return
+    setRechecking(false)
+    if (ok) go()
+  }
+  async function retry(): Promise<void> {
     endedByStudent.current = false
     setStayOpen(false)
-    call.restart()
+    // Refused before any call started (as the view opened): a yes now hands
+    // over to the auto-start (or the consent sheet) — restarting here too
+    // would open a second call.
+    if (!autoStarted.current) return checkThen(() => undefined)
+    await checkThen(() => call.restart())
   }
 
   // Microphone denied: open the system pane, and try once more when the
@@ -215,7 +288,7 @@ export default function VoiceMode({
     if (retryOnFocus.current) window.removeEventListener('focus', retryOnFocus.current)
     const onFocus = (): void => {
       retryOnFocus.current = null
-      retry()
+      void retry()
     }
     retryOnFocus.current = onFocus
     window.addEventListener('focus', onFocus, { once: true })
@@ -268,45 +341,69 @@ export default function VoiceMode({
     }
   }
 
-  const showConsent = prefs !== null && !prefs.consent && snap.state === 'idle' && !gated
-  const showPlanGate = prefs !== null && gated && snap.state === 'idle'
-  const chipLocked = prefs === null || !UNLOCKED.includes(snap.state)
+  // A refusal (or no way to ask) holds the view whenever no call is running:
+  // as it opens, and when a new call was refused.
+  const refusal = check.status === 'refused' && !inCall ? check.refusal : null
+  const unreachable = check.status === 'unreachable' && !inCall ? check.error : null
+  const showConsent = prefs !== null && !prefs.consent && snap.state === 'idle' && allowed && !rechecking
+  const chipLocked = prefs === null || !UNLOCKED.includes(snap.state) || rechecking
   // The AI-voice disclosure stays on screen for the whole call (the chip), and
   // the line under the orb says it again before one starts.
   const stateLine =
     prefs === null
       ? ''
-      : showPlanGate
-        ? 'Voice is part of Pro'
-        : snap.state === 'idle'
-          ? `Talk with ${persona.name}, Tracer's AI voice`
-          : voiceStateLine(snap, persona.name)
+      : rechecking
+        ? 'Connecting…'
+        : refusal
+          ? refusal.title
+          : unreachable
+            ? errorTitle(unreachable.kind)
+            : snap.state === 'idle'
+              ? `Talk with ${persona.name}, Tracer's AI voice`
+              : voiceStateLine(snap, persona.name)
   const left = snap.maxSec - snap.elapsedSec
   const nearLimit = live && snap.maxSec > 0 && left <= NEAR_LIMIT_SEC
-  // The same test closedError makes from the same snapshot: this call's cap
-  // comes from what is left of today's allowance, not the per-call limit.
-  const dailyBound = snap.remainingTodaySec !== null && snap.remainingTodaySec <= snap.maxSec
-  const minutesToday = Math.max(1, Math.ceil(snap.maxSec / 60))
-  // Notices that aren't failures (a plan, a limit) rest the orb like an ended
-  // call; the desaturated error look is kept for mic, network and server faults.
-  const calmError = snap.state === 'error' && ['plan', 'daily-limit', 'ended-by-limit'].includes(snap.error?.kind ?? '')
-  const orbState: VoiceState = calmError ? 'ended' : snap.state
+  // The same test closedError makes from the same snapshot: what capped this
+  // call — the month's allowance, today's, or the per-call limit.
+  const bound = voiceCallBound(snap.maxSec, snap.remainingTodaySec, snap.remainingMonthSec ?? null)
+  const minutesLeft = Math.max(1, Math.ceil(snap.maxSec / 60))
+  const boundWhen = bound === 'month' ? 'this month' : 'today'
+  // Notices that aren't failures (a plan, a limit, a safety stop) rest the orb
+  // like an ended call; the desaturated look is kept for mic, network and
+  // server faults.
+  const calmError =
+    snap.state === 'error' &&
+    ['plan', 'daily-limit', 'monthly-limit', 'ended-by-limit', 'safety'].includes(snap.error?.kind ?? '')
+  const orbState: VoiceState = rechecking
+    ? 'connecting'
+    : refusal
+      ? 'ended'
+      : unreachable
+        ? 'error'
+        : calmError
+          ? 'ended'
+          : snap.state
 
   let meta: JSX.Element | string | null = null
-  if (live) {
+  if (rechecking) {
+    meta = null
+  } else if (refusal || unreachable) {
+    // Refused after a call: that call still says how long it ran.
+    meta = (call.result?.seconds ?? 0) > 0 ? `Talked for ${formatClock(call.result?.seconds ?? 0)}` : null
+  } else if (live) {
     meta = nearLimit ? (
       <span className="voice-meta-near">
         {formatClock(snap.elapsedSec)} / {formatClock(snap.maxSec)}
       </span>
-    ) : dailyBound && snap.elapsedSec < 5 ? (
-      // A call capped by today's allowance says so as it starts.
-      `${formatClock(snap.elapsedSec)} · About ${minutesToday} min left today`
+    ) : bound !== 'call' && snap.elapsedSec < 5 ? (
+      // A call capped by today's (or this month's) allowance says so as it starts.
+      `${formatClock(snap.elapsedSec)} · About ${minutesLeft} min left ${boundWhen}`
     ) : (
       formatClock(snap.elapsedSec)
     )
   } else if (snap.state === 'requesting-mic') {
     meta = 'Allow the microphone if your computer asks.'
-  } else if (snap.state === 'idle' && !showPlanGate) {
+  } else if (snap.state === 'idle') {
     meta = persona.tagline
   } else if (snap.state === 'ended' || snap.error?.kind === 'ended-by-limit') {
     meta = `Talked for ${formatClock(call.result?.seconds ?? snap.elapsedSec)}`
@@ -337,16 +434,35 @@ export default function VoiceMode({
   )
 
   let notice: JSX.Element | null = null
-  if (showPlanGate) {
+  if (refusal) {
+    // The server said no before any consent sheet or microphone prompt (or
+    // before a new call): why, when the minutes come back, and the way on.
     notice = (
       <div className="voice-notice">
-        <p>Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.</p>
-        <button type="button" className="voice-link" onClick={() => setTryAnyway(true)}>
-          I have Pro, try anyway
-        </button>
+        <p>{refusal.message}</p>
+        {savedLine}
         <div className="voice-actions">
           {back}
-          {seePro}
+          {refusal.reason === 'plan' ? (
+            seePro
+          ) : refusal.reason === 'busy' ? (
+            <Button variant="primary" onClick={() => void retry()}>
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    )
+  } else if (unreachable) {
+    notice = (
+      <div className="voice-notice">
+        <p>{unreachable.message}</p>
+        {savedLine}
+        <div className="voice-actions">
+          {back}
+          <Button variant="primary" onClick={() => void retry()}>
+            Try again
+          </Button>
         </div>
       </div>
     )
@@ -356,7 +472,7 @@ export default function VoiceMode({
         {savedLine ?? <p>Thanks for talking.</p>}
         <div className="voice-actions">
           {back}
-          <Button variant="primary" onClick={retry}>
+          <Button variant="primary" onClick={() => void retry()}>
             Talk again
           </Button>
         </div>
@@ -364,8 +480,15 @@ export default function VoiceMode({
     )
   } else if (snap.state === 'error' && snap.error) {
     const kind = snap.error.kind
-    // A call cut by today's allowance (not the per-call cap) has nothing left to retry with.
-    const canRetry = kind !== 'plan' && kind !== 'daily-limit' && !(kind === 'ended-by-limit' && dailyBound)
+    // A used-up allowance has nothing left to retry with (a call cut by
+    // today's or the month's minutes, not the per-call cap), and a call a
+    // safety check stopped is not one to jump straight back into.
+    const canRetry =
+      kind !== 'plan' &&
+      kind !== 'daily-limit' &&
+      kind !== 'monthly-limit' &&
+      kind !== 'safety' &&
+      !(kind === 'ended-by-limit' && bound !== 'call')
     const settingsUrl = kind === 'mic-denied' ? micSettingsUrl() : null
     notice = (
       <div className="voice-notice">
@@ -373,7 +496,14 @@ export default function VoiceMode({
         {/* Whatever ended it, a call that had words saves them (finish() always does). */}
         {savedLine}
         <div className="voice-actions">
-          {back}
+          {kind === 'safety' ? (
+            // The way back is the one action, and the prominent one.
+            <Button variant="primary" onClick={exit}>
+              Back to chat
+            </Button>
+          ) : (
+            back
+          )}
           {kind === 'plan' ? (
             seePro
           ) : settingsUrl ? (
@@ -381,7 +511,7 @@ export default function VoiceMode({
               Open Settings
             </Button>
           ) : canRetry ? (
-            <Button variant="primary" onClick={retry}>
+            <Button variant="primary" onClick={() => void retry()}>
               {kind === 'ended-by-limit' ? 'New call' : 'Try again'}
             </Button>
           ) : null}
@@ -399,7 +529,7 @@ export default function VoiceMode({
             variant="primary"
             onClick={() => {
               setPickedAfterCall(false)
-              void call.start()
+              void checkThen(() => void call.start())
             }}
           >
             Start talking
@@ -414,15 +544,21 @@ export default function VoiceMode({
   // back, today's cap once as the call connects, and the last minute once.
   let announcement = ''
   if (prefs !== null) {
-    if (showPlanGate) {
-      announcement = 'Voice is part of Pro. Upgrade to Pro to talk with Tracer out loud.'
+    if (rechecking) {
+      announcement = 'Connecting…'
+    } else if (refusal) {
+      announcement = `${refusal.title}. ${refusal.message}`
+    } else if (unreachable) {
+      announcement = `${errorTitle(unreachable.kind)}. ${unreachable.message}`
     } else if (snap.state === 'idle') {
       announcement = stateLine
     } else if (snap.state === 'ended') {
       announcement = `Call ended. Talked for ${spokenDuration(call.result?.seconds ?? snap.elapsedSec)}.${saved ? ' Transcript saved to the chat.' : ''}`
     } else {
       announcement = voiceAnnouncement(snap, persona.name)
-      if (live && dailyBound) announcement += ` About ${minutesToday} ${minutesToday === 1 ? 'minute' : 'minutes'} left today.`
+      if (live && bound !== 'call') {
+        announcement += ` About ${minutesLeft} ${minutesLeft === 1 ? 'minute' : 'minutes'} left ${boundWhen}.`
+      }
       if (nearLimit) announcement += ' One minute left.'
       if (snap.state === 'error' && saved) announcement += ' Transcript saved to the chat.'
     }
@@ -488,7 +624,7 @@ export default function VoiceMode({
       </div>
 
       <div className="voice-bottom">
-        {notice ?? (
+        {rechecking ? null : notice ?? (
           <>
             <VoiceCaptions
               captions={snap.captions}

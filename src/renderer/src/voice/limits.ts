@@ -10,7 +10,8 @@
  */
 import {
   VOICE_KIND_COPY,
-  type VoiceEligibilityReason
+  type VoiceEligibilityReason,
+  type VoiceEligibilityResponse
 } from '../../../shared/ipc-contract.ts'
 
 /** Locale and time zone, for tests; the student's own when left out. */
@@ -126,4 +127,49 @@ export function refusalFor(
         message: e.message?.trim() || "Voice isn't available right now. You can keep chatting with Tracer by text."
       }
   }
+}
+
+const minutes = (n: number): string => `${n} ${n === 1 ? 'minute' : 'minutes'}`
+
+/**
+ * Settings → Voice's line about the allowance: the server's answer when it
+ * gave one (an allowed check's figures, or why not and when that lifts),
+ * else the figures last seen, and the plan this window knows. '' when there
+ * is nothing to say.
+ */
+export function settingsVoiceLine(
+  input: {
+    eligibility: VoiceEligibilityResponse | null
+    seen: { todaySec: number | null; monthSec: number | null }
+    /** The window's own plan read is below Pro (used only without an answer). */
+    needsPro: boolean
+  },
+  now: Date = new Date(),
+  o: ClockOptions = {}
+): string {
+  const e = input.eligibility
+  if (e && !e.allowed) {
+    switch (e.reason) {
+      case 'plan':
+        return 'Voice is part of Pro.'
+      case 'daily-limit':
+        return `Today's voice minutes are used; they come back ${whenBack(e.resetAt, now, o) ?? 'tomorrow'}.`
+      case 'monthly-limit':
+        return `This month's voice minutes are used; they come back ${whenBack(e.resetAt, now, o) ?? 'next month'}.`
+      case 'off':
+        return e.message
+      case 'busy':
+        break
+    }
+  }
+  const today = e?.allowed ? e.remainingSeconds : input.seen.todaySec
+  const month = e?.allowed ? (e.remainingMonthSeconds ?? null) : input.seen.monthSec
+  const parts: string[] = []
+  if (!e && input.needsPro) parts.push('Voice is part of Pro.')
+  const t = today === null ? null : Math.floor(today / 60)
+  const m = month === null ? null : Math.floor(month / 60)
+  if (t !== null && m !== null) parts.push(`About ${minutes(t)} of voice left today, ${m} this month.`)
+  else if (t !== null) parts.push(`About ${minutes(t)} of voice left today.`)
+  else if (m !== null) parts.push(`About ${minutes(m)} of voice left this month.`)
+  return parts.join(' ')
 }

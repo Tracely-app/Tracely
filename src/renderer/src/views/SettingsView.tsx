@@ -50,7 +50,9 @@ import { applyTheme } from '../lib/theme'
 import { VOICES, voiceById } from '@shared/voices'
 import { WaveformIcon, PlayIcon, PauseIcon } from '../components/icons'
 import { VOICE_DISCLOSURE, VOICE_PRIVACY_URL } from '../components/voice/VoiceConsent'
-import { readVoiceRemaining } from '../voice/useVoiceSession'
+import { readVoiceAllowance, rememberVoiceAllowance } from '../voice/useVoiceSession'
+import { settingsVoiceLine } from '../voice/limits'
+import type { VoiceEligibilityResponse } from '@shared/ipc-contract'
 import { useVoicePreview } from '../components/voice/voiceClips'
 import '../styles/voice.css'
 import { applyAccentColor, applyDensity, applyFontSize } from '../lib/appearance'
@@ -1022,7 +1024,8 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
  * Settings → Voice: which persona Tracer talks in (a card each, with a
  * recorded preview, one playing at a time), live captions, saving
  * transcripts, the disclosure the first call shows (and a way to show it
- * again), and today's minutes as last seen. Every control persists on
+ * again), and the minutes left today and this month (the server's answer,
+ * else as last seen). Every control persists on
  * change, like the rest of Settings.
  */
 function VoicePane({
@@ -1035,7 +1038,27 @@ function VoicePane({
   const selected = voiceById(settings.voiceId).id
   const needsPro = planRank(usePlan()) < planRank('pro')
   const { playing, toggle: togglePreview } = useVoicePreview()
-  const remaining = readVoiceRemaining()
+  // The minutes as last seen, then the server's own answer (free to ask: no
+  // OpenAI call). No call can be open while Settings shows — the Tracer
+  // panel, and any call in it, closes when the view changes.
+  const [seen] = useState(() => readVoiceAllowance())
+  const [eligibility, setEligibility] = useState<VoiceEligibilityResponse | null>(null)
+  useEffect(() => {
+    if (window.tracely.voice.available !== true) return
+    let cancelled = false
+    tracelyApi.voice
+      .eligibility()
+      .then((e) => {
+        if (cancelled) return
+        if (e.allowed) rememberVoiceAllowance(e)
+        setEligibility(e)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const allowanceLine = settingsVoiceLine({ eligibility, seen, needsPro })
 
   return (
     <div key="voice" className="settings-panel-content">
@@ -1043,10 +1066,7 @@ function VoicePane({
         <h3>Voice</h3>
         <p>
           Talk to Tracer out loud from the Tracer panel. Pick the voice you like best.
-          {needsPro ? ' Voice is part of Pro.' : ''}
-          {remaining !== null
-            ? ` About ${Math.floor(remaining / 60)} ${Math.floor(remaining / 60) === 1 ? 'minute' : 'minutes'} of voice left today.`
-            : ''}
+          {allowanceLine ? ` ${allowanceLine}` : ''}
         </p>
       </div>
 
@@ -1103,8 +1123,8 @@ function VoicePane({
         <div>
           <div className="settings-toggle-row-title">Save transcripts to the chat</div>
           <div className="settings-toggle-row-subtitle">
-            When a call ends, its words are added to your Tracer chat on this computer. Like your typed chat, recent
-            messages are sent along with your next question to Tracer.
+            When a call ends, its words are added to your Tracer chat on this computer, and are part of the chat
+            history Tracer reads next time.
           </div>
         </div>
         <input
