@@ -70,7 +70,7 @@ globalThis.WebSocket = FakeSideband;
 
 const SCRUB = ["TRACELY_BETA_TOKENS", "TRACELY_BETA_DAILY_BUDGET_USD", "TRACELY_DAILY_BUDGET_USD", "TRACELY_APP_DAILY_BUDGET_USD", "TRACELY_PAID_DAILY_BUDGET_USD",
   "SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY", "TRACELY_MOCK", "TRACELY_EXTENSION_ID", "TRACELY_TRUSTED_PROXY_HOPS", "TRACELY_LLM_PROVIDER",
-  "TRACELY_VOICE_MAX_SECONDS", "TRACELY_VOICE_DAILY_SECONDS", "TRACELY_SAFETY_ID_SECRET"];
+  "TRACELY_VOICE_MAX_SECONDS", "TRACELY_VOICE_DAILY_SECONDS", "TRACELY_VOICE_MONTHLY_SECONDS", "TRACELY_VOICE_IDLE_SECONDS", "TRACELY_SAFETY_ID_SECRET"];
 
 /** A scratch directory holding the stub and the stub's log. */
 export function voiceHarness(tmp) {
@@ -132,11 +132,12 @@ export const post = (base, p, { body, token, headers = {} } = {}) =>
     body: typeof body === "string" ? body : JSON.stringify(body ?? {}),
   }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
-/** Today's entitlement_usage count for (account, kind) in a server's ledger. */
-export function ledger(dataDir, account, kind) {
+/** Today's entitlement_usage count for (account, kind) in a server's ledger
+ *  (`day`: another row, e.g. the "YYYY-MM" month row). */
+export function ledger(dataDir, account, kind, day = usageDay(Date.now())) {
   const db = new DatabaseSync(path.join(dataDir, "tracely.db"));
   try {
-    return db.prepare("SELECT count FROM entitlement_usage WHERE account_id = ? AND day = ? AND kind = ?").get(account, usageDay(Date.now()), kind)?.count ?? 0;
+    return db.prepare("SELECT count FROM entitlement_usage WHERE account_id = ? AND day = ? AND kind = ?").get(account, day, kind)?.count ?? 0;
   } finally {
     db.close();
   }
@@ -152,12 +153,13 @@ export function openVoiceRows(dataDir) {
   }
 }
 
-/** Seed today's count for (account, kind), as earlier calls would have. */
-export function seedLedger(dataDir, account, kind, count) {
+/** Seed today's count for (account, kind), as earlier calls would have;
+ *  `day` picks another row (a "YYYY-MM" month row, for instance). */
+export function seedLedger(dataDir, account, kind, count, day = usageDay(Date.now())) {
   const db = new DatabaseSync(path.join(dataDir, "tracely.db"));
   try {
     db.prepare("INSERT INTO entitlement_usage (account_id, day, kind, count, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_id, day, kind) DO UPDATE SET count = excluded.count")
-      .run(account, usageDay(Date.now()), kind, count, Date.now());
+      .run(account, day, kind, count, Date.now());
   } finally {
     db.close();
   }

@@ -26,7 +26,8 @@ process.on("exit", () => { try { rmSync(TMP, { recursive: true, force: true }); 
 // lib/voice.js imports lib/db.js, which opens a database at import time:
 // point this process's at the scratch dir, never server/data.
 process.env.TRACELY_DATA_DIR = mkdtempSync(path.join(TMP, "self-"));
-const { buildSessionBody, voiceCostMicroCents } = await import("../lib/voice.js");
+const { buildSessionBody, voiceCostMicroCents, dayResetAt, monthResetAt } = await import("../lib/voice.js");
+const { usageMonth } = await import("../shared/plan.js");
 const H = voiceHarness(TMP);
 const KEY = "sk-test-not-a-real-key";
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -77,7 +78,7 @@ test.describe("hosted (enforcement on)", () => {
   test("Pro: the exact OpenAI request, the answer, one at a time, metered into the ledger", async () => {
     const r = await start("tok-pro-alice", { voiceId: "rory", context: "Thesis: school should start later." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual(r.body, { sdp: "v=0\r\no=openai answer\r\n", sessionId: r.body.sessionId, voice: { id: "rory", name: "Rory" }, maxSeconds: 900, remainingSeconds: 1800 });
+    assert.deepEqual(r.body, { sdp: "v=0\r\no=openai answer\r\n", sessionId: r.body.sessionId, voice: { id: "rory", name: "Rory" }, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: dayResetAt() });
     assert.match(r.body.sessionId, /^live_ok_\d+$/);
 
     const create = readLog(LOG).find((e) => e.kind === "create");
@@ -292,9 +293,85 @@ test.describe("mock (TRACELY_MOCK=1, no key)", () => {
 
   test("the canned answer, no network; a bad body is still a 400", async () => {
     const r = await post(S.base, "/api/voice/session", { body: { sdp: offer(), voiceId: "sterling" } });
-    assert.deepEqual(r, { status: 200, body: { mock: true, sessionId: "mock_1", voice: { id: "sterling", name: "Sterling" }, maxSeconds: 900, remainingSeconds: 1800 } });
+    assert.deepEqual(r, { status: 200, body: { mock: true, sessionId: "mock_1", voice: { id: "sterling", name: "Sterling" }, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: dayResetAt() } });
     assert.deepEqual((await post(S.base, "/api/voice/end", { body: { sessionId: "mock_1" } })).body, { seconds: 0 });
     assert.equal((await post(S.base, "/api/voice/session", { body: { sdp: "nope", voiceId: "sterling" } })).status, 400);
+    assert.equal(readLog(LOG).length, 0, "OpenAI never called");
+  });
+});
+
+/* Follow-up round (2026-10-10): POST /api/voice/eligibility, the monthly
+ * allowance and resetAt, over HTTP. */
+test("wired: eligibility is an APP route (appGate), never the extension's", () => {
+  const set = (name) => new RegExp(`const ${name} = new Set\\(\\[([^\\]]*)\\]\\)`).exec(SERVER_SRC)[1];
+  assert.ok(set("APP_AI_ROUTES").includes(`"/api/voice/eligibility"`));
+  assert.ok(!set("EXTENSION_API").includes(`"/api/voice/eligibility"`));
+  assert.ok(!set("PAID_ROUTES").includes(`"/api/voice/eligibility"`));
+});
+
+test.describe("eligibility and the allowance (hosted)", () => {
+  const supabase = fakeSupabase();
+  const LOG = H.newLog("eligibility");
+  let S;
+  test.before(async () => {
+    await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
+    S = await bootServer({ tmp: TMP, stub: H.stub, serverJs: SERVER_JS, env: {
+      SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon",
+      OPENAI_API_KEY: KEY, TRACELY_TEST_VOICE_LOG: LOG, TRACELY_APP_DAILY_BUDGET_USD: "20",
+    } });
+  });
+  test.after(() => { S?.child.kill(); supabase.close(); });
+  const elig = (token, body = {}) => post(S.base, "/api/voice/eligibility", { token, body });
+  const month = () => usageMonth(Date.now());
+
+  test("Pro: allowed with the numbers; Free: plan; nothing reaches OpenAI, nothing is held", async () => {
+    assert.deepEqual(await elig("tok-pro-ella"), { status: 200, body: { allowed: true, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: dayResetAt() } });
+    assert.deepEqual(await elig("tok-free-finn"), { status: 200, body: { allowed: false, reason: "plan", message: "Voice is part of Pro." } });
+    const raw = await fetch(`${S.base}/api/voice/eligibility`, { method: "POST", headers: { Authorization: "Bearer tok-pro-ella" } });
+    assert.equal(raw.status, 200, "an empty body is fine");
+    assert.equal((await raw.json()).allowed, true);
+    assert.equal(readLog(LOG).length, 0, "no create, no attach");
+    assert.equal(ledger(S.dataDir, APP_POOL, "spend_ucents"), 0);
+  });
+
+  test("busy while a call is open; daily and monthly limits answer resetAt", async () => {
+    const r = await post(S.base, "/api/voice/session", { token: "tok-pro-gwen", body: { sdp: offer(), voiceId: "kip" } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.remainingMonthSeconds, 7200);
+    assert.equal(r.body.resetAt, dayResetAt());
+    assert.equal((await elig("tok-pro-gwen")).body.reason, "busy");
+    await post(S.base, "/api/voice/end", { token: "tok-pro-gwen", body: { sessionId: r.body.sessionId } });
+    assert.equal(ledger(S.dataDir, "user:u-pro-gwen", "voice_seconds", month()), 62, "the month row is charged too");
+    assert.equal((await elig("tok-pro-gwen")).body.remainingMonthSeconds, 7200 - 62);
+
+    seedLedger(S.dataDir, "user:u-pro-hana", "voice_seconds", 1795);
+    assert.deepEqual((await elig("tok-pro-hana")).body, { allowed: false, reason: "daily-limit", message: "You've used today's voice time. It resets at midnight.", resetAt: dayResetAt() });
+    const daily = await post(S.base, "/api/voice/session", { token: "tok-pro-hana", body: { sdp: offer(), voiceId: "kip" } });
+    assert.deepEqual(daily, { status: 429, body: { error: { kind: "voice_daily", message: "You've used today's voice time. It resets at midnight.", resetAt: dayResetAt() } } });
+
+    seedLedger(S.dataDir, "user:u-pro-iris", "voice_seconds", 7200, month());
+    assert.equal((await elig("tok-pro-iris")).body.reason, "monthly-limit");
+    const monthly = await post(S.base, "/api/voice/session", { token: "tok-pro-iris", body: { sdp: offer(), voiceId: "kip" } });
+    assert.deepEqual(monthly, { status: 429, body: { error: { kind: "voice_monthly", message: "You've used this month's voice minutes. They come back on the 1st.", resetAt: monthResetAt() } } });
+    assert.equal(readLog(LOG).filter((e) => e.kind === "create").length, 1, "only gwen's call reached OpenAI");
+  });
+});
+
+test.describe("eligibility in mock (TRACELY_MOCK=1, no key)", () => {
+  const LOG = H.newLog("mock-eligibility");
+  let S;
+  test.before(async () => {
+    S = await bootServer({ tmp: TMP, stub: H.stub, serverJs: SERVER_JS, env: { TRACELY_MOCK: "1", TRACELY_TEST_VOICE_LOG: LOG, TRACELY_VOICE_MONTHLY_SECONDS: "0" } });
+  });
+  test.after(() => S?.child.kill());
+
+  test("allowed with no key and no network; no monthly cap is null", async () => {
+    assert.deepEqual(await post(S.base, "/api/voice/eligibility", { body: {} }),
+      { status: 200, body: { allowed: true, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: null, resetAt: dayResetAt() } });
+    const r = await post(S.base, "/api/voice/session", { body: { sdp: offer(), voiceId: "hollis" } });
+    assert.equal(r.body.mock, true);
+    assert.equal(r.body.remainingMonthSeconds, null);
+    assert.equal(r.body.resetAt, dayResetAt());
     assert.equal(readLog(LOG).length, 0, "OpenAI never called");
   });
 });

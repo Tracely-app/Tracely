@@ -158,7 +158,7 @@ test("startLiveSession: what an upstream failure looks like", async () => {
 test("a metered session: one per caller, the hold, the cumulative meter, the charge", async () => {
   const gate = gateFor("pro", "meter");
   const out = await start(gate, { context: "My essay." });
-  assert.deepEqual(out, { sdp: "v=0\r\nanswer", sessionId: out.sessionId, voice: { id: "wren", name: "Wren" }, maxSeconds: 900, remainingSeconds: 1800 });
+  assert.deepEqual(out, { sdp: "v=0\r\nanswer", sessionId: out.sessionId, voice: { id: "wren", name: "Wren" }, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
   const sent = fetches.at(-1);
   assert.equal(sent.url, "https://api.openai.com/v1/live/sessions");
   assert.equal(sent.headers.Authorization, "Bearer sk-test-not-a-real-key");
@@ -535,7 +535,7 @@ test("mock: the canned answer, no network, no slot taken", async () => {
   const before = fetches.length;
   const a = await V.startSession({ gate: LOCAL, env: {}, mock: true, readBody: async () => ({ sdp: SDP, voiceId: "kip" }) });
   const b = await V.startSession({ gate: LOCAL, env: {}, mock: true, readBody: async () => ({ sdp: SDP, voiceId: "kip" }) });
-  assert.deepEqual(a, { mock: true, sessionId: "mock_1", voice: { id: "kip", name: "Kip" }, maxSeconds: 900, remainingSeconds: 1800 });
+  assert.deepEqual(a, { mock: true, sessionId: "mock_1", voice: { id: "kip", name: "Kip" }, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
   assert.equal(b.sessionId, "mock_2");
   assert.equal(fetches.length, before);
   assert.deepEqual(await V.endSession({ gate: LOCAL, body: { sessionId: "mock_1" } }), { seconds: 0 });
@@ -557,4 +557,116 @@ test("end: unknown ids and other callers' ids answer 0; a missing id is a 400", 
   assert.equal(V.liveSessionCount(), 0);
   assert.equal(usageCount("user:u-owner", today(), "voice_seconds"), 35);
   assert.deepEqual(await V.endSession({ gate: gateFor("pro", "owner"), body: { sessionId: out.sessionId } }), { seconds: 34 });
+});
+
+// ── the monthly allowance and resetAt (follow-up round, 2026-10-10) ──────
+
+const thisMonth = async () => (await import("../shared/plan.js")).usageMonth(Date.now());
+
+test("env: the monthly allowance defaults to 2 hours; junk is the default; an explicit 0 is NO monthly cap", () => {
+  assert.equal(V.DEFAULT_MONTHLY_SECONDS, 7200);
+  assert.equal(V.voiceMonthlySeconds({}), 7200);
+  for (const junk of ["", "  ", "lots", "-5", "1.5"]) assert.equal(V.voiceMonthlySeconds({ TRACELY_VOICE_MONTHLY_SECONDS: junk }), 7200, junk);
+  assert.equal(V.voiceMonthlySeconds({ TRACELY_VOICE_MONTHLY_SECONDS: " 600 " }), 600);
+  assert.equal(V.voiceMonthlySeconds({ TRACELY_VOICE_MONTHLY_SECONDS: "0" }), 0);
+});
+
+test("resetAt: today's seconds come back at the server's next local midnight, the month's at 00:00 UTC on the 1st", () => {
+  const at = new Date(2026, 9, 10, 15, 30).getTime(); // 10 Oct 2026, 15:30 local
+  assert.equal(V.dayResetAt(at), new Date(2026, 9, 11).toISOString());
+  assert.equal(usageDay(Date.parse(V.dayResetAt(at))), "2026-10-11", "the instant the next usage day starts");
+  assert.equal(usageDay(Date.parse(V.dayResetAt(at)) - 1), "2026-10-10");
+  assert.equal(V.dayResetAt(new Date(2026, 11, 31, 23, 59).getTime()), new Date(2027, 0, 1).toISOString(), "year end");
+  assert.equal(V.monthResetAt(Date.UTC(2026, 9, 10, 12)), "2026-11-01T00:00:00.000Z");
+  assert.equal(V.monthResetAt(Date.UTC(2026, 11, 31, 23, 59)), "2027-01-01T00:00:00.000Z");
+  assert.equal(V.monthResetAt(Date.UTC(2026, 9, 31, 23, 59, 59)), "2026-11-01T00:00:00.000Z");
+});
+
+test("the month: a call is charged to the month row too, capped by what is left, refused under 15 s with resetAt", async () => {
+  const month = await thisMonth();
+  const pro = gateFor("pro", "monthly");
+  const out = await start(pro);
+  assert.equal(out.remainingMonthSeconds, 7200);
+  assert.equal(out.resetAt, V.dayResetAt());
+  const ending = V.endSession({ gate: pro, body: { sessionId: out.sessionId } });
+  lastWS().emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 40.2 } });
+  await ending;
+  assert.equal(usageCount("user:u-monthly", today(), "voice_seconds"), 41, "the day row");
+  assert.equal(usageCount("user:u-monthly", month, "voice_seconds"), 41, "and the month row");
+
+  usageAdd("user:u-monthly", month, "voice_seconds", 7200 - 41 - 100); // 100 s left this month
+  const capped = await start(pro);
+  assert.equal(capped.remainingMonthSeconds, 100);
+  assert.equal(capped.maxSeconds, 100, "a call never outlasts the month");
+  assert.equal(capped.remainingSeconds, 1800 - 41, "today's is its own figure");
+  V._resetVoiceForTests();
+  usageAdd("user:u-monthly", month, "voice_seconds", 90); // 10 s left
+  const err = await start(pro).catch((e) => e);
+  assert.equal(err.kind, "voice_monthly");
+  assert.equal(err.status, 429);
+  assert.equal(err.message, "You've used this month's voice minutes. They come back on the 1st.");
+  assert.equal(err.resetAt, V.monthResetAt());
+  assert.equal(V.liveSessionCount(), 0, "nothing claimed");
+});
+
+test("voice_daily carries resetAt; the month wins when both are spent; 0 means no monthly cap", async () => {
+  const month = await thisMonth();
+  const pro = gateFor("pro", "both");
+  usageAdd("user:u-both", today(), "voice_seconds", 1795);
+  const daily = await start(pro).catch((e) => e);
+  assert.equal(daily.kind, "voice_daily");
+  assert.equal(daily.resetAt, V.dayResetAt());
+  usageAdd("user:u-both", month, "voice_seconds", 7195);
+  const monthly = await start(pro).catch((e) => e);
+  assert.equal(monthly.kind, "voice_monthly", "the month comes back later, so it is the answer");
+  assert.equal(monthly.resetAt, V.monthResetAt());
+
+  const uncapped = { ...ENV, TRACELY_VOICE_MONTHLY_SECONDS: "0" };
+  const pro2 = gateFor("pro", "uncapped");
+  usageAdd("user:u-uncapped", month, "voice_seconds", 1_000_000);
+  const out = await start(pro2, {}, uncapped);
+  assert.equal(out.remainingMonthSeconds, null, "no monthly cap: nothing to count down");
+  assert.equal(out.maxSeconds, 900);
+});
+
+test("a local server: the configured allowances, nothing read from the ledger", () => {
+  usageAdd("user:u-local-ledger", today(), "voice_seconds", 1800);
+  const a = V.voiceAllowance({ ent: { enforced: false, plan: "free" }, callerId: "user:u-local-ledger" }, {});
+  assert.deepEqual(a, { remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
+});
+
+test("eligibility: allowed, with the same numbers a start would get; no fetch, no socket, no hold, no slot", async () => {
+  const before = { fetches: fetches.length, sockets: FakeWS.all.length };
+  const pro = gateFor("pro", "elig");
+  usageAdd("user:u-elig", today(), "voice_seconds", 300);
+  usageAdd("user:u-elig", await thisMonth(), "voice_seconds", 6000);
+  assert.deepEqual(V.checkEligibility({ gate: pro, env: {} }), {
+    allowed: true, maxSeconds: 900, remainingSeconds: 1500, remainingMonthSeconds: 1200, resetAt: V.dayResetAt(),
+  }, "no OPENAI_API_KEY needed");
+  assert.deepEqual({ fetches: fetches.length, sockets: FakeWS.all.length }, before);
+  assert.equal(reservedMicroCents("app"), 0);
+  assert.equal(V.liveSessionCount(), 0);
+  assert.deepEqual(V.checkEligibility({ gate: LOCAL, env: {} }), { allowed: true, maxSeconds: 900, remainingSeconds: 1800, remainingMonthSeconds: 7200, resetAt: V.dayResetAt() });
+});
+
+test("eligibility: each refusal as {allowed:false, reason, message}, resetAt on the two limits", async () => {
+  const elig = (gate, env = ENV) => V.checkEligibility({ gate, env });
+  for (const plan of ["free", "student"]) {
+    assert.deepEqual(elig(gateFor(plan, `e-${plan}`)), { allowed: false, reason: "plan", message: "Voice is part of Pro." });
+  }
+  for (const off of [{ TRACELY_VOICE_MAX_SECONDS: "0" }, { TRACELY_VOICE_DAILY_SECONDS: "0" }]) {
+    assert.deepEqual(elig(gateFor("pro", "e-off"), off), { allowed: false, reason: "off", message: "Voice conversations are turned off on this server." });
+  }
+  assert.equal(elig(gateFor("free", "e-off2"), { TRACELY_VOICE_MAX_SECONDS: "0" }).reason, "off", "the switch first, like a start");
+
+  const busyGate = gateFor("pro", "e-busy");
+  await start(busyGate);
+  assert.deepEqual(elig(busyGate), { allowed: false, reason: "busy", message: "You already have a voice conversation open. End it before starting another." });
+
+  usageAdd("user:u-e-day", today(), "voice_seconds", 1790);
+  assert.deepEqual(elig(gateFor("pro", "e-day")), { allowed: false, reason: "daily-limit", message: "You've used today's voice time. It resets at midnight.", resetAt: V.dayResetAt() });
+  usageAdd("user:u-e-month", await thisMonth(), "voice_seconds", 7190);
+  assert.deepEqual(elig(gateFor("pro", "e-month")), { allowed: false, reason: "monthly-limit", message: "You've used this month's voice minutes. They come back on the 1st.", resetAt: V.monthResetAt() });
+  const bad = await (async () => { try { V.checkEligibility({ gate: { get ent() { throw new TypeError("boom"); } }, env: ENV }); } catch (e) { return e; } })();
+  assert.ok(bad instanceof TypeError, "anything that isn't a voice refusal is still an error");
 });

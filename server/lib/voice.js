@@ -36,7 +36,7 @@ import { CheckError } from "./errors.js";
 import { usageAdd, usageCount, voiceOpenPut, voiceOpenDelete, voiceOpenAll } from "./db.js";
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
 import { isDailyQuotaKey } from "./entitlement.js";
-import { usageDay, planRank } from "../shared/plan.js";
+import { usageDay, usageMonth, planRank } from "../shared/plan.js";
 import { VOICE_PERSONAS, buildInstructions, draftInput, isVoiceId } from "./voices.js";
 
 export const VOICE_MODEL = "gpt-live-1";
@@ -52,6 +52,14 @@ export const attachUrl = (sessionId) => `wss://api.openai.com/v1/live/sessions/$
 
 export const DEFAULT_MAX_SECONDS = 900;
 export const DEFAULT_DAILY_SECONDS = 1800;
+/* 2 hours a month (about $6 at the price above): a PLACEHOLDER until Sam
+ * prices voice (server/BILLING.md). Without it a Pro account could talk the
+ * daily 30 min every day, about $46 a month. */
+export const DEFAULT_MONTHLY_SECONDS = 7200;
+/* The sideband closes a call when neither side has said anything for this
+ * long (no transcript delta either way): a forgotten or muted window would
+ * otherwise bill to the cap. */
+export const DEFAULT_IDLE_SECONDS = 180;
 export const MAX_SDP_CHARS = 20_000;
 export const MAX_CONTEXT_CHARS = 4000;
 export const ATTACH_TIMEOUT_MS = 5000;
@@ -98,6 +106,37 @@ export function voiceLimits(env = process.env) {
     maxSeconds: envSeconds(env.TRACELY_VOICE_MAX_SECONDS, DEFAULT_MAX_SECONDS),
     dailySeconds: envSeconds(env.TRACELY_VOICE_DAILY_SECONDS, DEFAULT_DAILY_SECONDS),
   };
+}
+
+/** TRACELY_VOICE_MONTHLY_SECONDS per account per usage month. Same rule as
+ *  the others for empty or junk (the default), but an explicit 0 means NO
+ *  monthly cap — unlike the daily and per-call variables, where 0 is voice
+ *  off. */
+export function voiceMonthlySeconds(env = process.env) {
+  return envSeconds(env.TRACELY_VOICE_MONTHLY_SECONDS, DEFAULT_MONTHLY_SECONDS);
+}
+
+/** TRACELY_VOICE_IDLE_SECONDS: silence on both sides before the server
+ *  closes a call. Empty or junk is the default; an explicit 0 turns the idle
+ *  close off (the per-call cap still bounds every call). */
+export function voiceIdleSeconds(env = process.env) {
+  return envSeconds(env.TRACELY_VOICE_IDLE_SECONDS, DEFAULT_IDLE_SECONDS);
+}
+
+// ── when allowances come back ─────────────────────────────────────────────
+
+/** When today's voice seconds reset, as ISO-8601: the next usage-day
+ *  boundary, i.e. the server's local midnight (shared/plan.js usageDay). */
+export function dayResetAt(at = Date.now()) {
+  const d = new Date(at);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();
+}
+
+/** When this month's voice seconds reset, as ISO-8601: 00:00 UTC on the 1st
+ *  of next month (shared/plan.js usageMonth is a UTC month). */
+export function monthResetAt(at = Date.now()) {
+  const d = new Date(at);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
 }
 
 // ── money ────────────────────────────────────────────────────────────────
@@ -346,7 +385,7 @@ function armCapGuard(s) {
 }
 
 /* Charge once, whatever ended it: the app pool in micro-cents and the
- * account's voice seconds for the daily cap, both on what OpenAI bills (at
+ * account's voice seconds for the daily and monthly caps, both on what OpenAI bills (at
  * least VOICE_MIN_BILLED_SECONDS). Never account_ucents (see the top).
  * Only `session.closed` (confirmed) carries the real total. Otherwise the
  * meter is stale by design: a close that went out bills the wall clock since
@@ -370,7 +409,11 @@ function finalize(s, reason, { confirmed = false } = {}) {
     if (s.enforced) {
       const billed = billedSeconds(s.seconds);
       chargePool(voiceCostMicroCents(billed), at);
-      if (isDailyQuotaKey(s.callerId)) usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
+      if (isDailyQuotaKey(s.callerId)) {
+        // The day row (the daily cap) and the month row (the monthly one).
+        usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
+        usageAdd(s.callerId, usageMonth(at), VOICE_SECONDS_KIND, Math.ceil(billed));
+      }
     }
   } catch (e) {
     console.error("[tracely] could not record a voice session's spend:", e?.message);
@@ -502,6 +545,54 @@ function reattachSoon(s) {
 
 let mockSessions = 0;
 
+/** The feature switch and the plan: the refusals that need neither the body
+ *  nor the ledger. */
+function checkSwitchAndPlan(gate, limits) {
+  if (limits.maxSeconds <= 0 || limits.dailySeconds <= 0) {
+    throw new CheckError("voice_off", "Voice conversations are turned off on this server.", { status: 503 });
+  }
+  // The billing plan, not effectivePlan: a Pro account over its fair-use
+  // limit is still paying for Pro, and voice has its own daily cap.
+  if (gate?.ent?.enforced && planRank(gate.ent.plan) < planRank("pro")) {
+    throw new CheckError("plan_limit", "Voice is part of Pro.", { status: 429 });
+  }
+}
+
+/**
+ * What the caller may still talk: today's seconds (usageDay row), this
+ * month's (usageMonth row, the source-search month pattern) and when today's
+ * come back. Only an enforced caller with a quota identity is metered; a
+ * local server answers the configured allowances untouched.
+ * `remainingMonthSeconds` is null when there is no monthly cap
+ * (TRACELY_VOICE_MONTHLY_SECONDS=0).
+ */
+export function voiceAllowance(gate, env = process.env, at = Date.now()) {
+  const { dailySeconds } = voiceLimits(env);
+  const monthlySeconds = voiceMonthlySeconds(env);
+  const metered = Boolean(gate?.ent?.enforced) && isDailyQuotaKey(gate?.callerId);
+  const used = (period) => (metered ? usageCount(gate.callerId, period, VOICE_SECONDS_KIND) : 0);
+  return {
+    remainingSeconds: Math.max(0, dailySeconds - used(usageDay(at))),
+    remainingMonthSeconds: monthlySeconds > 0 ? Math.max(0, monthlySeconds - used(usageMonth(at))) : null,
+    resetAt: dayResetAt(at),
+  };
+}
+
+/** The allowance, refused when less than one billed minimum (15 s) is left:
+ *  the month first when both are spent, since it comes back later. Returns
+ *  the allowance and the longest call it allows. */
+function checkAllowance(gate, env, limits, at = Date.now()) {
+  const a = voiceAllowance(gate, env, at);
+  if (a.remainingMonthSeconds !== null && a.remainingMonthSeconds < VOICE_MIN_BILLED_SECONDS) {
+    throw new CheckError("voice_monthly", "You've used this month's voice minutes. They come back on the 1st.", { status: 429, resetAt: monthResetAt(at) });
+  }
+  if (a.remainingSeconds < VOICE_MIN_BILLED_SECONDS) {
+    throw new CheckError("voice_daily", "You've used today's voice time. It resets at midnight.", { status: 429, resetAt: a.resetAt });
+  }
+  const maxSeconds = Math.min(limits.maxSeconds, a.remainingSeconds, a.remainingMonthSeconds ?? Infinity);
+  return { allowance: a, maxSeconds };
+}
+
 /**
  * POST /api/voice/session. The order is the policy: feature switch, plan,
  * key, body, one-at-a-time, daily cap, then money held before OpenAI is
@@ -509,15 +600,8 @@ let mockSessions = 0;
  */
 export async function startSession({ gate, readBody, mock = false, env = process.env, fetchImpl, WebSocketImpl }) {
   const limits = voiceLimits(env);
-  if (limits.maxSeconds <= 0 || limits.dailySeconds <= 0) {
-    throw new CheckError("voice_off", "Voice conversations are turned off on this server.", { status: 503 });
-  }
+  checkSwitchAndPlan(gate, limits);
   const enforced = Boolean(gate?.ent?.enforced);
-  // The billing plan, not effectivePlan: a Pro account over its fair-use
-  // limit is still paying for Pro, and voice has its own daily cap.
-  if (enforced && planRank(gate.ent.plan) < planRank("pro")) {
-    throw new CheckError("plan_limit", "Voice is part of Pro.", { status: 429 });
-  }
   const key = String(env.OPENAI_API_KEY ?? "").trim();
   if (!key && !mock) {
     throw new CheckError("no_key", "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env", { status: 503 });
@@ -526,15 +610,9 @@ export async function startSession({ gate, readBody, mock = false, env = process
   const voice = { id: request.voiceId, name: VOICE_PERSONAS[request.voiceId].name };
   if (live.has(callerKeyOf(gate))) throw busy();
 
-  let remainingSeconds = limits.dailySeconds;
-  if (enforced && isDailyQuotaKey(gate.callerId)) {
-    remainingSeconds = Math.max(0, limits.dailySeconds - usageCount(gate.callerId, usageDay(), VOICE_SECONDS_KIND));
-    if (remainingSeconds < VOICE_MIN_BILLED_SECONDS) {
-      throw new CheckError("voice_daily", "You've used today's voice time. It resets at midnight.", { status: 429 });
-    }
-  }
-  const maxSeconds = Math.min(limits.maxSeconds, remainingSeconds);
-  if (mock) return { mock: true, sessionId: `mock_${++mockSessions}`, voice, maxSeconds, remainingSeconds };
+  const { allowance: { remainingSeconds, remainingMonthSeconds, resetAt }, maxSeconds } = checkAllowance(gate, env, limits);
+  const quota = { maxSeconds, remainingSeconds, remainingMonthSeconds, resetAt };
+  if (mock) return { mock: true, sessionId: `mock_${++mockSessions}`, voice, ...quota };
 
   const s = claim(gate, maxSeconds);
   let created = false;
@@ -558,7 +636,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
     listen(s, ws);
     armCapGuard(s);
     persist(s);
-    return { sdp, sessionId: id, voice, maxSeconds, remainingSeconds };
+    return { sdp, sessionId: id, voice, ...quota };
   } catch (err) {
     // OpenAI billed (or may have billed: a timeout, a dropped or unreadable
     // answer) the 15 s set-up of a session we never handed out: the pool
@@ -566,6 +644,33 @@ export async function startSession({ gate, readBody, mock = false, env = process
     if (enforced && (created || err?.ambiguous)) chargePool(voiceCostMicroCents(VOICE_MIN_BILLED_SECONDS), Date.now());
     abandon(s);
     throw err;
+  }
+}
+
+/* A refusal's kind → the eligibility answer's `reason`. */
+const ELIGIBILITY_REASON = Object.freeze({
+  plan_limit: "plan", voice_daily: "daily-limit", voice_monthly: "monthly-limit", voice_off: "off", voice_busy: "busy",
+});
+
+/**
+ * POST /api/voice/eligibility: would a call start now? The same checks as
+ * startSession in the same order — switch, plan, one-at-a-time, the day and
+ * the month — with no body, no key, no OpenAI call and nothing reserved, so
+ * the desktop can ask before the consent sheet and the microphone prompt.
+ * → {allowed:true, maxSeconds, remainingSeconds, remainingMonthSeconds, resetAt}
+ * | {allowed:false, reason, message, resetAt?} (resetAt on the two limits).
+ */
+export function checkEligibility({ gate, env = process.env, at = Date.now() }) {
+  try {
+    const limits = voiceLimits(env);
+    checkSwitchAndPlan(gate, limits);
+    if (live.has(callerKeyOf(gate))) throw busy();
+    const { allowance, maxSeconds } = checkAllowance(gate, env, limits, at);
+    return { allowed: true, maxSeconds, ...allowance };
+  } catch (err) {
+    const reason = err instanceof CheckError ? ELIGIBILITY_REASON[err.kind] : undefined;
+    if (!reason) throw err;
+    return { allowed: false, reason, message: err.message, ...(err.resetAt ? { resetAt: err.resetAt } : {}) };
   }
 }
 
