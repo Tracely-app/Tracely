@@ -3,6 +3,7 @@ import type { TracerMessage } from '@shared/types'
 import { parseTracerReply, type TracerRewrite } from '@shared/tracerRewrite'
 import { tracelyApi, TracelyApiError } from '../lib/api'
 import tracerBadge from '../assets/tracer-badge.png'
+import { CloseIcon, SendIcon } from './icons'
 
 /**
  * The Tracer chat panel, opened from Home's launcher.
@@ -156,9 +157,7 @@ export default function TracerChat({
           </span>
         </div>
         <button className="tracer-close" onClick={onClose} aria-label="Close chat">
-          <svg viewBox="0 0 21 21" fill="none" aria-hidden="true">
-            <path d="M4 4l13 13M17 4L4 17" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          </svg>
+          <CloseIcon size={16} />
         </button>
       </header>
 
@@ -228,9 +227,13 @@ export default function TracerChat({
             <i />
           </p>
         ) : null}
-        {error ? <p className="tracer-error">{error}</p> : null}
+        {error ? (
+          <p className="tracer-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         {!serverConfigured ? (
-          <p className="tracer-error">
+          <p className="tracer-error" role="alert">
             This build has no Tracely server configured, so Tracer cannot answer. Everything else
             in Tracely works without one.
           </p>
@@ -257,15 +260,7 @@ export default function TracerChat({
           aria-label="Send"
           disabled={!input.trim() || sending || !serverConfigured}
         >
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M12 19V5M12 5l-6 6M12 5l6 6"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <SendIcon size={16} />
         </button>
       </form>
     </div>

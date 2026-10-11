@@ -398,7 +398,9 @@ export interface DocumentMarkLayerProps {
  * needs. The tooltip is honest about what it is.
  */
 export const PROSE_ERROR = '#2563eb'
-export const PROSE_STYLE = '#9aa1ad'
+// The one neutral grey a mark is drawn in — the same #9a9ba1 as the pending
+// ("still checking") line, so the editor carries no second grey.
+export const PROSE_STYLE = '#9a9ba1'
 
 /**
  * The claims Tracely has found and is checking right now.
@@ -493,6 +495,21 @@ export function ProseMarkLayer({
   const ghosts = useMarkDepartures(drawn)
   return (
     <>
+    {/* The prose hover bands, under the text, as for claim marks. */}
+    <div className="docmark-layer docmark-bands" aria-hidden="true">
+      {marks.map((mark) =>
+        mark.rects.map((rect, i) => (
+          <SpanMark
+            key={`${mark.issue.kind}-${mark.issue.start}-${i}`}
+            rect={rect}
+            color={mark.issue.severity === 'error' ? PROSE_ERROR : PROSE_STYLE}
+            hovered={isSameIssue(active?.mark.issue, mark.issue) || isSameIssue(preview ?? undefined, mark.issue)}
+            className="docmark-bandwrap"
+            part="band"
+          />
+        ))
+      )}
+    </div>
     <div className="docmark-layer docprose-layer">
       {marks.map((mark) =>
         mark.rects.map((rect, i) => (
@@ -502,6 +519,7 @@ export function ProseMarkLayer({
             color={mark.issue.severity === 'error' ? PROSE_ERROR : PROSE_STYLE}
             hovered={isSameIssue(active?.mark.issue, mark.issue) || isSameIssue(preview ?? undefined, mark.issue)}
             className={`docprose docprose-${mark.issue.severity}`}
+            part="line"
             data={{ 'data-prose-kind': mark.issue.kind }}
             dotted={mark.issue.severity === 'style'}
             enterDelay={arrivals.get(`${mark.issue.kind}-${mark.issue.start}-${i}`)}
@@ -625,7 +643,13 @@ function ProsePopover({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div ref={cardRef} className="docprose-card" data-above={above ? 'true' : undefined}>
+      <div
+        ref={cardRef}
+        className="docprose-card"
+        role="dialog"
+        aria-label={severity === 'error' ? 'Grammar' : 'Style'}
+        data-above={above ? 'true' : undefined}
+      >
         <div className="docprose-card-head">
           <span
             className="docprose-card-kind"
@@ -677,7 +701,8 @@ function SpanMark({
   data,
   dotted = false,
   title,
-  enterDelay
+  enterDelay,
+  part = 'both'
 }: {
   rect: MarkRect
   color: string
@@ -690,6 +715,11 @@ function SpanMark({
   /** Set when this mark is new on the page (useMarkArrivals): its line draws
    *  itself in after this many ms. Read once, at mount. */
   enterDelay?: number
+  /** Which half to draw. The hover band is drawn in its own layer UNDER the
+   *  text (`.docmark-bands`), so it never tints the words it sits behind —
+   *  white text in dark went peach under the orange band; the line and the
+   *  popover stay in the layer above. */
+  part?: 'band' | 'line' | 'both'
 }): JSX.Element {
   const lineRef = useRef<HTMLSpanElement>(null)
   useDrawIn(lineRef, enterDelay)
@@ -703,8 +733,8 @@ function SpanMark({
     <span
       className={className}
       data-hovered={hovered ? 'true' : 'false'}
-      title={title}
-      {...data}
+      title={part === 'band' ? undefined : title}
+      {...(part === 'band' ? {} : data)}
       style={{
         position: 'absolute',
         left: 0,
@@ -717,6 +747,7 @@ function SpanMark({
         pointerEvents: 'none'
       }}
     >
+      {part === 'line' ? null : (
       <span
         className="docmark-band"
         style={{
@@ -730,6 +761,8 @@ function SpanMark({
           transition: BAND_TRANSITION
         }}
       />
+      )}
+      {part === 'band' ? null : (
       <span
         ref={lineRef}
         className="docmark-line"
@@ -749,6 +782,7 @@ function SpanMark({
             : { height: hovered ? LINE_HEIGHT_HOVERED : LINE_HEIGHT, background: color })
         }}
       />
+      )}
     </span>
   )
 }
@@ -840,6 +874,23 @@ export default function DocumentMarkLayer({
   const arrivals = useMarkArrivals(drawn)
   const ghosts = useMarkDepartures(drawn)
   return (
+    <>
+    {/* The hover bands, under the text (see SpanMark's `part`). No data
+        attributes: `.docmark` and [data-claim-id] stay one per mark rect. */}
+    <div className="docmark-layer docmark-bands" aria-hidden="true">
+      {marks.map((mark) =>
+        mark.rects.map((rect, i) => (
+          <SpanMark
+            key={`${mark.claim.id}:${i}`}
+            rect={rect}
+            color={PROBLEM_COLOR[mark.problemKinds[0]]}
+            hovered={active?.mark.claim.id === mark.claim.id || preview === mark.claim.id}
+            className="docmark-bandwrap"
+            part="band"
+          />
+        ))
+      )}
+    </div>
     <div className="docmark-layer" aria-hidden="true">
       {marks.map((mark) =>
         mark.rects.map((rect, i) => {
@@ -852,6 +903,7 @@ export default function DocumentMarkLayer({
               color={PROBLEM_COLOR[kind]}
               hovered={isActive || preview === mark.claim.id}
               className={`docmark${isActive ? ' active' : ''}`}
+              part="line"
               // Same attributes the overlay's marks carry, and for the same
               // reason: this layer renders no text, so without them its DOM is
               // unreadable when inspecting it or asserting on it from a test.
@@ -885,6 +937,7 @@ export default function DocumentMarkLayer({
         />
       ) : null}
     </div>
+    </>
   )
 }
 
@@ -1031,7 +1084,13 @@ function MarkPopover({
         the first measuring pass, which reads as "no cap" rather than as a
         zero-height card.
       */}
-      <div ref={cardRef} className="docmark-card" style={cardCap > 0 ? { maxHeight: cardCap } : undefined}>
+      <div
+        ref={cardRef}
+        className="docmark-card"
+        role="dialog"
+        aria-label={title}
+        style={cardCap > 0 ? { maxHeight: cardCap } : undefined}
+      >
         {flow ? (
           <CitationFlowCard flow={flow} claimText={mark.claim.text} />
         ) : citedWork ? (
@@ -1131,7 +1190,7 @@ function FixCard({
     return (
       <>
         <div className="docmark-head">
-          <span className="docmark-dot" style={{ background: '#16a34a' }} />
+          <span className="docmark-dot" style={{ background: 'var(--score-good)' }} />
           <span className="docmark-title">{APPLIED_TITLE}</span>
         </div>
         <p className="docmark-body">{APPLIED_BODY}</p>
@@ -1281,7 +1340,7 @@ function CitedWorkCard({ citedWork, color }: { citedWork: DocCitedWorkFlow; colo
     return (
       <>
         <div className="docmark-head">
-          <span className="docmark-dot" style={{ background: '#16a34a' }} />
+          <span className="docmark-dot" style={{ background: 'var(--score-good)' }} />
           <span className="docmark-title">{CITATION_REPLACED_TITLE}</span>
         </div>
         <p className="docmark-body">{citationReplacedBody(state.style, citation)}</p>
@@ -1345,7 +1404,7 @@ function CitedWorkCard({ citedWork, color }: { citedWork: DocCitedWorkFlow; colo
   return (
     <>
       <div className="docmark-head">
-        <span className="docmark-dot" style={{ background: '#16a34a' }} />
+        <span className="docmark-dot" style={{ background: 'var(--score-good)' }} />
         <span className="docmark-title">{citedWorkResultsTitle(candidates.length)}</span>
         <span className="docmark-chip">{CITATION_STYLE_LABEL[style]}</span>
       </div>
@@ -1670,7 +1729,7 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
     return (
       <>
         <div className="docmark-head">
-          <span className="docmark-dot" style={{ background: '#16a34a' }} />
+          <span className="docmark-dot" style={{ background: 'var(--score-good)' }} />
           <span className="docmark-title">Citation added</span>
         </div>
         <p className="docmark-body">{insertedBody(state.style)}</p>
@@ -1798,7 +1857,7 @@ function CitationFlowCard({ flow, claimText }: { flow: DocCitationFlow; claimTex
   return (
     <>
       <div className="docmark-head">
-        <span className="docmark-dot" style={{ background: checked && backing === 0 ? '#ffb800' : '#16a34a' }} />
+        <span className="docmark-dot" style={{ background: checked && backing === 0 ? '#ffb800' : 'var(--score-good)' }} />
         <span className="docmark-title">
           {checked
             ? receiptsTitle(backing)
@@ -1941,6 +2000,7 @@ function Tail({ left, pointing, above }: { left: number; pointing: 'up' | 'down'
       viewBox="0 0 13.8564 7.5"
       fill="none"
       aria-hidden="true"
+      className="docmark-notch"
       style={{
         position: 'relative',
         left,
@@ -1949,7 +2009,9 @@ function Tail({ left, pointing, above }: { left: number; pointing: 'up' | 'down'
         ...(above ? { marginTop: -2 } : { marginBottom: -2 })
       }}
     >
-      <path d="M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z" fill="white" stroke="black" strokeWidth="2" />
+      {/* The card's own surface and edge (`.docmark-notch path` in index.css),
+          so the tail stays one piece with the 2px border in both themes. */}
+      <path d="M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z" strokeWidth="2" />
     </svg>
   )
 }

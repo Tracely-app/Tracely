@@ -6,6 +6,8 @@ import { gradeFor } from '../components/essayGrade'
 import { tracelyApi } from '../lib/api'
 import { documentSort, gradedOn, type DocumentSort } from '../components/documentSort'
 import ConfirmSheet from '../components/ConfirmSheet'
+import Spinner from '../components/Spinner'
+import { BackIcon, MoreHorizontalIcon, PlusIcon } from '../components/icons'
 
 /**
  * Every essay Tracely has graded — Figma "DocumentsPage" (58:172).
@@ -15,12 +17,13 @@ import ConfirmSheet from '../components/ConfirmSheet'
  * anyone type, and it was the only way back to work you had already done: the
  * documents existed in SQLite but nothing listed them, so reopening a draft
  * meant it happening to be the most recent one. The frame answers both — the
- * grid IS the list, and "+ New document" starts an "Untitled document" and goes
+ * grid IS the list, and "New document" starts an "Untitled document" and goes
  * straight to the editor, where the title is editable inline.
  *
- * Every measurement below is the frame's own, read with get_design_context
- * rather than taken off a screenshot: 181.5x200 cards on a 197.5px pitch, a
- * 122px thumbnail, a 34x22 chip at 6px radius, 13px titles and 11px dates.
+ * The card geometry is the frame's own, read with get_design_context rather
+ * than taken off a screenshot: 181.5x200 cards on a 197.5px pitch and a 122px
+ * thumbnail. The controls on it (button, select, chip, menu, icons) follow the
+ * app's shared recipes in index.css so this page matches Home and Settings.
  *
  * The grade is not computed here. `gradeFor` is the same function the Screen
  * Watch grade panel and the in-app modal use, so one draft cannot carry two
@@ -34,25 +37,28 @@ const CARD_WIDTH = 181.5
 const CARD_GAP = 16
 const THUMB_HEIGHT = 122
 
-/** The chip's two palettes: green for the A band, amber for everything below
- *  it. The design only draws those two, and inventing a third for C/D/F is
- *  exactly the near-miss-palette mistake CLAUDE.md records. The colours are
- *  CSS classes (`.docs-card-chip.tone-*` in index.css), not inline styles,
- *  because an inline style is unreachable by the dark-theme rules — the chips
- *  stayed light-mode pastel on a dark card. Light values are unchanged. */
-function chipTone(letter: string): string {
-  return letter.startsWith('A') ? 'tone-good' : 'tone-mid'
+/** The chip's palette, by SCORE and on Home's bands (>= 80 good, >= 65 mid,
+ *  else low) — the same three `.home-doc-grade.tone-*` classes, so one
+ *  document shows one colour on both screens. It used to key on the letter
+ *  (A = green, everything else amber), which put a B- on amber here and on
+ *  green on Home. The colours are CSS classes (`.docs-card-chip.tone-*` in
+ *  index.css), not inline styles, because an inline style is unreachable by
+ *  the dark-theme rules — the chips stayed light-mode pastel on a dark card. */
+function chipTone(score: number): string {
+  return score >= 80 ? 'tone-good' : score >= 65 ? 'tone-mid' : 'tone-low'
 }
 
 /**
  * The skeleton bars in the card's thumbnail.
  *
- * The frame draws five grey bars at fixed widths rather than a rendering of the
- * document, and they are kept as drawn. A real thumbnail would mean
- * rasterising the body HTML per card on every open of this page, and the design
- * is not trying to show the text — it is showing that the card is a document.
+ * The frame draws grey bars at fixed widths rather than a rendering of the
+ * document, and they are kept as drawn — four of its five, so the thumbnail
+ * carries the same weight as Home's document tiles. A real thumbnail would
+ * mean rasterising the body HTML per card on every open of this page, and the
+ * design is not trying to show the text — it is showing that the card is a
+ * document.
  */
-const THUMB_BARS = [110.25, 133.875, 94.5, 126, 78.75]
+const THUMB_BARS = [110.25, 133.875, 94.5, 126]
 
 function DocumentCard({
   document: doc,
@@ -109,8 +115,8 @@ function DocumentCard({
         {THUMB_BARS.map((width, i) => (
           <span key={i} className="docs-card-bar" style={{ width }} />
         ))}
-        {grade ? (
-          <span className={`docs-card-chip ${chipTone(grade.letter)}`}>{grade.letter}</span>
+        {grade && doc.score !== null ? (
+          <span className={`docs-card-chip ${chipTone(doc.score)}`}>{grade.letter}</span>
         ) : null}
       </span>
       {/* Spans with role=button rather than <button>s: this card is itself a
@@ -120,8 +126,8 @@ function DocumentCard({
         role="button"
         tabIndex={0}
         className={`docs-card-menu${menuOpen ? ' open' : ''}`}
-        title="More"
-        aria-label={`More actions for ${doc.title}`}
+        title="Document actions"
+        aria-label="Document actions"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onMouseDown={(event) => {
@@ -141,7 +147,7 @@ function DocumentCard({
           setMenuOpen((open) => !open)
         }}
       >
-        ⋯
+        <MoreHorizontalIcon size={16} />
       </span>
       {menuOpen ? (
         <span className="docs-card-menu-popup" role="menu">
@@ -235,7 +241,8 @@ export default function DocumentsView({
   return (
     <div className="docs-view">
       <button className="docs-back" onClick={() => onNavigate('home')}>
-        ← Back
+        <BackIcon size={14} />
+        Back
       </button>
 
       <div className="docs-head">
@@ -245,32 +252,48 @@ export default function DocumentsView({
         </div>
         <div className="docs-head-actions">
           <button className="docs-new" onClick={() => onOpenDocument(null)}>
-            + New document
+            <PlusIcon size={16} />
+            New document
           </button>
           {/* A real <select>. The frame draws a pill with a chevron, which is
               what a select already is — and building a custom menu here would
               mean re-implementing keyboard handling for a control the platform
-              gives us correct. */}
-          <select
-            className="docs-sort"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as DocumentSort)}
-            aria-label="Sort documents"
-          >
-            <option value="recent">Recently opened</option>
-            <option value="graded">Recently graded</option>
-            <option value="score">Highest score</option>
-            <option value="title">Title A–Z</option>
-          </select>
+              gives us correct. The visible "Sort" label says what the control
+              is; the aria-label stays the accessible name. */}
+          <div className="docs-sort-field">
+            <label className="docs-sort-label" htmlFor="docs-sort">
+              Sort
+            </label>
+            <select
+              id="docs-sort"
+              className="docs-sort"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as DocumentSort)}
+              aria-label="Sort documents"
+            >
+              <option value="recent">Recently opened</option>
+              <option value="graded">Recently graded</option>
+              <option value="score">Highest score</option>
+              <option value="title">Title A–Z</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {error ? <p className="error-text">{error}</p> : null}
+      {error ? (
+        <p className="error-text docs-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
-      {documents === null && !error ? <p className="muted docs-empty">Loading…</p> : null}
+      {documents === null && !error ? (
+        <div className="docs-loading">
+          <Spinner label="Loading…" />
+        </div>
+      ) : null}
 
       {documents !== null && documents.length === 0 ? (
-        <p className="muted docs-empty">
+        <p className="docs-empty">
           No documents yet. Start one and Tracely will grade it as you write.
         </p>
       ) : null}
@@ -283,6 +306,7 @@ export default function DocumentsView({
           busyLabel="Deleting…"
           // No opt-out on a delete: there is no trash and no undo behind it.
           showSuppress={false}
+          danger
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => {
             const target = pendingDelete

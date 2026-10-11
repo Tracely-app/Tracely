@@ -187,7 +187,9 @@ test("wired in both panels, after the cards are decorated; a folded card shows o
     const fold = mode.indexOf("foldCards(shadow, render);");
     assert.ok(deco > 0 && fold > deco, "fold after decorateCard, so a note's added buttons fold with it");
   }
-  assert.match(SRC, /\.card\.shut > :not\(\.top\):not\(\.quote\) \{ display: none; \}/);
-  assert.match(SRC, /\.card\.shut \.quote \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/);
+  // Folded: the title and one line of the reason; the sentence only when a card has no reason.
+  assert.match(SRC, /\.card\.shut > :not\(\.top\):not\(\.expl\) \{ display: none; \}/);
+  assert.match(SRC, /\.card\.shut \.expl \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var\(--muted\); \}/);
+  assert.match(SRC, /\.card\.shut:not\(:has\(\.expl\)\) > \.quote \{ display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/);
   assert.match(SRC, /\.row > button\.act \{ flex: 0 0 auto; \}/, "a button is its own width, not a bar");
 });

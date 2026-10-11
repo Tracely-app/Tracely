@@ -2062,7 +2062,7 @@
     const list = Array.isArray(unread) ? unread.filter(Boolean) : [];
     if (!list.length) return "";
     const rows = open ? list.map((src) => `
-        <div class="src src-unread-row">
+        <div class="src src-unread-row" role="listitem">
           <div class="src-body">
             <span class="src-title">${esc(src.title || src.url)}</span>
             <div class="src-meta">${esc(src.publisher || "")}</div>
@@ -2193,7 +2193,10 @@
     }
     return true;
   }
-  const MARK_IN_MS = 260, MARK_OUT_MS = 180, MARK_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  /* Draw-in at most 240ms, fade-out at most 160ms, the wash on the marks'
+     110ms (MARK_BAND_TRANSITION's opacity) — the shared motion scale. */
+  const MARK_IN_MS = 240, MARK_OUT_MS = 160, MARK_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  const MARK_WASH_MS = 110;
   /* A new underline draws itself in from the left, like a pen stroke.
      Chromium freezes animations on a page that is not painting, and this one
      holds the mark invisible until it runs — so a timer cancels it, and the
@@ -2643,7 +2646,7 @@
   const MARK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAtCAYAAADV2ImkAAAACXBIWXMAAAsTAAALEwEAmpwYAAALJUlEQVR42s1ZCVRTVxqO1VmsnZn2nOl05py258zMmZ5KBdk3WSQLBAKEJLxAQhDZgoiCtvVU64xxrFUURW07WusyrR3RBpcCLuBSUNzQ6tTqUK1Lre0RkS1hCy/v3vfNDUub2mmnm8I95z//TfLeu9/77vcv90QCWB5wmdXKjcbdVhs5pt/A5v3XSR6Q/MTDEmkZ80GJadzVEtPv7Oum/uXO2nSfO28aI+zWDJWtcqqxe3fu8z3bM0u6NqaX20r0837QIhxnHf3+esuD1w6af9O4Pu0Pl7Zwf7y0Qed1ZSMX0m41hN0pS1XZylM4Wzln6NphmtFbYZrnqDD+vbfCsKZ3V8rm3h36d/t2pOx37Eg55dhpuMjvMnzOV6a3Cfsze8jBbF48lANUm4Gd2eBfTUb7gpiPmosiV98pkPpKWo/medjOZvg170sKs1ckxdsqtSm2Km5G5x5ubnuVemnH3oQ1tirVZlulurxzb9Kenmrt0b4a7Zmeas1lvlrzae9eTZtjr9Yh7NcR1HDAAWY1OmZatiizg2x+OAWoNQzYYSP7LpV5Nq8zAUczmc+GuC8bdGsGyCot2gon0+v6wMuXlB4vN3o+6WuRuO1s02bNOuyLA63XUJxhDz+VBBxXAyeYP8UWbEhmXjdgDYP+BLNjzOqZHWG/1zGrTQY9nAxySCcKB3QiqdFRyozUcIRWcwKp1gv0gEHAkSmCeCybkLocga/I5O2v6knnHDnajQG4qnimpTHsqU1nPZ+U1T4qeWgII4BRODF7LCSSURJOIhndXORdipIgkLeiBGd1gpOc0BGhQUvIMTUh9UmCcDSJCEe1RKjXElrPANSnuIySej0VjqaI9GgqM4NIjhjRb3WGfqPMUM9YbGAsNphBanPQ+0462pepSfO0SGrX+eK23ANXIp5quBz259zzSs/H+wG6gLHRuibtcUeluaB3S+aZlmJD/hfoXf5W/oRpfXO8+rDAF/wr4cRZkQhyMhX0nBHiGbb4qRSIp5hvMLK5acAa0kBPprHr0pmfAnoig9kUiKenQvyAbfO/zRCOmNFbxkAuikNzxiTyeZwXtUWPZ0DHC9cVT++4luCtuGix/HyITVfwt71uUvZZM7eixnwb5WY0z45+d8tjknGSobdxZQTX/OqcAFnPXO+bmOcJ5xwv4lwcIjq3xEKoY8Au5II25kA8nwlyjoE7y/zZLND3mZ1l+jtvBv3PdJCLBRCO58NRlgb7QiU6poaiVeVJW2UepEflhfZ4L+ETlWfV5USfCHc2T8zmxnZuNSXx1vTDwt5sEXXTKUo0uJzgUz5TIvmF+7X9o9YSOcblz1siH7fN938PC31B50yg/CwP6pzrDecaGfg9bKvPTQP9uIhZIeilIpDrz7P5cxBOF4Evz0Lv4nj0ZAajM8ET9tjxYqdqAuG1PiKf7IOmRJ/TV+MDZO6LWzludPdb2XEOq+l97GfSeS9XdFZkO20z5WiMmlBpDQ4e23+95X+k1P7cyx7EsYe0zAtezC/wo7B4u4AToWi8KMyeAGFhCPo2qeE8zsA2LgRfMxP8ai34wkkQUr0h6Lzg5CaiT+9D+RRfAhZMNs7n1k2NT6bruQMyHNTom9mBvWXGWlo5BdifBRzKoo7tmX22KaG4PPnp2kpz/IODL/fN+d/1JlarpP/BN+aHhHa/6Hsei/xAX/Sh5AUvQoo8RZIzHs48P/BzI0BmsJ3I8YSY4w0xyw9Chr8omAIJMoLBpwUIbfqA1ZfMfr8d0qfLX9tQ+JjtzdSNwk5jH/YzeVWZiFhnJva1aUJ7kjduyp45uSdf9cg3Mvs10G66PpaV+Ks78/0X9D3na8dsBnyaNxXM3kTM9AEx+4A+6w+xKAB0uj9olj9FTgBBXii6pgafuzklJOKLnRtcuH1DagZfpr+JfSaQCiMle9MJPWRG+xItvRPthVtyj48+1Pr/aUgu36uiuW6AxdK/0Lm0MI8Wc/A2Z4E/j5kMYJ4vA+5LSGGASAoZ2HwGtCAIQn6Ioy03/OWa5xTjBhjy6M8A11ZzT/Zu0lhRzoHu5kRht4GQ/ekiPZiPthfjaWuUB24rPZtP6/x9+u/jJKN/UBkeYntId1fMoSG2HL+DQkGggMIgYEaQSGcEUhSyQJsWcvFGbnjoANDIMUOB3PF6ipbfpG5CuRbEqiNkdyoVa1hVq8lHx7OxYqvUA7aEic4rat+Y/gQQOXDfjxoupt3eetSN/KjQVnPQbn5GYB+dFYbWvPC1NaZBVq1cP6s3rbPH2tdr1tKtrHJuTRSFbRpCdqaAVmfAuS8P9hkKdMpZQGt8cSPRr7D/3p8C7NeA48t8eCk/zKupSDZ5KPphGQD72T90Xp2b4s9jexLI24nEuV0t0h160H3pcFbloTtPhp5oDwHJAWhJCtr4o2TwnYC76fvLzwPstG/Qmfgtie3YnsAamkRBKNeKdBcDyzKCUMEqX44MjpiJBPpAdGkDj9coTOO+VhjuGXAW/RiMZleQdmzmltLtGiaBBFEoS6Rkpw60gpX4Q1PgfNeMnqzJ4JXeIrhA8Fxwe2N8uO/QzknuxxhipdZiGWP/V9I2VLHO7Z14gVg1VNzFMkIl6z8OZUDYNw2OXCmcyokQNEEU+hC06SJz74luvzX1Debr5lJFNDbGML2qBWFXsihWsWZpD2P2cCac1ay3mCYHiWVVMIkVFS6UVb/wLfeVWfdy7vL2JfKXUDoZwsooQjaoIOzkWG88FcIBBraINVDx3iAalv50rLSnTLrRkBH5+/um268AHswYXUuiq7FSyk4MUYS+Fg1hQxz4XWlwzIoFifNlPUawSLXMuEloTonQDgXqsICtLVI/3LU46lMsY4BXRlGyLpZlhyTWVyfDEcf6iwQWYInBBCnhsOvD3hkWKbgv+tEitWfvEikVl04GKZWLdJ0KtEyPnufj4JD7whkfIiIhGA7tpNarBvlfvnNTc6/0+1lJogorFEBxFKWroiG+zjS8gbGrD4MzOghOVRCBNhy3k8IswyKFu5v+9mXK6ShVQFwqJWIpA/xGAnjWyPMxAQxsCIU6FD3asAtvK5W/HpZA+1ISA4BtxcrlWB0DWiwTaCnzb2jgLJBDUASCJk4i0EnRlByVOazsuuuwY0XcNqxiQEvkAl3FssIrWjj1EXDGsQKhi0SXTnrSwnFDB81RkuEeXctj68CkQJbLCH0lDs5FieBVoSJVh1FwUbidqtQMP7uDTFlYSe5eqrjoCjqhRE7pawxsoRJCXAhBshSdnKzBz2z+2bCz+8Wp18I91LlEfhPLZaAroildzQ6oaTKQeMauXorPU+X6YWfXvWjUzzU+0lscfdvFMF2pFIWXWXbQRlIkR6FTL/3QkhH5y2HNDHcDriiUPsYAt6KEscoAO+eyvkEdwY73CjQZ5S+MCHbdAVvnKR/tLpa3uCQhrFCK/EylCO1k9KUqWi5MVT/hfu2IALzbon64d5miCStYw7NCRfksOUGqDK2G6OHrGb4t6Law43z3csUnWMkAL1FRZ5qUwiDDVWOMdsTI4StBxBjsWhbzAViFc/4tToBRil6D9FKN6T6e074vaHtx7Huu0izMieZhlKE9RV46oti9u73seFlVhtWsWBTJnS45fGxSJIxQwIPNz0uKYpQqgekydKVKP3k7bZi7sv/XXrYtUplREgMUxKDLGL1+RLLrDurWSwlKFMcBuUo0GUaoHNw1fJ4dkfrYfxjdGbLOC+roJwaSh+SBkQd4sHj8kx1CO+erOmxZMafcfh4lGYljCLT9r+rTLWblq+5nvZEJeFAW12ep0xuzYkLudTn+L96+p5yNvf0WAAAAAElFTkSuQmCC";
   let focusCard = null;     // the open card (foldCards): the underline last clicked, or the card last opened
   function launcherHtml(countCls, countTxt, title) {
-    return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
+    return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}" aria-label="${esc(title)}">
       <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
       <span class="count ${countCls}">${esc(countTxt)}</span>
     </div>`;
@@ -2661,7 +2664,7 @@
      cannot — checking, an error. */
   const TALLY_ICON = {
     wrong: `<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="currentColor"/><rect x="5.2" y="2.5" width="1.6" height="4.6" rx=".8" fill="#fff"/><circle cx="6" cy="9" r=".95" fill="#fff"/></svg>`,
-    check: `<svg viewBox="0 0 12 12"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.7 7.7l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+    check: `<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="currentColor"/><circle cx="5.4" cy="5.4" r="2.2" fill="none" stroke="#fff" stroke-width="1.3"/><path d="M7.1 7.1l1.9 1.9" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></svg>`,
     cite: `<svg viewBox="0 0 12 12"><rect width="12" height="12" rx="3" fill="currentColor"/><path d="M2.8 8.4V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7zm3.8 0V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7z" fill="#fff"/></svg>`,
     writing: `<svg viewBox="0 0 12 12"><path d="M8.5 1.1l2.4 2.4-6.6 6.6-3.1.8.8-3.1z" fill="currentColor"/></svg>`,
     clear: `<svg viewBox="0 0 12 12"><path d="M2.2 6.3l2.4 2.4 5.2-5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
@@ -2695,9 +2698,9 @@
       <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
       <span class="name">Tracely</span>
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
-      <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
+      <button class="close" id="panelClose" title="Close" aria-label="Close">✕</button>
     </div>
-    <div class="tally">${chips.join("")}</div>`;
+    <div class="tally" role="group" aria-label="Tracely findings">${chips.join("")}</div>`;
   }
   // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
@@ -2717,7 +2720,7 @@
     if (!open) return `<div class="evidence">${head}</div>`;
     const cards = candidates.map((seg) => `
       <div class="card ev-card" data-card="${seg.hash}">
-        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed" aria-label="Not needed">✕</button></div>
         <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
         <div class="expl">This holds up, but it is a point a reader may want backed. A study or official source would make it harder to argue with.</div>
         ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">Find evidence</button></div>`}
@@ -3031,10 +3034,10 @@
     }
   }
   function genreLineHtml(genre, text = "", style = "mla") {
-    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line">${GENRE_QUIET_LINE[genre]}</div>`;
+    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line" role="note">${GENRE_QUIET_LINE[genre]}</div>`;
     if (!GENRE_LABEL[genre]) return "";
     const how = genreCiteNote(genre, text, style);
-    return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
+    return `<div class="genre-line" role="note">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
      a citation (cite_tip), orange for one on the writing (note_tip). A note
@@ -3045,7 +3048,7 @@
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" aria-label="Dismiss" title="Dismiss">✕</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
@@ -3066,7 +3069,7 @@
   }
   function citedWorkHtml(c, actionsFor, more = "") {
     if (!c) return "";
-    if (c.loading) return `<div class="sources"><div class="loading">${esc(CITED_COPY.looking)}</div></div>`;
+    if (c.loading) return `<div class="sources"><div class="loading"><span class="deep-spin" aria-hidden="true"></span>${esc(CITED_COPY.looking)}</div></div>`;
     if (!c.resolved) {
       return `<div class="sources"><div class="sources-title">${esc(CITED_COPY.one)}</div><div class="loading">${esc(c.note)}</div>`
         + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${c.target?.segHash ? `<div class="src-snip">${esc(CITED_COPY.fallback)}</div>` : ""}</div>`;
@@ -3075,7 +3078,7 @@
       const meta = citedMetaLine(src);
       const yn = citedYearNote(src.year, c.plan?.citedYear);
       return `
-        <div class="src" data-cited-row="${i}">
+        <div class="src" role="listitem" data-cited-row="${i}">
           <div class="src-body">
             ${src.url ? `<a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>` : `<span class="src-title">${esc(src.title)}</span>`}
             ${meta ? `<div class="src-meta">${esc(meta)}</div>` : ""}
@@ -3085,7 +3088,7 @@
         </div>`;
     }).join("");
     const by = c.byAuthor;
-    return `<div class="sources"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
+    return `<div class="sources" role="list"><div class="sources-title">${esc(by ? CITED_COPY.byAuthorTitle(by.name) : c.matches.length === 1 ? CITED_COPY.one : CITED_COPY.many(c.matches.length))}</div>`
       + `<div class="src-snip">${esc(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? ""))}</div>`
       + `${by?.offClaim?.length ? `<div class="src-snip"><b>${esc(CITED_COPY.offClaim(by.offClaim))}</b></div>` : ""}`
       + `${c.plan?.noEntry ? `<div class="src-snip">${esc(CITED_COPY.noEntry)}</div>` : ""}${rows}${more}</div>`;
@@ -3104,9 +3107,15 @@
     if (!cards.some((c) => c.dataset.card === focusCard)) focusCard = cards[0].dataset.card;
     for (const card of cards) {
       card.setAttribute("aria-expanded", String(card.dataset.card === focusCard));
-      if (card.dataset.card === focusCard) continue;
+      // The open card can take focus (not a Tab stop), so a card opened from
+      // the keyboard keeps it through the re-render (restoreFocus).
+      if (card.dataset.card === focusCard) { card.tabIndex = -1; continue; }
       card.classList.add("shut");
       card.tabIndex = 0;
+      // A Tab stop that opens something: announced as a button, by its title
+      // (aria-expanded is ignored on a role-less div).
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", card.querySelector?.(".ctitle")?.textContent ?? "");
       const open = (e) => {
         if (e.target.closest?.("button, a, input")) return; // its ✕ still dismisses
         focusCard = card.dataset.card;
@@ -3115,6 +3124,31 @@
       card.addEventListener("click", open);
       card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } });
     }
+  }
+  /* render() rebuilds the panel's markup on every poll and after every click.
+     What the writer was doing survives it: every URL being typed keeps its
+     value, and the focused control (found again by its data hook or id) gets
+     focus back, a text box its caret. Display only — the same handlers run. */
+  const FOCUS_HOOKS = ["urlInput", "pageInput", "copyFix", "sources", "urlAdd", "dismiss", "card", "jump"];
+  const hookAttr = (k) => "data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+  function snapFocus(shadow) {
+    const values = [...shadow.querySelectorAll("[data-url-input]")].filter((i) => i.value).map((i) => [i.dataset.urlInput, i.value]);
+    const a = shadow.activeElement;
+    if (!a) return { values };
+    const hook = FOCUS_HOOKS.find((k) => a.dataset?.[k] != null) ?? null;
+    return { values, hook, key: hook ? a.dataset[hook] : null, id: hook ? null : a.id || null, caret: typeof a.selectionStart === "number" ? a.selectionStart : null };
+  }
+  function restoreFocus(shadow, snap) {
+    if (!snap) return;
+    for (const [k, v] of snap.values) {
+      const box = [...shadow.querySelectorAll("[data-url-input]")].find((i) => i.dataset.urlInput === k);
+      if (box && !box.value) box.value = v;
+    }
+    const t = snap.hook ? [...shadow.querySelectorAll(`[${hookAttr(snap.hook)}]`)].find((x) => x.dataset[snap.hook] === snap.key)
+      : snap.id ? shadow.getElementById(snap.id) : null;
+    if (!t || shadow.activeElement === t) return;
+    try { t.focus({ preventScroll: true }); } catch { /* detached */ }
+    if (snap.caret != null) { try { t.setSelectionRange(snap.caret, snap.caret); } catch { /* not a text box */ } }
   }
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
@@ -3126,7 +3160,7 @@
         if (!card) return;
         focusCard = card.dataset.card;
         rerender();
-        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
+        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: markReducedMotion() ? "auto" : "smooth" }); } catch { /* old engine */ }
       });
     }
     wireDrag(shadow);
@@ -3409,7 +3443,7 @@
      throw away what they were typing. */
   const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
   function orphanPillHtml() {
-    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+    return `<div class="pill quiet orphan" id="pill" role="status" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
   }
 
   /* ── the app's design tokens ───────────────────────────────────────────
@@ -3463,67 +3497,76 @@
       --chip-wash: ${APP.chipWash};
       --shadow-sm: ${APP.shadowSm}; --shadow-card: ${APP.shadowCard}; --shadow-lg: ${APP.shadowLg};
       --r-card: ${APP.rCard}; --r-btn: ${APP.rBtn}; --r-chip: ${APP.rChip};
+      --hover: rgba(0,0,0,.04); --pressed: rgba(0,0,0,.08);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
     /* ── Pill ─────────────────────────────────────────────────────────── */
     .pill {
-      display: flex; align-items: center; gap: 8px; height: 40px;
+      display: flex; align-items: center; gap: 8px; height: 36px;
       background: var(--surface); color: var(--text);
       border: 1px solid var(--border); border-radius: 999px;
-      padding: 0 14px 0 8px;
-      box-shadow: var(--shadow-lg);
+      padding: 0 12px 0 6px;
+      box-shadow: var(--shadow-card);
       cursor: pointer; user-select: none;
-      font-size: 13px; font-weight: 600;
-      transition: transform .1s ease, border-color .15s ease;
+      font-size: 13px; font-weight: 500;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
-    .pill.quiet { color: var(--label); font-weight: 500; }
-    .pill.quiet .plane { background: #c8c8cc; }
-    .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
-    .pill.orphan:hover { transform: none; border-color: var(--border); }
+    /* Hover darkens the outline; nothing moves (motion is colour only). */
+    .pill:hover { border-color: var(--border-strong); }
+    /* Quiet pills (consent, site off, orphaned): muted text, a grey disc —
+       nothing is wrong with the writing. Hovering the clickable ones darkens
+       the label; the orphan is not clickable and keeps its resets. */
+    .pill.quiet { color: var(--muted); font-weight: 500; }
+    /* :where() adds no specificity, so the reduced-motion block below still wins. */
+    .pill:where(.quiet) { transition: border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1); }
+    .pill.quiet .plane { background: var(--border-strong); }
+    .pill.quiet:hover { color: var(--text); }
+    .pill.orphan { cursor: default; color: var(--muted); font-weight: 500; height: auto; min-height: 40px; padding: 8px 12px 8px 6px; line-height: 1.35; white-space: normal; text-wrap: pretty; max-width: min(360px, calc(100vw - 44px)); }
+    .pill.orphan:hover { border-color: var(--border); color: var(--muted); }
     .plane {
       width: 24px; height: 24px; border-radius: 50%;
       background: var(--accent-gradient);
       display: flex; align-items: center; justify-content: center;
       color: #fff; flex-shrink: 0;
     }
-    .plane svg { width: 13px; height: 13px; }
+    .plane svg { width: 12px; height: 12px; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
-      background: var(--chip-wash); color: var(--chip-ink);
-      border-radius: var(--r-chip); padding: 1px 6px;
-      font-size: 10px; font-weight: 600; letter-spacing: .01em;
+      display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+      background: var(--bg); color: var(--muted);
+      border-radius: 999px;
+      font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
     }
     .count.off { color: var(--label); }
 
     /* ── Launcher (Figma "Collapsed Launcher" 267:64) ──────────────────────
        The desktop overlay's launcher, value for value (OverlayApp.tsx): a
-       56px ink circle, the mark turned white, and a 31px count badge 8.5px
-       above the top edge and 3.5px past the right. The badge is orange
-       because it counts findings; while checking it is grey "…", and with
-       nothing flagged there is no badge at all, as in the frame. */
+       56px ink circle, the mark turned white, and a 22px count badge 4px
+       past the top and right edges, ringed in the surface colour. The badge
+       is ink, not a finding colour: the number carries the meaning. While
+       checking it is grey "…" with a dotted ring, and with nothing flagged
+       there is no badge at all, as in the frame. Focus and reduced motion
+       come from the primitives block at the end of this sheet. */
     .launcher {
       position: relative; width: 56px; height: 56px; border-radius: 50%;
       background: var(--ink); cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 2px 10px rgba(0,0,0,.18);
-      transition: box-shadow .12s ease, transform .12s ease;
+      transition: box-shadow .15s cubic-bezier(.2,.8,.2,1), transform .15s cubic-bezier(.2,.8,.2,1);
       margin-left: auto;
     }
-    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.06); }
-    .launcher:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-    @media (prefers-reduced-motion: reduce) { .launcher, .launcher:hover { transition: none; transform: none; } }
-    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; }
-    .launch-plane { width: 22px; height: 22px; color: #fff; display: flex; }
+    .launcher:hover { box-shadow: 0 6px 18px rgba(0,0,0,.25); transform: scale(1.03); }
+    .launch-mark { width: 22px; height: auto; display: block; filter: brightness(0) invert(1); pointer-events: none; transform: translate(-1px, -1px); }
+    .launch-plane { width: 20px; height: 20px; color: #fff; display: flex; }
     .launch-plane svg { width: 100%; height: 100%; }
     .launcher .count {
-      position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
-      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
-      font-size: 16px; font-weight: 600; letter-spacing: 0;
+      position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; padding: 0 6px;
+      border-radius: 999px; border: 2px solid var(--surface); background: var(--ink); color: #fff;
+      font-size: 12px; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums;
       display: flex; align-items: center; justify-content: center;
     }
-    .launcher .count.off { background: #9a9ba1; font-size: 12px; }
+    .launcher .count.off { background: ${MARK_PENDING}; border-style: dotted; color: #fff; font-size: 11px; }
     .launcher .count.ok { display: none; }
 
     /* ── Panel ────────────────────────────────────────────────────────── */
@@ -3532,174 +3575,250 @@
        the header inset to the content width. Capped to the viewport: a 480px
        card does not fit beside a narrow Docs window. */
     .panel {
-      position: absolute; right: 0; bottom: 70px;
+      position: absolute; right: 0; bottom: 68px;
       width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
-      background: var(--surface); border: 1px solid #000; border-radius: 24px;
-      box-shadow: 0 8px 12px rgba(0,0,0,.18);
+      background: var(--surface); border: 1px solid var(--ink); border-radius: var(--r-card);
+      box-shadow: var(--shadow-lg);
       display: flex; flex-direction: column; overflow: hidden;
     }
+    /* Over the 36px pill (site off) the panel keeps the launcher's 12px gap. */
+    .root:has(> .pill) > .panel { bottom: 48px; }
     /* The header is the panel's handle (wireDrag): a grip, the name, and the
        close; the counts sit under it (.tally) and carry the rule. */
     .head {
-      display: flex; align-items: center; gap: 8px;
-      margin: 0 24px; padding: 18px 0 10px; cursor: grab; user-select: none; touch-action: none;
+      display: flex; align-items: center; gap: 10px;
+      margin: 0 24px; padding: 18px 0 12px; cursor: grab; user-select: none; touch-action: none;
     }
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
-    .grip { display: flex; color: #b9bac0; margin-left: -4px; }
-    .head:hover .grip { color: #6b6c72; }
-    .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
-    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
+    .grip { display: flex; color: var(--label); margin-left: 0; transition: color .15s cubic-bezier(.2,.8,.2,1); }
+    .head:hover .grip { color: var(--muted); }
+    .head .name { font-weight: 600; font-size: 16px; line-height: 1.3; color: var(--ink); white-space: nowrap; }
+    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 12px; border-bottom: 1px solid var(--border); }
+    .tally:empty { display: none; }
     .chip {
-      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
-      border-radius: 999px; border: 1px solid #e4e4e7; background: #fff;
-      font-family: inherit; font-size: 12.5px; font-weight: 600; color: #1a1a1f; cursor: pointer;
-      transition: border-color .15s ease, background .15s ease;
+      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 8px;
+      border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+      font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer;
+      font-variant-numeric: tabular-nums; line-height: 1;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .chip:hover { border-color: #c9c9ce; background: #fafafa; }
-    .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
-    .chip-ico svg { width: 13px; height: 13px; display: block; }
-    .chip-clear { cursor: default; font-weight: 500; color: #3a3b40; }
-    .chip-clear:hover { border-color: #e4e4e7; background: #fff; }
+    .chip:hover { border-color: var(--border-strong); background: var(--hover); }
+    .chip:active { background: var(--pressed); }
+    .chip-ico { display: inline-flex; width: 12px; height: 12px; flex-shrink: 0; }
+    .chip-ico svg { width: 12px; height: 12px; display: block; }
+    .chip-clear { cursor: default; font-weight: 500; color: var(--ink); }
+    .chip-clear:hover { border-color: var(--border); background: var(--surface); }
+    /* Icon-only dismiss: 28px, radius 8, transparent until hovered; its
+       ink focus ring comes from the primitives block. */
     .close {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
-      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
+      margin-left: 8px; margin-right: -6px; flex-shrink: 0; width: 28px; height: 28px; border-radius: var(--r-btn);
+      border: none; background: transparent; color: var(--label); cursor: pointer;
+      font-size: 14px; font-weight: 400; line-height: 1; font-family: inherit;
       display: flex; align-items: center; justify-content: center;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .close:hover { background: #e7e7e7; }
-    /* The one legend (never colour alone): what each underline's LINE means. */
-    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
+    .close:hover { background: var(--hover); color: var(--text); }
+    .close:active { background: var(--pressed); color: var(--text); }
+    /* The one legend (never colour alone): what each underline's LINE means.
+       A strip stuck to the list's bottom edge while the Claims group is in
+       view (sticky inside that group); the negative margins take it to the
+       list's edges and onto its 16px bottom padding, so it sits flush. */
+    .legend {
+      position: sticky; bottom: -16px; z-index: 1;
+      /* Two aligned columns (a ragged flex wrap started each row's second
+         item at a different x); one column when the panel is narrow. */
+      display: grid; grid-template-columns: max-content max-content; column-gap: 16px; row-gap: 4px; flex-shrink: 0;
+      margin: 2px -24px -16px; padding: 8px 24px;
+      background: var(--surface);
+      font-size: 11px; line-height: 16px; color: var(--label);
+    }
+    /* Its rule is inset to the content width, like the tally's and the
+       foot's right under it; the white strip itself stays full-bleed. */
+    .legend::before { content: ""; position: absolute; top: 0; left: 24px; right: 24px; border-top: 1px solid var(--border); }
+    /* A neutral fade above the strip, so what scrolls under it (or the top
+       of the next card) reads as "more below" rather than a broken box. */
+    .legend::after { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 24px; background: linear-gradient(to bottom, transparent, var(--surface)); pointer-events: none; }
+    /* Whatever the browser scrolls into view — a card, a focused button, an
+       input — stops above the strip instead of under it. */
+    .list:has(.legend) { scroll-padding-bottom: 64px; }
+    @media (max-width: 520px) { .legend { grid-template-columns: 1fr; } }
+    /* Short or narrow: the strip ends the Claims group instead of covering a
+       fifth of the list; at phone width the icon carries the kind (every
+       line is solid), so the items pair two to a row. */
+    @media (max-height: 760px), (max-width: 420px) {
+      .legend { position: static; margin: 8px -24px -16px; }
+      .legend::after { display: none; }
+      .list:has(.legend) { scroll-padding-bottom: 0; }
+    }
+    @media (max-width: 420px) {
+      .legend { grid-template-columns: max-content max-content; }
+      .legend .legend-line { display: none; }
+      .list:has(.legend) { scroll-padding-bottom: 0; }
+    }
     .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-    .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
+    .legend-line { display: inline-block; width: 24px; border-radius: 1px; }
     .legend-ico { display: inline-flex; width: 12px; height: 12px; }
     .legend-ico svg { width: 12px; height: 12px; display: block; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
-    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
-    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
-    .ev-toggle:hover { text-decoration: underline; }
-    .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    .evidence { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding-top: 8px; border-top: 1px solid var(--border); }
+    .ev-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; border: none; background: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--ink); cursor: pointer; border-radius: 4px; }
+    .ev-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
+    .ev-intro { font-size: 12px; line-height: 1.5; color: var(--label); margin-top: -2px; padding: 0; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
     .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-    .tips + .tips { margin-top: 6px; }
-    .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
-    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
+    .tips + .tips { margin-top: 8px; }
+    .tips-head { font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label); text-transform: uppercase; letter-spacing: .04em; padding: 4px 0 0; font-variant-numeric: tabular-nums; }
+    .genre-line { font-size: 12px; line-height: 1.5; color: var(--label); padding: 0; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--label); max-width: 180px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
-    .foot .act { padding: 5px 10px; font-size: 11px; }
-    .foot-left { display: flex; align-items: center; gap: 10px; }
+    .foot-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
     select {
-      font-size: 12px; font-weight: 500; font-family: ${JAKARTA};
+      height: 32px; padding: 0 26px 0 10px; font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; line-height: 1;
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
-      padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231c1c1c' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center / 12px 12px;
+      color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none;
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
-    .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
+    .list { overflow-y: auto; overscroll-behavior: contain; padding: 12px 24px 16px; display: flex; flex-direction: column; gap: 8px; }
+    /* Nothing to show: the app's dashed empty box, the column's width (on the
+       grid of the rules and cards around it), its text at one short measure. */
+    .empty { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5; padding: 32px 24px; width: 100%; max-width: none; margin: 0 auto; border: 1px dashed var(--border); border-radius: 12px; }
+    .empty > span { display: block; max-width: 300px; margin: 0 auto; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
     /* Each card is its own box, so where one ends is never a guess; the
        open one (foldCards) is drawn a shade firmer, the folded ones are a
-       title and one line of their sentence. */
+       title and one line of why it was flagged (the sentence itself when a
+       card has no reason), so the writer can choose which to open. Focus is
+       the primitives' ink ring at the end of this sheet. */
     .card {
-      background: var(--surface); border: 1px solid #ececec; border-radius: 12px;
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;
     }
-    .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-    .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
-    .card.shut:hover { background: #fafafa; border-color: #dcdcdf; }
-    .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .card.shut > :not(.top):not(.quote) { display: none; }
-    .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .top { display: flex; align-items: center; gap: 8px; }
+    .card[aria-expanded="true"] { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+    .card.shut { gap: 4px; padding: 12px 16px; cursor: pointer; }
+    .card.shut:hover { background: var(--hover); border-color: var(--border-strong); }
+    .card.shut:active { background: var(--pressed); }
+    .card.shut > :not(.top):not(.expl) { display: none; }
+    .card.shut .expl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+    .card.shut:not(:has(.expl)) > .quote { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Aligned to the title's FIRST line, so a title that wraps in a narrow
+       panel keeps its dot and its dismiss beside its first words: the 8px
+       dot centred on the 20px line, the 24px dismiss centred on it too. */
+    .top { display: flex; align-items: flex-start; gap: 8px; }
+    .top > .dot { margin-top: 6px; }
+    .top > .x { margin-top: -2px; }
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
     /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
     .d-quest { background: #ff5900; }
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
-    .d-flow { background: #7344f1; }
+    /* A flow issue is advice, not a finding: the pending grey (MARK_PENDING). */
+    .d-flow { background: #9a9ba1; }
     /* FEATURES: the switched-off controls are drawn and then hidden here, so
        render() stays the code server/test exercises. */
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
-    .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
-    .x:hover { color: var(--text); }
-    /* The writer's own words, set off by a rule; the advice under it is the body. */
-    .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
-    .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
+    .ctitle { font-size: 14px; font-weight: 600; line-height: 20px; color: var(--ink); min-width: 0; }
+    .x {
+      margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+      background: none; border: none; color: var(--label); cursor: pointer; font-size: 14px; line-height: 1; font-family: inherit;
+      transition: color .15s cubic-bezier(.2,.8,.2,1), background-color .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .x:hover { color: var(--text); background: var(--hover); }
+    .x:active { color: var(--text); background: var(--pressed); }
+    /* The writer's own words in ink, set off by a rule; the reason under it is
+       muted — ink, muted and label are the card's only three greys. */
+    .quote { font-size: 13px; line-height: 1.5; color: var(--ink); padding-left: 14px; border-left: 2px solid var(--border); }
+    .expl { font-size: 13px; line-height: 1.5; color: var(--muted); }
 
     /* ── Insets (deep dive, suggested revision) ───────────────────────── */
     .deep, .fix {
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 10px 12px;
+      border-radius: var(--r-btn); padding: 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
-    .deep-row { margin: -2px 0 0; }
+    .deep-row { margin: 0; }
+    .deep-row .deep-note { margin-top: 6px; }
+    /* A ghost: the quiet way to more, as the Docs card's text link — not a
+       fourth bordered control competing with the card's ink primary. The
+       negative margin puts its label on the text column. */
     .deep-btn {
-      background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
-      padding: 6px 12px; font-family: ${JAKARTA}; font-size: 12px; font-weight: 500;
-      color: var(--ink); cursor: pointer;
+      display: inline-flex; align-items: center; height: 32px; padding: 0 12px; margin-left: -12px; line-height: 1;
+      background: transparent; border: 1px solid transparent; border-radius: var(--r-btn);
+      font-family: ${JAKARTA}; font-size: 13px; font-weight: 500;
+      color: var(--muted); cursor: pointer;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    .deep-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
-    .deep-btn.locked { color: var(--label); cursor: not-allowed; }
-    .deep-btn.locked:hover { border-color: var(--hairline); color: var(--label); }
+    .deep-btn:hover { background: var(--hover); color: var(--text); }
+    .deep-btn:active { background: var(--pressed); }
+    /* Locked still responds (it opens the Pro note), so it looks live: the
+       PRO tag is what says it is gated. */
+    .deep-btn.locked { color: var(--muted); cursor: pointer; }
+    .deep-btn.locked:hover { background: var(--hover); color: var(--ink); }
     .deep-pro {
-      display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: var(--r-chip);
-      background: var(--accent-wash); color: var(--accent-ink);
-      font-size: 10px; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
+      display: inline-flex; align-items: center; margin-left: 6px; height: 16px; line-height: 16px; padding: 0 5px;
+      border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink);
+      font-size: 11px; font-weight: 600; letter-spacing: .04em; vertical-align: middle;
     }
+    /* Every inset's label: the panel's one small-caps recipe. */
     .deep-label, .fix-label, .sources-title {
-      font-size: 11px; font-weight: 600; color: var(--label); letter-spacing: .01em;
+      font-size: 11px; font-weight: 600; line-height: 16px; color: var(--label);
+      text-transform: uppercase; letter-spacing: .04em;
     }
     .deep .badge { align-self: flex-start; }
     .deep-prefix { font-size: 13px; font-weight: 600; color: var(--ink); }
-    .deep-sub { margin-top: 6px; }
-    .deep .row { margin-top: 4px; }
-    .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
-    .fix-text { white-space: normal; }
-    .deep-note { font-size: 11px; color: var(--label); }
+    .deep-sub { margin-top: 8px; }
+    /* The suggested text reads in ink (it is what goes into the writing); the
+       fuller answer's prose is muted, like a card's reason. */
+    .deep-text, .fix-text { font-size: 13px; line-height: 1.5; color: var(--muted); white-space: pre-line; }
+    .fix-text { color: var(--ink); white-space: normal; }
+    .deep-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .deep-note.err { color: var(--danger); }
-    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
-    .deep-note a:hover { text-decoration: underline; }
-    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--body); }
-    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-border); border-top-color: var(--accent); animation: deepspin .8s linear infinite; flex-shrink: 0; }
+    .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+    .deep-note a:hover { text-decoration-thickness: 2px; }
+    /* Progress is not a finding: an ink arc on the border grey. */
+    .deep-loading { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+    .deep-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--ink); animation: deepspin .8s linear infinite; flex-shrink: 0; }
     @keyframes deepspin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     /* A card's actions sit at their own width, the one it asks for first and
        filled: a full-width bar per button outweighed the advice. */
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
     .row > button.act { flex: 0 0 auto; }
-    .edit-note { font-size: 11px; color: var(--label); }
+    /* Wide enough for "Copied ✓", so the button beside it does not jump. */
+    button.act[data-copy-fix] { min-width: 86px; }
+    .edit-note { font-size: 12px; line-height: 1.5; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
       border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
     }
-    .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
-    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-    .live-strip img { width: 16px; height: 16px; border-radius: 4px; background: var(--surface-2); }
-    .live-strip img.faded { opacity: .35; }
+    .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .live-strip img { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-2); }
+    .live-strip img.faded { opacity: .4; }
+    .live-strip img.read { outline: 2px solid var(--ink); outline-offset: -2px; }
     .ready-ping {
-      display: flex; align-items: center; gap: 8px; margin: 0 0 10px auto; max-width: 320px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
+      display: flex; align-items: center; gap: 8px; margin: 0 0 12px auto; max-width: 320px;
+      font-size: 12px; font-weight: 500; line-height: 1.5; color: var(--ink);
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-btn);
-      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-lg);
+      padding: 6px 6px 6px 12px; box-shadow: var(--shadow-card);
     }
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .ready-ping button.act { flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
     /* A note rises in out of the launcher the first time it shows (not on
        every re-render: the class is only on the render that brings it). */
@@ -3714,101 +3833,160 @@
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--ink);
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
+      border-radius: var(--r-btn); padding: 8px 12px; line-height: 1.4;
     }
-    .walk-strip button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+    .walk-strip > span { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-wrap: balance; }
+    .walk-strip .act { flex-shrink: 0; }
+    /* The open card's own primary is the one ink action in view; this offer
+       is the outlined secondary. */
+    .walk-strip .act.primary { background: var(--surface); color: var(--ink); border-color: var(--border-strong); }
+    .walk-strip .act.primary:hover:not([disabled]) { background: var(--hover); border-color: var(--border-strong); color: var(--ink); }
+    .walk-strip .act.primary:active:not([disabled]) { background: var(--pressed); border-color: var(--border-strong); }
     /* "Let Tracely fix these": the prepared changes, each waiting for the
        writer. Ink only — a removed word struck through, an added one
        underlined; the dot is the flag's own finding colour. */
     .fixes { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
     .fixes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
     .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
-    .fixes-acts { display: inline-flex; gap: 6px; }
-    .fixes-acts button.act { padding: 5px 12px; font-size: 12px; }
-    .fixes-note { font-size: 11.5px; color: #6b6c72; }
-    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #ececec; border-radius: 10px; background: var(--surface); }
-    .fx-top { display: flex; align-items: center; gap: 8px; }
-    .fx-title { font-size: 12.5px; font-weight: 600; color: #1a1a1f; }
-    .fx-diff { font-size: 12.5px; line-height: 1.5; color: #55565c; }
-    .fx-diff del { color: #8a8b90; text-decoration: line-through; }
-    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: #efeff2; border-radius: 3px; padding: 0 2px; }
-    .fx-line { font-size: 11.5px; color: #55565c; }
-    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #55565c; min-width: 0; }
-    .fx-src img { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    .fixes-acts { display: inline-flex; gap: 8px; }
+    .fixes-note { font-size: 12px; line-height: 1.5; color: var(--label); }
+    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--surface); }
+    .fx-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .fx-top .dot { flex-shrink: 0; }
+    .fx-title { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--ink); }
+    .fx-diff { font-size: 13px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+    .fx-diff del { color: var(--label); text-decoration: line-through; }
+    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: var(--chip-wash); border-radius: 4px; padding: 0 2px; }
+    .fx-diff del + ins { margin-left: 4px; } /* the struck words and their replacement never run together */
+    .fx-line { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--muted); min-width: 0; }
+    .fx-src img { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; }
     .fx-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6c72; }
-    .fx-applied { opacity: .75; }
+    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--label); }
+    .fx-applied { opacity: .7; }
     .fx-applied .fx-state { color: var(--ink); font-weight: 500; }
-    .fx-skipped { opacity: .55; }
-    .fx .row button.act { padding: 5px 12px; font-size: 12px; }
+    .fx-skipped { opacity: .5; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
     /* The frame's pills: an ink fill, or a 1.5px ink outline. */
     button.act {
-      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
-      border-radius: 999px; padding: 7px 14px;
-      font-size: 12.5px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
-      transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+      display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; line-height: 1;
+      border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink);
+      border-radius: var(--r-btn);
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer; white-space: nowrap;
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1), color .15s cubic-bezier(.2,.8,.2,1);
     }
-    button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
-    button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: #111; border-color: #111; color: #fff; }
-    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
-    button.act[disabled] { opacity: .5; cursor: default; }
+    button.act:hover:not([disabled]) { background: var(--hover); }
+    button.act:active:not([disabled]) { background: var(--pressed); }
+    /* Every finding-surface primary is 13/600 (the Docs card's, the editor
+       popover's, the overlay's); the secondaries stay 500. */
+    button.act.primary { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+    button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
+    button.act.primary:active:not([disabled]) { background: #000; border-color: #000; }
+    button.act[disabled] { opacity: .5; cursor: not-allowed; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
-    .sources { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
-    .src { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
-    .src:hover { background: var(--surface-2); }
+    .sources { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .src { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: var(--r-btn); }
+    .src:hover { background: var(--hover); }
     .stance {
-      font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: var(--r-chip);
-      margin-top: 2px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; line-height: 1; white-space: nowrap;
+      min-width: 68px; /* one width for supports / refutes / context / manual, so every title starts on one edge */
+      font-size: 11px; font-weight: 600; border-radius: 999px;
+      margin-top: 1px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
     .st-supports { color: #1f7a4d; }
     .st-refutes { color: #b02a2a; }
     .st-context { color: var(--chip-ink); }
     .st-manual { color: #245d99; }
-    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .src-ico:empty { display: none; }
     .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
-    .src a { font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; display: block; }
-    .src-title { font-size: 13px; font-weight: 500; color: var(--ink); display: block; }
-    .src a:hover { color: var(--accent-ink); }
-    .src-meta { font-size: 11px; color: var(--label); }
-    .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
+    .src a { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--ink); text-decoration: none; display: block; overflow-wrap: anywhere; }
+    .src-title { font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--ink); display: block; overflow-wrap: anywhere; }
+    .src a:not(.src-open):hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+    .src a:not(.src-open):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+    .src-meta { font-size: 12px; line-height: 1.5; color: var(--label); }
+    .src-snip { font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .src-snip b { font-weight: 600; color: var(--ink); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    /* "Find a different source" under the cited-work rows: a secondary, at the small size. */
+    .sources > .row .act { height: 28px; padding: 0 10px; font-size: 12px; }
     /* The receipt: the source's own words, and where they were read. */
-    .src-says { font-size: 12px; line-height: 16.8px; color: var(--ink); margin-top: 2px; user-select: text; }
-    .src-from { font-size: 10.5px; color: var(--label); margin-top: 2px; }
-    .src-unread { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
-    .src-unread-toggle { align-self: flex-start; background: none; border: none; padding: 2px 0; font: inherit; font-size: 12px; color: var(--label); cursor: pointer; text-align: left; }
-    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; }
-    .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
-    .loading { font-size: 13px; color: var(--body); }
-    .cite-url { display: flex; gap: 8px; }
-    .cite-url input {
-      flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
-      padding: 7px 10px; font-size: 12px; outline: none;
-      color: var(--text); background: var(--surface); font-family: ${JAKARTA};
+    .src-says { font-size: 12px; line-height: 1.5; color: var(--ink); margin-top: 2px; user-select: text; }
+    .src-from { font-size: 11px; line-height: 1.5; color: var(--label); margin-top: 2px; }
+    .src-unread { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .src-unread-row { opacity: .8; }
+    .src-unread-toggle { align-self: flex-start; display: inline-flex; align-items: center; min-height: 28px; background: none; border: none; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; color: var(--muted); cursor: pointer; text-align: left; border-radius: 4px; }
+    .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+    .src a.src-open {
+      display: inline-flex; align-items: center; height: 28px; padding: 0 10px; line-height: 1;
+      font-size: 12px; font-weight: 500; color: var(--ink);
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn); background: var(--surface);
+      transition: background-color .15s cubic-bezier(.2,.8,.2,1), border-color .15s cubic-bezier(.2,.8,.2,1);
     }
+    .src a.src-open:hover { background: var(--hover); color: var(--ink); }
+    .src a.src-open:active { background: var(--pressed); }
+    .loading { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+    .cite-url { display: flex; gap: 8px; }
+    .cite-url .deep-spin { margin-right: 6px; }
+    .cite-url input {
+      flex: 1; min-width: 0; height: 32px; padding: 0 10px; font-size: 13px; line-height: 1;
+      border: 1px solid var(--border-strong); border-radius: var(--r-btn); outline: none;
+      color: var(--text); background: var(--surface); font-family: ${JAKARTA};
+      transition: border-color .15s cubic-bezier(.2,.8,.2,1), box-shadow .15s cubic-bezier(.2,.8,.2,1);
+    }
+    .cite-url input::placeholder { color: var(--label); opacity: 1; }
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
-    .autosrc input { accent-color: var(--accent); }
-    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .autosrc { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
+    .autosrc input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
+    .foot { margin: 0 24px; padding: 12px 0; border-top: 1px solid var(--border); font-size: 12px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    /* The footer's switch is a ghost button — the quiet action of the panel —
+       unless it turns the site ON, which is the panel's one ink primary. Its
+       hover and pressed fills are the shared button.act ones (they outrank
+       the transparent rest here), so only the text darkens locally. */
+    .foot .act { border-color: transparent; background: none; color: var(--muted); font-weight: 500; flex-shrink: 0; }
+    .foot .act:not(.primary):hover:not([disabled]), .foot .act:not(.primary):active:not([disabled]) { color: var(--text); }
+    .foot .act.primary { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
+    /* The ghost's label lands on the content edge the rule and cards share. */
+    .foot .act:not(.primary):last-child { margin-right: -10px; }
     /* The panel eases up out of the pill when it opens (re-renders while it
-       stays open don't replay it). Reduced motion: it just appears. */
-    .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
+       stays open don't replay it). Reduced motion (the primitives block at
+       the end of this sheet): it just appears. */
+    .panel.opening { animation: tracely-panel-in 160ms cubic-bezier(.2,.8,.2,1) both; transform-origin: 100% 100%; }
     @keyframes tracely-panel-in {
-      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      from { opacity: 0; transform: translateY(8px) scale(.98); }
       to { opacity: 1; transform: none; }
     }
-    @media (prefers-reduced-motion: reduce) { .panel.opening { animation: none; } }
-    .card.flash { animation: tracely-flash 1.2s ease-out; }
+    .card.flash { animation: tracely-flash 900ms ease-out; }
     @keyframes tracely-flash {
       0% { box-shadow: 0 0 0 3px var(--ring); }
       100% { box-shadow: none; }
+    }
+
+    /* ── Primitives: focus, scrollbar, motion ─────────────────────────────
+       Shared recipes, appended so they win over the sections above: the
+       small button in strips and footers, one ink focus ring for every
+       control that is not a text field (those keep the accent ring), the
+       list's thin scrollbar, and the one reduced-motion block. */
+    .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
+    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .card[aria-expanded="true"]:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
+    .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    /* The two text links outside the source rows ("See plans" under a locked
+       deep dive, the consent foot's privacy link): the same ring, as .src a. */
+    .deep-note a:focus-visible, .foot a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+    .list { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+    .list::-webkit-scrollbar { width: 8px; }
+    .list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; border: 2px solid var(--surface); }
+    .list::-webkit-scrollbar-track { background: transparent; }
+    @media (prefers-reduced-motion: reduce) {
+      /* Every transition in the sheet, not a list that misses the next one
+         (the grip and the close were still easing their colour). */
+      *, *::before, *::after { transition: none !important; }
+      .launcher, .launcher:hover, .pill, .pill:hover { transform: none; }
+      .panel.opening, .card.flash, .deep-spin { animation: none; }
     }
   `;
 
@@ -4049,6 +4227,8 @@
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
+    const citeUrlBusy = new Set(); // a card's Cite pressed, its request in flight
+    const citeUrlErr = new Map(); // hash → why its pasted URL could not be cited
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
     let lastCheckFailed = false;
@@ -4929,16 +5109,16 @@
       // Vertical spine with a rounded elbow into a short arrow at the foot.
       g.appendChild(svgEl("path", {
         d: `M ${bx} ${top + r} L ${bx} ${bot - r} Q ${bx} ${bot} ${bx + r} ${bot} L ${bx + r * 1.5} ${bot}`,
-        fill: "none", stroke: FLOW_COLOR, "stroke-width": Math.max(1.2, lh * 0.075),
+        fill: "none", stroke: MARK_PENDING, "stroke-width": Math.max(1.2, lh * 0.075),
         "stroke-linecap": "round", "stroke-linejoin": "round",
       }));
       g.appendChild(svgEl("path", {
         d: `M ${bx + r * 0.9} ${bot - r * 0.5} L ${bx + r * 1.7} ${bot} L ${bx + r * 0.9} ${bot + r * 0.5} Z`,
-        fill: FLOW_COLOR,
+        fill: MARK_PENDING,
       }));
       // Badge: filled disc at the head of the bracket with a flow glyph.
       const cy = f.top + lh * 0.42, cr = lh * 0.62;
-      g.appendChild(svgEl("circle", { cx: bx, cy, r: cr, fill: FLOW_COLOR }));
+      g.appendChild(svgEl("circle", { cx: bx, cy, r: cr, fill: MARK_PENDING }));
       g.appendChild(svgEl("path", {
         d: `M ${bx - cr * 0.5} ${cy + cr * 0.08} q ${cr * 0.25} ${-cr * 0.55} ${cr * 0.5} 0 q ${cr * 0.25} ${cr * 0.55} ${cr * 0.5} 0`,
         fill: "none", stroke: "#fff", "stroke-width": Math.max(1, cr * 0.22),
@@ -4946,9 +5126,9 @@
       }));
       // Right-margin chip — dot plus label, aligned to the first line.
       const chipX = (f.colRight ?? f.right) + lh * 0.9, chipY = f.top + lh * 0.62;
-      g.appendChild(svgEl("circle", { cx: chipX, cy: chipY - lh * 0.2, r: Math.max(2, lh * 0.13), fill: FLOW_ACCENT }));
+      g.appendChild(svgEl("circle", { cx: chipX, cy: chipY - lh * 0.2, r: Math.max(2, lh * 0.13), fill: MARK_PENDING }));
       const label = svgEl("text", {
-        x: chipX + lh * 0.42, y: chipY, fill: FLOW_ACCENT,
+        x: chipX + lh * 0.42, y: chipY, fill: MARK_PENDING,
         "font-size": lh * 0.62, "font-family": "Arial, Helvetica, sans-serif", "font-weight": "500",
       });
       label.textContent = "Flow issue";
@@ -5031,7 +5211,7 @@
       el.style.opacity = op;
       if (markReducedMotion() || typeof el.animate !== "function") return;
       try {
-        const anim = el.animate([{ opacity: from }, { opacity: op }], { duration: 120, easing: "ease" });
+        const anim = el.animate([{ opacity: from }, { opacity: op }], { duration: MARK_WASH_MS, easing: "ease" });
         setTimeout(() => anim.cancel(), 400);
       } catch { /* it simply changes */ }
     }
@@ -5078,10 +5258,11 @@
             bar.setAttribute("data-tracely-bar", "");
             bar.setAttribute("aria-hidden", "true");
             bar.setAttribute("x", String(rx + sb.f0 * rw));
-            bar.setAttribute("y", String(ry + rh - 2));
+            bar.setAttribute("y", String(ry + rh - 1.5)); // a hair under the descenders; same y as the follow below
             bar.setAttribute("width", String(Math.max(2, (sb.f1 - sb.f0) * rw)));
-            bar.setAttribute("height", "2.5");
-            bar.setAttribute("rx", "1.25");
+            // The same line field mode and the legend draw: 2 tall, radius 1.
+            bar.setAttribute("height", String(markLineHeight(pattern, false)));
+            bar.setAttribute("rx", String(MARK_LINE_RADIUS));
             bar.setAttribute("fill", svgMarkFill(color, pattern));
             bar.setAttribute("pointer-events", "none");
             const tf = sb.node.getAttribute("transform");
@@ -5096,7 +5277,7 @@
             wash.setAttribute("data-tracely-bar", "");
             wash.setAttribute("aria-hidden", "true");
             wash.setAttribute("pointer-events", "none");
-            wash.setAttribute("rx", "2");
+            wash.setAttribute("rx", String(MARK_BAND_RADIUS));
             wash.setAttribute("fill", withAlpha(color, MARK_BAND_ALPHA)); // a highlight, not a line: the bar above is the line
             if (tf) wash.setAttribute("transform", tf);
             wash.style.opacity = "0";
@@ -5118,8 +5299,8 @@
             const bar = document.createElement("div");
             Object.assign(bar.style, {
               position: "fixed", left: "0", top: "0",
-              width: "0px", height: "3px",
-              background: markFill(color, pattern), borderRadius: "2px", pointerEvents: "none",
+              width: "0px", height: `${markLineHeight(pattern, false)}px`,
+              background: markFill(color, pattern), borderRadius: `${MARK_LINE_RADIUS}px`, pointerEvents: "none",
               willChange: "transform",
             });
             marksLayer.appendChild(bar);
@@ -5473,14 +5654,14 @@
     function dmHead(color, title, right = null) {
       const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
       h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
-      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", lineHeight: "20px", color: DM.ink, minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
       if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
       return h;
     }
-    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" }, text);
-    const dmHint = (text) => el("span", { fontSize: "12px", color: DM.hint }, text);
+    const dmBody = (text) => el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.body, flex: "0 0 auto" }, text);
+    const dmHint = (text) => el("span", { fontSize: "12px", lineHeight: "1.5", color: DM.hint, fontVariantNumeric: "tabular-nums" }, text);
     function dmChip(text) {
-      return el("span", { flexShrink: "0", borderRadius: "999px", background: DM.chipBg, padding: "3px 9px", fontSize: "11.5px", fontWeight: "500", color: DM.body }, text);
+      return el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", flexShrink: "0", height: "20px", borderRadius: "999px", background: DM.chipBg, padding: "0 8px", fontSize: "11px", fontWeight: "600", lineHeight: "1", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: DM.body }, text);
     }
     /* A card's row of buttons. It wraps: the card is 320px and clips what
        overflows, and "Apply revision · Back · Explain in depth PRO" is wider
@@ -5493,11 +5674,15 @@
       return row;
     }
     function dmBtn(label, primary, { disabled = false, wide = false, title } = {}) {
+      // The finding surfaces' button: 32px, radius 8, ink primary / outlined
+      // secondary, colour-only hover, no press transform.
       const b = el("button", {
-        padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
-        fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
-        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
-        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+        display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box", flexShrink: "0",
+        height: "32px", padding: "0 12px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit", lineHeight: "1", opacity: disabled ? ".5" : "1",
+        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : APP.borderStrong}`,
+        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "500", width: wide ? "100%" : "",
+        transition: reducedMotion() ? "none" : "background-color .15s cubic-bezier(.2,.8,.2,1)",
       }, label);
       b.type = "button";
       b.disabled = disabled;
@@ -5505,27 +5690,38 @@
       if (!disabled) {
         b.addEventListener("mouseenter", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
         b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : "#fff"; });
+        // Pressed is a step past hover, like the panel's button.act (.04 → .08).
+        b.addEventListener("mousedown", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.08)"; });
+        b.addEventListener("mouseup", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
       }
       return b;
     }
     /* A hint-styled control for what the app puts beside a button row (the
        "Usually 3–5 seconds" hint): the one place "Explain in depth" lives. */
     function dmLink(label) {
-      const b = el("button", { background: "none", border: "none", padding: "0", fontFamily: "inherit", fontSize: "12px", color: DM.hint, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px" }, label);
+      const b = el("button", { background: "none", border: "none", padding: "6px 0", fontFamily: "inherit", fontSize: "12px", fontWeight: "500", lineHeight: "16px", color: DM.body, cursor: "pointer", marginLeft: "auto", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "6px", transition: reducedMotion() ? "none" : "color .15s cubic-bezier(.2,.8,.2,1)" }, label);
       b.type = "button";
       b.addEventListener("mouseenter", () => { b.style.textDecoration = "underline"; });
       b.addEventListener("mouseleave", () => { b.style.textDecoration = "none"; });
+      // Hover takes a grey link to ink; one a caller gave its own colour
+      // (See plans, in the accent) keeps it.
+      const rest = b.style.color;
+      let lit = false;
+      b.addEventListener("mouseenter", () => { if (b.style.color === rest) { lit = true; b.style.color = DM.ink; } });
+      b.addEventListener("mouseleave", () => { if (lit) { lit = false; b.style.color = rest; } });
       return b;
     }
     function dmBlock(label, ...kids) {
-      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "10px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
-      if (label) b.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.hint, letterSpacing: "0.6px" }, label));
+      // The inset recipe, as the panel's .fix and the editor's .docmark-block
+      // draw it: surface-2 on a 1px border, radius 8, the label in label grey.
+      const b = el("div", { width: "100%", boxSizing: "border-box", background: APP.surface2, border: `1px solid ${APP.border}`, borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
+      if (label) b.appendChild(el("div", { fontSize: "11px", fontWeight: "600", lineHeight: "16px", color: APP.label, letterSpacing: ".04em", textTransform: "uppercase" }, label));
       for (const k of kids) if (k) b.appendChild(k);
       return b;
     }
-    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.45", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
-    const dmBlockMarker = (text) => el("div", { fontSize: "12.5px", fontWeight: "500", color: DM.ink }, text);
-    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.4", color: DM.body }, text);
+    const dmQuote = (text, mono = false) => el("div", { fontSize: mono ? "12px" : "13px", lineHeight: "1.5", color: DM.ink, userSelect: "text", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "inherit" }, text);
+    const dmBlockMarker = (text) => el("div", { fontSize: "13px", fontWeight: "500", lineHeight: "1.5", color: DM.ink }, text);
+    const dmBlockBody = (text) => el("div", { fontSize: "12px", lineHeight: "1.5", color: DM.body }, text);
     function dmIssue(title, detail) {
       const w = el("div", { display: "flex", flexDirection: "column", gap: "2px", flex: "0 0 auto" });
       if (title) w.appendChild(el("div", { fontSize: "13px", fontWeight: "500", color: DM.ink }, title));
@@ -5567,11 +5763,11 @@
        the design's two-letter tile underneath it otherwise — and again if the
        image fails, so a row never shows an empty square. */
     function dmSourceIcon(src) {
-      const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+      const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "11px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
       const icon = faviconUrl(src.url);
       if (!icon) return box;
-      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
-      const img = el("img", { width: "18px", height: "18px", display: "block" });
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: `1px solid ${DM.rowBorder}`, borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const img = el("img", { width: "16px", height: "16px", display: "block" });
       img.alt = "";
       img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
       img.addEventListener("error", () => wrap.remove(), { once: true });
@@ -5582,15 +5778,15 @@
     }
     function dmRow(src, selected, onSelect) {
       const row = el("button", {
-        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "8px", borderRadius: "8px",
         border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
       row.appendChild(dmSourceIcon(src));
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
-      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
-      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
+      meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", lineHeight: "18px", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
+      const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.body, fontVariantNumeric: "tabular-nums" });
       sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
       // The app's match column never shrinks; here it says the source's stance on the claim.
       const stance = STANCE_LABEL[src.stance] ?? "Context";
@@ -5612,13 +5808,17 @@
         if (from) meta.appendChild(el("span", { fontSize: "11px", color: DM.hint }, from));
       }
       const trusted = TRUSTED_KINDS.has(src.kind);
-      meta.appendChild(el("span", { alignSelf: "flex-start", fontSize: "10.5px", fontWeight: "600", letterSpacing: "0.3px", borderRadius: "999px", padding: "2px 7px", marginTop: "3px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
+      meta.appendChild(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", borderRadius: "999px", padding: "0 8px", marginTop: "4px", whiteSpace: "nowrap", background: trusted ? DM.credBg : DM.credOtherBg, color: trusted ? DM.green : DM.body }, KIND_LABEL[src.kind] ?? KIND_LABEL.other));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
       else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
+      if (!selected) {
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(0,0,0,0.03)"; });
+        row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+      }
       return row;
     }
     /* The sources the server could not read (backingSources' `unread`),
@@ -5638,7 +5838,7 @@
           row.appendChild(dmSourceIcon(src));
           const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
           meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
-          meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.publisher || ""));
+          meta.appendChild(el("span", { fontSize: "12px", color: DM.body, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.publisher || ""));
           row.appendChild(meta);
           const go = dmBtn(RECEIPT_COPY.open, false, { title: src.url });
           go.addEventListener("click", () => window.open(src.url, "_blank", "noopener,noreferrer"));
@@ -5653,8 +5853,13 @@
       w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
       for (const [key] of CITE_STYLES) {
         const on = key === current;
-        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        const p = el("button", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "26px", borderRadius: "999px", padding: "0 10px", fontFamily: "inherit", fontSize: "12px", lineHeight: "1", fontVariantNumeric: "tabular-nums", fontWeight: on ? "600" : "500", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : APP.borderStrong}`, cursor: "pointer", transition: reducedMotion() ? "none" : "background-color .15s cubic-bezier(.2,.8,.2,1)" }, CITE_STYLE_LABEL[key]);
         p.type = "button";
+        p.setAttribute("aria-pressed", on ? "true" : "false");
+        if (!on) {
+          p.addEventListener("mouseenter", () => { p.style.background = "rgba(0,0,0,0.04)"; });
+          p.addEventListener("mouseleave", () => { p.style.background = "#fff"; });
+        }
         p.addEventListener("click", () => onSet(key));
         w.appendChild(p);
       }
@@ -5815,7 +6020,21 @@
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
-      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: `2px solid ${DM.ink}`, borderRadius: "16px", padding: "16px", boxShadow: APP.shadowLg, boxSizing: "border-box", width: "100%", overflow: "hidden", lineHeight: "1.4" });
+      /* Inline styles cannot say :focus-visible or :disabled, so the card's
+         one stylesheet does, once, from APP: the ink ring every finding
+         surface shows on a keyboard stop, the accent ring on the page box,
+         and the disabled look that outlives a button re-enabled by code. */
+      if (!document.querySelector("style[data-tracely-pop-css]")) {
+        const css = el("style");
+        css.setAttribute("data-tracely-pop-css", "");
+        const P = "[data-tracely-docs-popover]";
+        css.textContent = `${P} button:focus-visible{outline:2px solid ${APP.ink};outline-offset:2px}`
+          + `${P} input:focus{outline:none;border-color:${APP.accent}!important;box-shadow:0 0 0 3px ${APP.ring}}`
+          + `${P} input::placeholder{color:${APP.label}}`
+          + `${P} button:disabled{opacity:.5!important;cursor:not-allowed!important}${P} button:enabled{cursor:pointer!important}`;
+        (document.head || document.documentElement).appendChild(css);
+      }
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
       popStepShown = null;
@@ -5870,10 +6089,12 @@
     function dmAlso(tips, backTo, backLabel) {
       const box = el("div", { display: "flex", flexDirection: "column", gap: "4px", flex: "0 0 auto" });
       for (const t of tips) {
-        const b = el("button", { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${DM.rowBorder}`, background: DM.blockBg, font: "inherit", fontSize: "12.5px", color: DM.ink, cursor: "pointer", textAlign: "left", boxSizing: "border-box" });
+        const b = el("button", { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "8px 10px", borderRadius: "8px", border: `1px solid ${DM.rowBorder}`, background: DM.blockBg, font: "inherit", fontSize: "13px", lineHeight: "18px", color: DM.ink, cursor: "pointer", textAlign: "left", boxSizing: "border-box" });
         b.type = "button";
-        b.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: MARK_COLORS[t.markKind ?? "cite_tip"], flexShrink: "0" }), el("span", { flex: "1", minWidth: "0" }, `Also here: ${TIP_LABEL[t.kind] ?? "a note"}`), el("span", { color: DM.hint }, "›"));
+        b.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: MARK_COLORS[t.markKind ?? "cite_tip"], flexShrink: "0" }), el("span", { flex: "1", minWidth: "0" }, `Also here: ${TIP_LABEL[t.kind] ?? "a note"}`), el("span", { color: DM.body }, "›"));
         b.addEventListener("click", () => { popPinned = true; popSteps.set(t.id, { ...stepOf(t.id), backTo, backLabel }); popHash = t.id; paintPop(); });
+        b.addEventListener("mouseenter", () => { b.style.borderColor = APP.borderStrong; });
+        b.addEventListener("mouseleave", () => { b.style.borderColor = DM.rowBorder; });
         box.appendChild(b);
       }
       return box;
@@ -5896,12 +6117,14 @@
       const findSrc = (TIP_FIND_SOURCE.includes(tip.kind) || tip.action === "cite") && !(tip.kind === "excuse" && target) && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0;
       const fix = tipFixControls(tip, put);
       let cited = null, src = null;
+      // One primary to a card: with a fix of its own in the row, the
+      // lookups below it are the full-width secondaries.
       if (target) {
-        cited = dmBtn(CITED_COPY.find, true);
+        cited = dmBtn(CITED_COPY.find, !fix, { wide: Boolean(fix) });
         cited.addEventListener("click", () => { findCitedWork(tip.id); });
       }
       if (findSrc) {
-        src = dmBtn(POP_COPY.findSource, !target, { wide: Boolean(target) });
+        src = dmBtn(POP_COPY.findSource, !target && !fix, { wide: Boolean(target || fix) });
         src.addEventListener("pointerdown", () => prestartClaim(tip.id));
         src.addEventListener("click", () => { findClaimSource(tip.id); });
       }
@@ -5932,7 +6155,7 @@
       if (tip.kind === "page") {
         const key = `page:${tip.id}`;
         const busy = editState(key) === "applying";
-        const input = el("input", { flex: "1", minWidth: "0", padding: "8px 10px", borderRadius: "8px", border: "1px solid #d9d9d9", fontSize: "13px", fontFamily: "inherit", color: DM.ink });
+        const input = el("input", { flex: "1", minWidth: "0", boxSizing: "border-box", height: "32px", padding: "0 10px", borderRadius: "8px", border: `1px solid ${APP.borderStrong}`, background: "#fff", fontSize: "13px", fontFamily: "inherit", color: DM.ink, transition: reducedMotion() ? "none" : "border-color .15s cubic-bezier(.2,.8,.2,1)" });
         input.placeholder = "Page number, e.g. 45";
         input.inputMode = "numeric";
         input.value = pageDrafts.get(tip.id) ?? "";
@@ -5990,21 +6213,25 @@
        the server's note on top (paintSources' `note`). */
     function dmWorkRow(src, selected, onSelect) {
       const row = el("button", {
-        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "10px",
+        display: "flex", alignItems: "flex-start", gap: "10px", width: "100%", padding: "8px", borderRadius: "8px",
         border: `1px solid ${selected ? DM.rowBorder : "transparent"}`, background: selected ? DM.rowSel : "transparent",
         textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", flex: "0 0 auto", boxSizing: "border-box",
       });
       row.type = "button";
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px" });
-      meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflowWrap: "anywhere" }, src.title));
+      meta.appendChild(el("span", { fontSize: "13px", fontWeight: "500", lineHeight: "18px", color: DM.ink, overflowWrap: "anywhere" }, src.title));
       const line = citedMetaLine(src);
-      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, overflowWrap: "anywhere" }, line));
+      if (line) meta.appendChild(el("span", { fontSize: "12px", color: DM.body, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" }, line));
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box", marginTop: "2px" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
       else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
+      if (!selected) {
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(0,0,0,0.03)"; });
+        row.addEventListener("mouseleave", () => { row.style.background = "transparent"; });
+      }
       return row;
     }
     function paintCited(key, put) {
@@ -6061,9 +6288,9 @@
       // work it meant until the writer picks the one they read.
       put(dmHead(by ? DM.amber : DM.green, by ? CITED_COPY.byAuthorTitle(by.name) : list.length === 1 ? CITED_COPY.one : CITED_COPY.many(list.length), styleChip));
       styleChip.style.marginLeft = "0";
-      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px", padding: "4px", margin: "-4px" }); // room for a row's focus ring
       scroll.appendChild(dmBody(by ? CITED_COPY.byAuthorIntro(by.name, c.plan?.display ?? "") : CITED_COPY.intro(c.plan?.display ?? "")));
-      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
+      if (by?.offClaim?.length) scroll.appendChild(el("p", { margin: "0", fontSize: "13px", lineHeight: "1.5", color: DM.ink, fontWeight: "500", flex: "0 0 auto" }, CITED_COPY.offClaim(by.offClaim)));
       if (c.plan?.noEntry) scroll.appendChild(dmHint(CITED_COPY.noEntry));
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       list.forEach((m, i) => rows.appendChild(dmWorkRow(m, i === sel, () => { c.selected = i; paintPop(); })));
@@ -6168,8 +6395,10 @@
         // The fix card: what the check found, the revision, Apply / Back.
         put(dmHead(color, fixTitle(f.verdict)));
         put(dmBody(f.verdict === "questionable" ? POP_COPY.fixRuleNarrow : POP_COPY.fixRule));
-        if (f.basis) put(dmIssue(POP_COPY.foundLabel, f.basis));
-        else if (f.explanation) put(dmIssue(POP_COPY.foundLabel, f.explanation));
+        // An inset with the uppercase label, like SUGGESTED REVISION below it
+        // (dmBlock's label upper-cases it; the copy string is unchanged).
+        if (f.basis) put(dmBlock(POP_COPY.foundLabel, dmBody(f.basis)));
+        else if (f.explanation) put(dmBlock(POP_COPY.foundLabel, dmBody(f.explanation)));
         put(paintDeep(hash, f));
         if (hasRevision) put(dmBlock(POP_COPY.revisionLabel, dmQuote(f.revision)));
         const applying = fixState === "applying";
@@ -6249,7 +6478,8 @@
       const v = deepView(hash, f.verdict);
       if (v.kind === "loading") {
         const w = el("div", { display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: DM.body, flex: "0 0 auto" });
-        const spin = el("span", { width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0", border: "2px solid rgba(255,89,0,0.25)", borderTopColor: DM.orange });
+        // Ink on the hairline, as every spinner: a fuller answer on its way is not a finding.
+        const spin = el("span", { width: "12px", height: "12px", borderRadius: "50%", flexShrink: "0", boxSizing: "border-box", border: `2px solid ${DM.rowBorder}`, borderTopColor: DM.ink });
         if (!reducedMotion() && typeof spin.animate === "function") spin.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 800, iterations: Infinity });
         w.append(spin, document.createTextNode(v.text));
         return w;
@@ -6257,14 +6487,14 @@
       if (v.kind === "result") {
         const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
         const w = dmIssue(title, v.text);
-        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "20px", fontSize: "11px", fontWeight: "600", lineHeight: "1", padding: "0 8px", borderRadius: "999px", background: APP.chipWash, color: APP.chipInk, margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
         if (!v.basis && !v.revision) return w;
         // What the fuller answer rests on, and its own fix — applied like the
         // card's (docFix, one Undo), or copied where the doc cannot be edited.
         const col = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
         col.appendChild(w);
-        if (v.basis) col.appendChild(dmIssue("What it rests on", v.basis));
+        if (v.basis) col.appendChild(dmBlock("What it rests on", dmBody(v.basis)));
         if (v.revision) {
           const own = Boolean(f.revision) && f.verdict !== "needs_citation";
           col.appendChild(dmBlock("IN-DEPTH REVISION", dmQuote(v.revision)));
@@ -6302,7 +6532,7 @@
       const link = dmLink(v.label);
       if (v.kind === "locked") {
         link.title = v.title;
-        link.appendChild(el("span", { padding: "1px 6px", borderRadius: "20px", background: APP.accentWash, color: APP.accentInk, fontSize: "10px", fontWeight: "600", letterSpacing: ".02em" }, "PRO"));
+        link.appendChild(el("span", { display: "inline-flex", alignItems: "center", boxSizing: "border-box", height: "16px", padding: "0 6px", borderRadius: "999px", background: APP.accentWash, color: APP.accentInk, fontSize: "11px", fontWeight: "600", lineHeight: "1", letterSpacing: ".04em" }, "PRO"));
         link.addEventListener("click", () => { lockDeep(hash); paintPop(); render(); });
       } else {
         link.addEventListener("click", () => { explainSentence(hash); paintPop(); });
@@ -6346,7 +6576,7 @@
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
         const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
-        const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
+        const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
         const done = dmBtn(POP_COPY.done, true);
@@ -6407,7 +6637,7 @@
         // Opened, the unread list scrolls; the buttons below never move.
         const unreadBlock = unreadEl();
         if (unreadBlock) {
-          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column" });
+          const box = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", padding: "4px", margin: "-4px" });
           box.appendChild(unreadBlock);
           put(box);
         }
@@ -6424,7 +6654,7 @@
       const styleChip = dmChip(CITE_STYLE_LABEL[style]);
       put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
       styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
-      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
+      const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px", padding: "4px", margin: "-4px" }); // room for a row's focus ring
       scroll.setAttribute("data-pop-sources", "");
       const note = noteEl();
       if (note) scroll.appendChild(note);
@@ -6502,7 +6732,7 @@
         put(dmActions(back));
         return;
       }
-      put(dmHead(FLOW_ACCENT, POP_COPY.flowTitle), dmBody(issue.explanation));
+      put(dmHead(MARK_PENDING, POP_COPY.flowTitle), dmBody(issue.explanation)); // grey: flow is advice, not a finding
       if (issue.transition) put(dmBlock(POP_COPY.bridgeLabel, dmQuote(issue.transition)));
       let primary = null;
       if (issue.transition && canEditDoc()) {
@@ -6787,7 +7017,7 @@
           if (rx !== b.gx || ry !== b.gy || rw !== b.gw || rh !== b.gh || tf !== b.tf) {
             b.gx = rx; b.gy = ry; b.gw = rw; b.gh = rh; b.tf = tf;
             b.el.setAttribute("x", String(rx + b.f0 * rw));
-            b.el.setAttribute("y", String(ry + rh - 2));
+            b.el.setAttribute("y", String(ry + rh - 1.5)); // = drawDocsMarksSvg's bar y
             b.el.setAttribute("width", String(Math.max(2, (b.f1 - b.f0) * rw)));
             if (tf) b.el.setAttribute("transform", tf); else b.el.removeAttribute("transform");
             b.size = b.node.getBoundingClientRect().height || b.size;
@@ -6944,7 +7174,7 @@
       readyPingShown = readyPing.hash;
       const n = readyPing.n;
       const what = n ? `${n} source${n === 1 ? "" : "s"} ready` : "Search finished";
-      return `<div class="ready-ping${enter}" role="status"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
+      return `<div class="ready-ping${enter}" role="status" aria-live="polite"><span class="ready-text">${esc(what)} · “${esc(truncateClaim(seg.text, 38))}”</span><button class="act primary" data-ready-show="1">Show</button><button class="x" data-ready-x="1" aria-label="Dismiss" title="Dismiss">✕</button></div>`;
     }
     // Show: the claim's card over its underline when it is on screen, else the panel.
     function showSourcesFor(hash) {
@@ -7001,17 +7231,17 @@
         const ico = faviconUrl(src.url);
         let icon;
         if (ico) {
-          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#f2f2f2" });
+          icon = el("img", { width: "20px", height: "20px", borderRadius: "6px", flexShrink: "0", background: "#f2f2f2" });
           icon.src = ico;
           icon.alt = "";
           icon.referrerPolicy = "no-referrer";
           icon.addEventListener("error", () => { icon.style.visibility = "hidden"; });
         } else {
-          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#ebebeb", fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+          icon = el("span", { width: "20px", height: "20px", borderRadius: "6px", flexShrink: "0", background: "#ebebeb", fontSize: "11px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
         }
         const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column" });
         meta.appendChild(el("span", { fontSize: "13px", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, src.title));
-        meta.appendChild(el("span", { fontSize: "11.5px", color: DM.hint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, hostName(src.url)));
+        meta.appendChild(el("span", { fontSize: "12px", color: DM.hint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, hostName(src.url)));
         const status = el("span", { fontSize: "12px", color: state === "abstract" || state === "page" ? DM.ink : DM.hint, whiteSpace: "nowrap", flexShrink: "0" }, LIVE_STATUS[state]);
         row.append(icon, meta, status);
         box.appendChild(row);
@@ -7030,7 +7260,7 @@
     }
     // The panel's card while the search runs: the stage, and the sites' icons.
     function liveSourcesHtml(live) {
-      const line = `<div class="loading">${esc(liveTitle(live))}…</div>`;
+      const line = `<div class="loading"><span class="deep-spin" aria-hidden="true"></span>${esc(liveTitle(live))}…</div>`;
       if (!live?.found?.length) return line;
       const icons = live.found.map((src) => {
         const state = liveState(live, src.url);
@@ -7061,6 +7291,7 @@
     // "Paste a URL and cite it" — free metadata fetch, then cite in the doc if we can.
     async function citeUrlWidget(hash, rawUrl) {
       if (docBusy) return;
+      citeUrlBusy.add(hash); citeUrlErr.delete(hash); render(); // Cite spins until it answers
       try {
         const data = await api("/api/cite-url", { url: rawUrl });
         const src = data.source;
@@ -7076,9 +7307,14 @@
           statusKind = "idle";
           statusMsg = "source added — use Copy cite";
         }
+        const box = shadow.querySelector(`[data-url-input="${CSS.escape(hash)}"]`);
+        if (box) box.value = ""; // cited: the box empties, as it always did
       } catch (e) {
         statusKind = "error";
         statusMsg = e?.message ?? "couldn't cite that URL";
+        citeUrlErr.set(hash, statusMsg); // said under the card's URL box too, as an alert
+      } finally {
+        citeUrlBusy.delete(hash);
       }
       render();
     }
@@ -8379,7 +8615,7 @@
       path.setAttribute("fill", DM.ink); path.setAttribute("stroke", "#fff"); path.setAttribute("stroke-width", "1.5"); path.setAttribute("stroke-linejoin", "round");
       arrow.appendChild(path);
       const pill = el("div", {
-        position: "absolute", left: "13px", top: "19px", background: DM.ink, color: "#fff", fontFamily: APP.font, fontSize: "11.5px",
+        position: "absolute", left: "13px", top: "19px", background: DM.ink, color: "#fff", fontFamily: APP.font, fontSize: "12px",
         fontWeight: "600", lineHeight: "18px", padding: "0 7px", borderRadius: "6px", whiteSpace: "nowrap", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
       }, "Tracely");
       root.append(ring, arrow, pill);
@@ -8575,13 +8811,13 @@
       // way Docs puts a suggestion's card in its margin: opaque, so nothing ever shows through it.
       const bubble = el("div", compact ? {
         position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
-        padding: "8px 10px 10px", background: "#fff", border: "1px solid #dadce0", borderRadius: "8px",
-        boxShadow: "0 1px 3px rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
+        padding: "12px", background: "#fff", border: `1px solid ${APP.border}`, borderRadius: "12px",
+        boxShadow: APP.shadowLg,
         fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "8px", opacity: "1", outline: "none", WebkitFontSmoothing: "antialiased",
       } : {
         position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
-        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
-        borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", fontFamily: APP.font, color: DM.ink,
+        minWidth: "240px", maxWidth: "380px", padding: "16px", background: "#fff", border: `2px solid ${DM.ink}`,
+        borderRadius: "16px", boxShadow: APP.shadowLg, fontFamily: APP.font, color: DM.ink,
         display: "none", flexDirection: "column", gap: "8px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
       });
       bubble.setAttribute("role", "dialog");
@@ -8591,7 +8827,7 @@
       const head = el("div", { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
       head.appendChild(el("span", { background: DM.ink, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
       if (mode === "strike" && diff) head.appendChild(el("span", { fontSize: "12px", color: DM.ink }, diff.removed.trim() ? TP_COPY.deletes : TP_COPY.same));
-      const status = el("span", { fontSize: "11.5px", color: DM.body }, TP_COPY.typing);
+      const status = el("span", { fontSize: "12px", color: DM.body }, TP_COPY.typing);
       head.appendChild(status);
       bubble.appendChild(head);
 
@@ -8618,7 +8854,7 @@
         text.appendChild(el("span", { fontSize: "13px", color: DM.body }, diff.removed ? TP_COPY.deletes : TP_COPY.same));
       }
       if (diff) bubble.appendChild(text);
-      if (main && mode === "pinned") bubble.appendChild(el("div", { fontSize: "11.5px", color: DM.body }, TP_COPY.offscreen));
+      if (main && mode === "pinned") bubble.appendChild(el("div", { fontSize: "12px", color: DM.body }, TP_COPY.offscreen));
       const change = (d) => {
         const out = tpClip(d.removed.trim(), 80, false), put = tpClip(d.inserted.trim(), 120, false);
         return out && put ? `“${out}” → “${put}”` : out ? `deletes “${out}”` : put ? `adds “${put}”` : "nothing";
@@ -8630,21 +8866,21 @@
       ];
       for (const r of rows) {
         const row = el("div", { display: "flex", flexDirection: "column", gap: "2px" });
-        row.appendChild(el("div", { fontSize: "10.5px", fontWeight: "600", color: DM.body, letterSpacing: "0.4px", textTransform: "uppercase", whiteSpace: "nowrap" }, r.label));
-        row.appendChild(el("div", { fontSize: "12.5px", lineHeight: "1.4", color: DM.ink, wordBreak: "break-word" }, tpClip(String(r.text), 220, false)));
+        row.appendChild(el("div", { fontSize: "11px", fontWeight: "600", color: DM.body, letterSpacing: ".04em", textTransform: "uppercase", whiteSpace: "nowrap" }, r.label));
+        row.appendChild(el("div", { fontSize: "13px", lineHeight: "1.5", color: DM.ink, wordBreak: "break-word" }, tpClip(String(r.text), 220, false)));
         bubble.appendChild(row);
       }
       const accept = dmBtn(TP_COPY.accept, true);
       const reject = dmBtn(TP_COPY.reject, false);
       accept.setAttribute("data-tracely-type-accept", "");
       reject.setAttribute("data-tracely-type-reject", "");
-      if (compact) for (const b of [accept, reject]) Object.assign(b.style, { padding: "5px 12px", fontSize: "12.5px" });
+      if (compact) for (const b of [accept, reject]) Object.assign(b.style, { height: "28px", padding: "0 10px", fontSize: "12px" });
       // Our own focus ring, in ink: the browser's can be amber, which means a missing citation.
       for (const btn of [accept, reject]) {
         btn.addEventListener("focus", () => { btn.style.outline = `2px solid ${DM.ink}`; btn.style.outlineOffset = "2px"; });
         btn.addEventListener("blur", () => { btn.style.outline = ""; btn.style.outlineOffset = ""; });
       }
-      const actions = dmActions(accept, reject, el("span", { fontSize: "11.5px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
+      const actions = dmActions(accept, reject, el("span", { fontSize: "12px", color: DM.body, marginLeft: "auto", whiteSpace: "nowrap" }, TP_COPY.keys));
       actions.style.display = "none";
       bubble.appendChild(actions);
       const summary = !diff ? "" : diff.removed.trim() && ins.length ? `Replaces “${diff.removed.trim()}” with “${diff.inserted.trim()}”.`
@@ -9308,11 +9544,11 @@
       const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
       return `
         <div class="fx fx-${it.status}" data-fx-row="${i}">
-          <div class="fx-top">${dot ? `<span class="dot ${dot}"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
+          <div class="fx-top">${dot ? `<span class="dot ${dot}" aria-hidden="true"></span>` : ""}<span class="fx-title">${esc(FIX_ACT[it.act])} · ${esc(flag)}</span></div>
           ${it.job && it.status !== "failed" ? fixChangeHtml(it.job) : ""}
           ${src}
           ${it.status === "ready" ? `<div class="row"><button class="act primary" data-fx-accept="${i}"${docBusy || fixBatch?.applying ? " disabled" : ""}>${FIX_COPY.accept}</button><button class="act" data-fx-skip="${i}">${FIX_COPY.skip}</button></div>`
-            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin"></span>` : ""}${esc(state)}</div>` : ""}
+            : state ? `<div class="fx-state">${busy ? `<span class="deep-spin" aria-hidden="true"></span>` : ""}${esc(state)}</div>` : ""}
         </div>`;
     }
     /* ── the suggestions, in the doc ──────────────────────────────────────
@@ -9401,15 +9637,16 @@
       const color = it.verdict ? MARK_COLORS[it.verdict] : MARK_COLORS[CITE_TIP_KINDS.includes(it.kind) ? "cite_tip" : "note_tip"];
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
       const card = el("div", {
-        position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "10px 12px 12px",
-        background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
-        pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "6px", fontFamily: APP.font, color: DM.ink,
-        fontSize: "12.5px", lineHeight: "1.45", visibility: "hidden", WebkitFontSmoothing: "antialiased",
+        position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "12px",
+        // A margin card: the 1px hairline at radius 12 and the one transient shadow.
+        background: "#fff", border: `1px solid ${APP.border}`, borderRadius: "12px", boxShadow: APP.shadowLg,
+        pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "8px", fontFamily: APP.font, color: DM.ink,
+        fontSize: "13px", lineHeight: "1.5", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
       card.setAttribute("data-tracely-fix-card", "");
       card.dataset.key = it.key;
       if (it.act === "list") card.dataset.loose = "1";
-      const top = el("div", { display: "flex", alignItems: "center", gap: "7px", fontWeight: "600", fontSize: "12px" });
+      const top = el("div", { display: "flex", alignItems: "center", gap: "8px", fontWeight: "600", fontSize: "12px" });
       top.append(el("span", { width: "8px", height: "8px", borderRadius: "50%", background: color, flex: "0 0 auto" }), el("span", {}, `${FIX_ACT[it.act]} · ${flag}`));
       card.appendChild(top);
       const plan = it.job ? previewPlan(it.job) : { edits: [], lines: [] };
@@ -9423,14 +9660,14 @@
         diff.append(document.createTextNode(tpClip(d.keepAfter, 30, false)));
         card.appendChild(diff);
       }
-      for (const l of plan.lines) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px" }, `+ ${tpClip(l.line, 80, false)}`));
-      if (it.src) card.appendChild(el("div", { color: DM.body, fontSize: "11.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, `Source: ${it.src.title}`));
+      for (const l of plan.lines) card.appendChild(el("div", { color: DM.body, fontSize: "12px" }, `+ ${tpClip(l.line, 80, false)}`));
+      if (it.src) card.appendChild(el("div", { color: DM.body, fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, `Source: ${it.src.title}`));
       if (it.status === "ready") {
-        const row = el("div", { display: "flex", gap: "6px", marginTop: "2px" });
+        const row = el("div", { display: "flex", gap: "8px", marginTop: "2px" });
         const busy = docBusy || Boolean(fixBatch?.applying);
         const yes = dmBtn("✓ Accept", true, { disabled: busy });
         const no = dmBtn("✕ Reject", false, { disabled: busy });
-        for (const b of [yes, no]) Object.assign(b.style, { padding: "5px 11px", fontSize: "12px" });
+        for (const b of [yes, no]) Object.assign(b.style, { height: "28px", padding: "0 10px", fontSize: "12px" });
         yes.addEventListener("click", () => acceptFix(i));
         no.addEventListener("click", () => skipFix(i));
         row.append(yes, no);
@@ -9735,7 +9972,7 @@
       const end = b.preparing ? `<button class="act" data-walk-stop="1">${FIX_COPY.stop}</button>` : `<button class="act" data-fx-close="1"${b.applying ? " disabled" : ""}>${FIX_COPY.done}</button>`;
       const whys = [...new Set(none.map((it) => it.why).filter(Boolean))].join("; ");
       return `<div class="fixes">
-        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
+        <div class="fixes-head"><span class="fixes-title">${b.preparing ? `<span class="deep-spin" aria-hidden="true"></span>` : ""}${esc(title)}</span><span class="fixes-acts">${lead}${end}</span></div>
         ${rows}
         ${none.length ? `<div class="fixes-note">${esc(FIX_COPY.couldNot(none.length, whys))}</div>` : ""}
         ${b.left ? `<div class="fixes-note">${esc(FIX_COPY.left(b.left))}</div>` : ""}
@@ -9770,11 +10007,11 @@
     function renderDocsConsent() {
       root.innerHTML = `
         ${expanded ? `
-        <div class="panel opening">
-          <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+        <div class="panel opening" role="dialog" aria-labelledby="docsConsentTitle">
+          <div class="head" style="cursor:default"><span class="grip" aria-hidden="true" style="visibility:hidden">${GRIP_SVG}</span><span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
-              <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
+              <div class="top"><span class="ctitle" id="docsConsentTitle">Check this document with Tracely?</span></div>
               <div class="expl">${esc(DOCS_CONSENT_TEXT)}</div>
               <div class="row">
                 <button class="act primary" id="docsOn">Turn on for Google Docs</button>
@@ -9782,7 +10019,7 @@
               </div>
             </div>
           </div>
-          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
+          <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);font-weight:500;text-decoration:underline;text-underline-offset:2px">Privacy</a></div>
         </div>` : ""}
         <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
@@ -9825,7 +10062,7 @@
             : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
             <div class="card">
-              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
+              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}" aria-label="Dismiss" title="Dismiss">✕</button></div>
               <div class="quote">${esc(fi.passage.slice(0, 160))}</div>
               <div class="fix">
                 <div class="fix-label">Why it jumps</div>
@@ -9842,11 +10079,11 @@
           if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"${st.unreadOpen && st.unread?.length ? ' role="list"' : ""}><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
+            sourcesHtml = `<div class="sources" role="list"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
-                <div class="src">
+                <div class="src" role="listitem">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
@@ -9867,11 +10104,14 @@
         const cards = issues.map(({ seg, f }) => {
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          // Cite pressed and its request in flight; why a pasted URL could not be cited.
+          const citing = typeof citeUrlBusy !== "undefined" && citeUrlBusy.has(seg.hash);
+          const citeErr = typeof citeUrlErr !== "undefined" ? citeUrlErr.get(seg.hash) : null;
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              <button class="x" data-dismiss="${seg.hash}" aria-label="Dismiss" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
@@ -9883,12 +10123,12 @@
               <div class="row">
                 ${canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Fix in doc", `data-doc-fix="${seg.hash}"`) : ""}
                 <button class="act${canEditDoc() ? "" : " primary"}" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
+                <button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button>
               </div>
               ${editNoteHtml(`fix:${seg.hash}`)}
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button></div>`}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
+            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy || citing ? " disabled" : ""}${citing ? ' aria-busy="true"' : ""}>${citing ? '<span class="deep-spin" aria-hidden="true"></span>' : ""}Cite</button></div>${citeErr ? `<p class="deep-note err" role="alert">${esc(citeErr)}</p>` : ""}
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
@@ -9916,7 +10156,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty"><span role="status">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</span></div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -9929,6 +10169,7 @@
       }
 
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
+      const snap = typeof snapFocus === "function" ? snapFocus(shadow) : null; // (absent from server/test's slices of render)
       // A page number being typed keeps its box and caret through the re-render.
       const typing = shadow.activeElement?.dataset?.pageInput ?? null;
       const caret = typing ? shadow.activeElement.selectionStart : null;
@@ -9947,6 +10188,7 @@
         const box = [...shadow.querySelectorAll("[data-page-input]")].find((i) => i.dataset.pageInput === typing);
         if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch { /* not a text box */ } }
       }
+      if (snap) restoreFocus(shadow, snap); // every other control and typed URL (snapFocus)
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
@@ -10236,6 +10478,8 @@
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
+    const citeUrlBusy = new Set(); // a card's Cite pressed, its request in flight
+    const citeUrlErr = new Map(); // hash → why its pasted URL could not be cited
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // see nextReadGap
     let lastCheckFailed = false;
@@ -10410,7 +10654,8 @@
       if (overlayEl && overlayEl.isConnected) return overlayEl;
       overlayEl = document.createElement("div");
       overlayEl.id = "tracely-marks";
-      Object.assign(overlayEl.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483646" });
+      // contain: layout — the page's own layout never has to look inside it.
+      Object.assign(overlayEl.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483646", contain: "layout" });
       document.documentElement.appendChild(overlayEl);
       return overlayEl;
     }
@@ -10575,6 +10820,10 @@
             width: r.width + "px", height: r.height + "px",
             background: "transparent", pointerEvents: "none",
             borderBottom: `2px solid ${color}`, opacity: "0.45",
+            // Inside the rect, not under it: the grey rule sits on the same
+            // bottom edge as the coloured line that replaces it (paintMark's
+            // line is bottom: 0), whatever box-sizing the page sets on divs.
+            boxSizing: "border-box",
           });
           layer.appendChild(bar);
         }
@@ -10622,7 +10871,7 @@
       card.scrollIntoView({ block: "nearest" });
       card.classList.add("flash");
       clearTimeout(flashTimer);
-      flashTimer = setTimeout(() => card.classList.remove("flash"), 1300);
+      flashTimer = setTimeout(() => card.classList.remove("flash"), 1000); // the 900ms .card.flash, and a beat
     }
 
     /* Hot path: this fires on every pointer move the page sees. It leaves
@@ -10838,6 +11087,9 @@
     }
 
     async function citeUrlWidget(hash, rawUrl) {
+      citeUrlBusy.add(hash);
+      citeUrlErr.delete(hash);
+      render();
       try {
         const data = await api("/api/cite-url", { url: rawUrl });
         const src = data.source;
@@ -10846,11 +11098,16 @@
         st.list = st.list ?? [];
         if (!st.list.some((s) => s.url === src.url)) st.list.unshift(src);
         sourcesMap.set(hash, st);
+        const box = shadow.querySelector(`[data-url-input="${CSS.escape(hash)}"]`);
+        if (box) box.value = "";
         statusKind = "idle";
         statusMsg = "source added — use Copy cite";
       } catch (e) {
         statusKind = "error";
         statusMsg = e?.message ?? "couldn't cite that URL";
+        citeUrlErr.set(hash, statusMsg); // said under the card's URL box too, as an alert
+      } finally {
+        citeUrlBusy.delete(hash);
       }
       render();
     }
@@ -11211,13 +11468,13 @@
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
           if (st?.loading) {
-            sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+            sourcesHtml = `<div class="sources"><div class="loading"><span class="deep-spin" aria-hidden="true"></span>Searching the web for sources…</div></div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"${st.unreadOpen && st.unread?.length ? ' role="list"' : ""}><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
+            sourcesHtml = `<div class="sources" role="list"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
-                <div class="src">
+                <div class="src" role="listitem">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
@@ -11237,11 +11494,14 @@
         const cards = issues.map(({ seg, f }) => {
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          // Cite pressed and its request in flight; why a pasted URL could not be cited.
+          const citing = typeof citeUrlBusy !== "undefined" && citeUrlBusy.has(seg.hash);
+          const citeErr = typeof citeUrlErr !== "undefined" ? citeUrlErr.get(seg.hash) : null;
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              <button class="x" data-dismiss="${seg.hash}" aria-label="Dismiss" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
@@ -11253,11 +11513,11 @@
               <div class="row">
                 <button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Fix in field"}</button>
                 <button class="act" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
+                <button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button>
               </div>
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button></div>`}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
+            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${citing ? ' disabled aria-busy="true"' : ""}>${citing ? '<span class="deep-spin" aria-hidden="true"></span>' : ""}Cite</button></div>${citeErr ? `<p class="deep-note err" role="alert">${esc(citeErr)}</p>` : ""}
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
@@ -11286,7 +11546,7 @@
         <div class="panel${panelOpening ? " opening" : ""}">
           ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
           <div class="list">
-            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty"><span role="status">${emptyMsg}</span></div>`}${evidenceHtml}
           </div>
           <div class="foot">
             <span class="foot-left">
@@ -11299,10 +11559,11 @@
       }
 
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
+      const snap = typeof snapFocus === "function" ? snapFocus(shadow) : null; // (absent from server/test's slices of render)
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
+          ? `<div class="pill quiet" id="pill" role="button" tabindex="0" aria-expanded="${expanded ? "true" : "false"}" title="Tracely is off on this site — open to turn it on"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
@@ -11310,6 +11571,7 @@
         for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
         foldCards(shadow, render);
       }
+      if (snap) restoreFocus(shadow, snap); // the focused control and typed URLs (snapFocus)
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 

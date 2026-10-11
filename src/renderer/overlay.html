@@ -2,11 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Light only: the overlay draws its own light palette over other apps and
+         has no dark theme, so native controls must not turn dark with the OS. -->
+    <meta name="color-scheme" content="light" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     />
-    <title>Tracely Overlay</title>
+    <title>Tracely overlay</title>
     <style>
       html,
       body,

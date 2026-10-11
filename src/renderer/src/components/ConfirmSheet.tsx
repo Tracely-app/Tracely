@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 /**
@@ -7,8 +7,9 @@ import { createPortal } from 'react-dom'
  * Its own component rather than a variant of ConfirmDialog, because the two
  * disagree about which button is loud and only one of them can be right per
  * dialog. ConfirmDialog gives the quiet treatment to Cancel and the heavy one
- * to Confirm. This frame does the opposite: Cancel is the orange gradient pill
- * and Confirm is grey.
+ * to Confirm. The frame drew the opposite (Cancel as the orange gradient pill,
+ * Confirm grey); the polish pass put both on the shared button recipe —
+ * an outlined Cancel and a solid accent Confirm.
  *
  * It was called SaveChangesDialog and it is not only about saving any more, so
  * the name went. What it IS about is the button arrangement, and that
@@ -40,6 +41,7 @@ export default function ConfirmSheet({
   busyLabel = 'Saving…',
   showSuppress = true,
   busy = false,
+  danger = false,
   onConfirm,
   onCancel
 }: {
@@ -57,12 +59,16 @@ export default function ConfirmSheet({
    */
   showSuppress?: boolean
   busy?: boolean
+  /** A destructive confirm (Delete): the danger recipe, never the orange
+   *  primary — the same as ConfirmDialog's Delete. */
+  danger?: boolean
   /** `suppress` is the checkbox state at the moment Confirm was pressed. It is
    *  always false when `showSuppress` is off. */
   onConfirm: (suppress: boolean) => void
   onCancel: () => void
 }): JSX.Element {
   const [suppress, setSuppress] = useState(false)
+  const titleId = useId()
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
@@ -78,10 +84,12 @@ export default function ConfirmSheet({
         className="modal-card savechanges-card"
         role="alertdialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <h4 className="savechanges-title">{title}</h4>
+        <h4 id={titleId} className="savechanges-title">
+          {title}
+        </h4>
         <p className="savechanges-message">{message}</p>
 
         {/* Not the `hidden` attribute: that is a UA `display: none`, and
@@ -103,10 +111,15 @@ export default function ConfirmSheet({
         ) : null}
 
         <div className="savechanges-actions">
-          <button className="savechanges-btn cancel" onClick={onCancel} disabled={busy}>
+          {/* Focus moves into the sheet on open, as ConfirmDialog's does. */}
+          <button className="savechanges-btn cancel" onClick={onCancel} disabled={busy} autoFocus>
             Cancel
           </button>
-          <button className="savechanges-btn confirm" onClick={() => onConfirm(suppress)} disabled={busy}>
+          <button
+            className={`savechanges-btn confirm${danger ? ' danger' : ''}`}
+            onClick={() => onConfirm(suppress)}
+            disabled={busy}
+          >
             {busy ? busyLabel : confirmLabel}
           </button>
         </div>

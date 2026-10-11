@@ -81,10 +81,10 @@ export default function EvidenceCard({
       </div>
       {source.abstract ? <p className="evidence-abstract">{source.abstract.slice(0, 280)}…</p> : null}
       <div className="evidence-actions">
-        <Button variant="ghost" onClick={() => setShowCitation((v) => !v)}>
+        <Button variant="ghost" size="sm" onClick={() => setShowCitation((v) => !v)}>
           {showCitation ? 'Hide citation' : 'Cite'}
         </Button>
-        <Button variant="ghost" onClick={saveToLibrary} disabled={saving || saved}>
+        <Button variant="ghost" size="sm" onClick={saveToLibrary} disabled={saving || saved}>
           {saved ? 'Saved' : 'Save to Library'}
         </Button>
       </div>

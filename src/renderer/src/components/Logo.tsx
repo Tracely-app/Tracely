@@ -1,16 +1,8 @@
-import logo from '../assets/logo.png'
+import { BrandMark } from './icons'
 
-// The real brand mark (user-supplied artwork) rendered as a small rounded
-// badge — replaces the earlier hand-approximated SVG now that we have the
-// actual asset instead of a guess at its shape.
+// The brand mark, as a block — kept as a default export with its `size` prop
+// so FloatingApp's header still compiles. The artwork itself (figma-logo.png)
+// and the inverted variant live in icons.tsx with the rest of the set.
 export default function Logo({ size = 24 }: { size?: number }): JSX.Element {
-  return (
-    <img
-      src={logo}
-      alt=""
-      width={size}
-      height={size}
-      style={{ borderRadius: Math.round(size * 0.22), display: 'block', objectFit: 'cover' }}
-    />
-  )
+  return <BrandMark size={size} />
 }

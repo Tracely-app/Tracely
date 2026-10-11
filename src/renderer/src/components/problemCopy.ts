@@ -490,3 +490,38 @@ export function isReasoningProblem(kind: ScreenWatchProblemKind): boolean {
 // leaf, so `npm test` can load it. This module value-imports @shared/problemKind
 // and cannot be.
 export { aboutTheCitation, insertsCitation, popoverRoute } from '@shared/citationAction'
+
+/**
+ * How the mark is DRAWN. Owner, 2026-10-09 (recorded in content.js above
+ * MARK_PATTERN): every finding line is one solid, straight line. Colour is
+ * never the only channel: the legend pairs each line with its kind's icon
+ * (FindingKindIcon, the extension's TALLY_ICON), in the extension's words.
+ * DocumentMarkLayer, OverlayApp and content.js all draw the same solid line.
+ */
+export type MarkPattern = 'solid' | 'dashed' | 'double' | 'dotted'
+
+export const MARK_PATTERN_BY_COLOR: Record<string, MarkPattern> = {
+  [DESIGN_RED]: 'solid',
+  [DESIGN_ORANGE]: 'solid',
+  [DESIGN_AMBER]: 'solid'
+}
+
+export const MARK_PATTERN: Record<ScreenWatchProblemKind, MarkPattern> = Object.fromEntries(
+  (Object.keys(PROBLEM_COLOR) as ScreenWatchProblemKind[]).map((kind) => [
+    kind,
+    MARK_PATTERN_BY_COLOR[PROBLEM_COLOR[kind]] ?? 'dotted'
+  ])
+) as Record<ScreenWatchProblemKind, MarkPattern>
+
+/** The legend row: one sample per colour, in severity order, with the kind's
+ *  icon and the extension's own words (content.js LEGEND, which is pinned). */
+export const LEGEND: ReadonlyArray<{
+  color: string
+  pattern: MarkPattern
+  icon: 'wrong' | 'check' | 'cite'
+  label: string
+}> = [
+  { color: DESIGN_RED, pattern: 'solid', icon: 'wrong', label: "Contradicted or doesn't make sense" },
+  { color: DESIGN_ORANGE, pattern: 'solid', icon: 'check', label: 'Worth checking' },
+  { color: DESIGN_AMBER, pattern: 'solid', icon: 'cite', label: 'Missing or incomplete citation' }
+]

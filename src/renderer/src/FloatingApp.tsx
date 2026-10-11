@@ -8,6 +8,7 @@ import { tracelyApi } from './lib/api'
 import { applyTheme } from './lib/theme'
 import { applyAccentColor, applyDensity, applyFontSize } from './lib/appearance'
 import Logo from './components/Logo'
+import { CloseIcon, ExpandIcon } from './components/icons'
 
 export default function FloatingApp(): JSX.Element {
   const [text, setText] = useState('')
@@ -67,22 +68,33 @@ export default function FloatingApp(): JSX.Element {
           <span>Tracely</span>
         </div>
         <div className="floating-controls">
-          <button onClick={openInMain} title="Open in main window">
-            ⤢
+          <button type="button" onClick={openInMain} title="Open in main window" aria-label="Open in main window">
+            <ExpandIcon size={16} />
           </button>
-          <button onClick={close} title="Close">
-            ×
+          <button type="button" onClick={close} title="Close" aria-label="Close">
+            <CloseIcon size={16} />
           </button>
         </div>
       </div>
       <div className="floating-body">
-        <TextArea size="sm" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+        <TextArea
+          size="md"
+          rows={3}
+          placeholder="Paste or type a claim…"
+          aria-label="Claim text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
         <Button variant="primary" onClick={() => analyze(text)} disabled={loading || !text.trim()}>
           Analyze
         </Button>
         {loading ? <Spinner label="Detecting claims…" /> : null}
-        {error ? <p className="error-text">{error}</p> : null}
-        {claims && claims.length === 0 ? <p className="muted">No checkable claims found.</p> : null}
+        {error ? (
+          <p className="error-text" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {claims && claims.length === 0 ? <p className="floating-empty">No checkable claims found.</p> : null}
         <div className="floating-results">
           {claims?.map((claim) => <ClaimCard key={claim.id} claim={claim} />)}
         </div>

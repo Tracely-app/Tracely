@@ -77,14 +77,18 @@ export default function ClaimCard({ claim: initialClaim }: { claim: Claim }): JS
 
       <div className="claim-actions">
         <Button variant="primary" onClick={findEvidence} disabled={loadingEvidence}>
-          {evidence ? 'Refresh Evidence' : 'Find Evidence'}
+          {evidence ? 'Refresh evidence' : 'Find evidence'}
         </Button>
         <Button variant="secondary" onClick={critique} disabled={loadingCritique}>
-          {claim.critique ? 'Re-check Argument' : 'Critique Argument'}
+          {claim.critique ? 'Re-check argument' : 'Critique argument'}
         </Button>
       </div>
 
-      {error ? <p className="error-text">{error}</p> : null}
+      {error ? (
+        <p className="error-text" role="alert">
+          {error}
+        </p>
+      ) : null}
       {loadingEvidence ? <Spinner label="Searching OpenAlex, Crossref, Semantic Scholar, PubMed…" /> : null}
       {loadingCritique ? <Spinner label="Fact-checking claim & evaluating argument strength…" /> : null}
 
@@ -99,7 +103,7 @@ export default function ClaimCard({ claim: initialClaim }: { claim: Claim }): JS
       ) : null}
 
       {evidence && evidence.length === 0 ? (
-        <p className="muted">No supporting evidence found. Consider narrowing the claim.</p>
+        <p className="muted claim-empty">No supporting evidence found. Consider narrowing the claim.</p>
       ) : null}
 
       {evidence && evidence.length > 0 ? (
