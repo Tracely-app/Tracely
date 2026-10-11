@@ -363,6 +363,7 @@ grep 'model call failed' /var/log/tracely.log | awk '{print $5, $6, $8}' | sort 
 |---|---|---|
 | `TRACELY_VOICE_MAX_SECONDS` | 900 | one call's cap; the server sends `session.close` there |
 | `TRACELY_VOICE_DAILY_SECONDS` | 1800 | per account per day (`entitlement_usage` kind `voice_seconds`) |
+| `TRACELY_SAFETY_ID_SECRET` | unset | keys the `OpenAI-Safety-Identifier` hash (HMAC) so it can't be recomputed from a user id; set once, never change it (OpenAI ties abuse reports to the hash) |
 
 Empty or junk is the default; an explicit `0` in either turns voice OFF
 (503 `voice_off`). Both are re-read per request. Pro only when enforcement

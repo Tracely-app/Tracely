@@ -84,6 +84,18 @@ test("the safety identifier is a SHA-256 of the caller, never the caller", () =>
   assert.match(id, /^[0-9a-f]{64}$/);
   assert.ok(!id.includes("u-abc"));
   assert.equal(V.safetyIdentifier(null), null);
+  const keyed = V.safetyIdentifier("user:u-abc", "server-secret");
+  assert.match(keyed, /^[0-9a-f]{64}$/);
+  assert.notEqual(keyed, V.safetyIdentifier("user:u-abc", ""), "keyed: can't be recomputed from the user id alone");
+  assert.equal(keyed, V.safetyIdentifier("user:u-abc", "server-secret"), "and stable per caller");
+});
+
+test("with TRACELY_SAFETY_ID_SECRET the create and the sideband carry the keyed hash", async () => {
+  const env = { ...ENV, TRACELY_SAFETY_ID_SECRET: "server-secret" };
+  await start(gateFor("pro", "hmac"), {}, env);
+  const want = V.safetyIdentifier("user:u-hmac", "server-secret");
+  assert.equal(fetches.at(-1).headers["OpenAI-Safety-Identifier"], want);
+  assert.equal(lastWS().opts.headers["OpenAI-Safety-Identifier"], want);
 });
 
 test("the session body: gpt-live-1, the persona's voice, nothing stored, captions-only data channel", () => {
@@ -150,7 +162,7 @@ test("a metered session: one per caller, the hold, the cumulative meter, the cha
   const sent = fetches.at(-1);
   assert.equal(sent.url, "https://api.openai.com/v1/live/sessions");
   assert.equal(sent.headers.Authorization, "Bearer sk-test-not-a-real-key");
-  assert.equal(sent.headers["OpenAI-Safety-Identifier"], V.safetyIdentifier("user:u-meter"));
+  assert.equal(sent.headers["OpenAI-Safety-Identifier"], V.safetyIdentifier("user:u-meter", ""));
   assert.ok(!JSON.stringify(sent).includes("u-meter"), "the raw caller id never leaves");
   assert.equal(sent.body.session.audio.output.voice, "vesper");
   assert.equal(reservedMicroCents("app"), 75_000_000, "the worst case (900 s) is held while the session is open");
@@ -453,7 +465,7 @@ test("shutdown with the sideband down keeps the row; the next boot re-attaches a
   await tick();
   const ws = lastWS();
   assert.equal(ws.url, V.attachUrl(out.sessionId));
-  assert.equal(ws.opts.headers["OpenAI-Safety-Identifier"], V.safetyIdentifier("user:u-resume"));
+  assert.equal(ws.opts.headers["OpenAI-Safety-Identifier"], V.safetyIdentifier("user:u-resume", ""));
   await assert.rejects(start(gate), (e) => e.kind === "voice_busy", "the slot is claimed again");
   assert.equal(reservedMicroCents("app"), 75_000_000);
   const ending = V.endSession({ gate, body: { sessionId: out.sessionId } });

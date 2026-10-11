@@ -31,7 +31,7 @@
  * Docs read 2026-10-10 (developers.openai.com/api/docs/guides/voice-webrtc,
  * live-conversations, voice-server-controls, live-delegation; reference
  * resources/live/sideband-websocket). */
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { CheckError } from "./errors.js";
 import { usageAdd, usageCount, voiceOpenPut, voiceOpenDelete, voiceOpenAll } from "./db.js";
 import { SPEND_POOLS, MICRO_CENTS_PER_USD, reserveSpend, poolRoom } from "./spend.js";
@@ -114,9 +114,14 @@ export function voiceCostMicroCents(seconds) {
   return Math.round((finiteSeconds(seconds) * VOICE_PRICE_PER_MIN_USD * MICRO_CENTS_PER_USD) / 60);
 }
 
-/** OpenAI-Safety-Identifier: a stable hash of the caller, never the raw id. */
-export function safetyIdentifier(callerId) {
-  return callerId ? createHash("sha256").update(String(callerId)).digest("hex") : null;
+/** OpenAI-Safety-Identifier: a stable hash of the caller, never the raw id.
+ *  Keyed with TRACELY_SAFETY_ID_SECRET when the server has one, so nobody
+ *  holding a user id can recompute it; plain SHA-256 otherwise. Stable per
+ *  caller either way (OpenAI ties abuse reports to it): set the secret once. */
+export function safetyIdentifier(callerId, secret = process.env.TRACELY_SAFETY_ID_SECRET) {
+  if (!callerId) return null;
+  const key = String(secret ?? "").trim();
+  return (key ? createHmac("sha256", key) : createHash("sha256")).update(String(callerId)).digest("hex");
 }
 
 // ── the request ──────────────────────────────────────────────────────────
@@ -531,7 +536,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
       }
       s.reservation = reserveSpend("app", voiceCostMicroCents(billedSeconds(maxSeconds)));
     }
-    const safetyId = safetyIdentifier(gate?.callerId);
+    const safetyId = safetyIdentifier(gate?.callerId, env.TRACELY_SAFETY_ID_SECRET ?? "");
     const { id, sdp } = await startLiveSession({ key, body: buildSessionBody(request), safetyId, fetchImpl });
     created = true;
     s.createdAt = Date.now();
@@ -639,7 +644,7 @@ export function resumeOpenSessions({ env = process.env, WebSocketImpl } = {}) {
     if (!live.has(s.key)) live.set(s.key, s);
     byId.set(s.id, s);
     if (s.enforced) s.reservation = reserveSpend("app", voiceCostMicroCents(billedSeconds(s.maxSeconds)));
-    const safetyId = safetyIdentifier(s.callerId);
+    const safetyId = safetyIdentifier(s.callerId, env.TRACELY_SAFETY_ID_SECRET ?? "");
     s.reattach = () => attachSideband({ url: attachUrl(s.id), key, headers: safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {}, WebSocketImpl });
     armCapGuard(s);
     reattachSoon(s);
