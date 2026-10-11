@@ -6,7 +6,10 @@
  * server never sees audio it keeps: it attaches a SIDEBAND WebSocket to the
  * same session only to read `session.usage.updated` (cumulative seconds), to
  * send `session.close` at the cap, and to charge on `session.closed`.
- * An unmetered session is never handed out: no sideband in 5 s, no SDP.
+ * An unmetered session is never handed out: no sideband in 5 s, no SDP. A
+ * sideband lost later is re-attached until the session can no longer be
+ * running, and an end that `session.closed` never confirmed bills the wall
+ * clock (or the cap, when the close could not be delivered at all).
  *
  * Cost policy (server/CLAUDE.md, "Voice"): Pro only when enforced; one live
  * session per caller; TRACELY_VOICE_MAX_SECONDS per session (900) and
@@ -52,11 +55,14 @@ export const MAX_CONTEXT_CHARS = 4000;
 export const ATTACH_TIMEOUT_MS = 5000;
 export const CREATE_TIMEOUT_MS = 15_000;
 /* How long the server waits for `session.closed` after sending
- * `session.close` before it finalizes on the last seconds it saw. */
+ * `session.close` before it finalizes on the wall clock. */
 export const CLOSE_WAIT_MS = 10_000;
-/* The wall-clock guard fires this long after maxSeconds, in case usage
- * events stop arriving. */
+/* The wall-clock guard sends `session.close` this long after maxSeconds:
+ * usage events arrive only around the close, so it is the real cap. */
 export const CAP_GRACE_SECONDS = 5;
+/* After a lost sideband: one re-attach at once, then these waits between
+ * tries, the last repeating, until the session's deadline. */
+export const REATTACH_BACKOFF_MS = Object.freeze([1000, 2000, 4000, 8000, 16000, 30000]);
 
 /* What the renderer's data channel may see: captions and lifecycle only.
  * It may send nothing (it hangs up by closing the peer). The reference types
@@ -222,11 +228,13 @@ const byId = new Map();  // OpenAI session id -> session
 const ended = new Map(); // OpenAI session id -> { key, seconds }: /api/voice/end is idempotent
 const ENDED_KEEP = 500;
 const POOL_SPEND_KIND = "spend_ucents"; // lib/spend.js KIND: the app pool's running total
+const OPEN = 1; // WebSocket.OPEN
 
 /* A local (unenforced) server may have no caller id at all; it has one user. */
 const callerKeyOf = (gate) => gate?.callerId ?? "local";
 const unref = (t) => (t?.unref?.(), t);
 const safeReason = (r) => (typeof r === "string" && /^[a-z_]{1,32}$/.test(r) ? r : "unknown");
+const closeQuietly = (ws) => { try { ws?.close(); } catch { /* already closed */ } };
 
 function busy() {
   return new CheckError("voice_busy", "You already have a voice conversation open. End it before starting another.", { status: 409 });
@@ -238,15 +246,19 @@ function claim(gate, voiceId, maxSeconds) {
   if (live.has(key)) throw busy();
   const s = {
     key, callerId: gate?.callerId ?? null, enforced: Boolean(gate?.ent?.enforced), voiceId, maxSeconds,
-    id: null, ws: null, reattach: null, reattached: false, seconds: 0, startedAt: Date.now(),
-    reservation: null, closeSent: false, finalized: false, reason: null, timers: [], waiters: [],
+    id: null, ws: null, reattach: null, attempts: 0, seconds: 0, createdAt: null, reservation: null,
+    // closeWanted: we asked for the end (cap, /end, shutdown); closeSent: and
+    // session.close went out on an open sideband.
+    closeWanted: false, closeSent: false, finalized: false, reason: null,
+    capTimer: null, closeTimer: null, retryTimer: null, waiters: [],
   };
   live.set(key, s);
   return s;
 }
 
 function clearTimers(s) {
-  for (const t of s.timers.splice(0)) clearTimeout(t);
+  for (const t of [s.capTimer, s.closeTimer, s.retryTimer]) clearTimeout(t);
+  s.capTimer = s.closeTimer = s.retryTimer = null;
 }
 
 /** A session that never reached the student: free the slot and the hold. */
@@ -261,33 +273,57 @@ function chargePool(microCents, at) {
   if (microCents > 0) usageAdd(SPEND_POOLS.app.account, usageDay(at), POOL_SPEND_KIND, microCents);
 }
 
+/** Send on the sideband; false when there is no open socket to send on. */
 function send(s, message) {
-  try { s.ws?.send(JSON.stringify(message)); } catch { /* the close handler finalizes */ }
+  if (!s.ws || (s.ws.readyState ?? OPEN) !== OPEN) return false;
+  try { s.ws.send(JSON.stringify(message)); return true; } catch { return false; }
 }
 
-/** Ask OpenAI to end the session; finalize on the last seconds seen if
- *  `session.closed` doesn't follow. */
+/** Ask OpenAI to end the session. On an open sideband it goes out now, and
+ *  if `session.closed` doesn't follow in CLOSE_WAIT_MS the session is
+ *  finalized on the wall clock. With no open sideband (a re-attach in
+ *  flight) it waits for the next socket (listen sends it). */
 function sendClose(s) {
-  if (s.finalized || s.closeSent) return;
+  if (s.finalized) return;
+  s.closeWanted = true;
+  if (s.closeSent || !send(s, { type: "session.close" })) return;
   s.closeSent = true;
-  send(s, { type: "session.close" });
-  s.timers.push(unref(setTimeout(() => finalize(s, "close_unconfirmed"), CLOSE_WAIT_MS)));
+  s.closeTimer = unref(setTimeout(() => finalize(s, "close_unconfirmed"), CLOSE_WAIT_MS));
+}
+
+/** The latest a session can still be running: the cap guard plus the close
+ *  wait. A lost sideband keeps re-attaching (and the slot stays claimed)
+ *  until then. */
+const deadlineOf = (s) => s.createdAt + (s.maxSeconds + CAP_GRACE_SECONDS) * 1000 + CLOSE_WAIT_MS;
+
+/* The wall-clock guard: session.close at maxSeconds + grace even if no usage
+ * event ever arrives (OpenAI sends session.usage.updated only around the
+ * close, measured live 2026-10-10, so this is usually what fires). */
+function armCapGuard(s) {
+  const ms = s.createdAt + (s.maxSeconds + CAP_GRACE_SECONDS) * 1000 - Date.now();
+  s.capTimer = unref(setTimeout(() => sendClose(s), Math.max(0, ms)));
 }
 
 /* Charge once, whatever ended it: the app pool in micro-cents and the
  * account's voice seconds for the daily cap, both on what OpenAI bills (at
- * least VOICE_MIN_BILLED_SECONDS). Never account_ucents (see the top). */
-function finalize(s, reason) {
+ * least VOICE_MIN_BILLED_SECONDS). Never account_ucents (see the top).
+ * Only `session.closed` (confirmed) carries the real total. Otherwise the
+ * meter is stale by design: a close that went out bills the wall clock since
+ * the session was created; a close that never could (no sideband to the
+ * end) bills the client's cap, since the call may have run that long. */
+function finalize(s, reason, { confirmed = false } = {}) {
   if (s.finalized) return;
   s.finalized = true;
   s.reason = reason;
   clearTimers(s);
   const at = Date.now();
+  if (!confirmed && s.createdAt != null) {
+    s.seconds = Math.max(s.seconds, s.closeSent ? (at - s.createdAt) / 1000 : s.maxSeconds);
+  }
   try {
     if (s.enforced) {
       const billed = billedSeconds(s.seconds);
-      const cost = voiceCostMicroCents(billed);
-      chargePool(cost, at);
+      chargePool(voiceCostMicroCents(billed), at);
       if (isDailyQuotaKey(s.callerId)) usageAdd(s.callerId, usageDay(at), VOICE_SECONDS_KIND, Math.ceil(billed));
     }
   } catch (e) {
@@ -301,7 +337,7 @@ function finalize(s, reason) {
     ended.set(s.id, { key: s.key, seconds: Math.round(s.seconds) });
     if (ended.size > ENDED_KEEP) ended.delete(ended.keys().next().value);
   }
-  try { s.ws?.close(); } catch { /* already closed */ }
+  closeQuietly(s.ws);
   console.log(`[tracely] voice session ended reason=${safeReason(reason)} seconds=${Math.round(s.seconds)}`);
   for (const wake of s.waiters.splice(0)) wake();
 }
@@ -324,7 +360,7 @@ function onMessage(s, data) {
     if (s.seconds >= s.maxSeconds) sendClose(s);
   } else if (ev?.type === "session.closed") {
     s.seconds = Math.max(s.seconds, seen);
-    finalize(s, typeof ev.reason === "string" ? ev.reason : "closed");
+    finalize(s, typeof ev.reason === "string" ? ev.reason : "closed", { confirmed: true });
   } else if (ev?.type === "session.delegation.created" && typeof ev.delegation?.id === "string") {
     send(s, { type: "session.commentary.append", delegation_id: ev.delegation.id, content: DELEGATION_REPLY });
   }
@@ -334,26 +370,45 @@ function listen(s, ws) {
   s.ws = ws;
   ws.addEventListener("message", (ev) => onMessage(s, ev.data));
   ws.addEventListener("close", () => { if (s.ws === ws) onSidebandClosed(s); });
+  // A close asked for while no sideband was open goes out on this one, and
+  // the session then ends on `session.closed`, not on this socket closing.
+  if (s.closeWanted && !s.closeSent) sendClose(s);
 }
 
-/* The sideband dropped without `session.closed`. Usage is cumulative, so ONE
- * re-attach restores the meter; if that fails too, charge the larger of the
- * seconds seen and the wall-clock time since start, and let go. */
+/* The sideband dropped without `session.closed`. The sideband is the only
+ * way to close a live session (there is no hangup endpoint for it) and usage
+ * is cumulative, so re-attach — at once, then backing off — until it works
+ * or the session can no longer be running (deadlineOf). The caller's slot
+ * stays claimed throughout: a second call can't open beside one that may
+ * still be live. A close that went out on the lost socket is re-sent. */
 function onSidebandClosed(s) {
   if (s.finalized) return;
-  if (s.closeSent || s.reattached || !s.reattach) {
+  s.ws = null;
+  if (s.closeSent) {
+    s.closeSent = false;
+    clearTimeout(s.closeTimer);
+    s.closeTimer = null;
+  }
+  reattachSoon(s);
+}
+
+function reattachSoon(s) {
+  if (s.finalized) return;
+  const delay = s.attempts === 0 ? 0 : REATTACH_BACKOFF_MS[Math.min(s.attempts - 1, REATTACH_BACKOFF_MS.length - 1)];
+  if (Date.now() + delay > deadlineOf(s)) {
     finalize(s, "sideband_lost");
     return;
   }
-  s.reattached = true;
-  s.ws = null;
-  s.reattach().then(
-    (ws) => { if (s.finalized) { try { ws.close(); } catch { /* */ } } else listen(s, ws); },
-    () => { s.seconds = Math.max(s.seconds, (Date.now() - s.startedAt) / 1000); finalize(s, "sideband_lost"); },
-  );
+  s.attempts++;
+  const attempt = () => {
+    s.retryTimer = null;
+    s.reattach().then((ws) => (s.finalized ? closeQuietly(ws) : listen(s, ws)), () => reattachSoon(s));
+  };
+  if (delay === 0) attempt();
+  else s.retryTimer = unref(setTimeout(attempt, delay));
 }
 
-// ── the two routes (server.js wires them; appGate has already run) ───────
+// ── the two routes (server.js wires them; appGate runs before start) ─────
 
 let mockSessions = 0;
 
@@ -403,6 +458,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
     const safetyId = safetyIdentifier(gate?.callerId);
     const { id, sdp } = await startLiveSession({ key, body: buildSessionBody(request), safetyId, fetchImpl });
     created = true;
+    s.createdAt = Date.now();
     // "Include the same connection headers required when creating the session."
     const headers = safetyId ? { "OpenAI-Safety-Identifier": safetyId } : {};
     s.reattach = () => attachSideband({ url: attachUrl(id), key, headers, WebSocketImpl });
@@ -410,7 +466,7 @@ export async function startSession({ gate, readBody, mock = false, env = process
     s.id = id;
     byId.set(id, s);
     listen(s, ws);
-    s.timers.push(unref(setTimeout(() => sendClose(s), (maxSeconds + CAP_GRACE_SECONDS) * 1000)));
+    armCapGuard(s);
     return { sdp, sessionId: id, voice, maxSeconds, remainingSeconds };
   } catch (err) {
     // OpenAI billed the 15 s set-up of a session we never handed out: the
@@ -426,7 +482,10 @@ export async function startSession({ gate, readBody, mock = false, env = process
  * answers its seconds again; an id this caller never opened (another
  * caller's, a mock's, one from before a restart) answers 0. Sends
  * `session.close` and waits up to `waitMs` for `session.closed`'s final
- * seconds before charging what it has.
+ * seconds. If they don't come in time it does NOT charge here: the session
+ * stays with `session.closed` (the real seconds, read even if it arrives
+ * late) or the close-wait timer (the wall clock), and this answers the best
+ * estimate so far.
  */
 export async function endSession({ gate, body, waitMs = 3000 }) {
   const sessionId = body?.sessionId;
@@ -445,9 +504,9 @@ export async function endSession({ gate, body, waitMs = 3000 }) {
       const t = setTimeout(resolve, waitMs);
       s.waiters.push(() => { clearTimeout(t); resolve(); });
     });
-    finalize(s, "ended_unconfirmed"); // a no-op when session.closed arrived
   }
-  return { seconds: Math.round(s.seconds) };
+  if (s.finalized) return { seconds: Math.round(s.seconds) };
+  return { seconds: Math.round(Math.max(s.seconds, (Date.now() - s.createdAt) / 1000)) };
 }
 
 /** For tests and /api/status-style introspection: how many sessions are live. */

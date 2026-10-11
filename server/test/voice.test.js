@@ -256,7 +256,10 @@ test("no sideband, no session: a 502 with no SDP, the hold released, the 15 s se
   await start(gate); // and can try again
 });
 
-test("a dropped sideband re-attaches once; a second loss charges the wall clock and lets go", async () => {
+const T0 = Date.parse("2026-10-10T15:00:00Z");
+
+test("a dropped sideband re-attaches at once and the meter carries on; a second drop backs off, the slot held throughout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
   const gate = gateFor("pro", "drop");
   const out = await start(gate);
   const first = lastWS();
@@ -270,8 +273,72 @@ test("a dropped sideband re-attaches once; a second loss charges the wall clock 
   second.emit({ type: "session.usage.updated", usage: { seconds: 70 } });
   second.close();
   await tick();
+  assert.equal(lastWS(), second, "the second re-attach waits for the backoff");
+  await assert.rejects(start(gate), (e) => e.kind === "voice_busy", "no second call beside one that may be live");
+  t.mock.timers.tick(V.REATTACH_BACKOFF_MS[0]);
+  await tick();
+  const third = lastWS();
+  assert.notEqual(third, second);
+  third.emit({ type: "session.closed", reason: "client_hangup", usage: { seconds: 95 } });
   assert.equal(V.liveSessionCount(), 0);
-  assert.equal(usageCount("user:u-drop", today(), "voice_seconds"), 70);
+  assert.equal(usageCount("user:u-drop", today(), "voice_seconds"), 95, "session.closed's real total");
+});
+
+test("a sideband that never comes back: retries until the session can't be running, then the cap is billed", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const gate = gateFor("pro", "gone");
+  await start(gate, {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "120" });
+  lastWS().emit({ type: "session.usage.updated", usage: { seconds: 40 } });
+  FakeWS.mode = "error";
+  const before = FakeWS.all.length;
+  lastWS().close();
+  for (let i = 0; i < 40; i++) { t.mock.timers.tick(5000); await tick(); }
+  assert.ok(FakeWS.all.length - before >= 6, "kept trying, backing off");
+  assert.ok(FakeWS.all.slice(before).every((ws) => ws.sent.length === 0));
+  assert.equal(V.liveSessionCount(), 0, "let go after the deadline (cap + grace + close wait)");
+  assert.equal(usageCount("user:u-gone", today(), "voice_seconds"), 120, "the close never went out: the call may have run to its cap");
+  assert.equal(reservedMicroCents("app"), 0);
+});
+
+test("a close asked for while the sideband is down goes out on the re-attached socket", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const gate = gateFor("pro", "gap");
+  const out = await start(gate);
+  FakeWS.mode = "hang";
+  lastWS().close(); // the re-attach hangs (up to 5 s)
+  const pending = lastWS();
+  const ending = V.endSession({ gate, body: { sessionId: out.sessionId }, waitMs: 0 });
+  t.mock.timers.tick(1);
+  assert.equal((await ending).seconds, 0);
+  assert.deepEqual(pending.sent, [], "nothing to send on yet");
+  t.mock.timers.tick(5000); // that attach times out; the next one opens
+  await tick();
+  FakeWS.mode = "open";
+  t.mock.timers.tick(V.REATTACH_BACKOFF_MS[0]);
+  await tick();
+  const next = lastWS();
+  assert.notEqual(next, pending);
+  assert.deepEqual(next.types(), ["session.close"], "the close went out on the new socket");
+  assert.equal(next.closed, false, "and it waits for session.closed");
+  t.mock.timers.tick(3000);
+  assert.equal(V.liveSessionCount(), 1);
+  next.emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 66 } });
+  assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-gap", today(), "voice_seconds"), 66);
+});
+
+test("usage events that never come: the wall-clock guard closes, and an unconfirmed close bills the wall clock", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: T0 });
+  const gate = gateFor("pro", "stale");
+  await start(gate, {}, { ...ENV, TRACELY_VOICE_MAX_SECONDS: "300" });
+  const ws = lastWS();
+  ws.emit({ type: "session.usage.updated", usage: { seconds: 10 } }); // then nothing more
+  t.mock.timers.tick((300 + V.CAP_GRACE_SECONDS) * 1000);
+  assert.deepEqual(ws.types(), ["session.close"]);
+  assert.equal(V.liveSessionCount(), 1);
+  t.mock.timers.tick(V.CLOSE_WAIT_MS); // no session.closed: close_unconfirmed
+  assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-stale", today(), "voice_seconds"), 300 + V.CAP_GRACE_SECONDS + V.CLOSE_WAIT_MS / 1000, "the wall clock, not the stale 10 s");
 });
 
 test("a local server (enforcement off): open to every plan, nothing metered", async () => {
@@ -302,8 +369,14 @@ test("end: unknown ids and other callers' ids answer 0; a missing id is a 400", 
   assert.equal(V.liveSessionCount(), 1, "a stranger cannot end it");
   assert.deepEqual(await V.endSession({ gate: LOCAL, body: { sessionId: "live_never" } }), { seconds: 0 });
   await assert.rejects(V.endSession({ gate: LOCAL, body: {} }), (e) => e.status === 400);
-  // No session.closed in time: charge what was seen and let go.
+  // No session.closed in time: answer the best estimate, charge nothing yet,
+  // and keep the slot; a late session.closed is still read for the real total.
   lastWS().emit({ type: "session.usage.updated", usage: { seconds: 33 } });
   assert.deepEqual(await V.endSession({ gate: gateFor("pro", "owner"), body: { sessionId: out.sessionId }, waitMs: 20 }), { seconds: 33 });
+  assert.equal(V.liveSessionCount(), 1, "held until session.closed or the close wait");
+  assert.equal(usageCount("user:u-owner", today(), "voice_seconds"), 0);
+  lastWS().emit({ type: "session.closed", reason: "close_requested", usage: { seconds: 34.2 } });
   assert.equal(V.liveSessionCount(), 0);
+  assert.equal(usageCount("user:u-owner", today(), "voice_seconds"), 35);
+  assert.deepEqual(await V.endSession({ gate: gateFor("pro", "owner"), body: { sessionId: out.sessionId } }), { seconds: 34 });
 });

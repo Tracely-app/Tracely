@@ -172,8 +172,17 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   `VOICE_PRICE_PER_MIN_USD` in lib/voice.js, deliberately NOT in
   `shared/prices.js` or `MODEL_TIERS` (`models.test.js` pins those).
 - **No meter, no call**: if the sideband can't attach in 5 s the route answers
-  502 and never hands out the SDP. A dropped sideband re-attaches once (usage
-  is cumulative). A restart drops every live meter (`DEPLOY.md`).
+  502 and never hands out the SDP. OpenAI sends `session.usage.updated` only
+  around the close (measured live), so the meter is NOT a live reading: the
+  wall-clock guard (cap + 5 s) is what closes a call, only `session.closed`
+  carries the real seconds, and any end it didn't confirm bills the wall
+  clock since create (or the cap, if `session.close` could never be
+  delivered). `/end` never charges by itself: a late `session.closed` is
+  still read. A dropped sideband (the only way to close a live session)
+  re-attaches at once, then backing off 1, 2, 4… 30 s, until cap + 5 s +
+  the 10 s close wait; the caller's slot stays claimed meanwhile and a close
+  asked for in the gap goes out on the new socket. A restart drops every
+  live meter (`DEPLOY.md`).
 - **Client-mode delegation** (`delegation: null`): when the model asks for
   help, the sideband answers with `session.thinking.append` ("no lookup tool")
   so it never waits on a tool that doesn't exist.
