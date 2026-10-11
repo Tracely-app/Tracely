@@ -1021,8 +1021,9 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
 /**
  * Settings → Voice: which persona Tracer talks in (a card each, with a
  * recorded preview, one playing at a time), live captions, saving
- * transcripts, the disclosure the first call shows, and today's minutes as
- * last seen. Every control persists on change, like the rest of Settings.
+ * transcripts, the disclosure the first call shows (and a way to show it
+ * again), and today's minutes as last seen. Every control persists on
+ * change, like the rest of Settings.
  */
 function VoicePane({
   settings,
@@ -1118,6 +1119,17 @@ function VoicePane({
         <button type="button" className="voice-link" onClick={() => void tracelyApi.openExternal(VOICE_PRIVACY_URL)}>
           How voice uses your data
         </button>
+      </p>
+      {/* Consent is per install: on a shared computer, or to read it again,
+          this puts the first-call notice (and its age question) back. */}
+      <p className="muted settings-app-note">
+        {settings.voiceConsent ? (
+          <button type="button" className="voice-link" onClick={() => void onSave({ voiceConsent: false })}>
+            Show the voice notice before my next call
+          </button>
+        ) : (
+          'The voice notice will show before your next call.'
+        )}
       </p>
     </div>
   )
