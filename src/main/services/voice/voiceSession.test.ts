@@ -1,9 +1,10 @@
 import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { parseVoiceIpcError } from '../../../shared/ipc-contract.ts'
 import type { TranscriptMessage } from './transcript.ts'
 import { VoiceCallError } from './voiceErrors.ts'
-import { clipVoiceContext, createVoiceService, normalizeStart, type VoiceEndpoint } from './voiceSession.ts'
+import { VOICE_START_TIMEOUT_MS, clipVoiceContext, createVoiceService, normalizeStart, type VoiceEndpoint } from './voiceSession.ts'
 
 const OFFER = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n'
 const ANSWER = 'v=0\r\no=- 9 9 IN IP4 203.0.113.1\r\n'
@@ -236,6 +237,18 @@ describe('voice start, the edges', () => {
       remainingSeconds: 900
     })
     strictEqual(normalizeStart({ ...OK_START, voice: { id: 'arbor', name: 'Arbor' } }, req).voice.id, 'linden')
+  })
+})
+
+describe('voice start deadline', () => {
+  it("outlasts the server's slowest healthy start (create, then attach) with room for the network", () => {
+    const src = readFileSync(new URL('../../../../server/lib/voice.js', import.meta.url), 'utf8')
+    const num = (name: string): number => {
+      const m = new RegExp(`export const ${name}\\s*=\\s*([\\d_]+)\\s*;`).exec(src)
+      ok(m, `server/lib/voice.js exports ${name}`)
+      return Number(m[1].replace(/_/g, ''))
+    }
+    ok(num('CREATE_TIMEOUT_MS') + num('ATTACH_TIMEOUT_MS') + 3000 <= VOICE_START_TIMEOUT_MS)
   })
 })
 

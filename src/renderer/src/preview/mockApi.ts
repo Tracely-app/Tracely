@@ -2,6 +2,7 @@ import { hasInlineCitation } from '@shared/inlineCitation'
 import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
 import { MAX_VERIFY_SOURCES, abstractToSend, type SourceReceipt } from '@shared/sourceReceipts'
 import { DEFAULT_WIDGET_VIEW_MODE, formatVoiceIpcError } from '@shared/ipc-contract'
+import { VOICE_DEFAULT_DAILY_SECONDS, VOICE_DEFAULT_MAX_SECONDS } from '@shared/voicePolicy'
 import { voiceById } from '@shared/voices'
 import type { VoiceSnapshot } from '../voice/types'
 import type { Plan } from '@shared/plan'
@@ -646,8 +647,8 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
           mock: true,
           sessionId: `mock_${++voiceSessions}`,
           voice: { id: persona.id, name: persona.name },
-          maxSeconds: 900,
-          remainingSeconds: 1800
+          maxSeconds: VOICE_DEFAULT_MAX_SECONDS,
+          remainingSeconds: VOICE_DEFAULT_DAILY_SECONDS
         }
       },
       end: () =>

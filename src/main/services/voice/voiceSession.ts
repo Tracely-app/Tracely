@@ -6,6 +6,7 @@ import type {
   VoiceStartResponse
 } from '@shared/ipc-contract'
 import { voiceById } from '../../../shared/voices.ts'
+import { VOICE_DEFAULT_MAX_SECONDS } from '../../../shared/voicePolicy.ts'
 import { VoiceCallError, voiceIpcErrorFrom } from './voiceErrors.ts'
 import { VOICE_MAX_CONTEXT_CHARS } from './voiceSchemas.ts'
 import { transcriptMessages, type TranscriptMessage } from './transcript.ts'
@@ -21,12 +22,15 @@ import { transcriptMessages, type TranscriptMessage } from './transcript.ts'
  */
 
 /**
- * The server creates the OpenAI session and attaches its meter (5 s budget)
- * before answering, so a healthy start is a few seconds. callServer's own
- * deadline is a minute, which is far longer than anyone will watch "Connecting…";
- * this is the deadline the student actually waits on.
+ * The server creates the OpenAI session (up to its CREATE_TIMEOUT_MS, 15 s)
+ * and then attaches its meter (ATTACH_TIMEOUT_MS, 5 s) before answering, so a
+ * healthy start is a few seconds and a slow one that still succeeds can take
+ * 20. This deadline sits above that sum with room for the network, or a slow
+ * success would be abandoned and its paid set-up wasted (pinned against the
+ * server's numbers in voiceSession.test.ts). callServer's own deadline is a
+ * minute, which is far longer than anyone will watch "Connecting…".
  */
-export const VOICE_START_TIMEOUT_MS = 20_000
+export const VOICE_START_TIMEOUT_MS = 25_000
 /** Hanging up must never hold the UI; the server also closes on its own. */
 export const VOICE_END_TIMEOUT_MS = 8_000
 
@@ -70,8 +74,6 @@ export function clipVoiceContext(context: string): string {
   return context.slice(0, VOICE_MAX_CONTEXT_CHARS - TRUNCATED.length) + TRUNCATED
 }
 
-const DEFAULT_MAX_SECONDS = 900
-
 function seconds(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
@@ -91,7 +93,7 @@ export function normalizeStart(raw: RawStart | null | undefined, req: VoiceStart
   }
   const persona = voiceById(typeof r.voice?.id === 'string' ? r.voice.id : req.voiceId)
   const name = typeof r.voice?.name === 'string' && r.voice.name ? r.voice.name : persona.name
-  const maxSeconds = seconds(r.maxSeconds) || DEFAULT_MAX_SECONDS
+  const maxSeconds = seconds(r.maxSeconds) || VOICE_DEFAULT_MAX_SECONDS
   const response: VoiceStartResponse = {
     sessionId,
     voice: { id: persona.id, name },

@@ -10,6 +10,7 @@
  * call (one live call per account — a second would be refused as busy).
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { VOICE_MIN_BILLED_SECONDS } from '@shared/voicePolicy'
 import type { VoiceId } from '@shared/voices'
 import { tracelyApi } from '../lib/api'
 import { createVoiceSession, type VoiceCallResult, type VoiceEngine } from './session'
@@ -124,8 +125,6 @@ export function useVoiceSession(voiceId: VoiceId, options: UseVoiceSessionOption
 // and nothing once the day has turned over. A convenience, not a ledger.
 
 const REMAINING_KEY = 'tracely.voice.remainingToday'
-/** Every call costs at least this much of the allowance (OpenAI bills the set-up). */
-const MIN_BILLED_SEC = 15
 
 function localDay(at: Date): string {
   return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
@@ -133,7 +132,7 @@ function localDay(at: Date): string {
 
 /** After a call: what was left when it started, less what it used. */
 export function rememberVoiceRemaining(remainingAtStartSec: number, talkedSec: number, at = new Date()): void {
-  const seconds = Math.max(0, Math.round(remainingAtStartSec - Math.max(talkedSec, MIN_BILLED_SEC)))
+  const seconds = Math.max(0, Math.round(remainingAtStartSec - Math.max(talkedSec, VOICE_MIN_BILLED_SECONDS)))
   try {
     localStorage.setItem(REMAINING_KEY, JSON.stringify({ day: localDay(at), seconds }))
   } catch {

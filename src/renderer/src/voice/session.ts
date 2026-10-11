@@ -628,7 +628,8 @@ function sameCaptions(a: readonly VoiceCaption[], b: readonly VoiceCaption[]): b
   return !x || (x.id === y.id && x.text === y.text && x.final === y.final)
 }
 
-const LIVE: readonly VoiceState[] = ['listening', 'user-speaking', 'assistant-speaking']
+/** The states of a connected call — import this rather than spelling the list again. */
+export const LIVE_STATES: readonly VoiceState[] = ['listening', 'user-speaking', 'assistant-speaking']
 
 export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   const { api, voiceId } = options
@@ -876,7 +877,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     } else {
       const inputLevel = smoothLevel(snap.inputLevel, snap.muted ? 0 : rmsToLevel(inMeter?.rms() ?? 0))
       const outputLevel = smoothLevel(snap.outputLevel, rmsToLevel(outMeter?.rms() ?? 0))
-      if (!LIVE.includes(snap.state)) {
+      if (!LIVE_STATES.includes(snap.state)) {
         update({ inputLevel, outputLevel })
         return
       }
