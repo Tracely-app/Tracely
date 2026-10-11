@@ -13,3 +13,10 @@ export const VOICE_MIN_BILLED_SECONDS = 15
 export const VOICE_DEFAULT_MAX_SECONDS = 900
 /** A day's allowance when the server is not configured otherwise (TRACELY_VOICE_DAILY_SECONDS). */
 export const VOICE_DEFAULT_DAILY_SECONDS = 1800
+/**
+ * A month's allowance when the server is not configured otherwise
+ * (TRACELY_VOICE_MONTHLY_SECONDS; 0 there means no monthly cap). Feeds the
+ * preview's mock answer only. Not pinned by voicePolicy.test.ts yet: the
+ * server constant lands with the server half of this round.
+ */
+export const VOICE_DEFAULT_MONTHLY_SECONDS = 7200
