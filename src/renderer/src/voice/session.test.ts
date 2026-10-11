@@ -2,9 +2,9 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
-  CAPTION_PAUSE_MS, EMPTY_CAPTIONS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
+  CAPTION_PAUSE_MS, EMPTY_CAPTIONS, IDLE_GRACE_MS, IDLE_WARN_MS, MUTED_WARN_MS, INPUT_HOLD_MS, OUTPUT_TAIL_MS, createTranscriptActivity, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
   addTranscriptDelta, browserDeps, closedError, createSpeechGate, frameText, createVoiceSession, formatClock, micError, mockFrame,
-  mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceStateLine,
+  mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceAnnouncement, voiceStateLine,
   type VoiceApi, type VoiceDeps,
 } from './session.ts'
 import type { VoiceSnapshot } from './types'
@@ -601,6 +601,64 @@ describe('createVoiceSession: unasked endings', () => {
     r.clock.advance(1_100)
     await flush()
     strictEqual(r.engine.getSnapshot().error?.kind, 'ended-by-limit')
+  })
+})
+
+// ── An idle call hangs up ──────────────────────────────────────────────────
+
+describe('createVoiceSession: idle calls', () => {
+  it("asks 'Still there?' after a quiet spell, then hangs up and says why", async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.clock.advance(IDLE_WARN_MS - 1000)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    r.clock.advance(2000)
+    const s = r.engine.getSnapshot()
+    strictEqual(s.notice, 'still-there')
+    strictEqual(voiceStateLine(s, 'Atlas'), 'Still there? Say something to keep talking')
+    ok(voiceAnnouncement(s, 'Atlas').includes('Still there?'))
+    r.clock.advance(IDLE_GRACE_MS)
+    await flush()
+    const end = r.engine.getSnapshot()
+    strictEqual(end.state, 'ended')
+    strictEqual(end.notice, 'ended-idle')
+    strictEqual(voiceStateLine(end, 'Atlas'), 'Call ended after a quiet spell')
+    deepStrictEqual(r.api.calls.end, ['sess_1'])
+  })
+
+  it('takes the question down when the student talks again', async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.clock.advance(IDLE_WARN_MS + 1000)
+    strictEqual(r.engine.getSnapshot().notice, 'still-there')
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: "I'm here" })
+    r.clock.advance(IDLE_GRACE_MS + 1000)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    strictEqual(r.engine.getSnapshot().state, 'listening')
+  })
+
+  it('a muted call is asked after two minutes even while Tracer talks, and unmuting keeps it', async () => {
+    const r = await connected({ deps: { createMeter: () => null } })
+    r.engine.setMuted(true)
+    for (let t = 0; t < MUTED_WARN_MS + 1000; t += 5000) {
+      r.peer.channel!.emit({ type: 'session.output_transcript.delta', delta: ' more' })
+      r.clock.advance(5000)
+    }
+    strictEqual(r.engine.getSnapshot().notice, 'still-there')
+    strictEqual(voiceStateLine(r.engine.getSnapshot(), 'Atlas'), 'Still there? Unmute to keep talking')
+    r.engine.setMuted(false)
+    r.clock.advance(IDLE_GRACE_MS + 1000)
+    strictEqual(r.engine.getSnapshot().notice, null)
+    strictEqual(r.engine.getSnapshot().error, null)
+    ok(['listening', 'assistant-speaking'].includes(r.engine.getSnapshot().state))
+  })
+
+  it('a voice the meters really hear keeps the call alive without transcripts', async () => {
+    const r = await connected()
+    const remote = fakeStream()
+    r.peer.ontrack!({ streams: [remote], track: remote.track })
+    r.rms.output = 0.1
+    r.clock.advance(IDLE_WARN_MS + IDLE_GRACE_MS + 5000)
+    strictEqual(r.engine.getSnapshot().state, 'assistant-speaking')
+    strictEqual(r.engine.getSnapshot().notice, null)
   })
 })
 

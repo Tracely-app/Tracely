@@ -48,6 +48,7 @@ import { VOICE_KIND_COPY } from '../../../shared/ipc-contract.ts'
 import type {
   VoiceCaption,
   VoiceErrorKind,
+  VoiceNotice,
   VoiceSessionHandle,
   VoiceSnapshot,
   VoiceState
@@ -212,6 +213,17 @@ export const CAPTION_PAUSE_MS = 1200
 export const TICK_MS = 40
 /** If the server's close at the cap never arrives, hang up this long after it. */
 export const CAP_GRACE_SEC = 10
+/**
+ * An idle call bills until its cap (OpenAI: muting leaves the session active;
+ * close idle sessions yourself). After this long with no transcript from
+ * either side and no voice the meters hear, the student is asked if they're
+ * still there…
+ */
+export const IDLE_WARN_MS = 90_000
+/** …or after this long muted… */
+export const MUTED_WARN_MS = 120_000
+/** …and the call ends this long after asking, unless they talk (or unmute). */
+export const IDLE_GRACE_MS = 15_000
 
 // ── Levels and who is speaking ──────────────────────────────────────────────
 
@@ -505,8 +517,33 @@ export function formatClock(totalSec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** The line under the orb: what is happening, in a few words. */
-export function voiceStateLine(snap: Pick<VoiceSnapshot, 'state' | 'muted' | 'error'>, name: string): string {
+/** The states of a connected call — import this rather than spelling the list again. */
+export const LIVE_STATES: readonly VoiceState[] = ['listening', 'user-speaking', 'assistant-speaking']
+
+/** A notice in a few words; `name` is the persona's. */
+export function noticeLine(notice: VoiceNotice, name: string, muted: boolean): string {
+  switch (notice) {
+    case 'still-there':
+      return muted ? 'Still there? Unmute to keep talking' : 'Still there? Say something to keep talking'
+    case 'mic-silent':
+      return 'Your microphone stopped sending sound'
+    case 'answer-blocked':
+      return `${name} stopped: part of that answer was blocked`
+    case 'no-playback':
+      return `Can't play ${name}'s voice. Check your speakers or output device`
+    case 'ended-idle':
+      return 'Call ended after a quiet spell'
+  }
+}
+
+type LineInput = Pick<VoiceSnapshot, 'state' | 'muted' | 'error'> & Partial<Pick<VoiceSnapshot, 'notice'>>
+
+/** The line under the orb: what is happening, in a few words. A notice takes the turn's place. */
+export function voiceStateLine(snap: LineInput, name: string): string {
+  const notice = snap.notice ?? null
+  if (notice !== null && notice !== 'ended-idle' && LIVE_STATES.includes(snap.state)) {
+    return noticeLine(notice, name, snap.muted)
+  }
   switch (snap.state) {
     case 'idle':
       return `Talk with ${name}`
@@ -523,7 +560,7 @@ export function voiceStateLine(snap: Pick<VoiceSnapshot, 'state' | 'muted' | 'er
     case 'ending':
       return 'Ending the call…'
     case 'ended':
-      return 'Call ended'
+      return notice === 'ended-idle' ? noticeLine(notice, name, snap.muted) : 'Call ended'
     case 'error':
       return errorTitle(snap.error?.kind)
   }
@@ -558,9 +595,12 @@ export function errorTitle(kind: VoiceErrorKind | undefined): string {
  * screen reader announcing every "speaking"/"listening" flip would talk over
  * the call itself.
  */
-export function voiceAnnouncement(snap: Pick<VoiceSnapshot, 'state' | 'muted' | 'error'>, name: string): string {
+export function voiceAnnouncement(snap: LineInput, name: string): string {
   if (snap.state === 'listening' || snap.state === 'user-speaking' || snap.state === 'assistant-speaking') {
-    return snap.muted ? `On a call with ${name}. Microphone muted.` : `On a call with ${name}. Microphone on.`
+    const base = snap.muted ? `On a call with ${name}. Microphone muted.` : `On a call with ${name}. Microphone on.`
+    // A notice is news, unlike a turn change: say it.
+    const notice = snap.notice ?? null
+    return notice !== null && notice !== 'ended-idle' ? `${base} ${noticeLine(notice, name, snap.muted)}.` : base
   }
   if (snap.state === 'error') return `${errorTitle(snap.error?.kind)}. ${snap.error?.message ?? ''}`.trim()
   return voiceStateLine(snap, name)
@@ -788,8 +828,6 @@ function sameCaptions(a: readonly VoiceCaption[], b: readonly VoiceCaption[]): b
   return !x || (x.id === y.id && x.text === y.text && x.final === y.final)
 }
 
-/** The states of a connected call — import this rather than spelling the list again. */
-export const LIVE_STATES: readonly VoiceState[] = ['listening', 'user-speaking', 'assistant-speaking']
 
 export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   const { api, voiceId } = options
@@ -806,7 +844,8 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     outputLevel: 0,
     captions: [],
     error: null,
-    mock: false
+    mock: false,
+    notice: null
   }
 
   // The call's parts; all null outside a call.
@@ -837,6 +876,11 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   let outTurnAt = 0
   let textInWas = false
   let textOutWas = false
+  /** engine clock of the last sign of a conversation: a transcript, a voice the meters hear, the mute button */
+  let lastActivityAt = 0
+  let mutedAt = 0
+  /** when 'still-there' went up; null while the call is active */
+  let idleWarnAt: number | null = null
 
   let startPromise: Promise<void> | null = null
   let finishPromise: Promise<void> | null = null
@@ -903,7 +947,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
    * the server charges from its own meter), then the transcript is saved when
    * that is on.
    */
-  function finish(err: VoiceError | null): Promise<void> {
+  function finish(err: VoiceError | null, notice: VoiceNotice | null = null): Promise<void> {
     if (finishPromise) return finishPromise
     over = true
     // The promise exists before the body runs: the body's first update()
@@ -913,7 +957,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     finishPromise = new Promise<void>((resolve) => (settle = resolve))
     void (async () => {
       try {
-        await finishBody(err)
+        await finishBody(err, notice)
       } finally {
         settle()
       }
@@ -921,7 +965,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     return finishPromise
   }
 
-  async function finishBody(err: VoiceError | null): Promise<void> {
+  async function finishBody(err: VoiceError | null, notice: VoiceNotice | null): Promise<void> {
     const seconds = elapsedNow()
     const captions = captionLog.captions.map((c) => (c.final ? c : { ...c, final: true }))
     captionLog = { ...captionLog, captions }
@@ -929,6 +973,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     update({
       state: err ? 'error' : 'ending',
       error: err,
+      notice,
       inputLevel: 0,
       outputLevel: 0,
       elapsedSec: seconds,
@@ -964,6 +1009,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     if (connectTimer !== null) deps.clearTimeout(connectTimer)
     connectTimer = null
     startedAt = deps.now()
+    lastActivityAt = startedAt
     update({ state: 'listening', elapsedSec: 0 })
   }
 
@@ -989,6 +1035,7 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
         const startMs = typeof ev.start_ms === 'number' ? ev.start_ms : undefined
         const endMs = typeof ev.end_ms === 'number' ? ev.end_ms : undefined
         heard.note(role, now, startMs, endMs)
+        lastActivityAt = now
         captionLog = addTranscriptDelta(captionLog, role, ev.delta, now, startMs, endMs)
         if (!forced) update({ captions: captionLog.captions })
         return
@@ -1037,6 +1084,27 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     outHeardSound = false
   }
 
+  /**
+   * The idle rule: quiet (or muted) too long raises 'still-there'; still
+   * quiet IDLE_GRACE_MS later, the call is over. Any activity in between
+   * takes the question down. True when the call should end now.
+   */
+  function idleExpired(now: number): boolean {
+    const idle = now - lastActivityAt > IDLE_WARN_MS || (snap.muted && now - mutedAt > MUTED_WARN_MS)
+    if (!idle) {
+      idleWarnAt = null
+      return false
+    }
+    if (idleWarnAt === null) idleWarnAt = now
+    return now - idleWarnAt >= IDLE_GRACE_MS
+  }
+
+  /** The notice the state line should carry now, most pressing first. */
+  function currentNotice(): VoiceNotice | null {
+    if (idleWarnAt !== null) return 'still-there'
+    return null
+  }
+
   /** 25 times a second: levels, who is speaking, the timer, the caption pause rule, the cap. */
   function tick(): void {
     if (over || forced) return
@@ -1078,13 +1146,21 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       }
       const userOn = (inReal ? inGate.update(inputLevel, now) : textIn) && !snap.muted
       const assistantOn = outReal ? outGate.update(outputLevel, now) : textOut
+      // A voice the meters really hear is a conversation too (transcripts
+      // count where they arrive, in onServerEvent).
+      if ((inReal && userOn) || (outReal && assistantOn)) lastActivityAt = now
+      if (idleExpired(now)) {
+        void finish(null, 'ended-idle')
+        return
+      }
       captionLog = settleCaptions(captionLog, now)
       update({
         state: assistantOn ? 'assistant-speaking' : userOn ? 'user-speaking' : 'listening',
         inputLevel,
         outputLevel,
         elapsedSec: elapsedNow(),
-        captions: captionLog.captions
+        captions: captionLog.captions,
+        notice: currentNotice()
       })
     }
     // The server closes the call at its cap; if that close never arrives, hang up anyway.
@@ -1214,6 +1290,9 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
     mic?.getAudioTracks().forEach((t) => {
       t.enabled = !muted
     })
+    // Touching mute is the student being there.
+    lastActivityAt = deps.now()
+    if (muted && !snap.muted) mutedAt = lastActivityAt
     update(muted ? { muted, inputLevel: 0 } : { muted })
   }
 
