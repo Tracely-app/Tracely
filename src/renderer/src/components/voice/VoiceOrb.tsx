@@ -46,6 +46,8 @@ const canvasCss = (size: number): number => Math.ceil(size * ORB_SCALE_MAX + RIN
  * finely enough not to show, so a frame allocates nothing.
  */
 const OPACITY_STEPS: readonly string[] = Array.from({ length: 101 }, (_, i) => String(i / 100))
+/** The halo greys with the sphere (muted, error): CSS grayscale in twentieths. */
+const GRAY_STEPS: readonly string[] = Array.from({ length: 21 }, (_, i) => (i === 0 ? 'none' : `grayscale(${i / 20})`))
 const SCALE_STEP = 0.002
 const SCALE_STEPS: readonly string[] = Array.from({ length: Math.round((ORB_SCALE_MAX - ORB_SCALE_MIN) / SCALE_STEP) + 1 },
   (_, i) => `scale(${(ORB_SCALE_MIN + i * SCALE_STEP).toFixed(3)})`)
@@ -140,6 +142,7 @@ class OrbRenderer {
   private opacityStep = -1
   private haloOpacityStep = -1
   private haloScaleStep = -1
+  private haloGrayStep = -1
   private size = 168
   private dpr = 1
   private side = 0
@@ -416,6 +419,11 @@ class OrbRenderer {
     if (haloScale !== this.haloScaleStep) {
       this.haloScaleStep = haloScale
       this.halo.style.transform = SCALE_STEPS[haloScale]
+    }
+    const haloGray = Math.round(clamp01(p.desat) * 20)
+    if (haloGray !== this.haloGrayStep) {
+      this.haloGrayStep = haloGray
+      this.halo.style.filter = GRAY_STEPS[haloGray]
     }
 
     const morph = reduced ? 0 : 0.02 * p.outputDrive * clamp01(outL) + 0.008 * p.inputDrive * clamp01(inL)
