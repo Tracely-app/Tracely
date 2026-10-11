@@ -1,7 +1,9 @@
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
 import { MAX_VERIFY_SOURCES, abstractToSend, type SourceReceipt } from '@shared/sourceReceipts'
-import { DEFAULT_WIDGET_VIEW_MODE } from '@shared/ipc-contract'
+import { DEFAULT_WIDGET_VIEW_MODE, formatVoiceIpcError } from '@shared/ipc-contract'
+import { voiceById } from '@shared/voices'
+import type { VoiceSnapshot } from '../voice/types'
 import type { Plan } from '@shared/plan'
 import type {
   ScreenWatchClaimSummary,
@@ -103,6 +105,15 @@ export const defaultScenario: Scenario = {
   watchAnalyzing: false
 }
 
+/**
+ * The event `window.__previewEmitVoice(partial)` dispatches on the frame's
+ * window, carrying a Partial<VoiceSnapshot> as `detail`. A real call's states
+ * come from the WebRTC engine in the renderer, which the harness cannot run;
+ * the engine's mock path listens for this instead, so every voice state
+ * (connecting, listening, speaking with levels, each error) is reachable here.
+ */
+export const PREVIEW_VOICE_EVENT = 'tracely:preview-voice'
+
 /** Names of every call the harness logs, so the UI can show what fired. */
 export type CallLogEntry = { at: number; method: string }
 
@@ -151,6 +162,16 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
   // the panel appends what the bridge returns rather than what it typed.
   const previewConversation = fx.tracerConversation
   let previewTracerMessages: TracerMessage[] = [...fx.tracerMessages]
+  // Tracer Voice: the mock's session counter (mock_1, mock_2, …) and when the
+  // current call started, so voice.end can answer a plausible duration.
+  let voiceSessions = 0
+  let voiceStartedAt: number | null = null
+  ;(window as Window & { __previewEmitVoice?: (s: Partial<VoiceSnapshot>) => void }).__previewEmitVoice = (
+    partial
+  ) => {
+    log('__previewEmitVoice')
+    window.dispatchEvent(new CustomEvent<Partial<VoiceSnapshot>>(PREVIEW_VOICE_EVENT, { detail: partial }))
+  }
   // Screen Watch's claims are pushed, not fetched: the real service folds a
   // refresh or a critique into its in-memory claim and redraws the overlay, so
   // the panel's two result states are only reachable here if the mock does the
@@ -603,6 +624,48 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
       newConversation: () => {
         previewTracerMessages = []
         return ok('tracer.newConversation', { conversation: previewConversation })
+      }
+    },
+    // Tracer Voice, keyless: the same answer a TRACELY_MOCK=1 server gives (no
+    // SDP, `mock: true`), so the voice UI runs its demo path. The states a real
+    // call would push are driven from outside with window.__previewEmitVoice
+    // (installed below). A saved transcript lands in the chat like the real one.
+    voice: {
+      ensureMic: () => ok('voice.ensureMic', { status: 'granted' as const }),
+      start: async (req) => {
+        log('voice.start')
+        if (latency > 0) await new Promise((r) => setTimeout(r, latency))
+        if (scenario.failRelay) {
+          throw new Error(
+            formatVoiceIpcError({ kind: 'server', message: "Tracely couldn't start the call. Try again in a moment." })
+          )
+        }
+        voiceStartedAt = performance.now()
+        const persona = voiceById(req.voiceId)
+        return {
+          mock: true,
+          sessionId: `mock_${++voiceSessions}`,
+          voice: { id: persona.id, name: persona.name },
+          maxSeconds: 900,
+          remainingSeconds: 1800
+        }
+      },
+      end: () =>
+        ok('voice.end', {
+          seconds: voiceStartedAt === null ? 0 : Math.round((performance.now() - voiceStartedAt) / 1000)
+        }),
+      saveTranscript: (req) => {
+        const added = req.turns
+          .filter((t) => t.text.trim())
+          .map((t, i) => ({
+            id: `mock-voice-${previewTracerMessages.length + i}`,
+            conversationId: previewConversation.id,
+            role: t.role === 'user' ? ('user' as const) : ('tracer' as const),
+            content: t.text.trim(),
+            createdAt: fx.T0
+          }))
+        previewTracerMessages = [...previewTracerMessages, ...added]
+        return ok('voice.saveTranscript', { saved: added.length > 0 })
       }
     },
     settings: {

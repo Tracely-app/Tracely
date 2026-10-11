@@ -40,6 +40,7 @@ import type {
   SettingsSetRequest,
   SourcesVerifyResponse
 } from '@shared/ipc-contract'
+import { formatVoiceIpcError } from '@shared/ipc-contract'
 import { receiptsInOrder, settleReceipts, verifyRequestBody } from '@shared/sourceReceipts'
 import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
 import { hasInlineCitation } from '@shared/inlineCitation'
@@ -934,6 +935,17 @@ export function createHttpApi(): TracelyApi {
         saveJson(KEYS.tracer, { conversation, messages: [], serverIds: store.serverIds } satisfies TracerStore)
         return { conversation }
       }
+    },
+    // Tracer Voice needs main: the OS mic permission and a server session the
+    // key never leaves. This bridge has neither, so it says so in the tagged
+    // form the voice UI reads (shared/ipc-contract.ts) rather than pretending.
+    voice: {
+      ensureMic: async () => ({ status: 'unknown' as const }),
+      start: async () => {
+        throw new Error(formatVoiceIpcError({ kind: 'server', message: "Voice isn't available in this build." }))
+      },
+      end: async () => ({ seconds: 0 }),
+      saveTranscript: async () => ({ saved: false })
     },
     settings: {
       get: async () => settingsFromServer(await prefs()),
