@@ -1014,10 +1014,10 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
 
   /**
    * End the call, once, whoever ends it: the student (err null), the server's
-   * cap, a dropped connection, a failed start. Media stops at once; then the
-   * server is told (non-fatal — closing the peer already ended the call, and
-   * the server charges from its own meter), then the transcript is saved when
-   * that is on.
+   * cap, a dropped connection, a failed start, a quiet spell (notice
+   * 'ended-idle'). Media stops at once; then, in the same tick, the server is
+   * told (non-fatal — closing the peer already ended the call, and the server
+   * charges from its own meter) and the transcript is saved when that is on.
    */
   function finish(err: VoiceError | null, notice: VoiceNotice | null = null): Promise<void> {
     if (finishPromise) return finishPromise
