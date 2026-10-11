@@ -115,7 +115,7 @@ export interface VoiceDeps {
    * PREVIEW_VOICE_EVENT (Partial<VoiceSnapshot> as `detail`); null outside it.
    */
   previewEvents: EventTarget | null
-  /** Hang up when the window goes away; returns the unsubscribe. */
+  /** Hang up when the window goes away (or main closes it to the tray); returns the unsubscribe. */
   onUnload(fn: () => void): () => void
 }
 
@@ -602,8 +602,19 @@ export function browserDeps(): VoiceDeps {
     // harness's forced states; a built app never does.
     previewEvents: dev && typeof window !== 'undefined' ? window : null,
     onUnload(fn) {
+      // pagehide: a reload or a real close. onHangUp: main closed the window,
+      // which only hides it to the tray (no pagehide), or is quitting.
       window.addEventListener('pagehide', fn)
-      return () => window.removeEventListener('pagehide', fn)
+      let offHangUp: (() => void) | undefined
+      try {
+        offHangUp = window.tracely?.voice?.onHangUp?.(fn)
+      } catch {
+        /* no desktop bridge (web, preview): pagehide is all there is */
+      }
+      return () => {
+        window.removeEventListener('pagehide', fn)
+        offHangUp?.()
+      }
     }
   }
 }

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
   CAPTION_PAUSE_MS, EMPTY_CAPTIONS, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
-  addTranscriptDelta, closedError, createSpeechGate, createVoiceSession, formatClock, micError, mockFrame,
+  addTranscriptDelta, browserDeps, closedError, createSpeechGate, createVoiceSession, formatClock, micError, mockFrame,
   mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceStateLine,
   type VoiceApi, type VoiceDeps,
 } from './session.ts'
@@ -413,6 +413,35 @@ describe('end()', () => {
     await flush()
     deepStrictEqual(b.api.calls.end, ['sess_1'])
     ok(b.mic.track.stopped)
+  })
+})
+
+describe('browserDeps().onUnload', () => {
+  it("hangs up on pagehide and on main's hang-up (the window closed to the tray), and unsubscribes both", () => {
+    const g = globalThis as { window?: unknown }
+    const had = 'window' in g
+    const prev = g.window
+    const win = new EventTarget() as EventTarget & { tracely?: unknown }
+    let hangUp: (() => void) | null = null
+    win.tracely = { voice: { onHangUp: (cb: () => void) => { hangUp = cb; return () => { hangUp = null } } } }
+    g.window = win
+    try {
+      let calls = 0
+      const off = browserDeps().onUnload(() => { calls++ })
+      win.dispatchEvent(new Event('pagehide'))
+      hangUp!()
+      strictEqual(calls, 2)
+      off()
+      strictEqual(hangUp, null)
+      win.dispatchEvent(new Event('pagehide'))
+      strictEqual(calls, 2)
+      // No desktop bridge (web, preview): pagehide alone, no throw.
+      win.tracely = undefined
+      browserDeps().onUnload(() => { calls++ })()
+    } finally {
+      if (had) g.window = prev
+      else delete g.window
+    }
   })
 })
 
