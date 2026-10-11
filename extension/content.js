@@ -3091,6 +3091,10 @@
       if (card.dataset.card === focusCard) continue;
       card.classList.add("shut");
       card.tabIndex = 0;
+      // A Tab stop that opens something: announced as a button, by its title
+      // (aria-expanded is ignored on a role-less div).
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", card.querySelector?.(".ctitle")?.textContent ?? "");
       const open = (e) => {
         if (e.target.closest?.("button, a, input")) return; // its ✕ still dismisses
         focusCard = card.dataset.card;
@@ -3110,7 +3114,7 @@
         if (!card) return;
         focusCard = card.dataset.card;
         rerender();
-        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
+        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: markReducedMotion() ? "auto" : "smooth" }); } catch { /* old engine */ }
       });
     }
     wireDrag(shadow);
@@ -5601,6 +5605,9 @@
       if (!disabled) {
         b.addEventListener("mouseenter", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
         b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : "#fff"; });
+        // Pressed is a step past hover, like the panel's button.act (.04 → .08).
+        b.addEventListener("mousedown", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.08)"; });
+        b.addEventListener("mouseup", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
       }
       return b;
     }
@@ -5620,8 +5627,10 @@
       return b;
     }
     function dmBlock(label, ...kids) {
-      const b = el("div", { width: "100%", boxSizing: "border-box", background: DM.blockBg, borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
-      if (label) b.appendChild(el("div", { fontSize: "11px", fontWeight: "600", lineHeight: "16px", color: DM.body, letterSpacing: ".04em", textTransform: "uppercase" }, label));
+      // The inset recipe, as the panel's .fix and the editor's .docmark-block
+      // draw it: surface-2 on a 1px border, radius 8, the label in label grey.
+      const b = el("div", { width: "100%", boxSizing: "border-box", background: APP.surface2, border: `1px solid ${APP.border}`, borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px", flex: "0 0 auto" });
+      if (label) b.appendChild(el("div", { fontSize: "11px", fontWeight: "600", lineHeight: "16px", color: APP.label, letterSpacing: ".04em", textTransform: "uppercase" }, label));
       for (const k of kids) if (k) b.appendChild(k);
       return b;
     }
@@ -5924,7 +5933,7 @@
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
-      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: APP.shadowCard, boxSizing: "border-box", width: "100%", overflow: "hidden", lineHeight: "1.4" });
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: `2px solid ${DM.ink}`, borderRadius: "16px", padding: "16px", boxShadow: APP.shadowLg, boxSizing: "border-box", width: "100%", overflow: "hidden", lineHeight: "1.4" });
       /* Inline styles cannot say :focus-visible or :disabled, so the card's
          one stylesheet does, once, from APP: the ink ring every finding
          surface shows on a keyboard stop, the accent ring on the page box,
@@ -6293,8 +6302,10 @@
         // The fix card: what the check found, the revision, Apply / Back.
         put(dmHead(color, fixTitle(f.verdict)));
         put(dmBody(f.verdict === "questionable" ? POP_COPY.fixRuleNarrow : POP_COPY.fixRule));
-        if (f.basis) put(dmIssue(POP_COPY.foundLabel, f.basis));
-        else if (f.explanation) put(dmIssue(POP_COPY.foundLabel, f.explanation));
+        // An inset with the uppercase label, like SUGGESTED REVISION below it
+        // (dmBlock's label upper-cases it; the copy string is unchanged).
+        if (f.basis) put(dmBlock(POP_COPY.foundLabel, dmBody(f.basis)));
+        else if (f.explanation) put(dmBlock(POP_COPY.foundLabel, dmBody(f.explanation)));
         put(paintDeep(hash, f));
         if (hasRevision) put(dmBlock(POP_COPY.revisionLabel, dmQuote(f.revision)));
         const applying = fixState === "applying";
@@ -6390,7 +6401,7 @@
         // card's (docFix, one Undo), or copied where the doc cannot be edited.
         const col = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
         col.appendChild(w);
-        if (v.basis) col.appendChild(dmIssue("What it rests on", v.basis));
+        if (v.basis) col.appendChild(dmBlock("What it rests on", dmBody(v.basis)));
         if (v.revision) {
           const own = Boolean(f.revision) && f.verdict !== "needs_citation";
           col.appendChild(dmBlock("IN-DEPTH REVISION", dmQuote(v.revision)));
