@@ -198,9 +198,12 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   (db.js migration v4) until charged, and boot re-attaches to leftovers
   (`resumeOpenSessions`) — "crash the server to reset the meter" is not a
   way out (`DEPLOY.md`).
-- **Client-mode delegation** (`delegation: null`): when the model asks for
-  help, the sideband answers with `session.thinking.append` ("no lookup tool")
-  so it never waits on a tool that doesn't exist.
+- **Client-mode delegation** (no `delegation` key at all; OpenAI 400s
+  `delegation: null`): when the model hands off a lookup
+  (`session.delegation.created`, ~1 call in 3), the sideband answers at once
+  with `session.commentary.append` + DELEGATION_REPLY.
+  `session.thinking.append` is background context only and left the model
+  silent until the cap (measured live 2026-10-10).
 - **Testing**: `test/voice.test.js` (in process, fake fetch/WebSocket) and
   `test/voice-routes.test.js` (a real server.js; `test/helpers/voice-harness.js`
   preloads stubs for the create call and the sideband, scripted per call by an

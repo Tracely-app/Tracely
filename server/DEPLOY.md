@@ -462,11 +462,13 @@ What the privacy policy (PRIVACY.md) promises, and where it is enforced:
   lib/billing.js `deleteSupabaseUser`). Refused (409) while a paid plan is
   active — the subscription is Stripe's to end. The options page offers it.
 - **Application log** (`/var/log/tracely.log`): route, kind, status, model —
-  never text, emails, tokens or IPs.
+  never text, emails, tokens or IPs. Rotate it: there is no logrotate entry
+  yet (Apache's own logs rotate daily, 14 kept).
 - **Voice conversations**: nothing but the `voice_seconds` and app-pool
   counters above (voice is not added to `account_ucents`), and while a call
   is open its `voice_open` row (session id, caller id, start time, cap),
-  deleted when the call is charged. Audio and transcripts reach the server only as
-  sideband frames it reads for usage and drops (lib/voice.js); one log line
-  per call, `voice session ended reason=… seconds=…`, with no id. Rotate it: there is no logrotate entry
-  yet (Apache's own logs rotate daily, 14 kept).
+  deleted when the call is charged. Audio and transcripts reach the server
+  only as sideband frames: it reads usage, lookup requests and the
+  student's words (a 500-character safety window in memory, never logged)
+  and drops the rest (lib/voice.js); one log line per call, `voice session
+  ended reason=… seconds=…`, with no id.
