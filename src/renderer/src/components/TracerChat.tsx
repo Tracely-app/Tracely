@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { TracerMessage } from '@shared/types'
 import { parseTracerReply, type TracerRewrite } from '@shared/tracerRewrite'
 import { planRank } from '@shared/plan'
 import { tracelyApi, TracelyApiError } from '../lib/api'
 import { usePlan } from '../lib/plan'
 import tracerBadge from '../assets/tracer-badge.png'
+import { formatClock } from '../voice/session'
 import { WaveformIcon } from './icons'
 import VoiceMode from './voice/VoiceMode'
 
@@ -20,6 +21,34 @@ import VoiceMode from './voice/VoiceMode'
  * document context. What is not: nothing. The panel sends `tracer:send` and
  * renders what comes back.
  */
+
+/**
+ * Where each saved voice call starts in the chat: first message id → who and
+ * how long. Drawn as a divider by the panel only — the stored messages stay
+ * plain, because they are re-sent to the model as history. Per device, like
+ * the conversation; a convenience, so blocked storage just means no dividers.
+ */
+const VOICE_MARKERS_KEY = 'tracely.voice.markers'
+const VOICE_MARKERS_KEPT = 100
+type VoiceMarkers = Record<string, { voice: string; seconds: number }>
+
+function readVoiceMarkers(): VoiceMarkers {
+  try {
+    const raw = localStorage.getItem(VOICE_MARKERS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? (parsed as VoiceMarkers) : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeVoiceMarkers(markers: VoiceMarkers): void {
+  try {
+    localStorage.setItem(VOICE_MARKERS_KEY, JSON.stringify(markers))
+  } catch {
+    /* storage blocked: no dividers next time */
+  }
+}
 
 /** Local ids for the two messages that exist only on screen. */
 const PENDING_ID = '__pending__'
@@ -67,6 +96,9 @@ export default function TracerChat({
   // Everything above stays mounted, so a typed question, an Apply offer and
   // the conversation are all where they were when the chat comes back.
   const [voiceOpen, setVoiceOpen] = useState(false)
+  const [voiceMarkers, setVoiceMarkers] = useState<VoiceMarkers>(readVoiceMarkers)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -170,6 +202,26 @@ export default function TracerChat({
       if (el) el.scrollTop = el.scrollHeight
     })
   }
+  // A call's transcript was just saved: read the conversation back (the log
+  // is hidden behind the voice view, but it's current when the chat returns)
+  // and mark where the call's messages begin.
+  function markVoiceCall(call: { voiceName: string; seconds: number }): void {
+    if (!conversationId) return
+    const before = new Set(messagesRef.current.map((m) => m.id))
+    tracelyApi
+      .getTracerConversation(conversationId)
+      .then((res) => {
+        setMessages(res.messages)
+        const first = res.messages.find((m) => !before.has(m.id))
+        if (!first) return
+        const next: VoiceMarkers = { ...readVoiceMarkers(), [first.id]: { voice: call.voiceName, seconds: call.seconds } }
+        const ids = Object.keys(next)
+        for (const id of ids.slice(0, Math.max(0, ids.length - VOICE_MARKERS_KEPT))) delete next[id]
+        writeVoiceMarkers(next)
+        setVoiceMarkers(next)
+      })
+      .catch(() => {})
+  }
   const talkDisabled = !serverConfigured || conversationId === null
   // Voice is Pro-only; the tooltips say so before the click (VoiceMode then
   // explains, and the server decides).
@@ -206,7 +258,7 @@ export default function TracerChat({
       </header>
 
       {voiceOpen ? (
-        <VoiceMode conversationId={conversationId} onExit={closeVoice} />
+        <VoiceMode conversationId={conversationId} onExit={closeVoice} onTranscriptSaved={markVoiceCall} />
       ) : (
       <>
       <div className="tracer-log" ref={scrollRef}>
@@ -218,54 +270,62 @@ export default function TracerChat({
             ? parseTracerReply(m.content)
             : { prose: m.content, rewrite: null }
           const state = applied[m.id]
+          const voiceCall = voiceMarkers[m.id]
           return (
-            <div key={m.id} className="tracer-turn">
-              <p className={`tracer-msg ${m.role === 'user' ? 'from-user' : 'from-tracer'}`}>
-                {prose}
-              </p>
-              {rewrite && onApplyRewrite ? (
-                <div className="tracer-rewrite">
-                  <b>Suggested rewrite</b>
-                  <p className="tracer-rewrite-was">{rewrite.find}</p>
-                  <p className="tracer-rewrite-now">{rewrite.replace}</p>
-                  {state === 'done' ? (
-                    <span className="tracer-rewrite-done">
-                      Applied — Ctrl+Z undoes it.
-                    </span>
-                  ) : state === 'missing' ? (
-                    <span className="tracer-rewrite-gone">
-                      That sentence is not in the document any more — nothing was changed.
-                    </span>
-                  ) : state === 'dismissed' ? (
-                    <span className="tracer-rewrite-gone">Dismissed.</span>
-                  ) : (
-                    <div className="tracer-rewrite-actions">
-                      <button
-                        className="tracer-apply"
-                        onClick={() => {
-                          // The edit runs HERE, not inside the state updater.
-                          // React invokes an updater twice under StrictMode, so
-                          // the second call re-ran the rewrite against a
-                          // document that had already taken it: the text was
-                          // correct and the card said "that sentence is not in
-                          // the document any more". Caught in the harness.
-                          const landed = onApplyRewrite(rewrite)
-                          setApplied((prev) => ({ ...prev, [m.id]: landed ? 'done' : 'missing' }))
-                        }}
-                      >
-                        Apply
-                      </button>
-                      <button
-                        className="tracer-dismiss"
-                        onClick={() => setApplied((prev) => ({ ...prev, [m.id]: 'dismissed' }))}
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  )}
-                </div>
+            <Fragment key={m.id}>
+              {voiceCall ? (
+                <p className="tracer-voice-divider">
+                  Voice call with {voiceCall.voice} · {formatClock(voiceCall.seconds)}
+                </p>
               ) : null}
-            </div>
+              <div className="tracer-turn">
+                <p className={`tracer-msg ${m.role === 'user' ? 'from-user' : 'from-tracer'}`}>
+                  {prose}
+                </p>
+                {rewrite && onApplyRewrite ? (
+                  <div className="tracer-rewrite">
+                    <b>Suggested rewrite</b>
+                    <p className="tracer-rewrite-was">{rewrite.find}</p>
+                    <p className="tracer-rewrite-now">{rewrite.replace}</p>
+                    {state === 'done' ? (
+                      <span className="tracer-rewrite-done">
+                        Applied — Ctrl+Z undoes it.
+                      </span>
+                    ) : state === 'missing' ? (
+                      <span className="tracer-rewrite-gone">
+                        That sentence is not in the document any more — nothing was changed.
+                      </span>
+                    ) : state === 'dismissed' ? (
+                      <span className="tracer-rewrite-gone">Dismissed.</span>
+                    ) : (
+                      <div className="tracer-rewrite-actions">
+                        <button
+                          className="tracer-apply"
+                          onClick={() => {
+                            // The edit runs HERE, not inside the state updater.
+                            // React invokes an updater twice under StrictMode, so
+                            // the second call re-ran the rewrite against a
+                            // document that had already taken it: the text was
+                            // correct and the card said "that sentence is not in
+                            // the document any more". Caught in the harness.
+                            const landed = onApplyRewrite(rewrite)
+                            setApplied((prev) => ({ ...prev, [m.id]: landed ? 'done' : 'missing' }))
+                          }}
+                        >
+                          Apply
+                        </button>
+                        <button
+                          className="tracer-dismiss"
+                          onClick={() => setApplied((prev) => ({ ...prev, [m.id]: 'dismissed' }))}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </Fragment>
           )
         })}
         {sending ? (

@@ -69,12 +69,15 @@ interface VoicePrefs {
 
 export default function VoiceMode({
   conversationId,
-  onExit
+  onExit,
+  onTranscriptSaved
 }: {
   /** The conversation the panel shows; a saved transcript is added to it. */
   conversationId: string | null
   /** Back to the chat; `transcriptSaved` tells the panel to re-read the conversation. */
   onExit: (transcriptSaved: boolean) => void
+  /** Once per call whose transcript was saved: who it was with and how long, for the chat's divider. */
+  onTranscriptSaved?: (call: { voiceName: string; seconds: number }) => void
 }): JSX.Element {
   const [prefs, setPrefs] = useState<VoicePrefs | null>(null)
   useEffect(() => {
@@ -165,9 +168,19 @@ export default function VoiceMode({
   // that fails, makes a new engine and clears call.result — but the earlier
   // transcript is still in the chat, which has to re-read to show it.
   const savedAny = useRef(false)
+  const reported = useRef<typeof call.result>(null)
+  const onSavedRef = useRef(onTranscriptSaved)
+  onSavedRef.current = onTranscriptSaved
   useEffect(() => {
-    if (call.result?.transcriptSaved) savedAny.current = true
-  }, [call.result])
+    const r = call.result
+    if (!r?.transcriptSaved) return
+    savedAny.current = true
+    if (reported.current === r) return
+    reported.current = r
+    // Reported when the result lands, while the voice is still the call's own
+    // (picking another clears the result first; `reported` guards a re-run).
+    onSavedRef.current?.({ voiceName: persona.name, seconds: r.seconds })
+  }, [call.result, persona.name])
   const exit = (): void => onExit(saved || savedAny.current)
   useEffect(() => {
     if (snap.state !== 'ended' || !endedByStudent.current || !call.result || stayOpen) return

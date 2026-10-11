@@ -516,6 +516,27 @@
   box-shadow: 0 0 0 3px var(--ring);
 }
 
+/* Where a saved voice call starts in the chat log: a centred label between
+   hairlines, drawn by the panel only (the stored messages stay plain). */
+.tracer-voice-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-align: center;
+}
+.tracer-voice-divider::before,
+.tracer-voice-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 /* In the orange header: the close button's recipe. */
 .tracer-head-talk {
   flex-shrink: 0;
