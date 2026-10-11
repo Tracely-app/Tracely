@@ -17,7 +17,7 @@ export default function VoicePicker({
   onChange: (id: VoiceId) => void
   onClose: () => void
 }): JSX.Element {
-  const listRef = useRef<HTMLFieldSetElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   // A pointer pick chooses and closes; arrow keys only move the choice.
   const pointerPick = useRef(false)
   useEffect(() => {
@@ -27,9 +27,11 @@ export default function VoicePicker({
   return (
     <>
       <div className="voice-picker-scrim" onMouseDown={onClose} />
-      <fieldset
+      <div
         ref={listRef}
         className="voice-picker"
+        role="radiogroup"
+        aria-labelledby="voice-picker-title"
         onKeyDown={(e) => {
           if (e.key === 'Escape' || e.key === 'Enter') {
             e.preventDefault()
@@ -38,7 +40,9 @@ export default function VoicePicker({
           }
         }}
       >
-        <legend>Choose a voice</legend>
+        <p id="voice-picker-title" className="voice-picker-title">
+          Choose a voice
+        </p>
         {VOICES.map((v) => {
           const selected = v.id === value
           return (
@@ -79,7 +83,7 @@ export default function VoicePicker({
             </label>
           )
         })}
-      </fieldset>
+      </div>
     </>
   )
 }

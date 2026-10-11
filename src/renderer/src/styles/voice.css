@@ -42,7 +42,10 @@
 
 /* ── The persona chip ─────────────────────────────────────────────────── */
 
+/* Above the consent sheet's scrim: the voice can be changed before the first call. */
 .voice-top {
+  position: relative;
+  z-index: 4;
   display: flex;
   justify-content: center;
   flex-shrink: 0;
@@ -360,7 +363,8 @@
   transform: translateX(-50%);
   animation: voice-pop 0.16s var(--vm-ease);
 }
-.voice-picker legend {
+.voice-picker-title {
+  margin: 0;
   padding: 6px 10px 4px;
   font-size: 10px;
   font-weight: 500;
