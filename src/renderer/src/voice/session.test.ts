@@ -343,10 +343,26 @@ describe('end()', () => {
     ok(r.peer.channel!.closed)
     strictEqual(r.engine.getSnapshot().state, 'ended')
     ok(r.engine.getSnapshot().captions.every((c) => c.final))
-    deepStrictEqual(r.engine.result(), { seconds: 65, transcriptSaved: true })
-    deepStrictEqual(await r.engine.settled(), { seconds: 65, transcriptSaved: true })
+    // serverSeconds (finding 28) is the server's metered answer to voice:end.
+    deepStrictEqual(r.engine.result(), { seconds: 65, transcriptSaved: true, serverSeconds: 12 })
+    deepStrictEqual(await r.engine.settled(), { seconds: 65, transcriptSaved: true, serverSeconds: 12 })
     deepStrictEqual(r.states.slice(-2), ['ending', 'ended'])
     strictEqual(r.clock.pending(), 0)
+  })
+
+  it("saves the transcript in the same tick as the hang-up, without waiting for the server's answer", async () => {
+    let answerEnd!: (v: { seconds: number }) => void
+    const api = fakeApi({ end: () => new Promise((res) => { answerEnd = res }) })
+    const r = await connected({ api })
+    r.peer.channel!.emit({ type: 'session.input_transcript.delta', delta: 'Keep this.' })
+    const ending = r.engine.end()
+    strictEqual(api.calls.save.length, 1)
+    answerEnd({ seconds: 30 })
+    await ending
+    deepStrictEqual(r.engine.result(), { seconds: 0, transcriptSaved: true, serverSeconds: 30 })
+    const failing = await connected({ api: fakeApi({ end: async () => { throw new Error('offline') } }) })
+    await failing.engine.end()
+    strictEqual(failing.engine.result()?.serverSeconds, null)
   })
 
   it("doesn't save when saving transcripts is off, or when nothing was said", async () => {
@@ -474,7 +490,7 @@ describe('createVoiceSession: unasked endings', () => {
     r.peer.channel!.emit({ type: 'session.closed', reason: 'close_requested' })
     await flush()
     ok(seen.length > 0)
-    for (const res of seen) deepStrictEqual(res, { seconds: 0, transcriptSaved: true })
+    for (const res of seen) deepStrictEqual(res, { seconds: 0, transcriptSaved: true, serverSeconds: 12 })
   })
 
   it('closedError: the daily allowance, a safety filter, a dropped line', () => {

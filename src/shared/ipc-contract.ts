@@ -1327,7 +1327,10 @@ export interface VoiceStartResponse {
 export interface VoiceEndRequest {
   sessionId: string
 }
-/** Seconds the server metered. Idempotent: a second end, or an unknown id, answers 0. */
+/**
+ * Seconds the server metered for the call. Idempotent: a second end answers the
+ * same seconds; an unknown id, or another caller's, answers 0.
+ */
 export interface VoiceEndResponse {
   seconds: number
 }

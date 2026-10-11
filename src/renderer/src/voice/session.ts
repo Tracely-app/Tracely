@@ -137,6 +137,26 @@ export interface VoiceCallResult {
   seconds: number
   /** null: nothing to save, or saving is off; else whether the store took it. */
   transcriptSaved: boolean | null
+  /**
+   * What the server metered and charged against today's allowance (its
+   * voice:end answer), or null when it could not be asked. Prefer it to
+   * `seconds` for "minutes left today".
+   */
+  serverSeconds: number | null
+}
+
+/** fn(), with a synchronous throw turned into a rejection. */
+function attempt<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return fn()
+  } catch (e) {
+    return Promise.reject(e)
+  }
+}
+
+function serverSecondsFrom(r: unknown): number | null {
+  const v = (r as { seconds?: unknown } | null)?.seconds
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null
 }
 
 /** The engine is a VoiceSessionHandle plus a little the UI needs after End. */
@@ -772,18 +792,24 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
       captions
     })
     const id = sessionId
-    if (id) await api.end(id).catch(() => undefined)
-    let transcriptSaved: boolean | null = null
     const turns = transcriptTurns(captions)
     // Not after a safety stop: the transcript may hold what tripped the filter,
     // and a saved one is re-sent as history with the next typed message.
-    if (turns.length > 0 && err?.kind !== 'safety' && options.shouldSaveTranscript?.()) {
-      transcriptSaved = await api
-        .saveTranscript(turns, options.conversationId?.() ?? undefined)
-        .then((r) => r.saved)
-        .catch(() => false)
-    }
-    result = { seconds, transcriptSaved }
+    const save = turns.length > 0 && err?.kind !== 'safety' && options.shouldSaveTranscript?.() === true
+    // Both requests leave in this same tick: the save is local and must not
+    // wait seconds for the server's hang-up, or a quit or reload in between
+    // (the page is going away) loses the transcript.
+    const ended: Promise<number | null> = id
+      ? attempt(() => api.end(id)).then((r) => serverSecondsFrom(r), () => null)
+      : Promise.resolve(null)
+    const saving: Promise<boolean | null> = save
+      ? attempt(() => api.saveTranscript(turns, options.conversationId?.() ?? undefined)).then(
+          (r) => r.saved,
+          () => false
+        )
+      : Promise.resolve(null)
+    const [serverSeconds, transcriptSaved] = await Promise.all([ended, saving])
+    result = { seconds, transcriptSaved, serverSeconds }
     if (!err) update({ state: 'ended' })
     // An error stays the snapshot; tell subscribers once more so the ones
     // that read result() see it now that it exists.
