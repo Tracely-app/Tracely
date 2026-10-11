@@ -229,7 +229,7 @@ export async function callServer<T>(
     // One retry at most, and only for failures where no answer was produced.
     // Anything that is not a ServerCallError (a missing identity provider, say)
     // is a programming error and repeating it would only repeat it.
-    if (!(error instanceof ServerCallError) || !shouldRetry(error)) throw error
+    if (!(error instanceof ServerCallError) || !shouldRetry(error, endpoint)) throw error
     await delay(RETRY_DELAY_MS)
     return await requestOnce<T>(endpoint, headers, payload)
   }

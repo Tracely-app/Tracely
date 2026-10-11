@@ -28,15 +28,27 @@ describe('shouldRetry — only where no answer was produced', () => {
   it('never retries a gateway status whose kind is an answer', () => {
     // Each of these would come back the same — and truncated/refusal/
     // bad_request would pay for the same model call twice.
-    for (const kind of ['truncated', 'refusal', 'bad_request', 'no_key', 'plan_limit', 'budget']) {
+    for (const kind of ['truncated', 'refusal', 'bad_request', 'no_key', 'plan_limit', 'budget', 'voice_off']) {
       for (const status of [502, 503, 504]) {
         strictEqual(shouldRetry({ stage: 'http', status, kind }), false, `${status} ${kind}`)
       }
     }
     deepStrictEqual(
       [...FINAL_KINDS].sort(),
-      ['bad_request', 'budget', 'no_key', 'plan_limit', 'refusal', 'truncated']
+      ['bad_request', 'budget', 'no_key', 'plan_limit', 'refusal', 'truncated', 'voice_off']
     )
+  })
+
+  it('never repeats voice/session, which opens a paid live session each time; voice/end keeps the policy', () => {
+    for (const failure of [
+      { stage: 'network' as const },
+      { stage: 'http' as const, status: 502, kind: 'upstream' },
+      { stage: 'http' as const, status: 503 }
+    ]) {
+      strictEqual(shouldRetry(failure, 'voice/session'), false, JSON.stringify(failure))
+      strictEqual(shouldRetry(failure, 'voice/end'), true, JSON.stringify(failure))
+      strictEqual(shouldRetry(failure, 'tracer'), true, JSON.stringify(failure))
+    }
   })
 
   it('never retries a 429, whatever its kind', () => {

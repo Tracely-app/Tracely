@@ -71,6 +71,8 @@ const RETRYABLE_STATUS = new Set([502, 503, 504])
  *                 client was specified against, and added on purpose: it is a
  *                 503 that clears at midnight, so the retry was certain to fail
  *                 and spent one of the caller's per-minute rate-limit slots.
+ *   voice_off   — voice is switched off on this server (503). Configuration,
+ *                 like no_key.
  */
 export const FINAL_KINDS: ReadonlySet<string> = new Set([
   'truncated',
@@ -78,8 +80,19 @@ export const FINAL_KINDS: ReadonlySet<string> = new Set([
   'bad_request',
   'no_key',
   'plan_limit',
-  'budget'
+  'budget',
+  'voice_off'
 ])
+
+/**
+ * Endpoints never repeated, whatever the failure. voice/session is not
+ * idempotent: each attempt that reaches OpenAI creates a live session the
+ * shared pool pays a set-up for, and a response lost after the server claimed
+ * the account's one line makes the retry a certain 409 voice_busy while the
+ * orphan holds that line. The student's Try again is the retry. (voice/end is
+ * idempotent and keeps the ordinary policy.)
+ */
+export const NO_RETRY_ENDPOINTS: ReadonlySet<string> = new Set(['voice/session'])
 
 /**
  * One more attempt, or give up now?
@@ -95,12 +108,15 @@ export const FINAL_KINDS: ReadonlySet<string> = new Set([
  * So: retry only where no answer was produced — the network dropped the
  * request, or a gateway status whose kind is not one of the FINAL_KINDS.
  *
+ * Some endpoints are never retried at all — see NO_RETRY_ENDPOINTS.
+ *
  * A timeout is not retried either, and that is a choice about money as much as
  * patience: the server is most likely still running the model call it was
  * sent, which is billed whether or not anyone waits for it, and a second
  * request would pay again and hold the user for another full deadline.
  */
-export function shouldRetry(failure: CallFailure): boolean {
+export function shouldRetry(failure: CallFailure, endpoint?: string): boolean {
+  if (endpoint !== undefined && NO_RETRY_ENDPOINTS.has(endpoint)) return false
   switch (failure.stage) {
     case 'network':
       return true
