@@ -3088,7 +3088,9 @@
     if (!cards.some((c) => c.dataset.card === focusCard)) focusCard = cards[0].dataset.card;
     for (const card of cards) {
       card.setAttribute("aria-expanded", String(card.dataset.card === focusCard));
-      if (card.dataset.card === focusCard) continue;
+      // The open card can take focus (not a Tab stop), so a card opened from
+      // the keyboard keeps it through the re-render (restoreFocus).
+      if (card.dataset.card === focusCard) { card.tabIndex = -1; continue; }
       card.classList.add("shut");
       card.tabIndex = 0;
       // A Tab stop that opens something: announced as a button, by its title
@@ -3103,6 +3105,31 @@
       card.addEventListener("click", open);
       card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } });
     }
+  }
+  /* render() rebuilds the panel's markup on every poll and after every click.
+     What the writer was doing survives it: every URL being typed keeps its
+     value, and the focused control (found again by its data hook or id) gets
+     focus back, a text box its caret. Display only — the same handlers run. */
+  const FOCUS_HOOKS = ["urlInput", "pageInput", "copyFix", "sources", "urlAdd", "dismiss", "card", "jump"];
+  const hookAttr = (k) => "data-" + k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+  function snapFocus(shadow) {
+    const values = [...shadow.querySelectorAll("[data-url-input]")].filter((i) => i.value).map((i) => [i.dataset.urlInput, i.value]);
+    const a = shadow.activeElement;
+    if (!a) return { values };
+    const hook = FOCUS_HOOKS.find((k) => a.dataset?.[k] != null) ?? null;
+    return { values, hook, key: hook ? a.dataset[hook] : null, id: hook ? null : a.id || null, caret: typeof a.selectionStart === "number" ? a.selectionStart : null };
+  }
+  function restoreFocus(shadow, snap) {
+    if (!snap) return;
+    for (const [k, v] of snap.values) {
+      const box = [...shadow.querySelectorAll("[data-url-input]")].find((i) => i.dataset.urlInput === k);
+      if (box && !box.value) box.value = v;
+    }
+    const t = snap.hook ? [...shadow.querySelectorAll(`[${hookAttr(snap.hook)}]`)].find((x) => x.dataset[snap.hook] === snap.key)
+      : snap.id ? shadow.getElementById(snap.id) : null;
+    if (!t || shadow.activeElement === t) return;
+    try { t.focus({ preventScroll: true }); } catch { /* detached */ }
+    if (snap.caret != null) { try { t.setSelectionRange(snap.caret, snap.caret); } catch { /* not a text box */ } }
   }
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   function wireChrome(shadow, close, rerender) {
@@ -3877,6 +3904,7 @@
     .src a.src-open:active { background: var(--pressed); }
     .loading { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
     .cite-url { display: flex; gap: 8px; }
+    .cite-url .deep-spin { margin-right: 6px; }
     .cite-url input {
       flex: 1; min-width: 0; height: 32px; padding: 0 10px; font-size: 13px; line-height: 1;
       border: 1px solid var(--border-strong); border-radius: var(--r-btn); outline: none;
@@ -3917,7 +3945,7 @@
        control that is not a text field (those keep the accent ring), the
        list's thin scrollbar, and the one reduced-motion block. */
     .foot .act, .undo-strip .act, .ready-ping .act, .walk-strip .act, .fixes-acts .act, .fx .row .act, .src-actions .act { height: 28px; padding: 0 10px; font-size: 12px; }
-    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
+    button.act:focus-visible, .deep-btn:focus-visible, .chip:focus-visible, .card.shut:focus-visible, .card[aria-expanded="true"]:focus-visible, .launcher:focus-visible, .close:focus-visible, .x:focus-visible, .pill:focus-visible,
     .ev-toggle:focus-visible, .src-unread-toggle:focus-visible, .src a.src-open:focus-visible, .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
     /* The two text links outside the source rows ("See plans" under a locked
        deep dive, the consent foot's privacy link): the same ring, as .src a. */
@@ -4172,6 +4200,8 @@
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
+    const citeUrlBusy = new Set(); // a card's Cite pressed, its request in flight
+    const citeUrlErr = new Map(); // hash → why its pasted URL could not be cited
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
     let lastCheckFailed = false;
@@ -7177,6 +7207,7 @@
     // "Paste a URL and cite it" — free metadata fetch, then cite in the doc if we can.
     async function citeUrlWidget(hash, rawUrl) {
       if (docBusy) return;
+      citeUrlBusy.add(hash); citeUrlErr.delete(hash); render(); // Cite spins until it answers
       try {
         const data = await api("/api/cite-url", { url: rawUrl });
         const src = data.source;
@@ -7192,9 +7223,14 @@
           statusKind = "idle";
           statusMsg = "source added — use Copy cite";
         }
+        const box = shadow.querySelector(`[data-url-input="${CSS.escape(hash)}"]`);
+        if (box) box.value = ""; // cited: the box empties, as it always did
       } catch (e) {
         statusKind = "error";
         statusMsg = e?.message ?? "couldn't cite that URL";
+        citeUrlErr.set(hash, statusMsg); // said under the card's URL box too, as an alert
+      } finally {
+        citeUrlBusy.delete(hash);
       }
       render();
     }
@@ -9658,7 +9694,7 @@
       root.innerHTML = `
         ${expanded ? `
         <div class="panel opening" role="dialog" aria-labelledby="docsConsentTitle">
-          <div class="head" style="cursor:default"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+          <div class="head" style="cursor:default"><span class="grip" aria-hidden="true" style="visibility:hidden">${GRIP_SVG}</span><span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
               <div class="top"><span class="ctitle" id="docsConsentTitle">Check this document with Tracely?</span></div>
@@ -9754,6 +9790,9 @@
         const cards = issues.map(({ seg, f }) => {
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          // Cite pressed and its request in flight; why a pasted URL could not be cited.
+          const citing = typeof citeUrlBusy !== "undefined" && citeUrlBusy.has(seg.hash);
+          const citeErr = typeof citeUrlErr !== "undefined" ? citeUrlErr.get(seg.hash) : null;
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
@@ -9770,12 +9809,12 @@
               <div class="row">
                 ${canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Fix in doc", `data-doc-fix="${seg.hash}"`) : ""}
                 <button class="act${canEditDoc() ? "" : " primary"}" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
+                <button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button>
               </div>
               ${editNoteHtml(`fix:${seg.hash}`)}
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button></div>`}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
+            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy || citing ? " disabled" : ""}${citing ? ' aria-busy="true"' : ""}>${citing ? '<span class="deep-spin" aria-hidden="true"></span>' : ""}Cite</button></div>${citeErr ? `<p class="deep-note err" role="alert">${esc(citeErr)}</p>` : ""}
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
@@ -9816,6 +9855,7 @@
       }
 
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
+      const snap = typeof snapFocus === "function" ? snapFocus(shadow) : null; // (absent from server/test's slices of render)
       // A page number being typed keeps its box and caret through the re-render.
       const typing = shadow.activeElement?.dataset?.pageInput ?? null;
       const caret = typing ? shadow.activeElement.selectionStart : null;
@@ -9834,6 +9874,7 @@
         const box = [...shadow.querySelectorAll("[data-page-input]")].find((i) => i.dataset.pageInput === typing);
         if (box) { box.focus(); try { box.setSelectionRange(caret, caret); } catch { /* not a text box */ } }
       }
+      if (snap) restoreFocus(shadow, snap); // every other control and typed URL (snapFocus)
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
@@ -10123,6 +10164,8 @@
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
     let sourcesInflight = false;
+    const citeUrlBusy = new Set(); // a card's Cite pressed, its request in flight
+    const citeUrlErr = new Map(); // hash → why its pasted URL could not be cited
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // see nextReadGap
     let lastCheckFailed = false;
@@ -10730,6 +10773,9 @@
     }
 
     async function citeUrlWidget(hash, rawUrl) {
+      citeUrlBusy.add(hash);
+      citeUrlErr.delete(hash);
+      render();
       try {
         const data = await api("/api/cite-url", { url: rawUrl });
         const src = data.source;
@@ -10738,11 +10784,16 @@
         st.list = st.list ?? [];
         if (!st.list.some((s) => s.url === src.url)) st.list.unshift(src);
         sourcesMap.set(hash, st);
+        const box = shadow.querySelector(`[data-url-input="${CSS.escape(hash)}"]`);
+        if (box) box.value = "";
         statusKind = "idle";
         statusMsg = "source added — use Copy cite";
       } catch (e) {
         statusKind = "error";
         statusMsg = e?.message ?? "couldn't cite that URL";
+        citeUrlErr.set(hash, statusMsg); // said under the card's URL box too, as an alert
+      } finally {
+        citeUrlBusy.delete(hash);
       }
       render();
     }
@@ -11129,6 +11180,9 @@
         const cards = issues.map(({ seg, f }) => {
           const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          // Cite pressed and its request in flight; why a pasted URL could not be cited.
+          const citing = typeof citeUrlBusy !== "undefined" && citeUrlBusy.has(seg.hash);
+          const citeErr = typeof citeUrlErr !== "undefined" ? citeUrlErr.get(seg.hash) : null;
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
@@ -11145,11 +11199,11 @@
               <div class="row">
                 <button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Fix in field"}</button>
                 <button class="act" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
+                <button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button>
               </div>
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}"${sourcesMap.get(seg.hash)?.loading ? ' disabled aria-busy="true"' : ""}>Find sources</button></div>`}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
+            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${citing ? ' disabled aria-busy="true"' : ""}>${citing ? '<span class="deep-spin" aria-hidden="true"></span>' : ""}Cite</button></div>${citeErr ? `<p class="deep-note err" role="alert">${esc(citeErr)}</p>` : ""}
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
@@ -11191,6 +11245,7 @@
       }
 
       const prevScroll = shadow.querySelector(".list")?.scrollTop ?? 0;
+      const snap = typeof snapFocus === "function" ? snapFocus(shadow) : null; // (absent from server/test's slices of render)
       root.innerHTML = `
         ${panelHtml}
         ${quiet
@@ -11202,6 +11257,7 @@
         for (const card of shadow.querySelectorAll(".card[data-card]")) decorateCard(card, cardSources);
         foldCards(shadow, render);
       }
+      if (snap) restoreFocus(shadow, snap); // the focused control and typed URLs (snapFocus)
       const listEl = shadow.querySelector(".list");
       if (listEl) listEl.scrollTop = prevScroll;
 
