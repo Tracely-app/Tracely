@@ -16,7 +16,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { voiceHarness, fakeSupabase, bootServer, post, readLog, ledger, seedLedger, until } from "./helpers/voice-harness.js";
-import { buildSessionBody, voiceCostMicroCents } from "../lib/voice.js";
 import { VOICE_BASE_PROMPT, VOICE_PERSONAS } from "../lib/voices.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +23,10 @@ const SERVER_JS = path.join(HERE, "..", "server.js");
 const SERVER_SRC = readFileSync(SERVER_JS, "utf8");
 const TMP = mkdtempSync(path.join(tmpdir(), "tracely-voice-routes-"));
 process.on("exit", () => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+// lib/voice.js imports lib/db.js, which opens a database at import time:
+// point this process's at the scratch dir, never server/data.
+process.env.TRACELY_DATA_DIR = mkdtempSync(path.join(TMP, "self-"));
+const { buildSessionBody, voiceCostMicroCents } = await import("../lib/voice.js");
 const H = voiceHarness(TMP);
 const KEY = "sk-test-not-a-real-key";
 const sha = (s) => createHash("sha256").update(s).digest("hex");
