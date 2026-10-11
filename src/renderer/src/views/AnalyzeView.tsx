@@ -586,6 +586,9 @@ function DocumentEditor({
     // current value so an already-stale outline does not re-render per
     // keystroke.
     setOutlineStale((wasStale) => wasStale || outlineRef.current !== null)
+    // Typing is the writer saying they have finished looking at where "Show me"
+    // landed — and a band over the words they are editing is in the way.
+    clearFlash()
     // Every keystroke reflows the text the marks were measured against.
     setMeasureTick((n) => n + 1)
     setTextTick((n) => n + 1)
@@ -964,12 +967,38 @@ function DocumentEditor({
     ])
   }
 
+  /**
+   * Holds the "Show me" highlight until the writer does something else.
+   *
+   * It used to fade after 1.4s, and that is not long enough to be useful:
+   * "Show me" is pressed from a full-screen modal, so the writer arrives on a
+   * document they have not been looking at, has to find where the page jumped
+   * to, and by then the band has gone. Owner, 2026-08-22: *"it just highlights
+   * for a split second before disappearing."*
+   *
+   * So the timer is a BACKSTOP (8s) rather than the mechanism. What normally
+   * clears it is the writer's next action — a click or a keystroke in the
+   * editor — which is both the moment they have finished looking and the moment
+   * a persistent band would start being in the way. `clearFlash` is wired into
+   * the editor's own input and pointer handlers.
+   *
+   * Restored 2026-10-06. It went missing in the #199 merge, which put the
+   * 1.5s fade back while the stylesheet kept describing this — so the band was
+   * gone again before anyone arriving from the report had found the page.
+   */
   function flashRects(rects: MarkRect[]): void {
     setFlash(rects)
     if (flashTimer.current) clearTimeout(flashTimer.current)
-    // Matches the CSS animation's duration, so the nodes leave the tree once
-    // they have finished fading rather than sitting there invisible.
-    flashTimer.current = setTimeout(() => setFlash([]), 1500)
+    flashTimer.current = setTimeout(() => setFlash([]), 8000)
+  }
+
+  /** Dismisses the "Show me" band. Safe to call when nothing is showing. */
+  function clearFlash(): void {
+    if (flashTimer.current) {
+      clearTimeout(flashTimer.current)
+      flashTimer.current = null
+    }
+    setFlash((prev) => (prev.length === 0 ? prev : []))
   }
 
   /**
@@ -2566,6 +2595,10 @@ function DocumentEditor({
           suppressContentEditableWarning
           data-placeholder="Start typing…"
           onInput={handleInput}
+          // Clicking into the page is the other way a writer says they are done
+          // looking at where "Show me" landed. Pointer-down rather than click,
+          // so the band goes the instant the caret moves.
+          onPointerDown={clearFlash}
         />
         {/*
           Drawn after the body so it paints over the text, but the layer and
