@@ -475,6 +475,17 @@
 .voice-option-selected { background: var(--accent-wash); }
 .voice-option-selected:hover { background: var(--accent-wash); }
 .voice-option-selected .voice-option-check { opacity: 1; }
+/* Each row: the choice, and a ▶ to hear it (Settings' preview recipe), which
+   sits over the row's right edge so the row stays one click target. */
+.voice-option-row { position: relative; }
+.voice-option-row .voice-option { padding-right: 50px; }
+.voice-option-row .voice-preview {
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: var(--vm-raised);
+}
+.voice-option-row .voice-preview[aria-pressed='true'] { background: var(--accent); }
 
 /* ── Entry points in TracerChat ───────────────────────────────────────── */
 

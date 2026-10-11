@@ -413,6 +413,7 @@ export default function VoiceMode({
             savePrefs({ voiceId: id })
           }}
           onClose={closePicker}
+          onCloseWithoutFocus={() => setPickerOpen(false)}
         />
       ) : null}
 

@@ -47,17 +47,11 @@ import {
   type ModelTier
 } from '@shared/plan'
 import { applyTheme } from '../lib/theme'
-import { VOICES, voiceById, type VoiceId } from '@shared/voices'
+import { VOICES, voiceById } from '@shared/voices'
 import { WaveformIcon, PlayIcon, PauseIcon } from '../components/icons'
 import { VOICE_DISCLOSURE, VOICE_PRIVACY_URL } from '../components/voice/VoiceConsent'
 import { readVoiceRemaining } from '../voice/useVoiceSession'
-import lindenClip from '../assets/voices/linden.mp3'
-import atlasClip from '../assets/voices/atlas.mp3'
-import wrenClip from '../assets/voices/wren.mp3'
-import roryClip from '../assets/voices/rory.mp3'
-import kipClip from '../assets/voices/kip.mp3'
-import hollisClip from '../assets/voices/hollis.mp3'
-import sterlingClip from '../assets/voices/sterling.mp3'
+import { useVoicePreview } from '../components/voice/voiceClips'
 import '../styles/voice.css'
 import { applyAccentColor, applyDensity, applyFontSize } from '../lib/appearance'
 import type { Tab } from '../App'
@@ -1024,17 +1018,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
   )
 }
 
-/** Each persona's recorded preview (gpt-live-1, about ten seconds). */
-const VOICE_CLIPS: Record<VoiceId, string> = {
-  linden: lindenClip,
-  atlas: atlasClip,
-  wren: wrenClip,
-  rory: roryClip,
-  kip: kipClip,
-  hollis: hollisClip,
-  sterling: sterlingClip
-}
-
 /**
  * Settings → Voice: which persona Tracer talks in (a card each, with a
  * recorded preview, one playing at a time), live captions, saving
@@ -1050,33 +1033,8 @@ function VoicePane({
 }): JSX.Element {
   const selected = voiceById(settings.voiceId).id
   const needsPro = planRank(usePlan()) < planRank('pro')
-  const [playing, setPlaying] = useState<VoiceId | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const { playing, toggle: togglePreview } = useVoicePreview()
   const remaining = readVoiceRemaining()
-
-  useEffect(
-    () => () => {
-      audioRef.current?.pause()
-      audioRef.current = null
-    },
-    []
-  )
-
-  function togglePreview(id: VoiceId): void {
-    const audio = (audioRef.current ??= new Audio())
-    if (playing === id) {
-      audio.pause()
-      setPlaying(null)
-      return
-    }
-    audio.pause()
-    audio.src = VOICE_CLIPS[id]
-    audio.currentTime = 0
-    audio.onended = () => setPlaying(null)
-    audio.onerror = () => setPlaying(null)
-    setPlaying(id)
-    void audio.play().catch(() => setPlaying(null))
-  }
 
   return (
     <div key="voice" className="settings-panel-content">
