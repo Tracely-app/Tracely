@@ -142,6 +142,8 @@ export interface ErrorEnvelope {
   kind?: string
   /** Seconds, when the server says how long to wait. */
   retryAfter?: number
+  /** When a quota lifts (ISO-8601), when the server says — voice_daily / voice_monthly. */
+  resetAt?: string
 }
 
 /**
@@ -165,6 +167,7 @@ export function readErrorEnvelope(body: unknown, status: number): ErrorEnvelope 
     if (typeof error.retryAfter === 'number' && Number.isFinite(error.retryAfter)) {
       envelope.retryAfter = error.retryAfter
     }
+    if (typeof error.resetAt === 'string' && error.resetAt) envelope.resetAt = error.resetAt
   }
   return envelope
 }

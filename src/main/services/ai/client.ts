@@ -54,14 +54,17 @@ export class ServerCallError extends Error implements CallFailure {
   readonly kind?: string
   /** Seconds, when the server said how long to wait. */
   readonly retryAfter?: number
+  /** When a quota lifts (ISO-8601), when the server said — the voice limits read it. */
+  readonly resetAt?: string
 
-  constructor(message: string, failure: CallFailure & { retryAfter?: number }) {
+  constructor(message: string, failure: CallFailure & { retryAfter?: number; resetAt?: string }) {
     super(message)
     this.name = 'ServerCallError'
     this.stage = failure.stage
     this.status = failure.status
     this.kind = failure.kind
     this.retryAfter = failure.retryAfter
+    this.resetAt = failure.resetAt
   }
 }
 
@@ -158,8 +161,8 @@ async function requestOnce<T>(endpoint: Endpoint, headers: Record<string, string
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ error: response.statusText }))
-    const { message, kind, retryAfter } = readErrorEnvelope(errorBody, response.status)
-    throw new ServerCallError(message, { stage: 'http', status: response.status, kind, retryAfter })
+    const { message, kind, retryAfter, resetAt } = readErrorEnvelope(errorBody, response.status)
+    throw new ServerCallError(message, { stage: 'http', status: response.status, kind, retryAfter, resetAt })
   }
 
   // Past this line the server has done the work and been paid for it, so no
@@ -209,7 +212,8 @@ export async function callServer<T>(
     | 'find-sources'
     | 'verify-sources'
     | 'voice/session'
-    | 'voice/end',
+    | 'voice/end'
+    | 'voice/eligibility',
   body: Record<string, unknown>,
   options: { model?: ServerModel } = {}
 ): Promise<T> {
