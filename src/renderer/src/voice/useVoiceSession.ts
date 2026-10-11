@@ -10,7 +10,6 @@
  * call (one live call per account — a second would be refused as busy).
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { VOICE_MIN_BILLED_SECONDS } from '@shared/voicePolicy'
 import type { VoiceId } from '@shared/voices'
 import { tracelyApi } from '../lib/api'
 import { createVoiceSession, type VoiceCallResult, type VoiceEngine } from './session'
@@ -118,36 +117,7 @@ export function useVoiceSession(voiceId: VoiceId, options: UseVoiceSessionOption
   return { snapshot, start, end, setMuted, restart, result }
 }
 
-// ── Today's voice minutes, as last seen ─────────────────────────────────────
-// The server tells the app what is left only when a call starts. Settings
-// shows the figure from the latest call, kept per local day in this
-// renderer's storage (the server counts days the same way, by calendar date),
-// and nothing once the day has turned over. A convenience, not a ledger.
-
-const REMAINING_KEY = 'tracely.voice.remainingToday'
-
-function localDay(at: Date): string {
-  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
-}
-
-/** After a call: what was left when it started, less what it used. */
-export function rememberVoiceRemaining(remainingAtStartSec: number, talkedSec: number, at = new Date()): void {
-  const seconds = Math.max(0, Math.round(remainingAtStartSec - Math.max(talkedSec, VOICE_MIN_BILLED_SECONDS)))
-  try {
-    localStorage.setItem(REMAINING_KEY, JSON.stringify({ day: localDay(at), seconds }))
-  } catch {
-    /* storage blocked: Settings just won't show the figure */
-  }
-}
-
-/** Seconds of voice left today as last seen, or null when unknown (no call today). */
-export function readVoiceRemaining(at = new Date()): number | null {
-  try {
-    const raw = localStorage.getItem(REMAINING_KEY)
-    if (!raw) return null
-    const v = JSON.parse(raw) as { day?: unknown; seconds?: unknown }
-    return v.day === localDay(at) && typeof v.seconds === 'number' ? v.seconds : null
-  } catch {
-    return null
-  }
-}
+// ── Voice minutes, as last seen ─────────────────────────────────────────────
+// Kept with the moment each figure lapses (the server's resetAt for today, the
+// 1st for the month); voice/remaining.ts. Re-exported for the views.
+export { readVoiceAllowance, readVoiceRemaining, rememberVoiceAllowance, rememberVoiceRemaining } from './remaining'
