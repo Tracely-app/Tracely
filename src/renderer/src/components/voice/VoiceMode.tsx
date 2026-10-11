@@ -37,6 +37,19 @@ const IN_CALL: readonly VoiceState[] = ['requesting-mic', 'connecting', ...LIVE]
 /** States in which the persona can still be changed: nothing is connected. */
 const UNLOCKED: readonly VoiceState[] = ['idle', 'ended', 'error']
 
+/**
+ * The system pane where microphone access is switched back on, or null where
+ * there's no such link (the engine's platform test, kept here because the UI
+ * owns the button). macOS never asks twice after a denial, so this is the
+ * student's only way back.
+ */
+function micSettingsUrl(): string | null {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
+  if (/Mac/i.test(ua)) return 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+  if (/Windows/i.test(ua)) return 'ms-settings:privacy-microphone'
+  return null
+}
+
 interface VoicePrefs {
   voiceId: VoiceId
   captions: boolean
@@ -163,6 +176,26 @@ export default function VoiceMode({
     endedByStudent.current = false
     setStayOpen(false)
     call.restart()
+  }
+
+  // Microphone denied: open the system pane, and try once more when the
+  // student comes back to the window (after switching access on there).
+  const retryOnFocus = useRef<(() => void) | null>(null)
+  useEffect(
+    () => () => {
+      if (retryOnFocus.current) window.removeEventListener('focus', retryOnFocus.current)
+    },
+    []
+  )
+  function openMicSettings(url: string): void {
+    void tracelyApi.openExternal(url).catch(() => undefined)
+    if (retryOnFocus.current) window.removeEventListener('focus', retryOnFocus.current)
+    const onFocus = (): void => {
+      retryOnFocus.current = null
+      retry()
+    }
+    retryOnFocus.current = onFocus
+    window.addEventListener('focus', onFocus, { once: true })
   }
 
   // The orb is sized to its band, so a short or zoomed window shrinks it
@@ -305,6 +338,7 @@ export default function VoiceMode({
     // today's allowance (not the per-call cap) has nothing left to retry with.
     const dailyBound = snap.remainingTodaySec !== null && snap.remainingTodaySec <= snap.maxSec
     const canRetry = kind !== 'plan' && kind !== 'daily-limit' && !(kind === 'ended-by-limit' && dailyBound)
+    const settingsUrl = kind === 'mic-denied' ? micSettingsUrl() : null
     notice = (
       <div className="voice-notice">
         <p>{snap.error.message}</p>
@@ -314,6 +348,10 @@ export default function VoiceMode({
           {back}
           {kind === 'plan' ? (
             seePro
+          ) : settingsUrl ? (
+            <Button variant="primary" onClick={() => openMicSettings(settingsUrl)}>
+              Open Settings
+            </Button>
           ) : canRetry ? (
             <Button variant="primary" onClick={retry}>
               {kind === 'ended-by-limit' ? 'New call' : 'Try again'}
