@@ -1011,6 +1011,16 @@ textarea:disabled {
   mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
 }
 
+.docedit-tools[data-overflow-start] {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px);
+  mask-image: linear-gradient(to right, transparent, black 16px);
+}
+
+.docedit-tools[data-overflow][data-overflow-start] {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+}
+
 /* Below 1180px the decorative document glyph goes, and "Saved" collapses to
    its check (the word stays in the live region for screen readers), so the
    formatting buttons keep their room. */

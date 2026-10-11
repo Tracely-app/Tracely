@@ -3063,12 +3063,12 @@ type HoverTarget =
   | { kind: 'claim'; hit: { mark: DocumentMark; rect: MarkRect } }
   | { kind: 'prose'; hit: { mark: ProseMark; rect: MarkRect } }
 
-/** Sets `data-overflow` on the toolbar's formatting group while controls sit
- *  past its right edge. Display only. */
+/** Sets `data-overflow` / `data-overflow-start` on the toolbar's formatting
+ *  group while controls sit past its right / left edge. Display only. */
 function markToolsOverflow(el: HTMLElement): void {
   const more = el.scrollWidth > el.clientWidth + el.scrollLeft + 1
-  if (more) el.setAttribute('data-overflow', '')
-  else el.removeAttribute('data-overflow')
+  el.toggleAttribute('data-overflow', more)
+  el.toggleAttribute('data-overflow-start', el.scrollLeft > 1)
 }
 
 function hoverTargetKey(t: HoverTarget): string {
