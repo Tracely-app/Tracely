@@ -154,6 +154,23 @@ function attempt<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * A data-channel frame as text. Chrome delivers binary SCTP messages as an
+ * ArrayBuffer (binaryType defaults to 'arraybuffer'), and String() of one is
+ * "[object ArrayBuffer]" — session.started sent that way would be lost and
+ * the call would time out as a network error.
+ */
+export function frameText(data: unknown): string | null {
+  if (typeof data === 'string') return data
+  try {
+    if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
+    if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data)
+  } catch {
+    return null
+  }
+  return null
+}
+
 function serverSecondsFrom(r: unknown): number | null {
   const v = (r as { seconds?: unknown } | null)?.seconds
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null
@@ -826,8 +843,10 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
 
   function onServerEvent(data: unknown): void {
     let ev: { type?: unknown; delta?: unknown; start_ms?: unknown; end_ms?: unknown; reason?: unknown }
+    const text = frameText(data)
+    if (text === null) return
     try {
-      ev = JSON.parse(typeof data === 'string' ? data : String(data))
+      ev = JSON.parse(text)
     } catch {
       return
     }
@@ -1032,9 +1051,11 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceEngine {
   async function start(): Promise<void> {
     if (startPromise || over) return startPromise ?? undefined
     startPromise = runStart().catch((e: unknown) => {
-      // createOffer / setLocalDescription / setRemoteDescription: a broken peer.
-      const detail = e instanceof Error && e.message ? ` (${e.message})` : ''
-      return finish({ kind: 'server', message: `Tracely couldn't set up the call${detail}. Try again in a moment.` })
+      // createOffer / setLocalDescription / setRemoteDescription: a broken
+      // peer. The browser's words ("Failed to execute 'setRemoteDescription'
+      // on 'RTCPeerConnection': …") are for the console, not the student.
+      console.warn('[voice] peer setup failed', e)
+      return finish({ kind: 'server', message: "Tracely couldn't set up the call. Try again in a moment." })
     })
     return startPromise
   }

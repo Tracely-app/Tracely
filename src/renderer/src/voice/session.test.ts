@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
   CAPTION_PAUSE_MS, EMPTY_CAPTIONS, ICE_GATHER_TIMEOUT_MS, MOCK_CONNECT_MS, PREVIEW_VOICE_EVENT, TICK_MS,
-  addTranscriptDelta, browserDeps, closedError, createSpeechGate, createVoiceSession, formatClock, micError, mockFrame,
+  addTranscriptDelta, browserDeps, closedError, createSpeechGate, frameText, createVoiceSession, formatClock, micError, mockFrame,
   mockScript, rmsToLevel, settleCaptions, smoothLevel, startError, transcriptTurns, voiceStateLine,
   type VoiceApi, type VoiceDeps,
 } from './session.ts'
@@ -265,8 +265,16 @@ describe('createVoiceSession: server refusals', () => {
   it('a broken peer (createOffer throws) is a server error, not an unhandled rejection', async () => {
     const r = rig()
     r.peer.createOffer = async () => { throw new Error('no codecs') }
-    await r.engine.start()
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      await r.engine.start()
+    } finally {
+      console.warn = warn
+    }
     strictEqual(r.engine.getSnapshot().error?.kind, 'server')
+    // The browser's exception text stays in the console.
+    strictEqual(r.engine.getSnapshot().error?.message, "Tracely couldn't set up the call. Try again in a moment.")
     ok(r.mic.track.stopped)
   })
 })
@@ -309,6 +317,17 @@ describe('captions', () => {
       { id: 'b', role: 'assistant', text: '   ', final: true },
       { id: 'c', role: 'assistant', text: 'Hello.', final: false }
     ]), [{ role: 'user', text: 'Hi there' }, { role: 'assistant', text: 'Hello.' }])
+  })
+
+  it('reads binary data-channel frames as text (session.started in an ArrayBuffer still connects)', async () => {
+    strictEqual(frameText('{"a":1}'), '{"a":1}')
+    strictEqual(frameText(new TextEncoder().encode('hi').buffer), 'hi')
+    strictEqual(frameText(new TextEncoder().encode('hi')), 'hi')
+    strictEqual(frameText(42), null)
+    const r = rig()
+    await r.engine.start()
+    r.peer.channel!.onmessage!({ data: new TextEncoder().encode(JSON.stringify({ type: 'session.started' })).buffer })
+    strictEqual(r.engine.getSnapshot().state, 'listening')
   })
 
   it('the engine shows transcript deltas from the data channel as captions', async () => {
