@@ -182,6 +182,7 @@ export default function PreviewApp(): JSX.Element {
               <option value="monthly-limit">Refused: this month's minutes used</option>
               <option value="busy">Refused: another call open</option>
               <option value="off">Refused: voice off</option>
+              <option value="unavailable">Web bridge (no voice)</option>
             </select>
           </Field>
           <Field label="Latency">

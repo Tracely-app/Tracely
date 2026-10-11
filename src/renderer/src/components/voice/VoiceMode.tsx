@@ -134,12 +134,13 @@ export default function VoiceMode({
   const [check, setCheck] = useState<EligibilityCheck>({ status: 'checking' })
   const checkSeq = useRef(0)
   const mounted = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set again on mount: StrictMode unmounts and remounts once in development.
+    mounted.current = true
+    return () => {
       mounted.current = false
-    },
-    []
-  )
+    }
+  }, [])
   async function checkEligibility(): Promise<boolean> {
     const seq = ++checkSeq.current
     setCheck({ status: 'checking' })

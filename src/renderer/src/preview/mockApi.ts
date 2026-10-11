@@ -94,8 +94,10 @@ export type Scenario = {
    * What voice:eligibility answers: 'allowed' (the default, like a local
    * server with plans unenforced), or one refusal, so each refusal screen is
    * reachable. voice:start refuses the same way, as the server would.
+   * 'unavailable' is the web bridge (bridge/httpApi.ts): voice.available is
+   * false, so the Talk buttons are disabled.
    */
-  voice: 'allowed' | VoiceEligibilityReason
+  voice: 'allowed' | VoiceEligibilityReason | 'unavailable'
 }
 
 /** What a claim's breakdown looks like once a search has found something. */
@@ -140,6 +142,9 @@ const MOCK_REFUSAL: Record<VoiceEligibilityReason, string> = {
 }
 
 export function mockEligibility(voice: Scenario['voice']): VoiceEligibilityResponse {
+  if (voice === 'unavailable') {
+    return { allowed: false, reason: 'off', message: "Voice isn't available in this build." }
+  }
   if (voice === 'allowed') {
     return {
       allowed: true,
@@ -681,7 +686,7 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     // call would push are driven from outside with window.__previewEmitVoice
     // (installed below). A saved transcript lands in the chat like the real one.
     voice: {
-      available: true,
+      available: scenario.voice !== 'unavailable',
       eligibility: async () => {
         log('voice.eligibility')
         if (latency > 0) await new Promise((r) => setTimeout(r, latency))
