@@ -92,6 +92,8 @@ export default function VoiceMode({
     setConsentBusy(true)
     // Saved before the call starts; if saving fails the call still starts —
     // the student agreed, and the sheet will simply ask again next time.
+    // The sheet only enables Start talking once "I'm 13 or older" is ticked,
+    // so voiceConsent=true records that answer too.
     await tracelyApi.setSettings({ voiceConsent: true }).catch(() => undefined)
     setConsentBusy(false)
     setPrefs((p) => (p ? { ...p, consent: true } : p))
@@ -102,6 +104,7 @@ export default function VoiceMode({
     const settings: Parameters<typeof tracelyApi.setSettings>[0] = {}
     if (patch.voiceId) settings.voiceId = patch.voiceId
     if (patch.captions !== undefined) settings.voiceCaptions = patch.captions
+    if (patch.saveTranscript !== undefined) settings.voiceSaveTranscript = patch.saveTranscript
     void tracelyApi.setSettings(settings).catch(() => undefined)
   }
 
@@ -359,7 +362,13 @@ export default function VoiceMode({
       ) : null}
 
       {showConsent ? (
-        <VoiceConsent busy={consentBusy} onAccept={() => void acceptConsent()} onDecline={() => onExit(false)} />
+        <VoiceConsent
+          busy={consentBusy}
+          saveTranscript={prefs.saveTranscript}
+          onSaveTranscriptChange={(save) => savePrefs({ saveTranscript: save })}
+          onAccept={() => void acceptConsent()}
+          onDecline={() => onExit(false)}
+        />
       ) : null}
     </div>
   )

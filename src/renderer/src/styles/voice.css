@@ -339,6 +339,9 @@
   flex-direction: column;
   gap: 12px;
   padding: 22px 22px 20px;
+  /* Never over the chip (the voice can still be changed); scrolls in a short panel. */
+  max-height: calc(100% - 56px);
+  overflow-y: auto;
   border-radius: 16px 16px 0 0;
   background: var(--vm-raised);
   box-shadow: 0 -10px 30px rgba(16, 18, 22, 0.14);
@@ -356,6 +359,41 @@
   line-height: 1.55;
   color: var(--muted-2);
 }
+/* The sheet's two answers: the app's checkbox in the accent, label beside it. */
+.voice-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: pointer;
+}
+.voice-check input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.voice-check input:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); border-radius: 4px; }
+.voice-check span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.voice-check small {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.voice-sheet .voice-sheet-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 12.5px;
+}
+.voice-link-quiet { color: var(--muted); font-weight: 400; }
 .voice-sheet .voice-actions { margin-top: 6px; }
 .voice-sheet .voice-actions .btn { flex: 1; }
 

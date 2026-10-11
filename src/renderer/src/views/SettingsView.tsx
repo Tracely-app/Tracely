@@ -48,7 +48,7 @@ import {
 import { applyTheme } from '../lib/theme'
 import { VOICES, voiceById, type VoiceId } from '@shared/voices'
 import { WaveformIcon, PlayIcon, PauseIcon } from '../components/icons'
-import { VOICE_DISCLOSURE } from '../components/voice/VoiceConsent'
+import { VOICE_DISCLOSURE, VOICE_PRIVACY_URL } from '../components/voice/VoiceConsent'
 import { readVoiceRemaining } from '../voice/useVoiceSession'
 import lindenClip from '../assets/voices/linden.mp3'
 import atlasClip from '../assets/voices/atlas.mp3'
@@ -1034,10 +1034,6 @@ const VOICE_CLIPS: Record<VoiceId, string> = {
   sterling: sterlingClip
 }
 
-/** The voice section of PRIVACY.md (the website has no /privacy page yet). */
-const VOICE_PRIVACY_URL =
-  'https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md#voice-conversations-tracely-desktop-app'
-
 /**
  * Settings → Voice: which persona Tracer talks in (a card each, with a
  * recorded preview, one playing at a time), live captions, saving
@@ -1145,7 +1141,8 @@ function VoicePane({
         <div>
           <div className="settings-toggle-row-title">Save transcripts to the chat</div>
           <div className="settings-toggle-row-subtitle">
-            When a call ends, its words are added to your Tracer chat, on this computer only.
+            When a call ends, its words are added to your Tracer chat on this computer. Like your typed chat, recent
+            messages are sent along with your next question to Tracer.
           </div>
         </div>
         <input
