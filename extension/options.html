@@ -85,24 +85,34 @@
   }
   .wrap { max-width: 640px; margin: 0 auto; padding: 40px 24px 64px; }
 
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
   .plane {
     width: 32px; height: 32px; border-radius: var(--r-btn);
     background: var(--accent-gradient);
     display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0;
   }
   .plane svg { width: 16px; height: 16px; }
-  h1 { font-size: 24px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--text); }
+  h1 { font-size: 28px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--text); }
   /* --body (#737373) is 4.16:1 on --bg; this is one of the lines that sit on
      the page rather than a card, so it takes --muted (5.5:1). */
   .tag { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 6px 0 28px; }
 
+  /* A card's children are spaced by the gap, not by bottom margins: a flex
+     gap skips [hidden] children, so every card ends exactly at its 20px
+     padding whichever of its lines are showing (the account card carried an
+     empty status line and a hint's 12px margin under its last line). */
   section {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card);
     padding: 20px 24px; margin-bottom: 16px; box-shadow: none;
+    display: flex; flex-direction: column; gap: 12px;
   }
-  h2 { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ink); margin-bottom: 4px; }
+  h2 { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ink); margin-bottom: -8px; }
   .hint { font-size: 13px; line-height: 1.5; color: var(--body); margin-bottom: 12px; }
+  section > .hint { margin-bottom: 0; }
+  section > .model-note { margin-top: -4px; }
+  section > .saved { margin-top: -4px; }
+  .saved:empty { display: none; }
+  section > div > h3.sub:first-child { margin-top: 4px; }
 
   /* The page foot: the live server line, then the privacy sentence. A column
      so the status line is a block-level item and no text strut pads it. */
@@ -117,7 +127,7 @@
   .dot { width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
   .status.on .dot { background: var(--ok); }
   .status.off .dot { background: var(--accent); }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   input[type="password"], input[type="text"] {
     flex: 1; min-width: 0; height: 36px; padding: 0 12px;
     border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -166,7 +176,7 @@
   }
   .linkbtn:hover { filter: brightness(1.06); }
   .linkbtn:active { filter: brightness(.94); }
-  .acct { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .acct { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .acct-email {
     font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--ink);
     white-space: nowrap; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -196,7 +206,10 @@
   /* Google Docs: the checkbox drawn as the app's switch (36x20, a 16px knob
      travelling 16px). Still the native checkbox, so options.js, the label
      click and Space are untouched. */
-  .autosrc { display: flex; align-items: flex-start; gap: 12px; font-size: 14px; line-height: 1.5; color: var(--text); cursor: pointer; }
+  /* The switch on the right of its label, as in desktop Settings' toggle
+     rows. The input stays first in the DOM, so the label click and Space are
+     untouched. */
+  .autosrc { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: flex-start; gap: 12px; font-size: 14px; line-height: 1.5; color: var(--text); cursor: pointer; }
   .autosrc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .autosrc .sub { display: block; font-size: 12px; line-height: 1.5; color: var(--label); }
   .autosrc input {
@@ -214,28 +227,31 @@
   .autosrc:hover input:not(:disabled) { box-shadow: 0 0 0 4px var(--hover); }
   .autosrc input:checked { background: var(--accent); }
   .autosrc input:checked::after { transform: translateX(16px); }
-  .autosrc input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .autosrc input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .autosrc input:disabled { opacity: .5; cursor: not-allowed; }
 
   ul { list-style: none; }
+  /* An empty list takes no gap of its own above the "None yet" box. */
+  #sites:empty { display: none; }
   li {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.5; color: var(--text);
   }
-  li:last-child { border-bottom: none; }
+  li:last-child { border-bottom: none; padding-bottom: 0; }
   li .origin { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* The empty list: the app's dashed empty box. */
   #noSites {
-    border: 1px dashed var(--border); border-radius: 12px; padding: 12px 14px; margin: 0;
-    font-size: 13px; line-height: 1.5; color: var(--muted);
+    border: 1px dashed var(--border); border-radius: 12px; padding: 24px 16px; margin: 0;
+    font-size: 13px; line-height: 1.5; color: var(--muted); text-align: center;
   }
   /* Holds its line while the account is still being read, so the card does
      not jump when the hint arrives. */
   #acctHint { min-height: 20px; }
   .foot { font-size: 12px; line-height: 1.5; color: var(--label); }
-  /* One focus ring for every control the Tab key reaches; the text inputs
-     draw the accent ring instead. */
-  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* One focus ring for every control the Tab key reaches — the app-chrome
+     accent, as in desktop Settings; the text inputs draw the accent field
+     ring instead. */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* A narrow tab: the 16px gutter and card padding of the app's small
      layouts, so the account row keeps its two buttons side by side. */
   @media (max-width: 480px) {

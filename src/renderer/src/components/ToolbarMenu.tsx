@@ -24,6 +24,8 @@ export interface ToolbarMenuItem {
   onSelect?: () => void
   active?: boolean
   disabled?: boolean
+  /** A destructive row (Delete): drawn in var(--danger), as on Documents. */
+  danger?: boolean
   /** Hover text — used to say why a disabled row is disabled. */
   title?: string
 }
@@ -111,7 +113,7 @@ export default function ToolbarMenu({
         <button
           key={item.label}
           role="menuitem"
-          className={`toolbar-menu-item${item.active ? ' active' : ''}`}
+          className={`toolbar-menu-item${item.active ? ' active' : ''}${item.danger ? ' danger' : ''}`}
           disabled={item.disabled}
           title={item.title}
           onClick={() => {

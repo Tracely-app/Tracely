@@ -710,7 +710,7 @@ function ModalHead({
       ) : (
         <h2 className="argscore-title" id="argscore-title">{title}</h2>
       )}
-      <button className="argscore-close" onClick={onClose} aria-label="Close">
+      <button className="argscore-close" onClick={onClose} aria-label="Close" autoFocus>
         <CloseIcon size={16} />
       </button>
     </header>
@@ -818,7 +818,14 @@ function ScoreReport({
         <ScoreRing score={adjustedScore(outline.score, gradingLevel)} size={compact ? 132 : 116} />
         <div className="argscore-summary-text">
           <span className="argscore-eyebrow">Overall score</span>
-          <span className={`argscore-grade tone-${toneFor(outline.score)}`}>{grade.letter}</span>
+          {/* The letter chip uses Home's and Documents' bands (80/65), so the
+              same document's F is one colour on every screen; the ring and
+              bars keep toneFor's. */}
+          <span
+            className={`argscore-grade tone-${outline.score >= 80 ? 'good' : outline.score >= 65 ? 'mid' : 'low'}`}
+          >
+            {grade.letter}
+          </span>
           <p className="argscore-grade-line">{grade.line}</p>
           {!outline.complete ? <span className="argscore-provisional">Provisional</span> : null}
           {/* Which reader produced the labels this score is computed from.
@@ -1677,7 +1684,7 @@ function CheckAllRow({
       ) : (
         <>
           <button className="argscore-checkall" onClick={() => onCheckClaims(pending)}>
-            Check all {pending.length}
+            Check all <span className="num">{pending.length}</span>
           </button>
           {!compact ? (
             <span className="argscore-checkall-note">
@@ -1728,7 +1735,7 @@ function CheckReasoningRow({
       ) : (
         <>
           <button className="argscore-checkall" onClick={() => onCritiqueClaims(pending)}>
-            Check reasoning on {pending.length}
+            Check reasoning on <span className="num">{pending.length}</span>
           </button>
           <span className="argscore-checkall-note">
             Reads {pending.length === 1 ? 'the claim' : `all ${pending.length} claims`} against{' '}
@@ -2155,7 +2162,7 @@ function ArgumentCheck({
     <>
       <header className="argscore-head">
         <h2 className="argscore-title" id="argscore-title">Argument check</h2>
-        <button className="argscore-close" onClick={onClose} aria-label="Close">
+        <button className="argscore-close" onClick={onClose} aria-label="Close" autoFocus>
           <CloseIcon size={16} />
         </button>
       </header>
@@ -2256,7 +2263,7 @@ function ArgumentCheck({
       {weakest ? (
         <div className="argscore-foot">
           <button className="argscore-btn ink" onClick={() => onFindEvidence(weakest.id)}>
-            Find Evidence
+            Find evidence
           </button>
           {/* Disabled only while a sweep is actually running, since that sweep
               is owned by the view behind this modal and can outlive it. */}
@@ -2265,7 +2272,7 @@ function ArgumentCheck({
             onClick={() => onRecheck(weakest.id)}
             disabled={checking !== null}
           >
-            {checking ? `Checking ${checking.done}/${checking.total}…` : 'Re-check Argument'}
+            {checking ? `Checking ${checking.done}/${checking.total}…` : 'Re-check argument'}
           </button>
         </div>
       ) : null}

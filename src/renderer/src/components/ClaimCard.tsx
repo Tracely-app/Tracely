@@ -77,10 +77,10 @@ export default function ClaimCard({ claim: initialClaim }: { claim: Claim }): JS
 
       <div className="claim-actions">
         <Button variant="primary" onClick={findEvidence} disabled={loadingEvidence}>
-          {evidence ? 'Refresh Evidence' : 'Find Evidence'}
+          {evidence ? 'Refresh evidence' : 'Find evidence'}
         </Button>
         <Button variant="secondary" onClick={critique} disabled={loadingCritique}>
-          {claim.critique ? 'Re-check Argument' : 'Critique Argument'}
+          {claim.critique ? 'Re-check argument' : 'Critique argument'}
         </Button>
       </div>
 

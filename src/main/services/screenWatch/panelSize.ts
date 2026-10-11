@@ -47,8 +47,8 @@ export const GRID_CARD_WIDTH = 432
 export const GRID_CARD_HEIGHT = 62
 export const GRID_GAP = 10
 export const GRID_PADDING = 24
-/** Vertical padding differs from horizontal in the design: 22 against 24. */
-export const PANEL_PADDING_Y = 22
+/** The panel's 24px inset on every side (the 4px grid; it was 22 against 24). */
+export const PANEL_PADDING_Y = 24
 /** The title row itself — the close button's 30px circle sets it. */
 export const PANEL_HEADER_HEIGHT = 30
 /** The design's stack gap between header, divider and content. */

@@ -2,7 +2,7 @@
 // no fills, currentColor, 16px by default (20 in tiles). Hand-rolled inline
 // SVG rather than an icon library so the overlay's string markup (ICON_SVG,
 // below) and the React components can share the identical paths.
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import figmaLogo from '../assets/figma-logo.png'
 
 interface IconProps {
@@ -271,7 +271,12 @@ export function InfoIcon(p: IconProps): JSX.Element {
 /**
  * The brand mark — figma-logo.png, nowhere else. `inverted` paints it white
  * for the launcher's dark tile.
+ *
+ * The PNG is 899x635 with the plane in x 276-678, y 117-523; object-view-box
+ * crops the drawing to those bounds, so `size` is the size of the GLYPH (it
+ * was a 12px plane floating in a 28px box, smaller than the icons beside it).
  */
+const BRAND_VIEW_BOX = 'inset(18.4% 24.6% 17.6% 30.7%)'
 export function BrandMark({ size = 24, inverted = false, className }: IconProps & { inverted?: boolean }): JSX.Element {
   return (
     <img
@@ -281,8 +286,57 @@ export function BrandMark({ size = 24, inverted = false, className }: IconProps 
       height={size}
       className={className}
       draggable={false}
-      style={{ display: 'block', objectFit: 'contain', filter: inverted ? 'brightness(0) invert(1)' : undefined }}
+      style={
+        {
+          display: 'block',
+          objectFit: 'contain',
+          objectViewBox: BRAND_VIEW_BOX,
+          filter: inverted ? 'brightness(0) invert(1)' : undefined
+        } as CSSProperties
+      }
     />
+  )
+}
+
+/**
+ * The finding-kind icons beside each legend line — the extension's TALLY_ICON
+ * (content.js), path for path, so the editor, the overlay and the extension
+ * say a line's kind the same way. A 12-grid set of solid shapes, drawn in the
+ * finding colour (`color`) with the glyph knocked out in `knockout`.
+ */
+export function FindingKindIcon({
+  kind,
+  size = 12,
+  knockout = 'var(--primary-contrast)'
+}: {
+  kind: 'wrong' | 'check' | 'cite'
+  size?: number
+  knockout?: string
+}): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true" focusable="false" style={{ flexShrink: 0 }}>
+      {kind === 'wrong' ? (
+        <>
+          <circle cx="6" cy="6" r="6" fill="currentColor" />
+          <rect x="5.2" y="2.5" width="1.6" height="4.6" rx=".8" fill={knockout} />
+          <circle cx="6" cy="9" r=".95" fill={knockout} />
+        </>
+      ) : kind === 'check' ? (
+        <>
+          <circle cx="6" cy="6" r="6" fill="currentColor" />
+          <circle cx="5.4" cy="5.4" r="2.2" fill="none" stroke={knockout} strokeWidth="1.3" />
+          <path d="M7.1 7.1l1.9 1.9" stroke={knockout} strokeWidth="1.4" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <rect width="12" height="12" rx="3" fill="currentColor" />
+          <path
+            d="M2.8 8.4V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7zm3.8 0V6.6c0-1.6.6-2.6 1.9-3.2l.5.8c-.6.3-.9.8-1 1.5h1v2.7z"
+            fill={knockout}
+          />
+        </>
+      )}
+    </svg>
   )
 }
 

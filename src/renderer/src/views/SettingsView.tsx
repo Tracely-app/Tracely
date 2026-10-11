@@ -610,10 +610,10 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                     <option value="large">Large</option>
                   </select>
                 </SettingsField>
-                <SettingsField label="Density">
+                <SettingsField label="Density" hint="Spacing across lists and cards">
                   <select value={settings.density} onChange={(e) => changeDensity(e.target.value as Density)}>
-                    <option value="comfortable">Comfortable spacing across lists and cards</option>
-                    <option value="compact">Compact spacing across lists and cards</option>
+                    <option value="comfortable">Comfortable</option>
+                    <option value="compact">Compact</option>
                   </select>
                 </SettingsField>
               </div>
@@ -647,6 +647,10 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   onChange={toggleScreenWatch}
                 />
               </label>
+              <p className="muted settings-app-note">
+                Screen Watch only reads text in apps you check below — nothing is enabled anywhere until you pick
+                it. Uncheck an app any time to stop it from being read.
+              </p>
               <div className="settings-app-grid">
                 {installedApps === null ? (
                   <Spinner label="Scanning installed apps…" />
@@ -682,10 +686,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                 </Button>
               </div>
               {prefsError ? <p className="error-text" role="alert">{prefsError}</p> : null}
-              <p className="muted settings-app-note">
-                Screen Watch only reads text in apps you check below — nothing is enabled anywhere until you pick
-                it. Uncheck an app any time to stop it from being read.
-              </p>
 
               {/*
                 Everything below already worked end to end — persisted, and read

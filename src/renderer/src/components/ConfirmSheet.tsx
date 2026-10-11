@@ -41,6 +41,7 @@ export default function ConfirmSheet({
   busyLabel = 'Saving…',
   showSuppress = true,
   busy = false,
+  danger = false,
   onConfirm,
   onCancel
 }: {
@@ -58,6 +59,9 @@ export default function ConfirmSheet({
    */
   showSuppress?: boolean
   busy?: boolean
+  /** A destructive confirm (Delete): the danger recipe, never the orange
+   *  primary — the same as ConfirmDialog's Delete. */
+  danger?: boolean
   /** `suppress` is the checkbox state at the moment Confirm was pressed. It is
    *  always false when `showSuppress` is off. */
   onConfirm: (suppress: boolean) => void
@@ -107,10 +111,15 @@ export default function ConfirmSheet({
         ) : null}
 
         <div className="savechanges-actions">
-          <button className="savechanges-btn cancel" onClick={onCancel} disabled={busy}>
+          {/* Focus moves into the sheet on open, as ConfirmDialog's does. */}
+          <button className="savechanges-btn cancel" onClick={onCancel} disabled={busy} autoFocus>
             Cancel
           </button>
-          <button className="savechanges-btn confirm" onClick={() => onConfirm(suppress)} disabled={busy}>
+          <button
+            className={`savechanges-btn confirm${danger ? ' danger' : ''}`}
+            onClick={() => onConfirm(suppress)}
+            disabled={busy}
+          >
             {busy ? busyLabel : confirmLabel}
           </button>
         </div>

@@ -67,7 +67,8 @@ import {
   AlignLeftIcon,
   MoreHorizontalIcon,
   ShareIcon,
-  CheckIcon
+  CheckIcon,
+  FindingKindIcon
 } from '../components/icons'
 import Spinner from '../components/Spinner'
 import { LEGEND } from '../components/problemCopy'
@@ -174,6 +175,19 @@ function DocumentEditor({
   const colorInputRef = useRef<HTMLInputElement>(null)
   const savedRangeRef = useRef<Range | null>(null)
   const alignMenuRef = useRef<HTMLDivElement>(null)
+  const toolsRef = useRef<HTMLDivElement>(null)
+
+  // The formatting group scrolls when the window is narrow. Re-mark it on
+  // resize as well as scroll so a control cut by the edge is always faded,
+  // never half-drawn.
+  useEffect(() => {
+    const tools = toolsRef.current
+    if (!tools) return
+    markToolsOverflow(tools)
+    const ro = new ResizeObserver(() => markToolsOverflow(tools))
+    ro.observe(tools)
+    return () => ro.disconnect()
+  }, [])
 
   // ---- Structure ---------------------------------------------------------
   // No `structureOpen` any more: the rail and its toggle are gone, and the
@@ -2292,14 +2306,11 @@ function DocumentEditor({
           and the middle scrolls.
         */}
         <div
+          ref={toolsRef}
           className="docedit-tools"
-          // The menus hanging from this group are position:fixed so its clip
-          // cannot hide them (see `.docedit-tools .toolbar-menu`), and a fixed
-          // box's static position ignores this scroller's offset. Publishing
-          // the offset lets the CSS take it back off. Display only.
-          onScroll={(e) =>
-            e.currentTarget.style.setProperty('--tools-scroll', `${e.currentTarget.scrollLeft}px`)
-          }
+          // Marks the group while controls sit past its right edge, so the CSS
+          // can fade that edge instead of slicing a button in half. Display only.
+          onScroll={(e) => markToolsOverflow(e.currentTarget)}
         >
         {/* Custom menus, not <select>. The frames draw both as the same
             bordered dropdown every other toolbar menu uses (226:95, 234:46);
@@ -2407,6 +2418,9 @@ function DocumentEditor({
           ref={colorInputRef}
           type="color"
           className="docedit-color-input"
+          // Opened by the "Text color" button; never a Tab stop of its own.
+          tabIndex={-1}
+          aria-hidden="true"
           list="docedit-color-presets"
           onChange={(e) => {
             exec('foreColor', e.target.value)
@@ -2445,8 +2459,12 @@ function DocumentEditor({
             />
           ) : null}
         </div>
-        <div className="docedit-divider" aria-hidden="true" />
 
+        </div>
+        <div className="docedit-divider" aria-hidden="true" />
+        {/* Share and More are the document's own actions, so they sit outside
+            the scrolling formatting group and stay visible at every width,
+            like Tracer and AI Insights. */}
         {/* Share — 234:67. Every row is dead, and says why on hover. Tracely is
             local-first: the document exists in one SQLite file on this machine,
             there is no server copy to link to and no second account to invite.
@@ -2501,12 +2519,10 @@ function DocumentEditor({
                 { label: 'Rename', onSelect: () => nameInputRef.current?.select() },
                 { label: 'Move to folder', disabled: true, title: 'Documents are a flat list — there are no folders.' },
                 { label: 'Version history', disabled: true, title: 'Only the current version of a document is stored.' },
-                { label: 'Delete', onSelect: () => setConfirmingDelete(true) }
+                { label: 'Delete', danger: true, onSelect: () => setConfirmingDelete(true) }
               ]}
             />
           ) : null}
-        </div>
-
         </div>
         <span className="docedit-savestate" aria-live="polite">
           {saveState === 'saving' ? (
@@ -2514,7 +2530,7 @@ function DocumentEditor({
           ) : saveState === 'saved' ? (
             <>
               <CheckIcon size={12} />
-              Saved
+              <span className="docedit-savestate-word">Saved</span>
             </>
           ) : (
             ''
@@ -2892,13 +2908,10 @@ function DocumentEditor({
         {marks.length > 0 ? (
           <div className="docedit-legend" role="note" aria-label="What the underlines mean">
             {LEGEND.map((item) => (
-              <span key={item.label} className="docedit-legend-item">
-                <span
-                  className={`docedit-legend-line ${item.pattern}`}
-                  style={{ color: item.color }}
-                  aria-hidden="true"
-                />
-                {item.label}
+              <span key={item.label} className="docedit-legend-item" style={{ color: item.color }}>
+                <FindingKindIcon kind={item.icon} />
+                <span className="docedit-legend-line" aria-hidden="true" />
+                <span className="docedit-legend-label">{item.label}</span>
               </span>
             ))}
           </div>
@@ -3049,6 +3062,14 @@ const UNTITLED = 'Untitled document'
 type HoverTarget =
   | { kind: 'claim'; hit: { mark: DocumentMark; rect: MarkRect } }
   | { kind: 'prose'; hit: { mark: ProseMark; rect: MarkRect } }
+
+/** Sets `data-overflow` / `data-overflow-start` on the toolbar's formatting
+ *  group while controls sit past its right / left edge. Display only. */
+function markToolsOverflow(el: HTMLElement): void {
+  const more = el.scrollWidth > el.clientWidth + el.scrollLeft + 1
+  el.toggleAttribute('data-overflow', more)
+  el.toggleAttribute('data-overflow-start', el.scrollLeft > 1)
+}
 
 function hoverTargetKey(t: HoverTarget): string {
   return t.kind === 'claim'

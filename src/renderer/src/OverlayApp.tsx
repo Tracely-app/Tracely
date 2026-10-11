@@ -3,7 +3,6 @@ import { critiqueIssues } from './critiqueIssues'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import type {
   CitationStyle,
-  ClaimType,
   CritiqueVerdict,
   ParagraphRole,
   SourceProvider,
@@ -80,15 +79,12 @@ import {
   DESIGN_ORANGE,
   DESIGN_RED,
   LEGEND,
-  MARK_PATTERN_BY_COLOR,
   PROBLEM_COLOR,
   PROBLEM_LABEL,
-  bucketFor,
   popoverCopyFor
 } from './components/problemCopy'
-import type { MarkPattern } from './components/problemCopy'
 // The one icon set, as 16px SVG strings for this file's inline markup.
-import { ICON_SVG } from './components/icons'
+import { FindingKindIcon, ICON_SVG } from './components/icons'
 import { aboutTheCitation, popoverRoute } from '@shared/citationAction'
 // The fix card's wording, shared with the editor's DocumentMarkLayer for the
 // same reason citationFlowCopy.ts is.
@@ -100,7 +96,6 @@ import {
   REVISION_RULE,
   fixTitle
 } from './components/fixFlowCopy'
-import type { Bucket } from './components/problemCopy'
 // Same band, same score, both surfaces — see the note in essayGrade.ts.
 import { gradeFor } from './components/essayGrade'
 import { CLAIM_TYPE_LABEL } from './components/claimTypeLabel'
@@ -181,10 +176,6 @@ function LogoBg({ size }: { size: number }): JSX.Element {
   )
 }
 
-// Per-claim-type color used for the type dot — matches the Figma "Overlay
-// Mockup" frames' 4-color legend (factual/statistic/reasoning/other), not the
-// prior pastel-badge palette. `Bucket` and `bucketFor` are imported from
-// problemCopy.ts, which the document editor shares.
 
 // -- Design tokens, taken from Figma ----------------------------------
 //
@@ -222,8 +213,17 @@ const PANEL_BORDER = '1px solid #000000'
 // 16, the same radius as the popover card: one rounded-corner size for every
 // transient surface in the product (cards, popovers, panels, modals).
 const PANEL_RADIUS = 16
-const PANEL_SHADOW = '0px 8px 12px 0px rgba(0, 0, 0, 0.18)'
-const CARD_SHADOW = '0px 8px 24px 0px rgba(0, 0, 0, 0.18)'
+// The editor's var(--shadow-lg), so every transient surface casts one shadow.
+const PANEL_SHADOW = '0 20px 40px rgba(15, 15, 16, 0.16)'
+const CARD_SHADOW = '0 20px 40px rgba(15, 15, 16, 0.16)'
+// A faint light edge on the ink launcher, so it keeps its outline over a dark
+// app (VS Code, dark Word), where the ink fill and its shadow disappear.
+const LAUNCHER_EDGE = 'rgba(255, 255, 255, 0.14)'
+/** The inset recipe (surface-2 + 1px border), as the editor's .docmark-block
+ *  and the extension's .fix draw it; and the quote's 2px rule. */
+const INSET_BG = 'rgba(0, 0, 0, 0.02)'
+const INSET_EDGE = '1px solid rgba(0, 0, 0, 0.18)'
+const QUOTE_RULE = '2px solid rgba(0, 0, 0, 0.18)'
 const CARD_RADIUS = 16
 
 /** Hover and press washes on an outlined control, and the ink hover. */
@@ -329,8 +329,8 @@ const ICON_BTN_STYLE: CSSProperties = {
   padding: 0,
   border: 'none',
   borderRadius: 8,
-  // No inline fill: .tracely-icon-btn draws it, so the hover wash can show.
-  color: INK,
+  // No inline fill or colour: .tracely-icon-btn draws both (label grey, ink
+  // on hover — the extension's close and dismiss), so the hover can show.
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -353,13 +353,6 @@ function InlineIcon({ svg, flip }: { svg: string; flip?: boolean }): JSX.Element
   )
 }
 
-const BUCKET_COLOR: Record<Bucket, string> = {
-  // The design's orange, the factual bucket's colour since the first mockup.
-  factual: '#ff5900',
-  statistic: '#7c3aed',
-  causal: '#2f6fed',
-  other: '#d6301a'
-}
 
 type Underlines = ScreenWatchOverlayUpdateEvent['underlines']
 
@@ -446,21 +439,15 @@ function useStableUnderlines(underlines: Underlines, trackedIds: Set<string>): U
 }
 
 /**
- * How the line under a mark is drawn — by pattern as well as colour, so the
- * three finding groups read apart in greyscale (MARK_PATTERN_BY_COLOR in
- * problemCopy.ts, the editor's rule): red solid 2px, orange dashed 2px, amber
- * double 3px (1+1+1), and the grey checking state dotted. Hovered adds 1px.
- * The dashed, double and dotted lines are a border on a zero-height box,
- * because a filled box can only be solid.
+ * How the line under a mark is drawn: one solid line in the finding colour,
+ * the grey checking state included — 2px resting, 3px hovered, value for
+ * value with the editor (DocumentMarkLayer) and content.js markFill /
+ * MARK_LINE_HEIGHT. Owner, 2026-10-09: every underline solid and straight;
+ * the legend's icons say the kind, so colour is never the only channel.
  */
 function markLineStyle(color: string, hovered: boolean): CSSProperties {
-  const pattern: MarkPattern = MARK_PATTERN_BY_COLOR[color] ?? 'dotted'
   const weight = hovered ? LINE_HEIGHT_HOVERED : LINE_HEIGHT
-  if (pattern === 'solid') {
-    return { height: weight, borderRadius: LINE_RADIUS, background: color }
-  }
-  const width = pattern === 'double' ? weight + 1 : weight
-  return { height: 0, borderBottom: `${width}px ${pattern} ${color}` }
+  return { height: weight, borderRadius: LINE_RADIUS, background: color }
 }
 
 /**
@@ -628,16 +615,17 @@ function evidenceScoreColor(score: number): string {
   return '#d6301a'
 }
 
-// A plain filled dot — the Figma mockups mark claim type with a simple
-// colored circle next to the label, not a pastel letter badge.
-function TypeDot({ claimType, size = 9 }: { claimType: ClaimType; size?: number }): JSX.Element {
+// The 8px dot before a card title is the claim's worst FINDING colour, as on
+// every other finding surface (extension .dot, Docs card, editor popover) —
+// grey while it is still being checked. The claim type stays in the words.
+function FindingDot({ kinds }: { kinds: ScreenWatchProblemKind[] }): JSX.Element {
   return (
     <span
       style={{
-        width: size,
-        height: size,
+        width: 8,
+        height: 8,
         borderRadius: '50%',
-        background: BUCKET_COLOR[bucketFor(claimType)],
+        background: (kinds[0] && PROBLEM_COLOR[kinds[0]]) || '#9a9ba1',
         flexShrink: 0,
         display: 'inline-block'
       }}
@@ -790,7 +778,7 @@ const GRID_CARD_WIDTH = 432
 const GRID_CARD_HEIGHT = 62
 const GRID_GAP = 10
 const GRID_PADDING = 24
-const PANEL_PADDING_Y = 22
+const PANEL_PADDING_Y = 24
 const PANEL_HEADER_HEIGHT = 30
 const PANEL_GAP = 16
 
@@ -830,7 +818,7 @@ const TEXT_BTN_STYLE: CSSProperties = {
 function EvidenceRow({ claim, compact }: { claim: ScreenWatchClaimSummary; compact?: boolean }): JSX.Element {
   if (!claim.evidence) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: compact ? 11 : 12, color: DIM }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: compact ? 11 : 12, color: MUTED }}>
         <span className="tracely-spinner" />
         Searching evidence…
       </div>
@@ -840,7 +828,7 @@ function EvidenceRow({ claim, compact }: { claim: ScreenWatchClaimSummary; compa
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: compact ? 11 : 12, fontVariantNumeric: 'tabular-nums' }}>
       <span style={{ fontWeight: 600, color }}>{claim.evidence.score}/100</span>
-      <span style={{ color: DIM }}>
+      <span style={{ color: MUTED }}>
         · {claim.evidence.count} source{claim.evidence.count === 1 ? '' : 's'}
       </span>
     </div>
@@ -997,10 +985,12 @@ const W_TRACK = '#f0f0f0'
 // .tracely-btn-* class and hover, press, focus and disabled come with it.
 const WIDGET_PRIMARY_BTN: CSSProperties = { ...PRIMARY_BTN_STYLE }
 
+// Both panel secondaries take SECONDARY_BTN_STYLE's edge — the popover's
+// Dismiss and every extension secondary — instead of an ink and a hairline
+// outline stacked 16px apart.
 const WIDGET_SECONDARY_BTN: CSSProperties = {
   ...SECONDARY_BTN_STYLE,
-  border: `1px solid ${INK}`,
-  color: W_INK
+  color: INK
 }
 
 const WIDGET_SPENT_BTN: CSSProperties = {
@@ -1012,12 +1002,11 @@ const WIDGET_SPENT_BTN: CSSProperties = {
   cursor: 'default'
 }
 
-/** Full-width, hairline-outlined — the design's "Show all (4)" row. */
+/** Full-width — the design's "Show all (4)" row. */
 const WIDGET_SHOW_ALL_BTN: CSSProperties = {
   ...SECONDARY_BTN_STYLE,
   width: '100%',
-  border: `1px solid ${HAIRLINE}`,
-  color: W_INK
+  color: INK
 }
 
 /**
@@ -1026,9 +1015,7 @@ const WIDGET_SHOW_ALL_BTN: CSSProperties = {
  */
 const FRESH_EVIDENCE_MS = 60_000
 
-/** The critique rows' amber "!" tile, and the "Updated just now" chip. */
-const AMBER_BG = '#fef3c7'
-const AMBER_FG = '#d97706'
+/** The "Updated just now" chip. */
 const FRESH_BG = '#dcfce7'
 
 /** A source row at the panel's scale — the popover's ArticleRow is smaller. */
@@ -1063,7 +1050,7 @@ function PanelSourceRow({
         >
           {article.title}
         </div>
-        {meta ? <div style={{ fontSize: 12, color: DIM }}>{meta}</div> : null}
+        {meta ? <div style={{ fontSize: 12, color: MUTED }}>{meta}</div> : null}
         {/* Only after an explicit refresh, and only on rows the previous
             search did not return — otherwise "New" is decoration. */}
         {isNew ? <div style={{ fontSize: 11, fontWeight: 600, color: POSITIVE }}>New</div> : null}
@@ -1172,26 +1159,12 @@ function CritiqueFixRow({
   )
 }
 
+// The same row the Docs fix card (dmIssue) and the editor's
+// .docmark-fix-issues draw: a 13/500 ink title over a 13/1.5 muted body. The
+// amber '!' tile it carried was two non-finding hues and a text glyph.
 function CritiqueIssueRow({ title, detail }: { title: string; detail: string }): JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-      <div
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: 8,
-          background: AMBER_BG,
-          color: AMBER_FG,
-          fontSize: 11,
-          fontWeight: 600,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0
-        }}
-      >
-        !
-      </div>
+    <div style={{ display: 'flex', alignItems: 'flex-start' }}>
       <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {title ? (
           <div
@@ -1199,7 +1172,7 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
             style={{
               fontSize: 13,
               fontWeight: 500,
-              color: W_INK,
+              color: INK,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis'
@@ -1209,7 +1182,7 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
           </div>
         ) : null}
         {detail ? (
-          <MarkdownText style={{ fontSize: 12, lineHeight: 1.35, color: DIM }}>{detail}</MarkdownText>
+          <MarkdownText style={{ fontSize: 13, lineHeight: 1.5, color: MUTED }}>{detail}</MarkdownText>
         ) : null}
       </div>
     </div>
@@ -1217,10 +1190,10 @@ function CritiqueIssueRow({ title, detail }: { title: string; detail: string }):
 }
 
 /**
- * What the three line patterns mean, at the panel's foot: a 24px sample of
- * each (LEGEND, problemCopy.ts — drawn by markLineStyle, so it is the line the
- * document actually carries) and its label, 11px. The editor's footer and the
- * extension's sticky strip draw the same row.
+ * What the three lines mean, at the panel's foot: the kind's icon, a 24px
+ * sample of the line (LEGEND, problemCopy.ts — drawn by markLineStyle, so it
+ * is the line the document actually carries) and its label, 11px, 6px apart.
+ * The editor's footer and the extension's sticky strip draw the same row.
  */
 function PanelLegend(): JSX.Element {
   return (
@@ -1230,6 +1203,9 @@ function PanelLegend(): JSX.Element {
     >
       {LEGEND.map((entry) => (
         <span key={entry.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+          <span style={{ display: 'inline-flex', color: entry.color }}>
+            <FindingKindIcon kind={entry.icon} knockout={PAPER} />
+          </span>
           <span aria-hidden style={{ display: 'block', width: 24, flexShrink: 0, ...markLineStyle(entry.color, false) }} />
           {entry.label}
         </span>
@@ -1300,10 +1276,10 @@ function WidgetClaimCard({
   const refreshLabel = evidenceBusy
     ? 'Searching…'
     : freshlyRefreshed && !showCritique
-      ? '✓ Evidence Refreshed'
+      ? '✓ Evidence refreshed'
       : evidence
-        ? 'Refresh Evidence'
-        : 'Find Evidence'
+        ? 'Refresh evidence'
+        : 'Find evidence'
   const refreshStyle = showCritique
     ? WIDGET_SECONDARY_BTN
     : freshlyRefreshed && !evidenceBusy
@@ -1314,16 +1290,20 @@ function WidgetClaimCard({
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <TypeDot claimType={claim.claimType} />
+        <FindingDot kinds={claim.problemKinds} />
         <div style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px', color: W_INK, fontVariantNumeric: 'tabular-nums' }}>
           {CLAIM_TYPE_LABEL[claim.claimType]} · {Math.round(claim.confidence * 100)}% confidence
         </div>
       </div>
+      {/* The claimed sentence as the extension's `.quote` draws it: 13px ink
+          behind a 2px rule. */}
       <div
         style={{
-          fontSize: 14,
-          lineHeight: 1.4,
-          color: W_BODY,
+          fontSize: 13,
+          lineHeight: 1.5,
+          color: INK,
+          borderLeft: QUOTE_RULE,
+          paddingLeft: 10,
           display: '-webkit-box',
           WebkitLineClamp: 3,
           WebkitBoxOrient: 'vertical',
@@ -1445,7 +1425,7 @@ function WidgetClaimCard({
             whiteSpace: 'nowrap'
           }}
         >
-          {critiqueBusy ? 'Checking…' : claim.critique ? 'Re-check Argument' : 'Critique Argument'}
+          {critiqueBusy ? 'Checking…' : claim.critique ? 'Re-check argument' : 'Critique argument'}
         </button>
       </div>
 
@@ -1492,8 +1472,8 @@ function ClaimListItem({ claim, onClick }: { claim: ScreenWatchClaimSummary; onC
         flexShrink: 0
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        <TypeDot claimType={claim.claimType} size={8} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <FindingDot kinds={claim.problemKinds} />
         {/* One line, reading as a sentence: "Factual claim · 90% confidence".
             It used to be an uppercase micro-label with the percentage pushed to
             the far right, which turned a description of the claim into two
@@ -1578,7 +1558,7 @@ function ScoreChip({
         alignItems: 'center',
         gap: 5,
         flexShrink: 0,
-        border: `1px solid ${active ? color : '#e4e4e8'}`,
+        border: `1px solid ${active ? color : 'rgba(0, 0, 0, 0.18)'}`,
         // Transparent at rest (the panel is paper) so the hover wash shows.
         background: active ? `${color}14` : 'transparent',
         // A button, so the control radius rather than a chip's pill; 28px,
@@ -1594,7 +1574,7 @@ function ScoreChip({
       <span style={{ fontSize: 13, fontWeight: 600, color, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
         {structure ? structure.score : '—'}
       </span>
-      <span style={{ fontSize: 11, color: DIM, lineHeight: 1 }}>argument</span>
+      <span style={{ fontSize: 11, color: LABEL, lineHeight: 1 }}>argument</span>
       {/* A dot rather than the word "provisional" — the header has room for one
           of them, and the tooltip carries the sentence. */}
       {structure && !structure.complete ? (
@@ -1834,7 +1814,7 @@ function ParagraphDetailPanel({
           heading over an empty block reads as a failure to load. */}
       {issues.length > 0 ? (
         <div style={{ width: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>WHY THIS NEEDS WORK</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>WHY THIS NEEDS WORK</div>
           <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: '#35363c' }}>
             {issues.map((w) => w.message).join(' ')}
           </div>
@@ -1876,7 +1856,7 @@ function ParagraphDetailPanel({
 
       {articles.length > 0 ? (
         <div style={{ width: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
             EVIDENCE CITED IN THIS PARAGRAPH ({articles.length})
           </div>
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1924,7 +1904,7 @@ function ParagraphDetailPanel({
                   >
                     {article.title}
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: DIM }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: MUTED }}>
                     {[article.venue, article.year ? String(article.year) : null].filter(Boolean).join(' · ')}
                   </div>
                 </div>
@@ -2030,7 +2010,7 @@ function ScoreRing({ score }: { score: number }): JSX.Element {
       <text x="37" y="34" textAnchor="middle" dominantBaseline="middle" fontSize="20" fontWeight="600" fill={color} style={{ fontVariantNumeric: 'tabular-nums' }}>
         {score}
       </text>
-      <text x="37" y="53" textAnchor="middle" fontSize="11" fill={DIM}>
+      <text x="37" y="53" textAnchor="middle" fontSize="11" fill={MUTED}>
         / 100
       </text>
     </svg>
@@ -2043,7 +2023,7 @@ function StatCell({ value, label }: { value: string; label: string }): JSX.Eleme
       <div style={{ fontSize: 14, fontWeight: 600, color: INK, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </div>
-      <div style={{ fontSize: 11, color: DIM, letterSpacing: '0.04em', marginTop: 2, textTransform: 'uppercase' }}>
+      <div style={{ fontSize: 11, color: LABEL, letterSpacing: '0.04em', marginTop: 2, textTransform: 'uppercase' }}>
         {label}
       </div>
     </div>
@@ -2135,7 +2115,7 @@ function ArgumentScoreView({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <ScoreRing score={structure.score} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: DIM, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: 11, color: LABEL, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
             Argument score
           </div>
           <div style={{ fontSize: 13, fontWeight: 600, color: INK, marginTop: 2 }}>
@@ -2178,7 +2158,7 @@ function ArgumentScoreView({
                     </span>
                   </>
                 ) : null}
-                {unchecked > 0 ? <span style={{ color: DIM }}> · {unchecked} unchecked</span> : null}
+                {unchecked > 0 ? <span style={{ color: MUTED }}> · {unchecked} unchecked</span> : null}
               </>
             )}
           </div>
@@ -2199,7 +2179,7 @@ function ArgumentScoreView({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
           BREAKDOWN BY PARAGRAPH
         </div>
         {rows.map(({ paragraph, name, keys, verdict, weaknesses }) => (
@@ -2235,7 +2215,7 @@ function ArgumentScoreView({
               <span
                 style={{
                   fontSize: 11,
-                  color: DIM,
+                  color: MUTED,
                   flexShrink: 0,
                   fontStyle: paragraph.role === 'unknown' ? 'italic' : 'normal'
                 }}
@@ -2252,7 +2232,7 @@ function ArgumentScoreView({
             <div
               style={{
                 fontSize: 11,
-                color: DIM,
+                color: MUTED,
                 lineHeight: 1.4,
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
@@ -2319,7 +2299,7 @@ function ArgumentScoreView({
           to sit beside is one the draft never attempts. */}
       {missing.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
             NOT FOUND IN THIS DRAFT
           </div>
           <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.45 }}>
@@ -2330,7 +2310,7 @@ function ArgumentScoreView({
 
       {draftWeaknesses.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>SUMMARY</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>SUMMARY</div>
           {/* The design writes a paragraph of prose here. These are the rubric's
               own sentences instead: nothing on this path generates text, and a
               summary invented to fill a slot would be the one part of the panel
@@ -2347,7 +2327,7 @@ function ArgumentScoreView({
           has no model classifier wired to it — the sentence has one value. It
           matters more here than in the app: there is no "re-analyze" button to
           ask for a better reading with. */}
-      <div style={{ fontSize: 11, color: DIM, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 11, color: MUTED, lineHeight: 1.4 }}>
         Labelled by local rules, which leave anything they cannot justify unlabelled.
       </div>
     </div>
@@ -2868,7 +2848,7 @@ function CandidateRow({
         {receipt?.quote ? (
           <div style={{ fontSize: 12, lineHeight: 1.4, color: INK, whiteSpace: 'normal', wordBreak: 'break-word', userSelect: 'text' }}>
             <span style={{ color: MUTED, fontWeight: 500 }}>{SOURCE_SAYS}</span> {quoted(receipt.quote)}{' '}
-            <span style={{ color: DIM }}>· {readFromLabel(receipt.readFrom)}</span>
+            <span style={{ color: MUTED }}>· {readFromLabel(receipt.readFrom)}</span>
           </div>
         ) : null}
         {/* What a marker would make of the publisher — see
@@ -2939,7 +2919,8 @@ function CitedSourceBlock({ cited }: { cited: ResolvedCitedWork | null }): JSX.E
       style={{
         width: '100%',
         boxSizing: 'border-box',
-        background: CHIP_BG,
+        background: INSET_BG,
+        border: INSET_EDGE,
         borderRadius: 8,
         padding: 12,
         display: 'flex',
@@ -2947,7 +2928,7 @@ function CitedSourceBlock({ cited }: { cited: ResolvedCitedWork | null }): JSX.E
         gap: 4
       }}
     >
-      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: '0.04em' }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
         {CITED_HEADING}
       </div>
       <div style={{ fontSize: 12, fontWeight: 500, color: INK }}>{described.reference}</div>
@@ -3058,7 +3039,7 @@ function CitedWorkCard({
           <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
             Cancel
           </button>
-          <span style={{ fontSize: 12, color: DIM }}>Usually 2–4 seconds</span>
+          <span style={{ fontSize: 12, color: MUTED }}>Usually 2–4 seconds</span>
         </div>
       </>
     )
@@ -3207,7 +3188,8 @@ function CitedWorkCard({
           style={{
             width: '100%',
             boxSizing: 'border-box',
-            background: SELECTED_BG,
+            background: INSET_BG,
+            border: INSET_EDGE,
             borderRadius: 8,
             padding: 12,
             display: 'flex',
@@ -3215,7 +3197,7 @@ function CitedWorkCard({
             gap: 6
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
             {pasteOverLabel(response.citation)}
           </div>
           <div style={{ fontSize: 13, fontWeight: 500, color: INK, userSelect: 'text' }}>{written.inTextCitation}</div>
@@ -3317,7 +3299,7 @@ function CitationFlowCard({
           <button className="tracely-btn-secondary" onClick={onCancel} style={SECONDARY_BTN_STYLE}>
             Cancel
           </button>
-          <span style={{ fontSize: 12, color: DIM }}>Usually 3–5 seconds</span>
+          <span style={{ fontSize: 12, color: MUTED }}>Usually 3–5 seconds</span>
         </div>
       </>
     )
@@ -3371,7 +3353,7 @@ function CitationFlowCard({
             gap: 6
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
             {EXTERNAL_REFERENCE_LABEL}
           </div>
           <div
@@ -3390,7 +3372,7 @@ function CitationFlowCard({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
           <span style={{ color: POSITIVE, fontWeight: 500 }}>Claim resolved</span>
-          <span style={{ color: DIM }}>· {flagsLeft(remaining)}</span>
+          <span style={{ color: MUTED }}>· {flagsLeft(remaining)}</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="tracely-btn-primary" onClick={onDone} style={PRIMARY_BTN_STYLE}>
@@ -3504,7 +3486,7 @@ function CitationFlowCard({
       showMatch={!checked}
     />
   )
-  const groupLabel: CSSProperties = { fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '6px 8px 2px' }
+  const groupLabel: CSSProperties = { fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '6px 8px 2px' }
   const column: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }
 
   return (
@@ -3611,7 +3593,7 @@ function CitationFlowCard({
             gap: 6
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 600, color: DIM, letterSpacing: '0.04em' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: LABEL, letterSpacing: '0.04em' }}>
             {mode === 'copy' ? pasteOverLabel('YOUR CITATION') : 'WILL BE INSERTED'}
           </div>
           <div style={{ fontSize: 13, fontWeight: 500, color: INK }}>{preview.inTextCitation}</div>
@@ -4729,7 +4711,9 @@ export default function OverlayApp(): JSX.Element {
                   padding: 0,
                   cursor: 'pointer',
                   background: INK,
-                  boxShadow: widgetHovered ? '0 6px 18px rgba(0, 0, 0, 0.25)' : '0 2px 10px rgba(0, 0, 0, 0.18)',
+                  boxShadow: widgetHovered
+                    ? `0 0 0 1px ${LAUNCHER_EDGE}, 0 6px 18px rgba(0, 0, 0, 0.25)`
+                    : `0 0 0 1px ${LAUNCHER_EDGE}, 0 2px 10px rgba(0, 0, 0, 0.18)`,
                   transition: `box-shadow 150ms ${EASE}, transform 150ms ${EASE}`,
                   // A 3% lift, not 6%: enough to say "this is live" under the
                   // pointer without the circle jumping out of its corner.
@@ -4864,7 +4848,7 @@ export default function OverlayApp(): JSX.Element {
                     // every other card here is a left-aligned stack.
                     alignItems: isAnalyzing ? 'center' : 'flex-start',
                     justifyContent: isAnalyzing ? 'center' : 'flex-start',
-                    padding: isAnalyzing ? 32 : isParagraph ? '23px 25px' : '22px 24px',
+                    padding: isAnalyzing ? 32 : 24,
                     gap: isAnalyzing ? 16 : isParagraph ? 17 : 22,
                     pointerEvents: 'auto'
                   }}
@@ -5058,9 +5042,11 @@ export default function OverlayApp(): JSX.Element {
                     >
                       {visibleClaims.length} claim{visibleClaims.length === 1 ? '' : 's'} flagged
                     </div>
-                    {/* Neutral, so the number carries the meaning — the
-                        app's own count chip, not a finding colour. */}
-                    <div style={{ ...CHIP_STYLE, flexShrink: 0 }}>{widget.totalInfoCount} found</div>
+                    {/* Plain tabular text after the title, so the header
+                        carries one chip-like control: the score button. */}
+                    <span style={{ flexShrink: 0, fontSize: 12, color: MUTED, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                      · {widget.totalInfoCount} found
+                    </span>
                   </div>
                   <button
                     className="tracely-icon-btn"
@@ -5108,7 +5094,7 @@ export default function OverlayApp(): JSX.Element {
                     )
                   ) : visibleClaims.length === 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginTop: 24 }}>
-                      <div style={{ fontSize: 13, color: DIM, textAlign: 'center' }}>No claims flagged yet.</div>
+                      <div style={{ fontSize: 13, color: MUTED, textAlign: 'center' }}>No claims flagged yet.</div>
                     </div>
                   ) : widget.viewMode === 'single' && topClaim ? (
                     // The design's card IS the panel body: the same 16px stack
@@ -5370,10 +5356,12 @@ export default function OverlayApp(): JSX.Element {
         }
         .tracely-icon-btn {
           background: transparent;
+          color: ${LABEL};
           transition: background 150ms ${EASE}, color 150ms ${EASE};
         }
         .tracely-icon-btn:hover {
           background: ${CHIP_BG};
+          color: ${INK};
         }
         .tracely-icon-btn:active {
           background: ${PRESSED_WASH};
@@ -5435,6 +5423,11 @@ export default function OverlayApp(): JSX.Element {
         }
         .tracely-launcher {
           transition: box-shadow 150ms ${EASE}, transform 150ms ${EASE};
+        }
+        /* A white halo under the ink ring, so focus reads on a dark app too.
+           !important only beats the launcher's inline resting shadow. */
+        .tracely-launcher:focus-visible {
+          box-shadow: 0 0 0 4px ${PAPER} !important;
         }
         /* The panel grows out of its corner the way the popover grows out of
            its sentence: 160ms in. */

@@ -254,6 +254,11 @@ select {
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 30px !important;
+  /* A long option ends in an ellipsis before the chevron instead of being
+     sliced mid-word. */
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
   transition:
     border-color var(--dur) var(--ease),
@@ -755,6 +760,11 @@ textarea:disabled {
   color: var(--text);
 }
 
+/* The same optical pull for the chevron's inset. */
+.docedit-back svg {
+  margin-left: -4px;
+}
+
 .docedit-divider {
   width: 1px;
   height: 16px;
@@ -827,7 +837,7 @@ textarea:disabled {
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-ctl);
   background: transparent;
   font: inherit;
   font-size: 13px;
@@ -846,6 +856,13 @@ textarea:disabled {
 
 .docedit-toolbtn:active {
   background: var(--pressed);
+}
+
+/* A menu trigger (Align, Share, More) stays pressed while its menu is open,
+   as the Font and Size triggers do. */
+.docedit-toolbtn[aria-expanded='true'] {
+  background: var(--pressed);
+  color: var(--text);
 }
 
 /* A formatting toggle has to read as pressed at a glance, so "on" is the solid
@@ -900,7 +917,7 @@ textarea:disabled {
   height: 28px;
   padding: 0 6px 0 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-ctl);
   background: transparent;
   font: inherit;
   font-size: 12px;
@@ -924,12 +941,14 @@ textarea:disabled {
   background: var(--hover);
 }
 
+/* The label ellipsizes, so the font menu can stay narrow and leave the room
+   to the formatting buttons at the default 898px window. */
 .docedit-fontname {
-  width: 110px;
+  width: 88px;
 }
 
 .docedit-fontsize {
-  width: 56px;
+  width: 52px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -969,6 +988,11 @@ textarea:disabled {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* A scroller clips both axes, so 4px of padding (taken back by the
+     margin) keeps the 2px focus ring at 2px offset inside the clip. */
+  padding: 4px;
+  margin: -4px 0;
+  scroll-padding-inline: 4px;
   overflow-x: auto;
   /* No scrollbar track through the middle of a 44px toolbar. The group is
      scrolled with the wheel or by dragging, like every other overflow row in
@@ -980,6 +1004,48 @@ textarea:disabled {
   display: none;
 }
 
+/* Controls past the right edge fade out rather than being sliced in half,
+   which also says the group scrolls. */
+.docedit-tools[data-overflow] {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
+}
+
+.docedit-tools[data-overflow-start] {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px);
+  mask-image: linear-gradient(to right, transparent, black 16px);
+}
+
+.docedit-tools[data-overflow][data-overflow-start] {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+}
+
+/* Below 1180px the decorative document glyph goes, and "Saved" collapses to
+   its check (the word stays in the live region for screen readers), so the
+   formatting buttons keep their room. */
+@media (max-width: 1179px) {
+  .docedit-toolbar > .docedit-icon {
+    display: none;
+  }
+  .docedit-toolbar .docedit-savestate {
+    min-width: 0;
+  }
+  .docedit-savestate-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.docedit-savestate:empty {
+  margin-left: 0;
+  padding: 0;
+}
+
 /* The toolbar's one primary. 4px of margin on top of the row's 4 gap: two
    text buttons 4 apart put Tracer's 2px-offset focus ring on this one's edge. */
 .docedit-insights {
@@ -988,8 +1054,8 @@ textarea:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 14px;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
   border: 0;
   border-radius: var(--r-ctl);
   background: var(--accent);
@@ -1058,6 +1124,26 @@ textarea:disabled {
   inset: 0;
   pointer-events: none;
   z-index: 2;
+}
+
+/* While a card is open its layer rises over the status row (z-index 2, later
+   in the DOM), which otherwise painted its chips and legend across the foot of
+   a tall popover. At rest the underlines stay under the status row. */
+.docmark-layer:has(.docmark-popover) {
+  z-index: 3;
+}
+
+/* The hover bands sit UNDER the text: the body is lifted to z-index 1, the
+   bands stay at 0. Drawn above it, a translucent band tinted the very words it
+   highlights (white text in dark went peach under orange, yellow under amber).
+   Lines, popovers and prose marks stay in the layers above the body. */
+.docmark-layer.docmark-bands {
+  z-index: 0;
+}
+
+.docedit-body {
+  position: relative;
+  z-index: 1;
 }
 
 /* The band, the line and the motion are all set inline from
@@ -1230,12 +1316,22 @@ textarea:disabled {
   font-weight: 600;
 }
 
+/* Token mixes, not a brightness filter: brightness on a black fill does
+   nothing, so in light the ink primary had no hover or press at all. */
 .docmark-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.15);
+  background: color-mix(in srgb, var(--ink) 86%, var(--surface));
+  border-color: color-mix(in srgb, var(--ink) 86%, var(--surface));
 }
 
 .docmark-btn-primary:active:not(:disabled) {
-  filter: brightness(0.85);
+  background: color-mix(in srgb, var(--ink) 76%, var(--surface));
+  border-color: color-mix(in srgb, var(--ink) 76%, var(--surface));
+}
+
+/* The popover's tail: the card's own surface and edge. */
+.docmark-notch path {
+  fill: var(--surface);
+  stroke: var(--ink);
 }
 
 .docmark-btn-secondary {
@@ -1880,21 +1976,21 @@ textarea:disabled {
   font-weight: 600;
 }
 
-/* What year the document is graded against, beside the word count. Quieter
-   than the word count (24 to its 28): a property with a way to change it. */
+/* What year the document is graded against, beside the word count. The same
+   chip as the word count; the quieter prefix carries the difference. */
 .docedit-gradelevel {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  height: 24px;
-  padding: 0 8px;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-ctl);
   background: var(--surface);
   font: inherit;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
   white-space: nowrap;
@@ -1914,16 +2010,23 @@ textarea:disabled {
   color: var(--label);
 }
 
-/* What the underlines mean, once there are any. Samples are 24x2 and drawn
-   with the marks' own patterns: solid 2, dashed 2, double 3 (1+1+1). On a
-   surface fill so prose scrolling under the row cannot run through it. */
+/* What the underlines mean, once there are any. Every line is one solid 24x2
+   bar in its finding colour, as the marks are (owner, 2026-10-09); the kind's
+   icon before it says which, so colour is never the only channel. The words
+   are the extension legend's. On a surface fill so prose scrolling under the
+   row cannot run through it. */
 .docedit-legend {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  /* Shrinks (its labels ellipsize) rather than wrapping onto a second status
+     row, which would sit over the prose's 72px foot clearance. */
+  flex: 1 1 0;
   min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
   height: var(--ctl-h-sm);
-  padding: 0 8px;
+  padding: 0 4px;
   border-radius: var(--r-ctl);
   background: var(--surface);
   font-size: 11px;
@@ -1934,22 +2037,23 @@ textarea:disabled {
 .docedit-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .docedit-legend-line {
   flex-shrink: 0;
   width: 24px;
-  height: 0;
-  border-bottom: 2px solid currentColor;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
 }
 
-.docedit-legend-line.dashed {
-  border-bottom-style: dashed;
-}
-
-.docedit-legend-line.double {
-  border-bottom: 3px double currentColor;
+.docedit-legend-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--label);
 }
 
 /* The evidence sweep's progress: the word count's chip recipe with the one
@@ -2300,10 +2404,12 @@ textarea:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* The progress-track recipe: var(--surface-2) vanished in dark, leaving a 0%
+   stat's labels over empty space. 4px, on the grid. */
 .evidence-score-stat-track {
-  height: 5px;
+  height: 4px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -2645,6 +2751,9 @@ textarea:disabled {
   cursor: pointer;
   padding: 0;
   margin-top: 4px;
+  /* BackIcon's chevron is inset ~5px in its 14px box; the pull lands its left
+     stroke on the heading's edge, as .docs-back does. */
+  margin-left: -5px;
   transition: color var(--dur) var(--ease);
 }
 
@@ -2672,6 +2781,7 @@ textarea:disabled {
 }
 
 .settings-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2710,7 +2820,19 @@ textarea:disabled {
   background: var(--accent-wash);
   color: var(--text);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* The rule is its own straight bar, inset 8px top and bottom: an inset
+   box-shadow on a radius-8 row followed the corners into a crescent. */
+.settings-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .settings-nav-item.active svg {
@@ -2776,6 +2898,20 @@ textarea:disabled {
   line-height: 1.5;
 }
 
+/* No one-word last lines: titles balance (inside their 2-line clamps),
+   sentences wrap pretty. */
+.docs-card-title,
+.home-doc-title,
+.home-resource b {
+  text-wrap: balance;
+}
+
+.home-resource-blurb,
+.home-action-text span,
+.settings-panel-header p {
+  text-wrap: pretty;
+}
+
 .settings-avatar-row {
   display: flex;
   align-items: center;
@@ -2805,12 +2941,13 @@ textarea:disabled {
   gap: 4px;
 }
 
-/* The secondary button recipe at 32px, beside a 56px avatar. */
+/* The secondary button recipe at the 36px control height, like the inputs
+   and the Save button on the same pane. */
 .settings-avatar-upload {
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  padding: 0 12px;
+  height: var(--ctl-h);
+  padding: 0 16px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-ctl);
   background: var(--surface);
@@ -2941,7 +3078,9 @@ textarea:disabled {
   height: 16px;
   border: 0;
   border-radius: 50%;
-  background: var(--surface);
+  /* White in both themes: var(--surface) was a near-black dot in dark that
+     read as a hole punched in the track. */
+  background: var(--primary-contrast);
   box-shadow: var(--shadow-sm);
   transform: none;
   transition: transform var(--dur) var(--ease);
@@ -2955,9 +3094,13 @@ textarea:disabled {
   transform: translateX(16px);
 }
 
+/* Toggles take the app-chrome button ring, not a field halo: the 25% halo
+   alone was about 1.3:1 on white, so the Tab stop was invisible. */
+input[type='checkbox']:focus-visible,
 .settings-toggle-row input[type='checkbox']:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--ring);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
 /* Compact checklist — small checkbox + label pairs that wrap, rather than
@@ -3043,6 +3186,13 @@ textarea:disabled {
   grid-column: 1 / -1;
 }
 
+/* A toggle row inside a field grid spans it, like the full-width toggle card
+   above it, instead of being squeezed into one column beside a field. */
+.settings-panel-grid > .settings-toggle-row {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
 .settings-field {
   display: flex;
   flex-direction: column;
@@ -3056,6 +3206,12 @@ textarea:disabled {
   line-height: 1.3;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.settings-field-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--label);
 }
 
 /* One field recipe for every text input and select in Settings: 36px, radius
@@ -3247,9 +3403,11 @@ textarea:disabled {
 
 /* Header 40 -> input >=84 -> Analyze 36 -> results: neither control may be
    squashed by the overflowing column (the textarea was cut to one line). */
+/* Four whole 19.5px lines + 20px padding + 2px border: at 84 the fourth line
+   was cut through its glyphs. */
 .floating-body > .textarea {
   flex: 0 0 auto;
-  min-height: 84px;
+  min-height: 100px;
 }
 
 .floating-body > .btn {
@@ -3742,6 +3900,8 @@ textarea:disabled {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
+  /* Centred on the plan name's first line (20px type at line-height 1.3). */
+  margin-top: calc((20px * 1.3 - 20px) / 2);
   height: 20px;
   padding: 0 8px;
   border: 1px solid var(--accent-border);
@@ -3791,7 +3951,8 @@ textarea:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px;
+  /* The plan card's 20 above it, so "Free" and "Upgrade" share an edge. */
+  padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--r-tile);
   background: var(--surface-2);
@@ -4309,27 +4470,26 @@ textarea:disabled {
   justify-content: center;
   flex-shrink: 0;
   height: 32px;
-  border: 1px solid var(--primary);
+  /* The secondary recipe: an accent outline stacked over the orange "View
+     Full Report" primary made two orange controls compete. */
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-ctl);
-  background: none;
+  background: var(--surface);
   padding: 0 12px;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
-  color: var(--primary);
+  color: var(--text);
   cursor: pointer;
   transition: background-color var(--dur) var(--ease);
 }
 
-/* The token, not a literal. There are alternate accents (blue/green/purple)
-   further up this file, and a hardcoded orange tint would sit under an accent
-   the user chose instead of it. */
 .argscore-checkall:hover {
-  background: var(--accent-wash);
+  background: var(--hover);
 }
 .argscore-checkall:active { background: var(--pressed); }
-.argscore-checkall:disabled { opacity: 0.5; cursor: not-allowed; background: none; }
+.argscore-checkall:disabled { opacity: 0.5; cursor: not-allowed; background: var(--surface); }
 
 .argscore-checkall-note {
   font-size: 12px;
@@ -5296,6 +5456,18 @@ textarea:disabled {
   filter: brightness(0.94);
 }
 
+/* A destructive confirm: the danger recipe, as ConfirmDialog's Delete. */
+.savechanges-btn.confirm.danger {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.savechanges-btn.confirm.danger:hover:not(:disabled) {
+  filter: none;
+  background: var(--score-low-wash);
+}
+
 .savechanges-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -5329,9 +5501,14 @@ textarea:disabled {
   color: var(--muted);
 }
 
+/* Not an empty field: the inset/disabled language (surface-2 on a quiet
+   border, muted text), upright like every other line of app chrome. */
 .settings-static-value.is-unavailable {
+  background: var(--surface-2);
+  border-color: var(--border);
   color: var(--muted);
-  font-style: italic;
+  font-style: normal;
+  cursor: default;
 }
 
 /* ---- Document toolbar menus (Figma 226:95 / 226:104 / 234:46 / 234:67 /
@@ -5398,6 +5575,14 @@ textarea:disabled {
   color: var(--accent);
 }
 
+.toolbar-menu-item.danger {
+  color: var(--danger);
+}
+
+.toolbar-menu-item.danger:hover:not(:disabled) {
+  background: var(--score-low-wash);
+}
+
 .toolbar-menu-item:disabled {
   color: var(--label);
   cursor: not-allowed;
@@ -5412,36 +5597,9 @@ textarea:disabled {
   display: inline-flex;
 }
 
-/* The formatting group is a horizontal scroller, and a scroller clips both
-   axes — so the five menus hanging from it (font, size, align, share, more)
-   opened INSIDE the 44px row and were never visible. Fixed with auto insets
-   puts each at its static place (the trigger's top-left, scroll included) but
-   out of the scroller's clip; the margin drops it 6px below the 28px trigger.
-   `!important` only beats ToolbarMenu's inline left/right: 0, which would
-   otherwise pin it to the window edge. Right-hung menus (share, more) shift
-   back by their own width less the 28px trigger. Position only — the menu's
-   look stays `.toolbar-menu`'s. */
-.docedit-tools .toolbar-menu {
-  position: fixed;
-  top: auto;
-  left: auto !important;
-  right: auto !important;
-  margin-top: 34px;
-  /* A fixed box's static position ignores the scroller's offset; AnalyzeView
-     publishes it as --tools-scroll on scroll so the menu stays under its
-     trigger when the group has been scrolled. */
-  margin-left: calc(-1 * var(--tools-scroll, 0px));
-}
-
-.docedit-tools .toolbar-menu[style*='right'] {
-  transform: translateX(calc(-100% + 28px));
-}
-
-/* The word count sits at the foot of the page, so its menu opens upward. */
-.docedit-wordcount .toolbar-menu {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
+/* The five toolbar menus and the word-count menu place themselves:
+   ToolbarMenu writes viewport-fixed top/left from its trigger (flipping above
+   it when there is no room below), so no rule here offsets them. */
 
 /* The word-count chip is a menu trigger (234:85); its recipe is with the
    status row, under `.docedit-status`. */
@@ -5564,6 +5722,8 @@ textarea:disabled {
   justify-content: center;
   gap: 8px;
   height: var(--ctl-h);
+  /* The Sort select's width below it, so both edges line up. */
+  min-width: 160px;
   padding: 0 16px;
   border: 1px solid transparent;
   border-radius: var(--r-ctl);
@@ -5612,7 +5772,7 @@ textarea:disabled {
 
 .docs-sort {
   -webkit-app-region: no-drag;
-  height: 32px;
+  height: var(--ctl-h);
   min-width: 160px;
 }
 
@@ -5672,13 +5832,15 @@ textarea:disabled {
   display: block;
   height: 122px;
   flex-shrink: 0;
-  background: var(--bg);
+  /* Home's thumbnail fill (#fafafa over white, raised in dark), so the same
+     document card is one component on both screens — var(--bg) was greyer in
+     light and a black well in dark. */
+  background: var(--surface-2);
   overflow: hidden;
 }
 
-/* Four bars at the frame's widths, 14px apart from a 16px top — the same
-   weight as Home's tiles. Decorative: the thumbnail shows that the card is a
-   document, not what it says. */
+/* Four bars on Home's rhythm: 3px, 13px apart from a 12px inset. Decorative:
+   the thumbnail shows that the card is a document, not what it says. */
 .docs-card-bar {
   position: absolute;
   left: 12px;
@@ -5686,10 +5848,10 @@ textarea:disabled {
   border-radius: 999px;
   background: var(--border);
 }
-.docs-card-bar:nth-child(1) { top: 16px; }
-.docs-card-bar:nth-child(2) { top: 30px; }
-.docs-card-bar:nth-child(3) { top: 44px; }
-.docs-card-bar:nth-child(4) { top: 58px; }
+.docs-card-bar:nth-child(1) { top: 12px; }
+.docs-card-bar:nth-child(2) { top: 25px; }
+.docs-card-bar:nth-child(3) { top: 38px; }
+.docs-card-bar:nth-child(4) { top: 51px; }
 
 /* The grade chip: the shared chip recipe (20px, radius 999, 11/600 tabular).
    Its three palettes are below, with the menu. */
@@ -5713,7 +5875,7 @@ textarea:disabled {
   margin: 8px 12px 0;
   font-size: 13px;
   font-weight: 500;
-  line-height: 1.3;
+  line-height: 1.4;
   color: var(--text);
   /* Two lines, then ellipsis. The frame's title box is two lines, and
      "Photosynthesis Lab Report" already uses both. */
@@ -5733,13 +5895,16 @@ textarea:disabled {
 
 /* The three list states, each inset to the grid's 24px. Empty = the shared
    dashed box; loading = <Spinner label>; error = .error-text with role=alert. */
+/* Home's empty-state recipe, so the same "nothing here yet" reads the same on
+   both screens. */
 .docs-empty {
   margin: 0 24px;
-  padding: 40px;
+  padding: 24px;
   border: 1px dashed var(--border);
-  border-radius: var(--r-card);
-  font-size: 14px;
-  line-height: 1.45;
+  border-radius: var(--r-tile);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.5;
   text-align: center;
   color: var(--muted);
 }
@@ -5774,10 +5939,12 @@ textarea:disabled {
    reachable by keyboard, where there is no hover. The dismiss-size icon
    button: 24x24, radius 6, a 16px icon, the surface at 92% over the thumbnail
    so the bars read through its edge. */
+/* Bottom-right of the 122px thumbnail: clear of the skeleton bars (which end
+   at 54) and of the grade chip at top-right. */
 .docs-card-menu {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 90px;
+  right: 8px;
   width: 24px;
   height: 24px;
   padding: 0;
@@ -5819,8 +5986,8 @@ textarea:disabled {
    casts a shadow. Radius 12, 6x4 inset, 32px items at radius 6. */
 .docs-card-menu-popup {
   position: absolute;
-  top: 36px;
-  left: 8px;
+  top: 118px;
+  right: 8px;
   z-index: 3;
   min-width: 120px;
   padding: 6px 4px;
@@ -5830,7 +5997,7 @@ textarea:disabled {
   border: 1px solid var(--border-strong);
   border-radius: var(--r-tile);
   box-shadow: var(--shadow-lg);
-  transform-origin: top left;
+  transform-origin: top right;
   animation: docs-menu-in 140ms var(--ease) both;
 }
 
@@ -5941,8 +6108,21 @@ textarea:disabled {
 .docpending {
   position: absolute;
   pointer-events: none;
-  border-bottom: 2px dotted #9a9ba1;
   animation: docpending-pulse 1.4s ease-in-out infinite;
+}
+
+/* One solid 2px line, like every other mark (no dotted underlines — owner,
+   2026-10-09) and like the extension's faint solid MARK_PENDING. The span
+   covers the whole line box (inline size), so the bar is drawn at its foot. */
+.docpending::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: #9a9ba1;
 }
 
 /* Deliberately opacity only, and deliberately not gated on a frame callback.
@@ -5951,7 +6131,7 @@ textarea:disabled {
  * frame while the writer is typing into that exact sentence. Opacity is
  * composited. And the resting state is the VISIBLE end of the animation, so if
  * the compositor never runs this (a window that is not compositing — the trap
- * documented on the overlay's entrance fade) the mark is a steady dotted line
+ * documented on the overlay's entrance fade) the mark is a steady solid line
  * rather than an invisible one. */
 @keyframes docpending-pulse {
   0%,
@@ -6424,7 +6604,9 @@ textarea:disabled {
    below the OS window buttons, which are drawn over this corner. */
 .home-card {
   margin: 0 calc(var(--h-card-edge) - var(--h-gutter));
-  padding: 28px 24px 22px;
+  /* The card keeps its wider edge, but its content sits on the verticals of
+     the stat text and action tiles below (gutter + their 16px padding). */
+  padding: 28px calc(var(--h-gutter) - var(--h-card-edge) + 16px) 22px;
   border: 1px solid var(--h-card-line);
   border-radius: var(--r-card);
   background: var(--h-card);
@@ -6456,7 +6638,7 @@ textarea:disabled {
   /* No tracking: the scale keeps -0.01em for 24px and up, and this is 20. */
   color: var(--h-strong);
 }
-.home-brand img { width: 28px; height: 24px; align-self: center; }
+.home-brand img { width: 24px; height: 24px; align-self: center; }
 
 .home-greeting {
   margin: 0;
@@ -6589,7 +6771,7 @@ textarea:disabled {
   cursor: pointer;
   transition: border-color var(--dur) var(--ease);
 }
-.home-action:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-action:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .home-action:active { box-shadow: none; }
 
 /* The primary card is told apart by its accent hairline and filled icon tile,
@@ -6597,7 +6779,7 @@ textarea:disabled {
    the two cards two recipes, and a black outline before that was the heaviest
    line on the screen. */
 .home-action.primary { border-color: var(--accent-border); }
-.home-action.primary:hover { border-color: var(--h-ink); }
+.home-action.primary:hover { border-color: var(--border-strong); }
 
 /* The frame draws "Paste a link" as a plain white card with no border, so the
    disabled state keeps that and only loses a little contrast. */
@@ -6720,7 +6902,7 @@ textarea:disabled {
   overflow: hidden;
   transition: border-color var(--dur) var(--ease);
 }
-.home-doc:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-doc:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .home-doc:active { box-shadow: none; }
 
 /* 100 tall, filled, with four 3px bars on a 10px gap inside a 12px inset — the
@@ -6808,7 +6990,7 @@ textarea:disabled {
   box-sizing: border-box;
   transition: border-color var(--dur) var(--ease);
 }
-.home-resource:hover { border-color: var(--h-ink); box-shadow: var(--shadow-sm); }
+.home-resource:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .home-resource:active { box-shadow: none; }
 .home-resource:hover .home-resource-read { color: var(--h-accent); }
 .home-resource b {
@@ -6841,10 +7023,10 @@ textarea:disabled {
 }
 .home-resource-read svg { flex-shrink: 0; }
 
-/* The exported 40x40 asset, at its designed size.
-   The tinted disc is INSIDE the SVG — it is one shape in the frame — so there
-   is no background here to get out of step with it, and both dimensions are
-   explicit rather than left to the box. */
+/* The exported 40x40 asset, at its designed size: a tinted radius-8 tile
+   with a 20px glyph from the icon set (1.75 stroke, round caps), the same
+   shape as .home-action-icon above. The tile is INSIDE the SVG, so there is
+   no background here to get out of step with it. */
 .home-resource-icon {
   display: block;
   width: 40px;
@@ -6872,12 +7054,12 @@ textarea:disabled {
   object-fit: contain;
   flex-shrink: 0;
   margin-left: -8px;
-  /* The supplied artwork has a white background rather than transparency, and
-     Home's ground is grey now — so it was a white tile with a mascot in it.
-     `multiply` drops white to nothing against any lighter ground while leaving
-     the orange disc and the linework untouched. Clipping to a circle was the
-     alternative and it cuts the plane's wing, which overhangs the disc on
-     purpose. */
+  /* The artwork's matte is transparent: its white corners and soft pink halo
+     were faded out inside the canvas (the disc, its white ring, the gloves and
+     the overhanging wing are the original pixels), so no tinted square shows
+     on the grey ground. `multiply` stays as a safety net. Clipping to a circle
+     was the alternative and it cuts the plane's wing, which overhangs the disc
+     on purpose. */
   mix-blend-mode: multiply;
 }
 
@@ -7169,6 +7351,14 @@ textarea:disabled {
   -webkit-app-region: no-drag;
 }
 
+/* In the editor the panel starts under the 44px toolbar instead of covering
+   Back, the document name and the font controls. */
+.docedit-view .tracer-panel {
+  top: 52px;
+  bottom: 20px;
+  height: auto;
+}
+
 .tracer-head {
   display: flex;
   align-items: center;
@@ -7315,11 +7505,11 @@ textarea:disabled {
 .tracer-composer input {
   flex: 1;
   min-width: 0;
-  height: 40px;
+  height: var(--ctl-h);
   padding: 0 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-ctl);
-  background: var(--bg);
+  background: var(--surface);
   font: inherit;
   font-size: 13px;
   color: var(--text);
@@ -7343,7 +7533,7 @@ textarea:disabled {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--r-ctl);
   background: var(--accent);
   color: var(--primary-contrast);
   cursor: pointer;
@@ -7351,7 +7541,7 @@ textarea:disabled {
 }
 .tracer-send:hover:not(:disabled) { filter: brightness(1.06); }
 .tracer-send:active:not(:disabled) { filter: brightness(0.94); }
-.tracer-send:disabled { opacity: 0.45; cursor: not-allowed; }
+.tracer-send:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Tracer's launcher in the editor toolbar: the secondary beside the one
    primary (`.docedit-insights`), outlined so the two do not read as a pair of
@@ -7361,7 +7551,7 @@ textarea:disabled {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  height: 32px;
+  height: var(--ctl-h-sm);
   padding: 0 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-ctl);
@@ -7916,3 +8106,39 @@ textarea:disabled {
  * mark/dot colours are set inline from the shared problem-colour map and are
  * theme-invariant by design. Add a rule here only for a value no token
  * carries, and on BOTH dark paths. */
+
+/* ---------------------------------------------------------------------------
+   Dark: raised, not sunk. Surfaces that sat on var(--bg) read as holes in the
+   dark cards around them (avatar, citation chip, Tracer panel); the popover's
+   2px ink edge became a white frame louder than the sentence it explains; the
+   pastel Resources discs glared; a disabled orange primary went muddy brown.
+   Tokens only, both ways dark is reached; light is unchanged.
+   --------------------------------------------------------------------------- */
+:root[data-theme='dark'] .docmark-card { border-color: var(--border-strong); }
+:root[data-theme='dark'] .docmark-notch path { stroke: var(--border-strong); }
+:root[data-theme='dark'] .docmark-chip { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+:root[data-theme='dark'] .settings-avatar { background: var(--surface-2); border: 1px solid var(--border); }
+:root[data-theme='dark'] .tracer-panel { background: var(--surface); }
+:root[data-theme='dark'] .tracer-msg.from-tracer { background: var(--surface-2); }
+:root[data-theme='dark'] .home-resource-icon { opacity: 0.9; filter: brightness(0.8); }
+:root[data-theme='dark'] :is(.btn-primary, .docedit-insights, .srcfind-go, .tracer-send):disabled {
+  opacity: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--label);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .docmark-card { border-color: var(--border-strong); }
+  :root:not([data-theme='light']) .docmark-notch path { stroke: var(--border-strong); }
+  :root:not([data-theme='light']) .docmark-chip { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+  :root:not([data-theme='light']) .settings-avatar { background: var(--surface-2); border: 1px solid var(--border); }
+  :root:not([data-theme='light']) .tracer-panel { background: var(--surface); }
+  :root:not([data-theme='light']) .tracer-msg.from-tracer { background: var(--surface-2); }
+  :root:not([data-theme='light']) .home-resource-icon { opacity: 0.9; filter: brightness(0.8); }
+  :root:not([data-theme='light']) :is(.btn-primary, .docedit-insights, .srcfind-go, .tracer-send):disabled {
+    opacity: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--label);
+  }
+}
