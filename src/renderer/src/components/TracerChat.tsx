@@ -134,6 +134,9 @@ export default function TracerChat({
     }
     setMessages((prev) => [...prev, pending])
     setInput('')
+    // Send goes away with the text (Talk takes its slot), so focus a click on
+    // it left behind goes back to the box rather than falling to the page.
+    inputRef.current?.focus()
     setError(null)
     setSending(true)
 
@@ -295,9 +298,13 @@ export default function TracerChat({
           placeholder="Ask Tracer anything…"
           disabled={!serverConfigured || conversationId === null}
         />
+        {/* With nothing typed, Talk takes Send's slot, filled, as the one
+            action; once there is text, Send comes back as the filled action
+            and Talk steps down to the wash. Same element either way, so focus
+            on it survives the swap. */}
         <button
           type="button"
-          className="tracer-talk"
+          className={`tracer-talk ${input.trim() ? '' : 'tracer-talk-primary'}`}
           aria-label="Talk to Tracer"
           title={`Talk to Tracer${proHint}`}
           disabled={talkDisabled}
@@ -305,22 +312,24 @@ export default function TracerChat({
         >
           <WaveformIcon size={19} />
         </button>
-        <button
-          type="submit"
-          className="tracer-send"
-          aria-label="Send"
-          disabled={!input.trim() || sending || !serverConfigured}
-        >
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M12 19V5M12 5l-6 6M12 5l6 6"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+        {input.trim() ? (
+          <button
+            type="submit"
+            className="tracer-send"
+            aria-label="Send"
+            disabled={sending || !serverConfigured}
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 19V5M12 5l-6 6M12 5l6 6"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        ) : null}
       </form>
       </>
       )}

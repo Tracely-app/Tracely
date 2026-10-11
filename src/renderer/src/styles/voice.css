@@ -490,7 +490,8 @@
 /* ── Entry points in TracerChat ───────────────────────────────────────── */
 
 /* Beside Send: the same 42px circle, in the accent's wash, so Send stays the
-   one filled action in the composer. */
+   one filled action in the composer. With nothing typed it takes Send's slot
+   and Send's fill (.tracer-talk-primary). */
 .tracer-talk {
   flex-shrink: 0;
   display: grid;
@@ -506,6 +507,8 @@
   transition: background 0.15s ease, transform 0.1s ease;
 }
 .tracer-talk:hover:not(:disabled) { background: var(--accent-border); }
+.tracer-talk-primary { background: var(--accent); color: #fff; }
+.tracer-talk-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.06); }
 .tracer-talk:active:not(:disabled) { transform: scale(0.96); }
 .tracer-talk:disabled { opacity: 0.45; cursor: default; }
 .tracer-talk:focus-visible {
