@@ -98,6 +98,7 @@ import type {
   TracerNewConversationResponse,
   TracerSendRequest,
   TracerSendResponse,
+  VoiceEligibilityResponse,
   VoiceEndRequest,
   VoiceEndResponse,
   VoiceEnsureMicResponse,
@@ -122,6 +123,13 @@ import type { AppSettings, AuthUser } from '@shared/types'
 
 /** window.tracely.voice. onHangUp is desktop-only, so optional for the other bridges. */
 interface VoiceBridge {
+  /**
+   * Whether this bridge can hold a call at all: true here, false in the web
+   * bridge (renderer/bridge/httpApi.ts), whose Talk buttons are disabled.
+   */
+  readonly available: boolean
+  /** May this account start a call now? Rejects (tagged) only when the server couldn't be asked. */
+  eligibility(): Promise<VoiceEligibilityResponse>
   ensureMic(): Promise<VoiceEnsureMicResponse>
   start(req: VoiceStartRequest): Promise<VoiceStartResponse>
   end(req: VoiceEndRequest): Promise<VoiceEndResponse>
@@ -214,6 +222,9 @@ const api = {
   // ('[voice:<kind>] …') — read it with parseVoiceIpcError, or go through
   // tracelyApi.voice, which does.
   voice: {
+    available: true,
+    /** Plan, voice switched on, a free line, minutes left. Free: no OpenAI call. */
+    eligibility: (): Promise<VoiceEligibilityResponse> => ipcRenderer.invoke(IPC.VOICE_ELIGIBILITY, {}),
     /** The OS mic permission; prompts once on macOS when it was never asked. */
     ensureMic: (): Promise<VoiceEnsureMicResponse> => ipcRenderer.invoke(IPC.VOICE_ENSURE_MIC, {}),
     /** Offer SDP in, answer SDP out (absent when `mock`). Paid while the call is open. */
