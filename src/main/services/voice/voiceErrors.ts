@@ -61,6 +61,9 @@ function serverSentence(failure: FailureLike, action: VoiceAction): string {
       ? "Tracely couldn't start the call. Try again in a moment."
       : "Tracely couldn't end the call cleanly. It will close on its own."
   if (failure.stage === 'local') return 'This build has no Tracely server, so voice cannot start.'
+  // Every sentence below is about starting; a failed hang-up only ever needs
+  // to say the call will end anyway (the server closes it at its cap).
+  if (action === 'end') return fallback
   if (failure.status === 404) return "Voice isn't available on this Tracely server yet."
   switch (failure.kind) {
     case 'rate':
