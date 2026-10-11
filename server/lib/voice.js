@@ -61,8 +61,8 @@ export const ALLOWED_SERVER_EVENTS = Object.freeze([
   "session.started", "session.input_transcript.delta", "session.output_transcript.delta", "session.closed", "error",
 ]);
 
-/* When GPT-Live asks for backend help it waits for an answer, and with
- * `delegation: null` (client mode) the answer is ours to send. Tracer has no
+/* When GPT-Live asks for backend help it waits for an answer, and with no
+ * `delegation` configured (client mode) the answer is ours to send. Tracer has no
  * lookup tool, so the sideband says so instead of leaving the model hanging. */
 export const DELEGATION_REPLY =
   "There is no lookup tool in this conversation. Answer from what you know, say plainly when you are not sure, and tell the student how they could check it themselves.";
@@ -111,7 +111,8 @@ export function buildSessionBody({ voiceId, context, sdp }) {
       model: VOICE_MODEL,
       instructions: buildInstructions(voiceId, context),
       audio: { output: { voice: VOICE_PERSONAS[voiceId].base } },
-      delegation: null,
+      // No `delegation` key at all: the API rejects `delegation: null` with
+      // 400 invalid_type (measured live 2026-10-10); omitting it is client mode.
       store: false,
       client: { data_channel: { allowed_client_events: [], allowed_server_events: ALLOWED_SERVER_EVENTS.map((type) => ({ type })) } },
     },

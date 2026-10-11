@@ -93,7 +93,6 @@ test("the session body: gpt-live-1, the persona's voice, nothing stored, caption
       model: "gpt-live-1",
       instructions: `${VOICE_BASE_PROMPT}\n\n${VOICE_PERSONAS.hollis.prompt}\n\nThe student's current draft (for reference; never read it back at length):\n\nDraft text.`,
       audio: { output: { voice: "delta" } },
-      delegation: null,
       store: false,
       client: { data_channel: { allowed_client_events: [], allowed_server_events: [
         { type: "session.started" }, { type: "session.input_transcript.delta" }, { type: "session.output_transcript.delta" }, { type: "session.closed" }, { type: "error" },
