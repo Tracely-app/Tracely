@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import { UPGRADE_URL } from '@shared/plan'
+import { UPGRADE_URL, planRank } from '@shared/plan'
 import { DEFAULT_VOICE_ID, voiceById, type VoiceId } from '@shared/voices'
 import { tracelyApi } from '../../lib/api'
+import { usePlan } from '../../lib/plan'
 import { formatClock, voiceAnnouncement, voiceStateLine } from '../../voice/session'
 import type { VoiceState } from '../../voice/types'
 import { rememberVoiceRemaining, useVoiceSession } from '../../voice/useVoiceSession'
@@ -78,14 +79,25 @@ export default function VoiceMode({
   const live = LIVE.includes(snap.state)
   const inCall = IN_CALL.includes(snap.state)
 
+  // Voice is Pro-only. The plan this window knows is checked first, so a
+  // Free or Student account sees why before the consent sheet, the OS mic
+  // prompt and a connection attempt — not after. The server stays the
+  // authority: "I have Pro, try anyway" goes ahead for a stale plan read or a
+  // local server that doesn't enforce plans, and a real refusal still comes
+  // back as the 'plan' error.
+  const plan = usePlan()
+  const [tryAnyway, setTryAnyway] = useState(false)
+  const gated = planRank(plan) < planRank('pro') && !tryAnyway
+
   // The call starts by itself once — when the view opens with consent given,
-  // or the moment consent is.
+  // or the moment consent is (and once the plan allows it: usePlan reads
+  // 'free' until the first plan read lands).
   const autoStarted = useRef(false)
   useEffect(() => {
-    if (!prefs?.consent || autoStarted.current) return
+    if (!prefs?.consent || gated || autoStarted.current) return
     autoStarted.current = true
     void call.start()
-  }, [prefs?.consent, call])
+  }, [prefs?.consent, gated, call])
 
   const [consentBusy, setConsentBusy] = useState(false)
   async function acceptConsent(): Promise<void> {
@@ -176,12 +188,19 @@ export default function VoiceMode({
     }
   }
 
-  const showConsent = prefs !== null && !prefs.consent && snap.state === 'idle'
+  const showConsent = prefs !== null && !prefs.consent && snap.state === 'idle' && !gated
+  const showPlanGate = prefs !== null && gated && snap.state === 'idle'
   const chipLocked = prefs === null || !UNLOCKED.includes(snap.state)
   // The AI-voice disclosure stays on screen for the whole call (the chip), and
   // the line under the orb says it again before one starts.
   const stateLine =
-    prefs === null ? '' : snap.state === 'idle' ? `Talk with ${persona.name}, Tracer's AI voice` : voiceStateLine(snap, persona.name)
+    prefs === null
+      ? ''
+      : showPlanGate
+        ? 'Voice is part of Pro'
+        : snap.state === 'idle'
+          ? `Talk with ${persona.name}, Tracer's AI voice`
+          : voiceStateLine(snap, persona.name)
   const left = snap.maxSec - snap.elapsedSec
 
   let meta: JSX.Element | string | null = null
@@ -196,7 +215,7 @@ export default function VoiceMode({
       )
   } else if (snap.state === 'requesting-mic') {
     meta = 'Allow the microphone if your computer asks.'
-  } else if (snap.state === 'idle') {
+  } else if (snap.state === 'idle' && !showPlanGate) {
     meta = persona.tagline
   } else if (snap.state === 'ended' || snap.error?.kind === 'ended-by-limit') {
     meta = `Talked for ${formatClock(call.result?.seconds ?? snap.elapsedSec)}`
@@ -217,8 +236,27 @@ export default function VoiceMode({
       <p>The transcript couldn't be saved.</p>
     ) : null
 
+  const seePro = (
+    <Button variant="primary" onClick={() => void tracelyApi.openExternal(UPGRADE_URL)}>
+      See Pro
+    </Button>
+  )
+
   let notice: JSX.Element | null = null
-  if (snap.state === 'ended') {
+  if (showPlanGate) {
+    notice = (
+      <div className="voice-notice">
+        <p>Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.</p>
+        <button type="button" className="voice-link" onClick={() => setTryAnyway(true)}>
+          I have Pro, try anyway
+        </button>
+        <div className="voice-actions">
+          {back}
+          {seePro}
+        </div>
+      </div>
+    )
+  } else if (snap.state === 'ended') {
     notice = (
       <div className="voice-notice">
         {savedLine ?? <p>Thanks for talking.</p>}
@@ -240,9 +278,7 @@ export default function VoiceMode({
         <div className="voice-actions">
           {back}
           {kind === 'plan' ? (
-            <Button variant="primary" onClick={() => void tracelyApi.openExternal(UPGRADE_URL)}>
-              See Pro
-            </Button>
+            seePro
           ) : canRetry ? (
             <Button variant="primary" onClick={retry}>
               {kind === 'ended-by-limit' ? 'New call' : 'Try again'}

@@ -42,6 +42,7 @@ import {
   UPGRADE_URL,
   modelTierUnlocked,
   monthDayLabel,
+  planRank,
   resolveModelTier,
   type ModelTier
 } from '@shared/plan'
@@ -1048,6 +1049,7 @@ function VoicePane({
   onSave: (patch: Parameters<typeof tracelyApi.setSettings>[0]) => Promise<void>
 }): JSX.Element {
   const selected = voiceById(settings.voiceId).id
+  const needsPro = planRank(usePlan()) < planRank('pro')
   const [playing, setPlaying] = useState<VoiceId | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const remaining = readVoiceRemaining()
@@ -1082,6 +1084,7 @@ function VoicePane({
         <h3>Voice</h3>
         <p>
           Talk to Tracer out loud from the Tracer panel. Pick the voice you like best.
+          {needsPro ? ' Voice is part of Pro.' : ''}
           {remaining !== null
             ? ` About ${Math.floor(remaining / 60)} ${Math.floor(remaining / 60) === 1 ? 'minute' : 'minutes'} of voice left today.`
             : ''}

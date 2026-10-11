@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TracerMessage } from '@shared/types'
 import { parseTracerReply, type TracerRewrite } from '@shared/tracerRewrite'
+import { planRank } from '@shared/plan'
 import { tracelyApi, TracelyApiError } from '../lib/api'
+import { usePlan } from '../lib/plan'
 import tracerBadge from '../assets/tracer-badge.png'
 import { WaveformIcon } from './icons'
 import VoiceMode from './voice/VoiceMode'
@@ -166,6 +168,9 @@ export default function TracerChat({
     })
   }
   const talkDisabled = !serverConfigured || conversationId === null
+  // Voice is Pro-only; the tooltips say so before the click (VoiceMode then
+  // explains, and the server decides).
+  const proHint = planRank(usePlan()) < planRank('pro') ? ' (Pro)' : ''
 
   return (
     <div className="tracer-panel" role="dialog" aria-label="Chat with Tracer">
@@ -184,7 +189,7 @@ export default function TracerChat({
             className="tracer-head-talk"
             onClick={() => setVoiceOpen(true)}
             aria-label="Start a voice call"
-            title="Start a voice call"
+            title={`Start a voice call${proHint}`}
             disabled={talkDisabled}
           >
             <WaveformIcon size={17} />
@@ -294,7 +299,7 @@ export default function TracerChat({
           type="button"
           className="tracer-talk"
           aria-label="Talk to Tracer"
-          title="Talk to Tracer"
+          title={`Talk to Tracer${proHint}`}
           disabled={talkDisabled}
           onClick={() => setVoiceOpen(true)}
         >
