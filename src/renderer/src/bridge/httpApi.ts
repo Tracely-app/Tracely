@@ -40,6 +40,7 @@ import type {
   SettingsSetRequest,
   SourcesVerifyResponse
 } from '@shared/ipc-contract'
+import { formatVoiceIpcError } from '@shared/ipc-contract'
 import { receiptsInOrder, settleReceipts, verifyRequestBody } from '@shared/sourceReceipts'
 import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
 import { hasInlineCitation } from '@shared/inlineCitation'
@@ -54,6 +55,7 @@ import { computeClaimSpans } from '@shared/claimSpans'
 import type { ModelTier, Plan } from '@shared/plan'
 import { credibilityOf } from '@shared/sourceCredibility'
 import { gradeFor } from '@shared/gradeLevel'
+import { DEFAULT_VOICE_ID, voiceById, type VoiceId } from '@shared/voices'
 import {
   accentHexOf,
   accentNameOf,
@@ -151,6 +153,12 @@ interface SettingsExtras {
   suppressSaveConfirm: boolean
   username: string
   modelTier: ModelTier
+  // Tracer Voice's settings, kept locally like the rest of these. This bridge
+  // cannot hold a voice call (voice.start refuses), but AppSettings needs them.
+  voiceId: VoiceId
+  voiceCaptions: boolean
+  voiceSaveTranscript: boolean
+  voiceConsent: boolean
 }
 
 interface ProfileExtras {
@@ -183,7 +191,13 @@ const DEFAULT_EXTRAS: SettingsExtras = {
   username: 'local',
   // Matches settingsRepo's default. It is a request either way — the relay
   // clamps it to the plan, and this build has no paid plan behind it.
-  modelTier: 'thorough'
+  modelTier: 'thorough',
+  voiceId: DEFAULT_VOICE_ID,
+  voiceCaptions: true,
+  // Off until the student turns it on (the consent sheet's checkbox, or
+  // Settings → Voice) — the same default as main's settingsRepo.
+  voiceSaveTranscript: false,
+  voiceConsent: false
 }
 
 // ── bridge state ────────────────────────────────────────────────────────────
@@ -339,7 +353,11 @@ export function createHttpApi(): TracelyApi {
       suppressSaveConfirm: extras.suppressSaveConfirm,
       modelTier: extras.modelTier,
       gradingLevel: p.gradingLevel ?? 12,
-      autoCritiqueCited: p.autoCritique !== false
+      autoCritiqueCited: p.autoCritique !== false,
+      voiceId: voiceById(extras.voiceId).id,
+      voiceCaptions: extras.voiceCaptions,
+      voiceSaveTranscript: extras.voiceSaveTranscript,
+      voiceConsent: extras.voiceConsent
     }
   }
 
@@ -920,6 +938,25 @@ export function createHttpApi(): TracelyApi {
         return { conversation }
       }
     },
+    // Tracer Voice needs main: the OS mic permission and a server session the
+    // key never leaves. This bridge has neither, so it says so in the tagged
+    // form the voice UI reads (shared/ipc-contract.ts) rather than pretending.
+    voice: {
+      // The Talk buttons read this and stay disabled, so nothing below runs
+      // from the UI; the answers are still the honest ones.
+      available: false,
+      eligibility: async () => ({
+        allowed: false as const,
+        reason: 'off' as const,
+        message: "Voice isn't available in this build."
+      }),
+      ensureMic: async () => ({ status: 'unknown' as const }),
+      start: async () => {
+        throw new Error(formatVoiceIpcError({ kind: 'server', message: "Voice isn't available in this build." }))
+      },
+      end: async () => ({ seconds: 0 }),
+      saveTranscript: async () => ({ saved: false })
+    },
     settings: {
       get: async () => settingsFromServer(await prefs()),
       set: async (req: SettingsSetRequest) => {
@@ -943,6 +980,10 @@ export function createHttpApi(): TracelyApi {
         }
         if (typeof req.suppressSaveConfirm === 'boolean') extras.suppressSaveConfirm = req.suppressSaveConfirm
         if (req.modelTier) extras.modelTier = req.modelTier
+        if (req.voiceId) extras.voiceId = voiceById(req.voiceId).id
+        if (typeof req.voiceCaptions === 'boolean') extras.voiceCaptions = req.voiceCaptions
+        if (typeof req.voiceSaveTranscript === 'boolean') extras.voiceSaveTranscript = req.voiceSaveTranscript
+        if (typeof req.voiceConsent === 'boolean') extras.voiceConsent = req.voiceConsent
         saveJson(KEYS.extras, extras)
         const updated = Object.keys(serverPatch).length
           ? await put<ServerPrefs>('/api/prefs', serverPatch)

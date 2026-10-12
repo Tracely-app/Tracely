@@ -26,6 +26,7 @@ import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
+import * as voice from "./lib/voice.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // What is deployed, as the runbook stamped it (lib/release.js); null on a laptop.
@@ -197,10 +198,19 @@ const PAID_ROUTES = new Set([
  * (they are not in EXTENSION_API), which is what makes changing them safe.
  * /api/verify-sources (2026-10-07) is the desktop's receipts: the extension's
  * verifier (lib/sourceVerify.js) behind the desktop's gate, so reading the
- * sources in a list a writer opened can never spend the extension's day. */
+ * sources in a list a writer opened can never spend the extension's day.
+ * /api/voice/session (2026-10-10) is Tracer Voice on gpt-live-1
+ * (lib/voice.js): the app pool reserves a session's worst case for as long
+ * as it is open. /api/voice/end is deliberately NOT here: hanging up spends
+ * nothing, so neither a spent pool nor the app limiter may refuse it (a
+ * refused End left the call open and the caller's retry 409 voice_busy).
+ * /api/voice/eligibility asks the same questions as a start (plan, switch,
+ * busy, today's and this month's seconds) with no OpenAI call and no hold,
+ * behind the same gate, so the desktop can ask before the mic prompt. */
 const APP_AI_ROUTES = new Set([
   "/api/detect-claims", "/api/critique", "/api/grade", "/api/structure", "/api/tracer",
   "/api/correction", "/api/find-sources", "/api/verify-sources",
+  "/api/voice/session", "/api/voice/eligibility",
 ]);
 
 /* Routes whose failures are MODEL failures, logged by the central error
@@ -1679,6 +1689,39 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Tracer Voice (lib/voice.js): trade the desktop's WebRTC offer for
+    // gpt-live-1's answer, behind appGate like /api/tracer, then Pro, the key,
+    // the body, one session per caller, the daily cap and a held worst case.
+    // The hold lives on the session, NOT on `gate` — the `finally` below
+    // would release it when this request ends, minutes before the call does.
+    if (req.method === "POST" && url.pathname === "/api/voice/session") {
+      loadEnvFile();
+      const out = await voice.startSession({ gate, readBody: () => parseJsonBody(req), mock: MOCK });
+      // The desktop gave up waiting (its timeout aborted the request): nobody
+      // will ever connect, so close the call now rather than hold the
+      // caller's one slot — and 409 their retry — until the cap.
+      if (res.destroyed && !out.mock) {
+        await voice.endSession({ gate, body: { sessionId: out.sessionId }, waitMs: 0 });
+        return;
+      }
+      json(res, 200, out, cors);
+      return;
+    }
+    // Would a call start now? No body, no key, no OpenAI call, nothing held:
+    // the desktop asks before the consent sheet and the microphone prompt.
+    if (req.method === "POST" && url.pathname === "/api/voice/eligibility") {
+      loadEnvFile();
+      json(res, 200, voice.checkEligibility({ gate }), cors);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/voice/end") {
+      // No appGate (see APP_AI_ROUTES): the caller only, to find its session.
+      const ent = await planForRequest(req);
+      const out = await voice.endSession({ gate: { ent, callerId: callerId(req, ent) }, body: (await parseJsonBody(req)) ?? {} });
+      json(res, 200, out, cors);
+      return;
+    }
+
     // The desktop's web search for sources, forced and schema-checked as the
     // relay ran it. Separate from the extension's /api/sources on purpose (its
     // own prompt, the app spend pool), but ONE allowance with it: the day and
@@ -1920,7 +1963,8 @@ const server = http.createServer(async (req, res) => {
     // A live search that failed has already sent its error and ended.
     if (res.headersSent) { if (!res.writableEnded) res.destroy(); return; }
     if (err instanceof CheckError) {
-      json(res, err.status, { error: { kind: err.kind, message: err.message, retryAfter: err.retryAfter } }, cors);
+      // resetAt: when a refused voice allowance comes back (undefined, so absent, on every other error).
+      json(res, err.status, { error: { kind: err.kind, message: err.message, retryAfter: err.retryAfter, resetAt: err.resetAt } }, cors);
     } else {
       console.error("[tracely] unexpected error:", err);
       json(res, 500, { error: { kind: "server", message: "Internal server error" } }, cors);
@@ -1936,6 +1980,20 @@ const server = http.createServer(async (req, res) => {
 
 process.on("unhandledRejection", (err) => console.error("[tracely] unhandled rejection:", err));
 
+/* A deploy (systemctl restart) or Ctrl-C must not un-meter an open Tracer
+ * Voice call: close and charge each one (at most ~2 s), then exit. A call
+ * whose close couldn't go out keeps its voice_open row, and the next boot
+ * resumes it (voice.resumeOpenSessions below). A second signal exits at once. */
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.once(signal, () => {
+    server.close();
+    voice.shutdownVoice({ waitMs: 2000 })
+      .then(({ charged, kept }) => { if (charged || kept) console.log(`[tracely] voice: ${charged} call(s) charged at shutdown, ${kept} left for the next boot`); })
+      .catch((e) => console.error("[tracely] voice shutdown failed:", e?.message))
+      .finally(() => process.exit(0));
+  });
+}
+
 server.listen(PORT, "127.0.0.1", () => {
   /* Retention: usage counters are kept 13 months — long enough for a month
    * limit to be argued about, not forever. Swept at boot and once a day. */
@@ -1949,6 +2007,8 @@ server.listen(PORT, "127.0.0.1", () => {
   if (!hasApiKey() && !MOCK) {
     console.log("No OPENAI_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");
   }
+  // Tracer Voice calls the last process never charged (a crash): resume.
+  if (!MOCK) voice.resumeOpenSessions();
   // Screen Watch survives restarts: resume when the user left it on.
   if (process.platform === "darwin" && store.prefs.get().watchEnabled) {
     watch.setEnabled(true);

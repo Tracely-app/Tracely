@@ -8,6 +8,7 @@ import type { AccentColor, AppSettings, CitationStyle, Density, FontSize, Theme 
 import { scanInstalledApps } from '../services/appScan'
 import { registerGlobalHotkey, registerScreenWatchHotkey } from '../hotkey'
 import { getAllSettingsRaw, setSetting } from '../services/storage/settingsRepo'
+import { readVoiceSettings, voiceSettingWrites, voiceSettingsShape } from '../services/voice/voiceSettings'
 import { applyMainWindowFontSize } from '../windows/mainWindow'
 
 const setSchema = z.object({
@@ -24,7 +25,10 @@ const setSchema = z.object({
   suppressSaveConfirm: z.boolean().optional(),
   gradingLevel: z.number().int().min(MIN_GRADE_LEVEL).max(GRADE_LEVELS[GRADE_LEVELS.length - 1]).optional(),
   autoCritiqueCited: z.boolean().optional(),
-  modelTier: z.enum(MODEL_TIERS).optional()
+  modelTier: z.enum(MODEL_TIERS).optional(),
+  // voiceId, voiceCaptions, voiceSaveTranscript, voiceConsent — tested in
+  // services/voice/voiceSettings.test.ts, which this file cannot be.
+  ...voiceSettingsShape
 })
 
 function buildSettings(): AppSettings {
@@ -52,7 +56,10 @@ function buildSettings(): AppSettings {
     // reach the renderer as a tier it has no label for. A row an earlier build
     // wrote as 'balanced' (the retired middle tier) reads as 'fast', the tier
     // it now means — not as the 'thorough' default.
-    modelTier: storedModelTier(raw.modelTier)
+    modelTier: storedModelTier(raw.modelTier),
+    // A persona id this build does not know reads as the default — see
+    // readVoiceSettings.
+    ...readVoiceSettings(raw)
   }
 }
 
@@ -92,6 +99,7 @@ export function registerSettingsHandlers(): void {
     // subscriber who lets it lapse and renews should find their choice intact,
     // and the clamp that makes that safe runs on every call rather than here.
     if (patch.modelTier !== undefined) setSetting('modelTier', patch.modelTier)
+    for (const [key, value] of voiceSettingWrites(patch)) setSetting(key, value)
     // Persist only if the OS actually gave us the shortcut. globalShortcut
     // .register returns false when the accelerator is malformed or already
     // claimed by another app — and the return value was previously ignored, so

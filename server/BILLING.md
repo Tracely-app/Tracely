@@ -46,11 +46,11 @@ The server picks the model and effort per route (`modelForRoute`); the
 client's model and effort are ignored everywhere except Pro's two thorough
 routes, where they only choose Thorough over Standard.
 
-| Plan | Checks | AI actions (desktop) | Source searches (extension + desktop, one count) | Thorough model | Fair-use limit |
-| --- | --- | --- | --- | --- | --- |
-| `free` | 400 a day | 150 a day | 5 a day, 40 a month | — | — (it has quotas) |
-| `student` | no daily limit | no daily limit | 20 a day, 100 a month | — | $1 a day, $4 a month |
-| `pro` | no daily limit | no daily limit | 40 a day, 250 a month | $1.50/month allowance | $2 a day, $8 a month (includes the allowance) |
+| Plan | Checks | AI actions (desktop) | Source searches (extension + desktop, one count) | Thorough model | Voice (desktop) | Fair-use limit |
+| --- | --- | --- | --- | --- | --- | --- |
+| `free` | 400 a day | 150 a day | 5 a day, 40 a month | — | — | — (it has quotas) |
+| `student` | no daily limit | no daily limit | 20 a day, 100 a month | — | — | $1 a day, $4 a month |
+| `pro` | no daily limit | no daily limit | 40 a day, 250 a month | $1.50/month allowance | 15 min a call, 30 min a day, 2 h a month | $2 a day, $8 a month (includes the allowance; not voice) |
 
 - **Thorough** (`gpt-6-astra` at low) runs only on Pro's "Explain in depth"
   (`/api/check` with `deep: true`, one sentence, 2,000-token ceiling) and on
@@ -61,6 +61,20 @@ routes, where they only choose Thorough over Standard.
   of CJK text at the route's limits). Otherwise the same call runs on luna —
   never refused. Free and
   Student get 403 `plan_required` for `deep: true`.
+- **Voice** (Tracer Voice, `lib/voice.js`) is metered in seconds, not
+  dollars: `TRACELY_VOICE_MAX_SECONDS` a call (900), `TRACELY_VOICE_DAILY_SECONDS`
+  a day (1800) and `TRACELY_VOICE_MONTHLY_SECONDS` a usage month (7200, UTC,
+  resets on the 1st; kind `voice_seconds` on a day row and a `YYYY-MM` month
+  row), charged to the app pool and NOT to fair use — a full voice day is
+  $1.50, which would trip Pro's $8 month in about five days. The gate reads
+  the billing plan, so a Pro account over fair use keeps voice. **Worst case
+  per Pro account: 2 hours a month = $6 in voice** (7200 s at $0.05/min);
+  without the monthly cap it was 30 min × 31 days ≈ $46. The 2-hour default
+  is a placeholder for Sam's pricing decision, not a decided price: set
+  `TRACELY_VOICE_MONTHLY_SECONDS` to the allowance Pro should include (0 =
+  no monthly cap, back to the ~$46 worst case). Refusals: 429 `voice_daily`
+  and `voice_monthly`, each with `resetAt` (ISO-8601). A call that goes
+  three minutes with nothing said is closed (`TRACELY_VOICE_IDLE_SECONDS`).
 - **Fair use** is all model spend by one signed-in paid account. Over its day
   or month limit the account runs at Free's limits (and without the Thorough
   allowance) until midnight or the 1st; the plan and billing are unchanged.

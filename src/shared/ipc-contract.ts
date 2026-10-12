@@ -31,6 +31,7 @@ import type { ScreenWatchProblemKind } from './problemKind'
 import type { SourceReceipt, VerifySourceInput } from './sourceReceipts'
 import type { CitationDefectKind } from './citationShape'
 import type { Credibility } from './sourceCredibility'
+import type { VoiceId } from './voices'
 
 // Note: CitationStyle is already 'APA' | 'MLA' | 'Chicago' — reused as-is for
 // the Screen Watch citation flow below, same enum the main app's citation
@@ -296,6 +297,12 @@ export interface SettingsSetRequest {
   autoCritiqueCited?: boolean
   /** Requested model tier. Clamped to the plan on every call — see AppSettings. */
   modelTier?: ModelTier
+  /** Tracer Voice persona. Must be an id in shared/voices.ts — anything else is rejected. */
+  voiceId?: VoiceId
+  voiceCaptions?: boolean
+  voiceSaveTranscript?: boolean
+  /** The first-use voice disclosure was accepted. */
+  voiceConsent?: boolean
 }
 export type SettingsSetResponse = AppSettings
 
@@ -1272,3 +1279,184 @@ export interface SourcesVerifyRequest {
 export type SourcesVerifyResponse =
   | { status: 'checked'; receipts: SourceReceipt[] }
   | { status: 'unavailable'; reason: string }
+
+// ── Tracer Voice ────────────────────────────────────────────────────────────
+//
+// A spoken conversation with Tracer on OpenAI gpt-live-1. The renderer owns the
+// WebRTC peer (mic track out, Tracer's voice in, the "oai-events" data channel)
+// and talks to OpenAI directly for MEDIA only; the session itself is created by
+// the Tracely server (POST /api/voice/session), which holds the key, meters the
+// seconds and closes the call at its cap. Main sits between the two: it adds the
+// latest draft as context and relays the offer/answer SDP.
+
+/** Electron's systemPreferences.getMediaAccessStatus vocabulary, verbatim. */
+export type VoiceMicStatus = 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
+
+export type VoiceEnsureMicRequest = Record<string, never>
+/**
+ * macOS: the TCC status, after asking once when it was `not-determined` (the
+ * system prompt appears then, never again). Windows: the privacy toggle's
+ * status, never prompts. Linux and anything else: `unknown` — getUserMedia's
+ * own failure is then the only answer, and the renderer must handle it anyway.
+ */
+export interface VoiceEnsureMicResponse {
+  status: VoiceMicStatus
+}
+
+export interface VoiceStartRequest {
+  /** The renderer's local offer (`v=0…`), at most 20 000 characters (VOICE_MAX_SDP_CHARS, main/services/voice). */
+  sdp: string
+  voiceId: VoiceId
+}
+/**
+ * `sdp` is OpenAI's answer, to apply with setRemoteDescription. It is absent
+ * only when `mock` is true — a keyless server (TRACELY_MOCK=1) or the preview
+ * harness — and then there is no call to connect; the UI plays it as a demo.
+ */
+export interface VoiceStartResponse {
+  sdp?: string
+  sessionId: string
+  voice: { id: VoiceId; name: string }
+  /** This call's cap. The server sends session.close when it is reached. */
+  maxSeconds: number
+  /** Today's voice allowance left, in seconds, as the server counted it when this call started. */
+  remainingSeconds: number
+  /** This month's allowance left, in seconds; absent from an older server or one with no monthly cap. */
+  remainingMonthSeconds?: number
+  /** When today's minutes come back (ISO-8601: the server's next usage day); absent from an older server. */
+  resetAt?: string
+  mock?: boolean
+}
+
+/**
+ * voice:eligibility — may this account start a call right now? Asked before
+ * the consent sheet and the microphone prompt, so a refusal is shown without
+ * either. POST /api/voice/eligibility costs nothing: no OpenAI call, no
+ * reservation. Main answers a refusal it can name (the server's daily budget
+ * spent) as `off`, and rejects (tagged, like voice:start) only when it could
+ * not ask — then the renderer goes ahead and lets voice:start decide.
+ */
+export type VoiceEligibilityRequest = Record<string, never>
+export type VoiceEligibilityReason = 'plan' | 'daily-limit' | 'monthly-limit' | 'off' | 'busy'
+export type VoiceEligibilityResponse =
+  | {
+      allowed: true
+      /** What one call may last right now. */
+      maxSeconds: number
+      remainingSeconds: number
+      remainingMonthSeconds?: number
+      /** When today's minutes come back (ISO-8601). */
+      resetAt?: string
+    }
+  | {
+      allowed: false
+      reason: VoiceEligibilityReason
+      /** The server's sentence; the renderer has its own words for plan and the limits. */
+      message: string
+      /** daily-limit: the next usage day; monthly-limit: the 1st of next month (UTC). */
+      resetAt?: string
+    }
+
+export interface VoiceEndRequest {
+  sessionId: string
+}
+/**
+ * Seconds the server metered for the call. Idempotent: a second end answers the
+ * same seconds; an unknown id, or another caller's, answers 0.
+ */
+export interface VoiceEndResponse {
+  seconds: number
+}
+
+export interface VoiceTranscriptTurn {
+  role: 'user' | 'assistant'
+  text: string
+}
+/**
+ * A finished call's final captions, oldest first, added to a Tracer
+ * conversation as ordinary user / tracer messages (no prefix — the chat has no
+ * field to mark a message as spoken). `conversationId` is the conversation the
+ * panel is showing; without it, or when it no longer exists, the latest one.
+ * Consecutive turns by the same speaker are joined into one message.
+ */
+export interface VoiceSaveTranscriptRequest {
+  turns: VoiceTranscriptTurn[]
+  conversationId?: string
+}
+/** `saved` is false when there was nothing to save or the store refused it. */
+export interface VoiceSaveTranscriptResponse {
+  saved: boolean
+}
+
+/**
+ * Why voice.start / voice.end failed, in the renderer's own words — a subset of
+ * renderer/voice/types.ts VoiceErrorKind, so the engine passes it straight on.
+ * Mapped in main from the server's error kinds: plan_limit → plan, voice_daily
+ * → daily-limit, voice_monthly → monthly-limit, voice_busy → busy, an
+ * unreachable server or a timeout → network, anything else → server.
+ */
+export const VOICE_IPC_ERROR_KINDS = ['plan', 'daily-limit', 'monthly-limit', 'busy', 'network', 'server'] as const
+export type VoiceIpcErrorKind = (typeof VOICE_IPC_ERROR_KINDS)[number]
+export interface VoiceIpcError {
+  kind: VoiceIpcErrorKind
+  /** Plain words a student can read. */
+  message: string
+  /**
+   * The limits only: when the minutes come back (ISO-8601), from the
+   * refusal's body. The renderer says it in the student's local time.
+   */
+  resetAt?: string
+}
+
+/**
+ * What a student reads for each account-level refusal — the one copy, used by
+ * main when it tags the error and by the renderer when it shows it (under a
+ * headline of its own, renderer/voice/session.ts errorTitle, so each sentence
+ * is the next step rather than a repeat of the headline). The server's own
+ * sentences for these are written for its log and are not shown.
+ */
+export const VOICE_KIND_COPY: Readonly<Record<Exclude<VoiceIpcErrorKind, 'server'>, string>> = {
+  plan: 'Upgrade to Pro to talk with Tracer out loud. You can keep chatting by text any time.',
+  // The two limits' fallbacks, for a refusal without resetAt; the renderer
+  // says the time instead when it has one (renderer/voice/limits.ts).
+  'daily-limit': "You've used today's voice minutes. They come back tomorrow; until then, Tracer is here by text.",
+  'monthly-limit': "You've used this month's voice minutes. They come back next month; until then, Tracer is here by text.",
+  busy: 'Another voice call is still open on this account. Wait a minute for it to close, then try again.',
+  network: "Couldn't reach Tracely. Check your internet connection, then try again."
+}
+
+/** What a resetAt may look like inside the tag: an ISO-8601 instant, nothing that could close it early. */
+const VOICE_RESET_AT = /^[0-9][0-9T:.+\-Z]{0,39}$/
+
+/**
+ * ipcRenderer.invoke keeps only an Error's MESSAGE across the bridge — `kind`
+ * on a thrown object never arrives. So main throws `[voice:<kind>] <message>`
+ * (`[voice:<kind>@<resetAt>] …` for a limit that said when it lifts) and the
+ * renderer's api wrapper reads the tag back with parseVoiceIpcError.
+ * One format, written and read here, so the two ends cannot drift.
+ */
+export function formatVoiceIpcError(error: VoiceIpcError): string {
+  const at = error.resetAt && VOICE_RESET_AT.test(error.resetAt) ? `@${error.resetAt}` : ''
+  return `[voice:${error.kind}${at}] ${error.message}`
+}
+
+/**
+ * The tag back out of whatever Electron wrapped around it ("Error invoking
+ * remote method 'voice:start': Error: [voice:busy] …"). A message without a
+ * tag — a zod rejection, a programming error — is `server` with the message
+ * as it came, so the caller always gets a kind it can show.
+ */
+export function parseVoiceIpcError(raw: string): VoiceIpcError {
+  const match = /\[voice:([a-z-]+)(?:@([0-9][0-9T:.+\-Z]{0,39}))?\]\s*([\s\S]*)$/.exec(raw)
+  const kind = VOICE_IPC_ERROR_KINDS.find((k) => k === match?.[1])
+  if (match && kind) {
+    const error: VoiceIpcError = { kind, message: match[3].trim() }
+    if (match[2]) error.resetAt = match[2]
+    return error
+  }
+  const message = raw
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^[A-Za-z]*Error:\s*/, '')
+    .trim()
+  return { kind: 'server', message: message || 'Voice failed for an unknown reason.' }
+}

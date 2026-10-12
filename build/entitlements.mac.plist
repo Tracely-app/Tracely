@@ -13,5 +13,11 @@
          bundle, and this app's ML failures are historically silent. -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Tracer Voice. Under hardened runtime the microphone is refused to an
+         app without this, whatever the user answers in the TCC prompt; the
+         prompt's wording is NSMicrophoneUsageDescription in
+         electron-builder.yml (mac.extendInfo). -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>

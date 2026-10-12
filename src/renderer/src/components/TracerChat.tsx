@@ -1,8 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { TracerMessage } from '@shared/types'
 import { parseTracerReply, type TracerRewrite } from '@shared/tracerRewrite'
+import { planRank } from '@shared/plan'
 import { tracelyApi, TracelyApiError } from '../lib/api'
+import { usePlan } from '../lib/plan'
 import tracerBadge from '../assets/tracer-badge.png'
+import { formatClock } from '../voice/session'
+import { WaveformIcon } from './icons'
+import VoiceMode from './voice/VoiceMode'
 
 /**
  * The Tracer chat panel, opened from Home's launcher.
@@ -16,6 +21,34 @@ import tracerBadge from '../assets/tracer-badge.png'
  * document context. What is not: nothing. The panel sends `tracer:send` and
  * renders what comes back.
  */
+
+/**
+ * Where each saved voice call starts in the chat: first message id → who and
+ * how long. Drawn as a divider by the panel only — the stored messages stay
+ * plain, because they are re-sent to the model as history. Per device, like
+ * the conversation; a convenience, so blocked storage just means no dividers.
+ */
+const VOICE_MARKERS_KEY = 'tracely.voice.markers'
+const VOICE_MARKERS_KEPT = 100
+type VoiceMarkers = Record<string, { voice: string; seconds: number }>
+
+function readVoiceMarkers(): VoiceMarkers {
+  try {
+    const raw = localStorage.getItem(VOICE_MARKERS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? (parsed as VoiceMarkers) : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeVoiceMarkers(markers: VoiceMarkers): void {
+  try {
+    localStorage.setItem(VOICE_MARKERS_KEY, JSON.stringify(markers))
+  } catch {
+    /* storage blocked: no dividers next time */
+  }
+}
 
 /** Local ids for the two messages that exist only on screen. */
 const PENDING_ID = '__pending__'
@@ -59,6 +92,13 @@ export default function TracerChat({
   // rather than held on the message so re-fetching the conversation cannot
   // resurrect an offer the writer has already taken.
   const [applied, setApplied] = useState<Record<string, 'done' | 'missing' | 'dismissed'>>({})
+  // Tracer Voice: the voice view replaces the log and the composer while open.
+  // Everything above stays mounted, so a typed question, an Apply offer and
+  // the conversation are all where they were when the chat comes back.
+  const [voiceOpen, setVoiceOpen] = useState(false)
+  const [voiceMarkers, setVoiceMarkers] = useState<VoiceMarkers>(readVoiceMarkers)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -126,6 +166,9 @@ export default function TracerChat({
     }
     setMessages((prev) => [...prev, pending])
     setInput('')
+    // Send goes away with the text (Talk takes its slot), so focus a click on
+    // it left behind goes back to the box rather than falling to the page.
+    inputRef.current?.focus()
     setError(null)
     setSending(true)
 
@@ -144,6 +187,52 @@ export default function TracerChat({
 
   const shown = greeting ? [greeting] : messages
 
+  function closeVoice(transcriptSaved: boolean): void {
+    setVoiceOpen(false)
+    // A saved call is in the conversation now; read it back so it shows.
+    if (transcriptSaved && conversationId) {
+      tracelyApi
+        .getTracerConversation(conversationId)
+        .then((res) => setMessages(res.messages))
+        .catch(() => {})
+    }
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }
+  // A call's transcript was just saved: read the conversation back (the log
+  // is hidden behind the voice view, but it's current when the chat returns)
+  // and mark where the call's messages begin.
+  function markVoiceCall(call: { voiceName: string; seconds: number }): void {
+    if (!conversationId) return
+    const before = new Set(messagesRef.current.map((m) => m.id))
+    tracelyApi
+      .getTracerConversation(conversationId)
+      .then((res) => {
+        setMessages(res.messages)
+        const first = res.messages.find((m) => !before.has(m.id))
+        if (!first) return
+        const next: VoiceMarkers = { ...readVoiceMarkers(), [first.id]: { voice: call.voiceName, seconds: call.seconds } }
+        const ids = Object.keys(next)
+        for (const id of ids.slice(0, Math.max(0, ids.length - VOICE_MARKERS_KEPT))) delete next[id]
+        writeVoiceMarkers(next)
+        setVoiceMarkers(next)
+      })
+      .catch(() => {})
+  }
+  // The web bridge (renderer/bridge/httpApi.ts) has no main process to hold a
+  // call: its Talk buttons stay disabled and say why, instead of running the
+  // consent sheet and a browser mic prompt only to fail.
+  const voiceAvailable = window.tracely.voice.available === true
+  const talkDisabled = !serverConfigured || conversationId === null || !voiceAvailable
+  // Voice is Pro-only; the tooltips say so before the click (VoiceMode then
+  // asks the server, which decides).
+  const proHint = planRank(usePlan()) < planRank('pro') ? ' (Pro)' : ''
+  const talkTitle = (label: string): string =>
+    voiceAvailable ? `${label}${proHint}` : "Voice isn't available in this build"
+
   return (
     <div className="tracer-panel" role="dialog" aria-label="Chat with Tracer">
       <header className="tracer-head">
@@ -155,6 +244,18 @@ export default function TracerChat({
             Online — here to help
           </span>
         </div>
+        {voiceOpen ? null : (
+          <button
+            type="button"
+            className="tracer-head-talk"
+            onClick={() => setVoiceOpen(true)}
+            aria-label="Start a voice call"
+            title={talkTitle('Start a voice call')}
+            disabled={talkDisabled}
+          >
+            <WaveformIcon size={17} />
+          </button>
+        )}
         <button className="tracer-close" onClick={onClose} aria-label="Close chat">
           <svg viewBox="0 0 21 21" fill="none" aria-hidden="true">
             <path d="M4 4l13 13M17 4L4 17" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
@@ -162,6 +263,10 @@ export default function TracerChat({
         </button>
       </header>
 
+      {voiceOpen ? (
+        <VoiceMode conversationId={conversationId} onExit={closeVoice} onTranscriptSaved={markVoiceCall} />
+      ) : (
+      <>
       <div className="tracer-log" ref={scrollRef}>
         {shown.map((m) => {
           // Parsed at render, not at receipt, so a conversation reopened
@@ -171,54 +276,62 @@ export default function TracerChat({
             ? parseTracerReply(m.content)
             : { prose: m.content, rewrite: null }
           const state = applied[m.id]
+          const voiceCall = voiceMarkers[m.id]
           return (
-            <div key={m.id} className="tracer-turn">
-              <p className={`tracer-msg ${m.role === 'user' ? 'from-user' : 'from-tracer'}`}>
-                {prose}
-              </p>
-              {rewrite && onApplyRewrite ? (
-                <div className="tracer-rewrite">
-                  <b>Suggested rewrite</b>
-                  <p className="tracer-rewrite-was">{rewrite.find}</p>
-                  <p className="tracer-rewrite-now">{rewrite.replace}</p>
-                  {state === 'done' ? (
-                    <span className="tracer-rewrite-done">
-                      Applied — Ctrl+Z undoes it.
-                    </span>
-                  ) : state === 'missing' ? (
-                    <span className="tracer-rewrite-gone">
-                      That sentence is not in the document any more — nothing was changed.
-                    </span>
-                  ) : state === 'dismissed' ? (
-                    <span className="tracer-rewrite-gone">Dismissed.</span>
-                  ) : (
-                    <div className="tracer-rewrite-actions">
-                      <button
-                        className="tracer-apply"
-                        onClick={() => {
-                          // The edit runs HERE, not inside the state updater.
-                          // React invokes an updater twice under StrictMode, so
-                          // the second call re-ran the rewrite against a
-                          // document that had already taken it: the text was
-                          // correct and the card said "that sentence is not in
-                          // the document any more". Caught in the harness.
-                          const landed = onApplyRewrite(rewrite)
-                          setApplied((prev) => ({ ...prev, [m.id]: landed ? 'done' : 'missing' }))
-                        }}
-                      >
-                        Apply
-                      </button>
-                      <button
-                        className="tracer-dismiss"
-                        onClick={() => setApplied((prev) => ({ ...prev, [m.id]: 'dismissed' }))}
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  )}
-                </div>
+            <Fragment key={m.id}>
+              {voiceCall ? (
+                <p className="tracer-voice-divider">
+                  Voice call with {voiceCall.voice} · {formatClock(voiceCall.seconds)}
+                </p>
               ) : null}
-            </div>
+              <div className="tracer-turn">
+                <p className={`tracer-msg ${m.role === 'user' ? 'from-user' : 'from-tracer'}`}>
+                  {prose}
+                </p>
+                {rewrite && onApplyRewrite ? (
+                  <div className="tracer-rewrite">
+                    <b>Suggested rewrite</b>
+                    <p className="tracer-rewrite-was">{rewrite.find}</p>
+                    <p className="tracer-rewrite-now">{rewrite.replace}</p>
+                    {state === 'done' ? (
+                      <span className="tracer-rewrite-done">
+                        Applied — Ctrl+Z undoes it.
+                      </span>
+                    ) : state === 'missing' ? (
+                      <span className="tracer-rewrite-gone">
+                        That sentence is not in the document any more — nothing was changed.
+                      </span>
+                    ) : state === 'dismissed' ? (
+                      <span className="tracer-rewrite-gone">Dismissed.</span>
+                    ) : (
+                      <div className="tracer-rewrite-actions">
+                        <button
+                          className="tracer-apply"
+                          onClick={() => {
+                            // The edit runs HERE, not inside the state updater.
+                            // React invokes an updater twice under StrictMode, so
+                            // the second call re-ran the rewrite against a
+                            // document that had already taken it: the text was
+                            // correct and the card said "that sentence is not in
+                            // the document any more". Caught in the harness.
+                            const landed = onApplyRewrite(rewrite)
+                            setApplied((prev) => ({ ...prev, [m.id]: landed ? 'done' : 'missing' }))
+                          }}
+                        >
+                          Apply
+                        </button>
+                        <button
+                          className="tracer-dismiss"
+                          onClick={() => setApplied((prev) => ({ ...prev, [m.id]: 'dismissed' }))}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </Fragment>
           )
         })}
         {sending ? (
@@ -251,23 +364,41 @@ export default function TracerChat({
           placeholder="Ask Tracer anything…"
           disabled={!serverConfigured || conversationId === null}
         />
+        {/* With nothing typed, Talk takes Send's slot, filled, as the one
+            action; once there is text, Send comes back as the filled action
+            and Talk steps down to the wash. Same element either way, so focus
+            on it survives the swap. */}
         <button
-          type="submit"
-          className="tracer-send"
-          aria-label="Send"
-          disabled={!input.trim() || sending || !serverConfigured}
+          type="button"
+          className={`tracer-talk ${input.trim() ? '' : 'tracer-talk-primary'}`}
+          aria-label="Talk to Tracer"
+          title={talkTitle('Talk to Tracer')}
+          disabled={talkDisabled}
+          onClick={() => setVoiceOpen(true)}
         >
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M12 19V5M12 5l-6 6M12 5l6 6"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <WaveformIcon size={19} />
         </button>
+        {input.trim() ? (
+          <button
+            type="submit"
+            className="tracer-send"
+            aria-label="Send"
+            disabled={sending || !serverConfigured}
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 19V5M12 5l-6 6M12 5l6 6"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        ) : null}
       </form>
+      </>
+      )}
     </div>
   )
 }

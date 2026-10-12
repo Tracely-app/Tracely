@@ -13,6 +13,7 @@ import { initDb, persist } from './services/storage/db'
 import { forgetDocumentNames, recoverLearnedNames } from './spellcheck'
 import { setAppPaths } from './services/storage/paths'
 import { getSetting } from './services/storage/settingsRepo'
+import { voiceService } from './services/voice'
 import { createTray } from './tray'
 import { initAutoUpdater } from './updater'
 import { createFloatingWindow } from './windows/floatingWindow'
@@ -129,6 +130,10 @@ if (!gotLock) {
     // essay survives into the next launch.
     forgetDocumentNames()
     persist()
+    // A voice call still open is hung up on the way out. Best effort: the
+    // renderer's pagehide sends its own end too, and the server closes a call
+    // whose peer has gone.
+    void voiceService.endOpen()
   })
 
   app.on('will-quit', () => {

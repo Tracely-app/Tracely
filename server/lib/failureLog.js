@@ -23,9 +23,10 @@ const EFFORTS = new Set(["minimal", "low", "medium", "high"]);
 const KIND = /^[a-z_]{1,32}$/;
 
 /* Kinds this server raises about the CALLER or its own configuration rather
- * than about an answer — the day's budget, a missing key. Only logged when
- * they came out of the model facade (err.llm), e.g. OpenAI rejecting the key. */
-const NOT_MODEL_FAILURES = new Set(["budget", "no_key"]);
+ * than about an answer — the day's budget, a missing key, voice switched off
+ * by the operator (TRACELY_VOICE_*=0). Only logged when they came out of the
+ * model facade (err.llm), e.g. OpenAI rejecting the key. */
+const NOT_MODEL_FAILURES = new Set(["budget", "no_key", "voice_off"]);
 
 /**
  * Whether `err` is a model failure worth a log line: anything that left the

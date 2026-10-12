@@ -142,7 +142,7 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 //    probably stale" failure below, which is why that failure exists.
 const clientSrc = readFileSync(join(ROOT, 'src/main/services/ai/client.ts'), 'utf8')
 const union = clientSrc.match(/callServer<[^>]*>\(\s*endpoint:\s*([^,)]+)/)?.[1] ?? ''
-const endpoints = new Set([...union.matchAll(/'([a-z0-9][a-z0-9-]*)'/g)].map((m) => m[1]))
+const endpoints = new Set([...union.matchAll(/'([a-z0-9][a-z0-9/-]*)'/g)].map((m) => m[1]))
 
 // loadEnv() at the top already read the correct file for this environment and
 // exited if it was missing, so these read from process.env rather than being

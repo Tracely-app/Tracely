@@ -1,0 +1,52 @@
+/* Tracer's voice orb (components/voice/VoiceOrb.tsx).
+ *
+ * The orb's layout box is exactly `size` square; the canvas inside is larger
+ * and centred on it so the halo and the swell can spill past the box without
+ * moving anything around it. The sphere is drawn on the canvas from the theme
+ * tokens (--accent, --accent-2, --accent-gradient, --surface, --muted); the
+ * only colour here is the halo's, and it is the --accent token itself.
+ */
+.voice-orb {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+.voice-orb-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* The halo: a CSS layer behind the canvas, so the compositor scales and fades
+ * it (VoiceOrb sets transform and opacity) instead of the canvas repainting
+ * ~100k soft pixels a frame. Its colour is the accent token itself, so it
+ * follows the theme and the accent presets with no script. Stops: solid under
+ * the sphere (57% = 0.86 of the sphere's radius, out of HALO_EXTENT 1.5),
+ * fading to nothing at 1.5 radii. */
+.voice-orb-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150%;
+  height: 150%;
+  margin: -75% 0 0 -75%;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--accent) 90%, transparent) 57%,
+    color-mix(in srgb, var(--accent) 50%, transparent) 66%,
+    color-mix(in srgb, var(--accent) 17%, transparent) 78%,
+    color-mix(in srgb, var(--accent) 5%, transparent) 90%,
+    transparent 100%
+  );
+}
