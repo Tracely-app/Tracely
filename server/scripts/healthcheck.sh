@@ -5,19 +5,24 @@
 #   server/scripts/healthcheck.sh                      # api.jointracely.com
 #   server/scripts/healthcheck.sh http://localhost:4477 --mock   # a local mock
 #   server/scripts/healthcheck.sh https://api.jointracely.com --commit <sha>
+#   server/scripts/healthcheck.sh https://api.jointracely.com --demo  # insist on the try-out
 #
 # The checks are the ones server/DEPLOY.md runs after every deploy: status
 # shape, a bad token answers as free, the extension's CORS allow and deny, the
-# prefs route refused, and (when the server reports it) that the live commit
-# is the one you expect. Exits non-zero on the first failure, with the reason.
+# prefs route refused, (when the server reports it) that the live commit is
+# the one you expect, and — while the try-out is configured, which /api/status
+# shows as `demoBudget` (TRACELY_DEMO_SECRET set) — that /try answers 200 with
+# its frame rule and /ext-content.js answers 200 (the deploy copies
+# extension/content.js there). Exits non-zero on the first failure.
 # Needs bash, curl and node — nothing else.
 set -u
 BASE=${1:-https://api.jointracely.com}; shift || true
-MOCK=0; WANT=""
+MOCK=0; WANT=""; DEMO=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --mock) MOCK=1 ;;
     --commit) shift; WANT=${1:-} ;;
+    --demo) DEMO=1 ;;
     *) echo "healthcheck: unknown argument $1" >&2; exit 2 ;;
   esac
   shift
@@ -27,10 +32,10 @@ fail() { printf 'FAIL  %s\n' "$1"; exit 1; }
 ok() { printf 'ok    %s\n' "$1"; }
 
 status=$(curl -sS --max-time 15 "$BASE/api/status") || fail "GET /api/status did not answer"
-read -r hasKey mock enforced paid release <<<"$(printf '%s' "$status" | node -e '
+read -r hasKey mock enforced paid release demo <<<"$(printf '%s' "$status" | node -e '
   let s=""; process.stdin.on("data", d => s += d).on("end", () => {
-    let j; try { j = JSON.parse(s) } catch { console.log("parse parse parse parse parse"); return }
-    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-")
+    let j; try { j = JSON.parse(s) } catch { console.log("parse parse parse parse parse parse"); return }
+    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j))
   })')"
 [ "$hasKey" = "parse" ] && fail "/api/status is not JSON — not a Tracely server"
 if [ "$MOCK" = 1 ]; then
@@ -57,6 +62,22 @@ ok "/api/check CORS: ours 204, foreign 403"
 
 code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X PUT "$BASE/api/prefs")
 if [ "$MOCK" = 1 ]; then ok "PUT /api/prefs → $code (local servers may accept it)"; else [ "$code" = "403" ] || fail "PUT /api/prefs → $code (want 403 on a hosted server)"; ok "PUT /api/prefs refused"; fi
+
+# The try-out (server/lib/demo.js): checked while the server reports a demo
+# pool, and required with --demo. /ext-content.js is the extension engine the
+# page runs; a deploy that skipped copying it leaves /try a dead page.
+if [ "$demo" = "true" ] || [ "$DEMO" = 1 ]; then
+  [ "$demo" = "true" ] || fail "/api/status has no demoBudget but --demo was asked for (TRACELY_DEMO_SECRET unset?)"
+  hdrs=$(curl -sS -D - -o /dev/null --max-time 15 "$BASE/try") || fail "GET /try did not answer"
+  code=$(printf '%s' "$hdrs" | awk 'NR==1{print $2}')
+  [ "$code" = "200" ] || fail "GET /try → $code (want 200)"
+  printf '%s' "$hdrs" | grep -qi '^content-security-policy: frame-ancestors https://jointracely.com https://www.jointracely.com' || fail "GET /try carries no frame-ancestors for the website"
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$BASE/ext-content.js")
+  [ "$code" = "200" ] || fail "GET /ext-content.js → $code (want 200 — copy extension/content.js to app/extension/content.js, DEPLOY.md)"
+  ok "try-out: /try 200 with its frame rule, /ext-content.js 200"
+else
+  ok "try-out not configured (no demoBudget): /try and /ext-content.js not checked"
+fi
 
 if [ -n "$WANT" ]; then
   case "$release" in "$WANT"*|"${WANT:0:7}"*) ok "release.commit $release matches $WANT" ;; "-") fail "server reports no release.commit (older build, or release.json missing) — wanted $WANT" ;; *) fail "release.commit is $release, wanted $WANT" ;; esac

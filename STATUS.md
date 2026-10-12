@@ -16,6 +16,7 @@ deploys or ships, in the same PR or right after. Dates are UTC.
 ## Not yet deployed / pending
 
 - **Server:** main has #293, #275 and #300 since the live `618188c`. #300 adds `/api/compare-source` to `EXTENSION_API`, which extension 2.21.24's "Find the cited work" calls — deploy before uploading that zip (on the current server the button falls back to Find a source).
+- **Server — the try-out page (`/try`, feature/try-demo):** not deployed. Needs, in `/srv/tracely/app/.env`, `TRACELY_DEMO_SECRET` (new, random) and `TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com` (the pool defaults to $2/day); the runbook's new step copies `extension/content.js` to `app/extension/content.js` on every deploy (`/ext-content.js` is a 404 live today). Then `healthcheck.sh --demo`. The website's `/try/` page frames it and waits on the Vercel question below.
 - Website (Tracely-app/Tracely-Website) waits on the Vercel reconnect above: #8 is the site rebuild with the pricing copy; #9 the `/privacy` and `/terms` pages (supersedes #7, held for legal review); #10 puts Explain in depth back on Pro once extension 2.21.24 is live.
 - Repo PR #297 (launch legal documents) — drafts for legal review, do not merge until read by a lawyer.
 

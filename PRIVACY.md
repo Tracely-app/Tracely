@@ -9,9 +9,10 @@ ran on your own API key with no server and no accounts. That is not how
 Tracely works now, so this policy starts from what the current version
 actually does.*
 
-This policy covers the **Tracely Chrome extension** and the **Tracely
-service** it talks to (`api.jointracely.com`), both operated by Tracely
-("we"). It is written from the code: each statement below names the part of
+This policy covers the **Tracely Chrome extension**, the **Tracely
+service** it talks to (`api.jointracely.com`) and the **try-out page**
+(`api.jointracely.com/try`, shown on jointracely.com/try), all operated by
+Tracely ("we"). It is written from the code: each statement below names the part of
 the product it describes.
 
 ## The short version
@@ -69,6 +70,17 @@ but it reads nothing and sends nothing until you switch on "Auto-check on this
 site" for that site. Password fields and fields that look like sign-in forms
 are never read. Turning a site off clears what Tracely cached on that page.
 
+**The try-out page.** The try-out page lets you test Tracely on a sample
+essay without installing anything. Text you check there (up to 3,000
+characters at a time) is sent to our server and to **OpenAI** to check it,
+exactly as above, and a sentence you ask sources for, with up to 1,500
+characters around it, is sent the same way;
+nothing you type is saved, by us or by the page. The page sets one cookie,
+`tracely_demo`: a random id with no link to you, your browser profile or any
+account, which expires after a day and lets the page count how many checks you
+have used. We keep only those counts (see below), never the text. If you also
+have the extension installed, it stays out of the way on that page.
+
 **Signing in.** "Sign in" opens Google's sign-in through **Supabase**, our
 account provider. We receive your email address and an account id; we do not
 receive your Google password. A session token is kept in the extension's
@@ -94,6 +106,7 @@ On our server:
 | what | keyed by | kept |
 |---|---|---|
 | Usage counts (checks, source searches, flow checks and resume reviews per day and month; spend against your plan's allowance) | account id, or the hashed install id | 13 months, then deleted automatically |
+| Try-out counts (checks, source searches and reviews used on the try-out page that day) | a hash of the try-out cookie's random id | 13 months, then deleted automatically |
 | Account link: Stripe customer id, plan, the email used to pay | account id | while the account exists |
 | Payment events from Stripe: event id, type, plan, outcome | account id | while the account exists; the payer's name, address and phone are removed before the event is stored |
 | An unclaimed purchase (plan and payer email) awaiting its account | payer email | until claimed, or until the subscription ends |

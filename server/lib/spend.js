@@ -40,7 +40,7 @@ import { SPEND, dailyBudgetUsd } from "../shared/guards.js";
 const KIND = "spend_ucents";
 export const MICRO_CENTS_PER_USD = 100 * 1e6;
 
-/* Four pools, each its own ceiling and its own running total.
+/* Five pools, each its own ceiling and its own running total.
  *
  * `extension` is the pool this module has always had — same synthetic account,
  * same variable — and it is the default everywhere, so every existing caller
@@ -55,12 +55,18 @@ export const MICRO_CENTS_PER_USD = 100 * 1e6;
  * fast one's price per token, and on the shared pool
  * one of them could empty the day and 503 every free user. When it is spent
  * they drop to the fast model on the extension pool — the day everyone had
- * before the slider meant anything. */
+ * before the slider meant anything. `demo` is the public try-out page's, and
+ * the one pool that REFUSES when spent (503 demo_closed) instead of falling
+ * back: an anonymous web page must never reach the store users' day. */
 export const SPEND_POOLS = {
   extension: { account: "__global__", variable: "TRACELY_DAILY_BUDGET_USD", fallback: SPEND.defaultDailyBudgetUsd },
   app: { account: "__global_app__", variable: "TRACELY_APP_DAILY_BUDGET_USD", fallback: SPEND.defaultAppDailyBudgetUsd },
   beta: { account: "__global_beta__", variable: "TRACELY_BETA_DAILY_BUDGET_USD", fallback: SPEND.defaultBetaDailyBudgetUsd },
   paid: { account: "__global_paid__", variable: "TRACELY_PAID_DAILY_BUDGET_USD", fallback: SPEND.defaultPaidDailyBudgetUsd },
+  // The public try-out page (/try, server.js demoGate). Reserves like beta and
+  // paid, never falls back to another pool, and reads an explicit 0 as OFF —
+  // demoGate checks that itself, because spendState below reads 0 as no ceiling.
+  demo: { account: "__global_demo__", variable: "TRACELY_DEMO_DAILY_BUDGET_USD", fallback: SPEND.defaultDemoDailyBudgetUsd },
 };
 function poolOf(name) {
   const p = SPEND_POOLS[name];
