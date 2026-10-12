@@ -1,1 +1,227 @@
-/* Placeholder: the try-out page package replaces this file. */
+/* Try Tracely — the public demo document (try.html). The website's look:
+   Inter, page #FFF5ED, ink #141414, accent #FF5722 and the CTA gradient,
+   white cards with the site's soft shadow. Two looks from one page:
+   .standalone (opened directly: its own header and intro) and .framed
+   (inside www.jointracely.com/try/, which brings the header, the intro and
+   the card frame itself). */
+:root {
+  color-scheme: light;
+  --page: #FFF5ED;
+  --surface: #FFFFFF;
+  --strip: #FFF8F2;
+  --ink: #141414;
+  --ink-2: #2E2E2E;
+  --ink-3: #5B5650;
+  --line: rgba(0, 0, 0, 0.08);
+  --line-2: rgba(0, 0, 0, 0.14);
+  --accent: #FF5722;
+  --accent-ink: #C2410C;
+  --accent-hover: #FF2D2D;
+  --grad: linear-gradient(135deg, #FFAB00 0%, #FF5722 50%, #FF2D2D 100%);
+  --focus: #FF5722;
+  /* content.js MARK_COLORS, so the legend matches the underlines */
+  --mark-false: #d93636;
+  --mark-quest: #ff5900;
+  --mark-cite: #ffb800;
+  --radius: 18px;
+  --shadow: 0 10px 30px rgba(60, 32, 0, 0.08);
+  --sans: Inter, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --doc: "Instrument Sans", Inter, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--page);
+  color: var(--ink);
+  font: 400 15px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+.framed body { background: var(--surface); }
+a { color: var(--accent-ink); text-underline-offset: 2px; }
+a:hover { color: var(--accent-hover); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+
+.skip {
+  position: absolute; left: 12px; top: -60px; z-index: 10;
+  padding: 10px 14px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 600; text-decoration: none;
+}
+.skip:focus { top: 12px; color: #fff; }
+
+/* ── standalone header + intro ── */
+.site {
+  max-width: 1180px; margin: 0 auto; padding: 0 16px; height: 76px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+.brand:hover { color: var(--ink); }
+.mark { width: 34px; height: 34px; flex: 0 0 auto; }
+.word { font-weight: 700; font-size: 22px; letter-spacing: -0.3px; }
+.framed .site, .framed .intro, .framed .after { display: none; }
+
+.try { max-width: 1180px; margin: 0 auto; padding: 4px 16px 56px; }
+.framed .try { max-width: none; padding: 20px 24px 24px; }
+.intro h1 { margin: 14px 0 10px; font-size: 42px; line-height: 1.08; font-weight: 700; letter-spacing: -1.2px; text-wrap: balance; }
+.intro p { margin: 0 0 28px; max-width: 660px; font-size: 16.5px; line-height: 1.65; color: var(--ink-2); text-wrap: pretty; }
+
+/* The document on the left; on the right, where content.js's panel opens
+   (it is position:fixed, bottom-right of this page's viewport), a legend. */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 480px; gap: 28px; align-items: start; }
+
+/* ── buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 20px; border: 0; border-radius: 12px;
+  font: 700 15px/1 var(--sans); letter-spacing: -0.1px; white-space: nowrap;
+  text-decoration: none; cursor: pointer;
+}
+.btn-primary { background: var(--grad); color: #fff; box-shadow: 0 8px 20px rgba(255, 87, 33, 0.3); }
+.btn-primary:hover { color: #fff; filter: brightness(1.04) saturate(1.06); }
+.btn-primary:focus-visible { outline-color: var(--ink); } /* an orange ring vanishes on the orange button */
+.btn-ghost { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line-2); }
+.btn-ghost:hover { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.btn-sm { height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13.5px; }
+.btn[aria-disabled="true"] { cursor: not-allowed; background: #E9E4DF; color: #6B655F; box-shadow: none; filter: none; }
+.btn .spin { display: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff; }
+.btn.busy .spin { display: inline-block; }
+@keyframes tr-spin { to { transform: rotate(360deg); } }
+@keyframes tr-invite { 0%, 100% { box-shadow: 0 8px 20px rgba(255, 87, 33, 0.3), 0 0 0 0 rgba(255, 87, 34, 0.35); } 50% { box-shadow: 0 8px 20px rgba(255, 87, 33, 0.3), 0 0 0 8px rgba(255, 87, 34, 0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .btn.busy .spin { animation: tr-spin 0.8s linear infinite; }
+  .btn-primary.invite { animation: tr-invite 2.2s ease-in-out 4; }
+  .btn { transition: filter 0.15s, box-shadow 0.15s, background-color 0.15s; }
+}
+
+/* ── the document card ── */
+.doc { position: relative; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.framed .doc { box-shadow: none; border-color: var(--line-2); }
+.doc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 14px 22px; }
+.doc-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.doc-ico { width: 22px; height: 22px; flex: 0 0 auto; }
+.doc-name h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The toolbar strip: status and allowance. The notice floats OVER it (and
+   only as far down as it must), so nothing below moves when it appears. */
+.toolbar { position: relative; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--strip); }
+.tb-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; min-height: 44px; padding: 10px 22px; font-size: 13.5px; line-height: 1.4; color: var(--ink-2); }
+.dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #C9C1B9; }
+.toolbar[data-state="checking"] .dot { background: var(--accent); }
+.toolbar[data-state="done"] .dot { background: #2F9E5B; }
+.toolbar[data-state="stopped"] .dot { background: var(--mark-false); }
+@media (prefers-reduced-motion: no-preference) { .toolbar[data-state="checking"] .dot { animation: tr-pulse 1s ease-in-out infinite; } }
+@keyframes tr-pulse { 50% { opacity: 0.35; } }
+.tb-sep { color: #B5ADA5; }
+.allowance { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.allowance b { color: var(--ink); font-weight: 700; }
+
+[hidden] { display: none !important; }
+
+/* ── the notice: over the toolbar, calm, dismissible ── */
+.notice {
+  /* Above content.js's underline layer (#tracely-marks, z 2147483646), so no
+     line is drawn across it; its panel (same z, later in the page) stays on top. */
+  position: absolute; z-index: 2147483647; top: -1px; left: 12px; right: 12px;
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 14px 10px 14px 18px; border: 1px solid var(--line-2); border-left: 4px solid var(--accent);
+  border-radius: 14px; background: var(--surface); box-shadow: 0 14px 34px rgba(60, 32, 0, 0.16);
+}
+.notice[data-kind="info"] { border-left-color: var(--mark-cite); }
+/* The end of the try-out (and a closed or expired one) also needs its
+   buttons: on wider screens it covers the title row as well (its button is
+   spent by then), from 8px below the card's top edge (the title row is
+   72px: 14 + 44 + 14) to at least the toolbar's last 4px, so the essay below
+   stays readable and no sliver of the button shows above a short notice. */
+@media (min-width: 641px) {
+  .notice:not([data-kind="info"]) { top: -64px; min-height: 106px; padding-top: 12px; padding-bottom: 12px; }
+}
+.notice-body { flex: 1 1 auto; min-width: 0; }
+.notice-text { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); text-wrap: pretty; }
+.notice-text b { font-weight: 700; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.notice-actions .btn-sm { height: 34px; }
+.notice-actions:empty, .notice[data-kind="info"] .notice-actions { display: none; }
+.notice-x {
+  flex: 0 0 auto; width: 32px; height: 32px; margin: -6px 0 0; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-3); font: 400 24px/1 var(--sans); cursor: pointer;
+}
+.notice-x:hover { background: rgba(0, 0, 0, 0.05); color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .notice { animation: tr-drop 0.2s cubic-bezier(0.16, 0.84, 0.34, 1); }
+}
+@keyframes tr-drop { from { opacity: 0; transform: translateY(-6px); } }
+
+/* ── the editor ── */
+.editor {
+  min-height: 320px; padding: 26px 32px 30px; outline: none;
+  font: 400 17px/1.75 var(--doc); color: #1B1B1B; caret-color: #FF5900;
+  overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.editor p { margin: 0 0 14px; }
+.editor p:last-child { margin-bottom: 0; }
+.editor:focus { box-shadow: inset 0 0 0 2px rgba(255, 87, 34, 0.32); }
+.editor ::selection { background: rgba(255, 171, 0, 0.3); }
+
+.doc-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 20px;
+  padding: 12px 22px 14px; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--ink-3);
+}
+.count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.count.over { color: var(--mark-false); font-weight: 600; }
+.privacy { margin: 0; text-align: right; text-wrap: pretty; }
+
+/* ── the legend (the panel's side) ── */
+.legend { padding: 22px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.framed .legend { background: var(--strip); border-color: transparent; box-shadow: none; }
+.legend h2 { margin: 0 0 14px; font-size: 15px; font-weight: 700; letter-spacing: -0.1px; }
+.legend ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.legend li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: baseline; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.legend b { color: var(--ink); font-weight: 600; }
+.swatch { display: block; height: 3px; border-radius: 2px; transform: translateY(-3px); }
+.sw-false { background: var(--mark-false); }
+.sw-quest { background: var(--mark-quest); }
+.sw-cite { background: var(--mark-cite); }
+.legend-how { margin: 16px 0 0; font-size: 14px; line-height: 1.55; color: var(--ink-2); }
+.legend-where { margin: 16px 0 0; padding-top: 14px; border-top: 1px dashed var(--line-2); font-size: 13px; color: var(--ink-3); }
+.after { max-width: 760px; margin: 28px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+/* Kept to the document's column, clear of the panel when it is open. */
+@media (min-width: 1101px) { .after { max-width: min(760px, calc(100% - 508px)); } }
+
+/* content.js's own widget (#tracely-host on <html>; the hidden one in <body>
+   is the sentinel that stands an installed extension down). It stays out of
+   sight until the first "Check my writing", so the page's button is the one
+   way in rather than a "Tracely is off here" pill. */
+html:not(.tr-engaged) > #tracely-host { display: none !important; }
+/* While the panel is open it covers the legend's column: the legend steps
+   back rather than peek out from under it. */
+.legend { transition: opacity 0.2s; }
+.tr-panel-open .legend { opacity: 0; visibility: hidden; }
+
+/* ── narrower screens: one column, the panel floats over the document ── */
+@media (max-width: 1100px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .legend-where { display: none; }
+}
+@media (max-width: 640px) {
+  .site { height: 62px; }
+  .mark { width: 30px; height: 30px; }
+  .word { font-size: 20px; }
+  .try { padding: 0 16px 40px; }
+  .intro h1 { margin-top: 6px; font-size: 30px; letter-spacing: -0.7px; }
+  .intro p { margin-bottom: 20px; font-size: 15.5px; }
+  .stage { gap: 16px; }
+  .doc-head { padding: 10px 10px 10px 16px; }
+  .doc-head .btn { height: 40px; padding: 0 14px; font-size: 14px; }
+  .doc-name h2 { font-size: 17px; }
+  .tb-line { padding: 9px 16px; font-size: 13px; }
+  .tb-sep { display: none; }
+  .allowance { flex-basis: 100%; padding-left: 16px; }
+  .editor { min-height: 0; padding: 20px 18px 24px; font-size: 16px; line-height: 1.7; }
+  .doc-foot { flex-direction: column; align-items: flex-start; padding: 10px 16px 12px; }
+  .privacy { text-align: left; }
+  .notice { left: 8px; right: 8px; padding-left: 14px; }
+  .notice-actions .btn { flex: 1 1 auto; }
+  .legend { padding: 18px; }
+  .framed .try { padding: 0; }
+  .framed .doc { border-width: 0 0 1px; border-radius: 0; }
+  .framed .legend { margin: 0 16px 16px; }
+}
