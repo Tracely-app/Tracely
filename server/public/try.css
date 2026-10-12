@@ -123,10 +123,17 @@ a:hover { color: var(--accent-hover); }
   border-radius: 14px; background: var(--surface); box-shadow: 0 14px 34px rgba(60, 32, 0, 0.16);
 }
 .notice[data-kind="info"] { border-left-color: var(--mark-cite); }
+/* The end of the try-out (and a closed or expired one) also needs its
+   buttons: on wider screens it grows UP from the toolbar over the title row,
+   whose button is spent by then, so the essay below stays readable. */
+@media (min-width: 641px) {
+  .notice:not([data-kind="info"]) { top: auto; bottom: 4px; padding-top: 12px; padding-bottom: 12px; }
+}
 .notice-body { flex: 1 1 auto; min-width: 0; }
-.notice-text { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--ink); text-wrap: pretty; }
+.notice-text { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); text-wrap: pretty; }
 .notice-text b { font-weight: 700; }
-.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.notice-actions .btn-sm { height: 34px; }
 .notice-actions:empty, .notice[data-kind="info"] .notice-actions { display: none; }
 .notice-x {
   flex: 0 0 auto; width: 32px; height: 32px; margin: -6px 0 0; padding: 0; border: 0; border-radius: 8px;
@@ -171,12 +178,18 @@ a:hover { color: var(--accent-hover); }
 .legend-how { margin: 16px 0 0; font-size: 14px; line-height: 1.55; color: var(--ink-2); }
 .legend-where { margin: 16px 0 0; padding-top: 14px; border-top: 1px dashed var(--line-2); font-size: 13px; color: var(--ink-3); }
 .after { max-width: 760px; margin: 28px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+/* Kept to the document's column, clear of the panel when it is open. */
+@media (min-width: 1101px) { .after { max-width: min(760px, calc(100% - 508px)); } }
 
 /* content.js's own widget (#tracely-host on <html>; the hidden one in <body>
    is the sentinel that stands an installed extension down). It stays out of
    sight until the first "Check my writing", so the page's button is the one
    way in rather than a "Tracely is off here" pill. */
 html:not(.tr-engaged) > #tracely-host { display: none !important; }
+/* While the panel is open it covers the legend's column: the legend steps
+   back rather than peek out from under it. */
+.legend { transition: opacity 0.2s; }
+.tr-panel-open .legend { opacity: 0; visibility: hidden; }
 
 /* ── narrower screens: one column, the panel floats over the document ── */
 @media (max-width: 1100px) {

@@ -185,6 +185,11 @@
       style.dataset.try = "";
       style.textContent = "#siteSwitch, #panelSettings { display: none !important; }";
       host.shadowRoot.appendChild(style);
+      // The panel's column is the legend's: html.tr-panel-open while it shows.
+      let raf = 0;
+      const sync = () => { raf = 0; document.documentElement.classList.toggle("tr-panel-open", Boolean(host.shadowRoot.querySelector(".panel"))); };
+      new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(sync); }).observe(host.shadowRoot, { childList: true, subtree: true });
+      sync();
     }
     return host;
   }
