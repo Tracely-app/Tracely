@@ -30,6 +30,10 @@ restart — except `TRACELY_DATA_DIR`, below, and the boot-time values listed in
 | `TRACELY_APP_DAILY_BUDGET_USD` | the spend cap | The desktop app routes' own pool (`__global_app__`). Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent the app routes answer 503 and the extension's pools are untouched. |
 | `TRACELY_BETA_TOKENS` | the test extension | Comma-separated tokens. A caller sending one as `X-Tracely-Beta` is served as Pro on the extension's routes (never the desktop's), spending from its own pool. Empty or unset = beta off. See DEPLOY.md. |
 | `TRACELY_BETA_DAILY_BUDGET_USD` | the test extension | The beta pool's daily ceiling. Defaults to 10; same rules as `TRACELY_DAILY_BUDGET_USD`. When it is spent, testers fall back to their own plan on the normal pool. |
+| `TRACELY_DEMO_SECRET` | the try-out (`/try`) | Signs the visitor cookie `GET /try` mints. Empty or unset = the try-out is OFF (`/api/demo/*` answer 503 `demo_closed`). Never a per-boot fallback. See "The try-out pool" below and DEPLOY.md. |
+| `TRACELY_PUBLIC_ORIGIN` | the try-out | The try-out page's own origin (`https://api.jointracely.com`). Admitted for the `/api/demo/*` routes and static files only — never added to the self origins. |
+| `TRACELY_DEMO_DAILY_BUDGET_USD` | the try-out | The demo pool (`__global_demo__`). Defaults to 2; empty or junk = the default, but an explicit `0` turns the try-out OFF (not "no ceiling"). When it is spent the try-out answers 503 and no other pool is touched. |
+| `TRACELY_DEMO_CHECKS` / `_SOURCES` / `_REVIEWS` | the try-out | Per visitor per day: 10 / 2 / 2. Empty or junk = the default; `0` = none. |
 | `TRACELY_TRUSTED_PROXY_HOPS` | the spend cap | How many proxies you control sit in front of this server. Unset = ignore `X-Forwarded-For` entirely, which is right for a direct connection. |
 | `TRACELY_DATA_DIR` | storage | Where `tracely.db` lives. Defaults to `./data`. **Must be a real env var, not a `.env` line** — `lib/db.js` opens the database at import time, before `.env` is read. |
 
@@ -259,8 +263,9 @@ determined caller, because it does not depend on identity at all. Every model
 response carries its token usage; `costMicroCents` prices it from
 `MODEL_PRICES` (`shared/prices.js`, re-exported by `lib/llm.js`) and the total
 accumulates in `entitlement_usage` under one synthetic account per pool:
-`__global__` (extension), `__global_paid__`, `__global_beta__` and
-`__global_app__` (desktop). SQLite-backed rather than in memory,
+`__global__` (extension), `__global_paid__`, `__global_beta__`,
+`__global_app__` (desktop) and `__global_demo__` (the try-out page, below).
+SQLite-backed rather than in memory,
 because "restart the server to reset the budget" would be a bypass.
 
 When the day runs low, **sources are shed before checks.** OpenAI bills the
@@ -293,6 +298,40 @@ minute per caller (`callerLookupsPerMinute`) and 60 a minute for all callers
 together (`globalLookupsPerMinute`, since an install id rotates freely and
 every lookup goes on to Crossref and Open Library); it reserves nothing, counts
 against no quota, and is not refused when the day's budget is spent.
+
+### The try-out pool (`/try`)
+
+The public try-out page (DEPLOY.md, "The try-out page") is anyone on the
+internet, with no sign-in and an id they can drop by reloading. So it gets a
+pool of its own, `demo` (`__global_demo__`, `TRACELY_DEMO_DAILY_BUDGET_USD`,
+default **$2**), and it is the one pool that REFUSES when spent (503
+`demo_closed`, "comes back at midnight") rather than falling back: a busy
+try-out can never 503 a store user or shed their source search. Like `paid`
+and `beta` it reserves each call's worst case before running it, so a burst
+of fresh cookies overshoots the day by one call at most (~4.7 cents, a source
+search's `WORST_CALL` on luna); it sheds source search below 20% left; and its
+searches have their own window (10 an hour), apart from the extension's 15.
+
+Per visitor (`demo:<sha256 of the cookie's id>`, a daily-quota key): 10
+checks, 2 source searches, 2 writing reviews a day, at the FREE plan on the
+fast model — "Explain in depth" is refused and the beta header ignored. Text
+is capped at 3,000 characters and 40 sentences a check (1,500 characters of
+context on a search). An address gets a rolling 60 calls an hour and never a
+daily count, the rule above. The per-visitor numbers are fairness for honest
+visitors; a private window mints a new cookie. **The pool is the cap.**
+
+| | |
+|---|---|
+| a typical visitor (one first check, a few re-checks, one search) | ~2.2 cents |
+| a visitor who uses everything (10 checks, 2 searches, 2 reviews) | ~4.6 cents |
+| **worst case, a day** | $2 + one call's reservation (~4.7 cents) |
+| **worst case, a month** | **$2 × 31 ≈ $62** (≈ $63.50 with the overshoot), even under a determined attack |
+
+Raise the ceiling only if `demoBudget` on `GET /api/status` shows it tripping
+before evening; at $2 it covers about 90 typical visitors a day (costs from
+the 2026-10 measurements: a first check 0.39 cents, a re-check 0.09, a
+search 1.4, a review 0.28). Set
+`TRACELY_DEMO_DAILY_BUDGET_USD=0` (or empty the secret) to switch it off.
 
 ### What identity a quota counts against
 

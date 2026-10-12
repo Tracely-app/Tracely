@@ -140,6 +140,19 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   is admitted the same way, `reservation.extend`) and fall back — to the fast
   model, or to the caller's own plan — instead of ever 503ing. A pool that
   can reach expensive models must never share a day with free users.
+- **The public try-out page (`/try`) is a third product with its own fence**
+  (`lib/demo.js`, `demoGate`; DEPLOY.md "The try-out page"): `DEMO_ROUTES`
+  (`/api/demo/check|sources|review|status`) sit in NO other set — not
+  `EXTENSION_API`, `PAID_ROUTES` or `APP_AI_ROUTES` — and alias into the
+  `/api/check`, `/api/sources` and `/api/review` handlers (`api`, the aliased
+  path, is what those handlers match on; never copy a handler for the demo).
+  Its pool `demo` reserves per call and REFUSES when spent (503
+  `demo_closed`) — never fall back to another pool. `TRACELY_PUBLIC_ORIGIN`
+  reaches the demo routes and static files only (decided before the self-origin
+  pass); never add it to `SELF_ORIGINS`. The caller is always the free plan,
+  enforced; never call `withBetaGrant` for it. `test/demo.test.js` pins all of
+  this. `/ext-content.js` (the engine `/try` runs) must be copied on every
+  deploy.
 
 ## Accounts and billing
 
@@ -172,7 +185,10 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   is the plan policy, model tiers, allowances and effort per route;
   `shared/prices.js` the price table the spend cap does arithmetic with.
 - `lib/spend.js`, `lib/entitlement.js`, `lib/billing.js`, `lib/db.js` — the
-  cap, who is calling, Stripe, SQLite.
+  cap, who is calling, Stripe, SQLite. `lib/demo.js` — the try-out's cookie,
+  allowance, caps and status.
+- `public/try.html|js|css` — the try-out page (`/try`, `/try.js`, `/try.css`);
+  `server.js` owns only the headers `/try` is served with (`TRY_PAGES`).
 - `scripts/` — `pack-extension.sh`, `bump-extension.mjs`, `healthcheck.sh`,
   and two Linode-only scripts (`set-server-env.sh`, `deploy-openai-key.sh`).
 - `public/app/` — the vanilla web app, served by `server.js`; local only.
