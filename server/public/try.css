@@ -117,7 +117,9 @@ a:hover { color: var(--accent-hover); }
 
 /* ── the notice: over the toolbar, calm, dismissible ── */
 .notice {
-  position: absolute; z-index: 5; top: -1px; left: 12px; right: 12px;
+  /* Above content.js's underline layer (#tracely-marks, z 2147483646), so no
+     line is drawn across it; its panel (same z, later in the page) stays on top. */
+  position: absolute; z-index: 2147483647; top: -1px; left: 12px; right: 12px;
   display: flex; align-items: flex-start; gap: 8px;
   padding: 14px 10px 14px 18px; border: 1px solid var(--line-2); border-left: 4px solid var(--accent);
   border-radius: 14px; background: var(--surface); box-shadow: 0 14px 34px rgba(60, 32, 0, 0.16);

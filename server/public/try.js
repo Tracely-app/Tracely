@@ -102,7 +102,9 @@
     notice.hidden = false;
   }
   function hideNotice() {
+    const hadFocus = notice.contains(document.activeElement);
     notice.hidden = true;
+    if (hadFocus) checkBtn.focus(); // never strand keyboard focus on a hidden button
     const short = {
       end: "That's the try-out. Add Tracely to Chrome, free, to keep going.",
       closed: demo && demo.closed ? demo.closed : "The try-out is closed for now.",
@@ -215,6 +217,7 @@
   }
   function runCheck() {
     if (!demo || busy) return;
+    stopQuietRead();
     if (demo.closed) { showClosed(demo.closed); return; }
     if (demo.exhausted.check) { showEnd(); return; }
     const text = readText(editor);
@@ -248,6 +251,26 @@
     // Already on: the loop's next read (within a few seconds) sends what changed.
   }
 
+  /* One quiet read after a check. content.js asks for its writing review of
+     an essay (/api/review, the try-out allows two) only on a read that finds
+     the text still for 5 s, and reads happen only on a click here. So, 5.6 s
+     after a check and only if nothing was typed since, the loop may read once:
+     there is nothing new to check (and a check would be refused: no click
+     armed it), so all it can send is that review. */
+  let quietTimer = 0;
+  function quietRead() {
+    clearTimeout(quietTimer);
+    quietTimer = setTimeout(() => {
+      if (busy || demo.armed || demo.closed || demo.exhausted.review || readText(editor) !== lastChecked) return;
+      demo.paused = false;
+      quietTimer = setTimeout(() => { if (!demo.armed) demo.paused = true; }, 1600);
+    }, 5600);
+  }
+  function stopQuietRead() {
+    clearTimeout(quietTimer);
+    if (!demo.armed) demo.paused = true;
+  }
+
   /* ── what the engine's calls say (the shim's events) ── */
   const FLAGGED = new Set(["false", "incoherent", "questionable", "needs_citation"]);
   function wire() {
@@ -271,6 +294,7 @@
           lastChecked = readText(editor);
           const flagged = (r.data && Array.isArray(r.data.findings) ? r.data.findings : []).filter((f) => FLAGGED.has(f && f.verdict)).length;
           setStatus(flagged ? "Checked. Click an underlined sentence to see why." : "Checked. Nothing flagged in what was sent.", "done");
+          quietRead();
         } else if (!/^demo_(closed|session|limit)$/.test(r.kind)) {
           setStatus(r.kind === "no_engine" ? "Tracely couldn't reach its server. Try again in a moment." : r.message || "The check didn't go through. Try again.", "stopped");
         }
@@ -288,6 +312,7 @@
 
   /* ── the editor ── */
   function onInput() {
+    stopQuietRead(); // typing: the next read waits for a click
     renderCount();
     if (checkedOnce && !busy && noticeKind !== "end" && noticeKind !== "closed") {
       const changed = readText(editor) !== lastChecked;
