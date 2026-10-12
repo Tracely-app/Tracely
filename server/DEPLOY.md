@@ -49,6 +49,7 @@ rsync -az --delete \
   --exclude node_modules --exclude data --exclude .env \
   --exclude test --exclude .git --exclude '*.log' \
   /tmp/tracely-deploy/server/ root@45.56.92.67:/srv/tracely/app/
+ssh root@45.56.92.67 'mkdir -p /srv/tracely/app/extension' && rsync -az /tmp/tracely-deploy/extension/content.js root@45.56.92.67:/srv/tracely/app/extension/content.js   # /ext-content.js, which /try runs
 ssh root@45.56.92.67 'chown -R tracely:tracely /srv/tracely/app && systemctl restart tracely'
 server/scripts/healthcheck.sh https://api.jointracely.com --commit "$SHA"
 git -C ~/tracely-repo tag "server/$(date -u +%Y%m%d)-${SHA:0:7}" "$SHA" && git -C ~/tracely-repo push -q origin "server/$(date -u +%Y%m%d)-${SHA:0:7}"
@@ -60,6 +61,16 @@ git -C ~/tracely-repo worktree remove /tmp/tracely-deploy
 
 `--delete` is safe: `.env` and `data` are both excluded, so rsync will not
 remove them. The database is outside the target anyway.
+
+**Copy `extension/content.js` on EVERY deploy, after the server rsync** (the
+line after it above). `/ext-content.js` is served from
+`app/extension/content.js` (server.js `STATIC_FILES`), and that file lives
+outside `server/`, so the `--delete` rsync removes it each time — a one-off
+copy lasts until the next deploy. It is the extension engine the public
+try-out page (`/try`, below) runs; without it `/try` loads a page that does
+nothing. `healthcheck.sh` fails on a 404 there while the try-out is
+configured. The copy is whatever main is at deploy time, which may be ahead
+of the Web Store build.
 
 Verify after every deploy with `server/scripts/healthcheck.sh` (the status
 shape, a bad token served as free, the extension's CORS allow and deny, the
@@ -85,8 +96,10 @@ step. If one ever appears, this document is wrong.
 `loadEnvFile()` runs at the top of each request, so anything read from
 `process.env` AT REQUEST TIME picks up an edit with no restart — the API key,
 the daily budgets (`TRACELY_DAILY_BUDGET_USD`, `TRACELY_PAID_DAILY_BUDGET_USD`,
-`TRACELY_BETA_DAILY_BUDGET_USD`, `TRACELY_APP_DAILY_BUDGET_USD`), the Stripe
-values and `TRACELY_BETA_TOKENS`.
+`TRACELY_BETA_DAILY_BUDGET_USD`, `TRACELY_APP_DAILY_BUDGET_USD`,
+`TRACELY_DEMO_DAILY_BUDGET_USD`), the Stripe values, `TRACELY_BETA_TOKENS`
+and the try-out's settings (`TRACELY_DEMO_SECRET`, `TRACELY_PUBLIC_ORIGIN`,
+`TRACELY_DEMO_CHECKS` / `_SOURCES` / `_REVIEWS`).
 
 Anything captured in a module-level `const` does not. Those are read once at
 boot:
@@ -139,10 +152,12 @@ free user, so:
 | extension | free callers, and anyone falling back | `TRACELY_DAILY_BUDGET_USD` (10) | 503 for everyone on it, as always |
 | paid | Student/Pro accounts | `TRACELY_PAID_DAILY_BUDGET_USD` (10) | they run the FAST model on the extension pool; plan and quotas unchanged |
 | beta | test-build callers (below) | `TRACELY_BETA_DAILY_BUDGET_USD` (10) | they run their own plan on the extension pool |
+| demo | the public try-out page (`/try`, below) — not an extension route | `TRACELY_DEMO_DAILY_BUDGET_USD` (2) | 503 `demo_closed` on the try-out only; **never** falls back |
 
-All three follow the same parsing (empty or junk = default, explicit `0` =
-no ceiling). The paid and beta pools admit a call only while their spend
-PLUS the worst case of every call still in flight leaves room: the worst
+The first three follow the same parsing (empty or junk = default, explicit
+`0` = no ceiling); the demo pool reads empty and junk the same way, but an
+explicit `0` switches the try-out OFF. The paid, beta and demo pools admit
+a call only while their spend PLUS the worst case of every call still in flight leaves room: the worst
 case is the route's output ceiling plus its largest input on the fast model
 (~2.5 cents for a check, every input token priced as a cache write,
 `WORST_CALL` in server.js); an "Explain in depth" admitted to the thorough
@@ -187,6 +202,67 @@ Watch it with:
 ```sh
 curl -s -H 'Host: localhost:4477' localhost:4477/api/status
 ```
+
+## The try-out page (`/try`)
+
+`https://api.jointracely.com/try` is a public, capped demo document: an
+editable sample essay running the extension's own engine (`/ext-content.js`,
+copied on every deploy — see Redeploy), framed by the website's `/try/` page.
+Its calls go to `/api/demo/check`, `/api/demo/sources` and
+`/api/demo/review`, which run the same handlers as `/api/check`,
+`/api/sources` and `/api/review` behind their own gate (server.js `demoGate`,
+lib/demo.js) and their own pool. Nothing about the extension's routes, their
+origins or their CORS changes.
+
+In `/srv/tracely/app/.env` (read per request — no restart; comments on their
+own lines, since `loadEnvFile()` keeps a trailing `# ...` as part of the value):
+
+```sh
+# Signs the visitor cookie; empty or absent = the try-out is OFF.
+# Generate once with: openssl rand -hex 32
+TRACELY_DEMO_SECRET=
+# The page's own origin: it may reach the demo routes and static files only.
+TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
+# Optional, shown at their defaults. An explicit 0 budget turns the try-out OFF.
+# TRACELY_DEMO_DAILY_BUDGET_USD=2
+# TRACELY_DEMO_CHECKS=10
+# TRACELY_DEMO_SOURCES=2
+# TRACELY_DEMO_REVIEWS=2
+```
+
+What bounds it, in the order `demoGate` checks:
+
+- **Off** without a secret or with a budget of `0`: `503 demo_closed`. Never a
+  per-boot random secret — a restart would hand every visitor a new allowance.
+- **The visitor cookie** `tracely_demo` (HttpOnly, Secure, SameSite=Lax, a
+  day), minted by `GET /try`, HMAC-signed with the secret. Missing or forged:
+  `403 demo_session`. Rotating the secret invalidates every cookie; the page
+  mints a new one on reload.
+- **The free plan**, enforced even though the caller is anonymous: the fast
+  model, "Explain in depth" refused, the beta header ignored.
+- **The demo pool**: every call reserves its worst case first, so a burst of
+  fresh cookies overshoots by one call at most. Spent: `503 demo_closed`
+  ("comes back at midnight") on the try-out — the extension's pool is never
+  touched. Below 20% left, source search pauses on the try-out; checks go on.
+- **Per visitor per day**: 10 checks, 2 source searches, 2 writing reviews
+  (`429 demo_limit` with `feature`). Fairness, not a cap: a private window
+  mints a fresh cookie.
+- **Per address**: 60 demo calls in any rolling hour (`429 rate_limit`) —
+  never a daily count, since a school is one address. Keyed on
+  `TRACELY_TRUSTED_PROXY_HOPS`, like every other address key.
+- **Its own web-search window**: 10 an hour, apart from the store users' 15.
+- **Text caps**: 3,000 characters and 40 sentences a check or review, 1,500
+  characters of context on a source search (`400`).
+
+`/try` is served with `Content-Security-Policy: frame-ancestors
+https://jointracely.com https://www.jointracely.com` (no `X-Frame-Options`)
+and `Cache-Control: no-store`; no other page carries either header. Worst
+case: $2 × 31 ≈ $62 a month (BILLING.md). Watch `demoBudget` on
+`/api/status`, which appears only while `TRACELY_DEMO_SECRET` is set; turn the
+try-out off with `TRACELY_DEMO_DAILY_BUDGET_USD=0` or by emptying the secret.
+After a deploy, `healthcheck.sh` checks `/try` (200, frame rule) and
+`/ext-content.js` (200) whenever `demoBudget` is present; pass `--demo` to
+insist on it.
 
 ## The test extension (beta build)
 
