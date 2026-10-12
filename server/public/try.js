@@ -106,7 +106,7 @@
     notice.hidden = true;
     if (hadFocus) checkBtn.focus(); // never strand keyboard focus on a hidden button
     const short = {
-      end: "That's the try-out. Add Tracely to Chrome, free, to keep going.",
+      end: "That's the try-out. Get early access to keep going.",
       closed: demo && demo.closed ? demo.closed : "The try-out is closed for now.",
       session: "Reload the page to start the try-out again.",
     }[noticeKind];
@@ -128,7 +128,7 @@
     setBusy(false);
     const off = /isn't available/i.test(demo.closed);
     setStatus(off ? "The try-out isn't available right now." : "The try-out is closed for today.", "stopped");
-    showNotice("closed", `${demo.closed} ${off ? "You can still add Tracely to Chrome, free." : "Tracely itself is unaffected: add it to Chrome, free, and keep going."}`, { ctas: true });
+    showNotice("closed", `${demo.closed} ${off ? "You can still get early access to Tracely." : "Tracely itself is unaffected: get early access and keep going."}`, { ctas: true });
   }
   function showSession(message) {
     setBusy(false);
@@ -307,7 +307,7 @@
       if (feature === "sources") showSourcesUsed();
       else if (feature === "check") showEnd();
     });
-    demo.on("settings", () => setStatus("Settings come with the installed extension.", toolbar.dataset.state || "idle"));
+    demo.on("settings", () => setStatus("Settings come with the full version.", toolbar.dataset.state || "idle"));
   }
 
   /* ── the editor ── */
@@ -356,7 +356,7 @@
   /* ── start ── */
   renderCount();
   if (!demo || !demo.engineReady) {
-    setStatus("Tracely couldn't start in this browser. Try another, or add Tracely to Chrome.", "stopped");
+    setStatus("Tracely couldn't start in this browser. Try another browser.", "stopped");
     checkBtn.setAttribute("aria-disabled", "true");
     return;
   }
