@@ -1,0 +1,219 @@
+/**
+ * "Try Tracely": the public, capped demo document at /try.
+ *
+ * A page this server hosts (public/try.html) runs the extension's own engine
+ * (content.js, served as /ext-content.js) over an editable sample essay, and
+ * its calls come here through three routes of their own — /api/demo/check,
+ * /api/demo/sources and /api/demo/review — which server.js aliases into the
+ * /api/check, /api/sources and /api/review handlers after demoGate.
+ *
+ * Who may spend, and how much (server.js demoGate, in order):
+ *   1. TRACELY_DEMO_SECRET empty, or TRACELY_DEMO_DAILY_BUDGET_USD an explicit
+ *      0: the try-out is OFF (503 demo_closed). Never a per-boot random
+ *      secret — a restart would then hand every visitor a fresh allowance.
+ *   2. A signed visitor cookie, minted by GET /try: `tracely_demo=<id>.<mac>`.
+ *      Missing or forged on an API call: 403 demo_session.
+ *   3. The caller is `demo:<sha256(id)>` at the FREE plan, enforced even on a
+ *      box with no Supabase: the fast model, "Explain in depth" refused, the
+ *      beta header ignored.
+ *   4. The "demo" pool (lib/spend.js), reserved per call; spent is 503
+ *      demo_closed, NEVER the extension pool.
+ *   5. A per-visitor daily allowance (demo_check / demo_sources /
+ *      demo_review usage rows), checked after the body is read and stamped
+ *      just before the model call: over is 429 demo_limit.
+ *   6. A rolling per-address window, never a daily count (schools share one
+ *      address).
+ *   7. The try-out's own hourly web-search window.
+ *   8. Text caps well under the extension's (SPEND.demoMax*): 400.
+ *
+ * The cookie is fairness for honest visitors, not a cap: reloading /try in a
+ * private window mints a fresh one. The pool and the per-address window are
+ * what bound spend. Nothing here stores text; the usage rows are counts under
+ * a hashed id, swept with every other usage row after 13 months.
+ */
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { usageCount, usageBump } from "./db.js";
+import { dailyBudgetMicroCents, poolRoom } from "./spend.js";
+import { CheckError } from "./errors.js";
+import { SPEND } from "../shared/guards.js";
+import { usageDay } from "../shared/plan.js";
+
+export const DEMO_COOKIE = "tracely_demo";
+export const DEMO_COOKIE_MAX_AGE_S = 86_400;
+const ID_BYTES = 16;
+
+export const DEMO_MESSAGES = {
+  off: "The try-out isn't available right now.",
+  spent: "The try-out has reached its limit for today. It comes back at midnight.",
+  session: "Your try-out session has expired. Reload the page to start again.",
+  sourcesPaused: "Source search is paused on the try-out for today. Checking still works.",
+  busy: "The try-out is busy on your network right now. Try again in a little while.",
+  searchesBusy: "Source search on the try-out is busy right now. Try again in a few minutes.",
+};
+
+/** The HMAC key, or "" when the try-out is off. Re-read per request. */
+export function demoSecret(env = process.env) {
+  return String(env.TRACELY_DEMO_SECRET ?? "").trim();
+}
+
+/** The try-out page's own origin (e.g. https://api.jointracely.com), or null. */
+export function demoPublicOrigin(env = process.env) {
+  const v = String(env.TRACELY_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "");
+  return /^https?:\/\/[^/\s]+$/i.test(v) ? v : null;
+}
+
+// ── the visitor cookie ──────────────────────────────────────────────────
+const mac = (secret, id) => createHmac("sha256", secret).update(`tracely-demo.${id}`, "utf8").digest();
+
+/** A fresh visitor: a random id and its signed cookie value. */
+export function mintVisitor(secret) {
+  const id = randomBytes(ID_BYTES).toString("base64url");
+  return { id, value: `${id}.${mac(secret, id).toString("base64url")}` };
+}
+
+/** The visitor id a cookie value proves, or null. lib/billing.js's pattern:
+ * the comparison is timingSafeEqual, behind a length check we chose rather
+ * than the exception it throws on a mismatch. */
+export function verifyVisitor(value, secret) {
+  if (!secret || typeof value !== "string" || value.length > 128) return null;
+  const m = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/.exec(value);
+  if (!m) return null;
+  const expected = mac(secret, m[1]);
+  const given = Buffer.from(m[2], "base64url");
+  return given.length === expected.length && timingSafeEqual(given, expected) ? m[1] : null;
+}
+
+/** One cookie's value from a Cookie header — a bounded parse, first match wins. */
+export function readCookie(header, name = DEMO_COOKIE) {
+  if (typeof header !== "string" || !header) return null;
+  const pairs = header.slice(0, 8192).split(";", 64);
+  for (const pair of pairs) {
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    if (pair.slice(0, eq).trim() === name) return pair.slice(eq + 1).trim();
+  }
+  return null;
+}
+
+/** The visitor id this request carries, or null (no secret, no cookie, forged). */
+export function visitorOf(req, env = process.env) {
+  return verifyVisitor(readCookie(req?.headers?.cookie), demoSecret(env));
+}
+
+/** The Set-Cookie value for a visitor. Secure + SameSite=Lax: sent inside the
+ * www.jointracely.com iframe (same site), never with a cross-site POST. */
+export function visitorCookie(value) {
+  return `${DEMO_COOKIE}=${value}; Path=/; Max-Age=${DEMO_COOKIE_MAX_AGE_S}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/** The quota key: hashed, so no log line or usage row carries the cookie. */
+export function demoCallerId(visitorId) {
+  return `demo:${createHash("sha256").update(String(visitorId)).digest("hex")}`;
+}
+
+/** The per-address window's key (a hash of server.js clientAddress). */
+export function demoAddressKey(address) {
+  return `demo-addr:${createHash("sha256").update(String(address ?? "")).digest("hex").slice(0, 32)}`;
+}
+
+// ── limits ───────────────────────────────────────────────────────────────
+/* A whole number from the environment: empty or junk is the default (as the
+ * budgets read), an explicit non-negative integer is used as given. */
+function intFromEnv(env, variable, fallback) {
+  const text = String(env[variable] ?? "").trim();
+  if (!text) return fallback;
+  const n = Number(text);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
+/** What one visitor gets per day, and the longest text a demo call takes. */
+export function demoLimits(env = process.env) {
+  return {
+    check: intFromEnv(env, "TRACELY_DEMO_CHECKS", SPEND.demoChecksPerVisitor),
+    sources: intFromEnv(env, "TRACELY_DEMO_SOURCES", SPEND.demoSourcesPerVisitor),
+    review: intFromEnv(env, "TRACELY_DEMO_REVIEWS", SPEND.demoReviewsPerVisitor),
+    maxChars: SPEND.demoMaxChars,
+  };
+}
+
+/** True when the try-out is switched off: no secret, or a budget that comes
+ * to nothing (an explicit 0 — which every other pool reads as "no ceiling"). */
+export function demoOff(env = process.env) {
+  return !demoSecret(env) || dailyBudgetMicroCents(env, "demo") <= 0;
+}
+
+/** The next local midnight, when the pool and the allowances reset. */
+export function demoResetAt(at = Date.now()) {
+  const d = new Date(at);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();
+}
+
+export const DEMO_USAGE_KINDS = { check: "demo_check", sources: "demo_sources", review: "demo_review" };
+
+/** Today's demo calls by one caller id, per kind. */
+export function demoUsed(id, at = Date.now()) {
+  const day = usageDay(at);
+  return Object.fromEntries(Object.entries(DEMO_USAGE_KINDS).map(([k, kind]) => [k, usageCount(id, day, kind)]));
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const LIMIT_MESSAGES = {
+  check: (n) => `That's the try-out: you've used your ${plural(n, "check", "checks")} for today. Install Tracely free to keep going.`,
+  sources: (n) => `You've used your ${plural(n, "source search", "source searches")} for this try-out. Checks still work.`,
+  review: (n) => `You've used your ${plural(n, "writing review", "writing reviews")} for this try-out. Checks still work.`,
+};
+const fmt = (n) => n.toLocaleString("en-US");
+
+/**
+ * Admission for one demo call, AFTER the route has read and validated its
+ * body: the text caps (400), then the visitor's allowance for `gate.demo.kind`
+ * (429 demo_limit). Stamps nothing — demoRecord does, just before the model
+ * call, so a request refused on the way (a 400, the review route's once-a-
+ * minute window, an hourly search window) never uses up an allowance. The
+ * handlers make no await between the two, so concurrent requests cannot both
+ * take the last one.
+ */
+export function demoAdmit(gate, { text, sentences, context } = {}, env = process.env) {
+  const { kind } = gate.demo;
+  if ((kind === "check" || kind === "review") && typeof text === "string" && text.length > SPEND.demoMaxChars) {
+    throw new CheckError("bad_request", `The try-out checks up to ${fmt(SPEND.demoMaxChars)} characters at a time. Shorten the text and try again.`);
+  }
+  if (kind === "check" && Array.isArray(sentences) && sentences.length > SPEND.demoMaxSentences) {
+    throw new CheckError("bad_request", `The try-out checks up to ${SPEND.demoMaxSentences} sentences at a time. Shorten the text and try again.`);
+  }
+  if (kind === "sources" && typeof context === "string" && context.length > SPEND.demoMaxContextChars) {
+    throw new CheckError("bad_request", `The try-out sends up to ${fmt(SPEND.demoMaxContextChars)} characters of context with a source search.`);
+  }
+  const limit = demoLimits(env)[kind];
+  if (demoUsed(gate.callerId)[kind] >= limit) {
+    // `feature` rides on the error body (server.js), so the page knows WHICH
+    // allowance ran out: out of sources, checks still work.
+    const err = new CheckError("demo_limit", LIMIT_MESSAGES[kind](limit), { status: 429 });
+    err.feature = kind;
+    throw err;
+  }
+}
+
+/** Stamps one demo call against the visitor's allowance — before the call. */
+export function demoRecord(gate, at = Date.now()) {
+  return usageBump(gate.callerId, usageDay(at), DEMO_USAGE_KINDS[gate.demo.kind]);
+}
+
+/**
+ * GET /api/demo/status: whether the try-out is open, what this visitor has
+ * left today, the limits, and when both reset. Off (no secret, budget 0): a
+ * 200 with open:false, so the page can say so. On, with no valid cookie:
+ * 403 demo_session, like every other demo route. `sourcesPaused` (only when
+ * true) is the pool's 20% line: checks go on, source search does not.
+ */
+export function demoStatus(req, env = process.env, at = Date.now()) {
+  const limits = demoLimits(env);
+  const resetAt = demoResetAt(at);
+  if (demoOff(env)) return { open: false, left: { check: 0, sources: 0, review: 0 }, limits, resetAt };
+  const visitor = visitorOf(req, env);
+  if (!visitor) throw new CheckError("demo_session", DEMO_MESSAGES.session, { status: 403 });
+  const used = demoUsed(demoCallerId(visitor), at);
+  const { budget, room } = poolRoom({ enforced: true, pool: "demo", at, env });
+  const left = Object.fromEntries(Object.keys(DEMO_USAGE_KINDS).map((k) => [k, Math.max(0, limits[k] - used[k])]));
+  return { open: room, left, limits, resetAt, ...(room && !budget.sourcesAllowed ? { sourcesPaused: true } : {}) };
+}
