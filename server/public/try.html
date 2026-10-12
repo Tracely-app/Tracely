@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try Tracely</title>
+<meta name="description" content="Try Tracely on a sample essay, no install: it underlines what's wrong, explains why and finds sources.">
+<meta name="color-scheme" content="light">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/try.css">
+<script>
+  /* Framed (the www.jointracely.com/try/ page) or standalone: decided before
+     first paint so neither look flashes the other. */
+  (function () {
+    var framed = true;
+    try { framed = window.self !== window.top; } catch (e) { /* cross-origin parent: framed */ }
+    document.documentElement.className += framed ? " framed" : " standalone";
+  })();
+</script>
+</head>
+<body>
+<a class="skip" href="#editor">Skip to the essay</a>
+
+<header class="site" aria-label="Tracely">
+  <a class="brand" href="https://www.jointracely.com/">
+    <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+      <defs><linearGradient id="trg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFAB00"/><stop offset=".5" stop-color="#FF5722"/><stop offset="1" stop-color="#FF2D2D"/></linearGradient></defs>
+      <rect width="40" height="40" rx="10" fill="url(#trg)"/>
+      <path d="M10.5 18.6 29.5 11l-6.4 18.4-4-7.2z" fill="#fff"/>
+      <path d="m19.1 22.2 10.4-11.2" stroke="#FFD8B0" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <span class="word">Tracely</span>
+  </a>
+  <a class="btn btn-ghost btn-sm" href="https://chromewebstore.google.com/detail/dffmoeebkkghhgcklkbmaibfhgiegmdm" target="_blank" rel="noopener">Add to Chrome — free</a>
+</header>
+
+<main class="try">
+  <div class="intro">
+    <h1>Try Tracely on a sample essay</h1>
+    <p>No install. Edit it or paste your own (up to 3,000 characters), then press <strong>Check my writing</strong>.</p>
+  </div>
+
+  <div class="stage">
+    <section class="doc" aria-labelledby="doc-title">
+      <div class="doc-head">
+        <div class="doc-name">
+          <svg class="doc-ico" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h6.5L16 7v10a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 5 17z" fill="#fff" stroke="#FF5722" stroke-width="1.4" stroke-linejoin="round"/><path d="M11.5 2.5V7H16" fill="none" stroke="#FF5722" stroke-width="1.4" stroke-linejoin="round"/><path d="M7.5 10.5h5M7.5 13h5" stroke="#FFAB80" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <h2 id="doc-title">My essay</h2>
+        </div>
+        <button type="button" class="btn btn-primary" id="check" aria-describedby="status">
+          <span class="spin" aria-hidden="true"></span><span class="label">Check my writing</span>
+        </button>
+      </div>
+
+      <div class="toolbar">
+        <p class="tb-line" id="status-line" role="status" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="status">Tracely is ready to check this document.</span>
+          <span class="tb-sep" aria-hidden="true">·</span>
+          <span id="allowance" class="allowance">10 checks · 2 source searches left</span>
+        </p>
+        <div class="notice" id="notice" hidden>
+          <div class="notice-body">
+            <p class="notice-text" id="notice-text"></p>
+            <div class="notice-actions" id="notice-actions">
+              <a class="btn btn-primary btn-sm" href="https://chromewebstore.google.com/detail/dffmoeebkkghhgcklkbmaibfhgiegmdm" target="_blank" rel="noopener">Add to Chrome — free</a>
+              <a class="btn btn-ghost btn-sm" href="https://dl.jointracely.com/download/Tracely-Setup.exe">Download for Windows</a>
+              <a class="btn btn-ghost btn-sm" href="https://dl.jointracely.com/download/Tracely-arm64.dmg">Download for Mac</a>
+              <button type="button" class="btn btn-ghost btn-sm" id="notice-reload" hidden>Reload the page</button>
+            </div>
+          </div>
+          <button type="button" class="notice-x" id="notice-x" aria-label="Hide this notice">×</button>
+        </div>
+      </div>
+
+      <div class="editor" id="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="doc-title" aria-describedby="doc-hint count" spellcheck="false"><p>Every generation worries that new technology will make young people less curious. History suggests the opposite. The Great Wall of China is the only man-made structure visible from space, and people built it by hand over many centuries. Albert Einstein failed math in school, yet he went on to change physics forever.</p><p>Today, 70% of teenagers spend more than four hours a day on social media. Because phones became common in classrooms, test scores have fallen across the country. Even so, curiosity has not disappeared. It has moved online, where students teach themselves to code, edit video and build things that did not exist ten years ago.</p><p>Schools that welcome that energy, instead of fighting it, will find that students care about learning as much as they ever did. The tools have changed, but the questions students ask have not.</p></div>
+
+      <div class="doc-foot">
+        <span class="count" id="count" aria-live="polite">0 / 3,000 characters</span>
+        <p class="privacy" id="doc-hint">Text you check here is sent to Tracely's server and OpenAI to check it. Nothing is saved. <a href="https://www.jointracely.com/privacy/" target="_blank" rel="noopener">Privacy</a></p>
+      </div>
+    </section>
+
+    <aside class="legend" aria-labelledby="legend-title">
+      <h2 id="legend-title">What the underlines mean</h2>
+      <ul>
+        <li><span class="swatch sw-false" aria-hidden="true"></span><span><b>Wrong.</b> A fact that's false or doesn't add up.</span></li>
+        <li><span class="swatch sw-quest" aria-hidden="true"></span><span><b>Worth a second look.</b> Experts disagree, or it can't be confirmed.</span></li>
+        <li><span class="swatch sw-cite" aria-hidden="true"></span><span><b>Needs a source.</b> A number or finding a reader will want backed.</span></li>
+      </ul>
+      <p class="legend-how">Click an underline to see why. Fix the sentence in one click, or find a source to cite.</p>
+      <p class="legend-where">Tracely's panel opens on this side after a check.</p>
+    </aside>
+  </div>
+
+  <p class="after">
+    Like it? <a href="https://chromewebstore.google.com/detail/dffmoeebkkghhgcklkbmaibfhgiegmdm" target="_blank" rel="noopener">Add Tracely to Chrome, free</a> and it checks as you write in Google Docs and anywhere you type.
+    Or get the app for <a href="https://dl.jointracely.com/download/Tracely-Setup.exe">Windows</a> or <a href="https://dl.jointracely.com/download/Tracely-arm64.dmg">Mac</a>.
+  </p>
+</main>
+
+<script>
+/* The engine shim. extension/content.js is served byte for byte as
+   /ext-content.js and runs here in FIELD MODE exactly as it does on any site;
+   everything it would ask the extension's background worker goes through
+   this stand-in for chrome.runtime (the calls are listed in
+   scratchpad research-engine.md section 3, envelopes from background.js):
+     tracely-api          → POST to this server's /api/demo/* routes,
+                            answered with relay()'s envelope
+     tracely-entitlement  → the free plan ("Explain in depth" shows locked)
+     tracely-getState     → the server engine
+     tracely-open-order   → { ok: false }, so content.js opens the order page
+   There is no chrome.storage, so content.js keeps its per-site state in this
+   page's localStorage.
+
+   Checks are click-to-check (the "Money rule"). Field mode has no one-shot
+   "check now": a site is checked automatically once the panel's "Turn on for
+   this site" switch is on, and never before. So try.js turns that switch on
+   for the visitor's first click, and this page keeps the automatic loop
+   paused between clicks by reporting the document hidden to content.js
+   (field mode's loop and cycle() both stand down while document.hidden).
+   /api/check is also refused here unless a click armed it, so nothing is
+   sent without one even if that ever changes. */
+(function () {
+  "use strict";
+  var LS = { site: "tracely.site.enabled", cache: "tracely.widget.vcache.field", install: "tracely.demo.install" };
+  // A fresh document every visit: auto-check off, no verdicts kept in this browser.
+  function forget() { try { localStorage.removeItem(LS.site); localStorage.removeItem(LS.cache); } catch (e) { /* storage blocked */ } }
+  forget();
+  addEventListener("pagehide", forget);
+
+  var bus = new EventTarget();
+  var demo = window.__tracelyDemo = {
+    paused: true,          // the automatic loop's gate (document.hidden, below)
+    armed: false,          // one /api/check per click
+    exhausted: { check: false, sources: false, review: false },
+    closed: "",            // the server's demo_closed message, once it says so
+    limits: { check: 10, sources: 2, review: 2, maxChars: 3000 },
+    maxContext: 1500,
+    forget: forget,
+    on: function (type, fn) { bus.addEventListener(type, function (e) { fn(e.detail || {}); }); },
+    emit: function (type, detail) { try { bus.dispatchEvent(new CustomEvent(type, { detail: detail || {} })); } catch (e) { /* a listener's trouble */ } },
+  };
+
+  var realHidden = (Object.getOwnPropertyDescriptor(Document.prototype, "hidden") || {}).get;
+  try {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: function () { return demo.paused || Boolean(realHidden && realHidden.call(document)); },
+    });
+  } catch (e) { /* the refusal in api() below still holds */ }
+
+  // background.js's own wording, so a failure reads the same as in the extension.
+  var OFFLINE = "Tracely is offline — the server did not answer. Checks will run again when it is back.";
+  var UNAVAILABLE = "That part of Tracely isn't in the try-out. Add Tracely to Chrome to use it.";
+  var PAUSED = "Press “Check my writing” to check your edits.";
+  var fmt = function (n) { return Number(n).toLocaleString("en-US"); };
+  var plural = function (n, one, many) { return n + " " + (n === 1 ? one : many); };
+  demo.limitMessage = function (feature) {
+    var n = demo.limits[feature];
+    return feature === "check" ? "That's the try-out: you've used your " + plural(n, "check", "checks") + " for today. Install Tracely free to keep going."
+      : "You've used your " + plural(n, feature === "sources" ? "source search" : "writing review", feature === "sources" ? "source searches" : "writing reviews") + " for this try-out. Checks still work.";
+  };
+  // What content.js may ask for, and the try-out route that answers it.
+  var ROUTES = { "/api/check": ["check", "/api/demo/check"], "/api/sources": ["sources", "/api/demo/sources"], "/api/review": ["review", "/api/demo/review"] };
+  // Docs mode's live search (never used in field mode): the plain route answers it.
+  var STREAMS = { "/api/sources/stream": ["sources", "/api/demo/sources"] };
+
+  function installId() {
+    try {
+      var id = localStorage.getItem(LS.install);
+      if (!id) { id = crypto.randomUUID(); localStorage.setItem(LS.install, id); }
+      return id;
+    } catch (e) { return ""; }
+  }
+  function sseEvents(buffer) { // background.js sseEvents
+    var events = [], k;
+    while ((k = buffer.indexOf("\n\n")) >= 0) {
+      var block = buffer.slice(0, k);
+      buffer = buffer.slice(k + 2);
+      var line = block.split("\n").find(function (l) { return l.startsWith("data: "); });
+      if (!line) continue;
+      try { events.push(JSON.parse(line.slice(6))); } catch (e) { /* a garbled event is skipped */ }
+    }
+    return { events: events, rest: buffer };
+  }
+
+  // relay()'s envelope: { ok: true, data } or { ok: false, status, message, kind }.
+  async function call(path, body, onEvent) {
+    var route = typeof path === "string" ? (onEvent ? STREAMS : ROUTES)[path] : null;
+    if (!route || !body || typeof body !== "object") return { ok: false, status: 0, kind: "demo_unavailable", message: UNAVAILABLE };
+    var feature = route[0];
+    if (demo.closed) return { ok: false, status: 503, kind: "demo_closed", message: demo.closed };
+    if (demo.exhausted[feature]) { demo.emit("limit", { feature: feature, message: demo.limitMessage(feature), local: true }); return { ok: false, status: 429, kind: "demo_limit", message: demo.limitMessage(feature) }; }
+    if (feature === "check") {
+      if (!demo.armed) return { ok: false, status: 0, kind: "demo_paused", message: PAUSED };
+      demo.armed = false;
+    }
+    if (feature !== "sources" && typeof body.text === "string" && body.text.length > demo.limits.maxChars) {
+      if (feature === "check") demo.paused = true;
+      var long = "The try-out checks up to " + fmt(demo.limits.maxChars) + " characters at a time. Shorten the text and try again.";
+      demo.emit("response", { feature: feature, ok: false, status: 400, kind: "too_long", message: long, local: true });
+      return { ok: false, status: 400, kind: "bad_request", message: long };
+    }
+    // content.js sends up to 6,000 characters of context; the try-out takes 1,500.
+    if (feature === "sources" && typeof body.context === "string") body = Object.assign({}, body, { context: body.context.slice(0, demo.maxContext) });
+    demo.emit("request", { feature: feature });
+    var res, data = {}, result;
+    try {
+      res = await fetch(route[1], {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/json", "X-Tracely-Demo": "1", "X-Tracely-Install": installId() },
+        body: JSON.stringify(body),
+      });
+      if (onEvent && res.ok && res.body && /event-stream/.test(res.headers.get("content-type") || "")) {
+        var reader = res.body.getReader(), decoder = new TextDecoder(), buffer = "", done = null, failed = null;
+        for (;;) {
+          var chunk = await reader.read();
+          if (chunk.done) break;
+          var parsed = sseEvents(buffer + decoder.decode(chunk.value, { stream: true }));
+          buffer = parsed.rest;
+          parsed.events.forEach(function (ev) { if (ev && ev.type === "done") done = ev; else if (ev && ev.type === "error") failed = ev; else onEvent(ev); });
+        }
+        if (done) { data = Object.assign({}, done); delete data.type; }
+        else data = { error: (failed && failed.error) || { kind: "server", message: "The search stopped before it finished — try again." } };
+        result = done ? { ok: true, data: data } : { ok: false, status: (failed && failed.status) || 502, message: data.error.message, kind: data.error.kind };
+      } else {
+        data = await res.json().catch(function () { return {}; });
+        result = res.ok ? { ok: true, data: data } : { ok: false, status: res.status, message: (data && data.error && data.error.message) || "HTTP " + res.status, kind: data && data.error && data.error.kind };
+      }
+    } catch (e) {
+      result = { ok: false, offline: true, kind: "no_engine", message: OFFLINE };
+    }
+    if (feature === "check") demo.paused = true; // the click's check is done: back to waiting for the next one
+    var err = (data && data.error) || {};
+    if (err.kind === "demo_limit") demo.exhausted[err.feature || feature] = true;
+    if (err.kind === "demo_closed") demo.closed = err.message || "The try-out has reached its limit for today. It comes back at midnight.";
+    demo.emit("response", { feature: feature, ok: result.ok, status: res ? res.status : 0, kind: result.kind || "", message: result.message || "", limitFeature: err.feature || feature, data: result.ok ? data : null });
+    if (onEvent) result.started = Boolean(res && res.ok);
+    return result;
+  }
+
+  // Always a Promise, never a throw: api() reads a throw as "extension reloaded".
+  function sendMessage(msg) {
+    var type = msg && msg.type;
+    if (type === "tracely-api") return call(msg.path, msg.body).catch(function (e) { return { ok: false, kind: "server", message: String((e && e.message) || e) }; });
+    if (type === "tracely-getState") return Promise.resolve({ ok: true, server: true, mode: "server" });
+    if (type === "tracely-entitlement") return Promise.resolve({ ok: true, plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false });
+    if (type === "tracely-openSettings") demo.emit("settings");
+    return Promise.resolve({ ok: false }); // open-order (content.js then opens the order page), settings, anything else
+  }
+  // A port, as background.js's onConnect gives one (docs mode's live search only).
+  function connect() {
+    var onMsg = [], onGone = [], gone = false;
+    var hub = function (list) { return { addListener: function (fn) { list.push(fn); }, removeListener: function (fn) { var i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); } }; };
+    var post = function (m) { if (!gone) onMsg.slice().forEach(function (fn) { try { fn(m); } catch (e) { /* the listener's trouble */ } }); };
+    return {
+      name: "tracely-stream", onMessage: hub(onMsg), onDisconnect: hub(onGone),
+      disconnect: function () { gone = true; },
+      postMessage: function (msg) {
+        if (gone || !msg || msg.type !== "tracely-api-stream") return;
+        call(msg.path, msg.body, function (ev) { post({ type: "event", event: ev }); })
+          .catch(function (e) { return { ok: false, kind: "server", message: String((e && e.message) || e), started: false }; })
+          .then(function (result) { post({ type: "end", result: result }); });
+      },
+    };
+  }
+
+  var runtime = { id: "tracely-demo", getManifest: function () { return { version: "demo" }; }, sendMessage: sendMessage, connect: connect };
+  try { window.chrome = Object.assign(window.chrome || {}, { runtime: runtime }); } catch (e) {
+    try { Object.defineProperty(window.chrome, "runtime", { value: runtime, configurable: true, writable: true }); } catch (e2) {
+      try { window.chrome = { runtime: runtime }; } catch (e3) { /* engineReady says so */ }
+    }
+  }
+  demo.engineReady = Boolean(window.chrome && window.chrome.runtime === runtime);
+})();
+</script>
+<script src="/ext-content.js"></script>
+<!-- Right after the engine: a visitor who has the Tracely extension installed
+     gets its content.js at document_idle, and it stands down when this id is
+     already in the page (content.js line 60). This page's copy has run by now,
+     and makes its own #tracely-host (on <html>) when a field is tracked. -->
+<div id="tracely-host" class="tr-sentinel" hidden aria-hidden="true"></div>
+<script src="/try.js"></script>
+</body>
+</html>
