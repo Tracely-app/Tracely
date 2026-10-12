@@ -127,10 +127,12 @@ a:hover { color: var(--accent-hover); }
 }
 .notice[data-kind="info"] { border-left-color: var(--mark-cite); }
 /* The end of the try-out (and a closed or expired one) also needs its
-   buttons: on wider screens it grows UP from the toolbar over the title row,
-   whose button is spent by then, so the essay below stays readable. */
+   buttons: on wider screens it covers the title row as well (its button is
+   spent by then), from 8px below the card's top edge (the title row is
+   72px: 14 + 44 + 14) to at least the toolbar's last 4px, so the essay below
+   stays readable and no sliver of the button shows above a short notice. */
 @media (min-width: 641px) {
-  .notice:not([data-kind="info"]) { top: auto; bottom: 4px; padding-top: 12px; padding-bottom: 12px; }
+  .notice:not([data-kind="info"]) { top: -64px; min-height: 106px; padding-top: 12px; padding-bottom: 12px; }
 }
 .notice-body { flex: 1 1 auto; min-width: 0; }
 .notice-text { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); text-wrap: pretty; }
