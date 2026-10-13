@@ -93,11 +93,12 @@
   function setBusy(on) { busy = on; updateButton(); }
 
   /* ── the notice (over the toolbar; the text below stays where it is) ── */
+  // ctas: true for both links, "early" for Get early access alone.
   function showNotice(kind, text, { ctas = false, reload = false } = {}) {
     noticeKind = kind;
     notice.dataset.kind = kind === "sources" || kind === "paused" ? "info" : kind;
     noticeText.textContent = text;
-    for (const a of notice.querySelectorAll(".notice-actions a")) a.hidden = !ctas;
+    for (const a of notice.querySelectorAll(".notice-actions a")) a.hidden = !ctas || (ctas === "early" && !a.classList.contains("btn-primary"));
     noticeReload.hidden = !reload;
     notice.hidden = false;
   }
@@ -128,7 +129,7 @@
     setBusy(false);
     const off = /isn't available/i.test(demo.closed);
     setStatus(off ? "The try-out isn't available right now." : "The try-out is closed for today.", "stopped");
-    showNotice("closed", `${demo.closed} ${off ? "You can still get early access to Tracely." : "Tracely itself is unaffected: get early access and keep going."}`, { ctas: true });
+    showNotice("closed", `${demo.closed} ${off ? "You can still get early access to Tracely." : "Tracely itself is unaffected: get early access to use it from launch."}`, { ctas: true });
   }
   function showSession(message) {
     setBusy(false);
@@ -180,12 +181,16 @@
       host = findHost();
     }
     if (host && !host.shadowRoot.querySelector("style[data-try]")) {
-      // Two controls with nothing behind them here: Settings (the options
-      // page belongs to the installed extension) and the per-site switch
-      // (this page turns it on for the first check; off would wipe results).
+      // Controls with nothing behind them here: Settings (the options page
+      // belongs to the installed extension), the per-site switch (this page
+      // turns it on for the first check; off would wipe results), a card's
+      // "paste a URL" box (/api/cite-url is not in the try-out) and the
+      // locked "Explain in depth" (Pro, with a link to the order page and
+      // its live checkout: nothing to buy before launch). The shim also
+      // answers open-order itself, so no click there opens that page.
       const style = document.createElement("style");
       style.dataset.try = "";
-      style.textContent = "#siteSwitch, #panelSettings { display: none !important; }";
+      style.textContent = "#siteSwitch, #panelSettings, .cite-url, .deep-row, .deep-note a[data-deep-plans] { display: none !important; }";
       host.shadowRoot.appendChild(style);
       // The panel's column is the legend's: html.tr-panel-open while it shows.
       let raf = 0;
@@ -308,6 +313,7 @@
       else if (feature === "check") showEnd();
     });
     demo.on("settings", () => setStatus("Settings come with the full version.", toolbar.dataset.state || "idle"));
+    demo.on("upgrade", () => showNotice("upgrade", "Explain in depth comes with Tracely Pro at launch.", { ctas: "early" }));
   }
 
   /* ── the editor ── */

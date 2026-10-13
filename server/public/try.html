@@ -112,7 +112,9 @@
                             answered with relay()'s envelope
      tracely-entitlement  → the free plan ("Explain in depth" shows locked)
      tracely-getState     → the server engine
-     tracely-open-order   → { ok: false }, so content.js opens the order page
+     tracely-open-order   → answered here ({ ok: true }, so content.js opens
+                            nothing): no order page or checkout before launch;
+                            try.js says Pro comes at launch instead
    There is no chrome.storage, so content.js keeps its per-site state in this
    page's localStorage.
 
@@ -155,13 +157,13 @@
 
   // background.js's own wording, so a failure reads the same as in the extension.
   var OFFLINE = "Tracely is offline — the server did not answer. Checks will run again when it is back.";
-  var UNAVAILABLE = "That part of Tracely isn't in the try-out. Add Tracely to Chrome to use it.";
+  var UNAVAILABLE = "That part of Tracely isn't in the try-out.";
   var PAUSED = "Press “Check my writing” to check your edits.";
   var fmt = function (n) { return Number(n).toLocaleString("en-US"); };
   var plural = function (n, one, many) { return n + " " + (n === 1 ? one : many); };
   demo.limitMessage = function (feature) {
     var n = demo.limits[feature];
-    return feature === "check" ? "That's the try-out: you've used your " + plural(n, "check", "checks") + " for today. Install Tracely free to keep going."
+    return feature === "check" ? "That's the try-out: you've used your " + plural(n, "check", "checks") + " for today. Get early access to keep going."
       : "You've used your " + plural(n, feature === "sources" ? "source search" : "writing review", feature === "sources" ? "source searches" : "writing reviews") + " for this try-out. Checks still work.";
   };
   // What content.js may ask for, and the try-out route that answers it.
@@ -250,7 +252,10 @@
     if (type === "tracely-getState") return Promise.resolve({ ok: true, server: true, mode: "server" });
     if (type === "tracely-entitlement") return Promise.resolve({ ok: true, plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false });
     if (type === "tracely-openSettings") demo.emit("settings");
-    return Promise.resolve({ ok: false }); // open-order (content.js then opens the order page), settings, anything else
+    // Never the order page: it holds live checkout links, and before launch
+    // there is nothing to install yet. ok:true, so content.js opens nothing.
+    if (type === "tracely-open-order") { demo.emit("upgrade"); return Promise.resolve({ ok: true }); }
+    return Promise.resolve({ ok: false }); // settings, anything else
   }
   // A port, as background.js's onConnect gives one (docs mode's live search only).
   function connect() {

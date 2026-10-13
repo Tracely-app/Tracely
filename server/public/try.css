@@ -130,9 +130,11 @@ a:hover { color: var(--accent-hover); }
    buttons: on wider screens it covers the title row as well (its button is
    spent by then), from 8px below the card's top edge (the title row is
    72px: 14 + 44 + 14) to at least the toolbar's last 4px, so the essay below
-   stays readable and no sliver of the button shows above a short notice. */
+   stays readable and no sliver of the button shows above a short notice.
+   "Explain in depth comes with Pro" is only an aside, so it leaves the
+   button alone. */
 @media (min-width: 641px) {
-  .notice:not([data-kind="info"]) { top: -64px; min-height: 106px; padding-top: 12px; padding-bottom: 12px; }
+  .notice:not([data-kind="info"]):not([data-kind="upgrade"]) { top: -64px; min-height: 106px; padding-top: 12px; padding-bottom: 12px; }
 }
 .notice-body { flex: 1 1 auto; min-width: 0; }
 .notice-text { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); text-wrap: pretty; }
