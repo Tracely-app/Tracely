@@ -110,6 +110,7 @@
       end: "That's the try-out. Get early access to keep going.",
       closed: demo && demo.closed ? demo.closed : "The try-out is closed for now.",
       session: "Reload the page to start the try-out again.",
+      cookies: "The try-out needs cookies switched on. Allow them, then reload.",
     }[noticeKind];
     if (short) setStatus(short, "stopped");
     noticeKind = "";
@@ -133,6 +134,13 @@
   }
   function showSession(message) {
     setBusy(false);
+    // Refused before any status came back: the cookie GET /try set never
+    // stuck (cookies blocked), and "reload" alone would only loop.
+    if (left === null || navigator.cookieEnabled === false) {
+      setStatus("The try-out needs cookies.", "stopped");
+      showNotice("cookies", `The try-out needs cookies switched on for ${location.hostname}. Allow them, then reload.`, { reload: true });
+      return;
+    }
     setStatus("Your try-out session has expired.", "stopped");
     showNotice("session", message || "Your try-out session has expired. Reload the page to start again.", { reload: true });
   }
