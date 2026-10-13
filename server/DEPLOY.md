@@ -166,7 +166,10 @@ model holds its own worst case on top (`admitThorough`: its prompt's bytes
 plus 2,000 output tokens on astra, at least 15 cents), which is
 what bounds a beta tester who rotates install ids to get fresh allowances. A check that truncates splits
 into two more calls, recursively; each split is admitted the same way (two
-more worst cases held, or no split and a `truncated` error). So a burst —
+more worst cases held, or no split and a `truncated` error), and so are a
+sharded check's extra calls and a shard's one retry for ids the model left
+out (one worst case each, or one call / no retry). A source search's worst
+case includes its second call, the receipts check (`verifySources`). So a burst —
 including one with a rotating install id per request — overshoots by at most
 the last admission (one call, or a split's two), and the number of thorough
 calls those pools run AT ONCE is about the remaining budget ÷ 17.5 cents.
@@ -176,8 +179,9 @@ too, including every call of a split that failed part-way. A source search
 records the web_search fee once per `web_search_call` its answer carried
 (never fewer than one): a reasoning model can search, and open pages, more
 than once per answer. Nothing we send bounds that, so the sources
-reservation (40k input tokens, 3 searches) is an allowance sized above the
-most seen live, not a bound.
+reservation (40k input tokens and 3 searches for the search, plus 8k input
+for the receipts call) is an allowance sized above the most seen live, not a
+bound.
 
 `TRACELY_TRUSTED_PROXY_HOPS=1` because Apache is the one proxy in front. Wrong
 here and rate limiting keys on the wrong address.

@@ -56,7 +56,8 @@
  * only the ones the search called "supports"/"refutes", ~3-5k input tokens
  * and ~1-2k out (the parts, and a quote per part): about 0.1-0.3 cent against
  * the search's ~1.3 (WORST_CALL["/api/sources"] covers it: the search's 3,000
- * output tokens and VERIFY_MAX_TOKENS' 3,000 are its 6,000). Latency: the reads share one VERIFY_DEADLINE_MS (4 s, from 3 s), so
+ * output tokens and VERIFY_MAX_TOKENS' 3,000 are its 6,000, and 8,000 of its
+ * 48,000 input tokens are this call's). Latency: the reads share one VERIFY_DEADLINE_MS (4 s, from 3 s), so
  * the worst case adds one second plus the judge's larger input. Nothing here
  * throws. */
 import { safeFetch, decodeEntities, looksBlocked } from "./citeMeta.js";
@@ -70,7 +71,7 @@ export const EXCERPT_CHARS = 600;
 export const MAX_QUOTE_CHARS = 300;
 // The judge's answer: the parts, then up to a quote per part per source.
 // /api/sources reserves 6,000 output tokens (server.js WORST_CALL): the
-// search's 3,000 and this.
+// search's 3,000 and this — and 8,000 input tokens for this call's prompt.
 export const VERIFY_MAX_TOKENS = 3_000;
 const MIN_QUOTE_CHARS = 15;
 const MIN_TEXT_CHARS = 80;   // an abstract shorter than this is not one

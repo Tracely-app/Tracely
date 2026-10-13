@@ -162,6 +162,29 @@ test("an id the model left out is asked again once, on its own; a second miss st
   assert.deepEqual(r3.findings, []);
 });
 
+test("the missed-id retry is one more call, admitted like an extra shard: refused, the missed id stands", async () => {
+  // Admitted: asked for exactly 1, and the retry runs.
+  let asked = [];
+  let calls = stubFetch({ omit: (id, n) => id === "s2" && n === 1 });
+  let r = await runFactCheck({ text: "doc", sentences: [1, 2, 3].map(sentence), admitCalls: (n) => { asked.push(n); return true; } });
+  assert.deepEqual(asked, [1]);
+  assert.deepEqual(calls, [["s1", "s2", "s3"], ["s2"]]);
+  assert.deepEqual(r.findings.map((f) => f.id).sort(), ["s1", "s2", "s3"]);
+  // Refused (a pool with no room): no second call; s2 is left for the client's next cycle.
+  calls = stubFetch({ omit: (id, n) => id === "s2" && n === 1 });
+  r = await runFactCheck({ text: "doc", sentences: [1, 2, 3].map(sentence), admitCalls: () => false });
+  assert.deepEqual(calls, [["s1", "s2", "s3"]]);
+  assert.deepEqual(r.findings.map((f) => f.id), ["s1", "s3"]);
+  assert.equal(r.usage.input, 10, "only the call made is billed");
+  // Sharded: the extras are asked for first, then each shard's retry on its own.
+  asked = [];
+  calls = stubFetch({ omit: (id, n) => id === "s5" && n <= 2 }); // both shards answer first
+  r = await runFactCheck({ text: "doc", sentences: [1, 2, 3, 4, 5, 6].map(sentence), admitCalls: (n) => { asked.push(n); return true; } });
+  assert.deepEqual(asked, [1, 1], "one extra shard, then one retry");
+  assert.equal(calls.length, 3);
+  assert.deepEqual(r.findings.map((f) => f.id).sort(), ["s1", "s2", "s3", "s4", "s5", "s6"]);
+});
+
 /* A shard that never answers, the way one did on 2026-10-03 (over two
  * minutes, then `timeout`). The stub waits on the abort signal the provider
  * passes to fetch, so the deadline under test is the real one. */

@@ -185,7 +185,9 @@ export function shardSentences(sentences, size = CHECK_SHARD_SENTENCES) {
  * /api/check). Refused, the truncation stands: the check fails as it would
  * for a single sentence, and what the truncated call cost is still recorded.
  * `admitCalls(n)`, when given, is asked once before a check is sharded into
- * n extra concurrent calls; refused, it runs as one call. */
+ * n extra concurrent calls; refused, it runs as one call. It is asked for 1
+ * before each missed-id retry too (checkBatch): refused, the missed ids
+ * stand, and the client asks for them again on its next cycle. */
 /* `maxTokens` overrides the route's output ceiling (16,000) — server.js
  * passes 2,000 for an "Explain in depth" check on the thorough model, which is
  * what makes that call's worst case (shared/plan.js THOROUGH_RESERVE_USD) a
@@ -210,9 +212,9 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
   const shards = shardSentences(sentences);
   if (shards.length === 1 || !callsAdmitted(admitCalls, shards.length - 1)) {
-    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, maxTokens, shardTimeoutMs });
+    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs });
   }
-  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, maxTokens, shardTimeoutMs })));
+  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs })));
   const done = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const rejected = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
   const partial = rejected.length > 0 && done.length > 0 && shardTimeoutMs !== undefined && rejected.every((e) => e?.kind === "timeout");
@@ -237,7 +239,7 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   };
 }
 
-async function checkBatch({ text, sentences, model, effort, admitSplit, maxTokens, shardTimeoutMs, retryMissing = true }) {
+async function checkBatch({ text, sentences, model, effort, admitSplit, admitCalls = null, maxTokens, shardTimeoutMs, retryMissing = true }) {
   let result;
   try {
     result = await structuredCall({
@@ -259,8 +261,8 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, maxToken
       const mid = Math.ceil(sentences.length / 2);
       let first = null;
       try {
-        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, maxTokens, shardTimeoutMs });
-        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, maxTokens, shardTimeoutMs });
+        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs });
+        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs });
         // The truncated attempt was billed too — every output token it was
         // allowed — so its usage (lib/llm.js tags it on the error) is part of
         // what this check cost and of what the route records.
@@ -288,11 +290,13 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, maxToken
   // always — measured once in 165 judgements it left an id out. A sentence
   // with no finding is a sentence never checked, so the ones it skipped are
   // asked again, once, on their own; a second miss stands (the client treats
-  // a missing id as unchecked and asks next cycle).
+  // a missing id as unchecked and asks next cycle). The retry is one more
+  // call, so it is admitted like an extra shard (admitCalls) — on a pool
+  // with no room it is skipped, and the client's next cycle asks instead.
   const answered = new Set(findings.map((f) => f.id));
   const missed = sentences.filter((s) => !answered.has(s.id));
-  if (missed.length && missed.length < sentences.length && retryMissing) {
-    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, maxTokens, shardTimeoutMs, retryMissing: false });
+  if (missed.length && missed.length < sentences.length && retryMissing && callsAdmitted(admitCalls, 1)) {
+    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, retryMissing: false });
     return { findings: [...findings, ...again.findings], model: again.model, usage: addUsage(result.usage, again.usage) };
   }
 

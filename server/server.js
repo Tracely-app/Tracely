@@ -646,30 +646,38 @@ function stampCallerRate(ent, id, kind) {
  *           the most seen live (2026-09-21 smoke run: /api/sources 13.3k
  *           and one search; the desktop's forced /api/find-sources 23.7k
  *           and two web_search_call items). A search past it is still
- *           recorded at its real cost, calls counted (searchFee).
+ *           recorded at its real cost, calls counted (searchFee). Plus the
+ *           receipts call (lib/sourceVerify.js verifySources), the same
+ *           request's second call: its prompt, claim and correction and at
+ *           most six sources' excerpts (3 x 600 characters each) are ~5k
+ *           tokens, so 8,000 more input; its 3,000 output tokens are already
+ *           half of the 6,000 (the search's own ceiling is the other half).
  * Every input token is priced as a cache WRITE, the dearest way input is
  * billed: a first-seen prompt on the tier models costs 1.25x input
  * (shared/prices.js cacheWrite), and a cold call is the worst case.
  * Held against the beta and paid pools while the call is in flight, so a
  * burst cannot be admitted against money the calls ahead of it are about to
- * spend. On gpt-6-astra that is ~$1.10 / $0.45 / $0.83; on gpt-5.6-luna
- * ~2.5 / 1.1 / 4.7 cents.
+ * spend. On gpt-6-astra that is ~$1.10 / $0.45 / $0.93; on gpt-5.6-luna
+ * ~2.5 / 1.1 / 4.9 cents.
  *
  * It is the worst case of ONE call. A check that truncates splits
  * (factcheck.js checkBatch) into two more calls, recursively, each up to this
  * same worst case — three or more calls where one was reserved. So before
  * each split the route holds two more worst cases against the pool
  * (admitSplitCalls), under the test admission used; with no room, it does
- * not split and the check fails as truncated. Every call made is recorded,
- * including the ones that truncated. */
+ * not split and the check fails as truncated. A sharded check's extra
+ * calls, and a shard's one retry for ids the model left out, are admitted
+ * the same way, one worst case each (admitExtraCalls); refused, the check
+ * runs as one call, or the missed ids wait for the client's next cycle.
+ * Every call made is recorded, including the ones that truncated. */
 const WORST_CALL = {
   "/api/check": { input: 24_000, output: 16_000, webSearchCalls: 0 },
   "/api/flow": { input: 4_000, output: 8_000, webSearchCalls: 0 },
   // 12,000 characters of document (~4k tokens in the worst script) + the
   // prompt and schema; maxTokens 6,000 in runReview.
   "/api/review": { input: 6_000, output: 6_000, webSearchCalls: 0 },
-  "/api/sources": { input: 40_000, output: 6_000, webSearchCalls: 3 },
-  "/api/sources/stream": { input: 40_000, output: 6_000, webSearchCalls: 3 },
+  "/api/sources": { input: 48_000, output: 6_000, webSearchCalls: 3 },
+  "/api/sources/stream": { input: 48_000, output: 6_000, webSearchCalls: 3 },
   // A try-out check (server.js demoGate): its own output ceiling
   // (SPEND.demoCheckMaxTokens), and an input of at most 3,000 characters of
   // text plus 3,000 of sentences cut from it (lib/demo.js demoAdmit) and the

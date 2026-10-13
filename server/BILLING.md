@@ -311,7 +311,7 @@ and `beta` it reserves each call's worst case before running it — once the
 request's body is read, never before (`demoAdmit`), so a slow body holds
 nothing; room taken only by calls in flight is 503 `demo_busy`, not a closed
 day — so a burst
-of fresh cookies overshoots the day by one call at most (~4.7 cents, a source
+of fresh cookies overshoots the day by one call at most (~4.9 cents, a source
 search's `WORST_CALL` on luna); it sheds source search below 20% left; and its
 searches have their own window (10 an hour), apart from the extension's 15.
 
@@ -333,7 +333,7 @@ visitors; a private window mints a new cookie. **The pool is the cap.**
 |---|---|
 | a typical visitor (one first check, a few re-checks, one search) | ~2.2 cents |
 | a visitor who uses everything (10 checks, 2 searches, 2 reviews) | ~4.6 cents |
-| **worst case, a day** | $2 + one call's reservation (~4.7 cents) |
+| **worst case, a day** | $2 + one call's reservation (~4.9 cents) |
 | **worst case, a month** | **$2 × 31 ≈ $62** (≈ $63.50 with the overshoot), even under a determined attack |
 
 Raise the ceiling only if `demoBudget` on `GET /api/status` shows it tripping

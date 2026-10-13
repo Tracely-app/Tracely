@@ -107,7 +107,8 @@ test("server: the route is the extension's, metered and gated as a source search
     assert.ok(line.includes('"/api/sources/stream"'), `${set} names it`);
     assert.ok(line.includes('"/api/sources"'), `${set} still names /api/sources`);
   }
-  assert.match(SERVER, /"\/api\/sources\/stream": \{ input: 40_000, output: 6_000, webSearchCalls: 3 \}/, "its worst case is reserved like /api/sources'");
+  assert.match(SERVER, /"\/api\/sources": \{ input: 48_000, output: 6_000, webSearchCalls: 3 \}/);
+  assert.match(SERVER, /"\/api\/sources\/stream": \{ input: 48_000, output: 6_000, webSearchCalls: 3 \}/, "its worst case is reserved like /api/sources'");
   assert.match(SERVER, /url\.pathname === "\/api\/sources" \|\| url\.pathname === "\/api\/sources\/stream"/, "one handler: one count, one window, one charge");
   assert.match(BG, /const API_PATHS = new Set\(\[[^\]]*"\/api\/sources\/stream"/);
   assert.match(SERVER, /if \(res\.headersSent\) \{ if \(!res\.writableEnded\) res\.destroy\(\); return; \}/, "a stream that sent its error and ended is not cut off");
