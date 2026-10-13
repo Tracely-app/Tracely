@@ -676,8 +676,10 @@ const WORST_CALL = {
   // 12,000 characters of document (~4k tokens in the worst script) + the
   // prompt and schema; maxTokens 6,000 in runReview.
   "/api/review": { input: 6_000, output: 6_000, webSearchCalls: 0 },
-  "/api/sources": { input: 48_000, output: 6_000, webSearchCalls: 3 },
-  "/api/sources/stream": { input: 48_000, output: 6_000, webSearchCalls: 3 },
+  // Output: the search's 3,000, the verifier's 2,000 and, when nothing backs
+  // the sentence, the detail check's 1,500 (sourceVerify.js COVER_MAX_TOKENS).
+  "/api/sources": { input: 48_000, output: 6_500, webSearchCalls: 3 },
+  "/api/sources/stream": { input: 48_000, output: 6_500, webSearchCalls: 3 },
   // A try-out check (server.js demoGate): its own output ceiling
   // (SPEND.demoCheckMaxTokens), and an input of at most 3,000 characters of
   // text plus 3,000 of sentences cut from it (lib/demo.js demoAdmit) and the
@@ -1520,7 +1522,7 @@ const server = http.createServer(async (req, res) => {
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
       const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
@@ -1920,7 +1922,7 @@ const server = http.createServer(async (req, res) => {
       // One line, no text (PRIVACY.md: routes and outcomes only): how many of
       // the list were read and what they said — the number that says whether
       // receipts are working.
-      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} figures=${tally.figures} ms=${Date.now() - started}`);
+      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} figures=${tally.figures} partial=${tally.partial} ms=${Date.now() - started}`);
       json(res, 200, result, cors);
       return;
     }

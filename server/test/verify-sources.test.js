@@ -350,7 +350,7 @@ test.describe("over HTTP on a hosted server", () => {
     assert.equal(usage("__global__", "spend_ucents"), extBefore, "never the extension's");
     assert.equal(usage("user:u-free-verifier", "ai"), 1, "one AI action per opened list");
     assert.equal(usage("user:u-free-verifier", "source_search"), 0, "nothing was searched, so no source search is spent");
-    assert.match(S.log(), /\/api\/verify-sources gpt-5\.6-luna sources=2 read=2 backs=1 contradicts=0 topic=1 unread=0 retracted=0 unquoted=0 figures=0 ms=\d+/);
+    assert.match(S.log(), /\/api\/verify-sources gpt-5\.6-luna sources=2 read=2 backs=1 contradicts=0 topic=1 unread=0 retracted=0 unquoted=0 figures=0 partial=0 ms=\d+/);
     assert.doesNotMatch(S.log(), /youth facilities/, "the log line carries no text");
   });
 

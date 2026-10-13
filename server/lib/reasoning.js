@@ -436,9 +436,12 @@ export async function findSources({ claim, context, model, effort }) {
  *
  * `abstract` must be the work's OWN abstract (what a scholarly index returned
  * for it). It is read only when OpenAlex has none for the DOI, or there is no
- * DOI. `context` is accepted and NOT sent to the judge: VERIFY_SYSTEM is
- * measured on the claim alone, and a field that changed what it reads would be
- * an unmeasured prompt change. */
+ * DOI. `context` is NOT sent to the judge: VERIFY_SYSTEM is measured on the
+ * claim alone, and a field that changed what it reads would be an unmeasured
+ * prompt change. With `partial: true` (opt-in; the desktop does not send it
+ * yet), a list where nothing backs the sentence gets the second, separate
+ * detail check (sourceVerify.js coverDetail), which reads `context` as the
+ * paragraph: a receipt may then carry `trim: { quote, missing, trimmed }`. */
 export const VERIFY_LIMITS = {
   sources: 8,
   idChars: 200,
@@ -476,7 +479,7 @@ export function verifySourcesInput(body = {}) {
       year: Number.isInteger(s?.year) && s.year > 0 && s.year < 3000 ? s.year : null,
     };
   });
-  return { claim, context: clip(body?.context, VERIFY_LIMITS.contextChars), sources };
+  return { claim, context: clip(body?.context, VERIFY_LIMITS.contextChars), sources, partial: body?.partial === true };
 }
 
 /* One receipt, from what lib/sourceVerify.js wrote onto the source. */
@@ -486,12 +489,14 @@ function receiptOf(id, s, retracted) {
   const from = s.readFrom === "page" ? "page" : "abstract";
   if (s.stance === "supports" && s.quote) return { id, verdict: "backs", quote: s.quote, readFrom: from };
   if (s.stance === "refutes" && s.quote) return { id, verdict: "contradicts", quote: s.quote, readFrom: from };
+  // Backs all but one small detail (sourceVerify.js applyCoverage): still "topic".
+  if (s.partial) return { id, verdict: "topic", readFrom: from, trim: { quote: s.partial.quote, missing: s.partial.missing, trimmed: s.partial.trimmed } };
   return { id, verdict: "topic", readFrom: from };
 }
 
 /* The route's log line, never the response: how many were read and what they said. */
 function tallyOf(receipts, extra = {}) {
-  const t = { read: 0, backs: 0, contradicts: 0, topic: 0, unread: 0, retracted: 0, unquoted: 0, figures: 0, ...extra };
+  const t = { read: 0, backs: 0, contradicts: 0, topic: 0, unread: 0, retracted: 0, unquoted: 0, figures: 0, partial: 0, ...extra };
   for (const r of receipts) {
     if (r.retracted) t.retracted++;
     t[r.verdict]++;
@@ -504,8 +509,8 @@ function tallyOf(receipts, extra = {}) {
  * `call`, `fetchImpl` and `deadlineMs` are lib/sourceVerify.js's own seams,
  * passed through for tests; left undefined they are its defaults.
  */
-export async function verifySources({ claim, context, sources, model, call, fetchImpl, deadlineMs }) {
-  const input = verifySourcesInput({ claim, context, sources });
+export async function verifySources({ claim, context, sources, partial, model, call, fetchImpl, deadlineMs }) {
+  const input = verifySourcesInput({ claim, context, sources, partial });
   if (isMock()) {
     const receipts = mockReceipts(input.sources);
     return { receipts, model: mockModel(model), usage: zeroUsage(), tally: tallyOf(receipts) };
@@ -514,7 +519,7 @@ export async function verifySources({ claim, context, sources, model, call, fetc
   // fresh ones, so nothing the caller sent is mutated.
   const list = input.sources.map((s) => ({ title: s.title, url: s.url, doi: s.doi, venue: s.venue, year: s.year, stance: "context" }));
   const own = new Map(list.map((s, i) => [s, input.sources[i].abstract]));
-  const out = await readAndJudge({ claim: input.claim, sources: list, model, call, fetchImpl, deadlineMs, abstractOf: (s) => own.get(s) ?? "" });
+  const out = await readAndJudge({ claim: input.claim, sources: list, model, call, fetchImpl, deadlineMs, abstractOf: (s) => own.get(s) ?? "", partial: input.partial, context: input.context });
   if (out.error) {
     // Read but never judged. Not "unread" — that would tell the writer every
     // source was unreadable when the judge was what failed — so the desktop
@@ -526,7 +531,7 @@ export async function verifySources({ claim, context, sources, model, call, fetc
   }
   const gone = new Set(out.retracted ?? []);
   const receipts = list.map((s, i) => receiptOf(input.sources[i].id, s, gone.has(s)));
-  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0, figures: out.figures ?? 0 }) };
+  return { receipts, model, usage: out.usage ?? zeroUsage(), tally: tallyOf(receipts, { unquoted: out.unquoted ?? 0, figures: out.figures ?? 0, partial: out.partial ?? 0 }) };
 }
 
 /* ── mocks: deterministic, same shapes, no key ─────────────────────────── */

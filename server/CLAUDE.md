@@ -52,6 +52,20 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   70 percent" backed by "8 to 10 hours") is `context`, with no model involved
   (`lib/claimFigures.js`, tallied `figures=`). Measured free on recorded
   runs with `eval/goldset/figures.mjs`.
+  **Trim a detail** (owner, 2026-10-13): when nothing backs the whole sentence,
+  a second, separate call (`coverDetail`, `COVER_SYSTEM`) checks whether one
+  source backs all of it but one small detail. The verdict judge and its
+  prompt are untouched. The call splits the sentence into claim / detail /
+  qualifier parts, with a quote for each part a source states.
+  `lib/claimTrim.js` then decides, without a model, whether removing the
+  missing part is safe: small, not a qualifier, scope, figure or attribution,
+  and not used later in the paragraph. If so, the source carries
+  `partial: { quote, missing, trimmed }` and stays `context`, never backing.
+  The extension's search always asks for this (never with a `correction`).
+  `/api/verify-sources` asks only with `partial: true` (receipt `trim`).
+  It is tallied `partial=`, and costs up to 1,500 more output tokens, which
+  is why `WORST_CALL["/api/sources"]` is 6,500.
+  Measure it with `eval/goldset/run-verify-prod.mjs --partial`.
 - **The desktop gets the same receipts from its own route,
   `/api/verify-sources`** (2026-10-07; `lib/reasoning.js` `verifySources` →
   the same `lib/sourceVerify.js`, never a second verifier). The desktop sends

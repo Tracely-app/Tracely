@@ -45,6 +45,7 @@ import { safeFetch, decodeEntities, looksBlocked } from "./citeMeta.js";
 import { doiOf } from "./sourceEnrich.js";
 import { structuredCall } from "./llm.js";
 import { figuresShown } from "./claimFigures.js";
+import { trimSentence } from "./claimTrim.js";
 
 export const OPENALEX_WORK = "https://api.openalex.org/works/doi:";
 export const VERIFY_DEADLINE_MS = 4_000;
@@ -535,15 +536,172 @@ export function applyVerdicts(sources, evidence, verdicts, claim = null) {
   return tally;
 }
 
+/* ── one small detail, when no source backs the whole sentence ──────────────
+ * Owner, 2026-10-13: when no source backs a sentence but one backs all of it
+ * except a small detail ("…the book's origin during a stay at the Villa
+ * Diodati", the source never naming the villa), offer to remove that detail;
+ * only a small part or detail, never the claim itself.
+ *
+ * A SECOND call, separate from the verdicts, made only when the verdicts left
+ * nothing backing and something was read (`partial: true`). VERIFY_SYSTEM,
+ * its input and its verdicts are untouched: #327 showed what changing the
+ * judge does. This call splits the sentence into parts, each with a role
+ * (claim / detail / qualifier), and says which parts each read source states,
+ * with a verbatim quote that matchQuote then finds in the source's own text.
+ * A source earns `partial` only when every claim and qualifier part is
+ * quoted, exactly one part is missing, that part is a detail, and
+ * claimTrim.js trimSentence says removing it is safe (small, no qualifier, no
+ * figure, no attribution, not used later in the paragraph). The stance stays
+ * "context": a partial source is never offered as backing the sentence as
+ * written. */
+export const COVER_MAX_TOKENS = 1_500;
+export const COVER_MAX_SOURCES = 3;
+const PARAGRAPH_CHARS = 1_200;
+
+export const COVER_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["parts", "sources"],
+  properties: {
+    parts: {
+      type: "array",
+      description: "1 to 4 parts of the SENTENCE, in its order.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["text", "role"],
+        properties: {
+          text: { type: "string", description: "The part, copied word for word from the SENTENCE as one contiguous piece of it." },
+          role: { type: "string", enum: ["claim", "detail", "qualifier"] },
+        },
+      },
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "stated"],
+        properties: {
+          id: { type: "integer" },
+          stated: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["part", "quote"],
+              properties: {
+                part: { type: "integer", description: "The part's index in `parts`, from 0." },
+                quote: { type: "string", description: "The words from ONE excerpt that state the part, copied character for character as one contiguous span, at most 300 characters." },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+export const COVER_SYSTEM = `You check which parts of a student's sentence each source states, so the student can be told when a source backs everything except one small detail.
+
+First split the SENTENCE into its parts: 1 to 4 short pieces, each copied word for word from the sentence as one contiguous piece of it. A part is one checkable thing: a fact, a figure, a finding, a cause, an attribution, or a specific detail. Leave out framing ("research shows") and the writer's own comment.
+
+Give each part a role:
+- "claim": what the sentence exists to say. Without it the sentence has no point. The PARAGRAPH shows what the essay needs the sentence for.
+- "detail": an extra specific riding along with the claim: a place, a date, a name, an example, an aside. Removing it makes the sentence say less, never something different.
+- "qualifier": something that limits the claim: who, where, when, how many, how sure ("in the US", "among teenagers", "some", "often", "may"). Removing it would make the sentence claim more.
+When unsure whether a part is a detail, it is not a detail.
+
+Then, for each SOURCE, list the parts its excerpts state, each with a quote: the words from ONE excerpt that state it, copied character for character as one contiguous span, at most 300 characters. A part counts only when an excerpt states it at the sentence's level of detail, not when the source is merely on the topic, and never from what you know about the source. A quote that is not in the excerpts is discarded. Return every source id, with an empty list when it states none of the parts.`;
+
+const ROLES = new Set(["claim", "detail", "qualifier"]);
+const sumUsage = (a, b) => {
+  if (!a && !b) return null;
+  const n = (v) => (Number.isFinite(v) ? v : 0);
+  return { input: n(a?.input) + n(b?.input), output: n(a?.output) + n(b?.output), cached: n(a?.cached) + n(b?.cached), cacheWrite: n(a?.cacheWrite) + n(b?.cacheWrite) };
+};
+
+/* The paragraph after the sentence: what the essay goes on to use. "" when
+ * the sentence is not found in it (then nothing counts as used later). */
+export function paragraphAfter(context, claim) {
+  const c = String(context ?? "");
+  const s = String(claim ?? "").trim();
+  const at = s ? c.indexOf(s.slice(0, 60)) : -1;
+  if (at < 0) return "";
+  const end = c.startsWith(s, at) ? at + s.length : at + Math.min(60, s.length);
+  return c.slice(end, end + PARAGRAPH_CHARS);
+}
+
+/* The coverage, applied: `partial` = { quote, missing, trimmed } on each read
+ * "context" source that backs all but one small detail. Pure; returns
+ * { checked, trims }. */
+export function applyCoverage(claim, after, sources, evidence, parsed) {
+  const tally = { checked: 0, trims: 0 };
+  const raw = Array.isArray(parsed?.parts) ? parsed.parts : [];
+  if (raw.length < 2 || raw.length > 4) return tally;
+  const parts = raw.map((p) => ({ text: String(p?.text ?? "").trim(), role: ROLES.has(p?.role) ? p.role : "claim" }));
+  const sentence = foldForMatch(claim).text;
+  // Every part is the sentence's own words; a part that is not means the split went wrong.
+  if (parts.some((p) => !p.text || !sentence.includes(foldForMatch(p.text).text))) return tally;
+  if (!parts.some((p) => p.role === "claim")) return tally;
+  const byId = new Map((Array.isArray(parsed?.sources) ? parsed.sources : []).map((s) => [s?.id, s]));
+  for (const e of evidence) {
+    const s = sources[e.i];
+    if (!s || s.stance !== "context" || s.verified !== true || !byId.has(e.i)) continue;
+    tally.checked++;
+    const shown = new Map();
+    for (const st of byId.get(e.i)?.stated ?? []) {
+      const p = parts[st?.part];
+      if (!p || shown.has(st.part)) continue;
+      const m = matchQuote(st?.quote, e.passages);
+      // A part with a figure is stated only when its quote shows the figure.
+      if (m && figuresShown(p.text, m.text).ok) shown.set(st.part, m.text);
+    }
+    const missing = parts.map((p, k) => ({ ...p, k })).filter((p) => !shown.has(p.k));
+    if (missing.length !== 1 || missing[0].role !== "detail") continue;
+    const t = trimSentence(claim, missing[0].text, { after });
+    if (!t.ok) continue;
+    const quotes = [...new Set(parts.map((p, k) => shown.get(k)).filter(Boolean))];
+    s.partial = { quote: clipQuote(quotes.join(" … ")), missing: t.removed, trimmed: t.sentence };
+    tally.trims++;
+  }
+  return tally;
+}
+
+/* The second call, when the verdicts left nothing backing. Never throws: a
+ * failure leaves the verdicts as they were, with its billed usage kept. */
+async function coverDetail({ claim, context, list, evidence, model, call, out }) {
+  if (list.some((s) => s?.stance === "supports")) return;
+  const read = evidence.filter((e) => list[e.i]?.stance === "context" && list[e.i]?.verified === true).slice(0, COVER_MAX_SOURCES);
+  if (!read.length) return;
+  const paragraph = String(context ?? "").trim().slice(0, PARAGRAPH_CHARS);
+  const user = `SENTENCE:\n${claim}\n` + (paragraph ? `\nPARAGRAPH (what the essay needs the sentence for):\n${paragraph}\n` : "") +
+    read.map((e) => `\nSOURCE ${e.i}: ${list[e.i].title}\n` + e.passages.map((p) => `"""\n${p.text}\n"""`).join("\n")).join("\n") +
+    `\n\nReturn the parts, then one entry per source id (${read.map((e) => e.i).join(", ")}).`;
+  try {
+    const raw = await call({ model, system: COVER_SYSTEM, user, schema: COVER_SCHEMA, maxTokens: COVER_MAX_TOKENS, what: "detail check", name: "coverage", effort: "low" });
+    const t = applyCoverage(claim, paragraphAfter(context, claim), list, read, raw?.parsed);
+    out.partial = t.trims;
+    out.usage = sumUsage(out.usage, raw?.usage);
+  } catch (err) {
+    out.usage = sumUsage(out.usage, err?.llm?.usage);
+  }
+}
+
 /* `onProgress`, optional (the live search): { type: "read", i, read, from }
  * as each source's reading settles, then { type: "judging", count } before
- * the one judge call. Watching only; a throwing callback changes nothing. */
-export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onProgress = null }) {
+ * the one judge call. Watching only; a throwing callback changes nothing.
+ * `partial` (with `context`, the claim's paragraph): when the verdicts leave
+ * nothing backing, look for a source that backs all but one small detail
+ * (coverDetail). Never with a `correction`: a sentence flagged wrong is
+ * corrected, not trimmed. */
+export async function verifySources({ claim, correction, sources, model, call = structuredCall, fetchImpl = globalThis.fetch, deadlineMs = VERIFY_DEADLINE_MS, abstractOf = null, onProgress = null, partial = false, context = "" }) {
   const list = Array.isArray(sources) ? sources : [];
   // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
   // not (fell to topic) — the number that says whether the rule is too strict.
   // figures: backs dropped because the quote does not show the sentence's figure.
-  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, unread: 0, retracted: [], usage: null };
+  // partial: sources that back all but one small detail (coverDetail).
+  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null };
   const unverify = (s) => {
     if (!s || typeof s !== "object") return;
     const before = s.stance;
@@ -574,6 +732,7 @@ export async function verifySources({ claim, correction, sources, model, call = 
     out.figures = t.figures;
     out.unread += t.unjudged;
     out.usage = raw?.usage ?? null;
+    if (partial && !correction) await coverDetail({ claim, context, list, evidence, model, call, out });
     return out;
   } catch (err) {
     // Read but never judged: unverified, like a source that could not be read.

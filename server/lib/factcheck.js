@@ -12,6 +12,7 @@ import {
 } from "./llm.js";
 import { citeFields, SOURCE_KINDS } from "./citeFields.js";
 import { isNarrowing } from "../shared/narrowing.js";
+import { trimSentence } from "./claimTrim.js";
 
 // Re-exported so every existing importer (server.js, tests) is unaffected by
 // CheckError having moved into its own module to break an import cycle.
@@ -491,8 +492,10 @@ export async function findSources({ claim, correction, context, model, effort, m
   // `verified: true`); one on the topic is "context"; one that could not be
   // read is "context" with `verified: false` — never backing. Never fails the
   // search; its tokens are added to what the route records.
-  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel,
-    onProgress: (ev) => tell(ev.type === "read" ? { type: "read", url: String(merged[ev.i]?.url ?? ""), read: ev.read, from: ev.from } : ev) });
+  const verified = enrich === false ? { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, partial: 0, unread: 0, retracted: [], usage: null } : await verifySources({ claim, correction, sources: merged, model: chosenModel,
+    onProgress: (ev) => tell(ev.type === "read" ? { type: "read", url: String(merged[ev.i]?.url ?? ""), read: ev.read, from: ev.from } : ev),
+    // Nothing backs the whole sentence? Look for one that backs all but a small detail (sourceVerify.js coverDetail).
+    partial: true, context: context ? claimWindow(context, claim) : "" });
   // OpenAlex's is_retracted, read on the same call as the abstract.
   const gone = new Set(verified.retracted ?? []);
   for (let i = merged.length - 1; i >= 0; i--) if (gone.has(merged[i])) merged.splice(i, 1);
@@ -502,7 +505,7 @@ export async function findSources({ claim, correction, context, model, effort, m
   // records it and keeps it out of the response. `enriched`/`dropped`/
   // `verified`/`retracted` are for the route's log line.
   return { sources: merged, model: usedModel, usage: verified.usage ? addUsage(usage, verified.usage) : usage, webSearchCalls, webSearchActions, enriched, dropped, retracted,
-    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, unread: verified.unread ?? 0 } };
+    verified: { checked: verified.checked, changed: verified.changed, quoted: verified.quoted ?? 0, unquoted: verified.unquoted ?? 0, figures: verified.figures ?? 0, partial: verified.partial ?? 0, unread: verified.unread ?? 0 } };
 }
 
 /* The part of the document the search should see: the claim's own
@@ -1093,6 +1096,24 @@ function mockSources(claim, model) {
   // validation a real answer does. Nothing here is asserted about the pages
   // beyond what a citation needs; unknowns are empty, as the prompt asks.
   const none = { authors: [], groupAuthor: "", year: null, date: "", container: "", editors: [], doi: "" };
+  // A sentence with "during a stay at the Villa Diodati" in it: nothing backs
+  // it whole, one source backs all but that detail (sourceVerify.js
+  // coverDetail), so the extension's "remove the detail" card is reachable
+  // keyless. The trim is the real rule's (claimTrim.js) on the real sentence.
+  const detail = /during a stay at the Villa Diodati/i.exec(String(claim ?? ""));
+  const t = detail ? trimSentence(claim, detail[0]) : null;
+  if (t?.ok) {
+    return {
+      sources: [{
+        title: "Frankenstein: Penetrating the Secrets of Nature", url: "https://www.nlm.nih.gov/exhibition/frankenstein/", publisher: "National Library of Medicine",
+        snippet: "[mock] “Frankenstein was first published anonymously in London in 1818 …”", stance: "context", ...none, kind: "institutional", groupAuthor: "National Library of Medicine",
+        verified: true, readFrom: "page",
+        partial: { quote: "Frankenstein was first published anonymously in London in 1818 … For the revised edition of 1831, Mary Shelley wrote a new introduction explaining how the story had begun", missing: t.removed, trimmed: t.sentence },
+      }],
+      model: `${model} (mock)`,
+      usage: { input: 0, output: 0, cached: 0 },
+    };
+  }
   const raw = [
     { title: "Great Wall of China — Visibility from space", url: "https://en.wikipedia.org/wiki/Great_Wall_of_China", publisher: "en.wikipedia.org", snippet: "Notes that the wall is not visible to the naked eye from low Earth orbit, per astronaut accounts.", stance: "refutes", ...none, kind: "reference" },
     { title: "China's Wall Less Great in View from Space", url: "https://www.nasa.gov/vision/space/workinginspace/great_wall.html", publisher: "nasa.gov", snippet: "NASA explains the Great Wall is generally invisible to the unaided eye from orbit.", stance: "refutes", ...none, kind: "institutional", groupAuthor: "NASA", year: 2005 },
