@@ -1,0 +1,942 @@
+{
+ "meta": {
+  "what": "production /api/verify-sources on a judged run's sources",
+  "base": "https://api.jointracely.com",
+  "judged": "2026-10-09-extension-prod.json",
+  "install": "3159b88a-ce50-4218-b38d-c67bfcac86e5",
+  "startedAt": "2026-10-13T01:13:51.398Z",
+  "finishedAt": "2026-10-13T01:18:39.754Z"
+ },
+ "results": {
+  "ex-01-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c1-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-2": {
+   "verdict": "contradicts",
+   "quote": "Teenagers aged 13 to 18 years who reported sleeping less than 8 hours also were considered to not get enough sleep",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c2-5": {
+   "verdict": "contradicts",
+   "quote": "In 2025, about 1 in 4 high school students got at least 8 hours of sleep on an average school night",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-4": {
+   "verdict": "backs",
+   "quote": "study findings highlighting the downstream effects of increased sleep duration following a 70-min delay in secondary school start times on adolescent drowsy driving and teen MVC rates … Weekday teen MVC rates went down in Arapahoe County (p = .04) during the school year, while no change or increases in MVC rates were seen in neighboring counties",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c3-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c4-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-01-c5-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-1": {
+   "verdict": "backs",
+   "quote": "Call center employees who volunteered to WFH were randomly assigned either to work from home or in the office for nine months … Home working led to a 13% performance increase … their attrition rate halved",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-3": {
+   "verdict": "backs",
+   "quote": "Call center employees who volunteered to WFH were randomly assigned either to work from home or in the office for nine months … Home working led to a 13% performance increase … their attrition rate halved",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-4": {
+   "verdict": "backs",
+   "quote": "Beginning in December 2010, it conducted a randomized experiment that measured the productivity of employees working at home versus those working in one of its call centers … They find that the home worker group increased its productivity by 13 percent over the trial's nine month lifetime … attrition was half that of the control group working in the call centers",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c1-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c2-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-02-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c1-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c2-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c3-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-1": {
+   "verdict": "contradicts",
+   "quote": "Cities that adopted printing in the 1400s had no prior advantage, and the association between adoption and subsequent growth was not due to printers choosing auspicious locations",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-2": {
+   "verdict": "contradicts",
+   "quote": "Cities that adopted printing in the 1400s had no prior advantage, and the association between adoption and subsequent growth was not due to printers choosing auspicious locations",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-03-c5-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c1-5": {
+   "verdict": "contradicts",
+   "quote": "the share of people in Sub-Saharan Africa with electricity has doubled , rising from 26% to 53%",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-3": {
+   "verdict": "backs",
+   "quote": "the region’s access deficit has increased from 556 million people in 2010 to 570 million people in 2019 … while the number of people without access to electricity has overall increased within sub-Saharan Africa, from 33 percent in 2010 to 46 percent in 2019, the share has actually dropped due to rapid…",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c4-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-04-c5-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-2": {
+   "verdict": "contradicts",
+   "quote": "We found that social media use is not, in and of itself, a strong predictor of life satisfaction across the adolescent population",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-3": {
+   "verdict": "contradicts",
+   "quote": "it led an influential study to conclude there is no relevant association between technology use and teenager mental well-being",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c2-1": {
+   "verdict": "contradicts",
+   "quote": "The rise of digital media may have played a role in this problem via several mechanisms",
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c3-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-05-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-06-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c1-5": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c2-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-3": {
+   "verdict": "contradicts",
+   "quote": "This body of evidence is consistent with the hypothesis that widespread resistance is a modern phenomenon linked to human use of antibiotics",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c3-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-07-c4-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c1-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c1-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-2": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-4": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c2-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c3-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-3": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "abstract",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-08-c4-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c1-1": {
+   "verdict": "contradicts",
+   "quote": "In Riverside, the city council is voting on whether to eliminate minimum parking requirements for new apartment buildings near the downtown bus corridor",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c1-2": {
+   "verdict": "contradicts",
+   "quote": "In Riverside, the city council is voting on whether to eliminate minimum parking requirements for new apartment buildings near the downtown bus corridor",
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c1-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-1": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c2-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-1": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-2": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-3": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-4": {
+   "verdict": "unread",
+   "quote": null,
+   "readFrom": null,
+   "model": "gpt-5.6-luna"
+  },
+  "ex-09-c3-5": {
+   "verdict": "topic",
+   "quote": null,
+   "readFrom": "page",
+   "model": "gpt-5.6-luna"
+  }
+ }
+}

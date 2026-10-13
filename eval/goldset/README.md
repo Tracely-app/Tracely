@@ -177,6 +177,51 @@ What it says:
 - Of the 51 sources judged in both runs, 41 kept their majority label
   (6 backs → not, 2 not → backs): the judges' own drift, for scale.
 
+### The verifier alone, before and after parts (2026-10-13)
+
+`run-verify-prod.mjs` sends every judged source of both runs (310) to
+production `/api/verify-sources`, the same `lib/sourceVerify.js` the
+extension's search runs. The inputs are fixed, so no search drift. Before:
+`6974306`, one verdict per source (`runs/2026-10-10-verify-prod-on-*`).
+After: `9c70612`, which carries #327: the claim is split into parts, a
+source `supports` only when every part has a quote, and `refutes` when any
+part is ruled out (`runs/2026-10-13-verify-prod-on-*`). About 10¢.
+
+| Both sets, 310 sources | Before (one verdict) | After (parts) |
+|---|---|---|
+| Verifier says backs | 48 | **13** |
+| …the judges' majority agrees | 34 (71%; 95% CI 57–82%) | 9 (69%; 42–87%) |
+| The judges' 84 "backs" it accepts | 34 | **9** (37 topic, 30 unread, 8 contradicts) |
+| Verifier says contradicts | 14 | **26** |
+| …the judges agree | 5 | **3** (8 back, 8 topic, 6 off-topic, 1 split) |
+| Claims with a backing source the judges agree with | 14 of 36 | **4 of 36** |
+| Unread (the fetch, not the judge) | 141 | 147 |
+
+What it says:
+
+- **Parts made the verifier worse, not more honest.** Wrong "backs" fell
+  from 14 to 4, but right ones fell from 34 to 9, so precision held at about
+  70% while three quarters of the good sources were lost. On these inputs, a
+  backing source the judges agree with is left for 4 claims in 36 (14 before).
+- **The fixes #327 expected did not happen.** The Ctrip abstract that
+  states the 13% (`ex-02-c1-2`) and the NLM Frankenstein exhibit
+  (`ex-06-c1-1`) are both still `topic`. Every judge calls them "backs".
+- **"Contradicts" nearly doubled, and 23 of the 26 are wrong.** The rule is
+  lopsided: support needs a quote for every part, but refuting needs only
+  one part ruled out. The failures:
+  - the writer's own hedge treated as a claim (Dittmar's printing cities ×3,
+    "though disentangling that from…", which #327's prompt says to leave out);
+  - a different measure read as a contradiction (hospital infections down
+    27% against "30% of prescriptions unnecessary"; "1 in 4 got 8 hours"
+    against "70% get less than seven"; 100–365 W panels against "tens of
+    watts");
+  - a hypothetical in an AP English page (a council "is voting") ×4;
+  - a word choice: Shelley's 1831 "Introduction" against "preface" ×2.
+- On the extension, `refutes` is offered only for a sentence flagged false,
+  so there the cost is mostly lost good sources. The desktop lists
+  `contradicts` in its own group with a quote, so there it reaches the writer
+  once #310 ships.
+
 ### The figure rule, on recorded runs (2026-10-13, free)
 
 `figures.mjs` applies `server/lib/claimFigures.js` `figuresShown` to every
@@ -206,6 +251,8 @@ must show it. No model, no network.
 - `claims.mjs` — the 36 claims with their paragraphs; `--claims` filtering.
 - `run-extension.mjs` — Run 1. `run-desktop.mjs` + `desktop-entry.ts` — Run 2.
 - `run-extension-prod.mjs` — Run 1 against production, through the beta pool.
-- `runs/` — results, committed: the 10-07 baseline and the 10-09 after-receipts run.
+- `runs/` — results, committed: the 10-07 baseline, the 10-09 after-receipts
+  run, and `*-verify-prod-on-*`: the verifier alone on both judged runs
+  (`run-verify-prod.mjs`; 10-10 one verdict, 10-13 parts).
 - `judged/` — the three judges' verdicts on each run, with the majority.
 - `figures.mjs` — the figure rule (`server/lib/claimFigures.js`) on the recorded runs; free.
