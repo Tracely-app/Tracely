@@ -169,6 +169,87 @@
     updateButton();
   }
 
+  /* ── framed: content.js's widget in the document, not at the frame's foot ──
+     The website sizes the frame to this page's whole height, so the widget's
+     position:fixed corner is the bottom of a tall frame, often below the
+     visitor's screen. Framed, it is anchored in the document instead. Wide
+     (the legend beside the essay): the launcher at the legend's top corner,
+     the panel in the legend's column. Narrow: the launcher in the essay
+     card's foot, the panel over the essay. The panel opens on the part of
+     the frame the visitor can see, and never runs past the frame's end. A
+     panel dragged by its header keeps content.js's own placement (inline
+     styles, which win over these rules). */
+  const PANEL_MAX = 620;   // content.js .panel max-height
+  const STRIP = 40;
+  const docEl = document.querySelector(".doc");
+  const legendEl = document.querySelector(".legend");
+  let placeStyle = null;   // <style> in the widget's shadow root
+  let panelAt = null;      // the panel's top (document px), chosen as it opens
+  let seenEnd = null;      // the visible part's bottom then, less a margin
+  let seen = null;         // { top, bottom }: the part of the frame on screen now
+  // A frame cannot read its parent's scroll; an IntersectionObserver can say
+  // which of these invisible 40px strips down the page are on screen.
+  function watchSeen() {
+    if (!("IntersectionObserver" in window)) return () => {};
+    const shown = new Map(), strips = document.createElement("div");
+    strips.setAttribute("aria-hidden", "true");
+    strips.style.cssText = "position:absolute;left:0;top:0;width:1px;height:0;visibility:hidden;pointer-events:none";
+    document.body.appendChild(strips);
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) shown.set(e.target, [e.intersectionRect.top + scrollY, e.intersectionRect.bottom + scrollY]);
+        else shown.delete(e.target);
+      }
+      const spans = [...shown.values()];
+      seen = spans.length ? { top: Math.min(...spans.map((s) => s[0])), bottom: Math.max(...spans.map((s) => s[1])) } : null;
+    }, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+    let height = 0;
+    return () => { // (re)lay the strips over exactly the page's height: no overflow, no scrollbar
+      const h = Math.floor(document.body.getBoundingClientRect().height);
+      if (h === height) return;
+      height = h;
+      io.disconnect(); shown.clear(); strips.textContent = "";
+      for (let y = 0; y < h; y += STRIP) {
+        const s = document.createElement("div");
+        s.style.cssText = `position:absolute;left:0;top:${y}px;width:1px;height:${Math.min(STRIP, h - y)}px`;
+        strips.appendChild(s);
+        io.observe(s);
+      }
+    };
+  }
+  const layStrips = framed ? watchSeen() : () => {};
+  function anchors() {
+    const vw = document.documentElement.clientWidth;
+    const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top + scrollY, bottom: r.bottom + scrollY, inset: Math.round(vw - r.right - scrollX) }; };
+    const doc = box(docEl), legend = box(legendEl), ed = box(editor);
+    const beside = legend.left >= doc.right - 1;
+    if (beside) return { beside, root: { top: legend.top, right: legend.inset }, col: { top: legend.top, right: legend.inset } };
+    const right = Math.max(22, doc.inset + 16);
+    return { beside, root: { top: Math.round(doc.bottom - 70), right }, col: { top: Math.round(ed.top + 8), right } };
+  }
+  function placeWidget() {
+    if (!placeStyle) return;
+    const a = anchors(), end = document.documentElement.clientHeight - 16;
+    const start = Math.max(a.col.top, panelAt ?? a.col.top);
+    const h = Math.max(200, Math.min(PANEL_MAX, Math.max(360, (seenEnd ?? end) - start), end - a.col.top));
+    const top = Math.max(a.col.top, Math.min(start, end - h));
+    placeStyle.textContent = `div.root { position: absolute; top: ${a.root.top}px; right: ${a.root.right}px; bottom: auto; left: auto; }
+      .root .panel { top: ${top - a.root.top}px; right: ${a.col.right - a.root.right}px; bottom: auto; max-height: ${h}px; }`;
+  }
+  // The panel's next spot: the top of what the visitor sees (or its column's top).
+  function aim() {
+    if (!placeStyle) return;
+    panelAt = seen ? Math.round(seen.top + 16) : null;
+    seenEnd = seen ? Math.round(seen.bottom - 16) : null;
+    placeWidget();
+  }
+  const panelOf = (host) => host && host.shadowRoot.querySelector(".panel");
+  function offScreen(panel) {
+    if (!panel || !seen || panel.style.position === "fixed") return false; // dragged: the visitor's spot
+    const r = panel.getBoundingClientRect();
+    return r.top + scrollY > seen.bottom - 120 || r.bottom + scrollY < seen.top + 120;
+  }
+
   /* ── content.js's widget ── */
   // Its host sits on <html>; the hidden one in <body> is the sentinel.
   const findHost = () => [...document.querySelectorAll("#tracely-host")].find((el) => el.shadowRoot && el.parentElement === document.documentElement) || null;
@@ -192,9 +273,16 @@
       style.dataset.try = "";
       style.textContent = "#siteSwitch, #panelSettings, .cite-url, .deep-row, .deep-note a[data-deep-plans] { display: none !important; }";
       host.shadowRoot.appendChild(style);
+      if (framed) { placeStyle = document.createElement("style"); host.shadowRoot.appendChild(placeStyle); placeWidget(); }
       // The panel's column is the legend's: html.tr-panel-open while it shows.
-      let raf = 0;
-      const sync = () => { raf = 0; document.documentElement.classList.toggle("tr-panel-open", Boolean(host.shadowRoot.querySelector(".panel"))); };
+      let raf = 0, wasOpen = false;
+      const sync = () => {
+        raf = 0;
+        const open = Boolean(host.shadowRoot.querySelector(".panel"));
+        document.documentElement.classList.toggle("tr-panel-open", open);
+        if (framed && open && !wasOpen && offScreen(panelOf(host))) aim(); // opened: where the visitor is looking
+        wasOpen = open;
+      };
       new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(sync); }).observe(host.shadowRoot, { childList: true, subtree: true });
       sync();
     }
@@ -247,6 +335,7 @@
     demo.paused = false; // and the loop may read the field until it has gone
     clearTimeout(armTimer);
     armTimer = setTimeout(disarm, ARM_WINDOW_MS);
+    aim(); // framed: the panel opens where this button is, on screen
     const sw = panelSwitch(host);
     // content.js's setSiteEnabled(true): checks at once. The switch it saves
     // stays in the shim's memory, so the next visit starts click-to-check again.
@@ -352,9 +441,19 @@
         try { window.parent.postMessage({ type: "tracely-try-height", height }, origin); } catch { /* no parent */ }
       }
     };
-    if ("ResizeObserver" in window) new ResizeObserver(post).observe(document.body);
-    addEventListener("load", post);
-    post();
+    const relayout = () => { post(); layStrips(); placeWidget(); };
+    if ("ResizeObserver" in window) new ResizeObserver(relayout).observe(document.body);
+    addEventListener("load", relayout);
+    relayout();
+    // An underline clicked: content.js opens its panel on this mousedown (and
+    // scrolls to the card) in the document's capture phase, so the spot is
+    // picked first, in the window's. An open panel moves only beside the
+    // essay, never over the text clicked.
+    addEventListener("mousedown", (e) => {
+      if (!editor.contains(e.target)) return;
+      const panel = panelOf(findHost());
+      if (!panel || (offScreen(panel) && anchors().beside)) aim();
+    }, true);
   }
 
   /* ── start ── */
