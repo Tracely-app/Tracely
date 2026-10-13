@@ -142,7 +142,7 @@
   async function refreshStatus() {
     let res, data;
     try {
-      res = await fetch("/api/demo/status", { credentials: "same-origin", cache: "no-store", headers: { "X-Tracely-Demo": "1" } });
+      res = await fetch("/api/demo/status", { credentials: "same-origin", cache: "no-store" });
       data = await res.json().catch(() => ({}));
     } catch { return; } // offline: the allowance keeps its last numbers
     const err = data && data.error;
@@ -248,11 +248,9 @@
     clearTimeout(armTimer);
     armTimer = setTimeout(disarm, ARM_WINDOW_MS);
     const sw = panelSwitch(host);
-    if (sw && /turn on/i.test(sw.textContent || "")) {
-      sw.click(); // content.js's setSiteEnabled(true): checks at once
-      // It saved the switch for this site; the next visit starts click-to-check again.
-      demo.forget();
-    }
+    // content.js's setSiteEnabled(true): checks at once. The switch it saves
+    // stays in the shim's memory, so the next visit starts click-to-check again.
+    if (sw && /turn on/i.test(sw.textContent || "")) sw.click();
     // Already on: the loop's next read (within a few seconds) sends what changed.
   }
 

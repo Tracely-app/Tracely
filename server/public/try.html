@@ -115,8 +115,9 @@
      tracely-open-order   → answered here ({ ok: true }, so content.js opens
                             nothing): no order page or checkout before launch;
                             try.js says Pro comes at launch instead
-   There is no chrome.storage, so content.js keeps its per-site state in this
-   page's localStorage.
+   There is no chrome.storage, so content.js keeps its per-site state in
+   localStorage, and this page keeps every tracely.* key of that in memory
+   (below): nothing it holds reaches the browser's storage.
 
    Checks are click-to-check (the "Money rule"). Field mode has no one-shot
    "check now": a site is checked automatically once the panel's "Turn on for
@@ -128,11 +129,34 @@
    sent without one even if that ever changes. */
 (function () {
   "use strict";
-  var LS = { site: "tracely.site.enabled", cache: "tracely.widget.vcache.field", install: "tracely.demo.install" };
-  // A fresh document every visit: auto-check off, no verdicts kept in this browser.
-  function forget() { try { localStorage.removeItem(LS.site); localStorage.removeItem(LS.cache); } catch (e) { /* storage blocked */ } }
+  /* "Nothing is saved", in this browser too. content.js writes tracely.*
+     keys to localStorage: the per-site switch, its verdict cache (with the
+     model's rewrite of each sentence checked), dismissed cards, its settings
+     (Auto-src), where the panel was dragged. Here those reads and writes go
+     to this Map instead, which goes with the page, so every visit starts
+     fresh: auto-check off, nothing dismissed, no verdicts kept. Installed
+     before content.js runs. Storage blocked altogether: content.js already
+     copes without it, and there is nothing to keep out. */
+  var mem = new Map(), store = null, SP = window.Storage && Storage.prototype;
+  try { store = window.localStorage; } catch (e) { /* blocked */ }
+  var ours = function (st, k) { return st === store && /^tracely\./.test(String(k)); };
+  if (store && SP) {
+    var getItem = SP.getItem, setItem = SP.setItem, removeItem = SP.removeItem, keyAt = SP.key;
+    SP.getItem = function (k) { return ours(this, k) ? (mem.has(String(k)) ? mem.get(String(k)) : null) : getItem.apply(this, arguments); };
+    SP.setItem = function (k, v) { if (ours(this, k)) { mem.set(String(k), String(v)); return; } return setItem.apply(this, arguments); };
+    SP.removeItem = function (k) { if (ours(this, k)) { mem.delete(String(k)); return; } return removeItem.apply(this, arguments); };
+  }
+  // What an earlier visit, or an earlier build of this page, left on disk
+  // (its tracely.demo.install id included): wiped on arrival.
+  function forget() {
+    try {
+      for (var i = store ? store.length - 1 : -1; i >= 0; i--) {
+        var k = keyAt.call(store, i);
+        if (k && /^tracely\./.test(k)) removeItem.call(store, k);
+      }
+    } catch (e) { /* storage blocked */ }
+  }
   forget();
-  addEventListener("pagehide", forget);
 
   var bus = new EventTarget();
   var demo = window.__tracelyDemo = {
@@ -142,7 +166,6 @@
     closed: "",            // the server's demo_closed message, once it says so
     limits: { check: 10, sources: 2, review: 2, maxChars: 3000 },
     maxContext: 1500,
-    forget: forget,
     on: function (type, fn) { bus.addEventListener(type, function (e) { fn(e.detail || {}); }); },
     emit: function (type, detail) { try { bus.dispatchEvent(new CustomEvent(type, { detail: detail || {} })); } catch (e) { /* a listener's trouble */ } },
   };
@@ -171,13 +194,6 @@
   // Docs mode's live search (never used in field mode): the plain route answers it.
   var STREAMS = { "/api/sources/stream": ["sources", "/api/demo/sources"] };
 
-  function installId() {
-    try {
-      var id = localStorage.getItem(LS.install);
-      if (!id) { id = crypto.randomUUID(); localStorage.setItem(LS.install, id); }
-      return id;
-    } catch (e) { return ""; }
-  }
   function sseEvents(buffer) { // background.js sseEvents
     var events = [], k;
     while ((k = buffer.indexOf("\n\n")) >= 0) {
@@ -214,7 +230,7 @@
     try {
       res = await fetch(route[1], {
         method: "POST", credentials: "same-origin", cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-Tracely-Demo": "1", "X-Tracely-Install": installId() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (onEvent && res.ok && res.body && /event-stream/.test(res.headers.get("content-type") || "")) {
