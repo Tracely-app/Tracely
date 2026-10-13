@@ -284,7 +284,7 @@ test("wired: Fix in doc (Docs, one Undo) and Fix in field apply the fuller answe
   const src = read("content.js");
   assert.match(src, /docFix\(btn\.dataset\.deepFix, null, deepRevision\(btn\.dataset\.deepFix\)\)/);
   assert.match(src, /fixInField\(btn\.dataset\.deepFix, deepRevision\(btn\.dataset\.deepFix\)\)/);
-  assert.match(src, /return runDocEdit\(`\$\{revision \? "deepfix" : "fix"\}:\$\{hash\}`/, "its own edit key, so its own Applied ✓ and Undo");
+  assert.match(src, /return runDocEdit\(key \?\? `\$\{revision \? "deepfix" : "fix"\}:\$\{hash\}`/, "its own edit key, so its own Applied ✓ and Undo");
   assert.match(src, /apply\.addEventListener\("click", \(\) => \{ popPinned = true; docFix\(hash, popAnchor, deepRevision\(hash\)\); \}\);/, "and from the hover card");
   // A locked click says why first (the panel's note), and never opens a tab on its own.
   assert.match(src, /link\.addEventListener\("click", \(\) => \{ lockDeep\(hash\); paintPop\(\); render\(\); \}\);/);

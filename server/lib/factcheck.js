@@ -672,6 +672,9 @@ const MOCK_RULES = [
   { re: /einstein.*(failed|flunked).*math|math.*einstein/i, verdict: "false", explanation: "Einstein excelled at mathematics; the 'failed math' story is a myth, and Edison did not invent the lightbulb alone either.", revise: () => "Contrary to a popular myth, Albert Einstein excelled at mathematics from a young age." },
   { re: /napoleon.*(short|five feet)/i, verdict: "false", explanation: "Napoleon was about 5'7\" (170 cm) — average height for his era. The 'short' myth comes from French vs English units.", revise: () => "Despite the famous myth, Napoleon was around 5'7\" — average height for a Frenchman of his era." },
   { re: /stock market|because the mitochondria/i, verdict: "incoherent", explanation: "The conclusion does not follow from the premise — cell biology has no bearing on stock movements.", revise: () => "The mitochondria is the powerhouse of the cell." },
+  // Its sources: one backs all but "during a stay at the Villa Diodati" (mockSources), so the
+  // extension's "remove the detail" card is reachable keyless.
+  { re: /Villa Diodati/i, verdict: "questionable", explanation: "Mock mode: the 1831 preface and where Shelley says the story began are worth checking against a source.", revise: () => "" },
   { re: /boils at 100|206 bones|honey never spoils/i, verdict: "accurate", explanation: "", revise: () => "" },
 ];
 

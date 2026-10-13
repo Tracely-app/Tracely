@@ -70,6 +70,26 @@ publisher and never by the model. Tests:
 `server/test/ext-source-credibility.test.js`, including a check that the
 two copies agree.
 
+**Remove a detail.** Owner, 2026-10-13: only a small part or detail, never
+the claim. When nothing backs a sentence but the server found a source that
+backs all of it except one small detail (a source with `partial: { quote,
+missing, trimmed }`, `server/lib/claimTrim.js` decides what counts),
+`backingSources` returns it as `partial`, never in the backing list. Both
+panels and the Docs hover card then show `TRIM_COPY`: the source, what it
+says, the detail it doesn't mention, the sentence with that detail struck
+through, and three buttons:
+- **Remove the detail** goes through `docFix` with the trimmed sentence
+  (`trimPlan`, key `trim:<hash>`), or `fixInField` in a field. The click
+  handlers call `docFix` themselves, because edits only start from a click
+  (`ext-docs-edit.test.js`).
+- **Copy it without the detail** replaces Remove when Docs cannot be edited.
+- **Keep as is** drops the card, and "nothing backs it" is back.
+
+Once the detail is removed, the new sentence's sources are that source,
+backing, with its receipt (`trimmedSourceEntry`): no second search. A
+partial result is saved with the doc like a source list. Tests:
+`server/test/ext-trim-detail.test.js`.
+
 ## Every card ends in a fix
 
 Owner, 2026-10-08: a card with only Dismiss is a comment, not help. Since

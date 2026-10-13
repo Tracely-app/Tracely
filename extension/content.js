@@ -2109,8 +2109,57 @@
     const unread = all.filter((s) => s && s.verified === false);
     const keep = all.filter((s) => s && s.verified !== false && (s.stance === undefined || s.stance === "manual" || s.stance === "supports" ||
       (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
+    // A source that backs all but one small detail (the server's detail check,
+    // sourceVerify.js coverDetail): never backing as written; offered as
+    // "remove the detail" instead (TRIM_COPY), the most citable one.
+    const partial = byCredibility(all.filter((s) => s && s.verified !== false && !keep.includes(s) && typeof s.partial?.trimmed === "string" && typeof s.partial?.missing === "string" && s.partial.trimmed && s.partial.missing))[0] ?? null;
     // Most citable first (byCredibility, stable): the first offered is the one to cite.
-    return { list: byCredibility(keep), unbacked: all.length - keep.length - unread.length, unread };
+    return { list: byCredibility(keep), unbacked: all.length - keep.length - unread.length, unread, partial };
+  }
+  /* Backs all but one small detail. Owner, 2026-10-13: when no source backs
+     a whole sentence but one backs all of it except a small detail, offer to
+     remove that detail — only a small part or detail, never the claim (the
+     server decides what counts: server/lib/claimTrim.js). The writer sees
+     what the source says, the detail it does not mention, and the sentence
+     with that detail struck through, and decides. */
+  const TRIM_COPY = {
+    head: "One detail isn't in this source",
+    body: (missing) => `It backs the rest of your sentence but doesn't mention “${missing}.” Remove that detail and you can cite it, or keep it and find a source for it.`,
+    remove: "Remove the detail",
+    copy: "Copy it without the detail",
+    keep: "Keep as is",
+    preview: "Without it:",
+  };
+  // The sentence with the detail struck through: exactly what would go.
+  function trimPreviewHtml(sentence, missing) {
+    const s = String(sentence ?? "");
+    const m = String(missing ?? "");
+    const at = m ? s.toLowerCase().indexOf(m.toLowerCase()) : -1;
+    if (at < 0) return esc(s);
+    return `${esc(s.slice(0, at))}<s class="trim-cut">${esc(s.slice(at, at + m.length))}</s>${esc(s.slice(at + m.length))}`;
+  }
+  // The card in both panels; `actionsHtml` is the mode's own buttons.
+  function partialSourceHtml(sentence, src, actionsHtml) {
+    const p = src.partial;
+    return `<div class="src partial">
+      <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
+      <div class="src-body">
+        <div class="trim-head">${esc(TRIM_COPY.head)}</div>
+        <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title || src.url)}</a>
+        <div class="src-meta">${sourceMetaHtml(src)}</div>
+        ${p.quote ? `<div class="src-says">${esc(RECEIPT_COPY.says)} “${esc(p.quote)}”</div>` : ""}
+        <div class="trim-note">${esc(TRIM_COPY.body(p.missing))}</div>
+        <div class="trim-preview"><span class="trim-label">${esc(TRIM_COPY.preview)}</span> ${trimPreviewHtml(sentence, p.missing)}</div>
+        <div class="src-actions">${actionsHtml}</div>
+      </div>
+    </div>`;
+  }
+  /* After the detail is removed, the source backs the sentence that is left
+     (every remaining part was quoted from it): the new sentence's sources,
+     ready to cite with its receipt, no second search. */
+  function trimmedSourceEntry(src) {
+    const { partial, ...rest } = src;
+    return { loading: false, list: [{ ...rest, stance: "supports", quote: partial.quote, snippet: `“${partial.quote}”` }], unbacked: 0, unread: [], partial: null, copiedUrl: null };
   }
   const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
   const RECEIPT_COPY = {
@@ -3867,6 +3916,10 @@
     .src-title { font-size: 13px; font-weight: 500; color: var(--ink); display: block; }
     .src a:hover { color: var(--accent-ink); }
     .src-meta { font-size: 11px; color: var(--label); }
+    .trim-head { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+    .trim-note, .trim-preview { font-size: 12px; line-height: 1.45; margin-top: 4px; }
+    .trim-label { color: var(--label); }
+    .trim-cut { color: var(--label); }
     .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     /* The receipt: the source's own words, and where they were read. */
@@ -4001,7 +4054,7 @@
     const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", []));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
-      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, partial: typeof st.partial?.partial?.trimmed === "string" ? st.partial : null, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -4101,8 +4154,8 @@
         keep.push(...entries.filter(([h]) => !live.has(h)).slice(-(400 - keep.length)));
       }
       const src = [...sourcesMap]
-        .filter(([, st]) => st.list?.length)
-        .map(([h, st]) => [h, { list: st.list.slice(0, 5), unread: (st.unread ?? []).slice(0, 5), citedUrl: st.citedUrl ?? null }]);
+        .filter(([, st]) => st.list?.length || st.partial)
+        .map(([h, st]) => [h, { list: (st.list ?? []).slice(0, 5), unread: (st.unread ?? []).slice(0, 5), partial: st.partial ?? null, citedUrl: st.citedUrl ?? null }]);
       let ok = lsSet(VCACHE_KEY, JSON.stringify(keep));
       ok = lsSet(SCACHE_KEY, JSON.stringify(src.slice(-20))) && ok;
       if (!ok) {
@@ -4193,6 +4246,7 @@
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
+    let copiedTrimHash = null; // the trim card's Copy, when the Docs editor cannot take the edit
     let bridgeReady = false;  // Docs bridge configured server-side (developer builds) → in-doc edit buttons
     let docBusy = false;      // one document edit at a time, across every button
     // The in-editor engine's last ping (docs-hook.js). editable = its text API
@@ -6493,6 +6547,23 @@
       const unread = s.unread ?? [];
       const unreadEl = () => dmUnread(unread, st.unreadOpen === true, () => setStep(stepKey, { unreadOpen: !st.unreadOpen }));
       const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(stepKey, { searched: true, selected: null }); p.catch(() => {}); };
+      // Backs all but one small detail (TRIM_COPY): what the source says, the
+      // detail it doesn't mention, the sentence without it, Remove or Keep.
+      if (list.length === 0 && s.partial?.partial?.trimmed) {
+        const src = s.partial;
+        put(dmHead(DM.amber, TRIM_COPY.head), dmBody(TRIM_COPY.body(src.partial.missing)));
+        put(dmRow({ ...src, quote: src.partial.quote }, true, () => {}));
+        const prev = el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" });
+        prev.innerHTML = `<span style="color:${DM.hint}">${esc(TRIM_COPY.preview)}</span> ${trimPreviewHtml(seg.text, src.partial.missing)}`;
+        put(prev, noteEl());
+        const rm = canEditDoc() ? dmBtn(TRIM_COPY.remove, true) : dmBtn(TRIM_COPY.copy, true);
+        if (canEditDoc()) rm.addEventListener("click", () => { const plan = trimPlan(hash); if (plan) docFix(hash, null, plan.trimmed, plan.opts); });
+        else rm.addEventListener("click", () => { copiedTrimHash = hash; copyText(src.partial.trimmed); rm.textContent = "Copied ✓"; });
+        const keep = dmBtn(TRIM_COPY.keep, false);
+        keep.addEventListener("click", () => keepDetail(hash));
+        put(dmActions(rm, keep));
+        return;
+      }
       if (list.length === 0) {
         if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
         else if (unread.length) put(dmHead(DM.amber, POP_COPY.couldntRead), dmBody(RECEIPT_COPY.unreadOnly(unread.length)));
@@ -7001,8 +7072,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         }, onEvent);
-        const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
-        sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
+        const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
         persistCaches();
         noteSourcesReady(hash, list.length, auto);
       } catch (err) {
@@ -7769,7 +7840,7 @@
     // anchor: the underline bar a popover was opened from (null from the panel).
     // revision: "Explain in depth"'s own fix (deepRevision), in place of the
     // card's — its own button, so its own edit key ("deepfix:").
-    async function docFix(hash, anchor = null, revision = null) {
+    async function docFix(hash, anchor = null, revision = null, { key = null, afterApplied = null } = {}) {
       const seg = segments.find((s) => s.hash === hash);
       const f = cache.get(hash);
       const rev = revision || f?.revision;
@@ -7778,7 +7849,7 @@
       // Another copy stays in the doc, flagged exactly as before: keep its
       // verdict and its underline (hiding the hash would hide every copy).
       const repeated = hint.occurrences > 1;
-      return runDocEdit(`${revision ? "deepfix" : "fix"}:${hash}`, {
+      return runDocEdit(key ?? `${revision ? "deepfix" : "fix"}:${hash}`, {
         steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, rev), hint }],
         copy: rev,
         doneMsg: "fixed in doc",
@@ -7788,6 +7859,7 @@
             cache.delete(hash); // the rewritten sentence gets re-verified on the next read
             markEdited(hash);
           }
+          try { afterApplied?.(); } catch { /* a hook never undoes the edit */ }
           persistCaches();
         },
         onUndone: () => {
@@ -7796,6 +7868,37 @@
           persistCaches();
         },
       });
+    }
+
+    /* Remove the one detail no source backs (TRIM_COPY): the click handlers
+       call docFix(hash, null, plan.trimmed, plan.opts) themselves (edits only
+       ever start from a click; ext-docs-edit.test.js), so the sentence becomes
+       the server's trimmed one with Fix in doc's preview, Undo and read-back,
+       and the source that backs what is left is ready to cite under it. */
+    function trimPlan(hash) {
+      const src = sourcesMap.get(hash)?.partial;
+      const seg = segments.find((x) => x.hash === hash);
+      if (!src?.partial?.trimmed || !seg) return null;
+      const trimmed = src.partial.trimmed;
+      return {
+        trimmed,
+        opts: {
+          key: `trim:${hash}`,
+          afterApplied: () => {
+            // Keyed as the new sentence will be, with or without the original's citation marks.
+            for (const t of new Set([trimmed, withMarkers(seg.text, trimmed)])) sourcesMap.set(hashText(t), trimmedSourceEntry(src));
+          },
+        },
+      };
+    }
+    // Keep the detail: the card goes, the "nothing backs it" note is back, Find a source again from there.
+    function keepDetail(hash) {
+      const st = sourcesMap.get(hash);
+      if (!st?.partial) return;
+      sourcesMap.set(hash, { ...st, partial: null });
+      persistCaches();
+      render();
+      renderPopSources(hash);
     }
 
     /* A note's own fix, where the note has one the editor can make: Delete
@@ -9935,6 +10038,12 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
+          } else if (st?.partial && !st.list?.length) {
+            // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
+            const trimActs = (canEditDoc() ? editBtnHtml(`trim:${seg.hash}`, TRIM_COPY.remove, `data-doc-trim="${seg.hash}"`)
+              : `<button class="act primary" data-trim-copy="${seg.hash}">${copiedTrimHash === seg.hash ? "Copied ✓" : esc(TRIM_COPY.copy)}</button>`) +
+              `<button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
+            sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${editNoteHtml(`trim:${seg.hash}`)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
@@ -10150,6 +10259,18 @@
         }
         for (const btn of shadow.querySelectorAll("[data-doc-fix]")) {
           btn.addEventListener("click", () => docFix(btn.dataset.docFix));
+        }
+        for (const btn of shadow.querySelectorAll("[data-doc-trim]")) {
+          btn.addEventListener("click", () => { const plan = trimPlan(btn.dataset.docTrim); if (plan) docFix(btn.dataset.docTrim, null, plan.trimmed, plan.opts); });
+        }
+        for (const btn of shadow.querySelectorAll("[data-trim-keep]")) {
+          btn.addEventListener("click", () => keepDetail(btn.dataset.trimKeep));
+        }
+        for (const btn of shadow.querySelectorAll("[data-trim-copy]")) {
+          btn.addEventListener("click", () => {
+            const src = sourcesMap.get(btn.dataset.trimCopy)?.partial;
+            if (src?.partial?.trimmed) { copiedTrimHash = btn.dataset.trimCopy; copyText(src.partial.trimmed); }
+          });
         }
         // "Explain in depth"'s own revision, applied like the card's.
         for (const btn of shadow.querySelectorAll("[data-deep-fix]")) {
@@ -10901,8 +11022,8 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
-        sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
+        const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
@@ -11306,6 +11427,10 @@
           let sourcesHtml = "";
           if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+          } else if (st?.partial && !st.list?.length) {
+            // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
+            const trimActs = `<button class="act primary" data-field-trim="${seg.hash}">${esc(TRIM_COPY.remove)}</button><button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
+            sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st?.list?.length) {
@@ -11434,6 +11559,23 @@
         }
         for (const btn of shadow.querySelectorAll("[data-field-fix]")) {
           btn.addEventListener("click", () => fixInField(btn.dataset.fieldFix));
+        }
+        // Remove the one detail no source backs (TRIM_COPY), in place like Fix in field;
+        // the source that backs what is left is then this sentence's to cite.
+        for (const btn of shadow.querySelectorAll("[data-field-trim]")) {
+          btn.addEventListener("click", () => {
+            const hash = btn.dataset.fieldTrim;
+            const src = sourcesMap.get(hash)?.partial;
+            if (!src?.partial?.trimmed) return;
+            sourcesMap.set(hashText(src.partial.trimmed), trimmedSourceEntry(src));
+            fixInField(hash, src.partial.trimmed);
+          });
+        }
+        for (const btn of shadow.querySelectorAll("[data-trim-keep]")) {
+          btn.addEventListener("click", () => {
+            const st = sourcesMap.get(btn.dataset.trimKeep);
+            if (st?.partial) { sourcesMap.set(btn.dataset.trimKeep, { ...st, partial: null }); render(); }
+          });
         }
         // "Explain in depth"'s own revision, put in like the card's.
         for (const btn of shadow.querySelectorAll("[data-deep-fix]")) {
