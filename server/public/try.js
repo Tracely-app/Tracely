@@ -24,6 +24,7 @@
   const toolbar = document.querySelector(".toolbar");
   const allowanceEl = $("allowance");
   const countEl = $("count");
+  const announcer = $("announce");
   const notice = $("notice");
   const noticeText = $("notice-text");
   const noticeReload = $("notice-reload");
@@ -42,6 +43,7 @@
   let sawRequest = false;   // a check went out during the current click
   let armTimer = 0;
   let noticeKind = "";
+  let over = null;          // the text is over the limit (null: not rendered yet)
 
   // The text exactly as content.js reads a contenteditable (buildTextIndex),
   // so the count here is the length the server is sent and judges.
@@ -63,10 +65,18 @@
     return text;
   }
 
-  /* ── the toolbar: status, allowance, count ── */
+  /* ── the toolbar: status, allowance, count ──
+     #status is the one live region that speaks as things happen; it is
+     rewritten only when its words change (typing must not re-announce it).
+     The count and the allowance change all the time and say nothing; the
+     moments that matter go through announce(). */
   function setStatus(text, state = "idle") {
-    statusEl.textContent = text;
+    if (statusEl.textContent !== text) statusEl.textContent = text;
     toolbar.dataset.state = state;
+  }
+  function announce(text) {
+    announcer.textContent = "";
+    requestAnimationFrame(() => { announcer.textContent = text; });
   }
   function renderAllowance() {
     if (!left) return;
@@ -80,6 +90,8 @@
     const max = demo ? demo.limits.maxChars : 3000;
     countEl.textContent = n > max ? `${fmt(n)} / ${fmt(max)} characters: shorten it to check` : `${fmt(n)} / ${fmt(max)} characters`;
     countEl.classList.toggle("over", n > max);
+    if (over !== null && over !== n > max) announce(n > max ? `Over ${fmt(max)} characters: shorten your text to check it.` : `Back under ${fmt(max)} characters.`);
+    over = n > max;
     return n;
   }
   function updateButton() {
@@ -93,11 +105,12 @@
   function setBusy(on) { busy = on; updateButton(); }
 
   /* ── the notice (over the toolbar; the text below stays where it is) ── */
+  // ctas: true for both links, "early" for Get early access alone.
   function showNotice(kind, text, { ctas = false, reload = false } = {}) {
     noticeKind = kind;
     notice.dataset.kind = kind === "sources" || kind === "paused" ? "info" : kind;
     noticeText.textContent = text;
-    for (const a of notice.querySelectorAll(".notice-actions a")) a.hidden = !ctas;
+    for (const a of notice.querySelectorAll(".notice-actions a")) a.hidden = !ctas || (ctas === "early" && !a.classList.contains("btn-primary"));
     noticeReload.hidden = !reload;
     notice.hidden = false;
   }
@@ -109,6 +122,7 @@
       end: "That's the try-out. Get early access to keep going.",
       closed: demo && demo.closed ? demo.closed : "The try-out is closed for now.",
       session: "Reload the page to start the try-out again.",
+      cookies: "The try-out needs cookies switched on. Allow them, then reload.",
     }[noticeKind];
     if (short) setStatus(short, "stopped");
     noticeKind = "";
@@ -128,10 +142,17 @@
     setBusy(false);
     const off = /isn't available/i.test(demo.closed);
     setStatus(off ? "The try-out isn't available right now." : "The try-out is closed for today.", "stopped");
-    showNotice("closed", `${demo.closed} ${off ? "You can still get early access to Tracely." : "Tracely itself is unaffected: get early access and keep going."}`, { ctas: true });
+    showNotice("closed", `${demo.closed} ${off ? "You can still get early access to Tracely." : "Tracely itself is unaffected: get early access to use it from launch."}`, { ctas: true });
   }
   function showSession(message) {
     setBusy(false);
+    // Refused before any status came back: the cookie GET /try set never
+    // stuck (cookies blocked), and "reload" alone would only loop.
+    if (left === null || navigator.cookieEnabled === false) {
+      setStatus("The try-out needs cookies.", "stopped");
+      showNotice("cookies", `The try-out needs cookies switched on for ${location.hostname}. Allow them, then reload.`, { reload: true });
+      return;
+    }
     setStatus("Your try-out session has expired.", "stopped");
     showNotice("session", message || "Your try-out session has expired. Reload the page to start again.", { reload: true });
   }
@@ -141,7 +162,7 @@
   async function refreshStatus() {
     let res, data;
     try {
-      res = await fetch("/api/demo/status", { credentials: "same-origin", cache: "no-store", headers: { "X-Tracely-Demo": "1" } });
+      res = await fetch("/api/demo/status", { credentials: "same-origin", cache: "no-store" });
       data = await res.json().catch(() => ({}));
     } catch { return; } // offline: the allowance keeps its last numbers
     const err = data && data.error;
@@ -153,9 +174,11 @@
     const lim = data.limits || {};
     for (const k of ["check", "sources", "review", "maxChars"]) demo.limits[k] = whole(lim[k], demo.limits[k]);
     const l = data.left || {};
+    const hadSources = left ? left.sources : null;
     left = { check: whole(l.check, demo.limits.check), sources: whole(l.sources, demo.limits.sources), review: whole(l.review, demo.limits.review) };
     for (const k of ["check", "sources", "review"]) demo.exhausted[k] = left[k] <= 0;
     sourcesPaused = data.sourcesPaused === true;
+    if (hadSources > 0 && left.sources === 0 && !sourcesPaused) announce("That was your last source search in this try-out. Checks still work.");
     renderAllowance();
     renderCount();
     if (data.open === false) {
@@ -166,6 +189,87 @@
       if (noticeKind !== "end") showEnd();
     }
     updateButton();
+  }
+
+  /* ── framed: content.js's widget in the document, not at the frame's foot ──
+     The website sizes the frame to this page's whole height, so the widget's
+     position:fixed corner is the bottom of a tall frame, often below the
+     visitor's screen. Framed, it is anchored in the document instead. Wide
+     (the legend beside the essay): the launcher at the legend's top corner,
+     the panel in the legend's column. Narrow: the launcher in the essay
+     card's foot, the panel over the essay. The panel opens on the part of
+     the frame the visitor can see, and never runs past the frame's end. A
+     panel dragged by its header keeps content.js's own placement (inline
+     styles, which win over these rules). */
+  const PANEL_MAX = 620;   // content.js .panel max-height
+  const STRIP = 40;
+  const docEl = document.querySelector(".doc");
+  const legendEl = document.querySelector(".legend");
+  let placeStyle = null;   // <style> in the widget's shadow root
+  let panelAt = null;      // the panel's top (document px), chosen as it opens
+  let seenEnd = null;      // the visible part's bottom then, less a margin
+  let seen = null;         // { top, bottom }: the part of the frame on screen now
+  // A frame cannot read its parent's scroll; an IntersectionObserver can say
+  // which of these invisible 40px strips down the page are on screen.
+  function watchSeen() {
+    if (!("IntersectionObserver" in window)) return () => {};
+    const shown = new Map(), strips = document.createElement("div");
+    strips.setAttribute("aria-hidden", "true");
+    strips.style.cssText = "position:absolute;left:0;top:0;width:1px;height:0;visibility:hidden;pointer-events:none";
+    document.body.appendChild(strips);
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) shown.set(e.target, [e.intersectionRect.top + scrollY, e.intersectionRect.bottom + scrollY]);
+        else shown.delete(e.target);
+      }
+      const spans = [...shown.values()];
+      seen = spans.length ? { top: Math.min(...spans.map((s) => s[0])), bottom: Math.max(...spans.map((s) => s[1])) } : null;
+    }, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+    let height = 0;
+    return () => { // (re)lay the strips over exactly the page's height: no overflow, no scrollbar
+      const h = Math.floor(document.body.getBoundingClientRect().height);
+      if (h === height) return;
+      height = h;
+      io.disconnect(); shown.clear(); strips.textContent = "";
+      for (let y = 0; y < h; y += STRIP) {
+        const s = document.createElement("div");
+        s.style.cssText = `position:absolute;left:0;top:${y}px;width:1px;height:${Math.min(STRIP, h - y)}px`;
+        strips.appendChild(s);
+        io.observe(s);
+      }
+    };
+  }
+  const layStrips = framed ? watchSeen() : () => {};
+  function anchors() {
+    const vw = document.documentElement.clientWidth;
+    const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top + scrollY, bottom: r.bottom + scrollY, inset: Math.round(vw - r.right - scrollX) }; };
+    const doc = box(docEl), legend = box(legendEl), ed = box(editor);
+    const beside = legend.left >= doc.right - 1;
+    if (beside) return { beside, root: { top: legend.top, right: legend.inset }, col: { top: legend.top, right: legend.inset } };
+    const right = Math.max(22, doc.inset + 16);
+    return { beside, root: { top: Math.round(doc.bottom - 70), right }, col: { top: Math.round(ed.top + 8), right } };
+  }
+  function placeWidget() {
+    if (!placeStyle) return;
+    const a = anchors(), end = document.documentElement.clientHeight - 16;
+    const start = Math.max(a.col.top, panelAt ?? a.col.top);
+    const h = Math.max(200, Math.min(PANEL_MAX, Math.max(360, (seenEnd ?? end) - start), end - a.col.top));
+    const top = Math.max(a.col.top, Math.min(start, end - h));
+    placeStyle.textContent = `div.root { position: absolute; top: ${a.root.top}px; right: ${a.root.right}px; bottom: auto; left: auto; }
+      .root .panel { top: ${top - a.root.top}px; right: ${a.col.right - a.root.right}px; bottom: auto; max-height: ${h}px; }`;
+  }
+  // The panel's next spot: the top of what the visitor sees (or its column's top).
+  function aim() {
+    if (!placeStyle) return;
+    panelAt = seen ? Math.round(seen.top + 16) : null;
+    seenEnd = seen ? Math.round(seen.bottom - 16) : null;
+    placeWidget();
+  }
+  const panelOf = (host) => host && host.shadowRoot.querySelector(".panel");
+  function offScreen(panel) {
+    if (!panel || !seen || panel.style.position === "fixed") return false; // dragged: the visitor's spot
+    const r = panel.getBoundingClientRect();
+    return r.top + scrollY > seen.bottom - 120 || r.bottom + scrollY < seen.top + 120;
   }
 
   /* ── content.js's widget ── */
@@ -180,16 +284,27 @@
       host = findHost();
     }
     if (host && !host.shadowRoot.querySelector("style[data-try]")) {
-      // Two controls with nothing behind them here: Settings (the options
-      // page belongs to the installed extension) and the per-site switch
-      // (this page turns it on for the first check; off would wipe results).
+      // Controls with nothing behind them here: Settings (the options page
+      // belongs to the installed extension), the per-site switch (this page
+      // turns it on for the first check; off would wipe results), a card's
+      // "paste a URL" box (/api/cite-url is not in the try-out) and the
+      // locked "Explain in depth" (Pro, with a link to the order page and
+      // its live checkout: nothing to buy before launch). The shim also
+      // answers open-order itself, so no click there opens that page.
       const style = document.createElement("style");
       style.dataset.try = "";
-      style.textContent = "#siteSwitch, #panelSettings { display: none !important; }";
+      style.textContent = "#siteSwitch, #panelSettings, .cite-url, .deep-row, .deep-note a[data-deep-plans] { display: none !important; }";
       host.shadowRoot.appendChild(style);
+      if (framed) { placeStyle = document.createElement("style"); host.shadowRoot.appendChild(placeStyle); placeWidget(); }
       // The panel's column is the legend's: html.tr-panel-open while it shows.
-      let raf = 0;
-      const sync = () => { raf = 0; document.documentElement.classList.toggle("tr-panel-open", Boolean(host.shadowRoot.querySelector(".panel"))); };
+      let raf = 0, wasOpen = false;
+      const sync = () => {
+        raf = 0;
+        const open = Boolean(host.shadowRoot.querySelector(".panel"));
+        document.documentElement.classList.toggle("tr-panel-open", open);
+        if (framed && open && !wasOpen && offScreen(panelOf(host))) aim(); // opened: where the visitor is looking
+        wasOpen = open;
+      };
       new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(sync); }).observe(host.shadowRoot, { childList: true, subtree: true });
       sync();
     }
@@ -242,12 +357,11 @@
     demo.paused = false; // and the loop may read the field until it has gone
     clearTimeout(armTimer);
     armTimer = setTimeout(disarm, ARM_WINDOW_MS);
+    aim(); // framed: the panel opens where this button is, on screen
     const sw = panelSwitch(host);
-    if (sw && /turn on/i.test(sw.textContent || "")) {
-      sw.click(); // content.js's setSiteEnabled(true): checks at once
-      // It saved the switch for this site; the next visit starts click-to-check again.
-      demo.forget();
-    }
+    // content.js's setSiteEnabled(true): checks at once. The switch it saves
+    // stays in the shim's memory, so the next visit starts click-to-check again.
+    if (sw && /turn on/i.test(sw.textContent || "")) sw.click();
     // Already on: the loop's next read (within a few seconds) sends what changed.
   }
 
@@ -308,6 +422,7 @@
       else if (feature === "check") showEnd();
     });
     demo.on("settings", () => setStatus("Settings come with the full version.", toolbar.dataset.state || "idle"));
+    demo.on("upgrade", () => showNotice("upgrade", "Explain in depth comes with Tracely Pro at launch.", { ctas: "early" }));
   }
 
   /* ── the editor ── */
@@ -337,20 +452,38 @@
   /* ── inside www.jointracely.com/try/: tell the frame how tall to be ── */
   if (framed) {
     const parents = ["https://www.jointracely.com", "https://jointracely.com"];
+    // Post only to the page that framed this one (every other target logs a
+    // console warning on each resize): ancestorOrigins (Chromium, Safari) or
+    // the referrer (Firefox; the website frames with an origin referrer).
+    const anc = location.ancestorOrigins && location.ancestorOrigins.length ? location.ancestorOrigins[0] : "";
+    let ref = "";
+    try { ref = document.referrer ? new URL(document.referrer).origin : ""; } catch { /* no referrer */ }
+    const framer = parents.find((o) => o === anc || o === ref);
     // A local copy of this page framed by a local test page (never production).
-    if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) parents.push("*");
+    const local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    const targets = framer ? [framer] : local ? ["*"] : parents; // unknown framer: both, as before
     let last = 0;
     const post = () => {
       const height = Math.ceil(document.body.getBoundingClientRect().height);
       if (!height || height === last) return;
       last = height;
-      for (const origin of parents) {
+      for (const origin of targets) {
         try { window.parent.postMessage({ type: "tracely-try-height", height }, origin); } catch { /* no parent */ }
       }
     };
-    if ("ResizeObserver" in window) new ResizeObserver(post).observe(document.body);
-    addEventListener("load", post);
-    post();
+    const relayout = () => { post(); layStrips(); placeWidget(); };
+    if ("ResizeObserver" in window) new ResizeObserver(relayout).observe(document.body);
+    addEventListener("load", relayout);
+    relayout();
+    // An underline clicked: content.js opens its panel on this mousedown (and
+    // scrolls to the card) in the document's capture phase, so the spot is
+    // picked first, in the window's. An open panel moves only beside the
+    // essay, never over the text clicked.
+    addEventListener("mousedown", (e) => {
+      if (!editor.contains(e.target)) return;
+      const panel = panelOf(findHost());
+      if (!panel || (offScreen(panel) && anchors().beside)) aim();
+    }, true);
   }
 
   /* ── start ── */

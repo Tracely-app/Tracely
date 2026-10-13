@@ -57,9 +57,9 @@
       </div>
 
       <div class="toolbar">
-        <p class="tb-line" id="status-line" role="status" aria-live="polite">
+        <p class="tb-line" id="status-line">
           <span class="dot" aria-hidden="true"></span>
-          <span id="status">Tracely is ready to check this document.</span>
+          <span id="status" role="status">Tracely is ready to check this document.</span>
           <span class="tb-sep" aria-hidden="true">·</span>
           <span id="allowance" class="allowance">10 checks · 2 source searches left</span>
         </p>
@@ -79,7 +79,8 @@
       <div class="editor" id="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="doc-title" aria-describedby="doc-hint count" spellcheck="false"><p>Every generation worries that new technology will make young people less curious. History suggests the opposite. The Great Wall of China is the only man-made structure visible from space, and people built it by hand over many centuries. Albert Einstein failed math in school, yet he went on to change physics forever.</p><p>Today, 70% of teenagers spend more than four hours a day on social media. Because phones arrived in classrooms, test scores in the United States have fallen since 2012. Even so, curiosity has not disappeared. It has moved online, where students teach themselves to code, edit video and build things that did not exist ten years ago.</p><p>Schools that welcome that energy, instead of fighting it, will find that students care about learning as much as they ever did. The tools have changed, but the questions students ask have not.</p></div>
 
       <div class="doc-foot">
-        <span class="count" id="count" aria-live="polite">0 / 3,000 characters</span>
+        <span class="count" id="count">0 / 3,000 characters</span>
+        <span class="sr-only" id="announce" aria-live="polite"></span>
         <p class="privacy" id="doc-hint">Text you check here is sent to Tracely's server and OpenAI to check it. Nothing is saved. <a href="https://www.jointracely.com/privacy/" target="_blank" rel="noopener">Privacy</a></p>
       </div>
     </section>
@@ -112,9 +113,12 @@
                             answered with relay()'s envelope
      tracely-entitlement  → the free plan ("Explain in depth" shows locked)
      tracely-getState     → the server engine
-     tracely-open-order   → { ok: false }, so content.js opens the order page
-   There is no chrome.storage, so content.js keeps its per-site state in this
-   page's localStorage.
+     tracely-open-order   → answered here ({ ok: true }, so content.js opens
+                            nothing): no order page or checkout before launch;
+                            try.js says Pro comes at launch instead
+   There is no chrome.storage, so content.js keeps its per-site state in
+   localStorage, and this page keeps every tracely.* key of that in memory
+   (below): nothing it holds reaches the browser's storage.
 
    Checks are click-to-check (the "Money rule"). Field mode has no one-shot
    "check now": a site is checked automatically once the panel's "Turn on for
@@ -126,11 +130,34 @@
    sent without one even if that ever changes. */
 (function () {
   "use strict";
-  var LS = { site: "tracely.site.enabled", cache: "tracely.widget.vcache.field", install: "tracely.demo.install" };
-  // A fresh document every visit: auto-check off, no verdicts kept in this browser.
-  function forget() { try { localStorage.removeItem(LS.site); localStorage.removeItem(LS.cache); } catch (e) { /* storage blocked */ } }
+  /* "Nothing is saved", in this browser too. content.js writes tracely.*
+     keys to localStorage: the per-site switch, its verdict cache (with the
+     model's rewrite of each sentence checked), dismissed cards, its settings
+     (Auto-src), where the panel was dragged. Here those reads and writes go
+     to this Map instead, which goes with the page, so every visit starts
+     fresh: auto-check off, nothing dismissed, no verdicts kept. Installed
+     before content.js runs. Storage blocked altogether: content.js already
+     copes without it, and there is nothing to keep out. */
+  var mem = new Map(), store = null, SP = window.Storage && Storage.prototype;
+  try { store = window.localStorage; } catch (e) { /* blocked */ }
+  var ours = function (st, k) { return st === store && /^tracely\./.test(String(k)); };
+  if (store && SP) {
+    var getItem = SP.getItem, setItem = SP.setItem, removeItem = SP.removeItem, keyAt = SP.key;
+    SP.getItem = function (k) { return ours(this, k) ? (mem.has(String(k)) ? mem.get(String(k)) : null) : getItem.apply(this, arguments); };
+    SP.setItem = function (k, v) { if (ours(this, k)) { mem.set(String(k), String(v)); return; } return setItem.apply(this, arguments); };
+    SP.removeItem = function (k) { if (ours(this, k)) { mem.delete(String(k)); return; } return removeItem.apply(this, arguments); };
+  }
+  // What an earlier visit, or an earlier build of this page, left on disk
+  // (its tracely.demo.install id included): wiped on arrival.
+  function forget() {
+    try {
+      for (var i = store ? store.length - 1 : -1; i >= 0; i--) {
+        var k = keyAt.call(store, i);
+        if (k && /^tracely\./.test(k)) removeItem.call(store, k);
+      }
+    } catch (e) { /* storage blocked */ }
+  }
   forget();
-  addEventListener("pagehide", forget);
 
   var bus = new EventTarget();
   var demo = window.__tracelyDemo = {
@@ -140,7 +167,6 @@
     closed: "",            // the server's demo_closed message, once it says so
     limits: { check: 10, sources: 2, review: 2, maxChars: 3000 },
     maxContext: 1500,
-    forget: forget,
     on: function (type, fn) { bus.addEventListener(type, function (e) { fn(e.detail || {}); }); },
     emit: function (type, detail) { try { bus.dispatchEvent(new CustomEvent(type, { detail: detail || {} })); } catch (e) { /* a listener's trouble */ } },
   };
@@ -155,13 +181,13 @@
 
   // background.js's own wording, so a failure reads the same as in the extension.
   var OFFLINE = "Tracely is offline — the server did not answer. Checks will run again when it is back.";
-  var UNAVAILABLE = "That part of Tracely isn't in the try-out. Add Tracely to Chrome to use it.";
+  var UNAVAILABLE = "That part of Tracely isn't in the try-out.";
   var PAUSED = "Press “Check my writing” to check your edits.";
   var fmt = function (n) { return Number(n).toLocaleString("en-US"); };
   var plural = function (n, one, many) { return n + " " + (n === 1 ? one : many); };
   demo.limitMessage = function (feature) {
     var n = demo.limits[feature];
-    return feature === "check" ? "That's the try-out: you've used your " + plural(n, "check", "checks") + " for today. Install Tracely free to keep going."
+    return feature === "check" ? "That's the try-out: you've used your " + plural(n, "check", "checks") + " for today. Get early access to keep going."
       : "You've used your " + plural(n, feature === "sources" ? "source search" : "writing review", feature === "sources" ? "source searches" : "writing reviews") + " for this try-out. Checks still work.";
   };
   // What content.js may ask for, and the try-out route that answers it.
@@ -169,13 +195,6 @@
   // Docs mode's live search (never used in field mode): the plain route answers it.
   var STREAMS = { "/api/sources/stream": ["sources", "/api/demo/sources"] };
 
-  function installId() {
-    try {
-      var id = localStorage.getItem(LS.install);
-      if (!id) { id = crypto.randomUUID(); localStorage.setItem(LS.install, id); }
-      return id;
-    } catch (e) { return ""; }
-  }
   function sseEvents(buffer) { // background.js sseEvents
     var events = [], k;
     while ((k = buffer.indexOf("\n\n")) >= 0) {
@@ -212,7 +231,7 @@
     try {
       res = await fetch(route[1], {
         method: "POST", credentials: "same-origin", cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-Tracely-Demo": "1", "X-Tracely-Install": installId() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (onEvent && res.ok && res.body && /event-stream/.test(res.headers.get("content-type") || "")) {
@@ -250,7 +269,10 @@
     if (type === "tracely-getState") return Promise.resolve({ ok: true, server: true, mode: "server" });
     if (type === "tracely-entitlement") return Promise.resolve({ ok: true, plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false });
     if (type === "tracely-openSettings") demo.emit("settings");
-    return Promise.resolve({ ok: false }); // open-order (content.js then opens the order page), settings, anything else
+    // Never the order page: it holds live checkout links, and before launch
+    // there is nothing to install yet. ok:true, so content.js opens nothing.
+    if (type === "tracely-open-order") { demo.emit("upgrade"); return Promise.resolve({ ok: true }); }
+    return Promise.resolve({ ok: false }); // settings, anything else
   }
   // A port, as background.js's onConnect gives one (docs mode's live search only).
   function connect() {
