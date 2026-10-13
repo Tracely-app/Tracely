@@ -27,7 +27,7 @@ import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
 import { DEMO_MESSAGES, demoSecret, demoPublicOrigin, demoOff, visitorOf, mintVisitor, visitorCookie, demoCallerId, demoAddressKey,
-         demoAdmit, demoRecord, demoStatus } from "./lib/demo.js";
+         demoAdmit, demoRecord, demoStatus, demoPoolAdmission } from "./lib/demo.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // What is deployed, as the runbook stamped it (lib/release.js); null on a laptop.
@@ -878,15 +878,34 @@ async function appGate(req) {
 }
 
 /* The try-out's gate (lib/demo.js has the whole rule): the same shape as
- * spendGate, over the DEMO pool. Off, no cookie, the address window, the
- * pool — then the caller's rate, then the reservation last, so no refusal
- * leaks one; the handler's `finally` releases it. The caller is always the
+ * spendGate, over the DEMO pool, but only the cheap refusals — off, no
+ * cookie, the address window, no room in the pool, source search paused,
+ * the caller's rate. It RESERVES NOTHING: the body has not been read yet,
+ * and a request that sends its headers and then its body a byte a second
+ * would hold a reservation for as long as it kept sending (a probe: two
+ * such sockets closed a 5-cent pool with nothing spent). demoAdmit reserves
+ * once the body is read and validated, with no await before the model call,
+ * and the handler's `finally` releases it. POST only (the dispatch below),
+ * and the body has DEMO_BODY_DEADLINE_MS to arrive. The caller is always the
  * free plan, enforced even with no Supabase configured, and never offered
  * the beta grant: the fast model, and "Explain in depth" refused. The
  * per-visitor allowance and the text caps need the body, so the handler
  * applies them (demoAdmit / demoRecord). */
 const demoAddressRate = keyedRateLimiter(SPEND.demoAddressCallsPerHour, 3_600_000);
+/* A demo body is a few KB. The socket's idle timeout is no bound — a sender
+ * resets it with every byte — so this is an absolute deadline from the gate:
+ * past it the request is destroyed with a 408, which readBody rejects with. */
+const DEMO_BODY_DEADLINE_MS = 10_000;
+function bodyDeadline(req, ms) {
+  if (req.complete) return;
+  const timer = setTimeout(() => req.destroy(new CheckError("bad_request", "The request took too long to arrive.", { status: 408 })), ms);
+  timer.unref?.();
+  const clear = () => clearTimeout(timer);
+  req.once("end", clear);
+  req.once("close", clear);
+}
 async function demoGate(req, route) {
+  bodyDeadline(req, DEMO_BODY_DEADLINE_MS);
   loadEnvFile();
   const kind = DEMO_KIND[route];
   if (demoOff()) throw new CheckError("demo_closed", DEMO_MESSAGES.off, { status: 503 });
@@ -898,13 +917,14 @@ async function demoGate(req, route) {
   const addr = demoAddressKey(clientAddress(req));
   if (!demoAddressRate.ok(addr)) throw new CheckError("rate_limit", DEMO_MESSAGES.busy, { status: 429, retryAfter: 600 });
   demoAddressRate.stamp(addr);
-  const { budget, room } = poolRoom({ enforced: true, pool: "demo" });
-  // Spent is CLOSED: never the extension pool, whatever the day looks like there.
-  if (!room) throw new CheckError("demo_closed", DEMO_MESSAGES.spent, { status: 503 });
+  // Spent is CLOSED (never the extension pool, whatever the day looks like
+  // there); full of calls in flight is BUSY (lib/demo.js demoPoolAdmission).
+  const budget = demoPoolAdmission();
   if (kind === "sources" && !budget.sourcesAllowed) throw new CheckError("budget", DEMO_MESSAGES.sourcesPaused, { status: 503 });
   stampCallerRate(ent, id, kind === "sources" ? "sources" : "check");
-  const reservation = reserveSpend("demo", worstCallMicroCents(route, MODEL_TIERS.fast));
-  return { ent, holder: ent, callerId: id, budget, pool: "demo", reservation, modelCeiling: null, demo: { kind } };
+  // `worst`: what demoAdmit reserves for the first call, once the body is in.
+  return { ent, holder: ent, callerId: id, budget, pool: "demo", reservation: null, modelCeiling: null,
+    demo: { kind, worst: worstCallMicroCents(route, MODEL_TIERS.fast) } };
 }
 
 /**
@@ -1100,7 +1120,9 @@ const server = http.createServer(async (req, res) => {
     const api = DEMO_ALIAS[url.pathname] ?? url.pathname;
     if (APP_AI_ROUTES.has(url.pathname)) {
       gate = await appGate(req);
-    } else if (DEMO_ALIAS[url.pathname]) {
+    } else if (DEMO_ALIAS[url.pathname] && req.method === "POST") {
+      // POST only: another method reaches no handler (404), so it must not
+      // take an address-window slot on its way there.
       gate = await demoGate(req, api);
     } else if (PAID_ROUTES.has(url.pathname)) {
       gate = await spendGate(req, {

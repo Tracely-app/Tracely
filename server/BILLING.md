@@ -307,7 +307,10 @@ pool of its own, `demo` (`__global_demo__`, `TRACELY_DEMO_DAILY_BUDGET_USD`,
 default **$2**), and it is the one pool that REFUSES when spent (503
 `demo_closed`, "comes back at midnight") rather than falling back: a busy
 try-out can never 503 a store user or shed their source search. Like `paid`
-and `beta` it reserves each call's worst case before running it, so a burst
+and `beta` it reserves each call's worst case before running it — once the
+request's body is read, never before (`demoAdmit`), so a slow body holds
+nothing; room taken only by calls in flight is 503 `demo_busy`, not a closed
+day — so a burst
 of fresh cookies overshoots the day by one call at most (~4.7 cents, a source
 search's `WORST_CALL` on luna); it sheds source search below 20% left; and its
 searches have their own window (10 an hour), apart from the extension's 15.

@@ -16,8 +16,10 @@
  *   3. The caller is `demo:<sha256(id)>` at the FREE plan, enforced even on a
  *      box with no Supabase: the fast model, "Explain in depth" refused, the
  *      beta header ignored.
- *   4. The "demo" pool (lib/spend.js), reserved per call; spent is 503
- *      demo_closed, NEVER the extension pool.
+ *   4. The "demo" pool (lib/spend.js): asked in the gate, and reserved only
+ *      once the body is read (demoAdmit) — a reservation taken before would
+ *      be held by a body sent a byte a second. Spent is 503 demo_closed,
+ *      NEVER the extension pool; full of calls in flight is 503 demo_busy.
  *   5. A per-visitor daily allowance (demo_check / demo_sources /
  *      demo_review usage rows), checked after the body is read and stamped
  *      just before the model call: over is 429 demo_limit.
@@ -33,7 +35,7 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { usageCount, usageBump } from "./db.js";
-import { dailyBudgetMicroCents, poolRoom } from "./spend.js";
+import { dailyBudgetMicroCents, poolRoom, reserveSpend } from "./spend.js";
 import { CheckError } from "./errors.js";
 import { SPEND } from "../shared/guards.js";
 import { usageDay } from "../shared/plan.js";
@@ -48,6 +50,7 @@ export const DEMO_MESSAGES = {
   session: "Your try-out session has expired. Reload the page to start again.",
   sourcesPaused: "Source search is paused on the try-out for today. Checking still works.",
   busy: "The try-out is busy on your network right now. Try again in a little while.",
+  poolBusy: "The try-out is busy — try again in a minute.",
   searchesBusy: "Source search on the try-out is busy right now. Try again in a few minutes.",
 };
 
@@ -142,6 +145,20 @@ export function demoOff(env = process.env) {
   return !demoSecret(env) || dailyBudgetMicroCents(env, "demo") <= 0;
 }
 
+/**
+ * The demo pool's admission, asked by demoGate and again by demoAdmit just
+ * before it reserves. Room: the day's spend state. A SPENT day: 503
+ * demo_closed ("comes back at midnight" — the page closes for the session).
+ * No room only because of calls in flight: 503 demo_busy. Those calls end in
+ * seconds and release what they hold, so the page must not close for it.
+ */
+export function demoPoolAdmission(env = process.env, at = Date.now()) {
+  const { budget, room } = poolRoom({ enforced: true, pool: "demo", at, env });
+  if (room) return budget;
+  if (!budget.allowed) throw new CheckError("demo_closed", DEMO_MESSAGES.spent, { status: 503 });
+  throw new CheckError("demo_busy", DEMO_MESSAGES.poolBusy, { status: 503, retryAfter: 60 });
+}
+
 /** The next local midnight, when the pool and the allowances reset. */
 export function demoResetAt(at = Date.now()) {
   const d = new Date(at);
@@ -167,11 +184,15 @@ const fmt = (n) => n.toLocaleString("en-US");
 /**
  * Admission for one demo call, AFTER the route has read and validated its
  * body: the text caps (400), then the visitor's allowance for `gate.demo.kind`
- * (429 demo_limit). Stamps nothing — demoRecord does, just before the model
- * call, so a request refused on the way (a 400, the review route's once-a-
- * minute window, an hourly search window) never uses up an allowance. The
- * handlers make no await between the two, so concurrent requests cannot both
- * take the last one.
+ * (429 demo_limit), then the pool (demoPoolAdmission) — and only then the
+ * pool reservation, `gate.demo.worst` (the gate's worst case for one call),
+ * as `gate.reservation`: extensionModel shrinks it, a split or an extra
+ * shard extends it, and the handler's `finally` releases it. Stamps no
+ * allowance — demoRecord does, just before the model call, so a request
+ * refused on the way (a 400, the review route's once-a-minute window, an
+ * hourly search window) never uses up an allowance. The handlers make no
+ * await between this and the model call, so concurrent requests cannot both
+ * take the last allowance or the last of the pool.
  */
 export function demoAdmit(gate, { text, sentences, context } = {}, env = process.env) {
   const { kind } = gate.demo;
@@ -192,6 +213,8 @@ export function demoAdmit(gate, { text, sentences, context } = {}, env = process
     err.feature = kind;
     throw err;
   }
+  demoPoolAdmission(env);
+  gate.reservation = reserveSpend("demo", gate.demo.worst ?? 0);
 }
 
 /** Stamps one demo call against the visitor's allowance — before the call. */
@@ -203,8 +226,11 @@ export function demoRecord(gate, at = Date.now()) {
  * GET /api/demo/status: whether the try-out is open, what this visitor has
  * left today, the limits, and when both reset. Off (no secret, budget 0): a
  * 200 with open:false, so the page can say so. On, with no valid cookie:
- * 403 demo_session, like every other demo route. `sourcesPaused` (only when
- * true) is the pool's 20% line: checks go on, source search does not.
+ * 403 demo_session, like every other demo route. `open` is the DAY: false
+ * only when the pool is spent (or the try-out off), because the page closes
+ * for the session on it. `busy` (only when true) is a pool whose room is
+ * taken by calls in flight — seconds, not the day. `sourcesPaused` (only
+ * when true) is the pool's 20% line: checks go on, source search does not.
  */
 export function demoStatus(req, env = process.env, at = Date.now()) {
   const limits = demoLimits(env);
@@ -215,5 +241,6 @@ export function demoStatus(req, env = process.env, at = Date.now()) {
   const used = demoUsed(demoCallerId(visitor), at);
   const { budget, room } = poolRoom({ enforced: true, pool: "demo", at, env });
   const left = Object.fromEntries(Object.keys(DEMO_USAGE_KINDS).map((k) => [k, Math.max(0, limits[k] - used[k])]));
-  return { open: room, left, limits, resetAt, ...(room && !budget.sourcesAllowed ? { sourcesPaused: true } : {}) };
+  const open = budget.allowed;
+  return { open, left, limits, resetAt, ...(open && !room ? { busy: true } : {}), ...(open && !budget.sourcesAllowed ? { sourcesPaused: true } : {}) };
 }

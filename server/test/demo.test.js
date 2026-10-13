@@ -15,6 +15,8 @@
  *   LOCAL  TRACELY_PUBLIC_ORIGIN is the server's own localhost origin
  *   PRICED OpenAI stubbed by a preload: slow, priced checks, a pool of
  *          2.5 worst-case checks — a burst of fresh cookies
+ *   HOLD   mock model, a pool of 1.5 worst-case checks — bodies that never
+ *          finish arriving
  *
  * Every call carries its own X-Forwarded-For (TRACELY_TRUSTED_PROXY_HOPS=1)
  * unless a test names one, so the per-address window of one test never
@@ -175,7 +177,7 @@ async function boot(env, { preload } = {}) {
   throw new Error("could not find a free port for a test server");
 }
 
-let ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED;
+let ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED, HOLD;
 // PRICED's pool: room for two and a half worst-case checks on the fast model.
 const WORST_CHECK = costMicroCents(LUNA, { input: 24_000, cacheWrite: 24_000, output: 16_000 });
 const PRICED_BUDGET_USD = (2.5 * WORST_CHECK) / (100 * 1e6);
@@ -183,7 +185,7 @@ test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
   const on = { TRACELY_MOCK: "1", TRACELY_DEMO_SECRET: SECRET };
-  [ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED] = await Promise.all([
+  [ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED, HOLD] = await Promise.all([
     boot({ ...hosted, ...on, TRACELY_PUBLIC_ORIGIN: `${PUBLIC}/`, TRACELY_DEMO_DAILY_BUDGET_USD: "", TRACELY_BETA_TOKENS: "right-token" }),
     boot({ TRACELY_MOCK: "1", TRACELY_PUBLIC_ORIGIN: PUBLIC }),
     boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0" }),
@@ -193,6 +195,7 @@ test.before(async () => {
     boot((p) => ({ ...on, TRACELY_PUBLIC_ORIGIN: `http://127.0.0.1:${p}` })),
     boot({ OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: String(PRICED_BUDGET_USD),
       TRACELY_TEST_OPENAI_DELAY_MS: "1500", TRACELY_TEST_OPENAI_USAGE: "4000,2000" }, { preload: STUB }),
+    boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: String((1.5 * WORST_CHECK) / (100 * 1e6)) }),
   ]).catch((err) => {
     for (const child of booted) child.kill(); // or the run never exits
     throw err;
@@ -526,11 +529,20 @@ test("the try-out's searches have their own hourly window: the 11th is refused, 
 test("a burst of fresh cookies cannot be admitted past the pool: each call reserves its worst case first", async () => {
   // 2.5 worst cases of room: three admitted while the first calls are still
   // in flight (1.5 s each), every other one refused — never the 503 of a
-  // check that ran.
-  const burst = await Promise.all(Array.from({ length: 6 }, () => demoCheck(PRICED, visitor())));
+  // check that ran. Refused as BUSY, not closed: nothing is spent yet, and
+  // the page closes for the session on demo_closed.
+  const pending = Promise.all(Array.from({ length: 6 }, () => demoCheck(PRICED, visitor())));
+  await new Promise((r) => setTimeout(r, 500));
+  const during = await demoStatus(PRICED, visitor());
+  assert.deepEqual([during.body.open, during.body.busy], [true, true], "in flight is busy, never a closed day");
+  const burst = await pending;
   const ok = burst.filter((r) => r.status === 200);
   assert.equal(ok.length, 3, JSON.stringify(burst.map((r) => [r.status, errorOf(r).kind])));
-  for (const r of burst.filter((x) => x.status !== 200)) assert.equal(errorOf(r).kind, "demo_closed");
+  for (const r of burst.filter((x) => x.status !== 200)) {
+    assert.equal(errorOf(r).kind, "demo_busy");
+    assert.equal(errorOf(r).message, "The try-out is busy — try again in a minute.");
+  }
+  assert.equal("busy" in (await demoStatus(PRICED, visitor())).body, false, "and not busy once they have answered");
   const b = (await status(PRICED)).demoBudget;
   const oneCall = costMicroCents(LUNA, { input: 4000, output: 2000 }) / (100 * 1e6);
   assert.ok(Math.abs(b.spentUsd - 3 * oneCall) < 1e-4, `the three that ran were charged to the demo pool: ${b.spentUsd}`);
@@ -549,6 +561,49 @@ test("a demo call that fails after OpenAI answered is still charged — to the d
   for (let i = 0; i < 40 && !PRICED.stderr().includes("route=/api/demo/check"); i++) await new Promise((res) => setTimeout(res, 25));
   assert.match(PRICED.stderr(), /\[tracely\] model call failed route=\/api\/demo\/check kind=truncated status=502 model=gpt-5\.6-luna/);
   assert.ok(!PRICED.stderr().includes("the demo pool must see this"), "and none of the visitor's text");
+});
+
+/* A demo check whose body never finishes: the headers, then one byte every
+ * 200 ms of a body that claims 100,000. `closed` resolves with how long the
+ * server let it run. */
+function slowBody(srv, cookie, addr = freshAddr()) {
+  return new Promise((resolve, reject) => {
+    const s = net.connect(srv.port, "127.0.0.1", () => {
+      const started = Date.now();
+      s.write(`POST /api/demo/check HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\nContent-Type: application/json\r\nContent-Length: 100000\r\n` +
+        `Cookie: tracely_demo=${cookie.value}\r\nX-Forwarded-For: ${addr}\r\n\r\n{"text":"`);
+      const tick = setInterval(() => s.write("a"), 200);
+      const closed = new Promise((r) => s.on("close", () => { clearInterval(tick); r(Date.now() - started); }));
+      resolve({ socket: s, closed });
+    });
+    s.on("error", reject);
+  });
+}
+
+test("a body sent a byte at a time holds nothing of the pool, and has 10 s to arrive", async () => {
+  // HOLD's pool is 1.5 worst-case checks: two calls holding theirs would
+  // close it. These two have passed the gate and are still sending.
+  const slow = await Promise.all([slowBody(HOLD, visitor()), slowBody(HOLD, visitor())]);
+  for (const s of slow) s.socket.on("error", () => {});
+  await new Promise((r) => setTimeout(r, 400));
+  const s = await demoStatus(HOLD, visitor());
+  assert.equal(s.body.open, true);
+  assert.equal("busy" in s.body, false, "nothing is held for a body still arriving");
+  const r = await demoCheck(HOLD, visitor());
+  assert.equal(r.status, 200, `another visitor is served: ${JSON.stringify(r.body)}`);
+  const ms = await Promise.all(slow.map((x) => x.closed));
+  for (const t of ms) assert.ok(t >= 9_000 && t < 13_000, `the server ended the slow body at its deadline: ${t} ms`);
+});
+
+test("a demo route answers POST only: another method is 404 and takes no slot of the address window", async () => {
+  const v = visitor();
+  const addr = freshAddr();
+  for (let i = 0; i < SPEND.demoAddressCallsPerHour + 1; i++) {
+    const r = await call(HOLD, "GET", "/api/demo/check", { cookie: v, addr });
+    assert.equal(r.status, 404, `GET ${i + 1}`);
+  }
+  assert.equal((await demoCheck(HOLD, v, { addr })).status, 200, "the address still has its whole window");
+  assert.equal((await demoStatus(HOLD, v)).body.left.check, 9, "and only the POST counted");
 });
 
 // ── the shipped contract is untouched ────────────────────────────────────

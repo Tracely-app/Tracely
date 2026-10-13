@@ -146,8 +146,10 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   `EXTENSION_API`, `PAID_ROUTES` or `APP_AI_ROUTES` — and alias into the
   `/api/check`, `/api/sources` and `/api/review` handlers (`api`, the aliased
   path, is what those handlers match on; never copy a handler for the demo).
-  Its pool `demo` reserves per call and REFUSES when spent (503
-  `demo_closed`) — never fall back to another pool. `TRACELY_PUBLIC_ORIGIN`
+  Its pool `demo` reserves per call — in `demoAdmit`, after the body is read,
+  never in the gate — and REFUSES when spent (503 `demo_closed`; full of
+  calls in flight, 503 `demo_busy`) — never fall back to another pool.
+  `TRACELY_PUBLIC_ORIGIN`
   reaches the demo routes and static files only (decided before the self-origin
   pass); never add it to `SELF_ORIGINS`. The caller is always the free plan,
   enforced; never call `withBetaGrant` for it. `test/demo.test.js` pins all of

@@ -240,10 +240,16 @@ What bounds it, in the order `demoGate` checks:
   mints a new one on reload.
 - **The free plan**, enforced even though the caller is anonymous: the fast
   model, "Explain in depth" refused, the beta header ignored.
-- **The demo pool**: every call reserves its worst case first, so a burst of
-  fresh cookies overshoots by one call at most. Spent: `503 demo_closed`
-  ("comes back at midnight") on the try-out — the extension's pool is never
-  touched. Below 20% left, source search pauses on the try-out; checks go on.
+- **The demo pool**: the gate asks for room, and every call reserves its
+  worst case once its body has been read and validated (`demoAdmit`) — never
+  before, or a body sent a byte at a time would hold a reservation for free
+  (a demo body has 10 seconds to arrive; only `POST` reaches the gate). A
+  burst of fresh cookies overshoots by one call at most. Spent: `503
+  demo_closed` ("comes back at midnight") on the try-out — the extension's
+  pool is never touched. Room taken only by calls in flight: `503 demo_busy`
+  ("try again in a minute"), and `/api/demo/status` stays `open` with
+  `busy: true`. Below 20% left, source search pauses on the try-out; checks
+  go on.
 - **Per visitor per day**: 10 checks, 2 source searches, 2 writing reviews
   (`429 demo_limit` with `feature`). Fairness, not a cap: a private window
   mints a fresh cookie.
