@@ -739,6 +739,50 @@
     return { heading: last[1], headStart, end: text.length, entries };
   }
 
+  // ── source credibility ──
+  // Would a marker accept this source? A copy of the desktop's
+  // src/shared/sourceCredibility.ts: decided here from the publisher, never
+  // by the model (a model grading its own search grades it generously), and
+  // an unvetted source is ranked last and labelled, never dropped.
+  // server/test/ext-source-credibility.test.js keeps the two in step.
+  const CRED_ORDER = { scholarly: 0, official: 1, reference: 2, "news-of-record": 3, unvetted: 4 };
+  const CRED_OFFICIAL_SUFFIX = /(^|\.)(gov|mil|int|edu)$|(^|\.)(gov|ac|edu)\.[a-z]{2}$/i;
+  const CRED_OFFICIAL_HOSTS = ["un.org", "unicef.org", "unesco.org", "unhcr.org", "who.int", "worldbank.org", "imf.org", "oecd.org", "wto.org", "icrc.org", "redcross.org", "europa.eu"];
+  const CRED_REFERENCE_HOSTS = ["britannica.com", "oxforddnb.com", "oed.com", "oxfordreference.com", "loc.gov", "bl.uk", "archives.gov", "nationalarchives.gov.uk", "jstor.org", "niod.nl", "iwm.org.uk", "si.edu", "ushmm.org", "yadvashem.org"];
+  const CRED_NEWS_OF_RECORD = ["nytimes.com", "washingtonpost.com", "wsj.com", "ft.com", "economist.com", "theguardian.com", "bbc.co.uk", "bbc.com", "reuters.com", "apnews.com", "npr.org", "pbs.org", "time.com", "theatlantic.com", "newyorker.com", "nature.com", "science.org", "scientificamerican.com", "smithsonianmag.com", "nationalgeographic.com", "telegraph.co.uk", "thetimes.co.uk", "latimes.com", "cbc.ca", "abc.net.au"];
+  const CRED_OPEN_ENCYCLOPEDIA = /(^|\.)(wikipedia|wikimedia|fandom|wikiwand)\./i;
+  function credHost(url) {
+    if (!url) return null;
+    try { return new URL(String(url).trim()).hostname.toLowerCase().replace(/^www\./, ""); } catch { return null; }
+  }
+  // On a dot boundary: news.bbc.co.uk counts, nottime.com does not.
+  const credMatches = (host, list) => list.some((e) => host === e || host.endsWith(`.${e}`));
+  /* { tier, label, citable, why } from { url, venueType, doi }: the desktop's
+     credibilityOf, word for word (the label is the chip, the why its hover). */
+  function credibilityOf(source) {
+    const host = credHost(source?.url);
+    const scholarlyVenue = source?.venueType === "journal" || source?.venueType === "conference" || source?.venueType === "preprint";
+    if (source?.doi && scholarlyVenue) return { tier: "scholarly", label: "Peer-reviewed", citable: true, why: "A journal article with a DOI. The strongest thing you can cite." };
+    if (host && (CRED_OFFICIAL_SUFFIX.test(host) || credMatches(host, CRED_OFFICIAL_HOSTS))) return { tier: "official", label: "Official", citable: true, why: "Published by the government, university or organisation it is about." };
+    if (host && credMatches(host, CRED_REFERENCE_HOSTS)) return { tier: "reference", label: "Reference work", citable: true, why: "An established work of record — an encyclopedia, archive or museum." };
+    if (host && credMatches(host, CRED_NEWS_OF_RECORD)) return { tier: "news-of-record", label: "News of record", citable: true, why: "A masthead with editors and a corrections policy." };
+    if (host && CRED_OPEN_ENCYCLOPEDIA.test(host)) return { tier: "unvetted", label: "Encyclopedia", citable: false, why: "Anyone can edit it, so most teachers will not accept it. Follow its references and cite those instead." };
+    if (source?.doi || scholarlyVenue) return { tier: "unvetted", label: "Check this one", citable: false, why: "Looks academic, but Tracely could not confirm the publisher. Check who published it before citing." };
+    return { tier: "unvetted", label: "Check this one", citable: false, why: "Tracely does not recognise this publisher. It may still be fine — check who wrote it and whether they cite their own sources." };
+  }
+  // A source from /api/sources carries `kind` (server/lib/citeFields.js), not
+  // a venue type: a journal article is kind "journal" (Crossref sets it for a DOI).
+  const credibilityFor = (src) => credibilityOf({ url: src?.url, doi: src?.doi, venueType: src?.kind === "journal" ? "journal" : null });
+  // Most citable first. A STABLE sort: within a tier the server's best-first order stands.
+  const byCredibility = (items) => [...items].sort((a, b) => CRED_ORDER[credibilityFor(a).tier] - CRED_ORDER[credibilityFor(b).tier]);
+  /* The line under a source's title: its publisher, and how citable it is,
+     the reason on hover. In the meta's own grey: colour only ever means a
+     finding (CLAUDE.md, UI decisions). */
+  function sourceMetaHtml(src) {
+    const c = credibilityFor(src);
+    return `${src?.publisher ? `${esc(src.publisher)} · ` : ""}<span class="src-cred" title="${esc(c.why)}">${esc(c.label)}</span>`;
+  }
+
   // ── citation formatting ──
   // Plain text only (the Docs bridge appends plain lines). Returns
   // { doc, ref, marker }:
@@ -2065,7 +2109,8 @@
     const unread = all.filter((s) => s && s.verified === false);
     const keep = all.filter((s) => s && s.verified !== false && (s.stance === undefined || s.stance === "manual" || s.stance === "supports" ||
       (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
-    return { list: keep, unbacked: all.length - keep.length - unread.length, unread };
+    // Most citable first (byCredibility, stable): the first offered is the one to cite.
+    return { list: byCredibility(keep), unbacked: all.length - keep.length - unread.length, unread };
   }
   const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
   const RECEIPT_COPY = {
@@ -2096,7 +2141,7 @@
         <div class="src src-unread-row">
           <div class="src-body">
             <span class="src-title">${esc(src.title || src.url)}</span>
-            <div class="src-meta">${esc(src.publisher || "")}</div>
+            <div class="src-meta">${sourceMetaHtml(src)}</div>
             <div class="src-actions"><a class="src-open" href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(RECEIPT_COPY.open)}</a></div>
           </div>
         </div>`).join("") : "";
@@ -5636,7 +5681,11 @@
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
       meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
       const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
-      sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
+      // Publisher, year and how citable it is (credibilityFor), the reason on hover.
+      const cred = credibilityFor(src);
+      const pubLine = el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""} · ${cred.label}`);
+      pubLine.title = cred.why;
+      sub.appendChild(pubLine);
       // The app's match column never shrinks; here it says the source's stance on the claim.
       const stance = STANCE_LABEL[src.stance] ?? "Context";
       sub.appendChild(el("span", { color: src.stance === "supports" ? DM.green : src.stance === "refutes" ? DM.red : DM.body, fontWeight: "500", whiteSpace: "nowrap", flexShrink: "0" }, stance));
@@ -9896,7 +9945,7 @@
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
-                    <div class="src-meta">${esc(src.publisher)}</div>
+                    <div class="src-meta">${sourceMetaHtml(src)}</div>
                     ${sourceSaysHtml(src)}
                     <div class="src-actions">
                       ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : nameTheSource(seg.text, src, settings.citationStyle || "mla") ? POP_COPY.name : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
@@ -11267,7 +11316,7 @@
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
-                    <div class="src-meta">${esc(src.publisher)}</div>
+                    <div class="src-meta">${sourceMetaHtml(src)}</div>
                     ${sourceSaysHtml(src)}
                     <div class="src-actions">
                       ${replaceFor(seg.hash) ? `<button class="act primary" data-src-replace="${seg.hash}" data-i="${i}">${esc(CITED_COPY.replace)}</button>` : ""}
