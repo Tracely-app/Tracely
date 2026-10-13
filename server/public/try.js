@@ -451,6 +451,10 @@
 
   /* ── inside www.jointracely.com/try/: tell the frame how tall to be ── */
   if (framed) {
+    // The website frames with allow-top-navigation-by-user-activation, so a
+    // click on early access / the download page moves the site itself rather
+    // than opening a second tab of it.
+    for (const a of document.querySelectorAll("#notice-actions a")) a.target = "_top";
     const parents = ["https://www.jointracely.com", "https://jointracely.com"];
     // Post only to the page that framed this one (every other target logs a
     // console warning on each resize): ancestorOrigins (Chromium, Safari) or
