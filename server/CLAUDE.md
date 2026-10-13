@@ -48,6 +48,10 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   310 judged sources, the good "backs" it kept fell from 34 to 9, and 23 of
   its 26 "contradicts" were wrong (`eval/goldset/README.md`). Measure any
   change to the judge with `eval/goldset/run-verify-prod.mjs` before it ships.
+  A "backs" whose quote does not show the figure the sentence states ("roughly
+  70 percent" backed by "8 to 10 hours") is `context`, with no model involved
+  (`lib/claimFigures.js`, tallied `figures=`). Measured free on recorded
+  runs with `eval/goldset/figures.mjs`.
 - **The desktop gets the same receipts from its own route,
   `/api/verify-sources`** (2026-10-07; `lib/reasoning.js` `verifySources` →
   the same `lib/sourceVerify.js`, never a second verifier). The desktop sends

@@ -239,7 +239,7 @@ test("backs with a quote that is there: supports, verified, the quote, where it 
     { id: 1, verdict: "backs", quote: "spending on youth facilities fell by 73%" },
     { id: 2, verdict: "contradicts", quote: "Spending on youth facilities rose by 12%" },
   ]);
-  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, unjudged: 0 });
+  assert.deepEqual(t, { changed: 3, quoted: 2, unquoted: 0, figures: 0, unjudged: 0 });
   assert.deepEqual(sources[0], { title: "Ord & Davies", stance: "context", snippet: "Says support for youth leadership increased.", verified: true, readFrom: "abstract" }, "on the topic, read, not backing: no quote");
   assert.deepEqual(sources[1], { title: "GOV.UK", stance: "supports", snippet: "“spending on youth facilities fell by 73%”", verified: true, readFrom: "page", quote: "spending on youth facilities fell by 73%" });
   assert.equal(sources[2].stance, "refutes");
@@ -250,10 +250,33 @@ test("a verdict whose quote is not in the text falls to topic; a source the judg
   const sources = [{ stance: "supports", snippet: "orig" }, { stance: "supports", snippet: "orig" }, { stance: "context" }];
   const evidence = [{ i: 0, passages: [{ from: "page", text: "The report covers loneliness among young people in England." }] }, { i: 1, passages: [{ from: "abstract", text: "Anything at all that was read here." }] }, { i: 2, passages: [{ from: "page", text: "x".repeat(100) }] }];
   const t = applyVerdicts(sources, evidence, [{ id: 0, verdict: "backs", quote: "an invented line that is not there at all" }, { id: 2, verdict: "nonsense", quote: "" }]);
-  assert.deepEqual(t, { changed: 2, quoted: 0, unquoted: 1, unjudged: 2 });
+  assert.deepEqual(t, { changed: 2, quoted: 0, unquoted: 1, figures: 0, unjudged: 2 });
   assert.deepEqual(sources[0], { stance: "context", snippet: "orig", verified: true, readFrom: "page" }, "read, but the receipt was not real: not backing");
   assert.deepEqual(sources[1], { stance: "context", snippet: "orig", verified: false }, "no verdict came back: unverified");
   assert.equal(sources[2].verified, false, "an answer outside the enum is no verdict");
+});
+
+test("a backs whose quote does not show the sentence's figure falls to topic (claimFigures.js); contradicts and figure-free claims are untouched", () => {
+  const claim = "Teenagers require between eight and ten hours of sleep per night, and roughly 70 percent of them get less than seven.";
+  const sources = [{ stance: "supports" }, { stance: "supports" }, { stance: "supports" }];
+  const evidence = [
+    { i: 0, passages: [{ from: "page", text: "The academy recommends that teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours." }] },
+    { i: 1, passages: [{ from: "abstract", text: "Overall, 72.7% of high school students reported sleeping less than 7 hours on school nights." }] },
+    { i: 2, passages: [{ from: "page", text: "Only about 27 percent of teens sleep seven hours or more on a school night." }] },
+  ];
+  const t = applyVerdicts(sources, evidence, [
+    { id: 0, verdict: "backs", quote: "teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours" },
+    { id: 1, verdict: "backs", quote: "72.7% of high school students reported sleeping less than 7 hours on school nights" },
+    { id: 2, verdict: "contradicts", quote: "Only about 27 percent of teens sleep seven hours or more on a school night" },
+  ], claim);
+  assert.deepEqual(t, { changed: 2, quoted: 2, unquoted: 0, figures: 1, unjudged: 0 });
+  assert.deepEqual(sources[0], { stance: "context", verified: true, readFrom: "page" }, "8 to 10 hours shows none of the 70 percent: read, on the topic, no receipt");
+  assert.equal(sources[1].stance, "supports", "72.7% is roughly 70 percent");
+  assert.equal(sources[2].stance, "refutes", "a contradiction is the judge's alone");
+  // No claim (an older caller): the rule does not run.
+  const again = [{ stance: "supports" }];
+  applyVerdicts(again, [evidence[0]].map((e) => ({ ...e, i: 0 })), [{ id: 0, verdict: "backs", quote: "teenagers 13 to 18 years of age should sleep 8 to 10 hours per 24 hours" }]);
+  assert.equal(again[0].stance, "supports");
 });
 
 test("a long quote is cut for display at a word, still the source's own words", () => {
@@ -320,5 +343,5 @@ test("wired: after the page lookups, billed with the search, retracted dropped, 
   assert.match(FACTCHECK, /const gone = new Set\(verified\.retracted \?\? \[\]\);/);
   assert.match(SERVER, /answer = await findSources\(/);
   assert.match(SERVER, /const \{ webSearchCalls, webSearchActions, enriched, dropped, verified, retracted, \.\.\.result \} = answer;/, "the tallies never reach the extension");
-  assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
+  assert.match(SERVER, /verified=\$\{verified\?\.checked \?\? 0\}\/\$\{verified\?\.changed \?\? 0\} quoted=\$\{verified\?\.quoted \?\? 0\} unquoted=\$\{verified\?\.unquoted \?\? 0\} figures=\$\{verified\?\.figures \?\? 0\} unread=\$\{verified\?\.unread \?\? 0\} retracted=\$\{retracted \?\? 0\}/);
 });

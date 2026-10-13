@@ -44,6 +44,7 @@
 import { safeFetch, decodeEntities, looksBlocked } from "./citeMeta.js";
 import { doiOf } from "./sourceEnrich.js";
 import { structuredCall } from "./llm.js";
+import { figuresShown } from "./claimFigures.js";
 
 export const OPENALEX_WORK = "https://api.openalex.org/works/doi:";
 export const VERIFY_DEADLINE_MS = 4_000;
@@ -493,11 +494,13 @@ export function markUnverified(s) {
 /* The verdicts, applied: stance, `verified`, `readFrom`, and for backing or
  * contradicting the `quote` found in the source's own text, which also
  * becomes the snippet. A quote that is not there drops the verdict to
- * "topic". A source the judge skipped is unverified. Pure, so it is tested
- * without a model. Returns { changed, quoted, unquoted, unjudged }. */
-export function applyVerdicts(sources, evidence, verdicts) {
+ * "topic", and so does a "backs" whose quote does not show the figure the
+ * sentence states (`claim` given; claimFigures.js figuresShown). A source the
+ * judge skipped is unverified. Pure, so it is tested without a model.
+ * Returns { changed, quoted, unquoted, figures, unjudged }. */
+export function applyVerdicts(sources, evidence, verdicts, claim = null) {
   const byId = new Map((Array.isArray(verdicts) ? verdicts : []).map((v) => [v?.id, v]));
-  const tally = { changed: 0, quoted: 0, unquoted: 0, unjudged: 0 };
+  const tally = { changed: 0, quoted: 0, unquoted: 0, figures: 0, unjudged: 0 };
   for (const e of evidence) {
     const s = sources[e.i];
     if (!s) continue;
@@ -508,8 +511,14 @@ export function applyVerdicts(sources, evidence, verdicts) {
       markUnverified(s);
       tally.unjudged++;
     } else {
-      const m = v.verdict === "topic" ? null : matchQuote(v.quote, e.passages);
+      let m = v.verdict === "topic" ? null : matchQuote(v.quote, e.passages);
       if (v.verdict !== "topic" && !m) tally.unquoted++;
+      // "Roughly 70 percent get less than seven", backed by "8 to 10 hours":
+      // a receipt that does not show the sentence's figure does not back it.
+      if (m && v.verdict === "backs" && claim && !figuresShown(claim, m.text).ok) {
+        m = null;
+        tally.figures++;
+      }
       s.stance = !m ? "context" : v.verdict === "backs" ? "supports" : "refutes";
       s.verified = true;
       s.readFrom = m ? m.from : readFrom;
@@ -533,7 +542,8 @@ export async function verifySources({ claim, correction, sources, model, call = 
   const list = Array.isArray(sources) ? sources : [];
   // quoted: backs/contradicts whose quote was found; unquoted: whose quote was
   // not (fell to topic) — the number that says whether the rule is too strict.
-  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, unread: 0, retracted: [], usage: null };
+  // figures: backs dropped because the quote does not show the sentence's figure.
+  const out = { checked: 0, changed: 0, quoted: 0, unquoted: 0, figures: 0, unread: 0, retracted: [], usage: null };
   const unverify = (s) => {
     if (!s || typeof s !== "object") return;
     const before = s.stance;
@@ -556,11 +566,12 @@ export async function verifySources({ claim, correction, sources, model, call = 
       evidence.map((e) => `\nSOURCE ${e.i}: ${list[e.i].title}\n` + e.passages.map((p) => `"""\n${p.text}\n"""`).join("\n")).join("\n") +
       `\n\nReturn one verdict per source id (${evidence.map((e) => e.i).join(", ")}).`;
     const raw = await call({ model, system: VERIFY_SYSTEM, user, schema: VERIFY_SCHEMA, maxTokens: 2_000, what: "source check", name: "verdicts", effort: "low" });
-    const t = applyVerdicts(list, evidence, raw?.parsed?.verdicts);
+    const t = applyVerdicts(list, evidence, raw?.parsed?.verdicts, claim);
     out.checked = evidence.length;
     out.changed += t.changed;
     out.quoted = t.quoted;
     out.unquoted = t.unquoted;
+    out.figures = t.figures;
     out.unread += t.unjudged;
     out.usage = raw?.usage ?? null;
     return out;
