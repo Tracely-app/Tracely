@@ -318,8 +318,10 @@ searches have their own window (10 an hour), apart from the extension's 15.
 Per visitor (`demo:<sha256 of the cookie's id>`, a daily-quota key): 10
 checks, 2 source searches, 2 writing reviews a day, at the FREE plan on the
 fast model — "Explain in depth" is refused and the beta header ignored. Text
-is capped at 3,000 characters and 40 sentences a check (1,500 characters of
-context on a search). An address gets a rolling 60 calls an hour and never a
+is capped at 3,000 characters and 40 sentences a check — the sentences too,
+since they are what the model is sent: each must be in the text — and a
+search at a 600-character claim and correction and 1,500 characters of
+context. An address gets a rolling 60 calls an hour and never a
 daily count, the rule above. The per-visitor numbers are fairness for honest
 visitors; a private window mints a new cookie. **The pool is the cap.**
 

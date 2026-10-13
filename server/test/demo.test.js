@@ -402,7 +402,23 @@ test("over-cap text is 400 with a plain message — and uses up no allowance", a
   }
   const many = Array.from({ length: 41 }, (_, i) => ({ id: `s${i}`, text: "Short." }));
   assert.equal((await demoCheck(ON, v, { extra: { text: "Short.", sentences: many } })).status, 400, "41 sentences");
-  assert.equal((await demoCheck(ON, v, { extra: { text: "x".repeat(3000) } })).status, 200, "exactly 3,000 is allowed");
+  // The model is sent the SENTENCES, so the cap holds for them: a short text
+  // cannot carry two 2,000-character sentences, nor a sentence not in it.
+  const big = (c) => ({ id: `big-${c}`, text: c.repeat(2000) });
+  for (const [sentences, why] of [[[big("a"), big("b")], "4,000 characters of sentences under a short text"],
+    [[{ id: "s1", text: "Not a sentence of this text at all." }], "a sentence the text does not contain"]]) {
+    const r = await demoCheck(ON, v, { extra: { text: "Short essay.", sentences } });
+    assert.equal(r.status, 400, why);
+    assert.match(errorOf(r).message, /3,000 characters/, why);
+  }
+  for (const extra of [{ claim: "c".repeat(601) }, { correction: "c".repeat(601) }]) {
+    const r = await demoSources(ON, v, { extra });
+    assert.equal(r.status, 400, Object.keys(extra)[0]);
+    assert.match(errorOf(r).message, /a sentence of up to 600 characters/);
+  }
+  // A sentence cut from the text, as content.js sends it: within the cap.
+  const full = `${SENTENCE} ${"x".repeat(3000 - SENTENCE.length - 1)}`;
+  assert.equal((await demoCheck(ON, v, { extra: { text: full } })).status, 200, "exactly 3,000 is allowed");
   assert.deepEqual((await demoStatus(ON, v)).body.left, { check: 9, sources: 2, review: 2 }, "only the call that ran counted");
 });
 

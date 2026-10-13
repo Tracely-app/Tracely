@@ -257,8 +257,11 @@ What bounds it, in the order `demoGate` checks:
   never a daily count, since a school is one address. Keyed on
   `TRACELY_TRUSTED_PROXY_HOPS`, like every other address key.
 - **Its own web-search window**: 10 an hour, apart from the store users' 15.
-- **Text caps**: 3,000 characters and 40 sentences a check or review, 1,500
-  characters of context on a source search (`400`).
+- **Text caps**: 3,000 characters a check or review, and 40 sentences a
+  check — whose sentences (what the model is actually sent) must each be in
+  the text and add up to no more than 3,000 characters; a source search's
+  claim and correction up to 600 characters each and 1,500 characters of
+  context (`400`).
 
 `/try` is served with `Content-Security-Policy: frame-ancestors
 https://jointracely.com https://www.jointracely.com` (no `X-Frame-Options`)

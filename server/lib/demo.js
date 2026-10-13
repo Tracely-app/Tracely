@@ -194,16 +194,33 @@ const fmt = (n) => n.toLocaleString("en-US");
  * await between this and the model call, so concurrent requests cannot both
  * take the last allowance or the last of the pool.
  */
-export function demoAdmit(gate, { text, sentences, context } = {}, env = process.env) {
+export function demoAdmit(gate, { text, sentences, context, claim, correction } = {}, env = process.env) {
   const { kind } = gate.demo;
+  const tooLong = `The try-out checks up to ${fmt(SPEND.demoMaxChars)} characters at a time. Shorten the text and try again.`;
   if ((kind === "check" || kind === "review") && typeof text === "string" && text.length > SPEND.demoMaxChars) {
-    throw new CheckError("bad_request", `The try-out checks up to ${fmt(SPEND.demoMaxChars)} characters at a time. Shorten the text and try again.`);
+    throw new CheckError("bad_request", tooLong);
   }
   if (kind === "check" && Array.isArray(sentences) && sentences.length > SPEND.demoMaxSentences) {
     throw new CheckError("bad_request", `The try-out checks up to ${SPEND.demoMaxSentences} sentences at a time. Shorten the text and try again.`);
   }
+  /* What a check SENDS the model is the sentences, with `text` as context —
+   * so the cap must hold for them too, or a short `text` carries 40
+   * sentences of 2,000 characters (80,000 characters, five shards of ~16 KB).
+   * content.js cuts every sentence out of the text it sends, so an honest
+   * check's sentences are all in it and can add up to no more than it. */
+  if (kind === "check" && Array.isArray(sentences)) {
+    const list = sentences.map((s) => (typeof s?.text === "string" ? s.text : ""));
+    const total = list.reduce((n, t) => n + t.length, 0);
+    if (total > SPEND.demoMaxChars || list.some((t) => typeof text !== "string" || !text.includes(t))) {
+      throw new CheckError("bad_request", tooLong);
+    }
+  }
   if (kind === "sources" && typeof context === "string" && context.length > SPEND.demoMaxContextChars) {
     throw new CheckError("bad_request", `The try-out sends up to ${fmt(SPEND.demoMaxContextChars)} characters of context with a source search.`);
+  }
+  if (kind === "sources" && ((typeof claim === "string" && claim.length > SPEND.demoMaxClaimChars) ||
+      (typeof correction === "string" && correction.length > SPEND.demoMaxClaimChars))) {
+    throw new CheckError("bad_request", `The try-out finds sources for a sentence of up to ${fmt(SPEND.demoMaxClaimChars)} characters.`);
   }
   const limit = demoLimits(env)[kind];
   if (demoUsed(gate.callerId)[kind] >= limit) {

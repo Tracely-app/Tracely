@@ -1385,7 +1385,7 @@ const server = http.createServer(async (req, res) => {
       //   - demo pool (the try-out): its own window too, so the public page
       //     never takes the hour the store users share.
       const globalCounter = gate.pool === "beta" ? betaWebSearchCounter : gate.pool === "paid" ? null : gate.pool === "demo" ? demoWebSearchCounter : webSearchCounter;
-      if (gate.demo) demoAdmit(gate, { context }); // the try-out's caps and allowance
+      if (gate.demo) demoAdmit(gate, { context, claim, correction }); // the try-out's caps and allowance
       if (globalCounter && !globalCounter.ok()) {
         throw new CheckError("rate_limit", gate.demo ? DEMO_MESSAGES.searchesBusy : "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
       }

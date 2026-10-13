@@ -177,6 +177,9 @@ export const SPEND = {
   demoMaxChars: 3000,
   demoMaxSentences: 40,
   demoMaxContextChars: 1500,
+  // A source search's claim, and its correction, each (the extension takes
+  // 2,000): one sentence, which an essay's almost never reaches.
+  demoMaxClaimChars: 600,
   // A ROLLING window per address — never a daily count, since a school shares
   // one address — that bounds how fast one machine can mint cookies and spend.
   demoAddressCallsPerHour: 60,
