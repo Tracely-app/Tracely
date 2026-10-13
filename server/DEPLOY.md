@@ -155,8 +155,9 @@ free user, so:
 | demo | the public try-out page (`/try`, below) — not an extension route | `TRACELY_DEMO_DAILY_BUDGET_USD` (2) | 503 `demo_closed` on the try-out only; **never** falls back |
 
 The first three follow the same parsing (empty or junk = default, explicit
-`0` = no ceiling); the demo pool reads empty and junk the same way, but an
-explicit `0` switches the try-out OFF. The paid, beta and demo pools admit
+`0` = no ceiling); the demo pool reads absent or empty as its default, and
+ANYTHING else that is not a positive number (`0`, `0 # off`, `off`, `-1`)
+switches the try-out OFF. The paid, beta and demo pools admit
 a call only while their spend PLUS the worst case of every call still in flight leaves room: the worst
 case is the route's output ceiling plus its largest input on the fast model
 (~2.5 cents for a check, every input token priced as a cache write,
@@ -165,7 +166,10 @@ model holds its own worst case on top (`admitThorough`: its prompt's bytes
 plus 2,000 output tokens on astra, at least 15 cents), which is
 what bounds a beta tester who rotates install ids to get fresh allowances. A check that truncates splits
 into two more calls, recursively; each split is admitted the same way (two
-more worst cases held, or no split and a `truncated` error). So a burst —
+more worst cases held, or no split and a `truncated` error), and so are a
+sharded check's extra calls and a shard's one retry for ids the model left
+out (one worst case each, or one call / no retry). A source search's worst
+case includes its second call, the receipts check (`verifySources`). So a burst —
 including one with a rotating install id per request — overshoots by at most
 the last admission (one call, or a split's two), and the number of thorough
 calls those pools run AT ONCE is about the remaining budget ÷ 17.5 cents.
@@ -175,8 +179,9 @@ too, including every call of a split that failed part-way. A source search
 records the web_search fee once per `web_search_call` its answer carried
 (never fewer than one): a reasoning model can search, and open pages, more
 than once per answer. Nothing we send bounds that, so the sources
-reservation (40k input tokens, 3 searches) is an allowance sized above the
-most seen live, not a bound.
+reservation (40k input tokens and 3 searches for the search, plus 8k input
+for the receipts call) is an allowance sized above the most seen live, not a
+bound.
 
 `TRACELY_TRUSTED_PROXY_HOPS=1` because Apache is the one proxy in front. Wrong
 here and rate limiting keys on the wrong address.
@@ -218,12 +223,13 @@ In `/srv/tracely/app/.env` (read per request — no restart; comments on their
 own lines, since `loadEnvFile()` keeps a trailing `# ...` as part of the value):
 
 ```sh
-# Signs the visitor cookie; empty or absent = the try-out is OFF.
-# Generate once with: openssl rand -hex 32
+# Signs the visitor cookie; empty, absent or under 32 characters = the
+# try-out is OFF. Generate once with: openssl rand -hex 32
 TRACELY_DEMO_SECRET=
 # The page's own origin: it may reach the demo routes and static files only.
 TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
-# Optional, shown at their defaults. An explicit 0 budget turns the try-out OFF.
+# Optional, shown at their defaults. A budget of 0 — or anything that is not
+# a positive number, e.g. "2 # note" — turns the try-out OFF.
 # TRACELY_DEMO_DAILY_BUDGET_USD=2
 # TRACELY_DEMO_CHECKS=10
 # TRACELY_DEMO_SOURCES=2
@@ -232,27 +238,45 @@ TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
 
 What bounds it, in the order `demoGate` checks:
 
-- **Off** without a secret or with a budget of `0`: `503 demo_closed`. Never a
-  per-boot random secret — a restart would hand every visitor a new allowance.
+- **Off** without a secret, with one under 32 characters (`off`, `0`, the
+  `# off` of an inline comment), or with a budget that is not a positive
+  number (`0`, `off`, `-1`): `503 demo_closed`, and the server logs which at
+  boot. Never a per-boot random secret — a restart would hand every visitor a
+  new allowance.
 - **The visitor cookie** `tracely_demo` (HttpOnly, Secure, SameSite=Lax, a
   day), minted by `GET /try`, HMAC-signed with the secret. Missing or forged:
   `403 demo_session`. Rotating the secret invalidates every cookie; the page
   mints a new one on reload.
 - **The free plan**, enforced even though the caller is anonymous: the fast
   model, "Explain in depth" refused, the beta header ignored.
-- **The demo pool**: every call reserves its worst case first, so a burst of
-  fresh cookies overshoots by one call at most. Spent: `503 demo_closed`
-  ("comes back at midnight") on the try-out — the extension's pool is never
-  touched. Below 20% left, source search pauses on the try-out; checks go on.
+- **The demo pool**: the gate asks for room, and every call reserves its
+  worst case once its body has been read and validated (`demoAdmit`) — never
+  before, or a body sent a byte at a time would hold a reservation for free
+  (a demo body has 10 seconds to arrive; only `POST` reaches the gate). A
+  burst of fresh cookies overshoots by one call at most. Spent: `503
+  demo_closed` ("comes back at midnight") on the try-out — the extension's
+  pool is never touched. Room taken only by calls in flight: `503 demo_busy`
+  ("try again in a minute"), and `/api/demo/status` stays `open` with
+  `busy: true`. Below 20% left, source search pauses on the try-out; checks
+  go on.
 - **Per visitor per day**: 10 checks, 2 source searches, 2 writing reviews
   (`429 demo_limit` with `feature`). Fairness, not a cap: a private window
   mints a fresh cookie.
-- **Per address**: 60 demo calls in any rolling hour (`429 rate_limit`) —
-  never a daily count, since a school is one address. Keyed on
+- **Per address**, in any rolling hour (`429 rate_limit`) — never a daily
+  count, since a school is one address: 200 demo calls, and an eighth of the
+  day's pool in dollars ($0.25 of $2), counting what the address's calls
+  were charged plus what its calls in flight hold, so a burst of fresh
+  cookies from one machine is bounded too. Keyed on
   `TRACELY_TRUSTED_PROXY_HOPS`, like every other address key.
+- **A check's own ceiling**: 6,000 output tokens (the extension's is
+  16,000), so its worst case — what each call holds — is ~0.92 cents
+  (`WORST_CALL["/api/demo/check"]`), not 2.5.
 - **Its own web-search window**: 10 an hour, apart from the store users' 15.
-- **Text caps**: 3,000 characters and 40 sentences a check or review, 1,500
-  characters of context on a source search (`400`).
+- **Text caps**: 3,000 characters a check or review, and 40 sentences a
+  check — whose sentences (what the model is actually sent) must each be in
+  the text and add up to no more than 3,000 characters; a source search's
+  claim and correction up to 600 characters each and 1,500 characters of
+  context (`400`).
 
 `/try` is served with `Content-Security-Policy: frame-ancestors
 https://jointracely.com https://www.jointracely.com` (no `X-Frame-Options`)

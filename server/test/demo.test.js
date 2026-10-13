@@ -9,12 +9,18 @@
  *          TRACELY_PUBLIC_ORIGIN = https://api.jointracely.com
  *   OFF    mock model, no TRACELY_DEMO_SECRET
  *   ZERO   the secret, and an explicit TRACELY_DEMO_DAILY_BUDGET_USD=0
- *   JUNK   a junk budget (the default $2), junk check allowance, 1 review
+ *   NOTED  the secret, and a budget of "0  # off" (an inline .env comment)
+ *   SHORT  a secret of "# off" (what `TRACELY_DEMO_SECRET= # off` leaves)
+ *   JUNK   no budget line (the default $2), junk check allowance, 1 review
  *   TINY   hosted, a 1-cent pool: one mock source search (1 cent) spends it
  *   LOW    a 1.2-cent pool: one search leaves it under the 20% line
  *   LOCAL  TRACELY_PUBLIC_ORIGIN is the server's own localhost origin
  *   PRICED OpenAI stubbed by a preload: slow, priced checks, a pool of
  *          2.5 worst-case checks — a burst of fresh cookies
+ *   HOLD   mock model, a pool of 1.5 worst-case checks — bodies that never
+ *          finish arriving
+ *   METER  OpenAI stubbed, 0.32-cent checks, a 8-cent pool: an address's
+ *          dollar window is 1 cent an hour
  *
  * Every call carries its own X-Forwarded-For (TRACELY_TRUSTED_PROXY_HOPS=1)
  * unless a test names one, so the per-address window of one test never
@@ -41,7 +47,8 @@ const demo = await import("../lib/demo.js");
 const { costMicroCents } = await import("../lib/llm.js");
 const { SPEND } = await import("../shared/guards.js");
 
-const SECRET = "test-secret";
+// At least 32 characters: a shorter secret switches the try-out off.
+const SECRET = "test-secret-for-the-try-out-0123456789";
 const PUBLIC = "https://api.jointracely.com";
 const FRAME = "frame-ancestors https://jointracely.com https://www.jointracely.com";
 const COOKIE_RE = /^tracely_demo=[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}; Path=\/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax$/;
@@ -90,11 +97,22 @@ test("limits and the off switch read the environment like the budgets do", () =>
   assert.equal(demo.demoLimits({ TRACELY_DEMO_CHECKS: "-1" }).check, 10);
   assert.equal(demo.demoOff({}), true, "no secret: off");
   assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "  " }), true, "a blank secret: off");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s" }), false, "secret, no budget line: the default $2");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "" }), false, "empty is absent");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "lots" }), false, "junk is the default");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "0" }), true, "explicit 0 is OFF, not unlimited");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "0.0000000001" }), true, "a budget that rounds to nothing is off");
+  // A secret under 32 characters is off: "off", "0", the "# off" an inline
+  // comment leaves, and anything shorter than `openssl rand -hex 32` makes.
+  for (const short of ["s", "off", "0", "# off", "x".repeat(31)]) {
+    assert.equal(demo.demoOffReason({ TRACELY_DEMO_SECRET: short }), "short_secret", `secret ${JSON.stringify(short)}`);
+  }
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "x".repeat(32) }), false, "32 characters is enough");
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET }), false, "secret, no budget line: the default $2");
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "" }), false, "empty is absent");
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "0.5" }), false, "a positive number is on");
+  // Anything else an operator writes is OFF — never the default: the values
+  // someone writes to switch a public page off must never leave it on.
+  for (const junk of ["0", "lots", "0 # off", "0  # off", "off", "false", "none", "-1", "$0", "0,00", "2 # two dollars", "Infinity"]) {
+    assert.equal(demo.demoOffReason({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: junk }), "budget", `budget ${JSON.stringify(junk)}`);
+  }
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "0.0000000001" }), true, "a budget that rounds to nothing is off");
+  assert.equal(demo.demoOffReason({ TRACELY_DEMO_SECRET: SECRET }), null);
   assert.equal(SPEND.defaultDemoDailyBudgetUsd, 2);
   assert.ok(new Date(demo.demoResetAt()).getTime() > Date.now());
 });
@@ -124,11 +142,13 @@ const emptyFor = (s) => {
   return out;
 };
 const DELAY = Number(process.env.TRACELY_TEST_OPENAI_DELAY_MS || 0);
+const LOG = process.env.TRACELY_TEST_OPENAI_LOG === "1";
 const [IN, OUT] = String(process.env.TRACELY_TEST_OPENAI_USAGE || "1,1").split(",").map(Number);
 globalThis.fetch = async (url, init = {}) => {
   if (!String(url).startsWith("https://api.openai.com/")) return real(url, init);
   if (DELAY) await new Promise((r) => setTimeout(r, DELAY));
   const body = JSON.parse(init.body);
+  if (LOG) console.error("[stub] openai call max_output_tokens=" + body.max_output_tokens);
   const truncated = { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 1000, output_tokens: 16000 } };
   const reply = JSON.stringify(body.input).includes("TRIGGER-TRUNCATE") ? truncated : { output_text: JSON.stringify(emptyFor(body.text?.format?.schema)) };
   return new Response(JSON.stringify({ status: "completed", model: body.model, usage: { input_tokens: IN, output_tokens: OUT }, ...reply }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -175,24 +195,31 @@ async function boot(env, { preload } = {}) {
   throw new Error("could not find a free port for a test server");
 }
 
-let ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED;
-// PRICED's pool: room for two and a half worst-case checks on the fast model.
-const WORST_CHECK = costMicroCents(LUNA, { input: 24_000, cacheWrite: 24_000, output: 16_000 });
+let ON, OFF, ZERO, NOTED, SHORT, JUNK, TINY, LOW, LOCAL, PRICED, HOLD, METER;
+// A try-out check's worst case on the fast model (server.js WORST_CALL
+// "/api/demo/check": its own 6,000-token output ceiling, not the
+// extension's 16,000). PRICED's pool is room for two and a half of them.
+const WORST_CHECK = costMicroCents(LUNA, { input: 8_000, cacheWrite: 8_000, output: SPEND.demoCheckMaxTokens });
 const PRICED_BUDGET_USD = (2.5 * WORST_CHECK) / (100 * 1e6);
 test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
   const on = { TRACELY_MOCK: "1", TRACELY_DEMO_SECRET: SECRET };
-  [ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED] = await Promise.all([
+  [ON, OFF, ZERO, NOTED, SHORT, JUNK, TINY, LOW, LOCAL, PRICED, HOLD, METER] = await Promise.all([
     boot({ ...hosted, ...on, TRACELY_PUBLIC_ORIGIN: `${PUBLIC}/`, TRACELY_DEMO_DAILY_BUDGET_USD: "", TRACELY_BETA_TOKENS: "right-token" }),
     boot({ TRACELY_MOCK: "1", TRACELY_PUBLIC_ORIGIN: PUBLIC }),
     boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0" }),
-    boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "lots", TRACELY_DEMO_CHECKS: "nope", TRACELY_DEMO_REVIEWS: "1" }),
+    boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0  # off" }),
+    boot({ TRACELY_MOCK: "1", TRACELY_DEMO_SECRET: "# off" }),
+    boot({ ...on, TRACELY_DEMO_CHECKS: "nope", TRACELY_DEMO_REVIEWS: "1" }),
     boot({ ...hosted, ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0.01" }),
     boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0.012" }),
     boot((p) => ({ ...on, TRACELY_PUBLIC_ORIGIN: `http://127.0.0.1:${p}` })),
     boot({ OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: String(PRICED_BUDGET_USD),
       TRACELY_TEST_OPENAI_DELAY_MS: "1500", TRACELY_TEST_OPENAI_USAGE: "4000,2000" }, { preload: STUB }),
+    boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: String((1.5 * WORST_CHECK) / (100 * 1e6)) }),
+    boot({ OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "0.08",
+      TRACELY_TEST_OPENAI_DELAY_MS: "500", TRACELY_TEST_OPENAI_USAGE: "4000,2000", TRACELY_TEST_OPENAI_LOG: "1" }, { preload: STUB }),
   ]).catch((err) => {
     for (const child of booted) child.kill(); // or the run never exits
     throw err;
@@ -399,7 +426,23 @@ test("over-cap text is 400 with a plain message — and uses up no allowance", a
   }
   const many = Array.from({ length: 41 }, (_, i) => ({ id: `s${i}`, text: "Short." }));
   assert.equal((await demoCheck(ON, v, { extra: { text: "Short.", sentences: many } })).status, 400, "41 sentences");
-  assert.equal((await demoCheck(ON, v, { extra: { text: "x".repeat(3000) } })).status, 200, "exactly 3,000 is allowed");
+  // The model is sent the SENTENCES, so the cap holds for them: a short text
+  // cannot carry two 2,000-character sentences, nor a sentence not in it.
+  const big = (c) => ({ id: `big-${c}`, text: c.repeat(2000) });
+  for (const [sentences, why] of [[[big("a"), big("b")], "4,000 characters of sentences under a short text"],
+    [[{ id: "s1", text: "Not a sentence of this text at all." }], "a sentence the text does not contain"]]) {
+    const r = await demoCheck(ON, v, { extra: { text: "Short essay.", sentences } });
+    assert.equal(r.status, 400, why);
+    assert.match(errorOf(r).message, /3,000 characters/, why);
+  }
+  for (const extra of [{ claim: "c".repeat(601) }, { correction: "c".repeat(601) }]) {
+    const r = await demoSources(ON, v, { extra });
+    assert.equal(r.status, 400, Object.keys(extra)[0]);
+    assert.match(errorOf(r).message, /a sentence of up to 600 characters/);
+  }
+  // A sentence cut from the text, as content.js sends it: within the cap.
+  const full = `${SENTENCE} ${"x".repeat(3000 - SENTENCE.length - 1)}`;
+  assert.equal((await demoCheck(ON, v, { extra: { text: full } })).status, 200, "exactly 3,000 is allowed");
   assert.deepEqual((await demoStatus(ON, v)).body.left, { check: 9, sources: 2, review: 2 }, "only the call that ran counted");
 });
 
@@ -421,11 +464,12 @@ test("the try-out is the free plan: Explain in depth is 403, and the beta header
   assert.ok(!("betaBudget" in (await status(ON))) || (await status(ON)).betaBudget.spentUsd === 0, "nothing reached the beta pool");
 });
 
-test("the 61st call in an hour from one address is 429 — a rolling window, keyed on the address alone", async () => {
+test("the 201st call in an hour from one address is 429 — a rolling window, keyed on the address alone", async () => {
   const addr = freshAddr();
-  // Six visitors, ten checks each: none reaches its own allowance or its
+  assert.equal(SPEND.demoAddressCallsPerHour, 200, "wide enough for a classroom: the dollar window bounds spend");
+  // Twenty visitors, ten checks each: none reaches its own allowance or its
   // per-minute window, so only the address can refuse the next one.
-  for (let n = 0; n < 6; n++) {
+  for (let n = 0; n < 20; n++) {
     const v = visitor();
     const results = await Promise.all(Array.from({ length: 10 }, () => demoCheck(ON, v, { addr })));
     assert.deepEqual(results.map((r) => r.status), Array(10).fill(200), `visitor ${n + 1}`);
@@ -457,14 +501,20 @@ test("no TRACELY_DEMO_SECRET: the try-out is off — 503 demo_closed, status ope
   assert.ok(!("demoBudget" in (await status(OFF))), "a server without the try-out answers /api/status's old shape");
 });
 
-test("budget: an explicit 0 is OFF; empty and junk are the default $2", async () => {
+test("budget 0, a budget with an inline comment and a too-short secret are OFF; an empty budget is the default $2", async () => {
   const v = visitor();
-  const r = await demoCheck(ZERO, v);
-  assert.equal(r.status, 503);
-  assert.equal(errorOf(r).kind, "demo_closed");
-  assert.equal((await demoStatus(ZERO, v)).body.open, false);
-  assert.equal((await call(ZERO, "GET", "/try")).headers.get("set-cookie"), null);
-  assert.deepEqual((await status(ZERO)).demoBudget, { enforced: false });
+  for (const [srv, name] of [[ZERO, "budget 0"], [NOTED, "budget '0  # off'"], [SHORT, "secret '# off'"]]) {
+    const r = await demoCheck(srv, v);
+    assert.equal(r.status, 503, name);
+    assert.equal(errorOf(r).kind, "demo_closed", name);
+    assert.equal(errorOf(r).message, "The try-out isn't available right now.", name);
+    assert.equal((await demoStatus(srv, v)).body.open, false, name);
+    assert.equal((await call(srv, "GET", "/try")).headers.get("set-cookie"), null, `${name}: no cookie`);
+    assert.deepEqual((await status(srv)).demoBudget, { enforced: false }, `${name}: /api/status says it is off`);
+  }
+  assert.match(NOTED.stderr(), /the try-out is OFF: TRACELY_DEMO_DAILY_BUDGET_USD is not a positive number/);
+  assert.match(SHORT.stderr(), /the try-out is OFF: TRACELY_DEMO_SECRET is shorter than 32 characters/);
+  assert.ok(!SHORT.stderr().includes("# off"), "the boot line never prints the secret");
   for (const srv of [ON, JUNK]) {
     const b = (await status(srv)).demoBudget;
     assert.equal(b.enforced, true, "the try-out pool is enforced even with no Supabase (JUNK has none)");
@@ -526,11 +576,20 @@ test("the try-out's searches have their own hourly window: the 11th is refused, 
 test("a burst of fresh cookies cannot be admitted past the pool: each call reserves its worst case first", async () => {
   // 2.5 worst cases of room: three admitted while the first calls are still
   // in flight (1.5 s each), every other one refused — never the 503 of a
-  // check that ran.
-  const burst = await Promise.all(Array.from({ length: 6 }, () => demoCheck(PRICED, visitor())));
+  // check that ran. Refused as BUSY, not closed: nothing is spent yet, and
+  // the page closes for the session on demo_closed.
+  const pending = Promise.all(Array.from({ length: 6 }, () => demoCheck(PRICED, visitor())));
+  await new Promise((r) => setTimeout(r, 500));
+  const during = await demoStatus(PRICED, visitor());
+  assert.deepEqual([during.body.open, during.body.busy], [true, true], "in flight is busy, never a closed day");
+  const burst = await pending;
   const ok = burst.filter((r) => r.status === 200);
   assert.equal(ok.length, 3, JSON.stringify(burst.map((r) => [r.status, errorOf(r).kind])));
-  for (const r of burst.filter((x) => x.status !== 200)) assert.equal(errorOf(r).kind, "demo_closed");
+  for (const r of burst.filter((x) => x.status !== 200)) {
+    assert.equal(errorOf(r).kind, "demo_busy");
+    assert.equal(errorOf(r).message, "The try-out is busy — try again in a minute.");
+  }
+  assert.equal("busy" in (await demoStatus(PRICED, visitor())).body, false, "and not busy once they have answered");
   const b = (await status(PRICED)).demoBudget;
   const oneCall = costMicroCents(LUNA, { input: 4000, output: 2000 }) / (100 * 1e6);
   assert.ok(Math.abs(b.spentUsd - 3 * oneCall) < 1e-4, `the three that ran were charged to the demo pool: ${b.spentUsd}`);
@@ -549,6 +608,81 @@ test("a demo call that fails after OpenAI answered is still charged — to the d
   for (let i = 0; i < 40 && !PRICED.stderr().includes("route=/api/demo/check"); i++) await new Promise((res) => setTimeout(res, 25));
   assert.match(PRICED.stderr(), /\[tracely\] model call failed route=\/api\/demo\/check kind=truncated status=502 model=gpt-5\.6-luna/);
   assert.ok(!PRICED.stderr().includes("the demo pool must see this"), "and none of the visitor's text");
+});
+
+test("an address's dollar window: charged plus held, an eighth of the pool an hour — a burst included", async () => {
+  // METER: an 8-cent pool, so an address may use 1 cent an hour; a check
+  // holds 0.92 cents (its worst case) while in flight and is charged 0.32.
+  const burstAddr = freshAddr();
+  const burst = await Promise.all(Array.from({ length: 4 }, () => demoCheck(METER, visitor(), { addr: burstAddr })));
+  assert.deepEqual(burst.map((r) => r.status).sort(), [200, 200, 429, 429],
+    `two held reach the window before anything is charged: ${JSON.stringify(burst.map((r) => [r.status, errorOf(r).kind]))}`);
+  for (const r of burst.filter((x) => x.status === 429)) {
+    assert.equal(errorOf(r).kind, "rate_limit");
+    assert.match(errorOf(r).message, /busy on your network/);
+  }
+  // One at a time from a fresh address: charged 0, 0.32, 0.64, 0.96 cents
+  // before each — all under 1 — and 1.28 before the fifth.
+  const addr = freshAddr();
+  const v = visitor();
+  for (let i = 1; i <= 4; i++) assert.equal((await demoCheck(METER, v, { addr })).status, 200, `check ${i}`);
+  const refused = await demoCheck(METER, v, { addr });
+  assert.equal(refused.status, 429);
+  assert.equal(errorOf(refused).kind, "rate_limit");
+  assert.equal((await demoStatus(METER, v)).body.left.check, 6, "a refused call uses up no allowance");
+  assert.equal((await demoCheck(METER, v, { addr: freshAddr() })).status, 200, "another address is unaffected");
+});
+
+test("a try-out check asks the model for at most 6,000 output tokens; the extension's /api/check keeps 16,000", async () => {
+  assert.match(METER.stderr(), /\[stub\] openai call max_output_tokens=6000/);
+  assert.ok(!METER.stderr().includes("max_output_tokens=16000"), "no demo call ran at the extension's ceiling");
+  const r = await call(METER, "POST", "/api/check", { body: checkBody(), headers: { "X-Tracely-Install": "an-extension-user" } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  for (let i = 0; i < 40 && !METER.stderr().includes("max_output_tokens=16000"); i++) await new Promise((res) => setTimeout(res, 25));
+  assert.match(METER.stderr(), /max_output_tokens=16000/);
+});
+
+/* A demo check whose body never finishes: the headers, then one byte every
+ * 200 ms of a body that claims 100,000. `closed` resolves with how long the
+ * server let it run. */
+function slowBody(srv, cookie, addr = freshAddr()) {
+  return new Promise((resolve, reject) => {
+    const s = net.connect(srv.port, "127.0.0.1", () => {
+      const started = Date.now();
+      s.write(`POST /api/demo/check HTTP/1.1\r\nHost: 127.0.0.1:${srv.port}\r\nContent-Type: application/json\r\nContent-Length: 100000\r\n` +
+        `Cookie: tracely_demo=${cookie.value}\r\nX-Forwarded-For: ${addr}\r\n\r\n{"text":"`);
+      const tick = setInterval(() => s.write("a"), 200);
+      const closed = new Promise((r) => s.on("close", () => { clearInterval(tick); r(Date.now() - started); }));
+      resolve({ socket: s, closed });
+    });
+    s.on("error", reject);
+  });
+}
+
+test("a body sent a byte at a time holds nothing of the pool, and has 10 s to arrive", async () => {
+  // HOLD's pool is 1.5 worst-case checks: two calls holding theirs would
+  // close it. These two have passed the gate and are still sending.
+  const slow = await Promise.all([slowBody(HOLD, visitor()), slowBody(HOLD, visitor())]);
+  for (const s of slow) s.socket.on("error", () => {});
+  await new Promise((r) => setTimeout(r, 400));
+  const s = await demoStatus(HOLD, visitor());
+  assert.equal(s.body.open, true);
+  assert.equal("busy" in s.body, false, "nothing is held for a body still arriving");
+  const r = await demoCheck(HOLD, visitor());
+  assert.equal(r.status, 200, `another visitor is served: ${JSON.stringify(r.body)}`);
+  const ms = await Promise.all(slow.map((x) => x.closed));
+  for (const t of ms) assert.ok(t >= 9_000 && t < 13_000, `the server ended the slow body at its deadline: ${t} ms`);
+});
+
+test("a demo route answers POST only: another method is 404 and takes no slot of the address window", async () => {
+  const v = visitor();
+  const addr = freshAddr();
+  for (let i = 0; i < SPEND.demoAddressCallsPerHour + 1; i++) {
+    const r = await call(HOLD, "GET", "/api/demo/check", { cookie: v, addr });
+    assert.equal(r.status, 404, `GET ${i + 1}`);
+  }
+  assert.equal((await demoCheck(HOLD, v, { addr })).status, 200, "the address still has its whole window");
+  assert.equal((await demoStatus(HOLD, v)).body.left.check, 9, "and only the POST counted");
 });
 
 // ── the shipped contract is untouched ────────────────────────────────────

@@ -8,21 +8,26 @@
  * /api/check, /api/sources and /api/review handlers after demoGate.
  *
  * Who may spend, and how much (server.js demoGate, in order):
- *   1. TRACELY_DEMO_SECRET empty, or TRACELY_DEMO_DAILY_BUDGET_USD an explicit
- *      0: the try-out is OFF (503 demo_closed). Never a per-boot random
+ *   1. TRACELY_DEMO_SECRET shorter than 32 characters (empty, "off", or the
+ *      "# off" an inline comment leaves), or TRACELY_DEMO_DAILY_BUDGET_USD
+ *      set to anything but a positive number ("0", "0 # off", "off", "-1"):
+ *      the try-out is OFF (503 demo_closed). Never a per-boot random
  *      secret — a restart would then hand every visitor a fresh allowance.
  *   2. A signed visitor cookie, minted by GET /try: `tracely_demo=<id>.<mac>`.
  *      Missing or forged on an API call: 403 demo_session.
  *   3. The caller is `demo:<sha256(id)>` at the FREE plan, enforced even on a
  *      box with no Supabase: the fast model, "Explain in depth" refused, the
  *      beta header ignored.
- *   4. The "demo" pool (lib/spend.js), reserved per call; spent is 503
- *      demo_closed, NEVER the extension pool.
+ *   4. The "demo" pool (lib/spend.js): asked in the gate, and reserved only
+ *      once the body is read (demoAdmit) — a reservation taken before would
+ *      be held by a body sent a byte a second. Spent is 503 demo_closed,
+ *      NEVER the extension pool; full of calls in flight is 503 demo_busy.
  *   5. A per-visitor daily allowance (demo_check / demo_sources /
  *      demo_review usage rows), checked after the body is read and stamped
  *      just before the model call: over is 429 demo_limit.
- *   6. A rolling per-address window, never a daily count (schools share one
- *      address).
+ *   6. Rolling per-address windows, never a daily count (schools share one
+ *      address): calls an hour, and dollars an hour — a share of the pool,
+ *      counting what the address's calls in flight hold.
  *   7. The try-out's own hourly web-search window.
  *   8. Text caps well under the extension's (SPEND.demoMax*): 400.
  *
@@ -48,13 +53,17 @@ export const DEMO_MESSAGES = {
   session: "Your try-out session has expired. Reload the page to start again.",
   sourcesPaused: "Source search is paused on the try-out for today. Checking still works.",
   busy: "The try-out is busy on your network right now. Try again in a little while.",
+  poolBusy: "The try-out is busy — try again in a minute.",
   searchesBusy: "Source search on the try-out is busy right now. Try again in a few minutes.",
 };
 
-/** The HMAC key, or "" when the try-out is off. Re-read per request. */
+/** The HMAC key as configured ("" when unset). Re-read per request. Under
+ * DEMO_SECRET_MIN_CHARS it switches the try-out off (demoOff): the
+ * documented `openssl rand -hex 32` is 64. */
 export function demoSecret(env = process.env) {
   return String(env.TRACELY_DEMO_SECRET ?? "").trim();
 }
+export const DEMO_SECRET_MIN_CHARS = 32;
 
 /** The try-out page's own origin (e.g. https://api.jointracely.com), or null. */
 export function demoPublicOrigin(env = process.env) {
@@ -136,10 +145,46 @@ export function demoLimits(env = process.env) {
   };
 }
 
-/** True when the try-out is switched off: no secret, or a budget that comes
- * to nothing (an explicit 0 — which every other pool reads as "no ceiling"). */
+/**
+ * Why the try-out is switched off, or null when it is on:
+ *   "no_secret"     TRACELY_DEMO_SECRET unset or empty;
+ *   "short_secret"  under DEMO_SECRET_MIN_CHARS — "off", "0", or the "# off"
+ *                   that `TRACELY_DEMO_SECRET= # off` leaves (loadEnvFile
+ *                   keeps an inline comment as the value);
+ *   "budget"        TRACELY_DEMO_DAILY_BUDGET_USD set to anything but a
+ *                   positive number — "0" (which every other pool reads as
+ *                   "no ceiling"), "0 # off", "off", "false", "-1", "$0" —
+ *                   or one that rounds to nothing. Only an absent or empty
+ *                   value is the default $2: the other pools read junk as
+ *                   their default, but here a value an operator wrote to
+ *                   switch a public page off must never leave it on.
+ */
+export function demoOffReason(env = process.env) {
+  const secret = demoSecret(env);
+  if (!secret) return "no_secret";
+  if (secret.length < DEMO_SECRET_MIN_CHARS) return "short_secret";
+  const raw = String(env.TRACELY_DEMO_DAILY_BUDGET_USD ?? "").trim();
+  if (raw && !(Number.isFinite(Number(raw)) && Number(raw) > 0)) return "budget";
+  return dailyBudgetMicroCents(env, "demo") <= 0 ? "budget" : null;
+}
+
+/** True when the try-out is switched off (demoOffReason). */
 export function demoOff(env = process.env) {
-  return !demoSecret(env) || dailyBudgetMicroCents(env, "demo") <= 0;
+  return demoOffReason(env) !== null;
+}
+
+/**
+ * The demo pool's admission, asked by demoGate and again by demoAdmit just
+ * before it reserves. Room: the day's spend state. A SPENT day: 503
+ * demo_closed ("comes back at midnight" — the page closes for the session).
+ * No room only because of calls in flight: 503 demo_busy. Those calls end in
+ * seconds and release what they hold, so the page must not close for it.
+ */
+export function demoPoolAdmission(env = process.env, at = Date.now()) {
+  const { budget, room } = poolRoom({ enforced: true, pool: "demo", at, env });
+  if (room) return budget;
+  if (!budget.allowed) throw new CheckError("demo_closed", DEMO_MESSAGES.spent, { status: 503 });
+  throw new CheckError("demo_busy", DEMO_MESSAGES.poolBusy, { status: 503, retryAfter: 60 });
 }
 
 /** The next local midnight, when the pool and the allowances reset. */
@@ -167,22 +212,44 @@ const fmt = (n) => n.toLocaleString("en-US");
 /**
  * Admission for one demo call, AFTER the route has read and validated its
  * body: the text caps (400), then the visitor's allowance for `gate.demo.kind`
- * (429 demo_limit). Stamps nothing — demoRecord does, just before the model
- * call, so a request refused on the way (a 400, the review route's once-a-
- * minute window, an hourly search window) never uses up an allowance. The
- * handlers make no await between the two, so concurrent requests cannot both
- * take the last one.
+ * (429 demo_limit), then the pool (demoPoolAdmission) — and only then the
+ * pool reservation, `gate.demo.reserve()` (server.js demoReservation: one
+ * call's worst case, counted under the address's dollar window too, which
+ * may 429), as `gate.reservation`: extensionModel shrinks it, a split or an
+ * extra shard extends it, and the handler's `finally` releases it. Stamps no
+ * allowance — demoRecord does, just before the model call, so a request
+ * refused on the way (a 400, the review route's once-a-minute window, an
+ * hourly search window) never uses up an allowance. The handlers make no
+ * await between this and the model call, so concurrent requests cannot both
+ * take the last allowance or the last of the pool.
  */
-export function demoAdmit(gate, { text, sentences, context } = {}, env = process.env) {
+export function demoAdmit(gate, { text, sentences, context, claim, correction } = {}, env = process.env) {
   const { kind } = gate.demo;
+  const tooLong = `The try-out checks up to ${fmt(SPEND.demoMaxChars)} characters at a time. Shorten the text and try again.`;
   if ((kind === "check" || kind === "review") && typeof text === "string" && text.length > SPEND.demoMaxChars) {
-    throw new CheckError("bad_request", `The try-out checks up to ${fmt(SPEND.demoMaxChars)} characters at a time. Shorten the text and try again.`);
+    throw new CheckError("bad_request", tooLong);
   }
   if (kind === "check" && Array.isArray(sentences) && sentences.length > SPEND.demoMaxSentences) {
     throw new CheckError("bad_request", `The try-out checks up to ${SPEND.demoMaxSentences} sentences at a time. Shorten the text and try again.`);
   }
+  /* What a check SENDS the model is the sentences, with `text` as context —
+   * so the cap must hold for them too, or a short `text` carries 40
+   * sentences of 2,000 characters (80,000 characters, five shards of ~16 KB).
+   * content.js cuts every sentence out of the text it sends, so an honest
+   * check's sentences are all in it and can add up to no more than it. */
+  if (kind === "check" && Array.isArray(sentences)) {
+    const list = sentences.map((s) => (typeof s?.text === "string" ? s.text : ""));
+    const total = list.reduce((n, t) => n + t.length, 0);
+    if (total > SPEND.demoMaxChars || list.some((t) => typeof text !== "string" || !text.includes(t))) {
+      throw new CheckError("bad_request", tooLong);
+    }
+  }
   if (kind === "sources" && typeof context === "string" && context.length > SPEND.demoMaxContextChars) {
     throw new CheckError("bad_request", `The try-out sends up to ${fmt(SPEND.demoMaxContextChars)} characters of context with a source search.`);
+  }
+  if (kind === "sources" && ((typeof claim === "string" && claim.length > SPEND.demoMaxClaimChars) ||
+      (typeof correction === "string" && correction.length > SPEND.demoMaxClaimChars))) {
+    throw new CheckError("bad_request", `The try-out finds sources for a sentence of up to ${fmt(SPEND.demoMaxClaimChars)} characters.`);
   }
   const limit = demoLimits(env)[kind];
   if (demoUsed(gate.callerId)[kind] >= limit) {
@@ -192,6 +259,8 @@ export function demoAdmit(gate, { text, sentences, context } = {}, env = process
     err.feature = kind;
     throw err;
   }
+  demoPoolAdmission(env);
+  gate.reservation = gate.demo.reserve();
 }
 
 /** Stamps one demo call against the visitor's allowance — before the call. */
@@ -203,8 +272,11 @@ export function demoRecord(gate, at = Date.now()) {
  * GET /api/demo/status: whether the try-out is open, what this visitor has
  * left today, the limits, and when both reset. Off (no secret, budget 0): a
  * 200 with open:false, so the page can say so. On, with no valid cookie:
- * 403 demo_session, like every other demo route. `sourcesPaused` (only when
- * true) is the pool's 20% line: checks go on, source search does not.
+ * 403 demo_session, like every other demo route. `open` is the DAY: false
+ * only when the pool is spent (or the try-out off), because the page closes
+ * for the session on it. `busy` (only when true) is a pool whose room is
+ * taken by calls in flight — seconds, not the day. `sourcesPaused` (only
+ * when true) is the pool's 20% line: checks go on, source search does not.
  */
 export function demoStatus(req, env = process.env, at = Date.now()) {
   const limits = demoLimits(env);
@@ -215,5 +287,6 @@ export function demoStatus(req, env = process.env, at = Date.now()) {
   const used = demoUsed(demoCallerId(visitor), at);
   const { budget, room } = poolRoom({ enforced: true, pool: "demo", at, env });
   const left = Object.fromEntries(Object.keys(DEMO_USAGE_KINDS).map((k) => [k, Math.max(0, limits[k] - used[k])]));
-  return { open: room, left, limits, resetAt, ...(room && !budget.sourcesAllowed ? { sourcesPaused: true } : {}) };
+  const open = budget.allowed;
+  return { open, left, limits, resetAt, ...(open && !room ? { busy: true } : {}), ...(open && !budget.sourcesAllowed ? { sourcesPaused: true } : {}) };
 }

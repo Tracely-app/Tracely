@@ -24,8 +24,10 @@ const KIND = /^[a-z_]{1,32}$/;
 
 /* Kinds this server raises about the CALLER or its own configuration rather
  * than about an answer — the day's budget, a missing key. Only logged when
- * they came out of the model facade (err.llm), e.g. OpenAI rejecting the key. */
-const NOT_MODEL_FAILURES = new Set(["budget", "no_key"]);
+ * they came out of the model facade (err.llm), e.g. OpenAI rejecting the key.
+ * The try-out's pool refusals (lib/demo.js) are the day's budget too: a
+ * spent pool, or one full of calls in flight. */
+const NOT_MODEL_FAILURES = new Set(["budget", "no_key", "demo_closed", "demo_busy"]);
 
 /**
  * Whether `err` is a model failure worth a log line: anything that left the

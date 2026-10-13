@@ -163,10 +163,12 @@ export const SPEND = {
    * Each call reserves its worst case first, like the beta and paid pools, so
    * a burst of fresh cookies can overshoot by one call at most.
    *
-   * Override with TRACELY_DEMO_DAILY_BUDGET_USD. Empty or junk is this
-   * default; an explicit 0 turns the try-out OFF (the other pools read 0 as
-   * "no ceiling", which a public page must never mean). Worst case
-   * $2 x 31 = $62 a month. */
+   * Override with TRACELY_DEMO_DAILY_BUDGET_USD. Absent or empty is this
+   * default; anything else that is not a positive number — 0, "0 # off",
+   * "off", -1 — turns the try-out OFF (lib/demo.js demoOffReason). The other
+   * pools read 0 as "no ceiling" and junk as their default, and a public
+   * page must never read a value written to switch it off as "on". Worst
+   * case $2 x 31 = $62 a month. */
   defaultDemoDailyBudgetUsd: 2,
   // Per visitor per day (the signed tracely_demo cookie), overridable with
   // TRACELY_DEMO_CHECKS / _SOURCES / _REVIEWS. Fixes are free and uncounted.
@@ -177,9 +179,26 @@ export const SPEND = {
   demoMaxChars: 3000,
   demoMaxSentences: 40,
   demoMaxContextChars: 1500,
-  // A ROLLING window per address — never a daily count, since a school shares
-  // one address — that bounds how fast one machine can mint cookies and spend.
-  demoAddressCallsPerHour: 60,
+  // A source search's claim, and its correction, each (the extension takes
+  // 2,000): one sentence, which an essay's almost never reaches.
+  demoMaxClaimChars: 600,
+  // A demo check's output ceiling (the extension's is 16,000). Measured, a
+  // whole 40-sentence check on gpt-5.6-luna at medium writes ~2,200-2,600
+  // output tokens, reasoning included (0.341-0.388 cents a check,
+  // eval/models/FINDINGS.md; ~0.08 of it input), so one 8-sentence shard
+  // has ~6x headroom and even a check run as one call ~2x; a shard that does
+  // overrun splits (factcheck.js checkBatch), admitted like any other call.
+  demoCheckMaxTokens: 6000,
+  // ROLLING windows per address — never a daily count, since a school shares
+  // one address. Calls bound how fast one machine can mint cookies; DOLLARS
+  // bound what it can spend: an address whose calls charged plus its calls
+  // in flight hold reach this share of the day's demo pool in the last hour
+  // ($0.25 of the default $2) is refused (429) until the hour rolls on. An
+  // honest visitor who uses everything is ~4.6 cents, a sample check ~0.4,
+  // so the call window can be wide enough for a classroom and the dollar
+  // window still stops one machine taking more than an eighth of the day.
+  demoAddressCallsPerHour: 200,
+  demoAddressPoolSharePerHour: 0.125,
   // The try-out's own web-search window, so it never takes the hour the
   // extension's store users share (GUARDS.maxWebSearchesPerHour).
   demoWebSearchesPerHour: 10,
@@ -220,6 +239,43 @@ export function rollingCounter(limit, windowMs = 3_600_000) {
       const now = Date.now();
       times = times.filter((t) => now - t < windowMs);
       return times.length;
+    },
+  };
+}
+
+/**
+ * Per-key rolling SUM: what each key added in the last `windowMs` — the
+ * dollar twin of keyedRateLimiter, bounded the same way (oldest keys dropped
+ * first; a dropped key starts again from nothing, which the pool on disk
+ * still bounds). In memory on purpose, like the limiter: it smooths an hour.
+ */
+export function keyedRollingSum(windowMs = 3_600_000, maxKeys = SPEND.rateLimiterMaxKeys) {
+  const byKey = new Map(); // key -> [[at, amount], ...]
+  const live = (key, now) => {
+    const list = (byKey.get(key) ?? []).filter(([at]) => now - at < windowMs);
+    if (list.length) byKey.set(key, list);
+    else byKey.delete(key);
+    return list;
+  };
+  return {
+    total(key, now = Date.now()) {
+      return live(key, now).reduce((sum, [, amount]) => sum + amount, 0);
+    },
+    add(key, amount, now = Date.now()) {
+      const n = Number(amount);
+      if (!(n > 0) || !Number.isFinite(n)) return;
+      const list = live(key, now);
+      if (!byKey.has(key) && byKey.size >= maxKeys) {
+        for (const k of byKey.keys()) {
+          byKey.delete(k);
+          if (byKey.size < maxKeys) break;
+        }
+      }
+      list.push([now, n]);
+      byKey.set(key, list);
+    },
+    size() {
+      return byKey.size;
     },
   };
 }
