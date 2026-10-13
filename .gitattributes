@@ -12,3 +12,7 @@
 
 # Same reasoning: run in bash, must not carry CRLF.
 *.bash text eol=lf
+
+# The Linode deploy scripts (server/scripts/linode/) are run by sh on the box;
+# two have no extension, so *.sh above does not reach them.
+server/scripts/linode/* text eol=lf
