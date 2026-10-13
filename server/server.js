@@ -27,7 +27,7 @@ import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
 import { DEMO_MESSAGES, demoSecret, demoPublicOrigin, demoOff, visitorOf, mintVisitor, visitorCookie, demoCallerId, demoAddressKey,
-         demoAdmit, demoRecord, demoStatus, demoPoolAdmission } from "./lib/demo.js";
+         demoAdmit, demoRecord, demoStatus, demoPoolAdmission, demoOffReason, DEMO_SECRET_MIN_CHARS } from "./lib/demo.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // What is deployed, as the runbook stamped it (lib/release.js); null on a laptop.
@@ -1165,8 +1165,9 @@ const server = http.createServer(async (req, res) => {
         // `demoBudget` (optional): the try-out's pool, only while the try-out
         // is configured (TRACELY_DEMO_SECRET) — always enforced, even with no
         // Supabase, since the try-out meters every visitor. {enforced:false}
-        // is a budget of 0: the try-out is switched off.
-        ...(demoSecret() ? { demoBudget: spendSummary({ enforced: true, pool: "demo" }) } : {}),
+        // is the try-out switched off (lib/demo.js demoOffReason: a budget
+        // that is not a positive number, or a secret too short to sign with).
+        ...(demoSecret() ? { demoBudget: demoOff() ? { enforced: false } : spendSummary({ enforced: true, pool: "demo" }) } : {}),
         // `upstream` (optional) appears only while OpenAI is refusing for lack
         // of credit (seen in the last 15 minutes) — the one outage the spend
         // pools above can't show, because it is the account, not our ceiling.
@@ -2066,6 +2067,10 @@ server.listen(PORT, "127.0.0.1", () => {
   sweepUsage();
   setInterval(sweepUsage, 24 * 3600 * 1000).unref?.();
   console.log(`Tracely running at http://localhost:${PORT}${MOCK ? "  (MOCK MODE — no API calls)" : ""}`);
+  // A try-out the operator configured but that is OFF says why (never the secret).
+  const demoWhy = demoSecret() ? demoOffReason() : null;
+  if (demoWhy === "short_secret") console.warn(`[tracely] the try-out is OFF: TRACELY_DEMO_SECRET is shorter than ${DEMO_SECRET_MIN_CHARS} characters (generate one with: openssl rand -hex 32).`);
+  if (demoWhy === "budget") console.warn("[tracely] the try-out is OFF: TRACELY_DEMO_DAILY_BUDGET_USD is not a positive number of dollars.");
   if (!hasApiKey() && !MOCK) {
     console.log("No OPENAI_API_KEY found yet — add it to tracely/.env and the server will pick it up automatically.");
   }

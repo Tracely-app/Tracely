@@ -155,8 +155,9 @@ free user, so:
 | demo | the public try-out page (`/try`, below) — not an extension route | `TRACELY_DEMO_DAILY_BUDGET_USD` (2) | 503 `demo_closed` on the try-out only; **never** falls back |
 
 The first three follow the same parsing (empty or junk = default, explicit
-`0` = no ceiling); the demo pool reads empty and junk the same way, but an
-explicit `0` switches the try-out OFF. The paid, beta and demo pools admit
+`0` = no ceiling); the demo pool reads absent or empty as its default, and
+ANYTHING else that is not a positive number (`0`, `0 # off`, `off`, `-1`)
+switches the try-out OFF. The paid, beta and demo pools admit
 a call only while their spend PLUS the worst case of every call still in flight leaves room: the worst
 case is the route's output ceiling plus its largest input on the fast model
 (~2.5 cents for a check, every input token priced as a cache write,
@@ -218,12 +219,13 @@ In `/srv/tracely/app/.env` (read per request — no restart; comments on their
 own lines, since `loadEnvFile()` keeps a trailing `# ...` as part of the value):
 
 ```sh
-# Signs the visitor cookie; empty or absent = the try-out is OFF.
-# Generate once with: openssl rand -hex 32
+# Signs the visitor cookie; empty, absent or under 32 characters = the
+# try-out is OFF. Generate once with: openssl rand -hex 32
 TRACELY_DEMO_SECRET=
 # The page's own origin: it may reach the demo routes and static files only.
 TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
-# Optional, shown at their defaults. An explicit 0 budget turns the try-out OFF.
+# Optional, shown at their defaults. A budget of 0 — or anything that is not
+# a positive number, e.g. "2 # note" — turns the try-out OFF.
 # TRACELY_DEMO_DAILY_BUDGET_USD=2
 # TRACELY_DEMO_CHECKS=10
 # TRACELY_DEMO_SOURCES=2
@@ -232,8 +234,11 @@ TRACELY_PUBLIC_ORIGIN=https://api.jointracely.com
 
 What bounds it, in the order `demoGate` checks:
 
-- **Off** without a secret or with a budget of `0`: `503 demo_closed`. Never a
-  per-boot random secret — a restart would hand every visitor a new allowance.
+- **Off** without a secret, with one under 32 characters (`off`, `0`, the
+  `# off` of an inline comment), or with a budget that is not a positive
+  number (`0`, `off`, `-1`): `503 demo_closed`, and the server logs which at
+  boot. Never a per-boot random secret — a restart would hand every visitor a
+  new allowance.
 - **The visitor cookie** `tracely_demo` (HttpOnly, Secure, SameSite=Lax, a
   day), minted by `GET /try`, HMAC-signed with the secret. Missing or forged:
   `403 demo_session`. Rotating the secret invalidates every cookie; the page

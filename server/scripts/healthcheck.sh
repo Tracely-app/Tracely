@@ -32,10 +32,10 @@ fail() { printf 'FAIL  %s\n' "$1"; exit 1; }
 ok() { printf 'ok    %s\n' "$1"; }
 
 status=$(curl -sS --max-time 15 "$BASE/api/status") || fail "GET /api/status did not answer"
-read -r hasKey mock enforced paid release demo <<<"$(printf '%s' "$status" | node -e '
+read -r hasKey mock enforced paid release demo demoOn <<<"$(printf '%s' "$status" | node -e '
   let s=""; process.stdin.on("data", d => s += d).on("end", () => {
-    let j; try { j = JSON.parse(s) } catch { console.log("parse parse parse parse parse parse"); return }
-    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j))
+    let j; try { j = JSON.parse(s) } catch { console.log("parse parse parse parse parse parse parse"); return }
+    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j), String(Boolean(j.demoBudget && j.demoBudget.enforced)))
   })')"
 [ "$hasKey" = "parse" ] && fail "/api/status is not JSON — not a Tracely server"
 if [ "$MOCK" = 1 ]; then
@@ -68,6 +68,9 @@ if [ "$MOCK" = 1 ]; then ok "PUT /api/prefs → $code (local servers may accept 
 # page runs; a deploy that skipped copying it leaves /try a dead page.
 if [ "$demo" = "true" ] || [ "$DEMO" = 1 ]; then
   [ "$demo" = "true" ] || fail "/api/status has no demoBudget but --demo was asked for (TRACELY_DEMO_SECRET unset?)"
+  # {enforced:false} is the try-out switched off: a secret under 32 characters
+  # or a budget that is not a positive number (the server's boot log says which).
+  [ "$DEMO" = 1 ] && [ "$demoOn" != "true" ] && fail "demoBudget says the try-out is OFF (secret under 32 characters, or a budget that is not a positive number — see the boot log)"
   hdrs=$(curl -sS -D - -o /dev/null --max-time 15 "$BASE/try") || fail "GET /try did not answer"
   code=$(printf '%s' "$hdrs" | awk 'NR==1{print $2}')
   [ "$code" = "200" ] || fail "GET /try → $code (want 200)"

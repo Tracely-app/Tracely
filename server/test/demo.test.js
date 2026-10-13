@@ -9,7 +9,9 @@
  *          TRACELY_PUBLIC_ORIGIN = https://api.jointracely.com
  *   OFF    mock model, no TRACELY_DEMO_SECRET
  *   ZERO   the secret, and an explicit TRACELY_DEMO_DAILY_BUDGET_USD=0
- *   JUNK   a junk budget (the default $2), junk check allowance, 1 review
+ *   NOTED  the secret, and a budget of "0  # off" (an inline .env comment)
+ *   SHORT  a secret of "# off" (what `TRACELY_DEMO_SECRET= # off` leaves)
+ *   JUNK   no budget line (the default $2), junk check allowance, 1 review
  *   TINY   hosted, a 1-cent pool: one mock source search (1 cent) spends it
  *   LOW    a 1.2-cent pool: one search leaves it under the 20% line
  *   LOCAL  TRACELY_PUBLIC_ORIGIN is the server's own localhost origin
@@ -43,7 +45,8 @@ const demo = await import("../lib/demo.js");
 const { costMicroCents } = await import("../lib/llm.js");
 const { SPEND } = await import("../shared/guards.js");
 
-const SECRET = "test-secret";
+// At least 32 characters: a shorter secret switches the try-out off.
+const SECRET = "test-secret-for-the-try-out-0123456789";
 const PUBLIC = "https://api.jointracely.com";
 const FRAME = "frame-ancestors https://jointracely.com https://www.jointracely.com";
 const COOKIE_RE = /^tracely_demo=[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}; Path=\/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax$/;
@@ -92,11 +95,22 @@ test("limits and the off switch read the environment like the budgets do", () =>
   assert.equal(demo.demoLimits({ TRACELY_DEMO_CHECKS: "-1" }).check, 10);
   assert.equal(demo.demoOff({}), true, "no secret: off");
   assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "  " }), true, "a blank secret: off");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s" }), false, "secret, no budget line: the default $2");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "" }), false, "empty is absent");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "lots" }), false, "junk is the default");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "0" }), true, "explicit 0 is OFF, not unlimited");
-  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "s", TRACELY_DEMO_DAILY_BUDGET_USD: "0.0000000001" }), true, "a budget that rounds to nothing is off");
+  // A secret under 32 characters is off: "off", "0", the "# off" an inline
+  // comment leaves, and anything shorter than `openssl rand -hex 32` makes.
+  for (const short of ["s", "off", "0", "# off", "x".repeat(31)]) {
+    assert.equal(demo.demoOffReason({ TRACELY_DEMO_SECRET: short }), "short_secret", `secret ${JSON.stringify(short)}`);
+  }
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: "x".repeat(32) }), false, "32 characters is enough");
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET }), false, "secret, no budget line: the default $2");
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "" }), false, "empty is absent");
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "0.5" }), false, "a positive number is on");
+  // Anything else an operator writes is OFF — never the default: the values
+  // someone writes to switch a public page off must never leave it on.
+  for (const junk of ["0", "lots", "0 # off", "0  # off", "off", "false", "none", "-1", "$0", "0,00", "2 # two dollars", "Infinity"]) {
+    assert.equal(demo.demoOffReason({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: junk }), "budget", `budget ${JSON.stringify(junk)}`);
+  }
+  assert.equal(demo.demoOff({ TRACELY_DEMO_SECRET: SECRET, TRACELY_DEMO_DAILY_BUDGET_USD: "0.0000000001" }), true, "a budget that rounds to nothing is off");
+  assert.equal(demo.demoOffReason({ TRACELY_DEMO_SECRET: SECRET }), null);
   assert.equal(SPEND.defaultDemoDailyBudgetUsd, 2);
   assert.ok(new Date(demo.demoResetAt()).getTime() > Date.now());
 });
@@ -177,7 +191,7 @@ async function boot(env, { preload } = {}) {
   throw new Error("could not find a free port for a test server");
 }
 
-let ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED, HOLD;
+let ON, OFF, ZERO, NOTED, SHORT, JUNK, TINY, LOW, LOCAL, PRICED, HOLD;
 // PRICED's pool: room for two and a half worst-case checks on the fast model.
 const WORST_CHECK = costMicroCents(LUNA, { input: 24_000, cacheWrite: 24_000, output: 16_000 });
 const PRICED_BUDGET_USD = (2.5 * WORST_CHECK) / (100 * 1e6);
@@ -185,11 +199,13 @@ test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
   const on = { TRACELY_MOCK: "1", TRACELY_DEMO_SECRET: SECRET };
-  [ON, OFF, ZERO, JUNK, TINY, LOW, LOCAL, PRICED, HOLD] = await Promise.all([
+  [ON, OFF, ZERO, NOTED, SHORT, JUNK, TINY, LOW, LOCAL, PRICED, HOLD] = await Promise.all([
     boot({ ...hosted, ...on, TRACELY_PUBLIC_ORIGIN: `${PUBLIC}/`, TRACELY_DEMO_DAILY_BUDGET_USD: "", TRACELY_BETA_TOKENS: "right-token" }),
     boot({ TRACELY_MOCK: "1", TRACELY_PUBLIC_ORIGIN: PUBLIC }),
     boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0" }),
-    boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "lots", TRACELY_DEMO_CHECKS: "nope", TRACELY_DEMO_REVIEWS: "1" }),
+    boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0  # off" }),
+    boot({ TRACELY_MOCK: "1", TRACELY_DEMO_SECRET: "# off" }),
+    boot({ ...on, TRACELY_DEMO_CHECKS: "nope", TRACELY_DEMO_REVIEWS: "1" }),
     boot({ ...hosted, ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0.01" }),
     boot({ ...on, TRACELY_DEMO_DAILY_BUDGET_USD: "0.012" }),
     boot((p) => ({ ...on, TRACELY_PUBLIC_ORIGIN: `http://127.0.0.1:${p}` })),
@@ -476,14 +492,20 @@ test("no TRACELY_DEMO_SECRET: the try-out is off — 503 demo_closed, status ope
   assert.ok(!("demoBudget" in (await status(OFF))), "a server without the try-out answers /api/status's old shape");
 });
 
-test("budget: an explicit 0 is OFF; empty and junk are the default $2", async () => {
+test("budget 0, a budget with an inline comment and a too-short secret are OFF; an empty budget is the default $2", async () => {
   const v = visitor();
-  const r = await demoCheck(ZERO, v);
-  assert.equal(r.status, 503);
-  assert.equal(errorOf(r).kind, "demo_closed");
-  assert.equal((await demoStatus(ZERO, v)).body.open, false);
-  assert.equal((await call(ZERO, "GET", "/try")).headers.get("set-cookie"), null);
-  assert.deepEqual((await status(ZERO)).demoBudget, { enforced: false });
+  for (const [srv, name] of [[ZERO, "budget 0"], [NOTED, "budget '0  # off'"], [SHORT, "secret '# off'"]]) {
+    const r = await demoCheck(srv, v);
+    assert.equal(r.status, 503, name);
+    assert.equal(errorOf(r).kind, "demo_closed", name);
+    assert.equal(errorOf(r).message, "The try-out isn't available right now.", name);
+    assert.equal((await demoStatus(srv, v)).body.open, false, name);
+    assert.equal((await call(srv, "GET", "/try")).headers.get("set-cookie"), null, `${name}: no cookie`);
+    assert.deepEqual((await status(srv)).demoBudget, { enforced: false }, `${name}: /api/status says it is off`);
+  }
+  assert.match(NOTED.stderr(), /the try-out is OFF: TRACELY_DEMO_DAILY_BUDGET_USD is not a positive number/);
+  assert.match(SHORT.stderr(), /the try-out is OFF: TRACELY_DEMO_SECRET is shorter than 32 characters/);
+  assert.ok(!SHORT.stderr().includes("# off"), "the boot line never prints the secret");
   for (const srv of [ON, JUNK]) {
     const b = (await status(srv)).demoBudget;
     assert.equal(b.enforced, true, "the try-out pool is enforced even with no Supabase (JUNK has none)");

@@ -64,8 +64,9 @@ export const SPEND_POOLS = {
   beta: { account: "__global_beta__", variable: "TRACELY_BETA_DAILY_BUDGET_USD", fallback: SPEND.defaultBetaDailyBudgetUsd },
   paid: { account: "__global_paid__", variable: "TRACELY_PAID_DAILY_BUDGET_USD", fallback: SPEND.defaultPaidDailyBudgetUsd },
   // The public try-out page (/try, server.js demoGate). Reserves like beta and
-  // paid, never falls back to another pool, and reads an explicit 0 as OFF —
-  // demoGate checks that itself, because spendState below reads 0 as no ceiling.
+  // paid, never falls back to another pool, and reads 0 (or any value but a
+  // positive number) as OFF — lib/demo.js demoOff checks that itself, because
+  // spendState below reads 0 as no ceiling.
   demo: { account: "__global_demo__", variable: "TRACELY_DEMO_DAILY_BUDGET_USD", fallback: SPEND.defaultDemoDailyBudgetUsd },
 };
 function poolOf(name) {

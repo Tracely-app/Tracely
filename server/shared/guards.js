@@ -163,10 +163,12 @@ export const SPEND = {
    * Each call reserves its worst case first, like the beta and paid pools, so
    * a burst of fresh cookies can overshoot by one call at most.
    *
-   * Override with TRACELY_DEMO_DAILY_BUDGET_USD. Empty or junk is this
-   * default; an explicit 0 turns the try-out OFF (the other pools read 0 as
-   * "no ceiling", which a public page must never mean). Worst case
-   * $2 x 31 = $62 a month. */
+   * Override with TRACELY_DEMO_DAILY_BUDGET_USD. Absent or empty is this
+   * default; anything else that is not a positive number — 0, "0 # off",
+   * "off", -1 — turns the try-out OFF (lib/demo.js demoOffReason). The other
+   * pools read 0 as "no ceiling" and junk as their default, and a public
+   * page must never read a value written to switch it off as "on". Worst
+   * case $2 x 31 = $62 a month. */
   defaultDemoDailyBudgetUsd: 2,
   // Per visitor per day (the signed tracely_demo cookie), overridable with
   // TRACELY_DEMO_CHECKS / _SOURCES / _REVIEWS. Fixes are free and uncounted.

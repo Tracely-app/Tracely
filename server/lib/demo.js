@@ -8,8 +8,10 @@
  * /api/check, /api/sources and /api/review handlers after demoGate.
  *
  * Who may spend, and how much (server.js demoGate, in order):
- *   1. TRACELY_DEMO_SECRET empty, or TRACELY_DEMO_DAILY_BUDGET_USD an explicit
- *      0: the try-out is OFF (503 demo_closed). Never a per-boot random
+ *   1. TRACELY_DEMO_SECRET shorter than 32 characters (empty, "off", or the
+ *      "# off" an inline comment leaves), or TRACELY_DEMO_DAILY_BUDGET_USD
+ *      set to anything but a positive number ("0", "0 # off", "off", "-1"):
+ *      the try-out is OFF (503 demo_closed). Never a per-boot random
  *      secret — a restart would then hand every visitor a fresh allowance.
  *   2. A signed visitor cookie, minted by GET /try: `tracely_demo=<id>.<mac>`.
  *      Missing or forged on an API call: 403 demo_session.
@@ -54,10 +56,13 @@ export const DEMO_MESSAGES = {
   searchesBusy: "Source search on the try-out is busy right now. Try again in a few minutes.",
 };
 
-/** The HMAC key, or "" when the try-out is off. Re-read per request. */
+/** The HMAC key as configured ("" when unset). Re-read per request. Under
+ * DEMO_SECRET_MIN_CHARS it switches the try-out off (demoOff): the
+ * documented `openssl rand -hex 32` is 64. */
 export function demoSecret(env = process.env) {
   return String(env.TRACELY_DEMO_SECRET ?? "").trim();
 }
+export const DEMO_SECRET_MIN_CHARS = 32;
 
 /** The try-out page's own origin (e.g. https://api.jointracely.com), or null. */
 export function demoPublicOrigin(env = process.env) {
@@ -139,10 +144,32 @@ export function demoLimits(env = process.env) {
   };
 }
 
-/** True when the try-out is switched off: no secret, or a budget that comes
- * to nothing (an explicit 0 — which every other pool reads as "no ceiling"). */
+/**
+ * Why the try-out is switched off, or null when it is on:
+ *   "no_secret"     TRACELY_DEMO_SECRET unset or empty;
+ *   "short_secret"  under DEMO_SECRET_MIN_CHARS — "off", "0", or the "# off"
+ *                   that `TRACELY_DEMO_SECRET= # off` leaves (loadEnvFile
+ *                   keeps an inline comment as the value);
+ *   "budget"        TRACELY_DEMO_DAILY_BUDGET_USD set to anything but a
+ *                   positive number — "0" (which every other pool reads as
+ *                   "no ceiling"), "0 # off", "off", "false", "-1", "$0" —
+ *                   or one that rounds to nothing. Only an absent or empty
+ *                   value is the default $2: the other pools read junk as
+ *                   their default, but here a value an operator wrote to
+ *                   switch a public page off must never leave it on.
+ */
+export function demoOffReason(env = process.env) {
+  const secret = demoSecret(env);
+  if (!secret) return "no_secret";
+  if (secret.length < DEMO_SECRET_MIN_CHARS) return "short_secret";
+  const raw = String(env.TRACELY_DEMO_DAILY_BUDGET_USD ?? "").trim();
+  if (raw && !(Number.isFinite(Number(raw)) && Number(raw) > 0)) return "budget";
+  return dailyBudgetMicroCents(env, "demo") <= 0 ? "budget" : null;
+}
+
+/** True when the try-out is switched off (demoOffReason). */
 export function demoOff(env = process.env) {
-  return !demoSecret(env) || dailyBudgetMicroCents(env, "demo") <= 0;
+  return demoOffReason(env) !== null;
 }
 
 /**
