@@ -25,8 +25,9 @@
  *   5. A per-visitor daily allowance (demo_check / demo_sources /
  *      demo_review usage rows), checked after the body is read and stamped
  *      just before the model call: over is 429 demo_limit.
- *   6. A rolling per-address window, never a daily count (schools share one
- *      address).
+ *   6. Rolling per-address windows, never a daily count (schools share one
+ *      address): calls an hour, and dollars an hour — a share of the pool,
+ *      counting what the address's calls in flight hold.
  *   7. The try-out's own hourly web-search window.
  *   8. Text caps well under the extension's (SPEND.demoMax*): 400.
  *
@@ -37,7 +38,7 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { usageCount, usageBump } from "./db.js";
-import { dailyBudgetMicroCents, poolRoom, reserveSpend } from "./spend.js";
+import { dailyBudgetMicroCents, poolRoom } from "./spend.js";
 import { CheckError } from "./errors.js";
 import { SPEND } from "../shared/guards.js";
 import { usageDay } from "../shared/plan.js";
@@ -212,9 +213,10 @@ const fmt = (n) => n.toLocaleString("en-US");
  * Admission for one demo call, AFTER the route has read and validated its
  * body: the text caps (400), then the visitor's allowance for `gate.demo.kind`
  * (429 demo_limit), then the pool (demoPoolAdmission) — and only then the
- * pool reservation, `gate.demo.worst` (the gate's worst case for one call),
- * as `gate.reservation`: extensionModel shrinks it, a split or an extra
- * shard extends it, and the handler's `finally` releases it. Stamps no
+ * pool reservation, `gate.demo.reserve()` (server.js demoReservation: one
+ * call's worst case, counted under the address's dollar window too, which
+ * may 429), as `gate.reservation`: extensionModel shrinks it, a split or an
+ * extra shard extends it, and the handler's `finally` releases it. Stamps no
  * allowance — demoRecord does, just before the model call, so a request
  * refused on the way (a 400, the review route's once-a-minute window, an
  * hourly search window) never uses up an allowance. The handlers make no
@@ -258,7 +260,7 @@ export function demoAdmit(gate, { text, sentences, context, claim, correction } 
     throw err;
   }
   demoPoolAdmission(env);
-  gate.reservation = reserveSpend("demo", gate.demo.worst ?? 0);
+  gate.reservation = gate.demo.reserve();
 }
 
 /** Stamps one demo call against the visitor's allowance — before the call. */

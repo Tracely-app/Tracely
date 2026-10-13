@@ -258,9 +258,15 @@ What bounds it, in the order `demoGate` checks:
 - **Per visitor per day**: 10 checks, 2 source searches, 2 writing reviews
   (`429 demo_limit` with `feature`). Fairness, not a cap: a private window
   mints a fresh cookie.
-- **Per address**: 60 demo calls in any rolling hour (`429 rate_limit`) —
-  never a daily count, since a school is one address. Keyed on
+- **Per address**, in any rolling hour (`429 rate_limit`) — never a daily
+  count, since a school is one address: 200 demo calls, and an eighth of the
+  day's pool in dollars ($0.25 of $2), counting what the address's calls
+  were charged plus what its calls in flight hold, so a burst of fresh
+  cookies from one machine is bounded too. Keyed on
   `TRACELY_TRUSTED_PROXY_HOPS`, like every other address key.
+- **A check's own ceiling**: 6,000 output tokens (the extension's is
+  16,000), so its worst case — what each call holds — is ~0.92 cents
+  (`WORST_CALL["/api/demo/check"]`), not 2.5.
 - **Its own web-search window**: 10 an hour, apart from the store users' 15.
 - **Text caps**: 3,000 characters a check or review, and 40 sentences a
   check — whose sentences (what the model is actually sent) must each be in

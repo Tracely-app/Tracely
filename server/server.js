@@ -16,13 +16,13 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
          callerId, clientAddress, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, reviewQuota, recordReview, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
-import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, MICRO_CENTS_PER_USD } from "./lib/spend.js";
+import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
-import { GUARDS, SPEND, rollingCounter, keyedRateLimiter } from "./shared/guards.js";
+import { GUARDS, SPEND, rollingCounter, keyedRateLimiter, keyedRollingSum } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
 import { fetchUrlMetadata } from "./lib/citeMeta.js";
@@ -670,6 +670,13 @@ const WORST_CALL = {
   "/api/review": { input: 6_000, output: 6_000, webSearchCalls: 0 },
   "/api/sources": { input: 40_000, output: 6_000, webSearchCalls: 3 },
   "/api/sources/stream": { input: 40_000, output: 6_000, webSearchCalls: 3 },
+  // A try-out check (server.js demoGate): its own output ceiling
+  // (SPEND.demoCheckMaxTokens), and an input of at most 3,000 characters of
+  // text plus 3,000 of sentences cut from it (lib/demo.js demoAdmit) and the
+  // ~6.6 KB prompt — 12.7 KB, ~3.2k tokens, sent as one call in English;
+  // 8,000 covers that twice over, and a CJK text at ~1 token a character.
+  // ~0.92 cents on gpt-5.6-luna, against 2.52 for an extension check.
+  "/api/demo/check": { input: 8_000, output: SPEND.demoCheckMaxTokens, webSearchCalls: 0 },
 };
 function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
@@ -856,6 +863,8 @@ function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
   // exact-match test would let every such call skip the allowance.
   const base = String(model ?? "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
   if (gate.thoroughHold || base === MODEL_TIERS.thorough) recordThorough(gate.callerId, cost);
+  // The try-out's dollar window per address (demoGate), failed calls included.
+  if (gate.demo?.addr) demoAddressSpend.add(gate.demo.addr, cost);
   return cost;
 }
 
@@ -892,6 +901,43 @@ async function appGate(req) {
  * per-visitor allowance and the text caps need the body, so the handler
  * applies them (demoAdmit / demoRecord). */
 const demoAddressRate = keyedRateLimiter(SPEND.demoAddressCallsPerHour, 3_600_000);
+/* ...and the DOLLAR window beside it (SPEND.demoAddressPoolSharePerHour): what
+ * an address's demo calls were charged in the last hour (chargeCall), plus
+ * what its calls in flight hold (demoReservation). Held counts, or a burst of
+ * fresh cookies from one machine would all be admitted before the first
+ * charge landed. Asked in the gate and again just before each reservation. */
+const demoAddressSpend = keyedRollingSum(3_600_000);
+const demoAddressHeld = new Map(); // address key -> micro-cents held, while calls are in flight
+const demoAddressUsed = (addr) => demoAddressSpend.total(addr) + (demoAddressHeld.get(addr) ?? 0);
+const demoAddressFull = (addr) => demoAddressUsed(addr) >= dailyBudgetMicroCents(process.env, "demo") * SPEND.demoAddressPoolSharePerHour;
+const demoAddressBusy = () => new CheckError("rate_limit", DEMO_MESSAGES.busy, { status: 429, retryAfter: 600 });
+/* The pool reservation demoAdmit takes (gate.demo.reserve), mirrored under
+ * the address while it is held: resize and release mirror it, and a split or
+ * an extra shard (extend) needs room under the address's window as well as
+ * in the pool — refused, the check does not split, or runs as one call. */
+function demoReservation(addr, worst) {
+  if (demoAddressFull(addr)) throw demoAddressBusy();
+  const hold = reserveSpend("demo", worst);
+  let mirrored = 0;
+  const sync = () => {
+    const next = (demoAddressHeld.get(addr) ?? 0) - mirrored + hold.amount;
+    mirrored = hold.amount;
+    if (next > 0) demoAddressHeld.set(addr, next);
+    else demoAddressHeld.delete(addr);
+  };
+  sync();
+  return {
+    get amount() { return hold.amount; },
+    resize(next) { hold.resize(next); sync(); },
+    extend(more, opts) {
+      if (demoAddressFull(addr)) return false;
+      const taken = hold.extend(more, opts);
+      sync();
+      return taken;
+    },
+    release() { hold.release(); sync(); },
+  };
+}
 /* A demo body is a few KB. The socket's idle timeout is no bound — a sender
  * resets it with every byte — so this is an absolute deadline from the gate:
  * past it the request is destroyed with a 408, which readBody rejects with. */
@@ -913,18 +959,20 @@ async function demoGate(req, route) {
   if (!visitor) throw new CheckError("demo_session", DEMO_MESSAGES.session, { status: 403 });
   const ent = { plan: DEFAULT_PLAN, email: null, userId: null, enforced: true };
   const id = demoCallerId(visitor);
-  // A rolling window per address, never a daily count: a school is one address.
+  // Rolling windows per address, never a daily count: a school is one address.
   const addr = demoAddressKey(clientAddress(req));
-  if (!demoAddressRate.ok(addr)) throw new CheckError("rate_limit", DEMO_MESSAGES.busy, { status: 429, retryAfter: 600 });
+  if (!demoAddressRate.ok(addr) || demoAddressFull(addr)) throw demoAddressBusy();
   demoAddressRate.stamp(addr);
   // Spent is CLOSED (never the extension pool, whatever the day looks like
   // there); full of calls in flight is BUSY (lib/demo.js demoPoolAdmission).
   const budget = demoPoolAdmission();
   if (kind === "sources" && !budget.sourcesAllowed) throw new CheckError("budget", DEMO_MESSAGES.sourcesPaused, { status: 503 });
   stampCallerRate(ent, id, kind === "sources" ? "sources" : "check");
-  // `worst`: what demoAdmit reserves for the first call, once the body is in.
+  // `reserve`: what demoAdmit calls for the first call's hold, once the body
+  // is in — a check's on its own worst case (WORST_CALL "/api/demo/check").
+  const worst = worstCallMicroCents(route === "/api/check" ? "/api/demo/check" : route, MODEL_TIERS.fast);
   return { ent, holder: ent, callerId: id, budget, pool: "demo", reservation: null, modelCeiling: null,
-    demo: { kind, worst: worstCallMicroCents(route, MODEL_TIERS.fast) } };
+    demo: { kind, addr, reserve: () => demoReservation(addr, worst) } };
 }
 
 /**
@@ -1305,14 +1353,19 @@ const server = http.createServer(async (req, res) => {
       recordCheck(ent, who); // before the call, not after
       if (gate.demo) demoRecord(gate); // likewise
       let modelUsed, level, maxTokens;
+      // A try-out check is held, split and sharded at its own worst case
+      // (WORST_CALL "/api/demo/check"), and runs under its own output
+      // ceiling (SPEND.demoCheckMaxTokens) rather than the route's 16,000.
+      const worstRoute = gate.demo ? "/api/demo/check" : "/api/check";
       if (ent.enforced) {
         const hold = deep ? admitThorough(gate, "checkDeep", MODEL_TIERS.thorough, checkPromptBytes({ text, sentences })) : null;
         if (hold) gate.thoroughHold = hold;
         const choice = hostedChoice(deep ? "checkDeep" : "check", ent, who, { requested: MODEL_TIERS.thorough, thoroughAvailable: Boolean(hold) });
         // extensionModel shrinks the pool hold to the model chosen — never on
         // a thorough call, whose hold admitThorough has just grown.
-        modelUsed = hold ? choice.model : extensionModel(gate, "/api/check", choice.model);
+        modelUsed = hold ? choice.model : extensionModel(gate, worstRoute, choice.model);
         ({ effort: level, maxTokens } = choice);
+        if (gate.demo) maxTokens = SPEND.demoCheckMaxTokens;
       } else {
         modelUsed = extensionModel(gate, "/api/check", appModelFor(deep ? "checkDeep" : "check", ent, model));
         level = checkEffort(modelUsed, normalizeEffort(effort));
@@ -1321,8 +1374,8 @@ const server = http.createServer(async (req, res) => {
       Object.assign(trace, { model: modelUsed, effort: level });
       const result = await runFactCheck({
         text, sentences, model: modelUsed, effort: level, mock: MOCK, maxTokens,
-        admitSplit: () => admitSplitCalls(gate, "/api/check", modelUsed),
-        admitCalls: (extra) => admitExtraCalls(gate, "/api/check", modelUsed, extra),
+        admitSplit: () => admitSplitCalls(gate, worstRoute, modelUsed),
+        admitCalls: (extra) => admitExtraCalls(gate, worstRoute, modelUsed, extra),
         // A hung shard gives up at 30 s instead of 120, and when the others
         // answered the check returns theirs (factcheck.js runFactCheck). Not
         // on "Explain in depth": the thorough model was not measured for it.

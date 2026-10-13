@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GUARDS, detectGate, rollingCounter } from "../shared/guards.js";
+import { GUARDS, detectGate, rollingCounter, keyedRollingSum } from "../shared/guards.js";
 
 const T = (n, ch = "a") => ch.repeat(n);
 const AFTER_FLOOR = GUARDS.detect.minIntervalMs + 1;
@@ -62,4 +62,19 @@ test("rollingCounter: limit applies within the window", () => {
   c.stamp();
   assert.equal(c.ok(), false);
   assert.equal(c.count(), 2);
+});
+
+test("keyedRollingSum: per key, only what was added inside the window, and the key map is bounded", () => {
+  const s = keyedRollingSum(1_000, 3);
+  s.add("a", 5, 0);
+  s.add("a", 7, 500);
+  s.add("b", 1, 600);
+  assert.equal(s.total("a", 900), 12);
+  assert.equal(s.total("a", 1_200), 7, "the first entry has rolled out of the window");
+  assert.equal(s.total("a", 1_600), 0);
+  assert.equal(s.total("b", 900), 1, "keys are independent");
+  for (const junk of [0, -3, NaN, Infinity, "x"]) s.add("c", junk, 900);
+  assert.equal(s.total("c", 900), 0, "nothing but a positive amount counts");
+  for (let i = 0; i < 50; i++) s.add(`k${i}`, 1, 900);
+  assert.ok(s.size() <= 3, `map grew to ${s.size()}`);
 });

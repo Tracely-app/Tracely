@@ -321,8 +321,12 @@ fast model — "Explain in depth" is refused and the beta header ignored. Text
 is capped at 3,000 characters and 40 sentences a check — the sentences too,
 since they are what the model is sent: each must be in the text — and a
 search at a 600-character claim and correction and 1,500 characters of
-context. An address gets a rolling 60 calls an hour and never a
-daily count, the rule above. The per-visitor numbers are fairness for honest
+context. A check runs under its own 6,000-token output ceiling, so it holds
+~0.92 cents, not the extension's 2.5. An address gets, in any rolling hour,
+200 calls and an eighth of the pool in dollars ($0.25 of $2, charged plus
+held in flight), and never a daily count, the rule above: a classroom's
+small checks fit, one machine cannot take more than an eighth of the day an
+hour. The per-visitor numbers are fairness for honest
 visitors; a private window mints a new cookie. **The pool is the cap.**
 
 | | |
