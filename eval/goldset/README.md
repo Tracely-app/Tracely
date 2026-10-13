@@ -222,6 +222,30 @@ What it says:
   `contradicts` in its own group with a quote, so there it reaches the writer
   once #310 ships.
 
+### The figure rule, on recorded runs (2026-10-13, free)
+
+`figures.mjs` applies `server/lib/claimFigures.js` `figuresShown` to every
+recorded "backs" and its quote: when the sentence states a figure, the quote
+must show it. No model, no network.
+
+| Run | Backs | Judges agree | Rule drops (wrong / good) | After |
+|---|---|---|---|---|
+| Live verifier, 310 sources (`2026-10-10-verify-prod-on-*`) | 48 | 34 (71%) | 2 (2 / 0) | 34 of 46 (74%) |
+| Production search, shown as backing (`2026-10-09-extension-prod`) | 22 | 12 (55%) | 5 (4 / 1) | 11 of 17 (65%) |
+
+- **Dropped:**
+  - the sleep academy's "8 to 10 hours" for "roughly 70 percent get less
+    than seven";
+  - "Around 1450, Gutenberg introduced…" for "more than two hundred cities";
+  - two "nearly flat" pages for "roughly half lacks access", one of which the
+    judges say contradicts the sentence.
+- **The one good source lost:** Ctrip's "attrition was half…", offered for
+  "roughly 13 percent more productive…". Its receipt does not show the 13%.
+- **What it cannot catch:** the other 12 wrong offers in the live run are
+  wrong on a part with no figure ("the main reason…", "an ordinary feature of
+  bacterial life"). It does not touch "contradicts": "half lacks power" and
+  "51% have it" share a number and disagree.
+
 ## Files
 
 - `claims.mjs` — the 36 claims with their paragraphs; `--claims` filtering.
@@ -231,3 +255,4 @@ What it says:
   run, and `*-verify-prod-on-*`: the verifier alone on both judged runs
   (`run-verify-prod.mjs`; 10-10 one verdict, 10-13 parts).
 - `judged/` — the three judges' verdicts on each run, with the majority.
+- `figures.mjs` — the figure rule (`server/lib/claimFigures.js`) on the recorded runs; free.

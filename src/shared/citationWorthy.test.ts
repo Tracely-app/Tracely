@@ -28,6 +28,23 @@ test('a general statement, an abstraction, the writer\'s argument: no citation o
   ]) strictEqual(citationWorthy(s), false, s)
 })
 
+test('a date is not a quantity; a spelled-out figure is; a quoted title is not a quotation', () => {
+  for (const s of [
+    'Truman became president in 1945.',
+    'The war lasted from 1939 to 1945.',
+    'Printing spread across Europe in the 15th century.',
+    'The movement grew through the 1960s.',
+    'World War 2 reshaped the map of Europe.',
+    'Frost wrote "The Road Not Taken" while living in England.'
+  ]) strictEqual(citationWorthy(s), false, s)
+  for (const s of [
+    'In 2019 there were 1,274 measles cases in the United States.',
+    'Around four in ten London residents were born outside the UK as of 2021.',
+    'Only four European teams made the trip in 1930.',
+    'MacArthur promised "I shall return" before leaving the islands.'
+  ]) strictEqual(citationWorthy(s), true, s)
+})
+
 test('opinions and predictions never; a statistic always', () => {
   strictEqual(citationWorthy('Exactly 40% of voters will regret it.', 'prediction'), false)
   strictEqual(citationWorthy('Jazz is the greatest art form.', 'opinion'), false)
