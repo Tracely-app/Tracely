@@ -59,6 +59,17 @@ panels and the Docs hover card; Cite in doc and Copy cite exist only on the
 backing list. A server without receipts (no `verified`) behaves as before.
 The server half is `server/lib/sourceVerify.js` (`server/CLAUDE.md`).
 
+Since 2.21.41 every source row says how citable it is, beside its publisher:
+Peer-reviewed, Official, Reference work, News of record, Encyclopedia, or
+Check this one, with the reason on hover. The text is the meta's own grey,
+because colour means a finding. `backingSources` offers the most citable
+first, a stable sort, so within a tier the server's order stands.
+`credibilityOf` (the "source credibility" block in the shared helpers) is a
+copy of the desktop's `src/shared/sourceCredibility.ts`, decided from the
+publisher and never by the model. Tests:
+`server/test/ext-source-credibility.test.js`, including a check that the
+two copies agree.
+
 ## Every card ends in a fix
 
 Owner, 2026-10-08: a card with only Dismiss is a comment, not help. Since

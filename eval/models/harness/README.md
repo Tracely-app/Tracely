@@ -21,6 +21,28 @@ item already recorded `ok` for a rep is skipped. Results and the spend ledger
 go to `eval/models/results/`, which is gitignored — they carry raw model
 output and are not committed.
 
+## Against production (`run-prod.mjs`)
+
+The OpenAI key lives only on the server, so a laptop measures the check as
+users get it: every checkset essay goes to `POST /api/check` on
+`api.jointracely.com` through the beta pool (`X-Tracely-Beta`, read from the
+environment, never printed), as the extension's first check of a document
+sends it. The deployed prompt, model and effort are what is measured, and
+`/api/status`'s commit names the config (`prod-<commit>`).
+
+```sh
+node eval/models/harness/run-prod.mjs --dry                      # 28 calls: checkset ×2, hard ×2, narrative ×3, long ×3
+TRACELY_BETA_TOKEN=... node eval/models/harness/run-prod.mjs     # ~10 min, ~10-20¢ of the beta pool; scores when done
+node eval/models/harness/run-prod.mjs --score --dir eval/models/results/prod-<date>
+```
+
+Each set is scored twice: `prod-<commit>`, the server's verdicts (the rows
+`../FINDINGS.md` has measured since 2026-09-23), and `prod-<commit>+ext`, what
+`extension/content.js` on this checkout shows of them (`flagShown` on an
+essay, `coveredByLaterCitation`) — a hidden flag counts as an unmarked
+sentence. Paced at one call every 4 s (the 20/min caller limit), resumable,
+`--cap` 1 USD.
+
 ## No patched server
 
 The harness imports `server/lib/factcheck.js` and `server/lib/reasoning.js`
