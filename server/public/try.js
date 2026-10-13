@@ -438,14 +438,22 @@
   /* ── inside www.jointracely.com/try/: tell the frame how tall to be ── */
   if (framed) {
     const parents = ["https://www.jointracely.com", "https://jointracely.com"];
+    // Post only to the page that framed this one (every other target logs a
+    // console warning on each resize): ancestorOrigins (Chromium, Safari) or
+    // the referrer (Firefox; the website frames with an origin referrer).
+    const anc = location.ancestorOrigins && location.ancestorOrigins.length ? location.ancestorOrigins[0] : "";
+    let ref = "";
+    try { ref = document.referrer ? new URL(document.referrer).origin : ""; } catch { /* no referrer */ }
+    const framer = parents.find((o) => o === anc || o === ref);
     // A local copy of this page framed by a local test page (never production).
-    if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) parents.push("*");
+    const local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+    const targets = framer ? [framer] : local ? ["*"] : parents; // unknown framer: both, as before
     let last = 0;
     const post = () => {
       const height = Math.ceil(document.body.getBoundingClientRect().height);
       if (!height || height === last) return;
       last = height;
-      for (const origin of parents) {
+      for (const origin of targets) {
         try { window.parent.postMessage({ type: "tracely-try-height", height }, origin); } catch { /* no parent */ }
       }
     };
