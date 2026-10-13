@@ -24,6 +24,7 @@
   const toolbar = document.querySelector(".toolbar");
   const allowanceEl = $("allowance");
   const countEl = $("count");
+  const announcer = $("announce");
   const notice = $("notice");
   const noticeText = $("notice-text");
   const noticeReload = $("notice-reload");
@@ -42,6 +43,7 @@
   let sawRequest = false;   // a check went out during the current click
   let armTimer = 0;
   let noticeKind = "";
+  let over = null;          // the text is over the limit (null: not rendered yet)
 
   // The text exactly as content.js reads a contenteditable (buildTextIndex),
   // so the count here is the length the server is sent and judges.
@@ -63,10 +65,18 @@
     return text;
   }
 
-  /* ── the toolbar: status, allowance, count ── */
+  /* ── the toolbar: status, allowance, count ──
+     #status is the one live region that speaks as things happen; it is
+     rewritten only when its words change (typing must not re-announce it).
+     The count and the allowance change all the time and say nothing; the
+     moments that matter go through announce(). */
   function setStatus(text, state = "idle") {
-    statusEl.textContent = text;
+    if (statusEl.textContent !== text) statusEl.textContent = text;
     toolbar.dataset.state = state;
+  }
+  function announce(text) {
+    announcer.textContent = "";
+    requestAnimationFrame(() => { announcer.textContent = text; });
   }
   function renderAllowance() {
     if (!left) return;
@@ -80,6 +90,8 @@
     const max = demo ? demo.limits.maxChars : 3000;
     countEl.textContent = n > max ? `${fmt(n)} / ${fmt(max)} characters: shorten it to check` : `${fmt(n)} / ${fmt(max)} characters`;
     countEl.classList.toggle("over", n > max);
+    if (over !== null && over !== n > max) announce(n > max ? `Over ${fmt(max)} characters: shorten your text to check it.` : `Back under ${fmt(max)} characters.`);
+    over = n > max;
     return n;
   }
   function updateButton() {
@@ -162,9 +174,11 @@
     const lim = data.limits || {};
     for (const k of ["check", "sources", "review", "maxChars"]) demo.limits[k] = whole(lim[k], demo.limits[k]);
     const l = data.left || {};
+    const hadSources = left ? left.sources : null;
     left = { check: whole(l.check, demo.limits.check), sources: whole(l.sources, demo.limits.sources), review: whole(l.review, demo.limits.review) };
     for (const k of ["check", "sources", "review"]) demo.exhausted[k] = left[k] <= 0;
     sourcesPaused = data.sourcesPaused === true;
+    if (hadSources > 0 && left.sources === 0 && !sourcesPaused) announce("That was your last source search in this try-out. Checks still work.");
     renderAllowance();
     renderCount();
     if (data.open === false) {

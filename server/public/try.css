@@ -116,6 +116,9 @@ a:hover { color: var(--accent-hover); }
 .allowance b { color: var(--ink); font-weight: 700; }
 
 [hidden] { display: none !important; }
+/* Read out, never shown: try.js's few announcements (the count crossing the
+   limit, the last source search spent). */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* ── the notice: over the toolbar, calm, dismissible ── */
 .notice {

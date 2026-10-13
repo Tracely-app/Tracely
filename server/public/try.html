@@ -57,9 +57,9 @@
       </div>
 
       <div class="toolbar">
-        <p class="tb-line" id="status-line" role="status" aria-live="polite">
+        <p class="tb-line" id="status-line">
           <span class="dot" aria-hidden="true"></span>
-          <span id="status">Tracely is ready to check this document.</span>
+          <span id="status" role="status">Tracely is ready to check this document.</span>
           <span class="tb-sep" aria-hidden="true">·</span>
           <span id="allowance" class="allowance">10 checks · 2 source searches left</span>
         </p>
@@ -79,7 +79,8 @@
       <div class="editor" id="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="doc-title" aria-describedby="doc-hint count" spellcheck="false"><p>Every generation worries that new technology will make young people less curious. History suggests the opposite. The Great Wall of China is the only man-made structure visible from space, and people built it by hand over many centuries. Albert Einstein failed math in school, yet he went on to change physics forever.</p><p>Today, 70% of teenagers spend more than four hours a day on social media. Because phones arrived in classrooms, test scores in the United States have fallen since 2012. Even so, curiosity has not disappeared. It has moved online, where students teach themselves to code, edit video and build things that did not exist ten years ago.</p><p>Schools that welcome that energy, instead of fighting it, will find that students care about learning as much as they ever did. The tools have changed, but the questions students ask have not.</p></div>
 
       <div class="doc-foot">
-        <span class="count" id="count" aria-live="polite">0 / 3,000 characters</span>
+        <span class="count" id="count">0 / 3,000 characters</span>
+        <span class="sr-only" id="announce" aria-live="polite"></span>
         <p class="privacy" id="doc-hint">Text you check here is sent to Tracely's server and OpenAI to check it. Nothing is saved. <a href="https://www.jointracely.com/privacy/" target="_blank" rel="noopener">Privacy</a></p>
       </div>
     </section>
