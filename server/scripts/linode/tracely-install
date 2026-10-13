@@ -1,0 +1,79 @@
+#!/bin/sh
+# Root's half of a GitHub deploy: server/DEPLOY.md's "Redeploy" and "Roll
+# back" steps, and nothing else. Installed root-owned at
+# /usr/local/sbin/tracely-install; the ONE sudo rule tracely-deploy has
+# (/etc/sudoers.d/tracely-deploy) names this path. Never point that rule at a
+# copy under /srv/tracely/app: the tracely user can write there.
+#
+#   tracely-install deploy /home/tracely-deploy/incoming.XXXXXXXX
+#   tracely-install rollback app.bak-YYYYMMDD-HHMMSS
+#
+# Arguments come from tracely-receive, which already checked them; they are
+# checked again here because this is the half that runs as root.
+#
+# deploy: back up /srv/tracely/app, sync the staged app/ over it (.env, data,
+# node_modules, test, .git and logs untouched, as the runbook's rsync),
+# restart tracely, and roll back to that backup by itself if the service does
+# not come up. Prints `backup=<name>` for the workflow, which rolls back too
+# when the healthcheck fails.
+set -eu
+umask 022
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+APP=/srv/tracely/app
+ROOT=/srv/tracely
+# DEPLOY.md: never restore a backup from before the 2026-09-21 model tiers
+# while extension 2.19.3 or later is installed.
+OLDEST_BACKUP=20260921
+
+die() { echo "tracely-install: $*" >&2; exit 1; }
+
+exec 9>/run/tracely-deploy.lock
+flock -n 9 || die "another deploy or rollback is running"
+
+restore() {
+  rsync -a --delete --exclude .env "$ROOT/$1/" "$APP/" &&
+    chown -R tracely:tracely "$APP" &&
+    systemctl restart tracely
+}
+
+up() { sleep 3; systemctl is-active --quiet tracely; }
+
+case "${1:-}" in
+  deploy)
+    [ $# -eq 2 ] || die "usage: deploy <staging dir>"
+    STAGE=$2
+    printf '%s' "$STAGE" | grep -Eqx '/home/tracely-deploy/incoming\.[A-Za-z0-9]{8}' || die "not a staging directory"
+    [ -d "$STAGE/app" ] && [ ! -L "$STAGE" ] && [ ! -L "$STAGE/app" ] || die "no app/ in $STAGE"
+    [ "$(stat -c %U "$STAGE")" = tracely-deploy ] || die "$STAGE is not tracely-deploy's"
+    BAK="app.bak-$(date -u +%Y%m%d-%H%M%S)"
+    cp -a "$APP" "$ROOT/$BAK"
+    # -rt and no -l: a link in the stage is skipped, never followed or made.
+    # Any step failing restores the backup just taken.
+    if ! {
+      rsync -rt --delete --chmod=D755,F644 \
+        --exclude node_modules --exclude data --exclude .env \
+        --exclude test --exclude .git --exclude '*.log' \
+        "$STAGE/app/" "$APP/" &&
+        chown -R tracely:tracely "$APP" &&
+        systemctl restart tracely &&
+        up
+    }; then
+      echo "tracely-install: the deploy did not come up; restoring $BAK" >&2
+      { restore "$BAK" && up; } || die "tracely is down even after restoring $BAK"
+      die "deploy failed; $BAK restored"
+    fi
+    echo "backup=$BAK"
+    ;;
+  rollback)
+    [ $# -eq 2 ] || die "usage: rollback app.bak-YYYYMMDD-HHMMSS"
+    printf '%s' "$2" | grep -Eqx 'app\.bak-[0-9]{8}-[0-9]{6}' || die "usage: rollback app.bak-YYYYMMDD-HHMMSS"
+    [ -d "$ROOT/$2" ] && [ ! -L "$ROOT/$2" ] || die "no backup $2"
+    [ "$(printf '%s' "$2" | cut -c9-16)" -ge "$OLDEST_BACKUP" ] || die "$2 predates the 2026-09-21 model tiers (server/DEPLOY.md)"
+    restore "$2"
+    up || die "tracely is not active after restoring $2"
+    echo "restored=$2"
+    ;;
+  *)
+    die "usage: deploy <staging dir> | rollback <app.bak-…>"
+    ;;
+esac

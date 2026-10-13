@@ -1,0 +1,57 @@
+#!/bin/sh
+# The ONLY command the GitHub deploy key can run. Installed root-owned at
+# /usr/local/sbin/tracely-receive and forced by the key's authorized_keys line
+# (`restrict,command="/usr/local/sbin/tracely-receive"`), so a stolen key gets
+# this script and nothing else: no shell, no port forwarding, no other user.
+#
+# Runs as tracely-deploy, unprivileged. The client's command
+# (SSH_ORIGINAL_COMMAND) is never run; it must be one of two shapes:
+#
+#   deploy <40-hex commit>   a .tar.gz of app/ on stdin (the workflow builds it)
+#   rollback app.bak-YYYYMMDD-HHMMSS
+#
+# The upload is unpacked HERE, as this user, and checked before root sees it:
+# regular files and directories only, under app/, with release.json naming the
+# commit asked for. Only then does root's half (tracely-install, via one sudo
+# rule) back up, sync, restart and verify. server/DEPLOY.md, "Deploying from
+# GitHub", says how this is installed and why it is split in two.
+set -eu
+set -f # the client's words are matched, never globbed
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+MAX_GZ_BYTES=$((32 * 1024 * 1024))   # the payload is ~1.3 MB
+MAX_TAR_BYTES=$((128 * 1024 * 1024)) # and a gzip bomb stops here
+INSTALL=/usr/local/sbin/tracely-install
+
+die() { echo "tracely-receive: $*" >&2; exit 1; }
+
+# shellcheck disable=SC2086 # split on purpose, globbing is off
+set -- ${SSH_ORIGINAL_COMMAND:-}
+
+case "${1:-}" in
+  deploy)
+    [ $# -eq 2 ] || die "usage: deploy <40-hex commit>"
+    printf '%s' "$2" | grep -Eqx '[0-9a-f]{40}' || die "usage: deploy <40-hex commit>"
+    SHA=$2
+    STAGE=$(mktemp -d "$HOME/incoming.XXXXXXXX")
+    trap 'rm -rf "$STAGE"' EXIT
+    head -c "$MAX_GZ_BYTES" | gzip -dc | head -c "$MAX_TAR_BYTES" | tar -xf - -C "$STAGE" --no-same-owner --no-same-permissions \
+      || die "stdin is not a gzipped tarball within the size limits"
+    [ "$(ls -A "$STAGE")" = "app" ] || die "the tarball must hold app/ and nothing beside it"
+    [ -z "$(find "$STAGE" ! -type f ! -type d | head -n 1)" ] || die "the tarball holds a link or a special file"
+    [ -z "$(find "$STAGE" -type f -links +1 | head -n 1)" ] || die "the tarball holds a hard link"
+    for f in server.js package.json release.json extension/content.js; do
+      [ -f "$STAGE/app/$f" ] || die "app/$f is missing"
+    done
+    grep -q "\"commit\":\"$SHA\"" "$STAGE/app/release.json" || die "app/release.json names another commit"
+    sudo -n "$INSTALL" deploy "$STAGE"
+    ;;
+  rollback)
+    [ $# -eq 2 ] || die "usage: rollback app.bak-YYYYMMDD-HHMMSS"
+    printf '%s' "$2" | grep -Eqx 'app\.bak-[0-9]{8}-[0-9]{6}' || die "usage: rollback app.bak-YYYYMMDD-HHMMSS"
+    sudo -n "$INSTALL" rollback "$2"
+    ;;
+  *)
+    die "this key can only run: deploy <commit> | rollback <app.bak-…>"
+    ;;
+esac

@@ -9,7 +9,7 @@ rarely talk to each other directly. It is a map and a contract, kept under
 
 | Surface | Path | Publishes it | Needs the other human for |
 |---|---|---|---|
-| **Server** `api.jointracely.com` | `server/` | **Sam** — SSH to the Linode (`server/DEPLOY.md`); holds the OpenAI key, `server/.env`, the beta token | nothing |
+| **Server** `api.jointracely.com` | `server/` | **Sam** — SSH to the Linode (`server/DEPLOY.md`); holds the OpenAI key, `server/.env`, the beta token. **Either** through Actions `deploy-server` once Sam has set it up (DEPLOY.md, "Deploying from GitHub") | nothing |
 | **Chrome extension** | `extension/`, tests in `server/test/ext-*` | **Sam** uploads the store zip (publisher account); either writes it | Merrick: nothing |
 | **Desktop app** | `src/`, `scripts/`, packaging | **Merrick** — `/ship` from his Windows box; macOS installers from CI | Sam: deploy the server first when a route is new |
 | **Website, DNS** | Tracely-Website repo | **Merrick** (Vercel) | Sam: install the Vercel GitHub App on the org |
@@ -134,7 +134,8 @@ reading or writing `.env`, `.env.staging`, `.env.release`, `.env.live` and
 ## Hooks and guards (`.claude/`)
 
 Deny: commit or rebase on `main`; source edits on `main`. Ask: pushing `main`,
-anything that reaches the Linode or restarts the service, `pack-extension.sh`,
+anything that reaches the Linode or restarts the service, `gh workflow run
+deploy-server`, `pack-extension.sh`,
 `gh pr merge`, release tags, `npm run ship`, force pushes, any eval (paid).
 End of turn: typecheck when TypeScript changed, the server suite when
 `server/` or `extension/` changed, then commit and push. Not guarded: the Web
@@ -158,7 +159,9 @@ Editing `server/.env`; publishing on the Web Store; a desktop ship; DNS or
 Vercel; deleting an `app.bak-*`; changing prompt text behind a SHA pin;
 removing or renaming an `EXTENSION_API` member; splitting `content.js` into
 several content scripts (an extension release with a human Chrome test);
-a CI-driven server deploy (a new user and key on a shared Linode). Say which
+widening what the GitHub deploy user may do on the shared Linode
+(`server/scripts/linode/`), or turning on deploy-on-merge
+(`AUTO_DEPLOY_SERVER`). Say which
 in the Handoff and stop there.
 
 ## Docs index

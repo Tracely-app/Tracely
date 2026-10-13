@@ -91,6 +91,85 @@ later is installed (see "The model tiers").
 The server has **zero runtime dependencies**, so there is no `npm install`
 step. If one ever appears, this document is wrong.
 
+## Deploying from GitHub (`deploy-server`)
+
+The same deploy, run by either developer from **Actions → deploy-server →
+Run workflow** (main only). The workflow (`.github/workflows/deploy-server.yml`):
+
+1. runs `server/` tests;
+2. packs `server/` with the runbook's excludes, plus `extension/content.js` and
+   `release.json`;
+3. sends the package to the box;
+4. runs `healthcheck.sh --commit`, three tries;
+5. if the healthcheck fails, rolls back to the backup it just took;
+6. pushes the `server/<date>-<sha>` tag.
+
+Its summary prints the `STATUS.md` row to paste, because STATUS.md moves only
+by PR. Deploying from the Mac (above) keeps working.
+
+**What the key can do.** It logs in as `tracely-deploy`, never root. Its
+`authorized_keys` line is `restrict,command="/usr/local/sbin/tracely-receive"`,
+so whatever the client asks, that one script runs.
+
+- `tracely-receive` (as `tracely-deploy`) accepts exactly two commands:
+  `deploy <40-hex commit>` and `rollback app.bak-YYYYMMDD-HHMMSS`.
+- It unpacks the upload in its own home, unprivileged, and checks it:
+  - gzip and unpacked size are capped;
+  - only `app/` at the top;
+  - regular files and directories only (no links, no special files);
+  - `server.js`, `package.json` and `extension/content.js` are present;
+  - `release.json` names the commit asked for.
+- Only then does it run `sudo tracely-install`, its single sudo rule. That
+  root script repeats the runbook and nothing else:
+  - `cp -a` backup;
+  - an `rsync -rt` that skips links;
+  - `chown`, then `systemctl restart tracely`;
+  - if the service is not active 3 s later, it restores the backup by itself.
+- It refuses to restore a backup older than 2026-09-21 (see "The model tiers").
+
+A stolen key can deploy Tracely code. It cannot get a shell, touch another app
+on this shared box, or read `.env`.
+
+**Setup, once, by Sam** (the box and the org are his):
+
+1. Make the key pair on the Mac. Keep no copy after step 4:
+   `ssh-keygen -t ed25519 -N '' -C github-actions-tracely-deploy -f ./tracely-deploy`
+2. Copy the scripts to the box and run the setup with the PUBLIC half:
+   ```sh
+   scp -r server/scripts/linode root@45.56.92.67:/root/tracely-linode
+   ssh root@45.56.92.67 "sh /root/tracely-linode/setup-deploy-user.sh '$(cat tracely-deploy.pub)'"
+   ```
+   It creates the user, installs both scripts root-owned in `/usr/local/sbin`,
+   checks the sudo rule with `visudo` before installing it, and writes the
+   key. It then prints:
+   - any `AllowUsers`/`AllowGroups` line in sshd's config (add
+     `tracely-deploy` if there is one);
+   - the host key line.
+3. If a firewall limits port 22 to known addresses, GitHub's runners need to
+   reach it. Their addresses change; check before the first run.
+4. GitHub → Tracely-app/Tracely → Settings → Environments → **New environment
+   `production`**:
+   - **Deployment branches: `main` only.** This is what keeps the key away
+     from a workflow on any other branch.
+   - Secret `LINODE_DEPLOY_KEY`: the private half (`cat tracely-deploy`). Then
+     `rm tracely-deploy tracely-deploy.pub`.
+   - Variable `LINODE_KNOWN_HOSTS`: the host key line step 2 printed
+     (`45.56.92.67 ssh-ed25519 AAAA…`). Compare it with
+     `ssh-keygen -F 45.56.92.67` on the Mac first.
+   - Optional: required reviewers. A run then waits for a click from one of
+     you.
+5. Run the workflow once. Check the healthcheck, the tag and `/api/status`.
+
+**Deploy on every merge** is off. Repo variable `AUTO_DEPLOY_SERVER=true` turns
+it on for pushes to main that touch `server/` or `extension/content.js`. Agree
+on it first: a merge whose code needs a new `.env` value would go live before
+anyone set it.
+
+**Revoke** by deleting the `authorized_keys` line, or the secret.
+
+**Each deploy leaves a backup** in `/srv/tracely`, as the runbook does.
+Deleting old `app.bak-*` stays a decision for both developers.
+
 ## Not every .env value is hot-reloaded
 
 `loadEnvFile()` runs at the top of each request, so anything read from

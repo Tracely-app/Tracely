@@ -1,0 +1,139 @@
+name: deploy-server
+
+# Deploys server/ to the Linode, and extension/content.js beside it (/try serves
+# it): server/DEPLOY.md's "Redeploy" steps, run from GitHub instead of Sam's Mac.
+# It logs in as tracely-deploy, a user whose key can run one command
+# (server/scripts/linode/tracely-receive): unpack, check, then root's half backs
+# up, syncs, restarts and verifies. No step here has a shell on the box.
+#
+# Inert until Sam sets it up (server/DEPLOY.md, "Deploying from GitHub"): without
+# the `production` environment's key and pinned host key the job stops at once.
+#
+# Run it: Actions -> deploy-server -> Run workflow (main only). A merge to main
+# deploys by itself only once the repo variable AUTO_DEPLOY_SERVER is "true",
+# which is a decision for both developers: a merge that needs a new .env value
+# first would go live before anyone set it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['server/**', 'extension/content.js']
+
+# One deploy at a time, and a queued one waits rather than cancelling the
+# deploy in flight (a cancelled rsync is a half-deployed app).
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.AUTO_DEPLOY_SERVER == 'true')
+    runs-on: ubuntu-latest
+    # Holds LINODE_DEPLOY_KEY (secret) and LINODE_KNOWN_HOSTS (variable).
+    # Its deployment-branch rule must be "main" only, so a workflow on any
+    # other branch cannot read the key.
+    environment: production
+    timeout-minutes: 15
+    permissions:
+      contents: write # the server/<date>-<sha> tag, as the runbook pushes
+    env:
+      HOST: 45.56.92.67
+      BASE: https://api.jointracely.com
+    steps:
+      - name: set up?
+        env:
+          KEY: ${{ secrets.LINODE_DEPLOY_KEY }}
+          KNOWN: ${{ vars.LINODE_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$KNOWN" ]; then
+            echo "::error::The production environment has no LINODE_DEPLOY_KEY or LINODE_KNOWN_HOSTS. Setup: server/DEPLOY.md, Deploying from GitHub."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The same suite CI's `check` ran on the merge, run again on exactly
+      # what is about to go out.
+      - name: server tests
+        working-directory: server
+        run: npm test
+
+      # The runbook's rsync, into a tarball: the same excludes, content.js at
+      # app/extension/, and release.json for /api/status.
+      - name: package
+        run: |
+          SHA=$(git rev-parse HEAD)
+          mkdir -p out/app/extension
+          rsync -a --exclude node_modules --exclude data --exclude .env \
+            --exclude test --exclude .git --exclude '*.log' server/ out/app/
+          cp extension/content.js out/app/extension/content.js
+          printf '{"commit":"%s","deployedAt":"%s"}\n' "$SHA" "$(date -u +%FT%TZ)" > out/app/release.json
+          if [ -n "$(find out ! -type f ! -type d | head -n 1)" ]; then
+            echo "::error::the payload holds a link or a special file; the box would refuse it"
+            exit 1
+          fi
+          tar -czf payload.tgz -C out app
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          echo "payload $(du -h payload.tgz | cut -f1) for $SHA"
+
+      # The key reaches the runner's disk only now, after the tests ran.
+      - name: deploy
+        env:
+          KEY: ${{ secrets.LINODE_DEPLOY_KEY }}
+          KNOWN: ${{ vars.LINODE_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          # The host key is pinned, never learned: a box that answers with any
+          # other key gets nothing.
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "tracely-deploy@$HOST" "deploy $SHA" < payload.tgz | tee deploy.out
+          BAK=$(sed -n 's/^backup=//p' deploy.out)
+          [ -n "$BAK" ] || { echo "::error::the box answered without a backup name"; exit 1; }
+          echo "BAK=$BAK" >> "$GITHUB_ENV"
+
+      # healthcheck.sh is the runbook's check. Three tries, so a slow first
+      # request after the restart is not taken for a broken deploy.
+      - name: healthcheck
+        id: health
+        run: |
+          for try in 1 2 3; do
+            bash server/scripts/healthcheck.sh "$BASE" --commit "$SHA" && exit 0
+            sleep 10
+          done
+          exit 1
+
+      - name: roll back
+        if: failure() && steps.health.outcome == 'failure' && env.BAK != ''
+        run: |
+          echo "::error::the healthcheck failed on $SHA; restoring $BAK"
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "tracely-deploy@$HOST" "rollback $BAK"
+          bash server/scripts/healthcheck.sh "$BASE"
+
+      - name: tag
+        run: |
+          TAG="server/$(date -u +%Y%m%d)-${SHA:0:7}"
+          git tag "$TAG" "$SHA"
+          git push -q origin "$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      # STATUS.md moves only by PR, so the job hands over the row instead.
+      - name: summary
+        run: |
+          {
+            echo "Deployed \`${SHA:0:7}\` (tag \`$TAG\`, backup \`$BAK\`). The server row for STATUS.md:"
+            echo
+            echo '```'
+            echo "| **Server** \`api.jointracely.com\` | main \`${SHA:0:7}\` | $(date -u '+%Y-%m-%d %H:%M') | GitHub Actions \`deploy-server\` (run $GITHUB_RUN_ID, by $GITHUB_ACTOR); backup \`$BAK\`; tag \`$TAG\` | either developer (Actions), Sam (SSH) |"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
