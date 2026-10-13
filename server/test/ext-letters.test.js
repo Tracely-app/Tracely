@@ -68,7 +68,7 @@ test("in any document, a citation request on the author's own account is hidden 
     "As we all know, the ocean is 3.5 percent salt.",
     "We should remember that 40 percent of food is wasted.",
     "The project will cost $3.2 million.",
-    "World War I ended in 1918.",
+    "World War I killed about 20 million people.", // the I is the war's, not the writer's; a date alone is no quantity (citationWorthy)
   ]) assert.equal(X.flagShown(cite, {}, "prose", world), true, world);
   assert.equal(X.flagShown(cite, {}, "prose"), true, "no sentence passed: unchanged");
 });

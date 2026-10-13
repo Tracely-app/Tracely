@@ -134,10 +134,33 @@
      a topic sentence, an abstraction or the writer's own argument is the
      essay talking. A copy of src/shared/citationWorthy.ts —
      server/test/citation-worthy-mirror.test.js keeps the two in step. */
-  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|a third|a quarter|twice|double|triple|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority)\b/i;
-  const WORTHY_QUOTATION = /["“][^"”]*\S+\s+\S+\s+\S+[^"”]*["”]/;
+  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|halved|a third|a quarter|twice|double|doubled|triple|tripled|quadrupled|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|one (?:in|out of|degree|percent|point)\b)\b/i;
+  // Numbers that are not quantities, blanked before WORTHY_QUANTITY looks: a
+  // year, a span of years, a decade, an ordinal, a clock time, a label
+  // ("Chapter 5", "World War 2"), a name with a number ("COVID-19"). "A date
+  // is not a quantity" is the check's own rule; "1500 deaths" still counts.
+  const WORTHY_NOT_A_QUANTITY = [
+    /\b\d{1,2}:\d{2}\b/g,
+    /\b\d+(?:st|nd|rd|th)\b/gi,
+    /\b\d{2,4}'?s\b/g,
+    /\b(?:1\d{3}|20\d{2})\s*[/–-]\s*(?:\d{4}|\d{2})\b/g,
+    /\b(?:chapters?|pages?|p\.|pp\.|vol\.|volume|no\.|sections?|figure|fig\.|table|doc\.?|documents?|grades?|world war|ww|level|part|step|phase|act|scene|lines?|issue|edition|article|title|round|season|book|verse|room|route|version)\s*\d+(?:[.:–-]\d+)*/gi,
+    /\b[a-z]+-?\d+[a-z0-9]*\b/gi,
+    /\b(?:1\d{3}|20\d{2})\b(?!\s*(?:%|percent|per cent)|\s+(?:[a-z-]+\s+)?(?:people|persons|cases|deaths|students|adults|children|soldiers|troops|men|women|workers|copies|words|pages|miles|dollars)\b)/gi,
+  ];
+  // A quotation is three or more of someone's words in quotation marks; a
+  // quoted title ("The Road Not Taken", "Pride and Prejudice") is a name.
+  const WORTHY_QUOTED = /["“]([^"”]*)["”]/g;
+  const WORTHY_TITLE_SMALL = /^(?:a|an|the|and|but|or|nor|for|of|in|on|at|to|by|with|from|as|vs\.?)$/i;
+  const worthyQuotation = (t) => [...t.matchAll(WORTHY_QUOTED)].some((m) => {
+    const words = m[1].trim().split(/\s+/).filter(Boolean);
+    return words.length >= 3 && !words.every((w, i) => (i > 0 && WORTHY_TITLE_SMALL.test(w)) || /^['‘(]?[A-Z0-9]/.test(w));
+  });
   const WORTHY_FINDING = /\b(?:stud(?:y|ies)|research(?:ers)?|survey(?:s|ed)?|experiments?|data|scientists|report(?:s|ed)?|according to)\b/i;
-  const citationWorthy = (text) => WORTHY_QUANTITY.test(String(text ?? "")) || WORTHY_QUOTATION.test(String(text ?? "")) || WORTHY_FINDING.test(String(text ?? ""));
+  const citationWorthy = (text) => {
+    const t = String(text ?? "");
+    return WORTHY_QUANTITY.test(WORTHY_NOT_A_QUANTITY.reduce((s, re) => s.replace(re, " "), t)) || worthyQuotation(t) || WORTHY_FINDING.test(t);
+  };
   // Names nothing specific either: "Worth checking" has nothing to check there.
   const isGeneralStatement = (text) => {
     const t = String(text ?? "").trim();
