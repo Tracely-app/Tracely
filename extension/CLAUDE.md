@@ -162,12 +162,29 @@ nothing drives it through the flags any more. Tests:
 `server/test/ext-fix-all.test.js`.
 
 The header counts each kind with its own icon in its finding's colour —
-factual errors (red), to double-check (orange), citation issues (amber),
+factual errors (red), need evidence (orange), citation issues (amber),
 writing notes (orange) — and a count opens the first card of its kind; "All
 clear" only when nothing is open and the check is done. There is no "next
 check in" countdown. The panel drags by its header, stays on screen, is
 remembered per site (`tracely.widget.panelPos`), and a double-click puts it
 back. Tests: `server/test/ext-panel-layout.test.js`.
+
+## "Needs evidence" is searched first
+
+Owner, 2026-10-13: "instead of having it say six to double check, please
+search for it first and say like look for evidence to back it up". A
+`questionable` sentence (the card and legend say "Needs evidence", the chip
+"N need evidence") is searched automatically. `EVIDENCE_FIRST` sets the
+limits: up to 3 of a check's new, shown flags, one at a time, and never the
+writer's last 2 searches of the day. The limit uses the `limits.sources` and
+`usage.sources` from the entitlement answer (`noteSearchUsage`), less the
+automatic searches started since that answer. When nothing backs the
+sentence, the card says so and adds "Look for evidence to back it up, or
+narrow the claim." (`EVIDENCE_COPY`). In Docs, the first card says what the
+search found and opens it with "See the sources", never with a second
+search. A failed automatic search stops the rest and is not reported. Every
+other flag's automatic search is still behind the opt-in Auto-src switch
+(`FEATURES.autoSources`, off). Tests: `server/test/ext-evidence-first.test.js`.
 
 ## Underlines hold while the text holds
 
