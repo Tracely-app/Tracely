@@ -289,7 +289,8 @@ test("card: Keep writing closes it and never cancels; the press starts the searc
   assert.match(docs, /const keep = dmBtn\(POP_COPY\.keepWriting, false\);\s+keep\.addEventListener\("click", \(\) => \{ popPinned = false; hideDocsPopover\(\); \}\);/);
   assert.match(docs, /if \(sourcesMap\.get\(hash\)\?\.loading\) return true; \/\/ already running/);
   assert.match(docs, /src\.addEventListener\("pointerdown", \(\) => prestartClaim\(tip\.id\)\);/);
-  assert.match(docs, /if \(!hasRevision && !citedHere\) action\.addEventListener\("pointerdown", \(\) => \{ fetchSources\(hash\)\.catch\(\(\) => \{\}\); \}\);/);
+  // Not for a "Needs evidence" sentence already searched by itself (`ev`, EVIDENCE_FIRST): that press opens what it found.
+  assert.match(docs, /if \(!hasRevision && !citedHere && !ev\) action\.addEventListener\("pointerdown", \(\) => \{ fetchSources\(hash\)\.catch\(\(\) => \{\}\); \}\);/);
   assert.match(docs, /btn\.addEventListener\("pointerdown", \(\) => \{ fetchSources\(btn\.dataset\.sources\)\.catch\(\(\) => \{\}\); \}\);/);
   assert.match(docs, /btn\.addEventListener\("pointerdown", \(\) => prestartClaim\(btn\.dataset\.claimSrc\)\);/);
   assert.match(docs, /const data = await searchSources\(\{/, "the Docs search is the live one");

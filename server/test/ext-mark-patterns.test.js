@@ -58,7 +58,7 @@ test("one legend: each kind's icon beside its solid line, in the cards' words", 
   const { legendHtml, MARK_COLORS, TALLY_ICON } = load();
   const html = legendHtml();
   assert.equal((html.match(/class="legend-item"/g) || []).length, 4);
-  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Worth checking", "check"], ["needs_citation", "Missing or incomplete citation", "cite"], ["note_tip", "Writing note", "writing"]]) {
+  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Needs evidence", "check"], ["needs_citation", "Missing or incomplete citation", "cite"], ["note_tip", "Writing note", "writing"]]) {
     assert.ok(html.includes(`<span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[kind]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: 2px"></span>${label}`), label);
   }
   assert.match(html, /aria-label="What the underlines and margin icons mean"/);

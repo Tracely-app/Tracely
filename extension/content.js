@@ -172,7 +172,7 @@
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
-  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Worth checking", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
+  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
   // The mark vocabulary is the desktop app's (PROBLEM_COLOR in
   // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
@@ -255,7 +255,7 @@
   const markFill = (color) => color;
   /* The panel's legend: each kind's icon (as in the page margin and the
      header) beside its solid line, in the cards' own words. */
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"], ["note_tip", "Writing note"]];
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Needs evidence"], ["needs_citation", "Missing or incomplete citation"], ["note_tip", "Writing note"]];
   function legendHtml() {
     const items = LEGEND.map(([v, label]) => `<span class="legend-item"><span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[MARK_ICON[v]]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: ${MARK_LINE_HEIGHT}px"></span>${label}</span>`).join("");
     return `<div class="legend" role="note" aria-label="What the underlines and margin icons mean">${items}</div>`;
@@ -388,6 +388,21 @@
     for (const fn of tierListeners) { try { fn(); } catch { /* widget torn down */ } }
   }
   let tierResolved = false;
+  /* The writer's source searches left today, as of the server's last
+     entitlement answer (its `limits.sources` less `usage.sources`), less the
+     automatic searches started since that answer. Infinity when the server
+     meters nothing or did not say. Only EVIDENCE_FIRST reads it. */
+  let searchUsage = { left: Infinity, key: "" };
+  let autoSinceUsage = 0;
+  function noteSearchUsage(r) {
+    const lim = r?.limits?.sources, used = r?.usage?.sources;
+    const key = JSON.stringify([lim ?? null, used ?? null]);
+    if (key === searchUsage.key) return;
+    const left = (cap, n) => (typeof cap === "number" ? Math.max(0, cap - (typeof n === "number" ? n : 0)) : Infinity);
+    searchUsage = { left: Math.min(left(lim?.day, used?.today), left(lim?.month, used?.month)), key };
+    autoSinceUsage = 0;
+  }
+  const searchesLeft = () => searchUsage.left - autoSinceUsage;
 
   /* A widget's settings (citation style, auto-sources) in the page's
      localStorage. Whatever an earlier build left there must not break a
@@ -430,6 +445,7 @@
     }
     pending.then((r) => {
       if (!r?.ok) return;
+      noteSearchUsage(r);
       const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
       if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey && next.beta === tier.beta
           && next.unenforced === tier.unenforced && next.provisional === tier.provisional) return;
@@ -2169,6 +2185,43 @@
     unreadOnly: (n) => `The search found ${n} source${n === 1 ? "" : "s"}, but Tracely couldn't open ${n === 1 ? "it" : "them"} to check what ${n === 1 ? "it says" : "they say"}. Read ${n === 1 ? "it" : "them"} yourself before citing, or search again.`,
     open: "Open ↗",
   };
+  /* "Needs evidence" (questionable) is searched before the writer is asked
+     to look. Owner, 2026-10-13: "instead of having it say six to double
+     check, please search for it first and say like look for evidence to
+     back it up". Up to `perCheck` of a check's new flags, one at a time, and
+     never the writer's last `keep` searches of the day: the allowance is
+     theirs (free: 5 a day) and a missing citation needs it too. Every other
+     flag's automatic search stays behind the opt-in Auto-src switch. */
+  const EVIDENCE_FIRST = { verdicts: ["questionable"], perCheck: 3, keep: 2 };
+  const isEvidenceFirst = (verdict) => EVIDENCE_FIRST.verdicts.includes(verdict);
+  const EVIDENCE_COPY = {
+    looking: "Looking for evidence…",
+    found: (n) => `Tracely found ${n} source${n === 1 ? "" : "s"} that back${n === 1 ? "s" : ""} this.`,
+    see: (n) => `See the source${n === 1 ? "" : "s"}`,
+    next: "Look for evidence to back it up, or narrow the claim.",
+    // What a search that found nothing to cite says, and what to do next.
+    none: (st) => `${st?.unbacked ? `Tracely found ${st.unbacked} source${st.unbacked === 1 ? "" : "s"} on this topic, but none backs this sentence.`
+      : st?.unread?.length ? `Tracely found ${st.unread.length} source${st.unread.length === 1 ? "" : "s"} but couldn't open ${st.unread.length === 1 ? "it" : "them"} to check.`
+        : "Tracely couldn't find a source that backs this."} ${EVIDENCE_COPY.next}`,
+  };
+  /* Which of a check's new findings Tracely searches by itself. `optIn`: the
+     verdicts the Auto-src switch adds ([] when off); `skip(f)`: already
+     searched, dismissed, not shown or gone; `left`: the writer's searches
+     left today (Infinity when the server meters nothing or did not say). */
+  function autoSearchPicks(findings, { optIn = [], skip = () => false, left = Infinity } = {}) {
+    const picks = [];
+    for (const f of findings ?? []) {
+      if (picks.length >= EVIDENCE_FIRST.perCheck) break;
+      if (!isEvidenceFirst(f?.verdict) && !optIn.includes(f?.verdict)) continue;
+      if (skip(f)) continue;
+      if (left - picks.length <= EVIDENCE_FIRST.keep) break;
+      picks.push(f);
+    }
+    return picks;
+  }
+  // The note under a card whose search found nothing to cite.
+  const unbackedNote = (st, verdict) => (isEvidenceFirst(verdict) ? EVIDENCE_COPY.none(st)
+    : st?.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st?.unread?.length ?? 0));
   /* What a source shows under its title: the receipt — "The source says:
      “…”" and where it was read — when the server read it, else the
      search's snippet, as before. */
@@ -2794,7 +2847,7 @@
   // [kind, its MARK_COLORS key (read when drawn), its words]
   const TALLY = [
     ["wrong", "false", (n) => `${n} factual ${n === 1 ? "error" : "errors"}`],
-    ["check", "questionable", (n) => `${n} to double-check`],
+    ["check", "questionable", (n) => `${n} need${n === 1 ? "s" : ""} evidence`],
     ["cite", "needs_citation", (n) => `${n} citation ${n === 1 ? "issue" : "issues"}`],
     ["writing", "note_tip", (n) => `${n} writing ${n === 1 ? "note" : "notes"}`],
   ];
@@ -6348,16 +6401,24 @@
       const also = (coTipsByHash.get(hash) ?? []).filter((t) => !dismissed.has(t.id));
       if (also.length) put(dmAlso(also, hash, VERDICT_LABEL[f.verdict] ?? f.verdict));
       put(dmBody(f.explanation || f.basis || seg.text));
+      // "Needs evidence": what Tracely's own search (EVIDENCE_FIRST) found so far.
+      const ev = isEvidenceFirst(f.verdict) ? sourcesMap.get(hash) ?? null : null;
+      const evDone = Boolean(ev && !ev.loading);
+      const evFound = evDone ? ev.list?.length ?? 0 : 0;
+      if (ev) put(dmHint(ev.loading ? EVIDENCE_COPY.looking : evFound ? EVIDENCE_COPY.found(evFound) : ev.partial ? TRIM_COPY.head : EVIDENCE_COPY.none(ev)));
       const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
       const findSource = () => {
+        // Already searched (or searching) by itself: open what it found, never a second search.
+        if (ev) { setStep(hash, { step: "sources", searched: true }); return; }
         // The search marks itself in flight before its first await, so the
         // card painted next already reads "searching" rather than "failed".
         const started = fetchSources(hash);
         setStep(hash, { step: "sources", searched: true });
         started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       };
-      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : POP_COPY.findSource, true);
-      if (!hasRevision && !citedHere) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
+      const evOpen = evDone && (evFound > 0 || Boolean(ev.partial));
+      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : evOpen ? EVIDENCE_COPY.see(evFound || 1) : POP_COPY.findSource, true);
+      if (!hasRevision && !citedHere && !ev) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
       action.addEventListener("click", () => {
         if (hasRevision) { setStep(hash, { step: "fix" }); return; }
         if (citedHere) { findCitedWork(hash); return; }
@@ -6378,6 +6439,11 @@
         if (!hasRevision) more.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
         more.addEventListener("click", () => { if (hasRevision) findCitedWork(hash); else findSource(); });
         put(more);
+      }
+      if (hasRevision && evOpen) {
+        const see = dmBtn(EVIDENCE_COPY.see(evFound || 1), false, { wide: true });
+        see.addEventListener("click", () => setStep(hash, { step: "sources", searched: true }));
+        put(see);
       }
       // A card with no fix of its own has no fix card to hold "Explain in
       // depth": it lives here instead — the answer, and its own fix when it
@@ -6565,7 +6631,8 @@
         return;
       }
       if (list.length === 0) {
-        if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
+        if (isEvidenceFirst(f?.verdict)) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(EVIDENCE_COPY.none(s)));
+        else if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
         else if (unread.length) put(dmHead(DM.amber, POP_COPY.couldntRead), dmBody(RECEIPT_COPY.unreadOnly(unread.length)));
         else put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
         put(noteEl());
@@ -7079,7 +7146,7 @@
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
-        if (!batch) statusMsg = err?.message ?? "source search failed";
+        if (!batch && !auto) statusMsg = err?.message ?? "source search failed";
       } finally {
         if (!batch) sourcesInflight = false;
         render();
@@ -7207,19 +7274,21 @@
     }
 
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
+    // "Needs evidence" always (EVIDENCE_FIRST); the rest only with Auto-src on (cost).
     async function autoFindSources(findings) {
-      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
-      let started = 0;
-      for (const f of findings) {
-        if (started >= 3) break;
-        if (!AUTO_SOURCE_VERDICTS.includes(f.verdict)) continue;
-        if (sourcesMap.has(f.id) || dismissed.has(f.id)) continue;
-        if (!segments.some((s) => s.hash === f.id)) continue;
+      const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
+      const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
+      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(), skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) });
+      for (const f of picks) {
         autoSourceTimes = autoSourceTimes.filter((t) => Date.now() - t < 3_600_000);
         if (autoSourceTimes.length >= 15) { statusMsg = "auto-sources paused — hourly cap"; break; }
+        // The writer's own search holds the slot: wait for it (a minute at most).
+        for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
+        if (sourcesMap.has(f.id)) continue; // they searched this one meanwhile
         autoSourceTimes.push(Date.now());
-        started++;
-        await fetchSources(f.id, true); // sequential: one paid search at a time
+        autoSinceUsage++;
+        if (await fetchSources(f.id, true) === false) break;
+        if (!sourcesMap.has(f.id)) break; // failed (out of searches, offline): stop, and say nothing — nobody asked
       }
     }
 
@@ -10045,7 +10114,10 @@
               `<button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
             sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${editNoteHtml(`trim:${seg.hash}`)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
+            // "Needs evidence" searched and nothing came back: say what to do next.
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(EVIDENCE_COPY.none(st))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
@@ -11027,7 +11099,7 @@
       } catch (err) {
         sourcesMap.delete(hash);
         if (!auto) statusKind = "error";
-        statusMsg = err?.message ?? "source search failed";
+        if (!auto) statusMsg = err?.message ?? "source search failed";
       } finally {
         sourcesInflight = false;
         render();
@@ -11037,18 +11109,18 @@
     // Auto-sources — same toggle and rolling-hour guard as docs mode. Only
     // reachable after a check, which on a non-enabled site takes a click.
     async function autoFindSources(findings) {
-      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
-      let started = 0;
-      for (const f of findings) {
-        if (started >= 3) break;
-        if (!AUTO_SOURCE_VERDICTS.includes(f.verdict)) continue;
-        if (sourcesMap.has(f.id) || dismissed.has(f.id)) continue;
-        if (!segments.some((s) => s.hash === f.id)) continue;
+      const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
+      const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
+      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(), skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) });
+      for (const f of picks) {
         autoSourceTimes = autoSourceTimes.filter((t) => Date.now() - t < 3_600_000);
         if (autoSourceTimes.length >= 15) { statusMsg = "auto-sources paused — hourly cap"; break; }
+        for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
+        if (sourcesMap.has(f.id) || sourcesInflight) continue;
         autoSourceTimes.push(Date.now()); // stamp BEFORE the call
-        started++;
+        autoSinceUsage++;
         await fetchSources(f.id, true); // sequential: one paid search at a time
+        if (!sourcesMap.has(f.id)) break; // failed: stop, and say nothing — nobody asked
       }
     }
 
@@ -11432,7 +11504,10 @@
             const trimActs = `<button class="act primary" data-field-trim="${seg.hash}">${esc(TRIM_COPY.remove)}</button><button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
             sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
+            // "Needs evidence" searched and nothing came back: say what to do next.
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(EVIDENCE_COPY.none(st))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `

@@ -81,7 +81,7 @@ test("the header counts what is wrong, kind by kind, each with its icon — neve
   assert.deepEqual(c, { wrong: 4, check: 1, cite: 3, writing: 3 }, "a missing citation counts with the citation notes; stray lines and resume tips are writing");
   const h = X.panelHeadHtml(c, "6 issues found", false);
   assert.deepEqual(chips(h), [
-    "wrong|#d93636|4 factual errors", "check|#ff5900|1 to double-check", "cite|#ffb800|3 citation issues", "writing|#ff5900|3 writing notes",
+    "wrong|#d93636|4 factual errors", "check|#ff5900|1 needs evidence", "cite|#ffb800|3 citation issues", "writing|#ff5900|3 writing notes",
   ], "the owner's '4 wrong factual pieces' with a red icon, '2 wrong citations' with its own");
   assert.equal(status(h), "", "never '6 issues found' beside the counts");
   assert.deepEqual(chips(X.panelHeadHtml({ cite: 2 }, "all clear", false)), ["cite|#ffb800|2 citation issues"], "the owner's screenshot: two citation notes, no 'all clear'");
