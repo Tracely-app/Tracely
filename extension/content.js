@@ -1908,7 +1908,29 @@
      publication date because Harvard is a famous institution". Each rule says
      what is missing and never supplies it — no date, author, title or page is
      ever filled in. Free and local; underlined on the passage (cite_tip). */
-  const VAGUE_ATTRIBUTION = /\b(?:some|many|several|most|certain) (?:researchers|scholars|historians|experts|scientists|studies|sources|people)(?: (?:have|has))? (?:argued|argue|say|said|claim|claimed|believe|believed|suggest|suggested|found|shown|show|think)\b|\b(?:experts|studies|research|scientists|historians) (?:say|says|show|shows|agree|suggest|suggests)\b|\bit is (?:widely|generally|often) (?:believed|said|thought|accepted)\b/i;
+  const VAGUE_ATTRIBUTION = /\b(?:some|many|several|most|certain|recent|numerous|multiple) (?:researchers|scholars|historians|experts|scientists|studies|sources|people)(?: (?:have|has))? (?:argued|argue|say|said|claim|claimed|believe|believed|suggest|suggested|found|shown|show|think|demonstrated|demonstrate|questioned|noted|reported|warned|concluded|indicated|proven|proved)\b|\b(?:experts|studies|research|scientists|historians) (?:say|says|show|shows|agree|suggest|suggests)\b|\b(?:research|studies|evidence) (?:from|by) [^.!?]{2,80}?\b(?:shows?|demonstrates?|suggests?|finds?|found|indicates?|proves?)\b|\bit is (?:widely|generally|often) (?:believed|said|thought|accepted)\b/i;
+  /* A study, survey or report the sentence describes but never names, and does
+     not cite — "a 2023 study conducted by Harvard University", "a 2024 Pew
+     survey", "A study involving 12 college students found …" (owner,
+     2026-10-13, on a paper Tracely had let through with all three). Only
+     when the sentence reports what it found or says "according to"; never
+     the writer's own ("we surveyed"); and not when the reference list names
+     who did it. */
+  const UNNAMED_STUDY = /\b(?:[Aa]|[Aa]n|[Oo]ne)\s+(?:(?:recent|new|small|large|(?:1[5-9]|20)\d\d)\s+)?(?:[\p{Lu}][\p{L}&.'’-]*\s+){0,3}(?:study|survey|report|poll|experiment|analysis)\b/u;
+  // The study is what reports — "according to a … survey", "a study … found" — not a word that happens to sit
+  // in the same sentence ("… rather than an experiment on the margins" is no study).
+  const STUDY_REPORTS = new RegExp(`\\b[Aa]ccording to (?:the )?${UNNAMED_STUDY.source.slice(2)}|${UNNAMED_STUDY.source}[^.!?,;]{0,80}?\\b(?:found|finds|showed|shows|demonstrated|demonstrates|concluded|concludes|reported|reports|revealed|reveals|suggested|suggests|indicated|indicates|proved|proves)\\b`, "u");
+  const FIRST_PERSON = /(?:^|[^\w'])(?:I|[Ww]e|[Oo]ur|[Mm]y)(?=$|[^\w'])/;
+  // Words that name a kind of body, not which one: "Harvard University" is named by "Harvard".
+  const GENERIC_BODY = /^(?:The|A|An|One|University|College|Institute|Center|Centre|Association|Organization|Organisation|Department|School|Research|Journal|National|International|Society|Foundation|Council|Group|Survey|Study|Report)$/;
+  function unnamedStudy(s, next, refs) {
+    const m = s.match(UNNAMED_STUDY);
+    if (!m || !STUDY_REPORTS.test(s) || hasCitationMark(s) || hasCitationMark(next) || FIRST_PERSON.test(s)) return false;
+    const by = (s.match(/\b(?:by|from|at)\s+(?:the\s+)?([\p{Lu}][\p{L}&.'’-]*(?:\s+[\p{Lu}][\p{L}&.'’-]*){0,4})/u) ?? [])[1] ?? "";
+    const who = [...(m[0].match(/[\p{Lu}][\p{L}&.'’-]*/gu) ?? []), ...by.split(/\s+/)].filter((w) => w.length > 2 && !GENERIC_BODY.test(w));
+    // Who did it is in the reference list: the writer cites it the way they cite the rest.
+    return !who.some((w) => refs.includes(w));
+  }
   const VERIFY_NOTE = /\b(?:requires?|needs?|pending|awaiting) (?:further )?verification\b|\b(?:citation|source) needed\b|\bto be verified\b/i;
   const PRESTIGE_EXCUSE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
   const BAD_INLINE = /\[[^\]\n]{3,120}\/[^\]\n]{1,120}\]|\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i;
@@ -1931,12 +1953,16 @@
   }
   function citationHygieneTips(text) {
     const out = [];
-    const body = (() => { const wc = worksCitedBlock(String(text ?? "")); return wc ? String(text).slice(0, wc.headStart) : String(text ?? ""); })();
+    const wcBlock = worksCitedBlock(String(text ?? ""));
+    const body = wcBlock ? String(text).slice(0, wcBlock.headStart) : String(text ?? "");
+    const refsText = wcBlock ? wcBlock.entries.join(" ") : "";
+    const citesSources = Boolean(wcBlock) || inTextCitations(body).length > 0;
     // Sentences paragraph by paragraph, so an unnamed source the NEXT sentence
     // goes on to cite ("Studies show X. Smith (2019) found …") is left alone.
     const sentences = [];
     for (const para of body.split(/\n+/)) {
-      const ss = para.split(/(?<=[.!?]["”’)\]]?)\s+/).map((x) => x.trim()).filter(Boolean);
+      // The document's own splitter: "U.S." or "Dr." does not end a sentence (a quote cut there underlines half of it).
+      const ss = splitLineSentences(para).map(([a, b]) => para.slice(a, b).trim()).filter(Boolean);
       ss.forEach((x, i) => sentences.push({ s: x, next: ss[i + 1] ?? "" }));
     }
     for (const { s, next } of sentences) {
@@ -1950,6 +1976,8 @@
         out.push({ quote: s, kind: "nameonly", message: `${raw} names a person, not which of their works you mean. Find the cited work lists what ${name} has published on this subject — cite the one that makes this point, with its year.` });
       }
       else if (VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) out.push({ quote: s, kind: "vague", message: "An unnamed source is not a citation: say which researchers or study, and cite it — or remove the claim." });
+      // Only in writing that cites its sources: there an uncited study stands out (elsewhere the check's own "Missing citation" asks).
+      else if (citesSources && unnamedStudy(s, next, refsText)) out.push({ quote: s, kind: "vague", message: "This doesn't say which study it is, so a reader can't find it: give its authors, title and year, and cite it — or remove the claim." });
       if (out.length >= 8) break;
     }
     return out;
@@ -2123,6 +2151,31 @@
     }
     return cites;
   }
+  /* An organisation as author — "National Education Association. (2024). …" —
+     is cited by its name in the text, or by its initials: "(NEA, 2024)".
+     Owner, 2026-10-13: Tracely said the NEA entry was cited nowhere in a
+     paper that cited it as (NEA, 2024) after "According to the National
+     Education Association". A person's entry ("Johnson, R.") has a comma
+     after the surname and is matched by surname above. */
+  const REF_GROUP = /^([\p{Lu}][^.,(\n]{1,118}?)\.?\s*\((?:1[5-9]\d\d|20\d\d|n\.\s?d\.)/u;
+  const GROUP_SMALL = /^(?:of|the|and|for|on|in|to|at|&)$/i;
+  function citedGroup(entry, body, cites, yearOk) {
+    const name = (String(entry).match(REF_GROUP) || [])[1]?.trim();
+    if (!name) return false;
+    // Named in a sentence that carries the entry's year (or any, for an n.d. entry): "United Nations"
+    // in a 2025 citation does not cite its 2023 entry.
+    const nameRe = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "iu");
+    const years = String(entry).match(new RegExp(REF_YEAR.source, "g")) || [];
+    for (const line of String(body).split("\n")) {
+      for (const [a, b] of splitLineSentences(line)) {
+        const s = line.slice(a, b);
+        if (nameRe.test(s) && (!years.length || years.some((y) => s.includes(y)))) return true;
+      }
+    }
+    const words = name.split(/\s+/).filter((w) => !GROUP_SMALL.test(w));
+    const initials = words.length >= 2 ? words.map((w) => w[0]).join("").toLowerCase() : "";
+    return initials.length >= 2 && cites.some((c) => c.surname === initials && yearOk(c.year));
+  }
   function referenceListIssues(text) {
     const refs = worksCitedBlock(text);
     if (!refs || refs.entries.length < 2) return [];
@@ -2163,7 +2216,7 @@
         : c.title.length >= 1 && c.title.filter((w) => words.has(w)).length >= Math.max(1, Math.ceil(c.title.length * 0.6))));
       const lead = (entry.match(/^([\p{Lu}][\p{L}'’-]+),\s+[\p{Lu}]/u) || [])[1];
       const named = lead && new RegExp(`\\b${lead.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "u").test(body);
-      if (!cited && !named && !out.some((o) => o.quote === entry)) out.push({ quote: entry, kind: "refuncited" });
+      if (!cited && !named && !citedGroup(entry, body, cites, yearOk) && !out.some((o) => o.quote === entry)) out.push({ quote: entry, kind: "refuncited" });
     }
     return out;
   }
