@@ -86,7 +86,8 @@ test("the words: 'N need evidence', and what to do when nothing backs it", () =>
 });
 
 test("wired in both modes: the picker, the allowance, a quiet failure", () => {
-  assert.equal((SRC.match(/const picks = autoSearchPicks\(findings, \{ optIn, left: searchesLeft\(\), skip: \(f\) => sourcesMap\.has\(f\.id\) \|\| !shown\.has\(f\.id\) \}\);/g) || []).length, 2);
+  assert.equal((SRC.match(/const picks = autoSearchPicks\(findings, \{ optIn, left: searchesLeft\(\),\n\s+skip: \(f\) => sourcesMap\.has\(f\.id\) \|\| !shown\.has\(f\.id\) \|\| citedClaim\(f\.verdict, segments\.find\(\(s\) => s\.hash === f\.id\)\?\.text\) \}\);/g) || []).length, 2,
+    "never a sentence that cites its own source (citedClaim)");
   assert.equal((SRC.match(/const optIn = FEATURES\.autoSources && settings\.autoSources === true \? AUTO_SOURCE_VERDICTS : \[\];/g) || []).length, 2, "the rest stay opt-in");
   assert.equal((SRC.match(/const shown = new Set\(currentIssues\(\)\.map\(\(\{ seg \}\) => seg\.hash\)\);/g) || []).length, 2, "only flags the writer can see");
   assert.equal((SRC.match(/autoSinceUsage\+\+;/g) || []).length, 2);

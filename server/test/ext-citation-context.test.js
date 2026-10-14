@@ -171,7 +171,7 @@ test("one underline per span: a note over the sentence rides on its mark; one on
   assert.deepEqual(plain(X.factSpanOf(lead, [{ mark: "[History.com / Gutenberg]" }])), { start: lead.indexOf("Trade"), end: lead.length }, "or after it, the longer side");
   assert.deepEqual(plain(X.factSpanOf(SENT, [{ mark: SENT }])), { start: 0, end: SENT.length }, "a note over all of it changes nothing");
   const docs = SRC.slice(SRC.indexOf("function docsMode()"), SRC.indexOf("function fieldMode()"));
-  assert.match(docs, /if \(also\.length\) put\(dmAlso\(also, hash, VERDICT_LABEL\[f\.verdict\] \?\? f\.verdict\)\);/, "the card lists what else is on the sentence");
+  assert.match(docs, /if \(also\.length\) put\(dmAlso\(also, hash, verdictLabel\(f\.verdict, seg\.text\) \?\? f\.verdict\)\);/, "the card lists what else is on the sentence");
   assert.match(docs, /`Also here: \$\{TIP_LABEL\[t\.kind\] \?\? "a note"\}`/);
   assert.match(docs, /if \(from\.backTo\) \{/, "and the note's card has a way back");
 });

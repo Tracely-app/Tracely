@@ -163,7 +163,7 @@ nothing drives it through the flags any more. Tests:
 
 The header counts each kind with its own icon in its finding's colour —
 factual errors (red), need evidence (orange), citation issues (amber),
-writing notes (orange) — and a count opens the first card of its kind; "All
+writing notes (blue) — and a count opens the first card of its kind; "All
 clear" only when nothing is open and the check is done. There is no "next
 check in" countdown. The panel drags by its header, stays on screen, is
 remembered per site (`tracely.widget.panelPos`), and a double-click puts it

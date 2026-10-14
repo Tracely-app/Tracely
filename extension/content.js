@@ -173,6 +173,14 @@
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
      rather than tagging the sentence with a verdict. Same four verdicts. */
   const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
+  /* A "Needs evidence" sentence that already cites its source is not missing
+     one: what could not be confirmed is that the source says it. Owner,
+     2026-10-13, on "… scored approximately 65% higher … (Johnson, 2023)":
+     "it flagged this for needing a verifiable source which it obviously
+     gave". Its card says so and offers "Find the cited work", and Tracely
+     spends no search on new evidence for it (EVIDENCE_FIRST). */
+  const citedClaim = (verdict, text) => verdict === "questionable" && hasCitationMark(text);
+  const verdictLabel = (verdict, text) => (citedClaim(verdict, text) ? "Source not confirmed" : VERDICT_LABEL[verdict]);
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
   // The mark vocabulary is the desktop app's (PROBLEM_COLOR in
   // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
@@ -180,11 +188,13 @@
   //   red #d93636    — wrong or makes no sense (false, incoherent)
   //   orange #ff5900 — thin evidence, an unverified figure (questionable)
   //   amber #ffb800  — add the attribution (needs_citation)
+  //   blue #2563eb   — a writing note (note_tip; owner, 2026-10-13: "make
+  //                    writing notes blue instead of orange")
   // Four verdicts on three colours, so the card TITLE is what tells false
   // from incoherent; colour alone never has to. It used to be a fourth hue
   // per verdict (amber, violet, blue), which made the same finding a
   // different colour here than in the app.
-  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#ff5900" };
+  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
   const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
   const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
@@ -244,8 +254,8 @@
   const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", cite_tip: "cite", note_tip: "writing" };
   const MARK_ICON_RANK = { wrong: 4, check: 3, cite: 2, writing: 1 }; // one icon a line: the most serious
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
-  // "needs specific evidence", "explain this evidence". Orange: the
-  // thin-evidence family ("Worth checking"), never red, which means wrong.
+  // "needs specific evidence", "explain this evidence". Blue (owner,
+  // 2026-10-13): about the writing, not a fact, so never a fact's colour.
   // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
   // with no page, a reference listed twice or never cited — citationMarks),
   // drawn under the parenthetical or the entry rather than the sentence, so a
@@ -2199,6 +2209,8 @@
     found: (n) => `Tracely found ${n} source${n === 1 ? "" : "s"} that back${n === 1 ? "s" : ""} this.`,
     see: (n) => `See the source${n === 1 ? "" : "s"}`,
     next: "Look for evidence to back it up, or narrow the claim.",
+    // A sentence that cites its own source (citedClaim): check that source, don't find another.
+    cited: "You cited a source, but Tracely couldn't confirm it says this. Check the work you cited.",
     // What a search that found nothing to cite says, and what to do next.
     none: (st) => `${st?.unbacked ? `Tracely found ${st.unbacked} source${st.unbacked === 1 ? "" : "s"} on this topic, but none backs this sentence.`
       : st?.unread?.length ? `Tracely found ${st.unread.length} source${st.unread.length === 1 ? "" : "s"} but couldn't open ${st.unread.length === 1 ? "it" : "them"} to check.`
@@ -3090,11 +3102,16 @@
      sentence or on the whole essay. Shown only when they belong to the text
      on screen: a sentence note whose sentence is gone drops out at once. */
   const ESSAY_NOTE_KINDS = ["relevance", "source", "quotation", "citation", "bibliography", "reasoning", "contradiction", "evidence", "analysis", "thesis", "structure", "documents", "sourcing", "complexity"];
+  const CITED_NOTE_KINDS = ["source", "evidence"]; // the notes that ask for a source
   function essayFeedbackTips(text, findings, dismissed) {
     const norm = (x) => String(x).toLowerCase().replace(/\s+/g, " ").trim();
     const hay = norm(text);
     return (Array.isArray(findings) ? findings : [])
       .filter((f) => f && ESSAY_NOTE_KINDS.includes(f.kind) && f.message && (!f.quote || hay.includes(norm(f.quote))))
+      // "Needs a source" on a sentence that cites one (owner, 2026-10-13): the
+      // citation is there; whether it says this is the fact check's to ask
+      // (citedClaim). A source impossible on its face ("confirmed") still shows.
+      .filter((f) => !(CITED_NOTE_KINDS.includes(f.kind) && f.status !== "confirmed" && inTextCitationsOf(f.quote).length > 0))
       .map((f) => ({
         id: "tip:" + hashText(String(f.quote ?? "") + "|" + f.kind + "|" + (f.quote ? "" : f.message)),
         quote: String(f.quote ?? ""), kind: f.kind, message: String(f.message),
@@ -3218,11 +3235,11 @@
     return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
-     a citation (cite_tip), orange for one on the writing (note_tip). A note
+     a citation (cite_tip), blue for one on the writing (note_tip). A note
      with no underline — a resume line, a stray line — has none: colour only
      ever means a finding someone can see in the text. */
   const CITE_TIP_KINDS = ["page", "vague", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete", "nolist"];
-  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-quest" : "");
+  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-note" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
@@ -3823,6 +3840,7 @@
     .d-quest { background: #ff5900; }
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
+    .d-note { background: ${MARK_COLORS.note_tip}; }
     .d-flow { background: #7344f1; }
     /* FEATURES: the switched-off controls are drawn and then hidden here, so
        render() stays the code server/test exercises. */
@@ -6407,15 +6425,16 @@
       // A sentence whose citation the verdict puts in doubt also offers to
       // find the cited work: first when there is no fix to suggest, else
       // under the row (two buttons to a row; a third pushes Dismiss off).
-      put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      put(dmHead(color, verdictLabel(f.verdict, seg.text) ?? f.verdict));
       const also = (coTipsByHash.get(hash) ?? []).filter((t) => !dismissed.has(t.id));
-      if (also.length) put(dmAlso(also, hash, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      if (also.length) put(dmAlso(also, hash, verdictLabel(f.verdict, seg.text) ?? f.verdict));
       put(dmBody(f.explanation || f.basis || seg.text));
       // "Needs evidence": what Tracely's own search (EVIDENCE_FIRST) found so far.
       const ev = isEvidenceFirst(f.verdict) ? sourcesMap.get(hash) ?? null : null;
       const evDone = Boolean(ev && !ev.loading);
       const evFound = evDone ? ev.list?.length ?? 0 : 0;
       if (ev) put(dmHint(ev.loading ? EVIDENCE_COPY.looking : evFound ? EVIDENCE_COPY.found(evFound) : ev.partial ? TRIM_COPY.head : EVIDENCE_COPY.none(ev)));
+      else if (citedClaim(f.verdict, seg.text)) put(dmHint(EVIDENCE_COPY.cited));
       const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
       const findSource = () => {
         // Already searched (or searching) by itself: open what it found, never a second search.
@@ -7288,7 +7307,8 @@
     async function autoFindSources(findings) {
       const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
       const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
-      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(), skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) });
+      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
+        skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) || citedClaim(f.verdict, segments.find((s) => s.hash === f.id)?.text) });
       for (const f of picks) {
         autoSourceTimes = autoSourceTimes.filter((t) => Date.now() - t < 3_600_000);
         if (autoSourceTimes.length >= 15) { statusMsg = "auto-sources paused — hourly cap"; break; }
@@ -10155,7 +10175,7 @@
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
-              <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
+              <span class="dot d-${kind}"></span><span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
@@ -11121,7 +11141,8 @@
     async function autoFindSources(findings) {
       const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
       const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
-      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(), skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) });
+      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
+        skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) || citedClaim(f.verdict, segments.find((s) => s.hash === f.id)?.text) });
       for (const f of picks) {
         autoSourceTimes = autoSourceTimes.filter((t) => Date.now() - t < 3_600_000);
         if (autoSourceTimes.length >= 15) { statusMsg = "auto-sources paused — hourly cap"; break; }
@@ -11544,7 +11565,7 @@
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
-              <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
+              <span class="dot d-${kind}"></span><span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
               <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>

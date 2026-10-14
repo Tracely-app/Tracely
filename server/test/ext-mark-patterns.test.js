@@ -39,8 +39,9 @@ test("every line is solid; each kind has its own icon, so colour is never the on
     seen.set(MARK_ICON[v], MARK_COLORS[v]);
   }
   assert.deepEqual([...seen.keys()].sort(), ["check", "cite", "writing", "wrong"], "the header's four kinds");
-  // Two kinds share orange (worth checking, a writing note): their icons differ.
-  assert.equal(seen.get("check"), seen.get("writing"));
+  // A writing note is blue (owner, 2026-10-13), no longer the orange of "Needs evidence"; the icons differ too.
+  assert.equal(seen.get("writing"), "#2563eb");
+  assert.notEqual(seen.get("check"), seen.get("writing"));
   assert.notEqual(TALLY_ICON.check, TALLY_ICON.writing);
 });
 
