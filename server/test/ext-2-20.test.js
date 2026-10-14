@@ -311,6 +311,8 @@ function widgetContext(tier) {
       PLANE_SVG: "<svg></svg>",
       VERDICT_LABEL,
       verdictLabel: (v) => VERDICT_LABEL[v], // a cited "Needs evidence" title: ext-cited-claim.test.js
+      genreTitle: () => "", // the header's kind of writing: ext-writing-kind.test.js
+      docGenre: "prose",
       MAX_INPUT_CHARS: 30_000,
       ORDER_URL: "https://jointracely.com/order",
       openOrderPage() {},

@@ -93,7 +93,8 @@ test("the header counts what is wrong, kind by kind, each with its icon — neve
   assert.equal(status(X.panelHeadHtml({ wrong: 2 }, "Could not reach Tracely", true)), "Could not reach Tracely", "an error always shows");
   // Both panels count what their list shows, and a chip opens the first card of its kind.
   assert.equal((SRC.match(/const tally = tallyOf\(issues\.map\(\(\{ f \}\) => f\.verdict\), \[\.\.\.citeTips, \.\.\.refTips, \.\.\.essayNotes, \.\.\.offTopic, \.\.\.resumeList\]\);/g) || []).length, 2);
-  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline"\)\}/g) || []).length, 2);
+  // The fourth argument is the kind of writing (ext-writing-kind.test.js).
+  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, (?:docText|fieldText)\)\)\}/g) || []).length, 2);
   assert.equal((SRC.match(/<div class="card" data-card="\$\{seg\.hash\}" data-cat="\$\{verdictCat\(f\.verdict\)\}">/g) || []).length, 2);
   assert.match(SRC, /<div class="card tip-card" data-card="\$\{t\.id\}" data-cat="\$\{tipCat\(t\)\}">/);
   assert.match(SRC, /const card = shadow\.querySelector\(`\.list \.card\[data-cat="\$\{chip\.dataset\.jump\}"\]`\);/);

@@ -1747,6 +1747,51 @@
     news: "a news article", personal: "a personal essay", notes: "notes", annotated: "an annotated bibliography",
     poem: "a poem", story: "a story", script: "a script",
   };
+  /* What the panel's header says the writing is. Owner, 2026-10-13: "on the
+     widget overlay, add the type of literature tracely thinks it is … the
+     header of one will be arguementative essay, another one will be email",
+     "create like 15 different types". detectGenre's kinds, and for an essay
+     ("prose") its own kind, read off its words: a blog's or a book report's
+     own words; compare-and-contrast and cause-and-effect connectives (and a
+     title about causes or effects); an argument's stance (should, must,
+     critics, "it's true that"), a thesis with "should" in its opening, or a
+     title that asks or tells; otherwise informative. Display only: nothing
+     checked depends on it. Tuned on every essay in the three writing-type
+     corpora and three written for it (ext-writing-kind.test.js). */
+  const GENRE_TITLE = {
+    resume: "Resume", letter: "Letter", email: "Email", coverletter: "Cover letter", research: "Research paper",
+    literary: "Literary analysis", homework: "Homework", dbq: "DBQ essay", lab: "Lab report", speech: "Speech",
+    news: "News article", personal: "Personal essay", notes: "Notes", annotated: "Annotated bibliography",
+    poem: "Poem", story: "Story", script: "Script",
+  };
+  const COMPARE_CUE = /\b(?:similarly|likewise|in contrast|by contrast|whereas|on the other hand|unlike|alike|differs?|differences?|different from|similarit(?:y|ies)|compared (?:to|with)|in comparison)\b/gi;
+  const CAUSE_CUE = /\b(?:as a result|led to|leads to|lead to|leading to|caused|causes|cause of|consequently|due to|resulted in|results in|effects?|impacts? (?:of|on)|contributed to|because of|the (?:main|first|second|third|major|biggest|final) (?:cause|effect|result|consequence)s?)\b/gi;
+  const STANCE_CUE = /\b(?:should|must|ought to|needs? to|I (?:believe|argue|think|contend)|we (?:must|should|need|cannot afford|can't afford)|it is (?:essential|crucial|vital|necessary|clear)|opponents|critics|some (?:people |may |might )?(?:argue|claim|believe|say)|counter-?arguments?|although some|while some|there is no doubt|historians (?:have )?(?:long )?(?:argued|debated)|the most (?:effective|important|significant|serious|obvious|convincing|practical)|the (?:main|biggest|real|best|strongest) (?:reason|problem|benefit|way|solution|argument)|arguments?|it(?:'s| is) true that|hard to justify|worth (?:saving|it|the cost)|clearly|undeniabl[ey]|to what extent)\b/gi;
+  const THESIS_CUE = /\b(?:should|must|ought to|needs? to)\b/i;
+  const TELLS_TITLE = /^(?:don'?t|do not|stop|save|keep|let|ban|end|bring back|why (?:we|you|schools?|every|the)\b)/i;
+  const BOOK_REPORT = /\bbook report\b/i;
+  const BOOK_CUE = /\b(?:my favou?rite (?:part|character|scene)|I (?:would )?recommend (?:this|the) book|out of (?:five|5) stars|\d(?:\.\d)?\s?\/\s?5 stars|stars? out of)\b/i;
+  function essayTypeOf(text) {
+    const t = String(text ?? "");
+    const all = t.match(/[\p{L}'’-]+/gu) ?? [];
+    const words = all.length;
+    if (words < 40) return ""; // too little to say
+    const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (BLOG_CUE.test(t)) return "Blog post";
+    if (lines.slice(0, 6).some((l) => BOOK_REPORT.test(l)) || (BOOK_CUE.test(t) && /\b(?:novel|book|author)\b/i.test(t))) return "Book report";
+    const per = (re) => ((t.match(re) ?? []).length * 1000) / words; // a thousand words' worth
+    const compare = per(COMPARE_CUE), cause = per(CAUSE_CUE), stance = per(STANCE_CUE);
+    const title = lines[0] ?? "";
+    const titled = title.split(/\s+/).length <= 16;
+    const asks = titled && /\?$/.test(title);
+    const tells = titled && TELLS_TITLE.test(title);
+    const causeTitle = titled && !/[.!]$/.test(title) && /\b(?:causes?|effects?|impacts?|changed|led to|consequences?)\b/i.test(title);
+    if (compare >= 8 && compare > stance) return "Compare and contrast essay";
+    if ((cause >= 8 || (causeTitle && cause >= 4)) && cause > stance) return "Cause and effect essay";
+    if (stance >= 4 || asks || tells || THESIS_CUE.test(all.slice(0, 180).join(" "))) return "Argumentative essay";
+    return "Informative essay";
+  }
+  const genreTitle = (genre, text) => GENRE_TITLE[genre] ?? (genre === "prose" ? essayTypeOf(text) : "");
   // The essay-like kinds: the citation notes, the essay review, the off-topic lines.
   const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary" || g === "lab" || g === "dbq";
   // A reference list is part of the writing — Works Cited, References — and a claim can be sent to find a source.
@@ -2875,7 +2920,7 @@
   // Settings (options.html), the gear in the header (owner, 2026-10-11).
   const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const GRIP_SVG = `<svg viewBox="0 0 10 16" width="8" height="14"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>`;
-  function panelHeadHtml(counts, statusMsg, statusErr) {
+  function panelHeadHtml(counts, statusMsg, statusErr, kind = "") {
     const c = counts ?? {};
     const total = TALLY.reduce((n, [k]) => n + (c[k] || 0), 0);
     const chips = TALLY.filter(([k]) => c[k] > 0).map(([k, mark, label]) =>
@@ -2886,6 +2931,7 @@
     return `<div class="head" id="dragHead" title="Drag to move · double-click to put it back">
       <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
       <span class="name">Tracely</span>
+      ${kind ? `<span class="kind" title="What Tracely reads this as">${esc(kind)}</span>` : ""}
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
       <button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings">${GEAR_SVG}</button>
       <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
@@ -3754,6 +3800,8 @@
     .grip { display: flex; color: #b9bac0; margin-left: -4px; }
     .head:hover .grip { color: #6b6c72; }
     .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
+    /* What Tracely reads the writing as (genreTitle): neutral, never a finding's colour. */
+    .head .kind { min-width: 0; padding: 3px 9px; border-radius: 999px; background: var(--chip-wash); color: var(--chip-ink); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
@@ -10219,7 +10267,7 @@
           : "";
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, docText))}
           <div class="list">
             ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
@@ -11609,7 +11657,7 @@
 
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, fieldText))}
           <div class="list">
             ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>

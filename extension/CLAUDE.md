@@ -169,6 +169,14 @@ check in" countdown. The panel drags by its header, stays on screen, is
 remembered per site (`tracely.widget.panelPos`), and a double-click puts it
 back. Tests: `server/test/ext-panel-layout.test.js`.
 
+Beside the name, a neutral chip says what Tracely reads the writing as
+(`genreTitle`; owner, 2026-10-13). It shows detectGenre's 17 kinds, and for
+an essay its own kind (`essayTypeOf`): argumentative, informative, compare
+and contrast, cause and effect, book report or blog post. It is read off
+the words, and below 40 words it shows nothing. It is display only: what is
+checked still follows `detectGenre`. Tests:
+`server/test/ext-writing-kind.test.js`.
+
 ## "Needs evidence" is searched first
 
 Owner, 2026-10-13: "instead of having it say six to double check, please
