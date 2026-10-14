@@ -3591,8 +3591,13 @@
      throw away what they were typing. */
   const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
   function orphanPillHtml() {
-    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}">${PILL_MARK}${ORPHAN_PILL_TEXT}</div>`;
   }
+  /* The Tracely mark (MARK_PNG) in its own colours, wherever a pill or a
+     panel head names Tracely. Owner, 2026-10-13: the grey circle with a
+     plane was not the logo. A page whose policy refuses data: images gets
+     the plane in a circle instead (makeWidget), never a broken image. */
+  const PILL_MARK = `<img class="pill-mark" src="${MARK_PNG}" alt="" draggable="false" />`;
 
   /* ── the app's design tokens ───────────────────────────────────────────
      The extension is meant to read as the same product as the Tracely app,
@@ -3671,6 +3676,7 @@
       color: #fff; flex-shrink: 0;
     }
     .plane svg { width: 13px; height: 13px; }
+    .pill-mark { width: 24px; height: 24px; padding: 1px; box-sizing: border-box; object-fit: contain; display: block; flex-shrink: 0; pointer-events: none; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
       background: var(--chip-wash); color: var(--chip-ink);
@@ -4019,6 +4025,10 @@
     const root = document.createElement("div");
     root.className = "root";
     shadow.appendChild(root);
+    // A page whose policy refuses data: images: the plane in a circle for the mark (PILL_MARK).
+    shadow.addEventListener("error", (e) => {
+      if (e.target?.classList?.contains("pill-mark")) e.target.outerHTML = `<span class="plane">${PLANE_SVG}</span>`;
+    }, true);
     return { host, shadow, root };
   }
 
@@ -10037,7 +10047,7 @@
       root.innerHTML = `
         ${expanded ? `
         <div class="panel opening">
-          <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+          <div class="head">${PILL_MARK}<span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
               <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
@@ -10050,7 +10060,7 @@
           </div>
           <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
         </div>` : ""}
-        <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
+        <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}">${PILL_MARK}Turn on Tracely for Docs</div>`;
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       shadow.getElementById("docsOn")?.addEventListener("click", () => {
         expanded = false;
@@ -11596,7 +11606,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
+          ? `<div class="pill quiet" id="pill">${PILL_MARK}Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.

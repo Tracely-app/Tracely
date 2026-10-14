@@ -111,13 +111,23 @@ const STALE_PILL = '<div class="pill" id="pill"><span class="plane"></span>Trace
 
 test("the orphan pill names what happened and the fix, and carries no count", () => {
   const { text, html } = vm.runInContext(`${ORPHAN_HELPER()};({ text: ORPHAN_PILL_TEXT, html: orphanPillHtml() })`,
-    vm.createContext({ PLANE_SVG: "<svg></svg>" }));
+    vm.createContext({ PLANE_SVG: "<svg></svg>", MARK_PNG: "data:," }));
   assert.equal(text, "Tracely was updated or turned off — reload this tab");
   assert.ok(html.includes(text), html);
   assert.match(html, /class="pill quiet orphan" id="pill"/, "quiet styling: nothing is wrong with the user's writing");
   assert.ok(!/class="count/.test(html), "a count on an orphaned tab is exactly the stale claim being fixed");
   assert.ok(!/error|failed|invalid/i.test(text), "not alarming");
   assert.match(text, /turned off/, "Chrome orphans the script on disable/uninstall too: 'was updated' alone is untrue there");
+  // Owner, 2026-10-13: the grey circle with a plane was not the logo.
+  assert.match(html, /^<div class="pill quiet orphan" id="pill" title="[^"]+"><img class="pill-mark" src="data:," alt="" draggable="false" \/>/, "the Tracely mark");
+  assert.ok(!html.includes("<svg"), "not the plane glyph");
+});
+
+test("every pill and panel head that names Tracely shows its mark; the plane is only the fallback", () => {
+  const CONTENT = read("content.js");
+  assert.equal((CONTENT.match(/\$\{PILL_MARK\}/g) || []).length, 4, "orphan, Docs consent pill and head, 'Tracely is off here'");
+  assert.equal((CONTENT.match(/<span class="plane">\$\{PLANE_SVG\}<\/span>/g) || []).length, 1, "the plane in a circle only as the fallback");
+  assert.match(CONTENT, /shadow\.addEventListener\("error", \(e\) => \{\n\s+if \(e\.target\?\.classList\?\.contains\("pill-mark"\)\) e\.target\.outerHTML = `<span class="plane">\$\{PLANE_SVG\}<\/span>`;\n\s+\}, true\);/, "a page that refuses data: images");
 });
 
 test("docs mode: standing down replaces the counting pill, marks and all", () => {
@@ -132,7 +142,7 @@ test("docs mode: standing down replaces the counting pill, marks and all", () =>
     ${contentSlice("    function render() {\n      if (orphaned)", "    function saveSettings() {")}
     ({ standDown, render, root, state: () => ({ orphaned, expanded }) })`;
   const ctx = vm.createContext({
-    PLANE_SVG: "<svg></svg>", log, EXT_VERSION: "test",
+    PLANE_SVG: "<svg></svg>", MARK_PNG: "data:,", log, EXT_VERSION: "test",
     clearInterval: (t) => log.push(`clear:${t}`),
     window: { removeEventListener() {} },
     scheduleDocsMarks() {},
@@ -177,7 +187,7 @@ function loadFieldStandDown({ eligible = true } = {}) {
     ${contentSlice("    function standDownField(why) {", "    setInterval(() => {")}
     ({ standDownField, render, widget, markRects, markParts, overlay: () => overlayEl.textContent, state: () => ({ orphaned, expanded, segments: segments.length }) })`;
   const ctx = vm.createContext({
-    PLANE_SVG: "<svg></svg>", EXT_VERSION: "test",
+    PLANE_SVG: "<svg></svg>", MARK_PNG: "data:,", EXT_VERSION: "test",
     scheduleMarks() {},
     fieldEligible: () => eligible,
     console: { log: (m) => log.push(m) },
@@ -192,7 +202,7 @@ test("field mode: standing down clears the underlines and replaces the counting 
   assert.equal(f.overlay(), "", "the underline bars were left on the page");
   assert.equal(f.markRects.size, 0, "stale hit-test rects would still open cards");
   assert.equal(f.markParts.size, 0, "stale mark elements would still take a hover");
-  assert.equal(f.widget.root.innerHTML, vm.runInContext(`${ORPHAN_HELPER()};orphanPillHtml()`, vm.createContext({ PLANE_SVG: "<svg></svg>" })));
+  assert.equal(f.widget.root.innerHTML, vm.runInContext(`${ORPHAN_HELPER()};orphanPillHtml()`, vm.createContext({ PLANE_SVG: "<svg></svg>", MARK_PNG: "data:," })));
   assert.equal(f.widget.root.style.display, "");
   assert.match(log[0], /stood down \(extension reloaded\)/);
 });
