@@ -218,9 +218,62 @@ automatic searches started since that answer. When nothing backs the
 sentence, the card says so and adds "Look for evidence to back it up, or
 narrow the claim." (`EVIDENCE_COPY`). In Docs, the first card says what the
 search found and opens it with "See the sources", never with a second
-search. A failed automatic search stops the rest and is not reported. Every
+search. When it found nothing, "Find a source" searches again (below). A
+failed automatic search stops the rest and is not reported. Every
 other flag's automatic search is still behind the opt-in Auto-src switch
 (`FEATURES.autoSources`, off). Tests: `server/test/ext-evidence-first.test.js`.
+
+## "Find a source" always does something
+
+Owner, 2026-10-13: "find a source action button doesnt work properly".
+Three things made it look dead, and each is fixed:
+
+- **A press never waits.** `sourcesInflight` counts only the writer's own
+  searches. An automatic one (`EVIDENCE_FIRST`) waits for the writer's,
+  never the other way round. Before, a press during the automatic "Needs
+  evidence" search found the one slot taken, and the card flipped back
+  without a word. Two presses on two sentences both run; the server allows
+  a caller 4 a minute.
+- **A failed search says why, in the card that asked** (`sourceFailures`,
+  `searchFailureNote`). The server's limit messages are shown as they are.
+  `no_key`, `server` and 5xx answers read "Tracely's source search isn't
+  working on our side right now". Offline reads "Couldn't reach Tracely".
+  An automatic search's failure shows only in its own hover card, when the
+  writer opens it.
+- **A "Needs evidence" card whose own search found nothing searches again**
+  on Find a source. It used to reopen the same empty answer.
+
+Field mode also no longer re-searches a sentence that already has sources.
+Tests: `server/test/ext-find-source.test.js`.
+
+## What each plan gets
+
+Owner, 2026-10-13: "it should not say explain in depth for pro, the only
+things that pro users should need is extra evidence recommendations, so
+extra evidence that tracely thinks will make their essay or writing BETTER.
+Normal tracely only helps with their mistakes and bad parts, pro and
+student plans allow for tracely to give recommendations."
+
+- **Free (Starter)** gets the flags, their one-sentence fixes and their
+  sources, "Needs evidence" searched first included.
+- **Student and Pro** also get **evidence recommendations**
+  (`evidenceCandidates`, `RECOMMEND_COPY`). These are up to three accurate
+  sentences that make a causal or arguing point and carry no source. They
+  sit folded at the foot of the panel, under "Evidence recommendations".
+  Nothing is searched until Find evidence, which spends one of the plan's
+  source searches. The gate is `canRecommend` / `RECOMMEND_PLANS`
+  (content.js) and `RECOMMEND_PLANS` (options.js); `mirror-contracts`
+  keeps both equal to the paid plans. Like `canDeep`, it is cosmetic.
+- **On Free**, the section is one line saying what Student and Pro add,
+  with See plans (`openOrderPage`). It has no card, quote or search.
+- **"Explain in depth" is off** (`FEATURES.deepDive` false). The hover card
+  draws nothing, and the panel's row is hidden by its CSS. The server's
+  `deep: true` path stays for installed builds.
+
+Settings shows an Evidence recommendations tile or the locked line. The
+Thorough meter is gone from the extension's Settings, because Thorough now
+only serves desktop critiques. Tests: `server/test/ext-evidence.test.js`,
+`ext-2-20.test.js`, `ext-settings-page.test.js`, `extension-beta.test.js`.
 
 ## Underlines hold while the text holds
 
@@ -400,7 +453,9 @@ Beta badge, `acctBeta`), what the plan includes from the SERVER's own limits
 meters nothing), the usage lines, and one link (See plans signed out, else the
 account's own: Upgrade or the subscription). Google Docs is the desktop's
 switch row; deleting the account is a danger row under Privacy, signed in
-only. The widget's header has a gear (`panelSettings` → `openSettings` →
+only. The sidebar's brand is the Tracely mark (`icons/mark.png`: the
+desktop's `figma-logo.png` cut to 96px, the logo the launcher draws), not
+the paper plane (owner, 2026-10-13). The widget's header has a gear (`panelSettings` → `openSettings` →
 background.js `tracely-openSettings`): the worker opens Settings with
 `openOptionsPage`, which brings an open Settings tab forward, and a section,
 when one is named, travels through storage (`settingsOpenAt`, honoured for a

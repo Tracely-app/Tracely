@@ -1,4 +1,4 @@
-/* "Evidence you could add" (content.js evidenceCandidates /
+/* Evidence recommendations, "Evidence you could add" until 2026-10-13 (content.js evidenceCandidates /
  * evidenceSectionHtml). Owner, 2026-10-03: suggest evidence "depending on
  * what you are writing about … dont force this, as it isnt always necessary,
  * but for example if you are writing about why sleep is good for you it will
@@ -78,13 +78,14 @@ test("the section starts folded, and opens onto cards that search only when clic
   const { segments, cache, dismissed } = setup();
   const list = X.evidenceCandidates(segments, cache, dismissed);
   const folded = X.evidenceSectionHtml(list, false, () => "", () => false);
-  assert.match(folded, /id="evidenceToggle" aria-expanded="false">▸ Evidence you could add \(3\)/);
+  assert.match(folded, /id="evidenceToggle" aria-expanded="false">▸ Evidence recommendations \(3\)/);
   assert.ok(!folded.includes("data-sources"), "folded: no cards");
 
   const open = X.evidenceSectionHtml(list, true, () => "", () => false);
   assert.equal((open.match(/data-sources="/g) || []).length, 3, "one Find evidence button per suggestion");
   assert.equal((open.match(/data-dismiss="/g) || []).length, 3, "and every one can be dismissed");
-  assert.match(open, /Optional — only where evidence would help your argument\./);
+  assert.match(open, /Optional — only where evidence would make your writing stronger\./);
+  assert.match(open, /<span class="ctitle">Evidence would make this stronger<\/span>/);
   assert.ok(!/class="dot/.test(open), "no finding colour: a suggestion is not a finding");
 
   // Once searched, the button gives way to the mode's own source list.
@@ -93,9 +94,30 @@ test("the section starts folded, and opens onto cards that search only when clic
   assert.equal((searched.match(/class="sources"/g) || []).length, 3);
 });
 
+/* Owner, 2026-10-13: "Normal tracely only helps with their mistakes and bad
+   parts, pro and student plans allow for tracely to give recommendations".
+   Free gets one line saying what the plans add, and nothing to act on. */
+test("on Free, one line says what Student and Pro add: no card, no quote, no search", () => {
+  const { segments, cache, dismissed } = setup();
+  const list = X.evidenceCandidates(segments, cache, dismissed);
+  for (const open of [false, true]) {
+    const locked = X.evidenceSectionHtml(list, open, () => "<div class=\"sources\"></div>", () => false, true);
+    assert.equal(locked, '<div class="evidence"><div class="ev-locked"><span>Student and Pro recommend evidence that would make your writing stronger: 3 points here.</span><button class="act" data-rec-plans="1">See plans</button></div></div>');
+  }
+  assert.match(X.evidenceSectionHtml(list.slice(0, 1), false, () => "", () => false, true), /: 1 point here\./);
+  assert.equal(X.evidenceSectionHtml([], false, () => "", () => false, true), "", "nothing to recommend: not even the line");
+});
+
+test("the plan gate: Student and Pro (and a tester, and a server that meters nothing)", () => {
+  assert.match(SRC, /const RECOMMEND_PLANS = \["student", "pro"\];\n\s+function canRecommend\(\) \{\n\s+return tier\.unenforced \|\| tier\.beta \|\| RECOMMEND_PLANS\.includes\(tier\.plan\);/);
+  assert.match(SRC, /deepDive: false,/, "Explain in depth is off: Pro's extra is the recommendations");
+  // See plans goes through the worker (openOrderPage), never a link carrying the account id.
+  assert.equal((SRC.match(/for \(const b of shadow\.querySelectorAll\("\[data-rec-plans\]"\)\) b\.addEventListener\("click", \(\) => openOrderPage\(\)\);/g) || []).length, 2);
+});
+
 test("wired into both panels, searching only through the click handler", () => {
   assert.match(SRC, /evidenceHints: true/);
-  assert.equal((SRC.match(/evidenceSectionHtml\(evidenceCandidates\(segments, cache, dismissed\), showEvidence, sourcesFor, \(seg\) => sourcesMap\.has\(seg\.hash\)\)/g) || []).length, 2);
+  assert.equal((SRC.match(/evidenceSectionHtml\(evidenceCandidates\(segments, cache, dismissed\), showEvidence, sourcesFor, \(seg\) => sourcesMap\.has\(seg\.hash\), !canRecommend\(\)\)/g) || []).length, 2);
   assert.equal((SRC.match(/getElementById\("evidenceToggle"\)\?\.addEventListener/g) || []).length, 2);
   // evidenceCandidates is read by the panels and nothing else: no automatic search path.
   assert.equal((SRC.match(/evidenceCandidates\(/g) || []).length, 3, "the definition and the two panels");

@@ -99,10 +99,12 @@ test("wired in both modes: the picker, the allowance, a quiet failure", () => {
   assert.equal((SRC.match(/\} else if \(st && !st\.list\?\.length && isEvidenceFirst\(cache\.get\(seg\.hash\)\?\.verdict\)\) \{/g) || []).length, 2, "a search that found nothing at all says so too");
 });
 
-test("the Docs card: what the search found, the way to it, and never a second search", () => {
+test("the Docs card: what the search found, the way to it, and a second search only when it found nothing", () => {
   const card = sliceBetween(SRC, "      // \"Needs evidence\": what Tracely's own search", "      const dis = dmBtn(POP_COPY.dismiss, false);");
   assert.match(card, /ev\.loading \? EVIDENCE_COPY\.looking : evFound \? EVIDENCE_COPY\.found\(evFound\) : ev\.partial \? TRIM_COPY\.head : EVIDENCE_COPY\.none\(ev\)/);
-  assert.match(card, /if \(ev\) \{ setStep\(hash, \{ step: "sources", searched: true \}\); return; \}/);
+  // Searching, or found something: opened, never searched again. Found
+  // nothing: "Find a source" is the writer asking again (ext-find-source.test.js).
+  assert.match(card, /if \(ev && !evEmpty\) \{ setStep\(hash, \{ step: "sources", searched: true \}\); return; \}/);
   assert.match(card, /if \(!hasRevision && !citedHere && !ev\) action\.addEventListener\("pointerdown"/);
   assert.match(SRC, /if \(hasRevision && evOpen\) \{\n\s+const see = dmBtn\(EVIDENCE_COPY\.see\(evFound \|\| 1\), false, \{ wide: true \}\);/);
   assert.match(SRC, /if \(isEvidenceFirst\(f\?\.verdict\)\) put\(dmHead\(DM\.amber, POP_COPY\.noBacking\), dmBody\(EVIDENCE_COPY\.none\(s\)\)\);\n\s+else if \(s\.unbacked\)/, "the sources step");

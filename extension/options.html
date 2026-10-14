@@ -106,11 +106,9 @@
   }
   .sidebar-head { padding: 0 24px; }
   .brand { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; line-height: 1; color: var(--text); }
-  .plane {
-    width: 24px; height: 24px; border-radius: 6px; background: var(--accent-gradient); color: #fff;
-    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .plane svg { width: 13px; height: 13px; }
+  /* The Tracely mark, the desktop's logo (src/renderer/src/assets/figma-logo.png
+     at 96px), as the widget's launcher draws it (content.js MARK_PNG). */
+  .brand-mark { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
   h1 {
     font-family: var(--font-display); font-size: 28px; font-weight: 500; line-height: 1.3;
     letter-spacing: -0.01em; color: var(--text); padding: 12px 0 16px;
@@ -275,7 +273,7 @@
     <div class="shell">
       <aside class="sidebar">
         <div class="sidebar-head">
-          <span class="brand"><span class="plane"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>Tracely</span>
+          <span class="brand"><img class="brand-mark" src="icons/mark.png" alt="" width="24" height="24" draggable="false">Tracely</span>
           <h1>Settings</h1>
         </div>
         <nav class="nav" aria-label="Settings sections">
@@ -351,15 +349,17 @@
             <p id="modelHint">Every plan checks with the same model — the most accurate fact-checker in our blind tests. Bigger models weren’t better at catching false or uncited claims; they wrote longer explanations.</p>
           </header>
 
-          <div class="tile" id="thoroughPro" hidden>
+          <!-- What each plan gets (owner, 2026-10-13): Starter flags mistakes
+               and helps fix them; Student and Pro also recommend evidence that
+               would make the writing stronger. Pro's deeper explanations are
+               off in the extension (content.js FEATURES.deepDive). -->
+          <div class="tile" id="recommendPlan" hidden>
             <div>
-              <h3>Thorough explanations (Pro)</h3>
-              <p class="row-sub">Click “Explain in depth” on any flagged sentence and our largest model writes a fuller explanation. Desktop critiques of your cited sources use it too. It comes from a monthly allowance; when that runs out, the standard model answers until the 1st.</p>
+              <h3>Evidence recommendations (Student and Pro)</h3>
+              <p class="row-sub">On essays and papers, Tracely points out accurate points that evidence would make stronger, in the panel under Evidence recommendations. Click Find evidence on one and Tracely looks for a source that backs it. Each search comes from your plan’s source searches.</p>
             </div>
-            <span class="meter" id="thoroughMeter" hidden><span class="meter-fill" id="thoroughFill"></span></span>
-            <p class="note" id="thoroughMeterText" hidden></p>
           </div>
-          <p class="note" id="thoroughLocked" hidden>Thorough explanations come with Pro. <a href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
+          <p class="note" id="recommendLocked" hidden>Starter flags mistakes and helps you fix them. Evidence recommendations, for points that evidence would make stronger, come with Student and Pro. <a href="https://jointracely.com/order" target="_blank" rel="noopener noreferrer">See plans →</a></p>
         </section>
 
         <section class="panel-content" id="sec-docs" data-panel="docs">

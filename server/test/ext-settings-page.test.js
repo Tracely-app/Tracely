@@ -147,7 +147,7 @@ test("the plan card: the plan's name in every state, one link, and the list is t
   assert.equal(pro.$("acctPlan").textContent, "Pro");
   assert.equal(pro.$("manageLink").className, "btn");
   assert.equal(pro.$("planIncludes").innerHTML,
-    "<li>No daily check limit</li><li>250 source searches a month, up to 40 a day</li><li>Thorough explanations from our largest model</li>");
+    "<li>No daily check limit</li><li>250 source searches a month, up to 40 a day</li><li>Evidence recommendations</li>");
 
   const local = await openPage({ signedIn: false, plan: "free", unenforced: true, limits: LIMITS });
   assert.equal(local.$("planIncludes").hidden, true, "a server that meters nothing is not made to look as if it does");
@@ -190,4 +190,16 @@ test("the worker opens Settings — an open tab comes forward — with a known s
   assert.equal(data.settingsOpenAt, undefined, "an unknown section is not stored");
   assert.deepEqual(plain(await ask({ type: "tracely-openSettings" })), { ok: true }, "the gear names none");
   assert.equal(opened, 3);
+});
+
+/* Owner, 2026-10-13, on the paper plane beside "Tracely" in the sidebar:
+   "in settings right now this logo has not changed yet". The mark is the
+   desktop's logo (src/renderer/src/assets/figma-logo.png, cut to 96px), the
+   one the widget's launcher draws. */
+test("the sidebar's brand is the Tracely mark, not the plane", () => {
+  assert.match(HTML, /<span class="brand"><img class="brand-mark" src="icons\/mark\.png" alt="" width="24" height="24" draggable="false">Tracely<\/span>/);
+  assert.doesNotMatch(HTML, /class="plane"/);
+  const png = readFileSync(path.join(HERE, "..", "..", "extension", "icons", "mark.png"));
+  assert.equal(png.subarray(1, 4).toString("latin1"), "PNG");
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [96, 96], "sharp at 24px on a 2x screen");
 });

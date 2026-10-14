@@ -206,10 +206,10 @@
      file and runs in isolation, so those tests keep running the real code. */
   const FEATURES = {
     flow: false,          // "Flow issue" passage flags (/api/flow) and their margin bracket
-    deepDive: true,       // "Explain in depth" (Pro) in the fix card and the widget cards — back on in 2.21.24 (off only for the 2026-10-02 bare-bones build)
+    deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards — off (owner, 2026-10-13: "it should not say explain in depth for pro"); Student and Pro get evidence recommendations instead (canRecommend)
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
-    evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
+    evidenceHints: true,  // "Evidence recommendations": suggested, searched only on a click (evidenceCandidates) — Student and Pro only (canRecommend)
     resumeTips: false,    // on a resume: free format rules, plus /api/review's bullet and typo notes — off: no writing tips (owner, 2026-10-13)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
     offTopic: false,      // a line that shares no word with the rest, and a correction left in (offTopicSentences, correctionResidue) — off: writing tips
@@ -510,6 +510,18 @@
 
   function canDeep() {
     return tier.unenforced || tier.beta || DEEP_PLANS.includes(tier.plan);
+  }
+  /* What each plan gets. Owner, 2026-10-13: "Normal tracely only helps with
+     their mistakes and bad parts, pro and student plans allow for tracely to
+     give recommendations … extra evidence that tracely thinks will make their
+     essay or writing BETTER." Free: the flags, their fixes and their sources.
+     Student and Pro also get evidence recommendations (evidenceCandidates):
+     accurate points that a source would make stronger. Cosmetic, like
+     canDeep: a recommendation's search is an ordinary /api/sources call on
+     the writer's own search allowance. */
+  const RECOMMEND_PLANS = ["student", "pro"];
+  function canRecommend() {
+    return tier.unenforced || tier.beta || RECOMMEND_PLANS.includes(tier.plan);
   }
   // A lock shown after a click or a 403 belongs to the plan it was shown on.
   function forgetDeepLocks() {
@@ -2883,6 +2895,21 @@
     if (err?.offline || kind === "no_engine") return "Couldn't reach Tracely to look up the cited work, so this citation wasn't checked.";
     return `The lookup didn't answer${err?.message ? ` (${String(err.message).slice(0, 80)})` : ""}, so this citation wasn't checked.`;
   }
+  /* Why "Find a source" found nothing to show, in the card that asked
+     (sourceFailures). The server's limit and plan messages are written for
+     the writer and are said as they are. Anything on Tracely's side, such as
+     a rejected OpenAI key ("no_key", 2026-10-13) or a server error, says so
+     plainly, so the writer is not left thinking it is their sentence. */
+  function searchFailureNote(err) {
+    const kind = err?.kind;
+    const msg = String(err?.message ?? "").trim();
+    if (offlineError(err)) return "Couldn't reach Tracely, so nothing was searched. Check your connection and try again.";
+    if ((kind === "rate_limit" || kind === "budget" || kind === "plan_limit") && msg) return msg;
+    if (kind === "no_key" || kind === "server" || (typeof err?.status === "number" && err.status >= 500)) {
+      return "Tracely's source search isn't working on our side right now, so nothing was searched. It isn't your writing. Try again later.";
+    }
+    return `The search didn't answer${msg ? ` (${msg.slice(0, 80)})` : ""}. Try again.`;
+  }
   const CITED_COPY = {
     find: "Find the cited work",
     looking: "Looking up the work you cited…",
@@ -3013,20 +3040,33 @@
   /* The panel's evidence section (see evidenceCandidates). Folded until
      opened; neutral, never a finding colour (CLAUDE.md "Colour only ever
      means a finding"); every card can be dismissed. `sourcesFor(seg)` is the
-     mode's own source list, so citing works exactly as on an issue card. */
-  function evidenceSectionHtml(candidates, open, sourcesFor, searched) {
+     mode's own source list, so citing works exactly as on an issue card.
+     Student and Pro only (canRecommend; owner, 2026-10-13): on Free,
+     `locked`, it is one line saying what the plans add and See plans, and
+     no card, quote or search button. Free helps with mistakes only. */
+  const RECOMMEND_COPY = {
+    head: (n) => `Evidence recommendations (${n})`,
+    intro: "Optional — only where evidence would make your writing stronger.",
+    title: "Evidence would make this stronger",
+    body: "This holds up. A study or an official source behind it would make your point harder to argue with.",
+    find: "Find evidence",
+    locked: (n) => `Student and Pro recommend evidence that would make your writing stronger: ${n} ${n === 1 ? "point" : "points"} here.`,
+    seePlans: "See plans",
+  };
+  function evidenceSectionHtml(candidates, open, sourcesFor, searched, locked = false) {
     if (!candidates.length) return "";
-    const head = `<button class="ev-toggle" id="evidenceToggle" aria-expanded="${open}">${open ? "▾" : "▸"} Evidence you could add (${candidates.length})</button>`;
+    if (locked) return `<div class="evidence"><div class="ev-locked"><span>${esc(RECOMMEND_COPY.locked(candidates.length))}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div></div>`;
+    const head = `<button class="ev-toggle" id="evidenceToggle" aria-expanded="${open}">${open ? "▾" : "▸"} ${esc(RECOMMEND_COPY.head(candidates.length))}</button>`;
     if (!open) return `<div class="evidence">${head}</div>`;
     const cards = candidates.map((seg) => `
       <div class="card ev-card" data-card="${seg.hash}">
-        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="top"><span class="ctitle">${esc(RECOMMEND_COPY.title)}</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
         <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
-        <div class="expl">This holds up, but it is a point a reader may want backed. A study or official source would make it harder to argue with.</div>
-        ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">Find evidence</button></div>`}
+        <div class="expl">${esc(RECOMMEND_COPY.body)}</div>
+        ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">${esc(RECOMMEND_COPY.find)}</button></div>`}
         ${sourcesFor(seg)}
       </div>`).join("");
-    return `<div class="evidence">${head}<div class="ev-intro">Optional — only where evidence would help your argument.</div>${cards}</div>`;
+    return `<div class="evidence">${head}<div class="ev-intro">${esc(RECOMMEND_COPY.intro)}</div>${cards}</div>`;
   }
   /* Resume tips: the free format rules first (instant), then what /api/review
      found, a line once — a model note on a line the rules already flagged is
@@ -3907,6 +3947,9 @@
     .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
     .ev-toggle:hover { text-decoration: underline; }
     .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    .ev-locked { display: flex; align-items: center; gap: 10px; padding: 6px 2px; font-size: 12.5px; color: #6b6c72; }
+    .ev-locked span { flex: 1; min-width: 0; }
+    .ev-locked .act { flex-shrink: 0; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
@@ -4386,7 +4429,10 @@
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
-    let sourcesInflight = false;
+    // The writer's own searches in flight (fetchSources). An automatic one
+    // never counts here, so it can never make a press wait or do nothing.
+    let sourcesInflight = 0;
+    const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote), until the next one
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
     let lastCheckFailed = false;
@@ -6550,16 +6596,22 @@
       if (ev) put(dmHint(ev.loading ? EVIDENCE_COPY.looking : evFound ? EVIDENCE_COPY.found(evFound) : ev.partial ? TRIM_COPY.head : EVIDENCE_COPY.none(ev)));
       else if (citedClaim(f.verdict, seg.text)) put(dmHint(EVIDENCE_COPY.cited));
       const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
+      const evOpen = evDone && (evFound > 0 || Boolean(ev.partial));
+      // Its own search came back with nothing to open, and the card already
+      // says so: "Find a source" is the writer asking again, so it searches
+      // again. It used to open that same empty answer (owner, 2026-10-13:
+      // "find a source action button doesnt work properly").
+      const evEmpty = evDone && !evOpen;
       const findSource = () => {
-        // Already searched (or searching) by itself: open what it found, never a second search.
-        if (ev) { setStep(hash, { step: "sources", searched: true }); return; }
+        // Searching by itself, or found something: open it, never a second search.
+        if (ev && !evEmpty) { setStep(hash, { step: "sources", searched: true }); return; }
+        if (evEmpty && sourcesMap.get(hash) === ev) sourcesMap.delete(hash);
         // The search marks itself in flight before its first await, so the
         // card painted next already reads "searching" rather than "failed".
         const started = fetchSources(hash);
         setStep(hash, { step: "sources", searched: true });
         started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       };
-      const evOpen = evDone && (evFound > 0 || Boolean(ev.partial));
       const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : evOpen ? EVIDENCE_COPY.see(evFound || 1) : POP_COPY.findSource, true);
       if (!hasRevision && !citedHere && !ev) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
       action.addEventListener("click", () => {
@@ -6729,8 +6781,9 @@
       }
       // Searching.
       if (!s || s.loading) {
-        if (!s && !sourcesInflight && st.searched) {
-          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(statusMsg || "The search did not answer — try again."), noteEl());
+        const failed = !s && st.searched ? sourceFailures.get(hash) : null;
+        if (failed || (!s && !sourcesInflight && st.searched)) {
+          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(failed?.note || "The search did not answer — try again."), noteEl());
           const again = dmBtn(POP_COPY.searchAgain, true);
           again.addEventListener("click", () => { const p = fetchSources(hash); setStep(stepKey, { searched: true }); p.catch(() => {}); });
           const cancel = dmBtn(POP_COPY.cancel, false);
@@ -7243,11 +7296,20 @@
       // status line (the list says it).
       if (sourcesMap.get(hash)?.list?.length) return true; // cached — never re-search
       if (sourcesMap.get(hash)?.loading) return true; // already running: started on the press (prestartSearch)
-      if (sourcesInflight && !batch) return false;
+      /* An automatic search waits for the writer's; the writer's waits for
+         nothing. Owner, 2026-10-13: "find a source action button doesnt work
+         properly". A press while the automatic "Needs evidence" search ran
+         (EVIDENCE_FIRST: up to three, 10–15 s each) found the one slot taken
+         and was refused without a word: the card flipped back. The server
+         allows a caller 4 searches a minute (callerSourcesPerMinute), and a
+         refusal there is said in the card (sourceFailures). */
+      if (auto && sourcesInflight) return false;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return false;
       const f = cache.get(hash);
-      if (!batch) sourcesInflight = true;
+      const mine = !batch && !auto;
+      if (mine) sourcesInflight++;
+      sourceFailures.delete(hash);
       // What the live search has said so far (searchSources' events), drawn
       // by the card while it runs (dmLive, liveSourcesHtml). `shown`: the
       // sites already animated in, so a repaint never replays their entrance.
@@ -7288,10 +7350,13 @@
         noteSourcesReady(hash, list.length, auto);
       } catch (err) {
         sourcesMap.delete(hash);
+        // Said in the card that was waiting on it; an automatic search's
+        // failure only where the writer opened its card (the panel stays quiet).
+        if (!batch) sourceFailures.set(hash, { note: searchFailureNote(err), auto });
         if (!auto) statusKind = "error";
         if (!batch && !auto) statusMsg = err?.message ?? "source search failed";
       } finally {
-        if (!batch) sourcesInflight = false;
+        if (mine) sourcesInflight = Math.max(0, sourcesInflight - 1);
         render();
         renderPopSources(hash); // popover may be waiting on this claim
       }
@@ -10219,7 +10284,11 @@
         const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
-          if (st?.loading) {
+          const failed = st ? null : sourceFailures.get(seg.hash);
+          if (failed && !failed.auto) {
+            // The writer's search failed: why, in the card (its button searches again).
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
+          } else if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
           } else if (st?.partial && !st.list?.length) {
             // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
@@ -10293,7 +10362,7 @@
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : [])
             : "");
         const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
-          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
+          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash), !canRecommend())
           : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
@@ -10358,6 +10427,7 @@
         for (const b of shadow.querySelectorAll("[data-fx-skip]")) b.addEventListener("click", () => skipFix(Number(b.dataset.fxSkip)));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const b of shadow.querySelectorAll("[data-rec-plans]")) b.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
           btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); requestDocsMarks(); });
         }
@@ -10635,7 +10705,8 @@
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let inflight = false;
-    let sourcesInflight = false;
+    let sourcesInflight = 0; // the writer's own searches in flight, as in Docs mode
+    const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote)
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // see nextReadGap
     let lastCheckFailed = false;
@@ -11191,11 +11262,16 @@
     }
 
     async function fetchSources(hash, auto = false) {
-      if (sourcesInflight) return;
+      // As in Docs mode: the writer's press always runs; an automatic search
+      // waits for the writer's (it was the other way round, and a press
+      // during one did nothing).
+      if (sourcesMap.get(hash)?.list?.length || sourcesMap.get(hash)?.loading) return; // found or running: never pay twice
+      if (auto && sourcesInflight) return;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return;
       const f = cache.get(hash);
-      sourcesInflight = true;
+      if (!auto) sourcesInflight++;
+      sourceFailures.delete(hash);
       sourcesMap.set(hash, { loading: true, list: null, copiedUrl: null });
       render();
       try {
@@ -11211,10 +11287,11 @@
         sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
       } catch (err) {
         sourcesMap.delete(hash);
+        sourceFailures.set(hash, { note: searchFailureNote(err), auto });
         if (!auto) statusKind = "error";
         if (!auto) statusMsg = err?.message ?? "source search failed";
       } finally {
-        sourcesInflight = false;
+        if (!auto) sourcesInflight = Math.max(0, sourcesInflight - 1);
         render();
       }
     }
@@ -11611,7 +11688,10 @@
         const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
-          if (st?.loading) {
+          const failed = st ? null : sourceFailures.get(seg.hash);
+          if (failed && !failed.auto) {
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
+          } else if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
           } else if (st?.partial && !st.list?.length) {
             // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
@@ -11681,7 +11761,7 @@
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : [])
             : "");
         const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
-          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
+          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash), !canRecommend())
           : "";
 
         const emptyMsg = statusKind === "offline"
@@ -11727,6 +11807,7 @@
         shadow.getElementById("siteSwitch").addEventListener("click", () => setSiteEnabled(!enabled));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const b of shadow.querySelectorAll("[data-rec-plans]")) b.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
           btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); scheduleMarks(); });
         }

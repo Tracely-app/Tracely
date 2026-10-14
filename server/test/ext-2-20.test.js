@@ -241,9 +241,12 @@ test("an answer with no explanation is a failure, not an empty card", async () =
 
 /* ── 2.21.24: on again, and the fuller answer can be acted on ───────────── */
 
-test("Explain in depth is on again in 2.21.24, and nothing hides it", () => {
+/* On again in 2.21.24; off again 2026-10-13 (owner: "it should not say
+   explain in depth for pro, the only things that pro users should need is
+   extra evidence recommendations"). The code stays behind the switch. */
+test("Explain in depth is switched off, and the CSS hide follows the switch", () => {
   const src = read("content.js");
-  assert.match(src, /deepDive: true,/);
+  assert.match(src, /deepDive: false,/);
   assert.match(src, /\$\{FEATURES\.deepDive \? "" : "\.deep, \.deep-row \{ display: none; \}"\}/, "the CSS hide follows the switch");
   // The /api/check body is unchanged: one sentence, deep:true (pinned above).
 });
@@ -360,6 +363,7 @@ function renderDocsPanel(tier) {
     const SETTINGS_KEY = "k";
     const copyText = () => {};
     const fetchSources = () => {};
+    const sourceFailures = new Map(); // why a search failed, said in its card (ext-find-source.test.js)
     const citeUrlWidget = () => {};
     const cycle = () => {};
     const requestDocsMarks = () => {};
@@ -375,17 +379,19 @@ function renderDocsPanel(tier) {
   return root.innerHTML;
 }
 
-test("the Docs panel has no speed bar, and offers Explain in depth", () => {
+test("the Docs panel has no speed bar, and no Explain in depth on any plan", () => {
   const html = renderDocsPanel(PRO_TIER);
   for (const gone of ["speedbar", "speedSel", "sb-track", "Faster", "Smarter", 'type="range"']) {
     assert.ok(!html.includes(gone), `the Docs panel still renders ${gone}`);
   }
   assert.ok(html.includes("It is blue."), "the panel did not render its card");
-  assert.ok(html.includes('data-deep="s1"') && html.includes("Explain in depth"), html.slice(0, 400));
-
   const free = renderDocsPanel(FREE_TIER);
-  assert.ok(free.includes('data-deep-locked="s1"') && free.includes("Thorough explanations come with Pro"), "Free gets the locked button");
-  assert.ok(!free.includes('data-deep="s1"'), "Free was offered the live button");
+  // The switch hides the row with the panel's CSS (".deep, .deep-row { display: none; }", pinned
+  // above), so whatever deep markup a card still carries must sit inside that row, on every plan.
+  for (const [plan, h] of [["Pro", html], ["Free", free]]) {
+    const outside = h.replace(/<div class="deep-row" data-deep-box="s1">[\s\S]*?<\/button>\s*(?:<div class="deep-note[^"]*">[\s\S]*?<\/div>\s*)?<\/div>/g, "");
+    assert.ok(!/data-deep|Explain in depth|Thorough explanations/.test(outside), `${plan}: ${outside.slice(0, 400)}`);
+  }
 });
 
 function renderFieldPanel(tier) {
@@ -412,6 +418,7 @@ function renderFieldPanel(tier) {
     const SETTINGS_KEY = "k";
     const copyText = () => {};
     const fetchSources = () => {};
+    const sourceFailures = new Map(); // why a search failed, said in its card (ext-find-source.test.js)
     const citeUrlWidget = () => {};
     const fixInField = () => {};
     const cycle = () => {};
@@ -423,16 +430,19 @@ function renderFieldPanel(tier) {
   return root.innerHTML;
 }
 
-test("the field-mode panel has no speed bar, and offers Explain in depth", () => {
+test("the field-mode panel has no speed bar, and no Explain in depth on any plan", () => {
   const html = renderFieldPanel(PRO_TIER);
   for (const gone of ["speedbar", "speedSel", "sb-track", "Faster", "Smarter", 'type="range"']) {
     assert.ok(!html.includes(gone), `the field panel still renders ${gone}`);
   }
   assert.ok(html.includes("It is blue."), "the panel did not render its card");
-  assert.ok(html.includes('data-deep="s1"') && html.includes("Explain in depth"), html.slice(0, 400));
-
   const free = renderFieldPanel(FREE_TIER);
-  assert.ok(free.includes('data-deep-locked="s1"') && free.includes("Thorough explanations come with Pro"), "Free gets the locked button");
+  // The switch hides the row with the panel's CSS (".deep, .deep-row { display: none; }", pinned
+  // above), so whatever deep markup a card still carries must sit inside that row, on every plan.
+  for (const [plan, h] of [["Pro", html], ["Free", free]]) {
+    const outside = h.replace(/<div class="deep-row" data-deep-box="s1">[\s\S]*?<\/button>\s*(?:<div class="deep-note[^"]*">[\s\S]*?<\/div>\s*)?<\/div>/g, "");
+    assert.ok(!/data-deep|Explain in depth|Thorough explanations/.test(outside), `${plan}: ${outside.slice(0, 400)}`);
+  }
 });
 
 test("neither widget's CSS or markup keeps a speed bar rule", () => {
@@ -563,7 +573,7 @@ async function renderOptions(answer) {
     }
     return els.get(id);
   };
-  for (const id of ["signedIn", "signedOut", "manageLink", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
+  for (const id of ["signedIn", "signedOut", "manageLink", "acctBeta", "recommendPlan", "recommendLocked", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
   const chrome = {
     runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? { ok: true, configured: true, ...answer } : { ok: true }) },
     storage: { local: { get: (d, cb) => cb?.({ ...d }), set() {}, remove() {} }, onChanged: { addListener() {} } },
@@ -584,58 +594,30 @@ test("options: the checking-model hint says every plan runs the same model", () 
   assert.match(html, /<h2>Checking model<\/h2>/);
   assert.match(html, /Every plan checks with the same model/);
   assert.match(html, /Bigger models weren’t better at catching false or uncited claims/);
-  assert.match(html, /Thorough explanations \(Pro\)/);
-  assert.match(html, /It comes from a monthly allowance; when that runs out, the standard model answers until the 1st\./);
+  // Owner, 2026-10-13: Pro's extra is evidence recommendations, not "Explain in depth".
+  assert.match(html, /<h3>Evidence recommendations \(Student and Pro\)<\/h3>/);
+  assert.doesNotMatch(html, /Explain in depth|Thorough explanations|thoroughMeter/);
 });
 
-test("options: Pro sees the Thorough meter with the percent left and the reset date", async () => {
-  const $ = await renderOptions({ ...PAID, thorough: { remainingPct: 62, resetsOn: "2026-10-01", suspended: false } });
-  assert.equal($("thoroughPro").hidden, false);
-  assert.equal($("thoroughLocked").hidden, true);
-  assert.equal($("thoroughMeter").hidden, false);
-  assert.equal($("thoroughMeterText").textContent, "62% of this month's Thorough allowance left · resets Oct 1");
-});
-
-test("options: a spent allowance says what answers until the reset", async () => {
-  const $ = await renderOptions({ ...PAID, thorough: { remainingPct: 0, resetsOn: "2026-11-01", suspended: false } });
-  assert.equal($("thoroughMeterText").textContent, "This month's Thorough allowance is used up. Explanations use the standard model until Nov 1.");
-});
-
-/* A fair-use suspension turns Thorough off without spending a cent of the
-   allowance. The meter is the only line on the page that speaks about
-   Thorough, so if it keeps reporting the percentage it is the one thing
-   telling a paying account it still has something it is not getting. */
-test("options: a suspended allowance says paused, not how much is left", async () => {
-  const $ = await renderOptions({
-    ...PAID,
-    thorough: { remainingPct: 71, resetsOn: "2026-10-01", suspended: true },
-    fairUse: { state: "month", resetsOn: "2026-10-01" },
-  });
-  const text = $("thoroughMeterText").textContent;
-  assert.match(text, /^Thorough is paused while this account is over its fair-use limit/);
-  assert.match(text, /standard model until Oct 1/);
-  assert.match(text, /71% of this month's allowance is still unused\./);
-  assert.doesNotMatch(text, /used up/);
-  assert.doesNotMatch(text, /71% of this month's Thorough allowance left/);
-});
-
-test("options: a daily fair-use trip pauses Thorough until midnight", async () => {
-  const $ = await renderOptions({
-    ...PAID,
-    thorough: { remainingPct: 40, resetsOn: "2026-10-01", suspended: true },
-    fairUse: { state: "day", resetsOn: "2026-09-23" },
-  });
-  assert.match($("thoroughMeterText").textContent, /standard model until midnight/);
-});
-
-test("options: Free and Student get the locked line instead", async () => {
-  for (const plan of ["free", "student"]) {
-    const $ = await renderOptions({ signedIn: true, email: "s@example.com", plan });
-    assert.equal($("thoroughPro").hidden, true, plan);
-    assert.equal($("thoroughLocked").hidden, false, plan);
-    assert.equal($("thoroughMeter").hidden, true, plan);
+test("options: Student and Pro see what evidence recommendations are", async () => {
+  for (const plan of ["student", "pro"]) {
+    const $ = await renderOptions({ ...PAID, plan, thorough: { remainingPct: 62, resetsOn: "2026-10-01", suspended: false } });
+    assert.equal($("recommendPlan").hidden, false, plan);
+    assert.equal($("recommendLocked").hidden, true, plan);
   }
-  assert.match(read("options.html"), /id="thoroughLocked"[^>]*>Thorough explanations come with Pro\. <a[^>]*>See plans →<\/a>/);
+  // A tester is served as Pro, and a server that meters nothing gates nothing.
+  for (const extra of [{ plan: "free", beta: true }, { plan: "free", unenforced: true }]) {
+    const $ = await renderOptions({ signedIn: false, ...extra });
+    assert.equal($("recommendPlan").hidden, false, JSON.stringify(extra));
+  }
+});
+
+test("options: Free gets the locked line instead", async () => {
+  const $ = await renderOptions({ signedIn: true, email: "s@example.com", plan: "free" });
+  assert.equal($("recommendPlan").hidden, true);
+  assert.equal($("recommendLocked").hidden, false);
+  assert.match(read("options.html"), /id="recommendLocked"[^>]*>Starter flags mistakes and helps you fix them\. Evidence recommendations, for points that evidence would make stronger, come with Student and Pro\. <a[^>]*>See plans →<\/a>/);
+  assert.match(read("options.js"), /const RECOMMEND_PLANS = \["student", "pro"\];/);
 });
 
 test("options: the source-search line is the server's own counting", async () => {
@@ -674,17 +656,17 @@ test("options: a server that meters nothing is not made to look as if it does", 
   const $ = await renderOptions({ signedIn: false, plan: "free", unenforced: true });
   assert.equal($("sourcesLine").hidden, true);
   assert.equal($("fairUseLine").hidden, true);
-  assert.equal($("thoroughMeter").hidden, true);
-  assert.equal($("thoroughMeterText").hidden, true);
-  assert.equal($("thoroughPro").hidden, false);
-  assert.equal($("thoroughLocked").hidden, true);
+  assert.equal($("recommendPlan").hidden, false);
+  assert.equal($("recommendLocked").hidden, true);
 });
 
+/* It named auto-sources, which are off (FEATURES.autoSources), and Thorough
+   explanations, which the extension no longer offers. */
 test("options: a signed-in Starter account is told what the paid plans add", async () => {
   const $ = await renderOptions({ signedIn: true, email: "f@example.com", plan: "free" });
   assert.equal(
     $("acctHint").textContent,
-    "You're on Starter. Student removes the daily check limit and adds 100 source searches a month and auto-sources; Pro adds Thorough explanations.",
+    "You're on Starter, which flags mistakes and helps you fix them. Student and Pro also recommend evidence that would make your writing stronger, with more source searches.",
   );
 });
 

@@ -62,16 +62,17 @@ function orderUrl(userId) {
    CHOOSES one any more — the Faster↔Smarter slider is gone, and the server
    picks the model and effort per route (shared/plan.js modelForRoute): the
    fast model for every check, detection, flow and source search on every
-   plan, the thorough one for Pro's "Explain in depth" and desktop critiques
-   while the monthly allowance lasts.
+   plan, the thorough one for desktop critiques while Pro's monthly allowance
+   lasts. The extension's "Explain in depth" is off (owner, 2026-10-13), so
+   this page no longer shows the Thorough meter.
 
    They are still named here because this page is what a reader checks to see
    what they are buying, and a rename that misses this file is exactly how
    the slider ended up naming three Anthropic models the extension could no
    longer call. */
 const MODELS = { fast: "gpt-5.6-luna", thorough: "gpt-6-astra" };
-// Plans with a Thorough allowance (shared/plan.js THOROUGH_MONTHLY_USD).
-const DEEP_PLANS = ["pro"];
+// Plans with evidence recommendations: content.js RECOMMEND_PLANS, every paid plan.
+const RECOMMEND_PLANS = ["student", "pro"];
 
 // "2026-10-01" -> "Oct 1" (shared/plan.js monthDayLabel, mirrored).
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -107,67 +108,32 @@ let account = {
   limits: null, usage: null, thorough: null, fairUse: null,
 };
 
-// Whether this account is offered Thorough explanations at all.
-function hasThorough() {
-  return account.unenforced || account.beta === true || DEEP_PLANS.includes(account.plan);
+/* Whether this account gets evidence recommendations (content.js
+   canRecommend). Owner, 2026-10-13: Starter helps with mistakes only;
+   Student and Pro also recommend evidence that would make the writing
+   better. */
+function hasRecommendations() {
+  return account.unenforced || account.beta === true || RECOMMEND_PLANS.includes(account.plan);
 }
 
-/* The "Checking model" section: one hint everybody gets, then either the Pro
-   Thorough block with its meter or the locked line, then the source-search
+/* The "Checking model" section: one hint everybody gets, then either the
+   evidence-recommendations tile or the locked line, then the source-search
    and fair-use lines. Anything the server did not report stays hidden —
    a local server meters nothing and must not be made to look as if it does. */
 function renderPlanState() {
-  const pro = hasThorough();
-  $("thoroughPro").hidden = !pro;
-  $("thoroughLocked").hidden = pro;
+  const paid = hasRecommendations();
+  $("recommendPlan").hidden = !paid;
+  $("recommendLocked").hidden = paid;
   renderIncludes();
-  renderThoroughMeter();
   renderSourcesLine();
   renderFairUseLine();
 }
 
-function renderThoroughMeter() {
-  const t = account.thorough;
-  const meter = $("thoroughMeter");
-  const text = $("thoroughMeterText");
-  if (!hasThorough() || !t) {
-    meter.hidden = true;
-    text.hidden = true;
-    return;
-  }
-  const left = Math.max(0, Math.min(100, Math.round(t.remainingPct)));
-  const on = monthDayLabel(t.resetsOn);
-  meter.hidden = false;
-  $("thoroughFill").style.width = `${left}%`;
-  text.hidden = false;
-  /* A fair-use suspension turns the allowance OFF without spending it, so the
-     percentage alone would read as a promise the account is not getting: the
-     meter is the only thing on this page that speaks about Thorough, and the
-     fair-use line below covers checks and sources, not this. Say it is paused,
-     and say how much is waiting on the other side of the reset. */
-  if (t.suspended === true) {
-    text.textContent = `Thorough is paused while this account is over its fair-use limit — explanations use the standard model until ${pausedUntil(on)}. ${left}% of this month's allowance is still unused.`;
-    return;
-  }
-  text.textContent = left > 0
-    ? `${left}% of this month's Thorough allowance left · resets ${on}`
-    : `This month's Thorough allowance is used up. Explanations use the standard model until ${on}.`;
-}
-
-/* When the pause lifts. A daily fair-use trip clears at midnight; a monthly
-   one on the date the fair-use line names. Only if the server sent neither do
-   we fall back to the allowance's own reset. */
-function pausedUntil(allowanceResetsOn) {
-  const f = account.fairUse;
-  if (f?.state === "day") return "midnight";
-  if (f?.state === "month" && f.resetsOn) return monthDayLabel(f.resetsOn);
-  return allowanceResetsOn;
-}
-
 /* What the plan card lists under the plan's name — the desktop's "includes"
    — from the server's own limits, never a copy of the price page: a check
-   allowance, the source searches, and Thorough where it comes with the plan.
-   A server that meters nothing reports no limits, and the list stays hidden. */
+   allowance, the source searches, and evidence recommendations where they
+   come with the plan. A server that meters nothing reports no limits, and
+   the list stays hidden. */
 const escHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 function renderIncludes() {
   const list = $("planIncludes");
@@ -183,7 +149,7 @@ function renderIncludes() {
           : `${s.month} source searches a month, up to ${s.day} a day`);
     }
   }
-  if (items.length && hasThorough()) items.push("Thorough explanations from our largest model");
+  if (items.length && hasRecommendations()) items.push("Evidence recommendations");
   list.innerHTML = items.map((t) => `<li>${escHtml(t)}</li>`).join("");
   list.hidden = items.length === 0;
 }
@@ -283,7 +249,7 @@ function renderAccount() {
     $("acctHint").textContent = beta
       ? "This is a Tracely test build, so you're on Pro while the beta lasts. If you also pay for a plan, Manage subscription still reaches it."
       : account.plan === "free"
-        ? "You're on Starter. Student removes the daily check limit and adds 100 source searches a month and auto-sources; Pro adds Thorough explanations."
+        ? "You're on Starter, which flags mistakes and helps you fix them. Student and Pro also recommend evidence that would make your writing stronger, with more source searches."
         : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
   } else if (beta) {
     $("acctHint").textContent = "This is a Tracely test build, so every check runs on Pro while the beta lasts — no account and nothing to buy. Signing in is optional.";
