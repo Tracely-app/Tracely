@@ -1652,9 +1652,10 @@ test("content.js: pings are the only thing that runs on a timer — edits happen
   assert.equal(makes.length, 2);
   assert.match(code.slice(makes[0].index - 200, makes[0].index), /editGate\.collect = \{ prefix: fixPrefix\(item\)/);
   assert.match(code.slice(makes[1].index - 200, makes[1].index), /editGate\.approved\.add\(it\.editKey\);/);
-  // …and the batch starts, and is accepted, only on a click (Accept all is a loop of Accepts).
+  // …and the batch starts, and each change is accepted, only on a click — one at a time: there is no Accept all (owner, 2026-10-13).
+  assert.doesNotMatch(code, /acceptAllFixes/);
   const owner = (i) => [...code.slice(Math.max(0, i - 4000), i).matchAll(/(?:async )?function (\w+)\(/g)].pop()?.[1];
-  for (const [name, from] of [["prepareFixes", []], ["acceptAllFixes", []], ["acceptFix", ["acceptAllFixes"]], ["fixCollect", ["prepareFix"]], ["prepareFix", ["prepareFixes"]]]) {
+  for (const [name, from] of [["prepareFixes", []], ["acceptFix", []], ["fixCollect", ["prepareFix"]], ["prepareFix", ["prepareFixes"]]]) {
     for (const c of code.matchAll(new RegExp(`(?<!function )\\b${name}\\(`, "g"))) {
       const clicked = /addEventListener\("click"/.test(code.slice(Math.max(0, c.index - 300), c.index));
       assert.ok(clicked || from.includes(owner(c.index)), `${name}( is reachable from something other than a click (in ${owner(c.index)})`);

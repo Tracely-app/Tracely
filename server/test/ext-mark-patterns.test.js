@@ -39,9 +39,9 @@ test("every line is solid; each kind has its own icon, so colour is never the on
     seen.set(MARK_ICON[v], MARK_COLORS[v]);
   }
   assert.deepEqual([...seen.keys()].sort(), ["check", "cite", "writing", "wrong"], "the header's four kinds");
-  // A writing note is blue (owner, 2026-10-13), no longer the orange of "Needs evidence"; the icons differ too.
-  assert.equal(seen.get("writing"), "#2563eb");
-  assert.notEqual(seen.get("check"), seen.get("writing"));
+  // Owner, 2026-10-13: "from now on needs evidence should be blue instead of orange". Writing notes,
+  // also blue, are off (no writing tips), so nothing on the page shares it; the icons differ anyway.
+  assert.equal(MARK_COLORS.questionable, "#2563eb");
   assert.notEqual(TALLY_ICON.check, TALLY_ICON.writing);
 });
 
@@ -58,8 +58,9 @@ test("the lines themselves: a plain colour, 2px (3px hovered), in a div or in Do
 test("one legend: each kind's icon beside its solid line, in the cards' words", () => {
   const { legendHtml, MARK_COLORS, TALLY_ICON } = load();
   const html = legendHtml();
-  assert.equal((html.match(/class="legend-item"/g) || []).length, 4);
-  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Needs evidence", "check"], ["needs_citation", "Missing or incomplete citation", "cite"], ["note_tip", "Writing note", "writing"]]) {
+  assert.equal((html.match(/class="legend-item"/g) || []).length, 3, "no Writing note: writing tips are off (owner, 2026-10-13)");
+  assert.doesNotMatch(html, /Writing note/);
+  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Needs evidence", "check"], ["needs_citation", "Missing or incomplete citation", "cite"]]) {
     assert.ok(html.includes(`<span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[kind]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: 2px"></span>${label}`), label);
   }
   assert.match(html, /aria-label="What the underlines and margin icons mean"/);

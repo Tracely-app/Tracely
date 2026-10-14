@@ -188,7 +188,7 @@ function load({ nolist = false, inline = [] } = {}) {
       reseg();
     }
     ${sliceBetween(SRC, '    /* ── "Let Tracely fix these": everything prepared', "    if (FEATURES.typePreview) {")}
-    ({ prepareFixes, stopFixes, closeFixes, acceptFix, acceptAllFixes, skipFix, rejectAllFixes, walkStripHtml, fixPingHtml, placeFixCards, runDocEdit,
+    ({ prepareFixes, stopFixes, closeFixes, acceptFix, skipFix, rejectAllFixes, cycle, walkStripHtml, fixPingHtml, placeFixCards, runDocEdit,
        batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
        cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null,
        marks: () => fixMarks, placeFixMarks })`, ctx);
@@ -214,14 +214,15 @@ test("one press prepares every change: searches at once, nothing reaches the doc
   assert.deepEqual(plain(X.batch().items.filter((it) => it.src).map((it) => it.src.url)), ["src-c0", "src-c1", "src-c3"], "the source that BACKS each sentence, never the first one listed");
   const html = X.walkStripHtml();
   assert.match(html, /5 fixes ready — accept what you want/);
-  assert.match(html, /data-fx-all="1">Accept all 5</);
+  // No "Accept all" (owner, 2026-10-13: "it shouldnt replace more than one sentence at once").
+  assert.doesNotMatch(html, /Accept all|data-fx-all/);
   assert.match(html, /The Mongols <del>invented the American dollar<\/del><ins>used paper money<\/ins>\./, "what changes, before → after");
   assert.match(html, /\+<\/span> Lee, Ann\. Backs c0\. 2021\./, "and the line a citation adds");
   assert.match(html, /1 couldn't be prepared \(no source backs it\) — its card is still there/);
   assert.equal((html.match(/data-fx-accept=/g) || []).length, 5);
 });
 
-test("Accept goes in without a second preview; Accept all goes one at a time, each after a fresh read", async () => {
+test("Accept goes in without a second preview; each change is accepted on its own, never all at once", async () => {
   const { X, log } = load();
   X.prepareFixes();
   await drain(() => !X.batch().preparing);
@@ -230,10 +231,10 @@ test("Accept goes in without a second preview; Accept all goes one at a time, ea
   assert.deepEqual(log.sent.map((s) => s.key), ["fix:s1"]);
   assert.equal(log.previews.length, 0, "the list was the preview");
   assert.equal(X.gate.approved.size, 0, "approval lasts one edit");
-  await X.acceptAllFixes();
+  for (const i of [1, 2, 5]) { await X.cycle(); assert.equal(await X.acceptFix(i), true, `change ${i}`); }
+  await X.cycle();
   assert.deepEqual(statuses(X), ["s1:applied", "c0:applied", "c1:applied", "c2:none (no source backs it)", "c3:skipped", "tip:x:applied"]);
   assert.equal(log.previews.length, 0);
-  assert.ok(log.cycles >= 3, "a read of the doc after each one");
   const doc = X.doc();
   assert.ok(doc.startsWith(REV) && doc.includes("Trade grew by 40 percent under the Mongols (Lee 2021).") && doc.includes("Merchants paid 3 percent tax (Lee 2021).")
     && !doc.includes("Paper money circulated in 1260 (Lee") && !doc.includes(STRAY), doc);
@@ -311,7 +312,8 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
   assert.match(allNodes(cards[1]).map((n) => n._text).join("|"), /Source: Backs c0/);
   const buttons = (c) => allNodes(c).filter((n) => n.tagName === "button");
   assert.deepEqual(plain(buttons(cards[0]).map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
-  assert.match(X.fixPingHtml(), /5 suggestions in your doc.*data-fxp-all="1">Accept all<.*data-fxp-none="1">Reject all</s);
+  assert.match(X.fixPingHtml(), /5 suggestions in your doc.*data-fxp-none="1">Reject all</s);
+  assert.doesNotMatch(X.fixPingHtml(), /Accept all|data-fxp-all/, "each is accepted on its own");
   // Placed beside their lines, in the page's right margin, none on another.
   X.placeFixCards();
   const ys = cards.map((c) => Number(c.style.transform.match(/translate\((\d+)px, (\d+)px\)/)[2]));
@@ -351,7 +353,7 @@ test("a missing Works Cited is one of the suggestions: looked up while the rest 
   assert.deepEqual(plain(log.sent.at(-1).job.steps.map((st) => st.line)), ["Works Cited", "Weatherford, Jack. Genghis Khan and the Making of the Modern World. 2004."]);
 });
 
-test("Tracely's cursor makes each change in its place — struck, typed — with Accept and Reject beside it; Accept all goes round and clicks each", async () => {
+test("Tracely's cursor makes each change in its place — struck, typed — with Accept and Reject beside it, each answered on its own", async () => {
   // Owner, 2026-10-09: "when you click accept all there is no cursor but I want tracely cursor to go around and
   // change each one and leave the accept or reject choice next to each change that it makes".
   const { X, log } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
@@ -380,11 +382,9 @@ test("Tracely's cursor makes each change in its place — struck, typed — with
   allNodes(cite.chip).filter((n) => n.tagName === "button")[1].click();
   assert.equal(X.batch().items[1].status, "skipped");
   assert.equal(X.marks().has("c0"), false);
-  // Accept all: the cursor goes to the fix's ✓ and clicks it; it goes in; the rest follow; the cursor leaves.
-  const before = log.cursor.length, hides = log.hides;
-  await X.acceptAllFixes();
-  assert.ok(log.cursor.slice(before).some(([x, y]) => x === 532 && y === 312), "it went to the ✓ (500 + 64/2, 300 + 24/2)");
-  assert.deepEqual(statuses(X), ["s1:applied", "c0:skipped", "c1:applied", "c2:none (no source backs it)", "c3:applied", "tip:x:applied"], "every one it was left goes in, one at a time");
-  assert.equal(X.marks().size, 0, "every change answered: nothing left in the text");
-  assert.ok(log.hides > hides, "and the cursor is gone when it is done");
+  // Accept one beside its change: that one goes in, and only that one (no Accept all, owner 2026-10-13).
+  allNodes(fix.chip).filter((n) => n.tagName === "button")[0].click();
+  await drain(() => X.batch().items[0].status === "applied");
+  assert.deepEqual(statuses(X), ["s1:applied", "c0:skipped", "c1:ready", "c2:none (no source backs it)", "c3:ready", "tip:x:ready"], "the rest wait for their own answer");
+  assert.deepEqual(plain(log.sent.map((x) => x.key)), ["fix:s1"]);
 });

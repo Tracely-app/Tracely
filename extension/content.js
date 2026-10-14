@@ -186,17 +186,15 @@
   // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
   // CLAUDE.md "UI decisions"), read off the Figma "Inline Detection" frames:
   //   red #d93636    — wrong or makes no sense (false, incoherent)
-  //   orange #ff5900 — thin evidence, an unverified figure (questionable)
+  //   blue #2563eb   — needs evidence (questionable). Owner, 2026-10-13: "from
+  //                    now on needs evidence should be blue instead of orange"
   //   amber #ffb800  — add the attribution (needs_citation)
-  //   blue #2563eb   — a writing note (note_tip; owner, 2026-10-13: "make
-  //                    writing notes blue instead of orange")
-  // Four verdicts on three colours, so the card TITLE is what tells false
-  // from incoherent; colour alone never has to. It used to be a fourth hue
-  // per verdict (amber, violet, blue), which made the same finding a
-  // different colour here than in the app.
-  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
-  const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
-  const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
+  // A writing note (note_tip) was blue; writing tips are off (FEATURES), so
+  // no note shares it. Four verdicts on three colours, so the card TITLE is
+  // what tells false from incoherent; colour alone never has to.
+  const MARK_COLORS = { false: "#d93636", questionable: "#2563eb", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
+  const VERDICT_WASH = { false: "#fdecec", questionable: "#e9effd", incoherent: "#fdecec", needs_citation: "#fff4d6" };
+  const VERDICT_TEXT = { false: "#d93636", questionable: "#1d4ed8", incoherent: "#d93636", needs_citation: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
 
   /* The bare-bones build: fact-checking (underline, card, suggested fix) and
@@ -212,11 +210,11 @@
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
     evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
-    resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
+    resumeTips: false,    // on a resume: free format rules, plus /api/review's bullet and typo notes — off: no writing tips (owner, 2026-10-13)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
-    offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
+    offTopic: false,      // a line that shares no word with the rest, and a correction left in (offTopicSentences, correctionResidue) — off: writing tips
     writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
-    essayFeedback: true,  // on an essay or paper: /api/review reads it against its rubric (a DBQ's, for one) — essayFeedbackTips
+    essayFeedback: false, // /api/review reads an essay against its rubric (essayFeedbackTips) — off: writing tips, and no review call is made
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
     typePreview: true,    // Docs: every in-doc edit is typed as a private preview first, sent only on Accept (the "Type preview" block, previewDocEdit)
@@ -265,7 +263,8 @@
   const markFill = (color) => color;
   /* The panel's legend: each kind's icon (as in the page margin and the
      header) beside its solid line, in the cards' own words. */
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Needs evidence"], ["needs_citation", "Missing or incomplete citation"], ["note_tip", "Writing note"]];
+  // No "Writing note": writing tips are off (FEATURES; owner, 2026-10-13).
+  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Needs evidence"], ["needs_citation", "Missing or incomplete citation"]];
   function legendHtml() {
     const items = LEGEND.map(([v, label]) => `<span class="legend-item"><span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[MARK_ICON[v]]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: ${MARK_LINE_HEIGHT}px"></span>${label}</span>`).join("");
     return `<div class="legend" role="note" aria-label="What the underlines and margin icons mean">${items}</div>`;
@@ -1888,7 +1887,19 @@
     const before = new Set(words(original));
     return words(rewrite).every((w) => before.has(w));
   }
-  const usableRevision = (original, rewrite) => (bareNegation(original, rewrite) ? "" : rewrite);
+  /* One sentence in, one sentence out. Owner, 2026-10-13: "make tracely
+     extension and app both not overpower stuff … it shouldnt replace more
+     than one sentence at once". The check is told a fix never adds a
+     sentence; one that does anyway is dropped here — the card keeps the
+     finding and offers nothing to paste. Counted with the splitter the
+     sentences themselves come from (splitLineSentences), so "Dr. Smith" or
+     "U.S." is one sentence, as it is in the document. */
+  function sentenceCount(x) {
+    const s = String(x ?? "").replace(/\s+/g, " ").trim();
+    return s ? splitLineSentences(s).filter(([a, b]) => /\p{L}/u.test(s.slice(a, b))).length : 0;
+  }
+  const oneSentenceFix = (rewrite) => (typeof rewrite === "string" && sentenceCount(rewrite) <= 1 ? rewrite : "");
+  const usableRevision = (original, rewrite) => (bareNegation(original, rewrite) ? "" : oneSentenceFix(rewrite));
 
   /* Citations that cannot lead a reader to a source. Owner, 2026-10-05, on a
      deliberately flawed essay whose revisions kept "[History.com / Gutenberg
@@ -3770,7 +3781,7 @@
     .launch-plane svg { width: 100%; height: 100%; }
     .launcher .count {
       position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
-      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
+      border-radius: 999px; border: 2px solid #fff; background: #ff5900; color: #fff; /* the brand orange: it counts findings, it is none of them */
       font-size: 16px; font-weight: 600; letter-spacing: 0;
       display: flex; align-items: center; justify-content: center;
     }
@@ -3885,7 +3896,7 @@
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
     /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
-    .d-quest { background: #ff5900; }
+    .d-quest { background: ${MARK_COLORS.questionable}; }
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
     .d-note { background: ${MARK_COLORS.note_tip}; }
@@ -4180,7 +4191,9 @@
     // Verdicts and source lists persist per doc: reopening the tab re-checks
     // NOTHING that hasn't changed (hash-keyed, stale entries just never
     // match) and never re-searches a claim it already has sources for.
-    const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", []));
+    const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", [])
+      // A fix saved by an earlier build is held to one sentence too (oneSentenceFix).
+      .map((e) => (Array.isArray(e) && e[1] && typeof e[1] === "object" && e[1].revision ? [e[0], { ...e[1], revision: oneSentenceFix(e[1].revision) }] : e)));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
       .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, partial: typeof st.partial?.partial?.trimmed === "string" ? st.partial : null, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
@@ -4470,7 +4483,7 @@
         docText = newText;
         const before = segments;
         segments = segmentText(docText);
-        docGenre = FEATURES.resumeTips ? detectGenre(docText) : "prose";
+        docGenre = detectGenre(docText); // always, tips or none
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
@@ -9433,7 +9446,6 @@
     let fixSearchesRunning = 0;
     const FIX_COPY = {
       go: "Let Tracely fix these", stop: "Stop", done: "Done", accept: "Accept", skip: "Skip",
-      all: (n) => `Accept all ${n}`,
       offer: (n) => `Tracely can prepare ${n === 1 ? "this fix" : `${n} of these fixes`} at once — then you choose what goes in`,
       preparing: (ready, n) => `Preparing ${n} ${n === 1 ? "fix" : "fixes"} · ${ready} ready`,
       ready: (n) => `${n} ${n === 1 ? "fix" : "fixes"} ready — accept what you want`,
@@ -9600,37 +9612,6 @@
       if (fixBatch !== b) return ok;
       fixSettle(it, ok ? "applied" : "failed", ok ? "" : docEditState.get(it.editKey)?.note || "the doc changed — use its card");
       return ok;
-    }
-    // After a change goes in, the next waits for the doc's export to show it (it lags a little).
-    async function fixFreshRead(before) {
-      const t0 = Date.now();
-      while (Date.now() - t0 < 8000) {
-        await tcSleep(600);
-        if (inflight) continue;
-        await cycle();
-        if (docText !== before) return true;
-      }
-      return false;
-    }
-    async function acceptAllFixes() {
-      const b = fixBatch;
-      if (!b || b.applying) return;
-      b.applying = true;
-      let toured = false; // the cursor came out to click: it goes again at the end
-      render();
-      try {
-        for (let i = 0; i < b.items.length; i++) {
-          if (fixBatch !== b) break;
-          if (b.items[i].status !== "ready") continue;
-          if (await fixClickAccept(b.items[i])) toured = true;
-          const before = docText;
-          if (await acceptFix(i)) await fixFreshRead(before);
-        }
-      } finally {
-        b.applying = false;
-        if (toured) tcCursorHide();
-        render();
-      }
     }
     // What a prepared change does, in the writer's words: the sentence before → after, and any line it adds.
     function fixChangeHtml(job) {
@@ -9865,8 +9846,9 @@
        struck through on their exact runs (svgRangeRects, the Type preview's
        own locating), and what it puts in, typed into a chip right under the
        change with ✓ Accept and ✕ Reject. Nothing reaches the Doc until Accept
-       (acceptFix, as before), and Accept all sends the cursor round again to
-       click each ✓. A change the page can't show in place — the Works Cited
+       (acceptFix, as before), one change at a time: there is no Accept all
+       (owner, 2026-10-13: "it shouldnt replace more than one sentence at
+       once"). A change the page can't show in place — the Works Cited
        list, a sentence Docs isn't drawing whole — keeps its card in the margin
        (fixCardEl). Ink only: colour is for findings. */
     const FIX_WASH = "rgba(28,28,28,0.07)", FIX_STRIKE = "rgba(28,28,28,0.78)";
@@ -10040,15 +10022,6 @@
       }
       fixMarksRaf = requestAnimationFrame(placeFixMarks);
     }
-    // Accept all, one by one: the cursor goes to the change's ✓ and clicks it when the page shows it. True when it did.
-    async function fixClickAccept(it) {
-      const btn = fixMarks.get(it.key)?.accept;
-      const r = btn?.isConnected && btn.getBoundingClientRect ? btn.getBoundingClientRect() : null;
-      if (!r || !(r.width > 0) || r.top < 0 || r.bottom > innerHeight || document.hidden) return false;
-      await fixGlide(r.left + r.width / 2, r.top + r.height / 2);
-      for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
-      return true;
-    }
 
     // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
     let fixPingShown = false;
@@ -10062,7 +10035,8 @@
       const busy = docBusy || b.applying ? " disabled" : "";
       const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
       return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
-        + `${ready > 1 ? `<button class="act primary" data-fxp-all="1"${busy}>Accept all</button>` : ""}${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
+        // No "Accept all": one sentence at a time, each accepted on its own (owner, 2026-10-13).
+        + `${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
     }
     function walkStripHtml() {
       const b = fixBatch;
@@ -10075,7 +10049,7 @@
       const none = b.items.filter((it) => it.status === "none");
       const rows = b.items.map((it, i) => (it.status === "none" ? "" : fixRowHtml(it, i))).join("");
       const title = b.preparing ? FIX_COPY.preparing(ready, b.items.length) : ready ? FIX_COPY.ready(ready) : applied ? FIX_COPY.finished(applied) : FIX_COPY.nothing;
-      const lead = ready > 1 ? `<button class="act primary" data-fx-all="1"${docBusy || b.applying ? " disabled" : ""}>${FIX_COPY.all(ready)}</button>` : "";
+      const lead = ""; // no "Accept all": each change is accepted on its own (owner, 2026-10-13)
       const end = b.preparing ? `<button class="act" data-walk-stop="1">${FIX_COPY.stop}</button>` : `<button class="act" data-fx-close="1"${b.applying ? " disabled" : ""}>${FIX_COPY.done}</button>`;
       const whys = [...new Set(none.map((it) => it.why).filter(Boolean))].join("; ");
       return `<div class="fixes">
@@ -10310,7 +10284,6 @@
       // (noteSourcesReady) and Let Tracely fix these's suggestions (fixPingHtml).
       shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
       shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
-      shadow.querySelector("[data-fxp-all]")?.addEventListener("click", () => acceptAllFixes());
       shadow.querySelector("[data-fxp-none]")?.addEventListener("click", () => rejectAllFixes());
       if (typeof paintFixCards === "function") paintFixCards(); // the suggestions in the doc follow every change of state
       if (expanded) {
@@ -10318,7 +10291,6 @@
         // "Let Tracely fix these" (the Type preview block): start, and Stop.
         shadow.querySelector("[data-walk-go]")?.addEventListener("click", () => prepareFixes());
         shadow.querySelector("[data-walk-stop]")?.addEventListener("click", () => stopFixes());
-        shadow.querySelector("[data-fx-all]")?.addEventListener("click", () => acceptAllFixes());
         shadow.querySelector("[data-fx-close]")?.addEventListener("click", () => closeFixes());
         for (const b of shadow.querySelectorAll("[data-fx-accept]")) b.addEventListener("click", () => acceptFix(Number(b.dataset.fxAccept)));
         for (const b of shadow.querySelectorAll("[data-fx-skip]")) b.addEventListener("click", () => skipFix(Number(b.dataset.fxSkip)));
@@ -10593,7 +10565,8 @@
     // ── state (mirrors docs mode) ──
     const storedVerdicts = jsonParse(lsGet(FIELD_CACHE_KEY) ?? "[]", []); // the site can write this key too: trust nothing
     const cache = new Map((Array.isArray(storedVerdicts) ? storedVerdicts : [])
-      .filter((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && e[1] && typeof e[1] === "object" && STORED_VERDICTS.has(e[1].verdict)));
+      .filter((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && e[1] && typeof e[1] === "object" && STORED_VERDICTS.has(e[1].verdict))
+      .map(([h, v]) => [h, v.revision ? { ...v, revision: oneSentenceFix(v.revision) } : v])); // one sentence, as a fresh one is
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
@@ -11091,7 +11064,7 @@
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
-        docGenre = FEATURES.resumeTips ? detectGenre(fieldText) : "prose";
+        docGenre = detectGenre(fieldText); // always, tips or none
         if (!settings.styleChosen) settings.citationStyle = docCitationStyle(fieldText) ?? "mla";
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";

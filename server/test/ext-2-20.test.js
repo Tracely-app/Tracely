@@ -51,7 +51,9 @@ const content = (from, to) => slice("content.js", from, to);
 const SHARED = () => content("  const MARK_COLORS =", "\n") // the header's counts draw their icons in the findings' colours
   + content("  function esc(s) {", "  // Carry [n] citation markers")
   + content('  /* ── "Explain in depth" (2.20.0)', "  /* ── shared helpers")
-  + content("  const FIX_NEGATION", "  /* Citations that cannot lead a reader");
+  + content("  const FIX_NEGATION", "  /* Citations that cannot lead a reader")
+  // A fix is one sentence (oneSentenceFix), counted with the document's own splitter.
+  + content("  const SPLIT_ABBREVIATIONS =", "  function segmentText(text) {");
 
 const VERDICT_LABEL = { false: "False", questionable: "Questionable", incoherent: "Doesn't make sense", needs_citation: "Citation needed" };
 const VERDICT_WASH = { false: "#fdecec", questionable: "#fff4d6", incoherent: "#f1e6fb", needs_citation: "#e8f0fd" };
