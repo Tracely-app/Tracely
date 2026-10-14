@@ -41,6 +41,9 @@ export const COLORS = {
   red: "#d93636",
   amber: "#ffb800",
   orange: "#ff5900",
+  // "Needs evidence" (owner, 2026-10-13: "from now on needs evidence should be
+  // blue instead of orange"): the five evidence kinds below, in both clients.
+  blue: "#2563eb",
   grey: "#9a9ba1",
 };
 
@@ -60,12 +63,12 @@ export const PROBLEM_KINDS = [
   { kind: "citation-defect",         label: "Citation is incomplete",               color: "amber" },
   { kind: "contradicted-claim",      label: "Contradicted — check this fact",       color: "red" },
   { kind: "cited-unverified",        label: "Citation may not support this",        color: "amber" },
-  { kind: "unsupported-by-evidence", label: "Evidence does not carry this",         color: "orange" },
+  { kind: "unsupported-by-evidence", label: "Evidence does not carry this",         color: "blue" },
   { kind: "overstated-claim",        label: "Overstated — narrow this",             color: "amber" },
-  { kind: "unverified-statistic",    label: "Unverified statistic",                 color: "orange" },
-  { kind: "no-sources",              label: "No supporting sources",                color: "orange" },
-  { kind: "weak-evidence",           label: "Evidence is weak",                     color: "orange" },
-  { kind: "partial-evidence",        label: "Partially supported",                  color: "orange" },
+  { kind: "unverified-statistic",    label: "Unverified statistic",                 color: "blue" },
+  { kind: "no-sources",              label: "No supporting sources",                color: "blue" },
+  { kind: "weak-evidence",           label: "Evidence is weak",                     color: "blue" },
+  { kind: "partial-evidence",        label: "Partially supported",                  color: "blue" },
   { kind: "missing-citation",        label: "Missing citation",                     color: "amber" },
   { kind: "outside-index",           label: "Not in these databases",               color: "amber" },
   { kind: "searching",               label: "Checking…",                            color: "grey" },

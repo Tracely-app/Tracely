@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { CitationStyle, Claim, DocumentOutline, DocumentRecord, Source } from '@shared/types'
 import { splitParagraphs } from '@shared/paragraphSplit'
+import { DESKTOP_FEATURES } from '@shared/desktopFeatures'
 import { clientToLayout, contentOffset, readZoom } from '@shared/zoomLayout'
 import { iconUrlFor } from '@shared/sourceIcon'
 import { createHoverCloser, hoverIntent, inSafeZone, stepPending, type PendingHover } from '@shared/hoverIntent'
@@ -836,7 +837,8 @@ function DocumentEditor({
       // findProseIssues is pure and local — a thousand-word draft is a few
       // milliseconds — and measuring both together is what keeps the two layers
       // agreeing about where the document's characters are.
-      setProseMarks(measureProseMarks(body, wrap))
+      // Off with the rest of the writing tips (DESKTOP_FEATURES, owner 2026-10-13).
+      setProseMarks(DESKTOP_FEATURES.proseMarks ? measureProseMarks(body, wrap) : [])
       // The claims currently being searched, measured in the same frame for the
       // same reason: three layers drawing over one document have to agree about
       // where its characters are. Only while a sweep is actually running —
@@ -2036,7 +2038,8 @@ function DocumentEditor({
    */
   useEffect(() => {
     const body = editorRef.current
-    if (!body || !claims || claims.length === 0) {
+    // Off-topic marks are a writing tip, and those are off (DESKTOP_FEATURES).
+    if (!DESKTOP_FEATURES.offTopicMarks || !body || !claims || claims.length === 0) {
       setOffTopicIds(null)
       return
     }
@@ -2474,13 +2477,15 @@ function DocumentEditor({
           only one that can edit the draft — an affordance that writes into the
           text belongs next to the other things that do.
         */}
-        <button
-          className="docedit-tracer"
-          onClick={() => setTracerOpen((open) => !open)}
-          title="Chat with Tracer about this draft"
-        >
-          Tracer
-        </button>
+        {DESKTOP_FEATURES.tracerChat ? (
+          <button
+            className="docedit-tracer"
+            onClick={() => setTracerOpen((open) => !open)}
+            title="Chat with Tracer about this draft"
+          >
+            Tracer
+          </button>
+        ) : null}
         <button
           className="docedit-insights"
           onClick={() => {
@@ -2857,7 +2862,7 @@ function DocumentEditor({
         />
       ) : null}
 
-      {tracerOpen ? (
+      {DESKTOP_FEATURES.tracerChat && tracerOpen ? (
 
         <TracerChat
           onClose={() => {

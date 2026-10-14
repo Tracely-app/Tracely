@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ScreenWatchStatus } from '@shared/ipc-contract'
 import type { DocumentListItem } from '@shared/types'
 import { computeHomeStats } from '@shared/homeStats'
+import { DESKTOP_FEATURES } from '@shared/desktopFeatures'
 import { greetingFor } from '@shared/greeting'
 import SourceFinderPanel from '../components/SourceFinderPanel'
 import type { CitationStyle } from '@shared/types'
@@ -58,7 +59,8 @@ const RESOURCE_ICONS: Record<string, string> = {
   sources: iconSources
 }
 
-const RESOURCES = GUIDES.map((guide) => ({
+// Only the guide about sources while writing guides are off (DESKTOP_FEATURES, owner 2026-10-13).
+const RESOURCES = GUIDES.filter((guide) => DESKTOP_FEATURES.writingGuides || guide.id === 'sources').map((guide) => ({
   id: guide.id,
   title: guide.title,
   blurb: guide.blurb,
@@ -312,7 +314,11 @@ export default function HomeView({
             <div className="home-section-head">
               <h2>Resources</h2>
             </div>
-            <p className="home-section-sub">Guides to help you write and grade with confidence.</p>
+            <p className="home-section-sub">
+              {DESKTOP_FEATURES.writingGuides
+                ? 'Guides to help you write and grade with confidence.'
+                : 'How to find sources you can cite.'}
+            </p>
             <div className="home-resources">
               {RESOURCES.map((item) => (
                 // Same call as "Paste a link": the four guides are named in the
@@ -347,6 +353,7 @@ export default function HomeView({
             for the panel: components/TracerChat.tsx, inside this window
             rather than a BrowserWindow of its own.
           */}
+          {DESKTOP_FEATURES.tracerChat ? (
           <div className="home-tracer">
             {/*
               The owner's own artwork, used as supplied rather than redrawn.
@@ -363,6 +370,7 @@ export default function HomeView({
               Chat with Tracer
             </button>
           </div>
+          ) : null}
           <button className="home-worklink" onClick={() => onNavigate('settings')}>
             You choose where Tracely works
             <img src={homeArrow} alt="" width={17} height={22} />
@@ -373,7 +381,7 @@ export default function HomeView({
       {finderOpen ? (
         <SourceFinderPanel style={citationStyle} onClose={() => setFinderOpen(false)} />
       ) : null}
-      {tracerOpen ? <TracerChat onClose={() => setTracerOpen(false)} /> : null}
+      {DESKTOP_FEATURES.tracerChat && tracerOpen ? <TracerChat onClose={() => setTracerOpen(false)} /> : null}
       {openGuide ? (
         <GuideReader guide={guideById(openGuide)!} onClose={() => setOpenGuide(null)} />
       ) : null}

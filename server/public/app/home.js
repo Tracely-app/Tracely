@@ -130,7 +130,7 @@ function gradingGuide(ctx) {
 
 function marksGuide(ctx) {
   const { PROBLEM_KINDS } = ctx.marks;
-  const groups = ["red", "orange", "amber", "grey"].map((color) => {
+  const groups = ["red", "orange", "blue", "amber", "grey"].map((color) => {
     const kinds = PROBLEM_KINDS.filter((p) => p.color === color);
     if (kinds.length === 0) return "";
     const items = kinds.map((p) => `<li><span class="mark-swatch" style="background:var(--mark-${color})"></span>${esc(p.label)}</li>`).join("");

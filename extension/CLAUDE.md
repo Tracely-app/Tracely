@@ -162,8 +162,9 @@ nothing drives it through the flags any more. Tests:
 `server/test/ext-fix-all.test.js`.
 
 The header counts each kind with its own icon in its finding's colour —
-factual errors (red), need evidence (orange), citation issues (amber),
-writing notes (blue) — and a count opens the first card of its kind; "All
+factual errors (red), need evidence (blue), citation issues (amber), and
+writing notes when they are on (they are off: see below) — and a count opens
+the first card of its kind; "All
 clear" only when nothing is open and the check is done. There is no "next
 check in" countdown. The panel drags by its header, stays on screen, is
 remembered per site (`tracely.widget.panelPos`), and a double-click puts it
@@ -176,6 +177,33 @@ and contrast, cause and effect, book report or blog post. It is read off
 the words, and below 40 words it shows nothing. It is display only: what is
 checked still follows `detectGenre`. Tests:
 `server/test/ext-writing-kind.test.js`.
+
+## No overreach: one sentence at a time, no writing tips
+
+Owner, 2026-10-13: "make tracely extension and app both not overpower stuff.
+Like for example right now it shouldnt replace more than one sentence at once
+which it currently does. It shouldnt help with general writing tips either, so
+please remove writing tips in general. That said, from now on needs evidence
+should be blue instead of orange."
+
+- **A fix is one sentence for one sentence.** `usableRevision` drops a
+  revision of more than one sentence (`oneSentenceFix`, counted with
+  `splitLineSentences`), for a card's fix and the "Explain in depth" fix
+  alike. A fix saved by an earlier build is held to the same rule when the
+  verdict caches load.
+- **"Let Tracely fix these" has no Accept all.** Each change is accepted on
+  its own; Reject all stays. This replaces the 2026-10-09 Accept all
+  cursor tour.
+- **No writing tips:** `FEATURES.essayFeedback`, `resumeTips` and `offTopic`
+  are false. No `/api/review` call is made, and no essay notes, resume tips,
+  off-topic lines or leftover-correction notes are shown. `detectGenre` still
+  runs on every read, since the kind of writing decides what is checked.
+  There is no "Writing note" in the legend.
+- **"Needs evidence" is blue** (`#2563eb`): its underline, icon, dot and card
+  wash. The launcher's count badge keeps the brand orange; it counts
+  findings and is none of them.
+
+Tests: `server/test/ext-no-overreach.test.js`, `ext-fix-all.test.js`.
 
 ## "Needs evidence" is searched first
 

@@ -147,9 +147,10 @@ solid and straight line." The extension's lines are all solid now (the
 still-checking line a faint solid grey), and the non-colour cue moved off the
 line: an icon in the page's left margin beside the line where each mark starts
 (`MARK_ICON`, `drawMarginIcons` — the panel header's own icons: a red ⓘ for
-wrong, an orange magnifier for worth checking, an amber quote for a citation,
-a blue pencil for a writing note (orange until 2026-10-13)), and the legend
-shows each line with its icon. Text fields have no margin: there the panel's cards and legend name the
+wrong, a blue magnifier for needs evidence (orange until 2026-10-13), an
+amber quote for a citation, and a pencil for a writing note when writing tips
+are on (they are off since 2026-10-13)), and the legend shows each line with
+its icon. Text fields have no margin: there the panel's cards and legend name the
 kind. The desktop half should take the icons, not the old line patterns.
 
 - **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`

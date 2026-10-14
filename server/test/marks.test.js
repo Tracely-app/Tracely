@@ -28,10 +28,10 @@ test("RULE: never flag a correctly cited sentence on retrieval's say-so", () => 
   assert.ok(!kinds.includes("missing-citation"));
 });
 
-test("uncited claim with zero sources → no-sources (orange)", () => {
+test("uncited claim with zero sources → no-sources (blue: needs evidence, owner 2026-10-13)", () => {
   const kinds = problemsFor(base);
   assert.ok(kinds.includes("no-sources"));
-  assert.equal(markFor(base).color, "orange");
+  assert.equal(markFor(base).color, "blue");
 });
 
 test("outside-index outranks nothing but suppresses no-sources", () => {

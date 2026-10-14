@@ -307,6 +307,7 @@ const MARK_TOKENS = {
   red: "var(--mark-red)",
   amber: "var(--mark-amber)",
   orange: "var(--mark-orange)",
+  blue: "var(--mark-blue)",
   grey: "var(--mark-grey)",
 };
 function markPaint(color) {
@@ -1036,7 +1037,7 @@ export async function render(mount, ctx) {
       const flagged = state.claims.filter((c) => {
         if (c.dismissed || c.state.status !== "checked" || c.state.critique) return false;
         const mark = marks.markFor(c.state);
-        return mark && (mark.color === "red" || mark.color === "orange" || mark.color === "amber");
+        return mark && (mark.color === "red" || mark.color === "orange" || mark.color === "blue" || mark.color === "amber");
       }).slice(0, GUARDS.maxAutoCritiqueClaims);
       for (const c of flagged) {
         if (run !== state.analysisSeq) return;

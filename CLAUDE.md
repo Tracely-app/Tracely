@@ -146,10 +146,14 @@ Store upload, the website, DNS. Details and the rules for writing a hook:
 
 One colour vocabulary, the desktop's (`src/renderer/src/components/problemCopy.ts`,
 mirrored in `server/shared/marks.js`): red `#d93636` wrong or invented;
-orange `#ff5900` thin evidence or an unverified figure; amber `#ffb800` add or
-fix the attribution; blue `#2563eb` grammar, and the extension's writing notes
-(owner, 2026-10-13); grey `#9a9ba1` still checking. Colour only ever means a
-finding; never colour alone — in the
+blue `#2563eb` needs evidence — thin, missing or an unverified figure (owner,
+2026-10-13; it was orange `#ff5900`, which is now only the brand accent);
+amber `#ffb800` add or fix the attribution; grey `#9a9ba1` still checking.
+No writing tips in either client (owner, 2026-10-13): no grammar, style,
+off-topic or essay-review notes, so no colour for them; a fix replaces one
+sentence with one sentence, accepted one at a time
+(`src/shared/desktopFeatures.ts`, the extension's `FEATURES`). Colour only
+ever means a finding; never colour alone — in the
 extension every underline is one solid line (owner, 2026-10-09) and the kind is
 an icon in the page margin beside it (`MARK_ICON`) and in one legend. The
 design file and the ratified decisions: `docs/design-file.md`.

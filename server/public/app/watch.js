@@ -181,6 +181,7 @@ const MARK_TOKENS = {
   red: "var(--mark-red)",
   amber: "var(--mark-amber)",
   orange: "var(--mark-orange)",
+  blue: "var(--mark-blue)",
   grey: "var(--mark-grey)",
 };
 function markPaint(color) {
@@ -197,15 +198,15 @@ const VERDICTS = {
   fabricated: { label: "Source not found", paint: "var(--mark-red)" },
   questionable: { label: "Questionable", paint: "var(--mark-amber)" },
   incoherent: { label: "Doesn't follow", paint: "var(--mark-orange)" },
-  unsupported: { label: "Unsupported", paint: "var(--mark-orange)" },
-  weak: { label: "Weak evidence", paint: "var(--mark-orange)" },
+  unsupported: { label: "Unsupported", paint: "var(--mark-blue)" },
+  weak: { label: "Weak evidence", paint: "var(--mark-blue)" },
   citationFix: { label: "Citation needs fixing", paint: "var(--mark-amber)" },
   no_claim: { label: "No checkable claim", paint: "var(--mark-grey)" },
   // The relay's vocabulary, used by the critique since the desktop's
   // five-pass version moved into the server. Without these three a finding
   // printed its raw verdict string on a grey chip.
   "well-supported": { label: "Well supported", paint: "var(--grade-a, #2f9e63)" },
-  "partially-supported": { label: "Partially supported", paint: "var(--mark-orange)" },
+  "partially-supported": { label: "Partially supported", paint: "var(--mark-blue)" },
   overstated: { label: "Overstated", paint: "var(--mark-amber)" },
 };
 function verdictInfo(v) {

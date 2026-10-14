@@ -84,6 +84,30 @@ something else was the product vouching for a citation it never read.
   score and `problemKind.ts`'s kinds still read retrieval relevance and the
   local NLI stance; receipts exist only for a list someone opened.
 
+## No overreach: one sentence at a time, no writing tips (2026-10-13)
+
+Owner: "make tracely extension and app both not overpower stuff … it shouldnt
+replace more than one sentence at once … remove writing tips in general …
+needs evidence should be blue instead of orange."
+
+- **"Apply revision" replaces one sentence with one sentence**
+  (`main/services/ai/oneSentence.ts`). `generateCritique` drops a revision of
+  two or more sentences, or one for a claim that spans two, both fresh and
+  cached. `claimsRepo` applies the same rule to revisions saved before this
+  change. `reconstructClaim` keeps only the first sentence index detection
+  names. There is no batch apply on the desktop.
+- **Writing help is off** (`shared/desktopFeatures.ts`, switches, not
+  deletions):
+  - grammar and style marks;
+  - off-topic marks (no `evidence.offTopic` call);
+  - Tracer chat (Home's launcher and the editor's button; it is the base of
+    #330);
+  - the writing guides (Home keeps "Finding Credible Sources").
+  The essay grade (AI Insights) stays; the owner kept it.
+- **"Needs evidence" is blue** (`DESIGN_BLUE`, `problemCopy.ts`): the five
+  evidence kinds, mirrored in `server/shared/marks.js` (`mirror-contracts`
+  checks the pair). Orange is the brand accent only.
+
 ## Nobody signs in, and the app still has an account
 
 There is no sign-in screen, no sign-up, no Google button, no name prompt, no
