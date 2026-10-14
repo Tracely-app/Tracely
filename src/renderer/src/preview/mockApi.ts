@@ -133,9 +133,17 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     return () => window.clearTimeout(id)
   }
 
-  // The anonymous session every install has. No name, no email — the same
-  // shape toAuthUser builds in the real client.
-  const authUser = (): AuthUser | null => fx.user
+  // Signed out to start: the fixture is the anonymous shape toAuthUser builds
+  // (no email). "Sign in with Google" in Settings swaps in a Google account
+  // after a beat, and every onAuthStateChanged listener hears about it — which
+  // is what lets the Billing panel's signed-in state be looked at here.
+  let previewUser: AuthUser | null = fx.user
+  const authUser = (): AuthUser | null => previewUser
+  const authListeners = new Set<(user: AuthUser | null) => void>()
+  const setPreviewUser = (next: AuthUser | null): void => {
+    previewUser = next
+    for (const cb of authListeners) cb(next)
+  }
 
   // Mutable so an evidence search visibly resolves a claim, exactly as the
   // real store would. Reset per document, like every other bit of preview
@@ -635,7 +643,18 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
       getPlan: () => ok('auth.getPlan', { plan: scenario.plan }),
       // A Pro scenario shows the Settings meter part-used.
       getThorough: () =>
-        ok('auth.getThorough', { thorough: scenario.plan === 'pro' ? { remainingPct: 64, resetsOn: '2026-10-01' } : null })
+        ok('auth.getThorough', { thorough: scenario.plan === 'pro' ? { remainingPct: 64, resetsOn: '2026-10-01' } : null }),
+      signInWithGoogle: async () => {
+        const res = await ok('auth.signInWithGoogle', { ok: true as const })
+        setPreviewUser({ id: 'u_preview_google', email: 'student@gmail.com', firstName: 'Sam', username: null })
+        return res
+      },
+      signOut: async () => {
+        const res = await ok('auth.signOut', { ok: true as const })
+        setPreviewUser(fx.user)
+        return res
+      },
+      refresh: () => ok('auth.refresh', { ok: true as const })
     },
     history: {
       clear: () => ok('history.clear', { ok: true as const })
@@ -822,6 +841,13 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
         delete w.__previewEmitHover
       }
     },
-    onAuthStateChanged: (cb) => subscribe('onAuthStateChanged', authUser(), cb)
+    onAuthStateChanged: (cb) => {
+      authListeners.add(cb)
+      const stop = subscribe('onAuthStateChanged', authUser(), cb)
+      return () => {
+        stop()
+        authListeners.delete(cb)
+      }
+    }
   }
 }

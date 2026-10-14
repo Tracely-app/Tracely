@@ -84,12 +84,14 @@ something else was the product vouching for a citation it never read.
   score and `problemKind.ts`'s kinds still read retrieval relevance and the
   local NLI stance; receipts exist only for a list someone opened.
 
-## Nobody signs in, and the app still has an account
+## Signing in is optional, and it is Google
 
-There is no sign-in screen, no sign-up, no Google button, no name prompt, no
-sign-out and no account panel. There is still a Supabase ACCOUNT, created
-without asking, because two things downstream need one and neither is a UI
-concern:
+Signed in (Settings → Billing → **Sign in with Google**; back on 2026-10-10,
+Sam's #253 rebased), every call carries that Google account's access token and
+runs on its plan — the same Supabase account, and so the same plan, as the
+Chrome extension. Signed out, the desktop is a free install that still has a
+Supabase ACCOUNT, created without asking, because two things downstream need
+one and neither is a UI concern:
 
 - **The server's quotas are keyed on an identity** (`callerId`,
   `server/lib/entitlement.js`): `user:<supabase id>`, then
@@ -131,6 +133,39 @@ an ordinary JWT. (This section was written against the relay, whose
 - **The relay's `api/delete-account.ts` now has no caller.** Left deployed
   rather than removed — an endpoint nothing calls costs nothing, and the client
   half of that decision is not ours to make from here.
+
+Signing in:
+
+- **Google, not a password.** The extension signs people in with Google only,
+  and the extension is where plans are sold, so every paying account is a
+  Google identity with no password. A password form here would mint a second,
+  planless account per customer — the opposite of one account on both surfaces.
+- **A loopback redirect, not `tracely://`.** `services/auth/googleSignIn.ts`
+  opens the user's browser and listens on `http://127.0.0.1:53117/auth/callback`
+  (RFC 8252, `services/auth/loopback.ts`); Supabase's PKCE code comes back there
+  and is exchanged in main (`flowType: 'pkce'` on the one client — the verifier
+  waits in `fileSessionStorage` between the two halves). The custom protocol
+  the first version used, and the dev/stable/preview scheme fight it caused,
+  stay deleted. **That exact URL must be on the Supabase project's Redirect
+  URLs allow list** (Authentication → URL Configuration); unlisted, Supabase
+  silently sends the browser to the Site URL and sign-in times out after five
+  minutes (the message says so). It cannot be checked from outside: the
+  authorize step accepts any `redirect_to`, and only the callback refuses one.
+  `loopback.test.ts` pins the address.
+- **Signing in replaces the anonymous session**; what the anonymous user spent
+  stays on that user. **Sign-out is `scope: 'local'`** — supabase-js signs out
+  GLOBALLY by default, which would also sign the person out of the extension
+  everywhere. After it there is no session until the next launch mints a new
+  anonymous one; calls meanwhile are metered by install id.
+- **"Refresh plan"** re-reads the account at once (`AUTH_REFRESH`); otherwise a
+  plan bought on the website reaches the session at the next token refresh.
+- The upgrade link carries `?uid=<account id>` (`upgradeUrlFor` in
+  `shared/plan.ts`), which jointracely.com/order forwards to Stripe as
+  client_reference_id — the same contract as the extension's `orderUrl()`.
+- Still gone: email/password, name and username prompts, delete-account.
+  `AUTH_SIGN_IN_WITH_GOOGLE` and `AUTH_SIGN_OUT` are registered again; the
+  other `AUTH_*` channels and `shared/oauthScheme.ts` still have nothing
+  behind them (additive rule).
 
 The section this replaced described the `tracely://` scheme fight between dev,
 stable and preview builds over Google's OAuth callback. All of it — the scheme,
