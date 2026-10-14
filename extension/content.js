@@ -8546,7 +8546,14 @@
        that list is the preview (editGate.approved). */
     const TP_GLIDE_MS = 350, TP_CLICK_MS = 300, TP_STRIKE_MS = 200, TP_FADE_MS = 120, TP_CHAR_MS = 30, TP_TYPE_MAX_MS = 1200;
     const TP_FLOW_MAX_LINES = 15;
-    const TP_WASH = "rgba(28,28,28,0.07)"; // ink at 7%: the struck and the inserted words alike, never a hue
+    const TP_WASH = "rgba(28,28,28,0.07)"; // ink at 7%, under the struck words
+    /* What Tracely writes, highlighted until it is accepted. Owner, 2026-10-13:
+       "please highlight what tracely writes before I accept" — the ink wash it
+       shared with the struck words was too faint to see. Tracely's own orange
+       (the brand accent, #f97316), not a finding's colour: it says who wrote
+       these words, not what is wrong with them. "Let Tracely fix these" uses
+       the same (FIX_INSERT). */
+    const TP_INSERT = "rgba(249,115,22,0.24)";
     const TP_RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
     const TP_COPY = {
       typing: "Typing a preview — click it to skip", ready: "Only you can see this until you accept",
@@ -8957,7 +8964,7 @@
         ? { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
         : { fontSize: "15px", lineHeight: "1.45", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: family ? `${family}, ${APP.font}` : "inherit" });
       text.setAttribute("aria-hidden", "true"); // read whole from the description, not letter by letter
-      const typed = el("span", { color: DM.ink });
+      const typed = el("span", { color: DM.ink, background: TP_INSERT, borderRadius: "2px" }); // what Tracely writes, highlighted
       typed.setAttribute("data-tracely-type-typed", "");
       const typingCaret = el("span", { display: "inline-block", width: "2px", height: "1.1em", marginLeft: "1px", verticalAlign: "text-bottom", background: DM.ink, borderRadius: "1px" });
       const struck = (s) => el("span", { textDecoration: "line-through", textDecorationThickness: "2px", color: DM.body, background: TP_WASH, borderRadius: "2px" }, s);
@@ -9147,7 +9154,7 @@
         ctx.textBaseline = "alphabetic";
         for (const l of flow) {
           for (const s of l.spans) {
-            if (s.ins) { ctx.fillStyle = TP_WASH; ctx.fillRect(s.x, l.top, measure(s.text.replace(/\s+$/, "")), para.h); }
+            if (s.ins) { ctx.fillStyle = TP_INSERT; ctx.fillRect(s.x, l.top, measure(s.text.replace(/\s+$/, "")), para.h); }
             ctx.fillStyle = s.ins ? DM.ink : "#000";
             ctx.fillText(s.text, s.x, l.top + para.base);
           }
@@ -9850,8 +9857,10 @@
        (owner, 2026-10-13: "it shouldnt replace more than one sentence at
        once"). A change the page can't show in place — the Works Cited
        list, a sentence Docs isn't drawing whole — keeps its card in the margin
-       (fixCardEl). Ink only: colour is for findings. */
+       (fixCardEl). Ink, but for the words Tracely writes: those are highlighted
+       in its own orange until accepted (FIX_INSERT; owner, 2026-10-13). */
     const FIX_WASH = "rgba(28,28,28,0.07)", FIX_STRIKE = "rgba(28,28,28,0.78)";
+    const FIX_INSERT = "rgba(249,115,22,0.24)"; // what Tracely writes, highlighted until accepted: the Type preview's TP_INSERT
     let fixMarksEl = null, fixMarksRaf = 0;
     const fixMarks = new Map(); // item key → { key, i, geo, strikes, chip, words, accept, text, typed, sig }
     // Where a change is on the page now — its struck pieces and where its new words go — or null.
@@ -9928,7 +9937,7 @@
       m.words = null;
       m.accept = null;
       if (it.status === "ready") {
-        m.words = el("span", { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: "600", background: FIX_WASH, borderRadius: "3px", padding: "1px 4px" }, m.text.slice(0, m.typed));
+        m.words = el("span", { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: "600", background: m.geo.inserted ? FIX_INSERT : FIX_WASH, borderRadius: "3px", padding: "1px 4px" }, m.text.slice(0, m.typed));
         m.words.setAttribute("title", m.geo.inserted || m.geo.removed);
         const busy = docBusy || Boolean(fixBatch?.applying);
         const yes = dmBtn("✓ Accept", true, { disabled: busy });

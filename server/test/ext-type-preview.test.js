@@ -645,7 +645,9 @@ test("inline: the new words are typed IN the line, in the document's font, and t
   const white = d.filter((x) => x.op === "rect" && x.fill === "#fff");
   for (const top of [130, 160, 190]) assert.ok(white.some((r) => r.y <= top && r.y + r.h >= top + 18), `masked at ${top}`);
   assert.ok(white.some((r) => r.y <= 208 && r.y + r.h >= 238 && r.x <= 100), "the overflow line's own white band");
-  assert.ok(d.some((x) => x.op === "rect" && x.fill === "rgba(28,28,28,0.07)" && x.x === startX), "the inserted words carry the ink wash, never a hue");
+  // Owner, 2026-10-13: "please highlight what tracely writes before I accept" — Tracely's orange, not the faint ink wash.
+  assert.ok(d.some((x) => x.op === "rect" && x.fill === "rgba(249,115,22,0.24)" && x.x === startX), "the inserted words are highlighted");
+  assert.ok(!d.some((x) => x.op === "rect" && x.fill === "rgba(28,28,28,0.07)" && x.x === startX), "not the struck words' ink wash");
   // The text caret at the end of what was typed; the cursor parked beside where it began.
   assert.deepEqual(at(t.byAttr("data-tracely-type-caret")), [startX + 17 * CHAR_W, 130]);
   // Past the paragraph, the overflow line is a sheet lifted over the page: opaque, a shadow under it,

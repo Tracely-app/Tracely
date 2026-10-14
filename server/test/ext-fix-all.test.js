@@ -368,6 +368,7 @@ test("Tracely's cursor makes each change in its place — struck, typed — with
   assert.equal(fix.strikes.length, 1);
   assert.deepEqual([fix.strikes[0].style.left, fix.strikes[0].style.width, fix.strikes[0].style.visibility], ["200px", "200px", "visible"], "struck where the words are");
   assert.equal(fix.words._text, "used paper money");
+  assert.equal(fix.words.style.background, "rgba(249,115,22,0.24)", "what Tracely writes is highlighted until accepted (owner, 2026-10-13)");
   assert.deepEqual(plain(allNodes(fix.chip).filter((n) => n.tagName === "button").map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
   assert.equal(fix.chip.style.top, "122px", "right under the change (its line's bottom, 118, + 4)");
   // The citation only adds words: nothing struck, the marker typed in its chip.
