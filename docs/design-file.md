@@ -29,6 +29,7 @@ Read it with the Figma MCP (`get_metadata` on `0:1` to list frames, then
 | `Find a Source (Searching / Results)`, `Add Citation (Choose Source / Inserted)` | `CitationFlowCard` |
 | `Collapsed Launcher` | the 56px circle and its 31px count badge |
 | `Inline Detection (Resting State)` | the underline marks with nothing hovered |
+| `Overlay Mockup - Widget (Clean)` (`627:165`), components on `Widget (clean) / Components` (`626:147`) | the extension's panel since 2.21.54 (owner, 2026-10-14: "more clean … not … wordy"): the solid mark, filter tabs, one open card, the fix-all footer (`extension/CLAUDE.md`, "The panel") |
 
 **Three underline colours, not thirteen.** `#ff5900` for an unverified figure,
 `#ffb800` for a missing citation, `#d93636` for weak reasoning — read off the

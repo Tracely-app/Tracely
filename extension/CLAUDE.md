@@ -144,6 +144,40 @@ citation notes too. A citation that is only a surname after a reported claim
 ("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
 author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
 
+Since 2.21.54 (owner, 2026-10-14: "remake this extension widget overlay but
+more clean. Right now too cluttered, confusing, not well structured, wordy
+… include the tracely logo somewhere but make it a solid color") the panel
+follows the Figma frame **Overlay Mockup - Widget (Clean)** (Real Tracely
+UI, node `627:165`; its components are on the board beside it, `626:147`).
+From top to bottom:
+- **The header:** the Tracely mark in solid brand orange
+  (`MARK_SOLID_SVG`, traced from the store icon and inlined, so no page
+  policy can refuse it), the name, and the kind-of-writing chip. What that
+  kind means for citations is the chip's hover (`genreNote`). Then Turn off
+  (a power icon; in a field it is "Turn off on this site"), Settings and
+  Close.
+- **One row of tabs** is the count, the filter and the legend at once
+  (`panelHeadHtml`): All, then Errors, Evidence and Citations. Each has
+  its kind's icon in its line's colour (`kindIcoHtml`, `.k-*` from
+  `MARK_COLORS`) and its count, and the long words ("4 factual errors") are
+  its title. A tab leaves only its kind's cards (`panelFilter`, in
+  `foldCards`), with its first card open. All, or the same tab again,
+  shows every kind. There is no legend row and no "Claims (N)" heading: the
+  groups are named for screen readers only.
+- **The list:** the open card shows its kind, the sentence (two lines),
+  why, the suggested fix, then Apply fix · Find a source · a copy icon (Copy
+  fix where Docs can't be edited). "Or paste a URL" appears only once a
+  search has run for that sentence. Folded cards are one row each: a
+  tinted icon tile, the title, one line of the sentence and a chevron.
+  `decorateCard`'s buttons go before the copy icon. The "Reading this as …"
+  line stays only for a kind Tracely is quiet on, where it explains the
+  empty panel.
+- **The footer** is drawn only when it offers something: "N fixes to
+  review" · Review all (`walkOfferHtml`, the old "Let Tracely fix these"
+  strip), or a site's "Turn on for this site".
+
+Buttons are 8px rounded rectangles and the panel is 440px wide.
+
 ## A named source is a citation issue; an unnamed one needs evidence
 
 Owner, 2026-10-14, on the flawed AI paper: "According to a 2023 study
@@ -220,8 +254,8 @@ nothing drives it through the flags any more. Tests:
 
 The header counts each kind with its own icon in its finding's colour —
 factual errors (red), need evidence (blue), citation issues (amber), and
-writing notes when they are on (they are off: see below) — and a count opens
-the first card of its kind; "All
+writing notes when they are on (they are off: see below) — as tabs that
+filter the list since 2.21.54 (above, "The panel"); "All
 clear" only when nothing is open and the check is done. There is no "next
 check in" countdown. The panel drags by its header, stays on screen, is
 remembered per site (`tracely.widget.panelPos`), and a double-click puts it
@@ -356,8 +390,8 @@ and never colour alone. Since 2.21.34 every line is one solid line (owner,
 2026-10-09: "make them all solid and straight line"); the kind is an icon in
 the page's left margin beside the line where each mark starts (`MARK_ICON`,
 `drawMarginIcons`: one a line, the most serious; drawn in Docs' SVG so it
-scrolls and zooms with the text) and in the legend. Colour only ever means a
-finding. Tests: `server/test/ext-mark-patterns.test.js`.
+scrolls and zooms with the text) and in the panel's header tabs, which are
+its legend since 2.21.54. Colour only ever means a finding. Tests: `server/test/ext-mark-patterns.test.js`.
 
 ## The hover card, and fix-all's suggestions in the doc
 
