@@ -455,7 +455,10 @@ account's own: Upgrade or the subscription). Google Docs is the desktop's
 switch row; deleting the account is a danger row under Privacy, signed in
 only. The sidebar's brand is the Tracely mark (`icons/mark.png`: the
 desktop's `figma-logo.png` cut to 96px, the logo the launcher draws), not
-the paper plane (owner, 2026-10-13). The widget's header has a gear (`panelSettings` → `openSettings` →
+the paper plane (owner, 2026-10-13). So are the toolbar icons
+(`icon16/48/128.png`, owner, 2026-10-14): orange on transparent, 128 with
+Chrome's 16px of padding (`server/test/ext-icons.test.js` reads their
+pixels). The widget's header has a gear (`panelSettings` → `openSettings` →
 background.js `tracely-openSettings`): the worker opens Settings with
 `openOptionsPage`, which brings an open Settings tab forward, and a section,
 when one is named, travels through storage (`settingsOpenAt`, honoured for a
