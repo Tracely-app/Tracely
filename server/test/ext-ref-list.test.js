@@ -99,7 +99,8 @@ World Bank. Migration and Development Brief 40. 2024.`;
 test("numbered and footnoted work: only duplicates are checked", () => {
   const ieee = "Solar costs fell sharply [1]. Storage followed [2].\n\nReferences\n1. A. Smith, Solar, 2020.\n2. B. Jones, Storage, 2021.\n3. C. Lee, Unused, 2019.";
   assert.deepEqual(issues(ieee), [], "a [n] list: the number is the link, and it is not traced");
-  assert.deepEqual(issues(ieee.replace("3. C. Lee, Unused, 2019.", "1. A. Smith, Solar, 2020.")), ["refdup: 1. A. Smith, Solar, 2020."], "a duplicate is still a duplicate");
+  // Quoted without its list number, as a Docs list shows it (ext-reference-list-markers.test.js).
+  assert.deepEqual(issues(ieee.replace("3. C. Lee, Unused, 2019.", "1. A. Smith, Solar, 2020.")), ["refdup: A. Smith, Solar, 2020."], "a duplicate is still a duplicate");
   const notes = essay("05-chicago-notes.txt") + "\n\nBibliography\nEisenstein, Elizabeth. The Printing Press as an Agent of Change. 1979.\nJohns, Adrian. The Nature of the Book. 1998.\nUnread, Somebody. Never Cited. 2001.";
   assert.deepEqual(issues(notes), [], "footnote markers: not traced");
 });

@@ -765,15 +765,34 @@
     const k = refSortKey(line);
     return entries.find((e) => refSortKey(e) > k) ?? null;
   }
+  /* A list's marker is not part of its entry. When the References are a list,
+     the text arrives with each item's marker ("* National Education
+     Association. (2024). …", "1. Johnson, R. (2023). …"), which is not text
+     on the page; which glyph Google Docs' export uses was not checked against
+     a real export, so every common one is taken off. Owner, 2026-10-14: the
+     NEA entry read "Not cited in your text" though the paper cites
+     "(NEA, 2024)" (reproduced only with a marker on the entries), and its
+     underline, searched for with a marker the page does not have, fell on the
+     paper's title instead (svgLocate). `numbered` counts the entries that carried
+     a number, for referenceListIssues: a numbered list cited (1) or [1] is
+     not traced by name. A "[1]" is kept: it is how IEEE cites. MLA's "---."
+     for the same author again is not a marker (no space after the first dash). */
+  const LIST_MARK = /^(?:[*•●○◦▪■□▫·‣⁃–—-]|\(?\d{1,3}[.)])\s+/u;
   function worksCitedBlock(text) {
-    const re = /(?:^|\n)[ \t]*(works cited|references|bibliography)[ \t]*:?[ \t]*(?=\n|$)/gi;
+    // A page break or a non-breaking space beside the heading is still the heading.
+    const re = /(?:^|\n)[^\S\n]*(works cited|references|bibliography)[^\S\n]*:?[^\S\n]*(?=\n|$)/gi;
     let m, last = null;
     while ((m = re.exec(text))) last = m;
     if (!last) return null;
     const headStart = last.index + (last[0].startsWith("\n") ? 1 : 0);
     const bodyStart = last.index + last[0].length;
-    const entries = text.slice(bodyStart).split("\n").map((l) => l.trim()).filter(Boolean);
-    return { heading: last[1], headStart, end: text.length, entries };
+    let numbered = 0;
+    const entries = text.slice(bodyStart).split("\n").map((l) => {
+      const line = l.trim(), mark = line.match(LIST_MARK);
+      if (mark && /\d/.test(mark[0])) numbered++;
+      return mark ? line.slice(mark[0].length).trim() : line;
+    }).filter(Boolean);
+    return { heading: last[1], headStart, end: text.length, entries, numbered };
   }
 
   // ── source credibility ──
@@ -2214,9 +2233,13 @@
       if (/\b(?:website|site|article|page|book|study|video|document) (?:about|on|regarding)\b/i.test(entry)) missing.push("the source's actual title");
       if (missing.length) out.push({ quote: entry, kind: "refincomplete", missing });
     }
-    const numbered = /\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹]/.test(body) || refs.entries.filter((e) => /^\[?\d+[.)\]]/.test(e)).length >= refs.entries.length / 2;
-    if (numbered) return out;
+    // Numbered work is cited by its number, which this does not trace. A list
+    // Docs numbered for layout, under a paper that cites (Author, year), is
+    // not: its entries are checked like any others.
     const cites = inTextCitations(body);
+    const numberedList = (refs.numbered ?? 0) >= refs.entries.length / 2 && !cites.length;
+    const numbered = /\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹]/.test(body) || numberedList || refs.entries.filter((e) => /^\[?\d+[.)\]]/.test(e)).length >= refs.entries.length / 2;
+    if (numbered) return out;
     const flagged = new Set(out.map((o) => o.quote));
     for (const entry of refs.entries) {
       if (flagged.has(entry)) continue; // a duplicate's note already says what to do
@@ -4795,10 +4818,26 @@
             if (r && (line.joined.indexOf(S) >= 0 || r[1] === line.joined.length && r[0] > 0 || r[0] === 0 && S.startsWith(line.joined.slice(0, r[1])))) fromTop = Math.max(fromTop, line.top);
           }
         }
-        for (const line of lines) {
-          if (line.top < fromTop - 1) continue;
+        /* A line that sits wholly INSIDE the text counts only beside the rest
+           of it, on the line above or below. Owner, 2026-10-14: a title
+           wrapped as "The Impact of Artificial Intelligence on" is inside the
+           entry "… (2024). The impact of artificial intelligence on academic
+           integrity …", so the title was underlined as that entry, "Not cited
+           in your text". A line holding the text's start or its end is tied to
+           it, and stays (the text's other end may be scrolled out). */
+        const parts = [];
+        ordered.forEach((line, i) => {
+          if (line.top < fromTop - 1) return;
           const range = svgOverlapRange(line.joined, S);
-          if (!range) continue;
+          if (!range) return;
+          const piece = line.joined.slice(range[0], range[1]);
+          const whole = range[0] === 0 && range[1] === line.joined.length;
+          const sAt = piece === S || range[0] > 0 ? 0 : whole && S.includes(piece) ? S.indexOf(piece) : S.length - piece.length;
+          parts.push({ i, line, range, sAt, sEnd: sAt + piece.length, inside: whole && sAt > 0 && sAt + piece.length < S.length });
+        });
+        const partAt = new Map(parts.map((p) => [p.i, p]));
+        for (const { i, line, range, sAt, sEnd, inside } of parts) {
+          if (inside && partAt.get(i - 1)?.sEnd !== sAt && partAt.get(i + 1)?.sAt !== sEnd) continue;
           for (const [s, e, run] of line.spans) {
             if (e <= range[0] || s >= range[1]) continue;
             let f0 = 0, f1 = 1;

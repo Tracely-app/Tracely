@@ -144,6 +144,30 @@ citation notes too. A citation that is only a surname after a reported claim
 ("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
 author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
 
+## A reference list made as a list
+
+Owner, 2026-10-14: Tracely flagged the National Education Association
+entry as "Not cited in your text" though the paper cites "(NEA, 2024)", and
+also underlined the paper's title. The plain text of that paper was already
+right, so the difference was in the document. With the References as a
+list, each entry arrives with its marker ("* …", "1. …"), which the page
+does not show:
+- **The entry no longer matched its citation.** `worksCitedBlock` now takes
+  the marker off every entry (`LIST_MARK`: bullets, dashes, "1." "1)" "(1)").
+  A list numbered for layout, under a paper that cites (Author, year), is
+  checked like any other. A list cited by number, (1) or [1], is not traced
+  by name. "[1]" and MLA's "---." are kept as they are. A page break or a
+  no-break space beside the heading no longer hides the list.
+- **The underline fell on the title.** The quote, with its marker, was not
+  on the page. `svgLocate` then matched line by line, and the title's first
+  line sits inside the entry's own title. A line wholly inside a quote now
+  counts only beside the rest of it, on the line above or below.
+
+Which glyph Google Docs' text export uses for a bullet was not checked
+against a real export, so every common one is taken off. Across 240
+documents in the repo (16 with a reference list), no flags changed. Tests:
+`server/test/ext-reference-list-markers.test.js`.
+
 ## Let Tracely fix these, and the panel's header
 
 Since 2.21.33 (owner, 2026-10-08: "it waits a while when it clicks find
