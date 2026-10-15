@@ -188,7 +188,7 @@ function load({ nolist = false, inline = [] } = {}) {
       reseg();
     }
     ${sliceBetween(SRC, '    /* ── "Let Tracely fix these": everything prepared', "    if (FEATURES.typePreview) {")}
-    ({ prepareFixes, stopFixes, closeFixes, acceptFix, skipFix, rejectAllFixes, cycle, walkStripHtml, fixPingHtml, placeFixCards, runDocEdit,
+    ({ prepareFixes, stopFixes, closeFixes, acceptFix, skipFix, rejectAllFixes, cycle, walkStripHtml, walkOfferHtml, fixPingHtml, placeFixCards, runDocEdit,
        batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
        cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null,
        marks: () => fixMarks, placeFixMarks })`, ctx);
@@ -200,8 +200,11 @@ const statuses = (X) => plain(X.batch().items).map((it) => `${it.key}:${it.statu
 
 test("one press prepares every change: searches at once, nothing reaches the doc, no preview — then they wait for the writer", async () => {
   const { X, log } = load();
-  assert.match(X.walkStripHtml(), /Tracely can prepare 6 of these fixes at once — then you choose what goes in.*data-walk-go="1">Let Tracely fix these</s);
+  // The offer is the panel's footer since 2026-10-14 (the clean frame); the list carries only a batch.
+  assert.match(X.walkOfferHtml(), /^<span class="foot-ready"><b>6<\/b> fixes to review<\/span><button class="act primary" data-walk-go="1" title="Tracely prepares every fix at once, then you accept or reject each one">Review all<\/button>$/);
+  assert.equal(X.walkStripHtml(), "");
   X.prepareFixes();
+  assert.equal(X.walkOfferHtml(), "", "no second offer while a batch is out");
   assert.equal(X.expanded(), false, "the panel gets out of the way");
   assert.match(X.walkStripHtml(), /Preparing 6 fixes · 0 ready/, "(and lists the same changes when it is opened)");
   await drain(() => !X.batch().preparing);
@@ -334,7 +337,7 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
 test("a missing Works Cited is one of the suggestions: looked up while the rest prepare, added at the end on Accept", async () => {
   // Owner, 2026-10-09: "when it needs to its still not automatically inserting works cited".
   const { X, log } = load({ nolist: true });
-  assert.match(X.walkStripHtml(), /Tracely can prepare 7 of these fixes at once/);
+  assert.match(X.walkOfferHtml(), /<b>7<\/b> fixes to review/);
   X.prepareFixes();
   await drain(() => !X.batch().preparing);
   assert.equal(log.lookups, 1, "the cited works are looked up once");

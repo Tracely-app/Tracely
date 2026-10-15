@@ -31,8 +31,8 @@ const X = vm.runInContext(`const CHECK_INTERVAL_MS = 10000; const FEATURES = { c
   ${sliceBetween(SRC, "  const MARK_COLORS =", "\n")}
   ${sliceBetween(SRC, "  const ISSUE_VERDICTS =", "  /* Card titles")}
   ${sliceBetween(SRC, "  // Bibliography block", "  function wireChrome(")}
-  ({ citationTips, tipCitedTarget, citedLookupPlan, segmentText, panelHeadHtml, tallyOf, tipsSectionHtml, citationTipsHtml, cardListHtml, groupHtml, foldCards,
-     focus: () => focusCard, setFocus: (k) => { focusCard = k; } })`, vm.createContext({}));
+  ({ citationTips, tipCitedTarget, citedLookupPlan, segmentText, panelHeadHtml, tallyOf, tipsSectionHtml, citationTipsHtml, cardListHtml, groupHtml, foldCards, kindIcoHtml,
+     focus: () => focusCard, setFocus: (k) => { focusCard = k; }, filter: () => panelFilter, setFilter: (k) => { panelFilter = k; } })`, vm.createContext({}));
 
 const SENT = "Some researchers have argued that literacy expanded in parts of the empire, but the extent remains uncertain (Shiraishi).";
 const DOC = ESSAY.replace(/Some researchers have argued that literacy expanded[^.]*\./, SENT);
@@ -69,36 +69,53 @@ test("the excuse card's text names no button the card may not show", () => {
   assert.ok(!/Find the cited work|Find a source/.test(tip.message));
 });
 
-/* The header, since 2.21.33 (owner, 2026-10-08: "it says how many of each
+/* The header. Since 2.21.33 (owner, 2026-10-08: "it says how many of each
  * thing is wrong … 2 wrong citations with a little icon next to it, and 4
- * wrong factual pieces with another little red icon"): one count per kind,
- * each with its own icon in its finding's colour, and the words. */
-test("the header counts what is wrong, kind by kind, each with its icon — never 'all clear' over open notes", () => {
-  const chips = (h) => [...h.matchAll(/<button class="chip" data-jump="(\w+)"[^>]*><span class="chip-ico" style="color:([^"]+)"[^>]*><svg[\s\S]*?<\/svg><\/span>([^<]*)<\/button>/g)].map((m) => `${m[1]}|${m[2]}|${m[3]}`);
+ * wrong factual pieces with another little red icon") one count per kind,
+ * each with its own icon in its finding's colour. Since 2026-10-14 (owner:
+ * the panel was "too cluttered, confusing, not well structured, wordy";
+ * the Figma frame "Overlay Mockup - Widget (Clean)") the counts are one row
+ * of tabs — the count, the filter and the legend at once — with the long
+ * words as each tab's title, and the mark beside the name in one solid colour. */
+const tabsOf = (h) => [...h.matchAll(/<button class="tab( on)?" data-filter="(\w+)" aria-pressed="(true|false)" title="([^"]*)">(?:<span class="kico k-(\w+)" aria-hidden="true"><svg[\s\S]*?<\/svg><\/span>)?<span>([^<]*)<\/span><span class="tab-n">(\d+)<\/span><\/button>/g)]
+  .map((m) => `${m[2]}|${m[6]} ${m[7]}|${m[5] ?? ""}|${m[4]}${m[1] ? "|on" : ""}`);
+test("the header: the mark, then one row of tabs that counts each kind with its icon — never 'all clear' over open notes", () => {
   const status = (h) => h.match(/<span class="status[^"]*">([^<]*)</)[1];
   const c = plain(X.tallyOf(["false", "incoherent", "false", "false", "questionable", "needs_citation"],
     [{ kind: "vague" }, { kind: "uncited" }, { kind: "refdup" }, { kind: "evidence" }, { kind: "offtopic" }, { kind: "bullet" }]));
   // Owner, 2026-10-14: a source nobody could find needs evidence; a named one not cited is a citation issue.
   assert.deepEqual(c, { wrong: 4, check: 2, cite: 3, writing: 3 }, "an unnamed source needs evidence; a missing citation counts with the citation notes; stray lines and resume tips are writing");
+  X.setFilter(null);
   const h = X.panelHeadHtml(c, "6 issues found", false);
-  assert.deepEqual(chips(h), [
-    "wrong|#d93636|4 factual errors", "check|#2563eb|2 need evidence", "cite|#ffb800|3 citation issues", "writing|#2563eb|3 writing notes",
-  ], "the owner's '4 wrong factual pieces' with a red icon, '2 wrong citations' with its own");
+  assert.deepEqual(tabsOf(h), [
+    "all|All 12||Show every finding|on",
+    "wrong|Errors 4|wrong|4 factual errors", "check|Evidence 2|check|2 need evidence", "cite|Citations 3|cite|3 citation issues", "writing|Writing 3|writing|3 writing notes",
+  ], "the owner's '4 wrong factual pieces' with a red icon, '2 wrong citations' with its own — the long words on hover");
+  assert.match(h, /^<div class="head" id="dragHead"[^>]*>\s*<svg class="head-mark" viewBox="0 0 399\.44 405\.46" aria-hidden="true"><path fill="currentColor" d="M399/, "the mark first, in one colour");
+  assert.match(h, /<button class="hbtn" id="panelSettings"[\s\S]*<button class="hbtn close" id="panelClose" title="Close" aria-label="Close"><svg/);
   assert.equal(status(h), "", "never '6 issues found' beside the counts");
-  assert.deepEqual(chips(X.panelHeadHtml({ cite: 2 }, "all clear", false)), ["cite|#ffb800|2 citation issues"], "the owner's screenshot: two citation notes, no 'all clear'");
+  assert.deepEqual(tabsOf(X.panelHeadHtml({ cite: 2 }, "all clear", false)), ["all|All 2||Show every finding|on", "cite|Citations 2|cite|2 citation issues"], "the owner's screenshot: two citation notes, no 'all clear'");
   assert.ok(!/All clear/.test(X.panelHeadHtml({ cite: 2 }, "all clear", false)));
-  assert.deepEqual(chips(X.panelHeadHtml({ wrong: 1 }, "1 issue found", false)), ["wrong|#d93636|1 factual error"]);
-  assert.match(X.panelHeadHtml({}, "all clear", false), /class="chip chip-clear">[\s\S]*All clear<\/span>/, "nothing open, check done");
-  assert.ok(!/All clear/.test(X.panelHeadHtml({}, "checking 3…", false)), "not before the check says so");
+  assert.match(X.panelHeadHtml({}, "all clear", false), /<span class="tabs-clear">[\s\S]*All clear<\/span>/, "nothing open, check done");
+  assert.ok(!/All clear|class="tabs"/.test(X.panelHeadHtml({}, "checking 3…", false)), "not before the check says so, and no empty row of tabs");
   assert.equal(status(X.panelHeadHtml({}, "checking 3…", false)), "checking 3…");
   assert.equal(status(X.panelHeadHtml({ wrong: 2 }, "Could not reach Tracely", true)), "Could not reach Tracely", "an error always shows");
-  // Both panels count what their list shows, and a chip opens the first card of its kind.
+  // The chosen tab is pressed; a kind with nothing left falls back to All.
+  X.setFilter("cite");
+  assert.deepEqual(tabsOf(X.panelHeadHtml(c, "", false)).filter((t) => t.endsWith("|on")), ["cite|Citations 3|cite|3 citation issues|on"]);
+  assert.deepEqual(tabsOf(X.panelHeadHtml({ wrong: 1 }, "", false)).filter((t) => t.endsWith("|on")), ["all|All 1||Show every finding|on"]);
+  X.setFilter(null);
+  // The chip's hover says what the kind of writing means; the mode's off switch sits before Settings.
+  const withOpts = X.panelHeadHtml({}, "", false, "Research paper", { note: "Reading this as a research paper — every finding needs an in-text citation", power: "<button id=\"turnOff\"></button>" });
+  assert.match(withOpts, /<span class="kind" title="Reading this as a research paper — every finding needs an in-text citation">Research paper<\/span>/);
+  assert.match(withOpts, /<button id="turnOff"><\/button>\s*<button class="hbtn" id="panelSettings"/);
+  // Both panels count what their list shows; a tab filters it.
   assert.equal((SRC.match(/const tally = tallyOf\(issues\.map\(\(\{ f \}\) => f\.verdict\), \[\.\.\.citeTips, \.\.\.refTips, \.\.\.essayNotes, \.\.\.offTopic, \.\.\.resumeList\]\);/g) || []).length, 2);
-  // The fourth argument is the kind of writing (ext-writing-kind.test.js).
-  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, (?:docText|fieldText)\)\)\}/g) || []).length, 2);
+  // The fourth argument is the kind of writing (ext-writing-kind.test.js), the fifth its note and the off switch.
+  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, (docText|fieldText)\), \{ note: genreNote\(docGenre, \1, settings\.citationStyle\), power(?:: enabled \? siteSwitch : "")? \}\)\}/g) || []).length, 2);
   assert.equal((SRC.match(/<div class="card" data-card="\$\{seg\.hash\}" data-cat="\$\{verdictCat\(f\.verdict\)\}">/g) || []).length, 2);
   assert.match(SRC, /<div class="card tip-card" data-card="\$\{t\.id\}" data-cat="\$\{tipCat\(t\)\}">/);
-  assert.match(SRC, /const card = shadow\.querySelector\(`\.list \.card\[data-cat="\$\{chip\.dataset\.jump\}"\]`\);/);
+  assert.match(SRC, /for \(const tab of shadow\.querySelectorAll\("\[data-filter\]"\)\) \{\n\s+tab\.addEventListener\("click", \(\) => \{\n\s+const k = tab\.dataset\.filter;\n\s+panelFilter = k === "all" \|\| k === panelFilter \? null : k;/, "All, or the chosen tab again, shows every kind");
 });
 
 test("no countdown in the panel; the header is the handle that moves it", () => {
@@ -114,33 +131,36 @@ test("no countdown in the panel; the header is the handle that moves it", () => 
 });
 
 test("one list, most serious first: Claims, Citations, Writing feedback, then evidence", () => {
-  assert.equal(X.groupHtml("Claims", 2, "<i></i>"), `<div class="tips"><div class="tips-head">Claims (2)</div><i></i></div>`);
+  // The groups' names are for a screen reader since 2026-10-14: the tabs name the kinds.
+  assert.equal(X.groupHtml("Claims", 2, "<i></i>"), `<div class="tips" role="group" aria-label="Claims (2)"><i></i></div>`);
   assert.equal(X.cardListHtml([{ hash: "a", html: "<a>" }, { hash: "b", html: "<b>" }]), "<a><b>", "every card; foldCards keeps one open");
   assert.equal((SRC.match(/const claimsHtml = cardsHtml \? groupHtml\("Claims", cards\.length, cardsHtml\) : "";/g) || []).length, 2);
-  assert.equal((SRC.match(/\$\{genreHtml\}\$\{claimsHtml\}\$\{tipsHtml\}/g) || []).length, 2, "claims above the notes, in both panels");
+  assert.equal((SRC.match(/\$\{GENRE_QUIET\.has\(docGenre\) \? genreHtml : ""\}\$\{claimsHtml\}\$\{tipsHtml\}/g) || []).length, 2, "claims above the notes, in both panels; the kind of writing's line only where it explains an empty panel");
   assert.equal((SRC.match(/\$\{claimsHtml\}/g) || []).length, 2, "and once each: the empty note only asks whether there is any");
   assert.equal((SRC.match(/\$\{claimsHtml \|\| (?:flowCards \|\| )?tipsHtml (?:\|\| GENRE_QUIET\.has\(docGenre\) )?\? "" : `<div class="empty">/g) || []).length, 2);
   assert.ok(!/showAllCards|id="showAll"/.test(SRC), "the one-card view and its Show all are gone: the fold replaces them");
-  // A note's dot is its underline's colour; a note with no underline has none.
+  // A note's icon is its underline's kind and colour; a note with no underline has none.
   const html = X.tipsSectionHtml("T", [
     { id: "tip:1", kind: "nameonly", quote: "q", message: "m", suggestion: "" },
     { id: "tip:2", kind: "evidence", quote: "q", message: "m", suggestion: "" },
     { id: "tip:3", kind: "offtopic", quote: "q", message: "m", suggestion: "" },
   ], "", null);
-  assert.deepEqual(html.match(/class="dot [^"]*"/g), ['class="dot d-cite"', 'class="dot d-note"'], "a writing note's dot is blue (owner, 2026-10-13)");
+  assert.deepEqual(html.match(/class="kico [^"]*"/g), ['class="kico k-cite"', 'class="kico k-writing"'], "a writing note's icon is the writing one (blue, owner, 2026-10-13)");
+  assert.equal(X.kindIcoHtml("nope"), "", "no icon for a kind the header doesn't count");
 });
 
 /* foldCards against the smallest DOM it reads. */
-function fakeCard(key) {
+function fakeCard(key, cat = "wrong") {
   const handlers = {};
   const attrs = {};
   const cls = new Set(["card"]);
   return {
-    dataset: { card: key }, handlers, attrs, tabIndex: -1,
+    dataset: { card: key, cat }, handlers, attrs, tabIndex: -1,
     classList: { add: (c) => cls.add(c), has: (c) => cls.has(c) },
     setAttribute: (k, v) => { attrs[k] = v; },
     addEventListener: (t, f) => { handlers[t] = f; },
     shut: () => cls.has("shut"),
+    out: () => cls.has("out"),
   };
 }
 const fakeShadow = (cards) => ({ querySelectorAll: (sel) => { assert.equal(sel, ".list .card[data-card]:not(.ev-card)"); return cards; } });
@@ -179,6 +199,23 @@ test("one card open at a time: the clicked one, else the first — kept open whi
   cards = [fakeCard("solo")];
   X.foldCards(fakeShadow(cards), rerender);
   assert.equal(cards[0].shut(), false);
+});
+
+test("a tab leaves its kind only, its first card open; a kind with nothing left shows every card again", () => {
+  const rerender = () => {};
+  X.setFocus("h1");
+  X.setFilter("cite");
+  let cards = [fakeCard("h1", "wrong"), fakeCard("tip:a", "cite"), fakeCard("h2", "check"), fakeCard("tip:b", "cite")];
+  X.foldCards(fakeShadow(cards), rerender);
+  assert.deepEqual(cards.map((c) => c.out()), [true, false, true, false], "only the citations");
+  assert.equal(X.focus(), "tip:a", "the open card was filtered out, so the first citation opens");
+  assert.deepEqual(cards.map((c) => c.shut()), [false, false, false, true], "a hidden card is not folded, it is out");
+  // The last citation dismissed: the filter lets go.
+  cards = [fakeCard("h1", "wrong"), fakeCard("h2", "check")];
+  X.foldCards(fakeShadow(cards), rerender);
+  assert.equal(X.filter(), null);
+  assert.deepEqual(cards.map((c) => c.out()), [false, false]);
+  X.setFilter(null);
 });
 
 test("wired in both panels, after the cards are decorated; a folded card shows only its title and line", () => {

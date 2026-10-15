@@ -270,14 +270,9 @@
   // Same family as needs_citation ("add or fix the attribution"), same colour.
   // CSS for a div-drawn line (field mode, and Docs' fallback bars): solid.
   const markFill = (color) => color;
-  /* The panel's legend: each kind's icon (as in the page margin and the
-     header) beside its solid line, in the cards' own words. */
-  // No "Writing note": writing tips are off (FEATURES; owner, 2026-10-13).
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Needs evidence"], ["needs_citation", "Missing or incomplete citation"]];
-  function legendHtml() {
-    const items = LEGEND.map(([v, label]) => `<span class="legend-item"><span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[MARK_ICON[v]]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: ${MARK_LINE_HEIGHT}px"></span>${label}</span>`).join("");
-    return `<div class="legend" role="note" aria-label="What the underlines and margin icons mean">${items}</div>`;
-  }
+  /* The panel's legend is its header's tabs (panelHeadHtml, 2026-10-14):
+     each kind's icon, as in the page margin, in its line's colour, beside
+     its word. */
   const markLineHeight = (pattern, hovered) => (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
   // The bars drawn INSIDE Docs' SVG layer: solid, like every line.
   const svgMarkFill = (color) => color;
@@ -3040,6 +3035,7 @@
      the plane glyph instead (wireChrome), never an empty circle. */
   const MARK_PNG = "data:image/png;base64,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";
   let focusCard = null;     // the open card (foldCards): the underline last clicked, or the card last opened
+  let panelFilter = null;   // the header tab chosen (wrong | check | cite | writing); null shows every kind
   function launcherHtml(countCls, countTxt, title) {
     return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
       <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
@@ -3082,32 +3078,56 @@
   }
   // Settings (options.html), the gear in the header (owner, 2026-10-11).
   const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
-  const GRIP_SVG = `<svg viewBox="0 0 10 16" width="8" height="14"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>`;
-  function panelHeadHtml(counts, statusMsg, statusErr, kind = "") {
+  const CLOSE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+  const COPY_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>`;
+  const COPIED_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+  const POWER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg>`;
+  /* The Tracely mark in one solid colour, the brand orange (owner,
+     2026-10-14, Figma "Overlay Mockup - Widget (Clean)": "include the
+     tracely logo somewhere but make it a solid color"). Traced from the
+     store-icon artwork; inline, so no page policy can refuse it. */
+  const MARK_SOLID_SVG = `<svg class="head-mark" viewBox="0 0 399.44 405.46" aria-hidden="true"><path fill="currentColor" d="M399.25 4.29C399.25 4.29 396.96 6.72 395.45 7.29C368.43 17.43 340.71 25.67 313.89 36.33C297.14 42.99 280.8 50.72 264.89 59.19C245.73 69.39 227.16 80.68 208.81 92.29C191.14 103.47 156.89 127.52 156.89 127.52C156.89 127.52 148.08 125.27 143.89 123.54C136.38 120.45 129.05 116.92 121.89 113.11C108.21 105.83 94.58 98.43 81.4 90.29C70.22 83.39 59.37 75.93 48.89 68.02C34.63 57.25 20.7 46.04 7.25 34.29C4.35 31.75 0 25.29 0 25.29C0 25.29 2.28 22.54 3.89 22.42C60.5 18.33 117.21 15.65 173.89 12.71C195.54 11.59 217.24 11.52 238.89 10.26C289.92 7.3 340.87 3.17 391.89 0.07C393.89 -0.05 397.89 0.59 397.89 0.59L399.25 4.29Z"/><path fill="currentColor" d="M387.89 34.84L388.43 37.29C388.43 37.29 387.74 39.48 386.97 40.29C373.19 54.81 358.28 68.26 344.89 83.14C328.85 100.96 313.45 119.36 298.75 138.29C287.1 153.27 276.52 169.07 265.89 184.79C261.18 191.75 256.75 198.91 252.74 206.29C240.7 228.42 228.26 250.38 217.77 273.29C209.14 292.12 202.49 311.8 195.47 331.29C191.31 342.81 187.65 354.52 184.24 366.29C180.8 378.19 178.49 390.41 174.94 402.29C174.57 403.51 172.57 405.29 172.57 405.29L168.89 404.35C168.89 404.35 166.81 400.42 166.26 398.29C164.38 391.03 162.73 383.7 161.62 376.29C159.18 360.01 157 343.68 155.62 327.29C154.45 313.33 153.95 299.3 153.96 285.29C153.97 273.61 154.6 261.92 155.69 250.29C157.15 234.57 159.13 218.88 161.59 203.29C163.13 193.53 165.34 183.89 167.66 174.29C168.88 169.21 168.7 163.16 172.2 159.29C182.88 147.48 196.32 138.47 208.89 128.7C219.56 120.39 230.71 112.71 241.89 105.1C253.42 97.24 265.02 89.45 276.99 82.29C288.89 75.17 301.14 68.67 313.44 62.29C323.78 56.93 334.18 51.66 344.89 47.08C354.36 43.04 364.12 39.71 373.89 36.45C377.47 35.26 381.14 34.16 384.89 33.73C385.95 33.6 387.89 34.84 387.89 34.84Z"/></svg>`;
+  /* The header and its filter tabs (owner, 2026-10-14: the panel was "too
+     cluttered, confusing, not well structured, wordy"; the Figma frame
+     "Overlay Mockup - Widget (Clean)" is the design). One row of tabs is the
+     count, the filter and the legend at once: All, then each kind with its
+     icon in its finding's colour and a short word; the long words (TALLY)
+     are each tab's title. A tab shows only its kind (panelFilter, applied in
+     foldCards); the chosen tab again, or All, shows everything. `opts.note`
+     is what the kind of writing means for its citations (genreNote), on the
+     chip's hover; `opts.power` is the mode's off switch, beside Settings. */
+  const TAB_LABEL = { wrong: "Errors", check: "Evidence", cite: "Citations", writing: "Writing" };
+  // A finding's kind as its icon, in its underline's colour (.k-wrong … in WIDGET_CSS, from MARK_COLORS); a card's title says it in words.
+  const kindIcoHtml = (cat) => (TALLY.some(([k]) => k === cat) ? `<span class="kico k-${cat}" aria-hidden="true">${TALLY_ICON[cat]}</span>` : "");
+  function panelHeadHtml(counts, statusMsg, statusErr, kind = "", opts = {}) {
     const c = counts ?? {};
     const total = TALLY.reduce((n, [k]) => n + (c[k] || 0), 0);
-    const chips = TALLY.filter(([k]) => c[k] > 0).map(([k, mark, label]) =>
-      `<button class="chip" data-jump="${k}" title="Show the first one"><span class="chip-ico" style="color:${MARK_COLORS[mark]}" aria-hidden="true">${TALLY_ICON[k]}</span>${esc(label(c[k]))}</button>`);
-    if (!total && !statusErr && statusMsg === "all clear") chips.push(`<span class="chip chip-clear"><span class="chip-ico" aria-hidden="true">${TALLY_ICON.clear}</span>All clear</span>`);
+    const present = TALLY.filter(([k]) => c[k] > 0);
+    const filter = present.some(([k]) => k === panelFilter) ? panelFilter : null;
+    const tab = (k, word, n, title, ico = "") =>
+      `<button class="tab${(k === "all" ? !filter : filter === k) ? " on" : ""}" data-filter="${k}" aria-pressed="${k === "all" ? !filter : filter === k}" title="${esc(title)}">${ico}<span>${esc(word)}</span><span class="tab-n">${n}</span></button>`;
+    const tabs = total ? [tab("all", "All", total, "Show every finding"), ...present.map(([k, , words]) => tab(k, TAB_LABEL[k], c[k], words(c[k]), kindIcoHtml(k)))] : [];
+    if (!total && !statusErr && statusMsg === "all clear") tabs.push(`<span class="tabs-clear"><span class="chip-ico" aria-hidden="true">${TALLY_ICON.clear}</span>All clear</span>`);
     const quiet = /^(?:all clear|\d+ issues? found)$/.test(String(statusMsg ?? ""));
     const status = statusErr || !quiet ? statusMsg : "";
     return `<div class="head" id="dragHead" title="Drag to move · double-click to put it back">
-      <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
+      ${MARK_SOLID_SVG}
       <span class="name">Tracely</span>
-      ${kind ? `<span class="kind" title="What Tracely reads this as">${esc(kind)}</span>` : ""}
+      ${kind ? `<span class="kind" title="${esc(opts.note || "What Tracely reads this as")}">${esc(kind)}</span>` : ""}
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
+      ${opts.power ?? ""}
       <button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings">${GEAR_SVG}</button>
-      <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
+      <button class="hbtn close" id="panelClose" title="Close" aria-label="Close">${CLOSE_SVG}</button>
     </div>
-    <div class="tally">${chips.join("")}</div>`;
+    ${tabs.length ? `<div class="tabs" role="toolbar" aria-label="Show findings by kind">${tabs.join("")}</div>` : ""}`;
   }
   // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
     return cards.map((c) => c.html).join("");
   }
-  // A group of the list under its name and count — "Claims (2)", "Citations (1)".
+  // A group of the list — "Claims (2)", "Citations (1)" — named for a screen reader; the tabs say the rest.
   function groupHtml(title, n, inner) {
-    return `<div class="tips"><div class="tips-head">${title}${n ? ` (${n})` : ""}</div>${inner}</div>`;
+    return `<div class="tips" role="group" aria-label="${esc(title)}${n ? ` (${n})` : ""}">${inner}</div>`;
   }
   /* The panel's evidence section (see evidenceCandidates). Folded until
      opened; neutral, never a finding colour (CLAUDE.md "Colour only ever
@@ -3132,7 +3152,7 @@
     if (!open) return `<div class="evidence">${head}</div>`;
     const cards = candidates.map((seg) => `
       <div class="card ev-card" data-card="${seg.hash}">
-        <div class="top"><span class="ctitle">${esc(RECOMMEND_COPY.title)}</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="top"><span class="ctitle">${esc(RECOMMEND_COPY.title)}</span><button class="x" data-dismiss="${seg.hash}" title="Not needed" aria-label="Not needed">${CLOSE_SVG}</button></div>
         <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
         <div class="expl">${esc(RECOMMEND_COPY.body)}</div>
         ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">${esc(RECOMMEND_COPY.find)}</button></div>`}
@@ -3458,11 +3478,16 @@
       default: return "";
     }
   }
-  function genreLineHtml(genre, text = "", style = "mla") {
-    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line">${GENRE_QUIET_LINE[genre]}</div>`;
+  // The sentence alone: the header chip's hover (panelHeadHtml), and the line a quiet kind shows in the list.
+  function genreNote(genre, text = "", style = "mla") {
+    if (GENRE_QUIET_LINE[genre]) return GENRE_QUIET_LINE[genre];
     if (!GENRE_LABEL[genre]) return "";
     const how = genreCiteNote(genre, text, style);
-    return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
+    return `Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}`;
+  }
+  function genreLineHtml(genre, text = "", style = "mla") {
+    const note = genreNote(genre, text, style);
+    return note ? `<div class="genre-line">${note}</div>` : "";
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
      a citation (cite_tip), blue for one on the writing (note_tip). A note
@@ -3473,15 +3498,16 @@
   const EVIDENCE_TIP_KINDS = ["vague"];
   const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : EVIDENCE_TIP_KINDS.includes(t.kind) ? "d-quest" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-note" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
+    // The kind's icon where the note has an underline (tipDot), none where it has not.
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? kindIcoHtml(tipCat(t)) : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
         ${t.suggestion ? `<div class="fix"><div class="fix-label">Suggested rewrite</div><div class="fix-text">${esc(t.suggestion)}</div><div class="row"><button class="act" data-tip-copy="${t.id}">${copiedId === t.id ? "Copied ✓" : "Copy rewrite"}</button></div></div>` : ""}
       </div>`).join("");
-    return `<div class="tips"><div class="tips-head">${title}${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
+    return `<div class="tips" role="group" aria-label="${esc(title)}${tips.length ? ` (${tips.length})` : ""}">${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
   }
   /* "Find the cited work" in a panel card (both modes). `c` is one card's
      lookup: { loading } | { resolved:false, note } | { resolved:true,
@@ -3527,9 +3553,16 @@
      writer works in it even if a new card lands above it. The rest fold to
      their title and the first line of their sentence and open on a click or
      Enter. A card's own buttons are only in the open card. Evidence cards
-     sit in their own fold and are left as they are. */
+     sit in their own fold and are left as they are. A header tab
+     (panelFilter) leaves only its kind's cards; when none of that kind is
+     left, every card shows again. */
   function foldCards(shadow, rerender) {
-    const cards = [...shadow.querySelectorAll(".list .card[data-card]:not(.ev-card)")];
+    let cards = [...shadow.querySelectorAll(".list .card[data-card]:not(.ev-card)")];
+    if (panelFilter && !cards.some((c) => c.dataset.cat === panelFilter)) panelFilter = null;
+    if (panelFilter) {
+      for (const c of cards) if (c.dataset.cat !== panelFilter) c.classList.add("out");
+      cards = cards.filter((c) => c.dataset.cat === panelFilter);
+    }
     if (cards.length < 2) return;
     if (!cards.some((c) => c.dataset.card === focusCard)) focusCard = cards[0].dataset.card;
     for (const card of cards) {
@@ -3550,14 +3583,16 @@
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
     shadow.getElementById("panelSettings")?.addEventListener("click", () => openSettings());
-    // A count in the header opens the first card of its kind.
-    for (const chip of shadow.querySelectorAll("[data-jump]")) {
-      chip.addEventListener("click", () => {
-        const card = shadow.querySelector(`.list .card[data-cat="${chip.dataset.jump}"]`);
-        if (!card) return;
-        focusCard = card.dataset.card;
+    // A tab in the header shows its kind only, its first card open; All, or the same tab again, shows every kind.
+    for (const tab of shadow.querySelectorAll("[data-filter]")) {
+      tab.addEventListener("click", () => {
+        const k = tab.dataset.filter;
+        panelFilter = k === "all" || k === panelFilter ? null : k;
+        const open = shadow.querySelector(`.list .card[data-card="${CSS.escape(String(focusCard))}"]`);
+        const first = panelFilter ? shadow.querySelector(`.list .card[data-cat="${panelFilter}"]`) : null;
+        if (first && open?.dataset.cat !== panelFilter) focusCard = first.dataset.card;
         rerender();
-        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
+        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(String(focusCard))}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
       });
     }
     wireDrag(shadow);
@@ -3964,66 +3999,57 @@
     .launcher .count.ok { display: none; }
 
     /* ── Panel ────────────────────────────────────────────────────────── */
-    /* ── Panel (Figma "Widget over Document" 282:70) ─────────────────────
-       480 wide, 1px ink border, 24px radius, 22/24 padding, a hairline under
-       the header inset to the content width. Capped to the viewport: a 480px
-       card does not fit beside a narrow Docs window. */
+    /* ── Panel (Figma "Overlay Mockup - Widget (Clean)", 2026-10-14) ──────
+       440 wide, 1px ink border, 24px radius. Top to bottom: the header (the
+       mark, the name, the kind of writing, the switches), the tabs, the
+       list (one card open, the rest one line each), and a footer only when
+       it has something to offer. Capped to the viewport: the panel does not
+       always fit beside a narrow Docs window. */
     .panel {
       position: absolute; right: 0; bottom: 70px;
-      width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
+      width: min(440px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
       background: var(--surface); border: 1px solid #000; border-radius: 24px;
-      box-shadow: 0 8px 12px rgba(0,0,0,.18);
+      box-shadow: 0 12px 32px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06);
       display: flex; flex-direction: column; overflow: hidden;
     }
-    /* The header is the panel's handle (wireDrag): a grip, the name, and the
-       close; the counts sit under it (.tally) and carry the rule. */
+    /* The header is the panel's handle (wireDrag). */
     .head {
-      display: flex; align-items: center; gap: 8px;
-      margin: 0 24px; padding: 18px 0 10px; cursor: grab; user-select: none; touch-action: none;
+      display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+      padding: 16px 14px 12px 20px; cursor: grab; user-select: none; touch-action: none;
     }
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
-    .grip { display: flex; color: #b9bac0; margin-left: -4px; }
-    .head:hover .grip { color: #6b6c72; }
-    .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
+    .head-mark { width: 20px; height: 20px; flex-shrink: 0; color: #ff5900; display: block; }
+    .head .name { font-weight: 600; font-size: 16px; color: #1a1a1f; white-space: nowrap; }
     /* What Tracely reads the writing as (genreTitle): neutral, never a finding's colour. */
-    .head .kind { min-width: 0; padding: 3px 9px; border-radius: 999px; background: var(--chip-wash); color: var(--chip-ink); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
-    .chip {
-      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
-      border-radius: 999px; border: 1px solid #e4e4e7; background: #fff;
-      font-family: inherit; font-size: 12.5px; font-weight: 600; color: #1a1a1f; cursor: pointer;
-      transition: border-color .15s ease, background .15s ease;
+    .head .kind { min-width: 0; padding: 3px 8px; border-radius: 999px; background: var(--chip-wash); color: var(--chip-ink); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* The tabs: the count, the filter and the legend in one row (panelHeadHtml). */
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 14px; border-bottom: 1px solid #ececee; flex-shrink: 0; }
+    .tab {
+      display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+      border-radius: 8px; border: none; background: #f4f4f5;
+      font-family: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer;
+      transition: background .15s ease, color .15s ease;
     }
-    .chip:hover { border-color: #c9c9ce; background: #fafafa; }
-    .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tab:hover { background: #ececee; }
+    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tab-n { color: #6b6c72; font-variant-numeric: tabular-nums; }
+    .tab.on, .tab.on:hover { background: #1a1a1f; color: #fff; }
+    .tab.on .tab-n { color: rgba(255,255,255,.7); }
+    .tab .kico svg { width: 13px; height: 13px; }
     .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
     .chip-ico svg { width: 13px; height: 13px; display: block; }
-    .chip-clear { cursor: default; font-weight: 500; color: #3a3b40; }
-    .chip-clear:hover { border-color: #e4e4e7; background: #fff; }
-    .close {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
-      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .close:hover { background: #e7e7e7; }
-    /* Settings: a 30px circle like the close, quiet until hovered. */
+    .tabs-clear { display: inline-flex; align-items: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 500; color: #3a3b40; }
+    /* Settings, the off switch and Close: quiet 28px squares until hovered. */
     .hbtn {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; padding: 0;
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; padding: 0;
       border: none; background: transparent; color: #6b6c72; cursor: pointer;
       display: flex; align-items: center; justify-content: center; transition: background .15s ease, color .15s ease;
     }
     .hbtn svg { width: 16px; height: 16px; display: block; }
     .hbtn:hover { background: #f2f2f2; color: #1a1a1f; }
     .hbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .hbtn + .close { margin-left: 4px; }
-    /* The one legend (never colour alone): what each underline's LINE means. */
-    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
-    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-    .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
-    .legend-ico { display: inline-flex; width: 12px; height: 12px; }
-    .legend-ico svg { width: 12px; height: 12px; display: block; }
+    .head .hbtn + .hbtn { margin-left: -4px; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
     .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
     .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
@@ -4035,40 +4061,60 @@
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
-    .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-    .tips + .tips { margin-top: 6px; }
+    .tips { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .tips + .tips { margin-top: 2px; }
     .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
     .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
     .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
-    .foot .act { padding: 5px 10px; font-size: 11px; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
+    .foot-left:empty { display: none; }
     select {
       font-size: 12px; font-weight: 500; font-family: ${JAKARTA};
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
       padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
+    .list { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+    .list > .genre-line, .list > .empty, .list > .undo-strip, .list > .fixes, .list > .evidence { margin: 6px 0; }
     .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
-    /* Each card is its own box, so where one ends is never a guess; the
-       open one (foldCards) is drawn a shade firmer, the folded ones are a
-       title and one line of their sentence. */
+    /* The open card (foldCards) is a box: its kind, the sentence, why, the
+       fix, and its buttons. The folded ones are rows, no box: the kind's
+       icon on a tint of its colour, its title small over one line of the
+       sentence, and a chevron that says it opens. */
     .card {
-      background: var(--surface); border: 1px solid #ececec; border-radius: 12px;
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+      background: var(--surface); border: 1px solid #e4e4e7; border-radius: 14px;
+      padding: 14px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;
     }
     .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-    .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
-    .card.shut:hover { background: #fafafa; border-color: #dcdcdf; }
+    .card.out { display: none; }
+    .card.shut {
+      display: grid; grid-template-columns: 32px minmax(0, 1fr) 16px; column-gap: 12px; row-gap: 1px; align-items: center;
+      padding: 10px 8px 10px 10px; border-color: transparent; border-radius: 12px; cursor: pointer;
+    }
+    .card.shut:hover { background: #f7f7f8; border-color: transparent; }
     .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .card.shut > :not(.top):not(.quote) { display: none; }
+    .card.shut > .top { display: contents; }
+    .card.shut .kico { grid-column: 1; grid-row: 1 / span 2; width: 32px; height: 32px; border-radius: 9px; justify-content: center; align-items: center; background: color-mix(in srgb, currentColor 13%, #fff); }
+    .card.shut .kico svg { width: 14px; height: 14px; }
+    .card.shut .ctitle { grid-column: 2; grid-row: 1; font-size: 12px; font-weight: 500; color: #6b6c72; }
+    .card.shut .x { display: none; }
     .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card.shut .quote { grid-column: 2; grid-row: 2; display: block; color: #1a1a1f; }
+    .card.shut::after {
+      content: ""; grid-column: 3; grid-row: 1 / span 2; justify-self: center; width: 6px; height: 6px;
+      border-right: 1.75px solid #9a9ba1; border-bottom: 1.75px solid #9a9ba1; transform: rotate(-45deg);
+    }
     .top { display: flex; align-items: center; gap: 8px; }
+    .kico { display: inline-flex; flex-shrink: 0; }
+    .kico svg { width: 14px; height: 14px; display: block; }
+    /* TALLY's kinds in MARK_COLORS, so an icon matches the underline that raised it. */
+    ${TALLY.map(([k, mark]) => `.k-${k} { color: ${MARK_COLORS[mark]}; }`).join("\n    ")}
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
@@ -4084,19 +4130,28 @@
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
-    .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
-    .x:hover { color: var(--text); }
-    /* The writer's own words, set off by a rule; the advice under it is the body. */
-    .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
-    .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
+    .ctitle { font-size: 13px; font-weight: 600; color: #1a1a1f; min-width: 0; }
+    .x {
+      margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px; padding: 0;
+      background: none; border: none; color: #9a9ba1; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .x svg { width: 14px; height: 14px; display: block; }
+    .x:hover { color: var(--text); background: #f2f2f2; }
+    /* The writer's own words, quiet and two lines at most; why it is flagged, under it, is the body. */
+    .quote {
+      font-size: 13px; line-height: 19px; color: #6b6c72;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+    }
+    .expl { font-size: 13px; line-height: 19px; color: #1a1a1f; }
 
-    /* ── Insets (deep dive, suggested revision) ───────────────────────── */
-    .deep, .fix {
+    /* ── Insets (deep dive, suggested fix) ────────────────────────────── */
+    .deep {
       background: var(--surface-2); border: 1px solid var(--border);
       border-radius: var(--r-btn); padding: 10px 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
+    .fix { background: #f4f4f5; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
     .deep-row { margin: -2px 0 0; }
     .deep-btn {
       background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
@@ -4119,7 +4174,8 @@
     .deep-sub { margin-top: 6px; }
     .deep .row { margin-top: 4px; }
     .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
-    .fix-text { white-space: normal; }
+    .fix-text { white-space: normal; color: #1a1a1f; line-height: 19px; }
+    .fix-label { font-weight: 500; color: #9a9ba1; }
     .deep-note { font-size: 11px; color: var(--label); }
     .deep-note.err { color: var(--danger); }
     .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
@@ -4130,16 +4186,22 @@
     @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     /* A card's actions sit at their own width, the one it asks for first and
        filled: a full-width bar per button outweighed the advice. */
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .row > button.act { flex: 0 0 auto; }
+    /* Copy, as an icon at the row's end beside Apply fix and Find a source. */
+    .row > button.act.icon {
+      margin-left: auto; width: 32px; height: 32px; padding: 0; border: none; border-radius: 8px;
+      background: none; color: #6b6c72; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .row > button.act.icon svg { width: 16px; height: 16px; display: block; }
+    .row > button.act.icon:hover:not([disabled]) { background: #f2f2f2; color: #1a1a1f; }
     .edit-note { font-size: 11px; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
-      background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
+      font-size: 12.5px; font-weight: 500; color: var(--ink);
+      background: #f4f4f5; border-radius: 10px; padding: 6px 6px 6px 12px;
     }
-    .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
+    .undo-strip button.act { padding: 5px 10px; font-size: 12px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
     .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
@@ -4162,14 +4224,6 @@
       to { opacity: 1; transform: none; }
     }
     @media (prefers-reduced-motion: reduce) { .ready-ping.enter { animation: none; } }
-    /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
-    .walk-strip {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
-      background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
-    }
-    .walk-strip button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
     /* "Let Tracely fix these": the prepared changes, each waiting for the
        writer. Ink only — a removed word struck through, an added one
        underlined; the dot is the flag's own finding colour. */
@@ -4196,17 +4250,18 @@
     .fx .row button.act { padding: 5px 12px; font-size: 12px; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
-    /* The frame's pills: an ink fill, or a 1.5px ink outline. */
+    /* 8px rounded rectangles (the clean frame): an ink fill for the one a
+       card asks for first, a grey outline for the rest. */
     button.act {
-      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
-      border-radius: 999px; padding: 7px 14px;
-      font-size: 12.5px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
-      transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+      border: 1px solid #d4d4d8; background: var(--surface); color: #1a1a1f;
+      border-radius: 8px; padding: 7px 12px;
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
+      transition: transform .1s ease, border-color .15s ease, background .15s ease, color .15s ease;
     }
-    button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
+    button.act:hover:not([disabled]) { background: #f7f7f8; border-color: #c4c4ca; }
     button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: #111; border-color: #111; color: #fff; }
-    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
+    button.act.primary { background: #1a1a1f; border-color: #1a1a1f; color: #fff; }
+    button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
     button.act[disabled] { opacity: .5; cursor: default; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
@@ -4253,7 +4308,12 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { accent-color: var(--accent); }
-    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    /* The footer holds the panel's one bulk action ("N fixes to review",
+       Review all), or a site's Turn on; with nothing to offer it is not drawn. */
+    .foot { flex-shrink: 0; padding: 12px 14px 12px 20px; border-top: 1px solid #ececee; font-size: 13px; color: #6b6c72; display: flex; align-items: center; gap: 8px; }
+    .foot.empty { display: none; }
+    .foot > button.act, .foot > a { margin-left: auto; }
+    .foot-ready b { color: #1a1a1f; font-weight: 600; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
     .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -7780,7 +7840,9 @@
       if (isTip && buttons.length) card.insertAdjacentHTML("beforeend", `<div class="row">${buttons.join("")}</div>${html}`);
       else if (buttons.length || html) {
         const row = card.querySelector(".row");
-        if (row && buttons.length) row.insertAdjacentHTML("beforeend", buttons.join(""));
+        // Before the copy icon, which closes the row.
+        const copyIcon = row?.querySelector?.(".act.icon");
+        if (row && buttons.length) (copyIcon ?? row).insertAdjacentHTML(copyIcon ? "beforebegin" : "beforeend", buttons.join(""));
         const at = card.querySelector(".sources") ?? card.querySelector(".cite-url");
         if (html) { if (at) at.insertAdjacentHTML("beforebegin", html); else card.insertAdjacentHTML("beforeend", html); }
       }
@@ -9671,8 +9733,9 @@
     let fixSearchStarts = [];   // when this page's batch searches started (the minute's pace)
     let fixSearchesRunning = 0;
     const FIX_COPY = {
-      go: "Let Tracely fix these", stop: "Stop", done: "Done", accept: "Accept", skip: "Skip",
-      offer: (n) => `Tracely can prepare ${n === 1 ? "this fix" : `${n} of these fixes`} at once — then you choose what goes in`,
+      go: "Review all", stop: "Stop", done: "Done", accept: "Accept", skip: "Skip",
+      offer: (n) => `${n} ${n === 1 ? "fix" : "fixes"} to review`,
+      how: "Tracely prepares every fix at once, then you accept or reject each one",
       preparing: (ready, n) => `Preparing ${n} ${n === 1 ? "fix" : "fixes"} · ${ready} ready`,
       ready: (n) => `${n} ${n === 1 ? "fix" : "fixes"} ready — accept what you want`,
       finished: (n) => `${n} ${n === 1 ? "change" : "changes"} in your doc`,
@@ -10266,12 +10329,16 @@
         // No "Accept all": one sentence at a time, each accepted on its own (owner, 2026-10-13).
         + `${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
     }
+    /* The offer sits in the panel's footer (owner, 2026-10-14, the clean
+       frame: "28 fixes … Review all"); the batch, once started, in the list. */
+    function walkOfferHtml() {
+      if (fixBatch || !walkOffered()) return "";
+      const text = esc(FIX_COPY.offer(walkInputs().items.length)).replace(/^\d+/, "<b>$&</b>");
+      return `<span class="foot-ready">${text}</span><button class="act primary" data-walk-go="1" title="${esc(FIX_COPY.how)}"${docBusy ? " disabled" : ""}>${FIX_COPY.go}</button>`;
+    }
     function walkStripHtml() {
       const b = fixBatch;
-      if (!b) {
-        if (!walkOffered()) return "";
-        return `<div class="walk-strip"><span>${esc(FIX_COPY.offer(walkInputs().items.length))}</span><button class="act primary" data-walk-go="1"${docBusy ? " disabled" : ""}>${FIX_COPY.go}</button></div>`;
-      }
+      if (!b) return "";
       const ready = b.items.filter((it) => it.status === "ready").length;
       const applied = b.items.filter((it) => it.status === "applied").length;
       const none = b.items.filter((it) => it.status === "none");
@@ -10317,7 +10384,7 @@
       root.innerHTML = `
         ${expanded ? `
         <div class="panel opening">
-          <div class="head">${PILL_MARK}<span class="name">Tracely</span></div>
+          <div class="head">${MARK_SOLID_SVG}<span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
               <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
@@ -10371,7 +10438,7 @@
             : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
             <div class="card">
-              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
+              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button></div>
               <div class="quote">${esc(fi.passage.slice(0, 160))}</div>
               <div class="fix">
                 <div class="fix-label">Why it jumps</div>
@@ -10423,34 +10490,39 @@
           return sourcesHtml;
         };
         cardSources = sourcesFor;
+        /* A card (owner, 2026-10-14, the clean frame): its kind, the
+           sentence, why, the suggested fix, then Apply fix · Find a source ·
+           Copy. Where Docs can't be edited, Copy fix is the button. "Or paste
+           a URL" waits until a search has run for the sentence. */
         const cards = issues.map(({ seg, f }) => {
-          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          const copied = copiedFixHash === seg.hash;
+          const lead = !f.revision ? ""
+            : canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Apply fix", `data-doc-fix="${seg.hash}"`)
+            : `<button class="act primary" data-copy-fix="${seg.hash}">${copied ? "Copied ✓" : "Copy fix"}</button>`;
+          const copyIcon = f.revision && canEditDoc()
+            ? `<button class="act icon" data-copy-fix="${seg.hash}" title="${copied ? "Copied" : "Copy fix"}" aria-label="Copy fix">${copied ? COPIED_SVG : COPY_SVG}</button>` : "";
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
-              <span class="dot d-${kind}"></span><span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              ${kindIcoHtml(verdictCat(f.verdict))}<span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
+              <button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
-            ${deepHtml(seg.hash, f.verdict, (h) => (canEditDoc() ? editBtnHtml(`deepfix:${h}`, "Fix in doc", `data-deep-fix="${h}"`) + editNoteHtml(`deepfix:${h}`) : ""))}
+            ${deepHtml(seg.hash, f.verdict, (h) => (canEditDoc() ? editBtnHtml(`deepfix:${h}`, "Apply fix", `data-deep-fix="${h}"`) + editNoteHtml(`deepfix:${h}`) : ""))}
             ${f.revision ? `
             <div class="fix">
-              <div class="fix-label">Suggested revision</div>
+              <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
-              <div class="row">
-                ${canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Fix in doc", `data-doc-fix="${seg.hash}"`) : ""}
-                <button class="act${canEditDoc() ? "" : " primary"}" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
-              </div>
-              ${editNoteHtml(`fix:${seg.hash}`)}
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : ""}
+            <div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>
+            ${f.revision ? editNoteHtml(`fix:${seg.hash}`) : ""}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
+            ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>` : ""}
           </div>` };
         });
-        const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, docText, settings.citationStyle) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
@@ -10471,18 +10543,24 @@
         const undoStrip = lastDocEdit && !undoShown
           ? `<div class="undo-strip"><span>${esc(lastDocEdit.label.charAt(0).toUpperCase() + lastDocEdit.label.slice(1))}</span><button class="act" data-doc-undo="1"${docBusy ? " disabled" : ""}>Undo</button></div>`
           : "";
+        /* What the kind of writing means sits on its chip's hover; only a
+           kind Tracely stays quiet on says it in the list, where it explains
+           the empty panel. Turn off is the header's power button, beside
+           Settings; the footer is the fix-all offer, or nothing. */
+        const offer = typeof walkOfferHtml === "function" ? walkOfferHtml() : ""; /* (absent from server/test's slices of render) */
+        const power = `<button class="hbtn" id="turnOff" title="Turn off: stop checking Google Docs. Turn it back on from Tracely's button or Settings." aria-label="Turn off Tracely for Google Docs">${POWER_SVG}</button>`;
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, docText))}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, docText), { note: genreNote(docGenre, docText, settings.citationStyle), power })}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
-          <div class="foot">
+          <div class="foot${offer || FEATURES.citeHintsToggle || FEATURES.autoSources ? "" : " empty"}">
             <span class="foot-left">
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or Settings.">Turn off</button>
+            ${offer}
           </div>
         </div>`;
       }
@@ -11530,7 +11608,9 @@
       if (isTip && buttons.length) card.insertAdjacentHTML("beforeend", `<div class="row">${buttons.join("")}</div>${html}`);
       else if (buttons.length || html) {
         const row = card.querySelector(".row");
-        if (row && buttons.length) row.insertAdjacentHTML("beforeend", buttons.join(""));
+        // Before the copy icon, which closes the row.
+        const copyIcon = row?.querySelector?.(".act.icon");
+        if (row && buttons.length) (copyIcon ?? row).insertAdjacentHTML(copyIcon ? "beforebegin" : "beforeend", buttons.join(""));
         const at = card.querySelector(".sources") ?? card.querySelector(".cite-url");
         if (html) { if (at) at.insertAdjacentHTML("beforebegin", html); else card.insertAdjacentHTML("beforeend", html); }
       }
@@ -11826,33 +11906,32 @@
           return sourcesHtml;
         };
         cardSources = sourcesFor;
+        // A card: the Docs panel's (the clean frame), with Apply fix writing into the field.
         const cards = issues.map(({ seg, f }) => {
-          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          const copied = copiedFixHash === seg.hash;
+          const lead = f.revision ? `<button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Apply fix"}</button>` : "";
+          const copyIcon = f.revision ? `<button class="act icon" data-copy-fix="${seg.hash}" title="${copied ? "Copied" : "Copy fix"}" aria-label="Copy fix">${copied ? COPIED_SVG : COPY_SVG}</button>` : "";
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
-              <span class="dot d-${kind}"></span><span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              ${kindIcoHtml(verdictCat(f.verdict))}<span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
+              <button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
-            ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Fix in field"}</button>`)}
+            ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Apply fix"}</button>`)}
             ${f.revision ? `
             <div class="fix">
-              <div class="fix-label">Suggested revision</div>
+              <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
-              <div class="row">
-                <button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Fix in field"}</button>
-                <button class="act" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
-              </div>
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : ""}
+            <div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
+            ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>` : ""}
           </div>` };
         });
-        const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
         const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, fieldText, settings.citationStyle) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
@@ -11874,18 +11953,24 @@
             ? "Nothing flagged. Sentences are checked as you finish them, while this field is focused."
             : "Tracely is off on this site, and nothing is sent. Turn it on to check what you write here.";
 
+        /* The site's switch: on, it is the header's power button ("Turn off
+           on this site"); off, the footer's one button, since turning it on
+           is then all the panel can do. */
+        const siteSwitch = enabled
+          ? `<button class="hbtn" id="siteSwitch" title="Turn off on this site" aria-label="Turn off on this site">${POWER_SVG}</button>`
+          : `<button class="act primary" id="siteSwitch">Turn on for this site</button>`;
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, fieldText))}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, fieldText), { note: genreNote(docGenre, fieldText, settings.citationStyle), power: enabled ? siteSwitch : "" })}
           <div class="list">
-            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>
-          <div class="foot">
+          <div class="foot${!enabled || FEATURES.citeHintsToggle || FEATURES.autoSources ? "" : " empty"}">
             <span class="foot-left">
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act${enabled ? "" : " primary"}" id="siteSwitch">${enabled ? "Turn off on this site" : "Turn on for this site"}</button>
+            ${enabled ? "" : siteSwitch}
           </div>
         </div>`;
       }

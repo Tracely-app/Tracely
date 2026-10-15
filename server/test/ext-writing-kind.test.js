@@ -81,6 +81,7 @@ test("the header: a neutral chip beside the name, escaped, and nothing when ther
 });
 
 test("wired in both modes", () => {
-  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, docText\)\)/);
-  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, fieldText\)\)/);
+  // The fifth argument (2026-10-14): what the kind means for its citations, on the chip's hover (genreNote).
+  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, docText\), \{ note: genreNote\(docGenre, docText, settings\.citationStyle\)/);
+  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, fieldText\), \{ note: genreNote\(docGenre, fieldText, settings\.citationStyle\)/);
 });

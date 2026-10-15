@@ -54,9 +54,10 @@ test("they count, colour and group as their kind", () => {
   const marks = Array.from(X.citationMarks(PAPER, "apa", new Set(), "research")).filter((m) => m.kind === "vague" || m.kind === "uncited");
   assert.ok(marks.every((m) => (m.kind === "vague") === (m.markKind === "questionable")), "a source nobody could find is drawn blue, a named one amber");
   const html = X.citationTipsHtml(all, null);
+  // The groups are named for a screen reader (aria-label) since 2026-10-14; the header's tabs name the kinds.
   assert.ok(html.indexOf("Unnamed sources (5)") >= 0 && html.indexOf("Unnamed sources (5)") < html.indexOf("Citations (2)"), "its own group, before the citations");
-  assert.equal((html.match(/class="dot d-quest"/g) || []).length, 5);
-  assert.equal((html.match(/class="dot d-cite"/g) || []).length, 2);
+  assert.equal((html.match(/class="kico k-check"/g) || []).length, 5);
+  assert.equal((html.match(/class="kico k-cite"/g) || []).length, 2);
 });
 
 test("the model's verdict gives way to the sentence's source, never when it says wrong", () => {

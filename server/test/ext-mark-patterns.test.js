@@ -26,7 +26,7 @@ function load(extra = {}) {
     ${sliceBetween(SRC, "  const TALLY_ICON = {", "\n  };\n")}
   };
     ${sliceBetween(SRC, "  const MARK_PATTERN =", "  const MARK_LINE_RADIUS")}
-    ({ MARK_COLORS, MARK_PATTERN, MARK_ICON, MARK_ICON_RANK, TALLY_ICON, markFill, markLineHeight, svgMarkFill, legendHtml, LEGEND })`;
+    ({ MARK_COLORS, MARK_PATTERN, MARK_ICON, MARK_ICON_RANK, TALLY_ICON, markFill, markLineHeight, svgMarkFill })`;
   return vm.runInContext(code, vm.createContext(extra));
 }
 
@@ -55,16 +55,14 @@ test("the lines themselves: a plain colour, 2px (3px hovered), in a div or in Do
   assert.match(SRC, /borderBottom: `2px solid \$\{color\}`, opacity: "0\.45",/, "still checking: a faint solid grey line");
 });
 
-test("one legend: each kind's icon beside its solid line, in the cards' words", () => {
-  const { legendHtml, MARK_COLORS, TALLY_ICON } = load();
-  const html = legendHtml();
-  assert.equal((html.match(/class="legend-item"/g) || []).length, 3, "no Writing note: writing tips are off (owner, 2026-10-13)");
-  assert.doesNotMatch(html, /Writing note/);
-  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Needs evidence", "check"], ["needs_citation", "Missing or incomplete citation", "cite"]]) {
-    assert.ok(html.includes(`<span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[kind]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: 2px"></span>${label}`), label);
-  }
-  assert.match(html, /aria-label="What the underlines and margin icons mean"/);
-  assert.equal((SRC.match(/cardListHtml\(cards\) \+ legendHtml\(\)/g) || []).length, 2, "in both panels, under the cards");
+/* Since 2026-10-14 (owner: the panel was "cluttered … wordy"; the Figma frame
+ * "Overlay Mockup - Widget (Clean)") the legend is the header's tabs: each
+ * kind's icon in its line's colour beside its word. ext-panel-layout.test.js
+ * renders them; here, that there is no second legend and the colours are the lines'. */
+test("one legend: the header's tabs, each kind's icon in its line's colour", () => {
+  assert.ok(!/function legendHtml|const LEGEND =/.test(SRC), "no legend row under the cards");
+  assert.match(SRC, /\$\{TALLY\.map\(\(\[k, mark\]\) => `\.k-\$\{k\} \{ color: \$\{MARK_COLORS\[mark\]\}; \}`\)/, "an icon's colour is its underline's (MARK_COLORS)");
+  assert.match(SRC, /const kindIcoHtml = \(cat\) => \(TALLY\.some\(\(\[k\]\) => k === cat\) \? `<span class="kico k-\$\{cat\}" aria-hidden="true">\$\{TALLY_ICON\[cat\]\}<\/span>` : ""\);/, "the margin's own icon");
 });
 
 /* drawMarginIcons over a stand-in of Docs' annotation SVG: one line's runs. */

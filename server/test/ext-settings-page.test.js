@@ -161,7 +161,7 @@ test("the widget's header has a Settings gear, and it asks the worker", () => {
     ${sliceBetween(SRC, "  // Bibliography block", "  function wireChrome(")}
     ({ panelHeadHtml })`, vm.createContext({}));
   const head = X.panelHeadHtml({}, "checking 3…", false);
-  assert.match(head, /<button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings"><svg[\s\S]*?<\/svg><\/button>\s*<button class="close" id="panelClose"/);
+  assert.match(head, /<button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings"><svg[\s\S]*?<\/svg><\/button>\s*<button class="hbtn close" id="panelClose"/);
   assert.match(SRC, /shadow\.getElementById\("panelSettings"\)\?\.addEventListener\("click", \(\) => openSettings\(\)\);/);
   assert.match(SRC, /function openSettings\(section\) \{\n\s+return Promise\.resolve\(sendMsg\(\{ type: "tracely-openSettings", section: section \?\? null \}\)\)\.catch\(\(\) => null\);/);
   assert.match(SRC, /\.hbtn:focus-visible/, "the ink focus ring");

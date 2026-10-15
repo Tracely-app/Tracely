@@ -26,7 +26,7 @@ function load() {
     const MARK_LINE_HEIGHT = 2, MARK_LINE_HEIGHT_HOVERED = 3;
     ${SRC.slice(p0, p1)}
     ${SRC.slice(a, c)}
-    ({ citationMarks, MARK_COLORS, MARK_PATTERN, LEGEND })`, vm.createContext({}));
+    ({ citationMarks, MARK_COLORS, MARK_PATTERN, TAB_LABEL, verdictCat, tipCat })`, vm.createContext({}));
 }
 const X = load();
 
@@ -59,10 +59,13 @@ test("a dismissed note has no mark", () => {
   assert.equal(left.length, all.length - 1);
 });
 
-test("one line for the citation family: amber double, and the legend says so", () => {
+// The legend is the header tabs since 2026-10-14 (panelHeadHtml): a citation note and a missing citation are one tab.
+test("one line for the citation family, and one tab", () => {
   assert.equal(X.MARK_COLORS.cite_tip, X.MARK_COLORS.needs_citation);
   assert.equal(X.MARK_PATTERN.cite_tip, X.MARK_PATTERN.needs_citation);
-  assert.ok(X.LEGEND.some(([v, label]) => v === "needs_citation" && label === "Missing or incomplete citation"));
+  assert.equal(X.verdictCat("needs_citation"), "cite");
+  assert.equal(X.tipCat({ kind: "page" }), "cite");
+  assert.equal(X.TAB_LABEL.cite, "Citations");
 });
 
 test("wired in Docs: located beside the findings, the fact mark stops before a noted citation, its own card", () => {

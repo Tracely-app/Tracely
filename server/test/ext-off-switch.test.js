@@ -72,10 +72,15 @@ test("wired: no sentence is sent on homework, in either mode", () => {
 
 test("Check now is gone; Docs has Turn off, other sites Turn off / Turn on for this site", () => {
   assert.ok(!/id="checkNow"/.test(SRC) && !/Check once/.test(SRC) && !/getElementById\("checkNow"\)/.test(SRC), "no Check now anywhere");
-  assert.match(SRC, /<button class="act" id="turnOff"[^>]*>Turn off<\/button>/);
+  // Since 2026-10-14 (the clean frame) Turn off is the header's power button, beside Settings.
+  assert.match(SRC, /<button class="hbtn" id="turnOff" title="Turn off: [^"]*" aria-label="Turn off Tracely for Google Docs">\$\{POWER_SVG\}<\/button>/);
+  assert.match(SRC, /panelHeadHtml\(tally, [^\n]*\{ note: genreNote\(docGenre, docText, settings\.citationStyle\), power \}\)/, "drawn in the Docs header");
   assert.match(SRC, /shadow\.getElementById\("turnOff"\)\.addEventListener\("click", turnDocsOff\);/);
   assert.match(SRC, /function turnDocsOff\(\) \{\n\s+docsOn = false;\n\s+expanded = false;\n\s+storageSet\(\{ docsEnabled: false \}\);\n\s+hideDocsPopover\(\);\n\s+clearDocsMarks\(\);/);
   assert.match(SRC, /if \(!docsOn\) \{ if \(docsBars\.length\) clearDocsMarks\(\); return; \}/, "no underline is redrawn while off");
-  assert.match(SRC, /id="siteSwitch">\$\{enabled \? "Turn off on this site" : "Turn on for this site"\}<\/button>/);
+  // On: the header's power button. Off: the footer's one button, the only thing the panel can then do.
+  assert.match(SRC, /const siteSwitch = enabled\n\s+\? `<button class="hbtn" id="siteSwitch" title="Turn off on this site" aria-label="Turn off on this site">\$\{POWER_SVG\}<\/button>`\n\s+: `<button class="act primary" id="siteSwitch">Turn on for this site<\/button>`;/);
+  assert.match(SRC, /power: enabled \? siteSwitch : "" \}\)/);
+  assert.match(SRC, /\$\{enabled \? "" : siteSwitch\}\n\s+<\/div>/);
   assert.match(SRC, /shadow\.getElementById\("siteSwitch"\)\.addEventListener\("click", \(\) => setSiteEnabled\(!enabled\)\);/);
 });
