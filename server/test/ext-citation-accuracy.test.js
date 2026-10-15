@@ -31,8 +31,8 @@ test("the owner's paper: eight flags, every one of them real", () => {
   const got = flags(PAPER);
   const want = [
     "vague: Recent studies have demonstrated that students wh",
-    "vague: According to a 2023 study conducted by Harvard Un",
-    "vague: According to a 2024 Pew survey, 26% of U.S. teens",
+    "uncited: According to a 2023 study conducted by Harvard Un", // names its source: a citation issue (2026-10-14)
+    "uncited: According to a 2024 Pew survey, 26% of U.S. teens",
     "vague: Furthermore, a survey of 25 students at a Califor",
     "vague: A study involving 12 college students found that ",
     "vague: Although some researchers have questioned the lon",
@@ -57,7 +57,8 @@ test("an organisation's entry is cited by its initials, or by its name beside it
 test("a study the sentence never names: flagged only where the study does the reporting, in writing that cites sources", () => {
   // The cited sentence is a paragraph of its own: a study the NEXT sentence cites is left alone, by design.
   const cited = (s) => `${s}\n\nScores rose afterwards (Lee, 2021).\n\nReferences\nLee, A. (2021). Scores. Journal of Things.\nKim, B. (2020). Other. Press.\n`;
-  const vague = (s) => Array.from(X.citationHygieneTips(cited(s))).filter((t) => t.kind === "vague").map((t) => t.quote);
+  // A source note of either kind: "vague" (nobody named, Needs evidence) or "uncited" (named, not cited).
+  const vague = (s) => Array.from(X.citationHygieneTips(cited(s))).filter((t) => t.kind === "vague" || t.kind === "uncited").map((t) => t.quote);
   assert.equal(vague("A study involving 12 college students found that 10 liked it.").length, 1);
   assert.equal(vague("According to a 2024 Pew survey, 26% of teens used it.").length, 1);
   assert.equal(vague("Agencies should make it central rather than an experiment on the margins, the evidence suggests.").length, 0, "a word, not a study");

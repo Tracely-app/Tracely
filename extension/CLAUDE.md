@@ -144,6 +144,39 @@ citation notes too. A citation that is only a surname after a reported claim
 ("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
 author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
 
+## A named source is a citation issue; an unnamed one needs evidence
+
+Owner, 2026-10-14, on the flawed AI paper: "According to a 2023 study
+conducted by Harvard University, approximately 87% …" should be a citation
+issue, not "Needs evidence". "A survey of 25 students at a California high
+school found …" should be "Needs evidence", not a citation issue, "as the
+survey hasnt been verified, so you cant classify the claim as correct but
+improperly cited".
+
+`citationHygieneTips` gives each source it doesn't cite one of two kinds:
+- **`uncited`, "Source not cited" (amber, a citation issue).** The sentence
+  names who did the work (`sourceNamedIn`): the study's own "by" or "from"
+  ("study conducted by Harvard University", "research from Stanford"),
+  "according to the National Education Association", or a name in the study
+  itself ("a 2024 Pew survey"). It never counts a place ("at a California
+  high school") or a kind of body ("leading universities"). Its fix is
+  Find a source, then cite.
+- **`vague`, "Needs evidence" (blue).** Nobody is named. It is counted with
+  "need evidence" (`EVIDENCE_TIP_KINDS`), drawn blue (`markKind`
+  questionable) and listed under "Unnamed sources".
+
+The note decides the sentence's kind (`attributionBySentence` →
+`sourceAttr`, passed to `flagShown`). For a named source, the model's
+"needs evidence" and "missing citation" verdicts give way. For an unnamed
+one, only "missing citation" does: the model's own "Needs evidence" card
+stays (with its explanation and its search first) and carries the note
+(`withoutCarriedNotes`, one card, not two). A false or incoherent verdict
+never gives way.
+
+Across the 124 argument-genre documents in the repo, 82 unnamed-source
+notes turn from amber to blue. Only the paper's Harvard and Pew sentences
+are named and uncited. Tests: `server/test/ext-source-attribution.test.js`.
+
 ## A reference list made as a list
 
 Owner, 2026-10-14: Tracely flagged the National Education Association

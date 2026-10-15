@@ -101,6 +101,7 @@ test("citation tips: one section only when there is something to say, dismissabl
 test("wired into both panels, beside Resume tips", () => {
   assert.match(SRC, /quoteTips: true,/);
   assert.equal((SRC.match(/\(FEATURES\.offTopic \|\| FEATURES\.refList \|\| FEATURES\.quoteTips \|\| FEATURES\.essayFeedback\) && isArgumentGenre\(docGenre\)\n\s+\? citationTipsHtml\(\[\.\.\.citeTips, \.\.\.refTips\], copiedTipId\) \+ essayFeedbackHtml\(\[\.\.\.essayNotes, \.\.\.offTopic\], review\.inflight && review\.kind === \"essay\", copiedTipId, review\.kind === \"essay\" \? resolvedNotes\(review\.seen, essayNotes, (?:docText|fieldText)\) : \[\]\)/g) || []).length, 2);
-  assert.equal((SRC.match(/const citeTips = FEATURES\.quoteTips && isArgumentGenre\(docGenre\) \? citationTips\((?:docText|fieldText), settings\.citationStyle, dismissed, docGenre\) : \[\];/g) || []).length, 2);
+  // withoutCarriedNotes (2026-10-14): an unnamed source the check already flagged "Needs evidence" is one card, not two.
+  assert.equal((SRC.match(/const citeTips = FEATURES\.quoteTips && isArgumentGenre\(docGenre\) \? withoutCarriedNotes\(citationTips\((?:docText|fieldText), settings\.citationStyle, dismissed, docGenre\), issues\) : \[\];/g) || []).length, 2);
   assert.equal((SRC.match(/const genreHtml = FEATURES\.resumeTips \|\| FEATURES\.quoteTips \? genreLineHtml\(docGenre, (?:docText|fieldText), settings\.citationStyle\) : "";/g) || []).length, 2);
 });

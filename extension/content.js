@@ -78,7 +78,16 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text, covered = false, attribution = "") => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
+    // What the sentence says about its own source decides its kind (owner,
+    // 2026-10-14; attributionBySentence): a source it names but doesn't cite
+    // ("a 2023 study conducted by Harvard University") is a citation issue,
+    // its "Source not cited" note; one nobody could find ("a survey of 25
+    // students at a California high school") needs evidence, never "accurate
+    // but uncited". A note carries it, so the model's softer verdict gives
+    // way; a false or incoherent one never does.
+    && !(attribution === "named" && (f.verdict === "questionable" || f.verdict === "needs_citation"))
+    && !(attribution === "unnamed" && f.verdict === "needs_citation")
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -1962,6 +1971,27 @@
     // Who did it is in the reference list: the writer cites it the way they cite the rest.
     return !who.some((w) => refs.includes(w));
   }
+  /* Who a sentence says the study or claim is from, when it says: "Harvard
+     University" in "a 2023 study conducted by Harvard University", "Pew" in
+     "a 2024 Pew survey", "Stanford" in "research from Stanford shows". Not
+     where it happened ("a survey of 25 students at a California high
+     school"), not a kind of body ("leading universities"), and a "by" only
+     just after the study ("caused by Germany" names no source). "" when it
+     names no one. Owner, 2026-10-14: named and uncited is a citation issue;
+     named by no one, the claim needs evidence. */
+  // The study's own "by"/"from", right after it or its verb: "study conducted by", "research from", "report published by".
+  const STUDY_BY = /\b(?:[Ss]tudy|[Ss]tudies|[Ss]urveys?|[Rr]eports?|[Pp]olls?|[Ee]xperiments?|[Aa]nalysis|[Rr]esearch|[Dd]ata|[Ff]indings)(?:\s+(?:conducted|carried out|published|released|run|done|led|commissioned|funded|performed))?\s+(?:by|from|at)\s+(?:the\s+)?([\p{Lu}][\p{L}&.'’-]*(?:\s+(?:of\s+)?[\p{Lu}][\p{L}&.'’-]*){0,5})/u;
+  const SAID_BY = /\b[Aa]ccording to (?:the\s+)?([\p{Lu}][\p{L}&.'’-]*(?:\s+(?:of\s+)?[\p{Lu}][\p{L}&.'’-]*){0,5})/u;
+  function sourceNamedIn(s) {
+    const named = (phrase) => String(phrase).split(/\s+/).some((w) => w.length > 2 && !GROUP_SMALL.test(w) && !GENERIC_BODY.test(w));
+    for (const re of [STUDY_BY, SAID_BY]) {
+      const p = (s.match(re) ?? [])[1];
+      if (p && named(p)) return p.trim();
+    }
+    const study = (s.match(UNNAMED_STUDY) ?? [])[0] ?? "";
+    const caps = (study.match(/[\p{Lu}][\p{L}&.'’-]*/gu) ?? []).filter((w) => w.length > 2 && !GENERIC_BODY.test(w));
+    return caps.join(" ");
+  }
   const VERIFY_NOTE = /\b(?:requires?|needs?|pending|awaiting) (?:further )?verification\b|\b(?:citation|source) needed\b|\bto be verified\b/i;
   const PRESTIGE_EXCUSE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
   const BAD_INLINE = /\[[^\]\n]{3,120}\/[^\]\n]{1,120}\]|\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i;
@@ -2006,10 +2036,29 @@
         const { raw, name } = nameOnlyCitation(s, text);
         out.push({ quote: s, kind: "nameonly", message: `${raw} names a person, not which of their works you mean. Find the cited work lists what ${name} has published on this subject — cite the one that makes this point, with its year.` });
       }
-      else if (VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) out.push({ quote: s, kind: "vague", message: "An unnamed source is not a citation: say which researchers or study, and cite it — or remove the claim." });
-      // Only in writing that cites its sources: there an uncited study stands out (elsewhere the check's own "Missing citation" asks).
-      else if (citesSources && unnamedStudy(s, next, refsText)) out.push({ quote: s, kind: "vague", message: "This doesn't say which study it is, so a reader can't find it: give its authors, title and year, and cite it — or remove the claim." });
+      // A source the sentence leans on without citing it (owner, 2026-10-14): one it names is a citation
+      // issue ("uncited"); one nobody could look up leaves the claim with no evidence ("vague", Needs evidence).
+      // The study rule only runs in writing that cites its sources: there an uncited study stands out
+      // (elsewhere the check's own "Missing citation" asks).
+      else if ((VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) || (citesSources && unnamedStudy(s, next, refsText))) {
+        const who = sourceNamedIn(s);
+        out.push(who
+          ? { quote: s, kind: "uncited", source: who, message: `This names its source (${who}) but doesn't cite it, so a reader can't find the exact work. Add an in-text citation and a reference entry for it.` }
+          : { quote: s, kind: "vague", message: "This doesn't say who found it, so no one can check it, and as written no evidence backs it. Find a source that does and cite it, or cut the claim." });
+      }
       if (out.length >= 8) break;
+    }
+    return out;
+  }
+  /* sentence hash → "named" | "unnamed": what each sentence's source note
+     (citationHygieneTips "uncited" / "vague") says about where it got its
+     claim. flagShown reads it, so the note decides the sentence's kind. */
+  function attributionBySentence(text, segs) {
+    const out = new Map();
+    const notes = citationHygieneTips(text).filter((t) => t.kind === "uncited" || t.kind === "vague");
+    for (const seg of Array.isArray(segs) ? segs : []) {
+      const t = notes.find((n) => tipCoversSentence(seg.text, n.quote));
+      if (t) out.set(seg.hash, t.kind === "uncited" ? "named" : "unnamed");
     }
     return out;
   }
@@ -2909,7 +2958,7 @@
     return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg?.hash ?? null, sentence: seg?.text ?? "" } : null;
   }
   // The notes whose fix is a source for the claim they excuse or hedge.
-  const TIP_FIND_SOURCE = ["excuse", "placeholder", "vague"];
+  const TIP_FIND_SOURCE = ["excuse", "placeholder", "vague", "uncited"];
   // A lookup that answered nothing usable, in words that never call a source fake.
   function citedFailureNote(err) {
     const kind = err?.kind;
@@ -3023,7 +3072,7 @@
     ["writing", "note_tip", (n) => `${n} writing ${n === 1 ? "note" : "notes"}`],
   ];
   const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" ? "cite" : "wrong");
-  const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : "writing");
+  const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : EVIDENCE_TIP_KINDS.includes(t?.kind) ? "check" : "writing");
   // The header's counts: the claims' verdicts, and every note the list shows.
   function tallyOf(verdicts, tips) {
     const c = { wrong: 0, check: 0, cite: 0, writing: 0 };
@@ -3101,7 +3150,7 @@
     documents: "Document evidence (DBQ)", sourcing: "Sourcing (DBQ)", complexity: "Complexity (DBQ)",
     relevance: "Doesn't support the argument", source: "Source problem", quotation: "Quotation problem", citation: "Citation problem",
     bibliography: "Works Cited problem", reasoning: "Reasoning", contradiction: "Contradiction",
-    vague: "Unnamed source", nameonly: "Citation names no work", nolist: "No Works Cited", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
+    vague: "Needs evidence", uncited: "Source not cited", nameonly: "Citation names no work", nolist: "No Works Cited", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
   const NOTE_ACTION = { delete: "Delete this", rewrite: "Rewrite", cite: "Add a real source", needs_info: "Needs more information" };
   const NOTE_STATUS = { confirmed: "confirmed", unsupported: "unsupported", unverified: "unverified", possible: "possible" };
   function resumeTips(text, modelFindings, dismissed) {
@@ -3140,14 +3189,21 @@
      an essay with every quote paged gets no empty section. */
   function citationTips(text, style, dismissed, genre = "prose") {
     // A DBQ cites its documents by number: no page, no Works Cited entry, no source for its outside evidence.
-    const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague"].includes(t.kind);
+    const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague", "uncited"].includes(t.kind);
     return [...quoteCitationTips(text, style), ...citationHygieneTips(text)].filter(notInDbq)
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
       .filter((t) => !dismissed.has(t.id));
   }
   // The citation notes and the reference list's, as one group: both are about citing.
+  // Sources nobody could find are claims that need evidence: a group of their own, before the citations.
   function citationTipsHtml(tips, copiedId) {
-    return tips.length ? tipsSectionHtml("Citations", tips, "", copiedId) : "";
+    const unnamed = tips.filter((t) => tipCat(t) === "check"), rest = tips.filter((t) => tipCat(t) !== "check");
+    return (unnamed.length ? tipsSectionHtml("Unnamed sources", unnamed, "", copiedId) : "") + (rest.length ? tipsSectionHtml("Citations", rest, "", copiedId) : "");
+  }
+  /* A sentence the model already flagged "Needs evidence" carries its own
+     unnamed-source note: one card, not two of the same kind. */
+  function withoutCarriedNotes(tips, issues) {
+    return tips.filter((t) => !(EVIDENCE_TIP_KINDS.includes(t.kind) && issues.some(({ seg, f }) => f?.verdict === "questionable" && tipCoversSentence(seg.text, t.quote))));
   }
   // Lines that share no word with the rest of the essay (offTopicSentences): shown only when there is one.
   const OFF_TOPIC_MESSAGE = "Nothing in this line connects to the rest of your writing. If it doesn't belong, delete it; if it does, tie it to your point.";
@@ -3359,7 +3415,8 @@
     for (const t of citationTips(text, style, dismissed, genre)) {
       const at = text.indexOf(t.quote);
       if (at < 0) continue;
-      if (t.kind !== "page") { out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false }); continue; }
+      // A source nobody could find is drawn as what it is, a claim that needs evidence (blue).
+      if (t.kind !== "page") { out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false, ...(EVIDENCE_TIP_KINDS.includes(t.kind) ? { markKind: "questionable" } : {}) }); continue; }
       const p = t.quote.lastIndexOf("(");
       if (p < 0) continue;
       out.push({ ...t, start: at + p, end: at + t.quote.length, mark: t.quote.slice(p), lastCopy: false });
@@ -3411,8 +3468,10 @@
      a citation (cite_tip), blue for one on the writing (note_tip). A note
      with no underline — a resume line, a stray line — has none: colour only
      ever means a finding someone can see in the text. */
-  const CITE_TIP_KINDS = ["page", "vague", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete", "nolist"];
-  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-note" : "");
+  const CITE_TIP_KINDS = ["page", "uncited", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete", "nolist"];
+  // A source nobody could find ("vague") needs evidence: blue, counted with the claims that do (owner, 2026-10-14).
+  const EVIDENCE_TIP_KINDS = ["vague"];
+  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : EVIDENCE_TIP_KINDS.includes(t.kind) ? "d-quest" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-note" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
@@ -4451,6 +4510,7 @@
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
+    let sourceAttr = new Map(); // sentence hash → "named" | "unnamed": what its source note says (attributionBySentence)
     let inflight = false;
     // The writer's own searches in flight (fetchSources). An automatic one
     // never counts here, so it can never make a press wait or do nothing.
@@ -4613,6 +4673,7 @@
         settleEditStates(readAt);
         if (inheritVerdicts(before)) persistCaches();
         citedLater = coveredByLaterCitation(docText, segments);
+        sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(docText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
         if (!settings.styleChosen) settings.citationStyle = docCitationStyle(docText) ?? "mla"; // cite the way the doc already does
@@ -4667,7 +4728,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash), sourceAttr.get(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -5682,6 +5743,7 @@
       const tips = [];
       for (const t of allTips) {
         const host = issues.find(({ seg }) => tipCoversSentence(seg.text, t.mark));
+        if (host && EVIDENCE_TIP_KINDS.includes(t.kind) && host.f.verdict === "questionable") continue; // the same kind, already its card (withoutCarriedNotes)
         if (host) coTipsByHash.set(host.seg.hash, [...(coTipsByHash.get(host.seg.hash) ?? []), t]);
         else if (tips.length < Math.max(0, 40 - issues.length)) tips.push(t);
       }
@@ -6793,7 +6855,7 @@
         const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash), sourceAttr.get(x.hash)) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -8836,7 +8898,7 @@
         else left++;
       }
       for (const n of notes ?? []) {
-        const act = n.deletes ? "delete" : n.kind === "vague" && n.claim ? "name" : n.kind === "nolist" ? "list" : null;
+        const act = n.deletes ? "delete" : (n.kind === "vague" || n.kind === "uncited") && n.claim ? "name" : n.kind === "nolist" ? "list" : null;
         if (act) items.push({ key: n.key, start: n.start, act, kind: n.kind });
         else left++;
       }
@@ -9629,7 +9691,7 @@
       }));
       const notes = [...tipMarkById.values()].map((tip) => ({
         key: tip.id, kind: tip.kind, start: Math.max(0, docText.indexOf(tip.quote)),
-        deletes: canDeleteTip(tip), claim: tip.kind === "vague" && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0,
+        deletes: canDeleteTip(tip), claim: (tip.kind === "vague" || tip.kind === "uncited") && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0,
       }));
       // No underline to hang it on: the missing list sits after everything else.
       const nolist = FEATURES.refList && genreWantsList(docGenre) ? allTips().find((t) => t.kind === "nolist") : null;
@@ -10284,7 +10346,7 @@
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
-      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(docText, settings.citationStyle, dismissed, docGenre) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? withoutCarriedNotes(citationTips(docText, settings.citationStyle, dismissed, docGenre), issues) : [];
       const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(docText, review.findings, dismissed) : [];
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
       const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
@@ -10743,6 +10805,7 @@
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
+    let sourceAttr = new Map(); // sentence hash → "named" | "unnamed" (attributionBySentence)
     let inflight = false;
     let sourcesInflight = 0; // the writer's own searches in flight, as in Docs mode
     const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote)
@@ -11047,10 +11110,11 @@
       const seen = new Set();
       const liveSegs = segmentText(liveText);
       const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      const liveAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(liveText, liveSegs) : new Map();
       // One underline per span (tipCoversSentence): a note over the whole of a
       // flagged sentence is not drawn — the sentence's mark opens the panel,
       // where both cards are.
-      const flaggedText = liveSegs.filter((seg) => seg.checkable && !dismissed.has(seg.hash) && flagShown(cache.get(seg.hash), settings, docGenre, seg.text, liveCovered.has(seg.hash))).map((seg) => seg.text);
+      const flaggedText = liveSegs.filter((seg) => seg.checkable && !dismissed.has(seg.hash) && flagShown(cache.get(seg.hash), settings, docGenre, seg.text, liveCovered.has(seg.hash), liveAttr.get(seg.hash))).map((seg) => seg.text);
       for (const tip of tips) {
         if (flaggedText.some((t) => tipCoversSentence(t, tip.mark))) continue;
         const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
@@ -11063,7 +11127,7 @@
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash))) {
+        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash), liveAttr.get(seg.hash))) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -11216,7 +11280,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash), sourceAttr.get(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -11248,6 +11312,7 @@
         segments = segmentText(fieldText);
         if (inheritVerdicts(before)) persistFieldCache();
         citedLater = coveredByLaterCitation(fieldText, segments);
+        sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(fieldText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {
@@ -11710,7 +11775,7 @@
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed, docGenre, settings.citationStyle) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
-      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(fieldText, settings.citationStyle, dismissed, docGenre) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? withoutCarriedNotes(citationTips(fieldText, settings.citationStyle, dismissed, docGenre), issues) : [];
       const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(fieldText, review.findings, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
