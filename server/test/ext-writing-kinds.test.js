@@ -16,8 +16,10 @@
  *     blind once (75.0% exact, 13.1% in the wrong group; main: 37.2% in the
  *     wrong group), then read for general fixes, so no longer blind.
  *   fixtures/writing-kinds-fresh.js — 312 more by eight new writers, written
- *     after those fixes and scored once. Keep it untuned: it is the honest
- *     number.
+ *     after those fixes and scored once: 72.1% exact, 13.5% in the wrong group
+ *     (5 checked documents read as quiet), the header wrong on 13.8%; main:
+ *     37.5% in the wrong group, 12 read as quiet. Keep it untuned: it is the
+ *     honest number.
  *
  * "Wrong group" is the miss that changes what is checked (a story read as an
  * essay); "the header" is what the chip names, which may be the kind, the
@@ -88,7 +90,7 @@ test("the once-blind corpus: 79% named exactly, at most 9% in the wrong group, t
   assert.ok(r.toQuiet <= 1, `${r.toQuiet} checked documents read as quiet`);
 });
 
-test("the fresh corpus, scored once and left untuned", { skip: !existsSync(FRESH) && "no fresh corpus" }, async () => {
+test("the fresh corpus, scored once and left untuned: at most 14% in the wrong group, the header wrong at most 14%", { skip: !existsSync(FRESH) && "no fresh corpus" }, async () => {
   const docs = Object.values(await import(pathToFileURL(FRESH)))[0];
   assert.ok(docs.length >= 300);
   const r = score(docs);
@@ -97,7 +99,7 @@ test("the fresh corpus, scored once and left untuned", { skip: !existsSync(FRESH
   assert.ok(pct(r.chipWrong, r.n) <= FRESH_BAR.chipWrong, `the header wrong on ${r.chipWrong}/${r.n}`);
   assert.ok(r.toQuiet <= FRESH_BAR.toQuiet, `${r.toQuiet} checked documents read as quiet`);
 });
-const FRESH_BAR = { wrongGroup: 100, chipWrong: 100, toQuiet: 312 }; // set from its one scoring
+const FRESH_BAR = { wrongGroup: 14, chipWrong: 14, toQuiet: 5 }; // its one scoring, 2026-10-15: 13.5%, 13.8%, 5
 
 test("the three moves the owner approved: a blog post and an op-ed name their sources; a reference list alone is not asked to be cited", () => {
   assert.equal(K.blog.genre, "news");

@@ -670,7 +670,25 @@ paragraphs of 40 words or more, little dialogue, not a first-person story).
 It names argumentative or informative only on a strong signal, and otherwise
 names nothing. The checks still treat it as an essay.
 
-FRESH_MEASURED_PLACEHOLDER
+**Measured** on invented documents, five or more of every kind in each set,
+by 24 writers who never saw the detector (`server/test/fixtures/`):
+- **Tuned on (313):** 86.9% the exact kind, 3.2% in a group that changes
+  the checks, the header wrong on 3.8%.
+- **Scored blind once, then learned from (312):** 75.0% exact and 13.1% in
+  the wrong group blind (main: 37.2%); 80.1% and 8.7% after.
+- **Fresh, scored once and untuned (312), the honest number:** 72.1% exact,
+  13.5% in the wrong group (5 checked documents read as quiet), the header
+  wrong on 13.8%. Main on the same: 37.5% in the wrong group, 12 read as
+  quiet. Keep it untuned.
+- **The 157 older documents:** as main, but for the moves above, and two of
+  main's misses now right.
+- **Cost:** about 1 ms a read, 18 ms for 8,500 words; an unchanged text is
+  not read again (`kindRead`).
+
+What it still misses on new writing is a long tail: a first-person story
+read as a personal essay, an op-ed with no byline or masthead read as an
+argument, a prose poem, a document in a shape no rule knows yet (a recall
+notice, an R script with long comments).
 
 Not checked in a browser: the harness page stands down while the browser
 pane is hidden. Tests: `server/test/ext-writing-kinds.test.js`,
