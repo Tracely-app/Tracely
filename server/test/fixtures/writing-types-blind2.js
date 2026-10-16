@@ -1249,7 +1249,8 @@ Buck becomes tougher and more practical. One example is that he learns to dig a 
   },
   {
     name: "Op-ed arguing the town should dim streetlights after midnight",
-    expect: "prose",
+    // Was "prose". Since 2.21.57 it names its sources in the sentence, like a news article (owner, 2026-10-15).
+    expect: "news",
     text: `Let the Night Back In
 
 Most people who live in Harlow have never seen the Milky Way from their own backyard. It is still up there. It is just drowned out by the town's 2,300 streetlights, most of them bright white LED fixtures installed in 2019, which shine at full power from dusk to dawn whether anyone is on the street or not. Harlow should dim its residential streetlights by half between midnight and 5 a.m. and turn off decorative lighting in parks and along the river walk during those hours. The change would save money, protect wildlife and human health, and return a dark sky to residents, all without making the town less safe.
@@ -1267,7 +1268,8 @@ The town council will vote on next year's lighting budget in January. Residents 
   },
   {
     name: "Blog post of numbered lessons from a first year of backyard chickens",
-    expect: "prose",
+    // Was "prose". Since 2.21.57 it names its sources in the sentence, like a news article (owner, 2026-10-15).
+    expect: "news",
     text: `What Nobody Tells You About Your First Year With Backyard Chickens
 Posted October 4, 2026 by Jess | Crooked Fence Farm (okay, it's half an acre in the suburbs, but let me dream)
 

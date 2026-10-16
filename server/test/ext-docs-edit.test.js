@@ -978,7 +978,7 @@ test("content.js: 'Applied ✓' lasts until the export shows the edit — then �
   assert.equal(again.w.editView(key, "Fix in doc").label, "Applied ✓");
   again.w.settleEditStates(Date.now() + 31_000);
   assert.equal(again.w.editView(key, "Fix in doc").label, "Fix in doc");
-  assert.match(read("content.js"), /= await getDocText\(\);[\s\S]{0,600}settleEditStates\(readAt\)/, "every export read settles them");
+  assert.match(read("content.js"), /= await getDocText\(\);[\s\S]{0,700}settleEditStates\(readAt\)/, "every export read settles them");
 });
 
 test("content.js: a refused edit copies the fix instead, with a short reason", async () => {

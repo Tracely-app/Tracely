@@ -28,14 +28,14 @@
 /* FILE MAP — one file, no build step, two developers editing it at once.
    Sections, by the line their anchor sits on (regenerate the numbers with
    `grep -n` when you move things; the anchors themselves must not move):
-        56  Verdicts, card copy, colours, FEATURES switches
-       378  Settings and plan gate
-       630  Shared helpers: hashing, bibliography, citation formatting
-       987  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1311  Genre detection, evidence suggestions, local checks
-      2311  Widget chrome, API transport, design tokens
-      2769  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-      6589  Field mode (textareas and contenteditables on any site)
+        63  Verdicts, card copy, colours, FEATURES switches
+       353  Settings and plan gate
+       692  Shared helpers: hashing, bibliography, citation formatting
+      1100  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1376  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      3712  Widget chrome, API transport, design tokens
+      5109  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     11874  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -1452,7 +1452,7 @@
      that prompt still sends. Deliberately strict: a resume needs two section
      headings of its own AND contact details or date ranges, and is not mostly
      full sentences. An essay that says "experience" in a heading is not one. */
-  const RESUME_HEADING = /^(?:education|(?:work |professional |relevant )?experience|employment(?: history)?|skills(?:\s*[/&]\s*interests)?|technical skills|projects|certifications?|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary|profile|objective|interests|languages|publications|references)$/i;
+  const RESUME_HEADING = /^(?:education(?:\s*[/&]?\s*(?:and )?(?:training|certifications?))?|(?:work |professional |relevant )?experience|(?:employment|work|career) history|employment|(?:key |core |technical )?skills(?:\s*[/&]\s*(?:interests|tools))?|projects|certifications?(?:\s*[/&]?\s*(?:and )?training)?|training|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary(?: of qualifications)?|qualifications|highlights|profile|objective|interests|languages|publications|references|what I can do)$/i;
   const MONTH = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
   const DATE_RANGE = new RegExp(`\\b${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}\\s*[–—-]\\s*(?:${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}|Present|Current|Now)\\b|\\b(?:19|20)\\d{2}\\s*[–—-]\\s*(?:(?:19|20)\\d{2}|Present|Current|Now)\\b`, "gi");
   /* A letter or email: it opens with a salutation and closes with a sign-off.
@@ -1460,7 +1460,7 @@
      no citation flags (flagShown). Checked before the length floor, because
      an email is often four lines. Both ends are required for anything longer
      than a short note: "Hi" alone opens plenty of blog posts. */
-  const SALUTATION = /^(?:dear|hi|hello|hey|greetings|good (?:morning|afternoon|evening)|to whom it may concern|to the (?:editor|editors|admissions committee|selection committee|hiring committee))\b[^!?\n]{0,60}[,:!]?$/i;
+  const SALUTATION = /^(?:dear|hi|hello|hey|greetings|good (?:morning|afternoon|evening)|to whom it may concern|to the (?:editor|editors|admissions committee|selection committee|hiring committee))\b[^!?\n]{0,60}[,:!]*$/i;
   const SIGNOFF_WORDS = "sincerely|sincerely yours|best|best regards|best wishes|all the best|kind regards|warm regards|warmest regards|warm wishes|regards|respectfully|respectfully yours|thanks|thank you|thanks so much|thank you so much|thanks again|thank you again|many thanks|with gratitude|gratefully|cheers|warmly|love|with love|lots of love|take care|talk soon|see you soon|yours|yours truly|yours sincerely|yours faithfully|cordially";
   const SIGNOFF = new RegExp(`^(?:${SIGNOFF_WORDS}|(?:thanks|thank you)(?: so much| again)? for [^,.!?]{2,40})[,.!]?$`, "i");
   /* Homework, not writing. Owner, 2026-10-04: Tracely "keeps trying to help
@@ -1494,7 +1494,8 @@
     const asked = items.filter((l) => NUMBERED_ITEM.test(l) && (TASK_START.test(l) || /\?["”’)]?$/.test(l))).length;
     // Worked math — "3x + y = 16" line after line — and a sheet that says what it is.
     const mathy = items.filter((l) => /[=≈≤≥]/.test(l) && /\d/.test(l) && l.split(/\s+/).length <= 16).length;
-    const sheet = /^(?:directions?\s*:|worksheet\b|show (?:all )?(?:of )?your work|answer key\b)|\bworksheet\b/im.test(items.slice(0, 4).join("\n"));
+    const sheet = /^(?:directions?\s*:|worksheet\b|show (?:all )?(?:of )?your work|answer key\b)|\bworksheet\b/im.test(items.slice(0, 4).join("\n"))
+      || (/\bpart [a-e]\s*[:.)–-]|\bfill in the blank|\banswer (?:each|the following|in complete sentences)|\btrue or false\b|\bmultiple choice\b|\bshort answer\b|\bproblem set\b/im.test(items.slice(0, 5).join("\n")) && !looksLikeLab(items));
     return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4) || (asked >= 3 && asked / items.length >= 0.25)
       || (mathy >= 4 && mathy / items.length >= 0.3) || (sheet && (asked >= 2 || mathy >= 3 || items.filter((l) => NUMBERED_ITEM.test(l)).length >= 3));
   }
@@ -1515,26 +1516,270 @@
      literary essay's quotations, a news story's attributions, and last the
      voice — a story's dialogue, a personal essay's looking back. Anything
      else is an essay ("prose"). Measured on
-     server/test/fixtures/writing-types.js (ext-writing-types.test.js). */
-  function detectGenre(text) {
+     server/test/fixtures/writing-types.js (ext-writing-types.test.js).
+
+     Since 2.21.57 (owner, 2026-10-15: "Fix it for a plethora of writing, so
+     it is very unlikely that tracely will detect something wrong") it tells
+     56 kinds apart (WRITING_KINDS), and the kind's genre is what decides the
+     checks. Every kind is scored (kindScores) and the highest wins, so one
+     stray cue no longer decides: the shapes that are nothing else score
+     highest (code, song tags, a press release's dateline, a memo's head, a
+     document that names itself in its title), then the old order as
+     strengths, then the voices. A kind with no clear win falls back to the
+     broader name ("Essay"). In a field, the site counts too (placeKind). */
+  function detectGenre(text, place = "") {
+    return WRITING_KINDS[detectKind(text, place)]?.genre ?? "prose";
+  }
+  const detectKind = (text, place = "") => readKind(text, place).kind;
+  /* { kind, shown }: the kind (its genre decides the checks) and the kind
+     the header names, "" for none. Measured on 625 documents (2026-10-15):
+     a kind recognised by its own shape or words (a score above 1) is right
+     98% of the time from 7 up; one read off an essay's cues alone (score 1)
+     was wrong 43% of the time, often not an essay at all. So with nothing
+     specific recognised the header says "Essay" only when the text looks
+     like one (three paragraphs or more, little dialogue, not a first-person
+     story), names an essay's own kind only on a strong signal, and
+     otherwise names nothing; the checks still treat it as an essay. */
+  let kindRead = { key: null, value: null }; // the last answer: a read of unchanged text costs nothing (~18 ms for 8,500 words)
+  function readKind(text, place = "") {
+    const key = `${place}\n${text}`;
+    if (kindRead.key === key) return kindRead.value;
+    const value = readKindOf(text, place);
+    kindRead = { key, value };
+    return value;
+  }
+  function readKindOf(text, place) {
     const raw = String(text ?? "").replace(/\r\n?|[\u000b\u2028\u2029]/g, "\n");
     const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) return "prose";
+    if (!lines.length) return { kind: "essay", shown: "" };
+    const scores = kindScores(raw, lines);
+    placeKind(scores, String(place ?? ""), raw);
+    let best = "essay", top = 0;
+    for (const [k, v] of scores) if (v > top) { best = k; top = v; } // a tie goes to the one scored first
+    if (top > 1) return { kind: best, shown: best };
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    const stance = ((raw.match(STANCE_CUE) ?? []).length * 1000) / Math.max(1, words);
+    const quotes = (raw.match(/["“][^"”\n]{2,}["”]/g) ?? []).length;
+    const fp = firstPersonShare(raw);
+    const essayLike = lines.filter((l) => l.split(/\s+/).length >= 40).length >= 3 && quotes <= 6 && fp < 0.04;
+    if (!essayLike) return { kind: best, shown: "" };
+    if (best === "compare" || best === "cause" || best === "problem") return { kind: best, shown: best };
+    if (best === "argumentative" && stance >= 8) return { kind: best, shown: best };
+    if (best === "informative" && stance <= 1 && fp < 0.004 && quotes <= 2) return { kind: best, shown: best };
+    return { kind: best, shown: "essay" };
+  }
+  /* Each kind's score: how sure its evidence makes it. 9.5 and up, a shape
+     that is nothing else, or the document naming itself; 8 to 9, a strong
+     form (a letter's two ends, a memo's head, minutes); 6 to 8, the old
+     order's shapes, earlier ones stronger; 4 to 6, the essays' and the
+     voices' cues; 1, an essay of its own kind (essayKindOf). A kind named
+     only weakly in the title ("… notes", "Persuasive speech") adds to what
+     its shape already says, never on its own. */
+  function kindScores(raw, lines) {
+    const s = new Map();
+    const add = (k, v) => { if (v > (s.get(k) ?? 0)) s.set(k, v); };
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    const essay = essayKindOf(raw, lines, words);
+    add(essay, essay === "compare" ? 4.5 : 1); // a comparison holds its shape in the first person too
+    const named = namedKinds(lines);
+    named.strong.forEach((k, i) => add(k, (NAMED_FIRST.includes(k) ? 9.7 : 9.5) - i / 100)); // the first named is the one
+    // Shapes that are nothing else.
+    if (looksLikeCode(lines)) add("code", 9.5);
+    const tags = lines.filter((l) => LYRIC_TAG.test(l)).length;
+    if (tags >= 2) add("lyrics", 9.5);
+    if (looksLikePressRelease(raw, lines)) add("pressrelease", 9.5);
+    if (/^resolved\s*[:,]/im.test(raw)) add("debate", 9.3);
+    const memo = memoScore(lines);
+    if (memo) add("memo", memo);
+    if (countDistinct(raw, MEETING_CUE) >= 3) add("meeting", 9);
+    if (looksLikeLessonPlan(raw)) add("lessonplan", 9.6); // over what it teaches ("Personal Narrative Unit, Lesson 4")
+    if (lines.filter((l) => SLIDE_CUE.test(l)).length >= 2) add("presentation", 9);
+    if (looksLikeSurvey(raw, lines)) add("survey", 9);
+    if (looksLikeRefList(lines)) add("workscited", 8.9);
+    if (looksLikeInterview(lines)) add("feature", 8.6);
+    if (countDistinct(raw, DISCUSSION_CUE) >= 2 && DISCUSSION_TALK.test(raw)) add("discussion", 8.3);
+    if (countDistinct(raw, PEER_CUE) >= 3 && countDistinct(raw, FEEDBACK_CUE) >= 3) add("peerreview", 8.3);
+    // The old order, as strengths.
     const letter = letterKind(raw, lines);
-    if (letter) return letter;
-    if (looksLikeHomework(raw)) return "homework";
-    if (looksLikeScript(lines)) return "script";
-    if (lines.length >= 6 && looksLikeResume(raw, lines)) return "resume";
-    if (looksLikeDbq(raw)) return "dbq";
-    if (looksLikeAnnotated(lines)) return "annotated";
-    if (looksLikeSpeech(raw, lines)) return "speech";
-    if (looksLikeLab(lines)) return "lab";
-    if (looksLikePoem(raw, lines)) return "poem";
-    if (looksLikeNotes(lines)) return "notes";
-    const kind = essayKind(raw, lines);
-    if (kind !== "prose") return kind;
-    if (looksLikeNews(raw, lines)) return "news";
-    return narrativeKind(raw) ?? "prose";
+    if (letter) add(letter, 8);
+    const math = mathWork(lines);
+    const tasks = looksLikeHomework(raw);
+    if (tasks) add(math ? "math" : "homework", named.strong.includes("lab") && !math ? 9.6 : 7.6); // "Lab 4: Motion graphs" over numbered questions is a worksheet; a lab's calculations are a lab's
+    else if (math) add("math", 7.6);
+    const script = scriptKind(lines) ?? ((raw.match(SCRIPT_MARKS) ?? []).length >= 3 || lowercaseCues(lines) ? "script" : null);
+    if (script) add(script, 7.4);
+    // A Model UN position paper's head (Committee / Country / Delegate), or a debate's own words.
+    if (lines.slice(0, 8).filter((l) => /^(?:committee|country|delegate|delegation|topic|school)\s*:/i.test(l)).length >= 3) add("debate", 9);
+    if (lines.length >= 6 && looksLikeResume(raw, lines)) add("resume", 7.2);
+    if (looksLikeDbq(raw)) add(looksLikeSynthesis(raw) ? "synthesis" : "dbq", 7);
+    if (BLOG_SAYS.test(raw)) add("blog", 7);
+    if (countDistinct(raw, DEBATE_CUE) >= 2) add("debate", 6.9);
+    if (looksLikeAnnotated(lines)) add("annotated", 6.8);
+    if (looksLikeSpeech(raw, lines)) add("speech", 6.6);
+    if (lines.filter((l) => /^(?:note )?card\s*#?\d+\b/i.test(l)).length >= 2) add("speech", 7); // a speech on note cards
+    if (looksLikeLab(lines)) add("lab", 6.4);
+    const proposal = proposalScore(raw, lines);
+    if (proposal) add("proposal", proposal);
+    if (looksLikeLabDraft(raw, lines)) add("lab", 6.1); // over plain notes: a lab is checked
+    if (looksLikePoem(raw, lines)) add(tags || repeatedStanza(raw) ? "lyrics" : "poem", 6.2);
+    // A draft's notes to self ("[check: …]", "TODO: …") are not its shape.
+    const own = lines.filter((l) => !/^\[[^\]]*\]$|^(?:todo|note to self|ntm)\b/i.test(l));
+    const drafted = own.length < lines.length && own.filter((l) => l.split(/\s+/).length >= 40).length >= 2;
+    const list = drafted ? null : listKind(raw, own);
+    if (list) add(list[0], list[1]);
+    if (!drafted && looksLikeNotes(own)) add("notes", 6);
+    // Essays and papers, by what they do.
+    const listed = worksCitedBlock(raw);
+    const noted = (raw.match(/[.!?,;”"’)][¹²³⁴⁵⁶⁷⁸⁹⁰]+|\[\d{1,3}\]/g) ?? []).length;
+    if ((essay === "informative" || essay === "essay") && ((listed && listed.entries.length >= 4 && (raw.slice(0, listed.headStart).match(WORK_CITE) ?? []).length >= 4) || (noted >= 5 && /^(?:notes|endnotes|bibliography|works cited|references)\s*:?$/im.test(raw)))) add("research", 5);
+    const paper = essayKind(raw, lines);
+    if (paper !== "prose") add(paper, paper === "research" && lines.some((l) => /^(?:abstract|methods?|methodology|participants)\s*:?$/i.test(l.replace(/^(?:\d+|[IVX]+)[.)]?\s+/, ""))) ? 6.5 : 5);
+    if (looksLikeLitReview(raw, words)) add("litreview", 5.5);
+    if (looksLikeCaseStudy(raw, lines)) add("casestudy", 5.5);
+    if (countDistinct(raw, RHETORIC_CORE) >= 3 && RHETORIC_ANCHOR.test(raw) && (raw.match(/\b(?:the (?:novel|poem|narrator|protagonist|play)|stanza)\b/gi) ?? []).length < 3) add("rhetorical", 5.5);
+    if (looksLikeSummary(raw)) add("summary", 5.2);
+    if (looksLikeBookReport(raw, lines)) add("bookreport", countDistinct(raw, BOOK_REPORT_CUE) >= 3 || lines.slice(0, 6).some((l) => /\b(?:book|reading) report\b/i.test(l)) ? 6.6 : 5.2);
+    const review = countDistinct(raw, REVIEW_CUE);
+    if (review >= 3 || (review >= 1 && /^(?:[★☆⭐]{3,5}|\d(?:\.\d)?\s?\/\s?(?:5|10)|(?:not )?recommended|[\d.]+ hrs on record)\s*$/im.test(raw))) add("review", 6.5);
+    const oped = opEdScore(raw, lines);
+    if (oped) add("oped", oped);
+    const news = looksLikeNews(raw, lines);
+    if (news) add("news", 4.6);
+    const press = journalism(raw, lines);
+    if (press >= 3 && countDistinct(raw, FEATURE_VOICE) >= (news ? 2 : 1) && !lines.slice(0, 5).some((l) => DATELINE.test(l))) add("feature", 5); // a dateline is the day's news
+    else if (press >= 3 || (lines.slice(0, 4).some((l) => BYLINE.test(l)) && (raw.match(ATTRIBUTION) ?? []).length >= 3 && (raw.match(/["“][^"”\n]{8,}["”]/g) ?? []).length >= 2 && firstPersonShare(raw) < 0.01 && !(raw.match(WORK_CITE) ?? []).length
+      && (raw.match(/\b(?:he|she|they)\s+(?:said|asked|whispered|replied|shouted|yelled)\b/gi) ?? []).length * 2 <= (raw.match(ATTRIBUTION) ?? []).length && (raw.match(NARRATION) ?? []).length < 4)) add("news", 4.6); // fiction says "she said" and "he turned"
+    // The writer's own voice.
+    const voice = narrativeKind(raw);
+    if (voice) add(voice, 4);
+    const journal = journalScore(raw, lines);
+    if (journal) add(journal > 0 ? "journal" : "story", Math.abs(journal));
+    // Fiction told in the third person: "She stood in the doorway …", sentence after sentence, with no dates or sources.
+    const told = raw.split(/(?<=[.!?]["”’)]?)\s+/).filter((x) => /^["“]?(?:He|She|They)\s+(?:\w+ed|was|were|had|went|came|took|stood|sat|felt|knew|thought|saw|ran|got|made|put|found|told|kept|left|began|held|said|did|didn't|wasn't|couldn't|wouldn't|could|would)\b/.test(x)).length;
+    const acted = (raw.match(/\b(?:he|she|they)\s+(?:\w+ed|was|were|had|went|came|took|stood|sat|felt|knew|thought|saw|ran|got|made|put|found|told|kept|left|began|held|said|did|could|would|didn't|couldn't|wasn't|sits|stands|knows|listens|folds|watches|looks|turns|walks|waits|says|thinks|feels|comes|goes|holds|takes|wants)\b/gi) ?? []).length;
+    if (acted >= 8 && acted * 100 / words >= 1.2 && (raw.match(/\b(?:1[5-9]|20)\d\d\b/g) ?? []).length <= 2 && !(raw.match(WORK_CITE) ?? []).length && firstPersonShare(raw) < 0.02) add("story", 4.2);
+    if (told >= 5 && told / Math.max(1, raw.split(/(?<=[.!?])\s+/).length) >= 0.12 && (raw.match(/\b(?:1[5-9]|20)\d\d\b/g) ?? []).length <= 2
+      && !(raw.match(WORK_CITE) ?? []).length && firstPersonShare(raw) < 0.02) add("story", 4.2);
+    if (firstPersonShare(raw) >= 0.02 && countDistinct(raw, COLLEGE_CUE) >= 2) add("college", 5.5);
+    if (looksLikeReflection(raw)) add("reflection", 5.5);
+    if (words <= 320 && countDistinct(raw, BIO_CUE) >= 3) add("bio", 6);
+    // A bio opens on its person: "Dr. Elena Marsh is …", "OLIVIA PRESCOTT (Mrs. Paroo) is thrilled …", then she, he or they.
+    const body = lines.find((l) => l.split(/\s+/).length > 8) ?? "";
+    if (words <= 450 && BIO_LEAD.test(body) && (raw.match(/\b(?:she|he|they|her|his|their)\b/gi) ?? []).length >= 2 && countDistinct(raw, BIO_CUE) >= 1 && firstPersonShare(raw) < 0.02) add("bio", 6);
+    // A cover letter typed into an application box: the job, the applying, and no letter around it.
+    if (words <= 500 && firstPersonShare(raw) >= 0.03 && countDistinct(raw, COVER_CUE) >= 1 && /\b(?:position|job|role|internship|shift|spot|opening|hire|hiring|employer|join (?:your|the) team)\b/i.test(raw)
+      && /\b(?:I(?:'d| would) love to|I am applying|I'm applying|apply(?:ing)? for|interview|trial shift|my (?:resume|résumé)|available (?:to start|mornings|evenings|weekends))\b/i.test(raw)) add("coverletter", 6.4);
+    if (looksLikeSocial(raw, words)) add("social", 7);
+    for (const k of named.weak) if ((s.get(k) ?? 0) >= 3) s.set(k, s.get(k) + 1.5);
+    return s;
+  }
+  // How many different cues of a pattern (global, case-insensitive) a text has.
+  function countDistinct(text, re) {
+    return new Set((String(text).match(re) ?? []).map((m) => m.toLowerCase().replace(/\s+/g, " "))).size;
+  }
+  const firstPersonShare = (raw) => {
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    return words ? (raw.replace(/["“][^"”]*["”]/g, " ").match(/\b(?:I|[Mm]y|[Mm]e|[Mm]ine|[Mm]yself)\b/g) ?? []).length / words : 0;
+  };
+  /* What the document calls itself: its title block (the short lines above
+     the body — a title, an MLA heading of name, teacher, class and date) and
+     any "Assignment:" line. A strong name is that kind; a weak one only adds
+     to what its shape says ("Persuasive speech" over a speech, never over an
+     essay that analyses one). Most specific first: a tie goes to the first. */
+  const KIND_NAMES = [
+    ["coverletter", /\bcover letter\b/i],
+    ["recommendation", /(?<!\b(?:request(?:ing)?|ask(?:ing)?|need|for)\b[^.\n]{0,12})\b(?:letter of (?:recommendation|reference)|recommendation letter|reference letter|(?:character|personal|employment|employer|rental|tenant) reference|peer recommendation|recommendation (?:for|[—–:-]))\b/i], // not "Request for a letter of recommendation"
+    ["annotated", /\bannotated bib(?:liography)?\b/i],
+    ["litreview", /\bliterature review\b|\breview of (?:the )?(?:related |existing )?(?:literature|research)\b/i],
+    ["proposal", /\b(?:research|project|grant|science fair|capstone|thesis|study|program|event|funding|policy|book|experiment) proposal\b|^proposal\b|\bproposal\s*[:–—-]|\bproposal (?:for|to)\b|[:–—-]\s*proposal\s*$/i],
+    ["casestudy", /\bcase (?:study|analysis)\b/i],
+    ["lab", /\blab(?:oratory)? (?:report|write[- ]?up)\b|^lab\s*(?:#?\s*\d+[a-z]?)?\s*[:–—-]|^(?:[\p{L}'’-]+ ){0,4}lab(?:oratory)?$/iu],
+    ["rhetorical", /\brhetorical (?:analysis|essay)\b|\bSOAPS?Tone\b/i],
+    ["summary", /\b(?:article|chapter|reading|text|video|lecture|documentary|podcast|ted talk) (?:summary|response|reaction|critique)\b|\b(?:summary|response|reaction|critique) (?:paper|essay)\b|\bsummary (?:and|&) (?:response|analysis|reflection)\b|\bpr[ée]cis\b|\breading response\b/i],
+    ["bookreport", /\bbook report\b/i],
+    ["peerreview", /\bpeer (?:review|feedback|edit(?:ing)?|response|evaluation|critique)\b|\bworkshop letter\b|^feedback (?:for|on)\b|\b(?:referee|reviewer)(?:'s)? (?:report|comments)\b|^manuscript (?:id|number)\b/i],
+    ["review", /\b(?:book|film|movie|album|game|video game|product|restaurant|app|tv|show|series|concert|theat(?:er|re)|music) review\b|^review\s*[:–—-]/i],
+    ["synthesis", /\bsynthesis (?:essay|prompt|question)\b/i],
+    ["dbq", /\bDBQ\b|\bdocument[- ]based (?:question|essay)\b/i],
+    ["compare", /\bcompar(?:e|ing|ison)\s*(?:and|&|\/|-)\s*contrast\b|\bcomparison essay\b/i],
+    ["cause", /\bcauses?\s*(?:and|&|\/|-)\s*effects?\b/i],
+    ["problem", /\bproblem\s*(?:and|&|\/|-)\s*solution\b/i],
+    ["argumentative", /\b(?:argumentative|persuasive|argument|opinion|position) (?:essay|paper|writing)\b/i],
+    ["informative", /\b(?:informative|informational|expository|explanatory) (?:essay|paper|writing|report)\b/i],
+    ["literary", /\b(?:literary (?:analysis|essay)|character analysis|theme (?:essay|analysis)|poetry analysis|close reading)\b/i],
+    ["research", /\bresearch (?:paper|essay|report)\b/i],
+    ["college", /\b(?:college|application|scholarship|supplement(?:al)?|admissions?|transfer) essay\b|\bpersonal statement\b|\bcommon app\b|\bscholarship (?:application|prompt)\b/i],
+    ["personal", /\b(?:personal (?:narrative|essay)|memoir)\b/i],
+    ["reflection", /^(?:[\p{L}\d'’&-]+ ){0,5}reflection\s*$|\breflection\s*[:–—-]|\breflective (?:essay|journal|writing|statement)\b|\bself[- ](?:reflection|assessment|evaluation)\b/iu],
+    ["journal", /\bjournal entry\b|^dear (?:diary|journal)\b/i],
+    ["memo", /^memo(?:randum)?\b/i],
+    ["meeting", /\bmeeting (?:notes|minutes|agenda)\b|^(?:[\p{L}\d'’&-]+ ){0,5}minutes\b|^agenda\b/iu],
+    ["lessonplan", /\blesson plan\b|\b(?:section|class|period|unit|sub(?:stitute)?) plan\b/i],
+    ["studyguide", /\bstudy guide\b|\breview (?:sheet|guide|packet)\b|\bflash ?cards?\b|\bquizlet\b|\bvocab(?:ulary)? (?:list|words|terms|review)\b|\b(?:test|exam|quiz|midterm|final) (?:review|prep)\b|\b(?:unit|chapter|ch\.?) \d+ review\b(?! questions| worksheet| packet questions)|\breview for (?:the )?(?:quiz|test|exam|final|midterm)\b/i],
+    ["outline", /\boutline\b|\b(?:essay|speech|paper|story) plan\b|\bplanning sheet\b|\bgraphic organizer\b/i],
+    ["pressrelease", /\bfor immediate release\b|\bpress release\b|\bnews release\b|\bmedia advisory\b/i],
+    ["speech", /\b(?:valedictory|valedictorian|salutatory|commencement|graduation|keynote|farewell|inaugural|acceptance|retirement|wedding) (?:address|speech|remarks)\b|^(?:eulogy|toast)\b/i],
+    ["oped", /\bop[- ]?ed\b|\beditorial\b|\bletter to the editor\b|\bguest column\b|^opinion\s*[|:–—-]|\bcolumnist\b/i],
+    ["debate", /\bdebate (?:case|speech|constructive|brief)\b|^rebuttal\b|\bTHW\b|\b(?:affirmative|negative|aff|neg) (?:case|constructive|rebuttal|speech)\b|\b(?:1AC|1NC|2AC|2NC)\b|\bposition paper\b/i],
+    ["discussion", /\bdiscussion (?:post|board|forum|question|response|reply)\b|\bdiscussion\s*#?\d+\b|\binitial post\b|\b(?:reply|response) to (?:a )?(?:classmate|peer)\b/i],
+    ["bio", /^(?:(?:short|author|speaker|artist|professional|my|cast|team) )?bio(?:graphy)?\s*:?$|^about (?:me|the (?:author|speaker|artist))\s*:?$/i],
+  ];
+  const NAMED_FIRST = ["summary", "proposal", "studyguide", "lessonplan", "reflection", "peerreview", "outline"]; // last is first
+  const KIND_NAMES_WEAK = [
+    ["presentation", /\b(?:presentation|slide ?show|speaker notes|slide deck|slides)\b/i],
+    ["speech", /\bspeech\b|\btoast\b|\beulogy\b|\bcommencement address\b|\bvaledictor/i],
+    ["notes", /\bnotes\b/i],
+    ["instructions", /\brecipe\b|\bhow to\b|\binstructions\b|\bdirections\b|\bstep[- ]by[- ]step\b|\btutorial\b/i],
+    ["survey", /\bsurvey\b|\bquestionnaire\b|\bfeedback form\b|\bpoll\b/i],
+    ["lyrics", /\blyrics\b|\bsong\b/i],
+    ["homework", /\bworksheet\b|\bhomework\b|\bproblem set\b|\bpractice problems\b|\breading (?:guide|questions)\b/i],
+    ["math", /\bworksheet\b|\bhomework\b|\bproblem set\b|\bpractice problems\b|\bmath\b|\balgebra\b|\bgeometry\b|\bcalculus\b/i],
+    ["bio", /\bbiography\b/i],
+    ["feature", /\binterview\b|\bQ\s?&\s?A\b|\bprofile\b|\bspotlight\b/i],
+    ["story", /\bshort story\b|\bfan ?fic(?:tion)?\b|\bflash fiction\b|^ch(?:apter|\.)?\s*(?:one|1|i)\b|\bnovel draft\b/i],
+    ["poem", /\bpoem\b|\bhaiku\b|\bsonnet\b/i],
+    ["script", /\bscript\b|\bscreenplay\b|\bskit\b|\bteleplay\b/i],
+    ["resume", /\bresume\b|\brésumé\b|\bcurriculum vitae\b|^CV$/i],
+    ["email", /^(?:subject|re|fwd?)\s*:/i],
+    ["journal", /\bjournal\b|\bdiary\b/i],
+    ["news", /\bnews\b|\bbreaking\b/i],
+  ];
+  function namedKinds(lines) {
+    const head = [];
+    for (const l of lines.slice(0, 8)) {
+      const n = l.split(/\s+/).length;
+      if (n > 14 || (n > 6 && /[.!]["”’)]?$/.test(l))) break; // a title may ask a question
+      head.push(l.replace(/^(?:title|assignment|prompt|task|type)\s*:\s*/i, ""));
+    }
+    for (const l of lines.slice(0, 10)) if (/^(?:assignment|prompt|task)\s*:/i.test(l)) head.push(l.replace(/^\w+\s*:\s*/, ""));
+    const strong = [], weak = [];
+    for (const [k, re] of KIND_NAMES) if (head.some((l) => re.test(l))) strong.push(k);
+    // A document about a kind is the document: "Argument essay outline" is an outline, "Lab report reflection" a reflection.
+    strong.sort((a, b) => NAMED_FIRST.indexOf(b) - NAMED_FIRST.indexOf(a));
+    for (const [k, re] of KIND_NAMES_WEAK) if (head.some((l) => re.test(l))) weak.push(k);
+    return { strong, weak };
+  }
+  /* In a field, the site says what it is: a mail client's box holds an
+     email (or a cover letter, a reference, a memo sent by mail), a class
+     discussion board's a post, a social site's a post unless it runs long, a
+     review site's a review, a blog editor's a post. Docs passes no place. */
+  const PLACE_KINDS = [
+    [/linkedin\.com\/in\/[^/]+\/(?:edit\/)?(?:about|intro)|instagram\.com\/accounts\/edit|(?:x|twitter)\.com\/settings\/profile|\/about-?me\b|\/(?:edit-)?bio\b/i, "bio"],
+    [/^(?:play\.google\.com\/store|apps\.apple\.com\/)/i, "review"],
+    [/^(?:mail\.google\.com|outlook\.(?:live|office|office365)\.com|mail\.yahoo\.com|mail\.proton\.me|mail\.aol\.com)/i, "email"],
+    [/\/discussion_topics\/|\/discussions?\b|\/mod\/forum\/|\/forum\/|^(?:[\w-]+\.)*(?:piazza\.com|edstem\.org)\b|^classroom\.google\.com/i, "discussion"],
+    [/^(?:www\.)?(?:x\.com|twitter\.com|facebook\.com|instagram\.com|linkedin\.com\/feed|threads\.(?:net|com)|tiktok\.com|reddit\.com|bsky\.app)/i, "social"],
+    [/goodreads\.com\/review|yelp\.[\w.]+\/writeareview|amazon\.[\w.]+\/review|tripadvisor\.[\w.]+\/UserReview|letterboxd\.com|imdb\.com\/review|steamcommunity\.com\/.*(?:review|recommended)/i, "review"],
+    [/\/opinion\/|\/letters?[-_]to[-_]the[-_]editor|\/letters\/submit|\/op-?eds?\//i, "oped"],
+    [/linkedin\.com\/.*\/recommendation/i, "recommendation"],
+    [/^(?:[\w-]+\.)?wordpress\.com|\/wp-admin\/|blogger\.com|medium\.com\/(?:new-story|p\/[\w-]+\/edit)|substack\.com\/publish|ghost\.io\/ghost/i, "blog"],
+  ];
+  function placeKind(scores, place, raw) {
+    const kind = place && PLACE_KINDS.find(([re]) => re.test(place))?.[1];
+    if (!kind) return;
+    if (kind === "email" && ["coverletter", "recommendation", "memo", "peerreview"].some((k) => (scores.get(k) ?? 0) >= 8)) return;
+    if (kind === "social" && raw.split(/\s+/).length > 600) return;
+    scores.set(kind, 9.8);
   }
   // A resume: two section headings of its own AND contact details or date ranges, and not mostly sentences.
   function looksLikeResume(raw, lines) {
@@ -1554,6 +1799,7 @@
   const AUDIENCE = /\b(?:everyone|everybody|y'all|all of you|ladies|gentlemen|fellow|class of|graduates|classmates|students|teachers|parents|families|delegates|judges|faculty|guests|members of)\b/i;
   const COVER_CUE = /\b(?:position|internship|role|opening|job|application|apply|applying|candidate|résumé|resume|interview|qualifications?|qualified|employer|hire|hiring|join (?:your|the) team)\b/gi;
   const EMAIL_CUE = /\b(?:hope (?:this|you)(?: email| message| note)? finds you|hope you(?:'re| are) (?:doing )?well|let me know|thanks in advance|attached|following up|quick question|get back to me|looking forward to hearing|extension|deadline|due (?:date|on|by)|office hours|meeting|zoom|tomorrow|this (?:week|weekend|friday|monday|tuesday|wednesday|thursday)|next (?:week|class|period)|assignment|absent|reschedule)\b/i;
+  const RECOMMEND_CUE = /\b(?:(?:pleasure|privilege|honou?r|delighted|pleased|happy|glad|proud) to (?:write (?:this letter )?(?:in support of|on behalf of|for)|recommend)|(?:highly|strongly|wholeheartedly|enthusiastically|unreservedly) recommend|recommend (?:her|him|them|[A-Z][a-z]+) (?:for|to|without|as)|(?:writing|write) (?:to|in order to) recommend|without (?:reservation|hesitation)|letter of (?:recommendation|reference)|I have (?:known|taught|supervised|coached|mentored|worked with) [A-Z][a-z]+|(?:her|his|their) (?:application|candidacy)|in support of (?:her|his|their|[A-Z][a-z]+'s)|(?:one of the (?:best|most|top)|top \d+%) (?:students|employees|interns|people))\b/g;
   function signOffLine(l) {
     if (SIGNOFF.test(l)) return "bare";
     const m = l.match(SIGNOFF_LEAD);
@@ -1566,6 +1812,7 @@
       if (SALUTATION.test(lines[i])) { at = i; break; }
       if (lines[i].split(/\s+/).length > 8 && !/^(?:subject|re|fwd?|to|from|date|cc|bcc|sent)\s*:/i.test(lines[i])) break; // body text before any salutation: no letter's head
     }
+    if (at < 0 && /^(?:dear\s+)?[\p{Lu}][\p{L}'’.-]+(?: [\p{Lu}][\p{L}'’.-]+){0,2}\s*(?:,|[—–-])\s*$/u.test(lines[0]) && lines.length > 3) at = 0;
     if (at < 0) return null;
     const sal = lines[at];
     const tail = lines.slice(-7); // a signature can carry a title, a school and a phone number under the name
@@ -1575,21 +1822,35 @@
     // A formal letter may be signed with the name alone ("To the Editor: … Ruth Ellison / Westfield").
     const last = lines[lines.length - 1];
     const formal = /^(?:dear|to whom|to the)\b/i.test(sal) && SIGNATURE.test(last) && last.split(/\s+/).length <= 4;
-    if (AUDIENCE.test(sal) && !named) return null;
-    if (!named && !formal && !offs.includes("bare") && lines.length > 4) return null; // both ends, unless it is a short note
+    // Or a signature block: a name near the end with only its title, school or phone under it ("Rick Delaney / Store Manager / 555-0187").
+    const tail4 = lines.slice(-4);
+    const sigAt = tail4.findIndex((l) => SIGNATURE.test(l.replace(/,?\s+(?:Ph\.?D|M\.?D|Ed\.?D|Jr|Sr|M\.?A|M\.?S|B\.?A)\.?$/i, "")) && l.split(/\s+/).length <= 5);
+    const signed = sigAt >= 0 && tail4.slice(sigAt + 1).every((l) => l.split(/\s+/).length <= 9 && !/[.!?]["”’)]?$/.test(l.replace(/\b(?:Ave|St|Rd|Dr|Inc|Co|Ltd)\.$/, "")));
+    if (AUDIENCE.test(sal) && !named && !signed) return null;
+    if (!named && !formal && !signed && !offs.includes("bare") && lines.length > 4 && !/^(?:subject|re|fwd?)\s*:/im.test(lines.slice(0, at + 1).join("\n"))) return null; // both ends, unless it is a short note or has a Subject line
     const head = lines.slice(0, at + 1).join("\n");
     const body = lines.slice(at + 1).join(" ");
+    if (/^(?:to the editors?|dear editors?)\b/i.test(sal)) return "oped"; // a letter to the editor is published opinion
+    // A reference speaks of someone else: "I recommend her …", and her, his or their name throughout.
+    if (countDistinct(body, RECOMMEND_CUE) >= 1 && !/\b(?:would|could|can|will) you (?:be (?:willing|able) to |please )?write\b/i.test(body) && (body.match(/\b(?:she|he|her|his|him|they|their|them)\b/gi) ?? []).length >= 5
+      && (countDistinct(body, RECOMMEND_CUE) >= 2 || /\brecommend\b/i.test(body))) return "recommendation";
     if (/\bhiring\b/i.test(sal) || (body.match(COVER_CUE) ?? []).length >= 3) return "coverletter";
-    if (/^(?:subject|re|fwd?)\s*:/im.test(head) || /^(?:hi|hello|hey)\b/i.test(sal) || EMAIL_CUE.test(body)) return "email";
-    return "letter";
+    // An email or a letter: what each would say that the other wouldn't. A tie is an email (the old rule: any email cue).
+    const emailish = (/^(?:subject|re|fwd?)\s*:/im.test(head) ? 2 : 0) + (/^(?:hi|hello|hey)\b/i.test(sal) ? 1 : 0) + countDistinct(body, EMAIL_CUES);
+    const letterish = (/^dear\b/i.test(sal) ? 1 : 0) + (tail.some((l) => /^(?:sincerely|(?:very )?(?:truly )?yours|love|with love|lots of love|love you\b|respectfully|fondly|cordially|your (?:loving |favorite )?(?:grand)?(?:son|daughter|friend|student|niece|nephew|kid))/i.test(l)) ? 1 : 0)
+      + (/\bP\.\s?S\.?|\bthis letter\b|\bwrit(?:e|ing) (?:to )?you\b|\benvelope\b|\bfuture (?:me|self)\b|\bmail(?:ed|ing)? (?:this|it)\b/i.test(raw) ? 1 : 0)
+      + (at > 0 && lines.slice(0, at).some((l) => DATED_ENTRY.test(l) || /\b\d{5}\b|\b(?:street|avenue|road|lane|drive|apt\.?)\b/i.test(l)) ? 1 : 0);
+    return emailish > 0 && emailish >= letterish ? "email" : "letter";
   }
+  const EMAIL_CUES = new RegExp(EMAIL_CUE.source, "gi");
   /* A script: screenplay sluglines (INT. / EXT.), or the same few speakers
      cued again and again — "MAYA: …" in a play, a capitalised name above
      each speech in a screenplay. A label that is not a person ("Thesis:",
      "Note:", "Q:") never counts. */
   const NOT_A_SPEAKER = /^(?:thesis|claim|evidence|reasoning|note|notes|example|answer|question|hook|topic|source|summary|date|name|period|subject|re|to|from|cc|step|part|title|tip|warning|objective|purpose|hypothesis|conclusion|introduction|materials|procedure|data|results|analysis|q|a|definition|key|main idea|vocab|vocabulary|cause|causes|effect|effects|pro|pros|con|cons|ps|p\.s|education|experience|skills|projects|awards|summary)$/i;
-  function looksLikeScript(lines) {
-    if (lines.filter((l) => /^(?:INT|EXT|INT\.?\/EXT|I\/E)[.\s]/.test(l) || /^(?:FADE (?:IN|OUT)|CUT TO|DISSOLVE TO)\b/.test(l)).length >= 2) return true;
+  // "script", or "feature" when the speakers are an interviewer and the person interviewed.
+  function scriptKind(lines) {
+    if (lines.filter((l) => /^(?:INT|EXT|INT\.?\/EXT|I\/E)[.\s]/.test(l) || /^(?:FADE (?:IN|OUT)|CUT TO|DISSOLVE TO)\b/.test(l)).length >= 2) return "script";
     const speakers = new Map();
     let cued = 0;
     for (const l of lines) {
@@ -1601,7 +1862,8 @@
       speakers.set(key, (speakers.get(key) ?? 0) + 1);
       cued++;
     }
-    return [...speakers.values()].filter((c) => c >= 2).length >= 2 && cued >= 5 && cued / lines.length >= 0.25;
+    if (!([...speakers.values()].filter((c) => c >= 2).length >= 2 && cued >= 5 && cued / lines.length >= 0.25)) return null;
+    return [...speakers.keys()].some((k) => /^(?:INTERVIEWER|INTERVIEWEE|REPORTER|ME|Q|A)$/.test(k)) ? "feature" : "script";
   }
   /* A DBQ: the documents it was given, cited by number or letter — (Doc 3),
      "Document A shows", IB's "Source B" — two different ones, or one with the
@@ -1624,8 +1886,9 @@
   const SUMMARY_CUE = /\b(?:this (?:[\w-]+ ){0,2}(?:article|source|book|study|website|site|essay|report|chapter|piece|paper|author|text|film|documentary|video|podcast|interview|collection)|the (?:authors?|article|study|source|book|website|writer|researchers?) (?:argues?|explains?|describes?|discuss(?:es)?|shows?|claims?|suggests?|provides?|presents?|explores?|examines?|focus(?:es)?|uses?|offers?)|(?:will|would) (?:be|help)|is (?:useful|helpful|relevant|credible|reliable)|I (?:will|plan to|can) use)\b/i;
   function looksLikeAnnotated(lines) {
     if (lines.slice(0, 6).some((l) => /\bannotated bibliography\b/i.test(l) && l.split(/\s+/).length <= 12)) return true;
-    const isRef = (l) => (REF_START.test(l) || /^["“][^"”]{3,}["”]\s*[.,]?\s+\S/.test(l)) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l);
+    const isRef = (l) => (REF_START.test(l) || /^["“][^"”]{3,}["”]\s*[.,]?\s+\S/.test(l)) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\.|\b[\w-]+\.(?:com|org|gov|edu|net)\b/.test(l);
     let refs = 0, said = 0;
+    lines = lines.map((l) => l.replace(/^(?:[-•●○■▪◦*–]\s*|\(?\d{1,3}[.)\]]\s*|\[\d{1,3}\]\s*)/, ""));
     lines.forEach((l, i) => {
       if (!isRef(l)) return;
       refs++;
@@ -1640,14 +1903,20 @@
   const SPEECH_CLOSE = /\bthank you\b[^.!?]{0,40}[.!]?$|\b(?:vote for me|god bless)\b/i;
   const SPEECH_CUE = /\b(?:I stand (?:here|before you)|today,? I (?:want|would like|am here|'d like) to|I(?:'m| am) here (?:today )?to|let me (?:tell|ask|remind) you|imagine (?:a|if|for a moment|with me)|raise your hand|vote for me|please vote|my fellow|as your (?:president|representative|class president|treasurer|secretary)|ask yourselves?|look around (?:you|this room)|(?:each|all|many|some|most) of you|thank you (?:all )?for (?:listening|your (?:time|attention|support))|I ask you|together,? we)\b/gi;
   const BLOG_CUE = /\b(?:blog|this post|in the comments|subscribe|newsletter|my channel|this video|link (?:below|in my bio)|follow me)\b/i;
+  // The occasions a speech is given at: a toast, a eulogy, an award, a public comment, a campaign.
+  const SPEECH_MORE = /\b(?:for those (?:of you )?who don'?t know me|my name is [\p{Lu}][\p{L}'’-]+(?: [\p{Lu}][\p{L}'’-]+)? and I|I'?m here (?:today |tonight )?(?:because|to)|I(?:'m| am) running for|(?:raise|lift) (?:your|a) glass(?:es)?|if everyone could raise|join me in (?:raising|welcoming|thanking)|(?:a )?toast to|here'?s to|cheers|to the (?:happy couple|bride|groom|newlyweds)|we are (?:here|gathered) (?:today |tonight )?(?:to|because)|thank you (?:all )?(?:so much )?for (?:coming|being here|this (?:honou?r|award))|I(?:'m| am) (?:honou?red|humbled|grateful) to (?:accept|receive|be here|stand)|this award|(?:members of|to) the (?:school )?(?:board|committee|council)|thank you for your time|I yield|passed away|we(?:'ll| will) (?:all )?miss (?:her|him)|fellowship hall|(?:her|his|their) (?:service|funeral|memorial)|the reception|celebrat(?:e|ing) (?:her|his|their) life|rest in peace|raise your hands?|show of hands|until I sit down|take out your phones?|vote (?:for )?[\p{Lu}][\p{L}'’-]+)\b/giu;
+  const DELIVERY_CUE = /\[(?:pause|slow|look|hold|wait|breathe|beat|smile|laugh|applause|point|gesture|make eye contact|walk|turn)[^\]\n]{0,60}\]/i;
+  const BLOG_SAYS = /\b(?:blog|this post|in the comments|subscribe|my channel|link (?:below|in my bio)|follow me|welcome back)\b/i;
   function looksLikeSpeech(raw, lines) {
     if (BLOG_CUE.test(raw)) return false; // "Hi everyone! Welcome back to the blog." greets readers, not a room
-    const open = lines.slice(0, 3).some((l) => SPEECH_OPEN.test(l));
-    const close = lines.slice(-3).some((l) => SPEECH_CLOSE.test(l));
-    const cues = (raw.match(SPEECH_CUE) ?? []).length;
+    const open = lines.slice(0, 3).some((l) => SPEECH_OPEN.test(l)) || /^thank you(?: (?:so much|all|everyone|very much))?[.!,]/i.test(lines[0] ?? "");
+    // The end said to someone in the room or remembered: "Grandma, thank you for …", "To Marcus and Priya."
+    const addressed = lines.slice(-3).some((l) => /^[\p{Lu}][\p{L}'’-]+,\s+(?:thank you|we love you|I love you|rest|goodbye|congratulations)\b/u.test(l));
+    const close = addressed || lines.slice(-3).some((l) => SPEECH_CLOSE.test(l));
+    const cues = (raw.match(SPEECH_CUE) ?? []).length + countDistinct(raw, SPEECH_MORE) + (DELIVERY_CUE.test(raw) ? 1 : 0);
     const words = raw.split(/\s+/).filter(Boolean).length;
     const you = (raw.match(/\byou(?:r|rs|rself|rselves|'re|'ll|'ve)?\b/gi) ?? []).length;
-    return (open && (close || cues >= 1 || you / words >= 0.015)) || (close && cues >= 2) || cues >= 3;
+    return (open && (close || cues >= 1 || you / words >= 0.015)) || (close && cues >= 2) || (addressed && cues >= 1) || cues >= 3;
   }
   /* A lab report: its sections — Hypothesis, Materials, Procedure, Data,
      Observations, Calculations, Sources of error — as headings or as
@@ -1666,7 +1935,7 @@
      runs to a paragraph's length, and its stanzas, its rhymes or its open
      line-ends say so. A list, notes or an outline are short-lined too —
      bullets, numbers, "Label:" lines and an outline's words rule them out. */
-  const OUTLINE_WORD = /^(?:[IVX]{1,4}\.\s*|[A-H][.)]\s*|\d{1,2}[.)]\s*)?(?:introduction|intro|body(?: paragraph)?(?: \d)?|conclusion|thesis(?: statement)?|hook|claim|evidence|reasoning|counter ?argument|counterclaim|rebuttal|topic sentence|transition|background|main idea|supporting (?:detail|evidence))\b/i;
+  const OUTLINE_WORD = /^(?:[IVX]{1,4}\.\s*|[A-H][.)]\s*|\d{1,2}[.)]\s*)?(?:introduction|intro|body(?: paragraph)?(?: \d)?|paragraph (?:\d|one|two|three|four)|conclusion|thesis(?: statement)?|hook|claim|evidence|reasoning|counter ?argument|counterclaim|rebuttal|topic sentence|transition|background|main idea|supporting (?:detail|evidence))\b/i;
   const WEAK_RHYME = new Set(["ed", "ly", "es", "ng", "er", "al", "on", "ts", "ns", "rs", "ds", "st", "nt", "le", "ty", "ry", "re", "se", "ce", "te"]);
   function looksLikePoem(raw, lines) {
     let body = lines;
@@ -1678,7 +1947,7 @@
     const avg = body.reduce((sum, l) => sum + l.split(/\s+/).length, 0) / n;
     if (share((l) => /^(?:[-•●○■▪◦*–>]|\(?\d{1,2}[.)]|[A-Za-z][.)]\s|[IVX]{1,4}\.\s)/.test(l)) > 0.3) return false; // a list
     if (share((l) => /[=≈≤≥]/.test(l) && /\d/.test(l)) > 0.2) return false; // worked math
-    if (share((l) => /^[^:.!?]{2,30}:\s*\S/.test(l) || OUTLINE_WORD.test(l)) > 0.25) return false; // notes, an outline
+    if (share((l) => /^[^:.!?]{2,30}:\s*\S/.test(l) || OUTLINE_WORD.test(l) || /\s=\s|→|\s-\s\S/.test(l) || /\t/.test(l)) > 0.25) return false; // notes, an outline, a table
     if (body.some((l) => RESEARCH_HEADING.test(l.replace(/[:.]$/, "")))) return false; // a paper's sections
     const groups = raw.split(/\n[ \t]*\n/).map((g) => g.split("\n").map((l) => l.trim()).filter(Boolean)).filter((g) => g.length);
     const stanzas = groups.filter((g) => g.length >= 2).length;
@@ -1688,6 +1957,7 @@
     if (stanzas >= 2 && stanzas === groups.length && inner.length >= 3
       && inner.filter((l) => !/[.!?]["”’)]?$/.test(l) && l.split(/\s+/).length >= 6).length / inner.length >= 0.6) return true;
     if (share((l) => /[.!?]["”’)]?\s+["“(]?[A-Z]/.test(l)) > 0.2 || avg > 14) return false; // paragraphs
+    if (avg <= 12 && share((l, i) => i > 0 && /^[a-z]/.test(l) && !/[.!?]["”’)]?$/.test(body[i - 1])) >= 0.25) return true; // enjambed
     const end = (l) => (l.toLowerCase().match(/([a-z]+)[^a-z]*$/) ?? [])[1] ?? "";
     const rhymes = (a, b) => a.length >= 2 && b.length >= 2 && a !== b && (a.slice(-3) === b.slice(-3) || (a.slice(-2) === b.slice(-2) && !WEAK_RHYME.has(a.slice(-2))));
     const rhymed = share((l, i) => [body[i + 1], body[i + 2]].some((o) => o && rhymes(end(l), end(o))));
@@ -1699,7 +1969,7 @@
   function looksLikeNotes(lines) {
     const n = lines.length;
     if (n < 5) return false;
-    const pointed = lines.filter((l) => /^(?:[-•●○■▪◦*–>]\s*|\(?\d{1,2}[.)]\s+|[a-hA-H][.)]\s+|[IVX]{1,4}\.\s+)/.test(l) || /^[^.!?:]{2,40}:(?:\s|$)/.test(l) || OUTLINE_WORD.test(l)).length;
+    const pointed = lines.filter((l) => /^(?:[-•●○■▪◦*–>]\s*|\(?\d{1,2}[.)]\s+|[a-hA-H][.)]\s+|[IVX]{1,4}\.\s+)/.test(l) || /^[^.!?:]{2,40}:(?:\s|$)/.test(l) || OUTLINE_WORD.test(l) || (l.split(/\s+/).length <= 12 && !/[.!?]["”’)]?$/.test(l) && /^[^.!?]{2,40}(?:\s=\s|\s[-–]\s|\s?→)/.test(l))).length;
     const fragments = lines.filter((l) => !/[.!?]["”’)]?$/.test(l) || l.split(/\s+/).length <= 6).length;
     return pointed / n >= 0.5 && fragments / n >= 0.5;
   }
@@ -1715,7 +1985,7 @@
      is an essay — "prose", the default it always was. */
   const RESEARCH_HEADING = /^(?:abstract|introduction|background|literature review|related work|methods?|methodology|materials and methods|participants|procedure|data|results|findings|analysis|discussion|limitations|conclusions?|references|bibliography|works cited)$/i;
   const RESEARCH_CORE = /^(?:abstract|literature review|related work|methods?|methodology|materials and methods|participants|procedure|results|findings|discussion|limitations)$/i;
-  const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*)\b/gi;
+  const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*|symbol(?:s|ic|ism|i[sz]es?|i[sz]ed)?|themes?|characters?|the (?:book|novella)|chapter \d+|conflict|represents?|portray\w*|characteri[sz]\w*)\b/gi;
   // An in-text citation of a work: (Lee, 2019), (Lee 2019, 45), (Lee 45).
   const WORK_CITE = /\([^()\n]*\b(?:1[5-9]|20)\d\d[a-z]?\b[^()\n]*\)|\([\p{Lu}][\p{L}'’-]+(?: (?:and|&) [\p{Lu}][\p{L}'’-]+| et al\.)? \d{1,4}(?:[-–]\d{1,4})?\)/gu;
   function essayKind(text, lines) {
@@ -1775,6 +2045,254 @@
     if (firstPerson >= 0.04 && reflection >= 1) return "personal";
     return null;
   }
+
+  /* The kinds added in 2.21.57, each by what it does that the others don't.
+     Patterns ending _CUE are counted for how many DIFFERENT cues a text has
+     (countDistinct), so one phrase said five times is one cue. */
+  // Code: a program pasted in, line after line of braces, keywords and calls.
+  const CODE_LINE = /[{};]\s*$|^(?:def |class \w|import |from [\w.]+ import |function\b|const |let |var |public |private |protected |static |return\b|elif\b|except\b|catch\s*\(|#include|package |print\(|printf\(|console\.log|System\.out|for\s*\(|while\s*\(|if\s*\(|for \w+ in |else:$|<\/?[a-z][\w-]*[^>]*>$|--\s|(?:SELECT|FROM|WHERE|JOIN|LEFT JOIN|INNER JOIN|ORDER BY|GROUP BY|HAVING|INSERT INTO|UPDATE|DELETE FROM|CREATE TABLE|VALUES|LIMIT)\b)|==|!=|&&|\|\||\w\(\)|\+\+|=>|->/;
+  const looksLikeCode = (lines) => lines.length >= 4 && lines.filter((l) => CODE_LINE.test(l)).length / lines.length >= 0.35;
+  // A song's sections: [Chorus], Verse 2:, (Bridge).
+  const LYRIC_TAG = /^[[(]?\s*(?:verse|chorus|pre-?chorus|post-?chorus|bridge|hook|intro|outro|refrain|interlude)(?:\s*\d+)?\s*(?:[:x×]\s*\d*)?\s*[\])]?:?$/i;
+  // A stanza sung again word for word: a chorus. A poem's refrain is a line, not a stanza.
+  function repeatedStanza(raw) {
+    const seen = new Set();
+    for (const g of raw.split(/\n[ \t]*\n/)) {
+      const key = g.split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean);
+      if (key.length < 2) continue;
+      if (seen.has(key.join("\n"))) return true;
+      seen.add(key.join("\n"));
+    }
+    return false;
+  }
+  // A press release: "FOR IMMEDIATE RELEASE", or a media contact and the closing "###" or "About …" boilerplate.
+  function looksLikePressRelease(raw, lines) {
+    if (/\bfor immediate release\b|\b(?:press|news) release\b|\bmedia advisory\b|\bembargoed\b/i.test(lines.slice(0, 6).join("\n"))) return true;
+    const end = /^(?:#{3}|-\s*30\s*-|-30-)$/m.test(raw);
+    const contact = /\b(?:media|press) (?:contact|inquiries|kit)\b|\bpress (?:folks|friends)\b|\bfor (?:the )?press\b|\breview (?:keys|copies) (?:are )?available\b/i.test(raw);
+    const about = /^about [\p{Lu}][\p{L}&.'’ -]{1,60}$/mu.test(raw);
+    return (end && (contact || about)) || (contact && about) || (contact && /\b(?:announces?|launch(?:es)?|unveils?|to (?:launch|open|release)|releases?|opens?)\b/i.test(lines[0] ?? ""));
+  }
+  // A memo's head: MEMO or MEMORANDUM, or To/From/Subject lines with no "Dear" under them.
+  function memoScore(lines) {
+    const top = lines.slice(0, 10);
+    const fields = new Set(top.map((l) => l.match(/^(to|from|date|subject|re|cc|attn|attention)\s*:/i)?.[1].toLowerCase()).filter(Boolean));
+    const greeted = top.some((l) => SALUTATION.test(l));
+    if (top.slice(0, 3).some((l) => /^(?:inter-?office |office |internal )?memo(?:randum)?\b/i.test(l))) return greeted ? 7.9 : 9;
+    // A notice to staff: "ATTENTION ALL KITCHEN STAFF / from Luis".
+    if (top.slice(0, 2).some((l) => /^(?:attention|attn|notice|to)\b:?\s*(?:all\b|staff\b|employees\b|team\b|everyone\b)/i.test(l)) && top.slice(0, 4).some((l) => /^from\b/i.test(l))) return 8.4;
+    return fields.has("from") && fields.has("to") && (fields.has("subject") || fields.has("re")) && !greeted ? 8.4 : 0;
+  }
+  // Minutes: who came, what was moved and seconded, what is to be done by whom.
+  const MEETING_CUE = /\b(?:attendees|attendance|in attendance|present\s*:|absent\s*:|members present|minutes|agenda|action items?|call(?:ed)? to order|adjourn(?:ed|ment)?|motion (?:to|passed|carried|approved|failed)|seconded|old business|new business|unfinished business|next meeting|meeting (?:notes|minutes)|treasurer'?s report|roll call|quorum|facilitator|note[- ]?taker|time ?keeper|follow[- ]ups?|owner\s*:|discussion items?|decisions?\s*:)/gi;
+  // A lesson plan: what students will be able to do, and the lesson's parts by the clock.
+  const LESSON_CUE = /\b(?:objectives?|learning (?:targets?|goals?|objectives?)|standards?|students will(?: be able to)?|SWBAT|teacher will|warm[- ]up|do now|bell ?ringer|anticipatory set|direct instruction|mini[- ]lesson|guided practice|independent practice|closure|exit (?:ticket|slip)|formative|summative|assessment|differentiation|accommodations|modifications|grade level|duration|lesson|modeling|think[- ]pair[- ]share|materials|agenda|\d+ min(?:utes|s)?\b)/gi;
+  const looksLikeLessonPlan = (raw) => countDistinct(raw, LESSON_CUE) >= 5 && /\b(?:students will|SWBAT|teacher will|exit (?:ticket|slip)|warm[- ]up|do now|bell ?ringer|learning targets?|lesson|(?:section|class) plan)\b/i.test(raw);
+  // A presentation's script: what is said over each slide.
+  const SLIDE_CUE = /^[[(]?\s*slide\s*(?:#?\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\b(?:next slide|on this slide|this slide|(?:click|advance) to (?:the )?next|title slide)\b|[[(]\s*(?:slide\b|click\b|next\b|title slide)[^\])\n]{0,80}[\])]/i;
+  // A survey asks the reader about themselves and gives them choices.
+  const SURVEY_CHOICE = /^(?:[☐□◯○⬜▢]|\(\s?\)|\[\s?\]|_{3,})|\b(?:strongly (?:agree|disagree)|somewhat (?:agree|disagree)|neither agree nor disagree|(?:very|somewhat|not (?:at all|very)) (?:satisfied|likely|important|useful|helpful|interested)|on a scale (?:of|from) (?:1|one|0)|select (?:all|one)|check (?:all|one)(?: that apply)?|choose one|circle one|prefer not to (?:say|answer)|(?:yes|no)\s*\/\s*(?:no|yes|maybe)|1\s+2\s+3\s+4\s+5|never\s*\/\s*rarely|other \(please specify\)|daily\s*\/\s*weekly)/i;
+  const RESPONDENT_Q = /\b(?:do|did|have|would|are|were|will|could) you\b|\bhow (?:often|much|many|satisfied|likely|old|long) (?:do|did|are|have|would|were) you\b|\bwhat (?:is|was) your\b|\bwhich (?:of the following )?(?:best describes|do you)\b|\byour (?:age|grade|gender|year|major|favorite)\b/i;
+  function looksLikeSurvey(raw, lines) {
+    // A question with its answers listed under it, each a few words ("- yes", "- no, I'm on the waitlist").
+    const offered = lines.filter((l, i) => /\?|\((?:check|select|choose|circle|skip)[^)]*\)\s*$/i.test(l) && lines.slice(i + 1, i + 3).every((o) => /^(?:[-•●○■▪◦*–☐□]|\(?[a-e][.)]|\[\s?\])\s*\S/.test(o) && o.split(/\s+/).length <= 8)).length;
+    const choices = lines.filter((l) => SURVEY_CHOICE.test(l)).length + offered;
+    const asks = lines.filter((l) => /\?\s*$/.test(l)).length;
+    const about = lines.filter((l) => RESPONDENT_Q.test(l)).length;
+    return (choices >= 3 && asks >= 2 && about >= 1) || (about >= 3 && (choices >= 2 || asks >= 5)) || (about >= 2 && offered >= 3);
+  }
+  // A script's own marks: a two-column VIDEO / AUDIO table, shot sizes, sound cues, voice-over, scene numbers.
+  const SCRIPT_MARK = /^(?:VIDEO\s+AUDIO\b|SFX\s*:|MUSIC\s*:|(?:CU|ECU|MS|MCU|WS|LS|OTS|POV)\s*[:.-]\s|SCENE\s+\d+\b|ACT\s+(?:I{1,3}|ONE|TWO|1|2)\b)|\((?:V\.O\.|O\.S\.|beat|pause|CONT'D)\)|\b[A-Z]{2,}(?:\s\([^)]{1,20}\))?\s*\(V\.O\.\)/m;
+  const SCRIPT_MARKS = new RegExp(SCRIPT_MARK.source, "gm");
+  // The same lowercase names cueing their lines ("claire: are you seriously keeping that").
+  function lowercaseCues(lines) {
+    const names = new Map();
+    for (const l of lines) {
+      const m = l.match(/^([a-z][a-z'’-]{1,15})\s*(?:\([^)]{1,30}\))?\s*:\s*\S/);
+      if (m && !NOT_A_SPEAKER.test(m[1])) names.set(m[1], (names.get(m[1]) ?? 0) + 1);
+    }
+    return [...names.values()].filter((c) => c >= 3).length >= 2;
+  }
+  // A reference list and nothing else: never "cited nowhere" (there is no essay to cite them in).
+  const REF_LIST_HEAD = /^(?:works cited|works consulted|references|reference list|bibliography|sources(?: cited)?|citations|literature cited)\s*:?$/i;
+  function looksLikeRefList(lines) {
+    let body = lines;
+    const h = lines.findIndex((l) => REF_LIST_HEAD.test(l));
+    if (h > 5) return false;
+    if (h >= 0) body = lines.slice(h + 1);
+    body = body.map((l) => l.replace(/^(?:[-•●○■▪◦*–]\s*|\(?\d{1,3}[.)\]]\s*|\[\d{1,3}\]\s*)/, ""));
+    if (body.length < 3) return false;
+    const refs = body.filter(isRefLine);
+    const annotated = refs.filter((l) => l.split(/\s+/).length > 50 || SUMMARY_CUE.test(l.slice(60))).length;
+    const prose = body.filter((l) => !isRefLine(l) && l.split(/\s+/).length >= 8).length;
+    if (refs.length >= 3 && refs.length / body.length >= 0.7 && prose <= 1 && annotated < 2) return true;
+    // A young writer's list under its heading: each line a website, a book, a video, an interview.
+    const named = body.filter((l) => /https?:\/\/|www\.|\.(?:com|org|gov|edu|net)\b|\b(?:website|book|video|youtube|article|interview|magazine|encyclopedia|journal|podcast|documentary)\b/i.test(l) && l.split(/\s+/).length <= 30).length;
+    return h >= 0 && h <= 2 && named >= 3 && named / body.length >= 0.7;
+  }
+  // A line that is a reference: dated, and an author, a title, an organisation or an address. IEEE's "X. Feng, M. Ouyang, …" included.
+  const isRefLine = (l) => (/\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l)
+    && (REF_START.test(l) || /^["“]/.test(l) || /^[\p{Lu}][\p{L}&.'’ -]{2,80}\.\s/u.test(l) || /^(?:[\p{Lu}]\.\s?)+[\p{Lu}][\p{L}'’-]+,/u.test(l) || /https?:\/\/|doi\.org|www\./i.test(l) || /["“][^"”]{5,}["”]/.test(l) || /\b(?:vol\.|pp?\.|no\.|eds?\.|Press|Journal|Retrieved|Accessed|doi|thesis|Proc\.|Rep\.|et al\.)/.test(l)))
+    || /^(?:https?:\/\/|www\.)\S+$/i.test(l);
+  // An interview written up: Q and A, or the interviewer's questions and someone's first-person answers.
+  function looksLikeInterview(lines) {
+    const qs = lines.filter((l) => /^(?:Q|Question|Interviewer|Me)\s*\d*\s*[:.)–-]\s*\S/i.test(l)).length;
+    const as = lines.filter((l) => /^(?:A|Answer)\s*\d*\s*[:.)–-]\s*\S/.test(l));
+    const own = as.filter((l) => /\b(?:I|my|me|we|our)\b/.test(l)).length;
+    if (qs >= 3 && (as.length >= 3 ? own / as.length >= 0.5 : lines.filter((l) => /\b(?:I|my|me)\b/.test(l)).length >= qs)) return true;
+    const asked = lines.filter((l, i) => /\?["”]?\s*$/.test(l) && /\byou(?:r)?\b/i.test(l) && l.split(/\s+/).length <= 20 && lines[i + 1] && !/\?["”]?\s*$/.test(lines[i + 1]) && lines[i + 1].split(/\s+/).length >= 8);
+    const posed = lines.filter((l, i) => /\?["”]?\s*$/.test(l) && l.split(/\s+/).length <= 20 && lines[i + 1] && !/\?["”]?\s*$/.test(lines[i + 1]) && lines[i + 1].split(/\s+/).length >= 8);
+    return asked.length >= 3 || (posed.length >= 4 && asked.length >= 2 && lines.filter((l) => /\b(?:I|my|me)\b/.test(l)).length >= posed.length);
+  }
+  /* A feature or a profile: journalism's marks (a byline, a surname after
+     the full name, "Pruitt, 63,", "said senior Andre Cole") around one
+     person or place, told in its present ("she says", "has been … for 32
+     years") rather than a news story's event. */
+  function journalism(raw, lines) {
+    const surnames = new Set([...raw.matchAll(/\b[\p{Lu}][\p{L}'’-]+ ([\p{Lu}][\p{L}'’-]{2,})\b/gu)].map((m) => m[1]));
+    const said = [...raw.matchAll(/\b([\p{Lu}][\p{L}'’-]+),? (?:said|says|recalls|remembers|explains|explained|added|adds)\b|\b(?:said|says) (?:[\p{Ll}]+ )*(?:[\p{Lu}][\p{L}'’-]+ )?([\p{Lu}][\p{L}'’-]+)\b/gu)]
+      .filter((m) => surnames.has(m[1] ?? m[2])).length;
+    const apposed = (raw.match(/\b[\p{Lu}][\p{L}'’-]+, (?:\d{1,3}|a (?:senior|junior|sophomore|freshman|[\p{L}-]+ (?:major|student|teacher|owner|founder|director|coach|manager|librarian|nurse)))\b/gu) ?? []).length;
+    return said + apposed + (lines.slice(0, 4).some((l) => BYLINE.test(l)) ? 1 : 0);
+  }
+  const FEATURE_VOICE = /\b(?:says|recalls|remembers|grew up|has been|have been|(?:for|after) (?:the past |more than |over |nearly |almost )?(?:\d+|two|three|four|five|six|ten|twenty) (?:years|decades)|since (?:19|20)\d\d)\b/gi;
+  // A class discussion board: the week's reading, the prompt, classmates.
+  const DISCUSSION_CUE = /\b(?:your (?:initial )?post|great post|I (?:really |completely |strongly )?(?:agree|disagree) with (?:you|your|what you)|you (?:mentioned|brought up|made (?:a|some) (?:good|great|interesting|strong|valid) points?)|great (?:point|question)|(?:this|last) week'?s (?:reading|readings|prompt|discussion|module|lecture|topic|video|chapter)|in (?:the|this week'?s|our) (?:assigned )?(?:readings?|module|lecture|textbook)|the (?:textbook|assigned reading|course readings?|module)|classmates?|discussion (?:post|board|question|prompt)|initial post|(?:in )?response to (?:the )?(?:prompt|discussion question)|to answer (?:the|this week'?s) (?:prompt|question)|replying to|thanks? (?:you )?for sharing|I look forward to (?:reading|hearing)|what do (?:you all|you guys|others) think|does anyone (?:else|have)|our (?:reading|readings|textbook|module|class discussion)|(?:a )?question for (?:the|my) (?:group|class|classmates))\b/gi;
+  // …and one of them is talk on a board: to a classmate, to the group, about this week's prompt.
+  const DISCUSSION_TALK = /\b(?:your (?:initial )?post|great post|I (?:really |completely |strongly )?(?:agree|disagree) with (?:you|your|what you)|you (?:mentioned|brought up|made (?:a|some) (?:good|great|interesting|strong|valid) points?)|great (?:point|question)|(?:this|last) week'?s|discussion (?:post|board|question|prompt)|initial post|(?:in )?response to (?:the )?(?:prompt|discussion question)|replying to|thanks? (?:you )?for sharing|a question for (?:the|my) (?:group|class|classmates)|what do (?:you all|you guys|others|you think)|does anyone)\b/i;
+  // A peer review talks to the writer about their draft.
+  const PEER_CUE = /\byour (?:essay|draft|paper|thesis|intro(?:duction)?|conclusion|paragraphs?|story|claim|argument|hook|evidence|topic sentences?|sources?|writing|piece|poem|ending|title|transitions?|counter ?argument|analysis|body paragraphs?|citations?|word choice|voice|organization|first paragraph|second paragraph)\b/gi;
+  const FEEDBACK_CUE = /\b(?:I (?:liked|loved|really liked|enjoyed|noticed|think you|would (?:suggest|recommend|add|change|cut)|was (?:confused|lost)|got (?:confused|lost)|wonder(?:ed)?)|you (?:could|should|might|may want to|need to|did (?:a )?(?:great|good|nice) job)|consider (?:adding|revising|changing|cutting|explaining|moving)|strengths?|(?:areas?|room) (?:for|of) improvement|one (?:suggestion|thing to work on)|glows?|grows?|(?:overall|great|nice) (?:job|work)|keep up)\b/gi;
+  // A debate case: contentions, the resolution, the other side.
+  const DEBATE_CUE = /\b(?:contention (?:one|two|three|1|2|3|i{1,3})|the resolution|affirm(?:ative)?|negat(?:e|ive) (?:side|team)|my opponents?|the (?:pro|con|opposing|other) (?:side|team)|value (?:premise|criterion)|framework|weigh(?:ing)? (?:the|this) (?:round|debate)|extend (?:my|our)|cross[- ]ex(?:amination)?|honou?rable (?:judges|delegates)|the delegation of|(?:pro|con|aff|neg) (?:side|team)|we (?:affirm|negate)|I (?:affirm|negate)|this house (?:would|believes)|THW|madam speaker|mister speaker|points? of information|POIs?|rebuttal|they said)\b/gi;
+  // An AP Language synthesis essay cites its sources by letter like an IB history essay; a history essay talks history.
+  const HISTORY_CUE = /\b(?:1[0-8]\d\d|19[0-4]\d)\b|\bcentur(?:y|ies)\b|\b(?:empire|dynasty|revolution(?:ary)?|colonial|colonies|kingdom|treaty|reign|emperor|pharaoh|medieval|ancient|feudal|Meiji|Ottoman|Mughal|Ming|Qing|Soviet|Cold War|World War|slavery|abolition|Reconstruction|New Deal|Great Depression|monarch\w*|imperialis\w*)\b/gi;
+  function looksLikeSynthesis(raw) {
+    if (/\bsynthesis\b/i.test(raw)) return true;
+    const docs = (raw.match(DOC_REF) ?? []).length;
+    const sources = (raw.match(IB_SOURCE) ?? []).length;
+    return sources > docs && (raw.match(HISTORY_CUE) ?? []).length < 4;
+  }
+  /* A plan not yet carried out: "we will …", "I plan to …", a timeline, a
+     budget. Results already measured make it a lab, however it is worded
+     (owner, 2026-10-15, on "Report: Build A Calibrated Spring Scale": its
+     every sentence says "we will", and its "23 cm for 2.9 newtons" lines
+     are a lab's data). */
+  const PLAN_CUE = /\b(?:propos(?:e|ed|al|ing)|timeline|time ?line|budget|cost|funding|expected (?:results?|outcomes?|findings)|anticipated|significance|deliverables?|research questions?|methodology|by week|week \d+|phase (?:one|two|\d)|milestones?|approval|feasib\w+|objectives?|rationale|scope|stakeholders?)\b/gi;
+  const MEASURE_LINE = /\d(?:\.\d+)?\s*(?:cm|mm|m|km|g|kg|mg|mL|ml|L|N|newtons?|J|W|V|A|Hz|s|sec|seconds|min|°C|°F|degrees|mol|M|psi|grams|meters|centimeters)\b/;
+  function measuredLines(lines) {
+    return lines.filter((l) => MEASURE_LINE.test(l) && l.split(/\s+/).length <= 14 && !/\b(?:will|would|plan)\b/i.test(l)).length;
+  }
+  function proposalScore(raw, lines) {
+    const future = (raw.match(/\b(?:I|we|students|participants|the team)\s+(?:will|plan to|intend to|propose to|hope to|am going to|are going to|would like to|aim to)\b|\bwill be (?:measured|tested|collected|recorded|used|conducted|surveyed|given|asked|analy[sz]ed|built|compared|interviewed|divided|randomly)\b/gi) ?? []).length;
+    const past = (raw.match(/\b(?:we|I)\s+(?:measured|recorded|found|observed|tested|collected|calculated|noticed|concluded)\b|\bresults? (?:show(?:ed)?|indicated?)\b/gi) ?? []).length;
+    if (future < 3 || future <= 2 * past || measuredLines(lines) >= 2) return 0;
+    return countDistinct(raw, PLAN_CUE) >= 2 ? 7 : 0;
+  }
+  // A lab written up before its headings: an experiment, trials, and the numbers it measured.
+  const EXPERIMENT_CUE = /\b(?:experiment\w*|trials?|measur\w+|calibrat\w+|hypothes\w+|variables?|data|results|weights?|masses|apparatus|procedure|observations?|recorded|tested|spring scale|beakers?|test tubes?|graduated cylinder|stopwatch|thermometer|ruler|newtons?|average|controlled)\b/gi;
+  function looksLikeLabDraft(raw, lines) {
+    const titled = lines.slice(0, 4).some((l) => /\b(?:lab|experiment|report|investigation|project)\b/i.test(l) && l.split(/\s+/).length <= 12);
+    return measuredLines(lines) >= 2 && countDistinct(raw, EXPERIMENT_CUE) >= 3 && (titled || countDistinct(raw, EXPERIMENT_CUE) >= 5);
+  }
+  /* The list-shaped kinds, beyond plain notes: an outline's levels, a study
+     guide's terms and definitions, instructions' steps. [kind, score] or null. */
+  const STEP_LINE = /^(?:(?:step\s*)?\d{1,2}[.):]\s*|[-•●○■▪◦*–]\s*|step \w+[.:]\s*)(?:(?:first|then|next|finally|now),?\s+)?(?:add|preheat|mix|stir|pour|bake|cook|boil|simmer|chop|slice|cut|place|put|open|click|select|go to|press|turn|insert|remove|wait|let|fold|combine|whisk|heat|bring|serve|attach|connect|install|download|type|enter|choose|tap|make sure|check|use|take|fill|set|repeat|rinse|apply|plug|unplug|hold|drag|save|log in|sign in|navigate|grab|cover|spread|sprinkle|season|drain|beat|melt|measure|mark|sand|glue|tape|draw|wrap|lay|line|scroll|find|copy|paste|restart|unscrew|screw|tighten|loosen|lift|lower|pull|push|slide|clean|wash|dry|store|keep|leave|allow|start|stop|plant|water|dig|unbox|charge|pair|log|sign|fill out|write|label|cool|transfer|top|garnish|flip|knead|roll|soak|toast|fry|grease|crack|separate|dissolve)\b/i;
+  const IMPERATIVE = /^(?:(?:\d{1,2}[.)]|[-•●*–])\s*)?(?:please\s+)?(?:take|turn|go|drive|head|follow|keep|park|call|text|put|give|let|make sure|check|use|click|open|press|add|mix|stir|bake|don'?t|do not|never|always|be sure|remember to|try|ask|bring|pick|set|leave|lock|feed|wash|tap|select|enter|type|choose|log in|sign in|wait|plug|unplug|restart|install|download|fill|pour|heat|cook|serve|store|cover|look for|stay|avoid|skip|stop|start|hold|push|pull|lift|place|remove|insert|connect|attach|charge|empty|clean|rinse|dry|fold|cut|slice|chop|grab|drop|cross|exit|merge|continue|veer|bear|read|email|have them|text me|call me)\b/i;
+  const HOWTO_HEAD = /^(?:ingredients|directions|instructions|steps|method|what you(?:'ll)? need|you(?:'ll)? need|tools(?: needed)?|supplies|equipment needed|prep time|cook time|serves \d+|yield|setup|set ?up|before you (?:start|begin)|getting started|troubleshooting|requirements)\b/im;
+  const TERM_LINE = /^(?:[-•●○■▪◦*–]\s*|\d{1,2}[.)]\s*)?[\p{L}][\p{L}\d '’()/-]{1,40}?\s*(?:[-–—:=]\s+|\s+(?:is|are|means|refers to)\s+(?:a|an|the|when|how|to|any)\b)\S/u;
+  function listKind(raw, lines) {
+    const n = lines.length;
+    if (n < 4) return null;
+    const steps = lines.filter((l) => STEP_LINE.test(l)).length;
+    if (steps >= 3 && (HOWTO_HEAD.test(raw) || steps >= 5)) return ["instructions", HOWTO_HEAD.test(raw) ? 7.8 : 6.3];
+    const said = raw.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x.split(/\s+/).length >= 3);
+    const told = said.filter((x) => IMPERATIVE.test(x)).length;
+    if (told >= 5 && told / said.length >= 0.3) return ["instructions", HOWTO_HEAD.test(raw) ? 7.8 : 6.3];
+    // An outline is points, not paragraphs: a paper's "I. Introduction" headings over paragraphs are a paper's.
+    const fragments = lines.filter((l) => !/[.!?]["”’)]?$/.test(l) || l.split(/\s+/).length <= 12).length / n;
+    const roman = lines.filter((l) => /^[IVX]{1,4}\.\s/.test(l)).length;
+    const parts = lines.filter((l) => OUTLINE_WORD.test(l)).length;
+    if (fragments >= 0.6 && (roman >= 2 || (parts >= 3 && parts / n >= 0.2))) return ["outline", 6.15];
+    const terms = lines.filter((l) => TERM_LINE.test(l) && l.split(/\s+/).length <= 40).length;
+    if (n >= 5 && terms / n >= 0.35 && /\b(?:test|quiz|exam|know|review|vocab\w*|terms?|define|definitions?|key (?:terms|ideas|people|concepts)|study)\b/i.test(lines.slice(0, 3).filter((l) => l.split(/\s+/).length <= 14).join(" "))) return ["studyguide", 6.15];
+    return null;
+  }
+  // A literature review: what other studies found, study after study, and no study of its own.
+  const LIT_REVIEW_CUE = /\b(?:(?:several|many|few|other|recent|previous|prior|existing|some|these|both|most) (?:studies|researchers|scholars|authors)|(?:the|this) (?:literature|body of (?:research|work))|(?:a|one|another|their|his|her) (?:\d{4} )?(?:study|meta-analysis|review|survey|experiment)|(?:found|reported|concluded|argued|suggested|observed|noted|demonstrated|showed) that|gaps? in (?:the )?(?:literature|research)|(?:et al\.)|(?:in contrast|similarly|likewise|however),? [\p{Lu}][\p{L}'’-]+ (?:\(|and|et))/giu;
+  const OWN_STUDY = /\b(?:we|I) (?:surveyed|measured|collected|recruited|interviewed|conducted|ran|tested|administered|randomly assigned)\b|\bparticipants were\b|\bour (?:results|findings|data|study|sample|survey)\b|\bthis study (?:found|examined|investigated|used)\b|^(?:method|methods|methodology|participants|results)\s*:?$/im;
+  function looksLikeLitReview(raw, words) {
+    const cites = (raw.match(WORK_CITE) ?? []).length + (raw.match(/\b[\p{Lu}][\p{L}'’-]+(?: et al\.)? \((?:1[5-9]|20)\d\d\)/gu) ?? []).length;
+    return words >= 150 && cites >= 5 && !OWN_STUDY.test(raw) && countDistinct(raw, LIT_REVIEW_CUE) >= 7; // short of its name, a research paper reports studies too
+  }
+  // A case study: one company, patient or event — its background, problem, options and recommendations.
+  const CASE_HEAD = /^(?:(?:\d+|[IVX]+)[.)]\s*)?(?:background|(?:the )?problem(?: statement)?|(?:key )?issues?(?: identified)?|analysis|alternatives?(?: considered)?|options?|recommendations?|implementation(?: plan)?|swot(?: analysis)?|case (?:facts|summary|overview|background)|executive summary|situation(?: analysis)?|evaluation|patient (?:history|background|information|presentation)|(?:history of )?present illness|diagnosis|assessment|treatment(?: plan)?|outcomes?|lessons learned|stakeholders|company (?:background|overview)|conclusion)\s*:?$/i;
+  const CASE_CUE = /\b(?:the (?:company|firm|organization|client|patient|hospital|brand|startup|retailer|manufacturer)|(?:its|the company's) (?:revenue|market share|employees|customers|competitors|management|CEO)|presented with|was diagnosed|recommend(?:ation|ed)? (?:that|is)|should (?:consider|implement|adopt|invest))\b/gi;
+  function looksLikeCaseStudy(raw, lines) {
+    const heads = new Set(lines.filter((l) => l.length <= 45 && CASE_HEAD.test(l)).map((l) => l.toLowerCase().replace(/[:\s\d.)IVX]+$/g, "")));
+    return heads.size >= 3 && countDistinct(raw, CASE_CUE) >= 2;
+  }
+  // A rhetorical analysis: how a speaker or writer moves an audience.
+  const RHETORIC_CORE = /\b(?:ethos|pathos|logos|kairos|rhetoric(?:al)?(?! question)|rhetorical (?:choices?|strateg(?:y|ies)|devices?|situation|appeals?)|appeals? to (?:(?:the|his|her|their) )?(?:audience'?s? )?(?:emotions?|logic|reason|credibility|authority|values|fears?|patriotism|sense of)|(?:emotional|logical|ethical) appeals?|(?:the )?(?:speaker|author|writer|orator|president|senator)'s (?:use of|purpose|audience|tone|diction|syntax|choices?|credibility)|persuade (?:his|her|their|the) (?:audience|readers|listeners)|(?:his|her|their) (?:audience|listeners|readers)|anaphora|parallel(?:ism| structure)|rhetorical questions?|diction|syntax|antithesis|(?:target|intended) audience|persuasive|persuad\w+|appeal(?:s|ing)? to|the (?:ad|advertisement|commercial|campaign)|uses? (?:repetition|humor|statistics|anecdotes?|contrast|a personal anecdote)|credibility|call to action)\b/gi;
+  const RHETORIC_ANCHOR = /\b(?:ethos|pathos|logos|rhetoric\w*|audience|persuad\w+|persuasive|appeals?|advertisement|commercial|the ad\b|campaign|speech|address|readers? (?:to|into))\b/i;
+  // A summary or response to one reading: "In the article, the author argues …", then what the writer makes of it.
+  const SUMMARY_LEAD = /\b(?:in (?:the|his|her|their|this) (?:article|essay|chapter|reading|video|text|speech|TED talk|talk|documentary|podcast|op-ed|editorial|report|lecture)|the (?:article|essay|chapter|author|reading|video|text|writer|speaker|documentary|lecture)(?: also)? (?:argues|explains|discusses|describes|claims|states|says|suggests|points out|believes|presents|focuses|begins|ends|concludes|mentions|introduces|writes|shows|uses))\b/gi;
+  const RESPONSE_CUE = /\b(?:I (?:agree|disagree|think the (?:author|article|writer)|found the (?:article|reading|author|video)|was (?:surprised|interested|struck)|liked how)|the author'?s (?:main|central) (?:point|idea|argument|claim)|in summary|to summarize|my (?:response|reaction|opinion)|this (?:article|reading|chapter|video) (?:made me|taught me|shows))\b/gi;
+  const looksLikeSummary = (raw) => {
+    const lead = countDistinct(raw, SUMMARY_LEAD), said = (raw.match(SUMMARY_LEAD) ?? []).length;
+    return said >= 3 && lead >= 2 || (said >= 2 && countDistinct(raw, RESPONSE_CUE) >= 2);
+  };
+  // A book report: the book's characters, setting and plot, and whether the student liked it.
+  const BOOK_REPORT_CUE = /\b(?:the main characters?|the setting|the plot|the climax|the (?:author|book) (?:is|was|wrote)|this book (?:is|was) about|the book (?:is|was) about|my favou?rite (?:part|character|scene)|I (?:would|'d) (?:recommend|give) (?:this|the) book|I (?:read|chose) (?:the book|this book)|the (?:conflict|resolution|theme) (?:is|was)|the story (?:is|takes place)|pages? long|(?:in|at) the (?:beginning|end) of the (?:book|story))\b/gi;
+  const looksLikeBookReport = (raw, lines) => lines.slice(0, 6).some((l) => BOOK_REPORT.test(l)) || (BOOK_CUE.test(raw) && /\b(?:novel|book|author)\b/i.test(raw)) || countDistinct(raw, BOOK_REPORT_CUE) >= 3;
+  // A review: a verdict, stars, the parts of the thing reviewed.
+  const REVIEW_CUE = /(?:★|⭐|\b\d(?:\.\d)?\s?(?:\/\s?(?:5|10)\b|out of (?:5|five|10|ten)\b|stars?\b)|\b(?:I (?:would|'d) (?:recommend|give)|(?:highly|would(?:n't| not)?) recommend|worth (?:the (?:price|money|wait|hype|read|watch)|it|watching|reading|a visit|seeing|buying|playing)|skip (?:it|this)|(?:the )?(?:food|service|staff|plot|acting|gameplay|graphics|soundtrack|price|battery(?: life)?|camera|menu|ambiance|atmosphere|cinematography|pacing|cast|ending|visuals|sound quality|portions?|customer service|build quality|writing|characters|wait time) (?:is|was|were|are)\b|overall,? (?:I|this|it|the)\b|my (?:rating|verdict)\b|verdict\b|pros?\s*:|cons?\s*:|spoilers?\b|(?:five|four|three|two|one)[- ]stars?\b|(?:must[- ](?:see|read|try|watch))\b|dir\.|directed by|starring|(?:this|the) (?:film|movie|album|show|series|app|game|restaurant|place) (?:is|was|isn't|wasn't|knows|follows|feels|has|does)\b|I left the theat(?:er|re)|(?:the|this) (?:soundtrack|cast|director|chef|update|sequel)\b))/gi;
+  const OPINION_CUE = /\b(?:I(?:'d| would) argue|I(?:'m| am) asking|we need|lawmakers|legislators|legislature|the (?:city|council|board|district|state|bill|policy|plan|proposal|mayor|governor|administration|university)|vote|oppose|it(?:'s| is) time|let's|ask (?:your|our)|call (?:your|on))\b/gi;
+  // An op-ed says where it ran and who wrote it ("— Jane Doe is a senior at …").
+  function opEdScore(raw, lines) {
+    // Its own masthead words — not an op-ed it cites ("an op-ed in the Times (Source C)").
+    if (/\b(?:editorial board|this newspaper|our (?:editorial )?board|readers of this (?:paper|newspaper))\b/i.test(raw)) return 8.2;
+    if (/^(?:regarding|re:?|in response to)\b[^.\n]{0,80}\b(?:column|editorial|op-?ed|article|letter|story)\b/i.test(lines[0] ?? "")) return 8.2;
+    const last = lines[lines.length - 1] ?? "";
+    if (/^[-—–]?\s*[\p{Lu}][\p{L}.'’-]+(?: [\p{Lu}][\p{L}.'’-]+){0,3},? (?:is|was|are) (?:a|an|the)\b.{3,160}$/u.test(last) && countDistinct(raw, STANCE_CUE) >= 2) return 7.5;
+    // A byline over an argument in the first person: a column ("By Renée Castellano, RN").
+    return lines.slice(0, 4).some((l) => BYLINE.test(l)) && countDistinct(raw, STANCE_CUE) + countDistinct(raw, OPINION_CUE) >= 3 && firstPersonShare(raw) >= 0.01 && !(raw.match(WORK_CITE) ?? []).length ? 5.6 : 0;
+  }
+  // A journal: dated entries in the writer's own voice, or "Dear Diary".
+  // An entry's date line: "Tues. 5:52am", "Saturday, 18 April", "March 3rd, 1891", "10/4", "Day 12".
+  const WEEKDAY = "(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\\b\\.?";
+  const DAY_DATE = `(?:${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4})?|\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}(?:,?\\s+\\d{4})?|\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?)`;
+  const CLOCK = "\\d{1,2}:\\d{2}\\s*(?:[ap]\\.?m\\.?)?";
+  const DATED_ENTRY = new RegExp(`^(?:${WEEKDAY}(?:,?\\s*${DAY_DATE})?(?:,?\\s*${CLOCK})?|${DAY_DATE}(?:,?\\s*${CLOCK})?|${CLOCK})(?:\\s*[:—–-]\\s*|\\s+)?[^.!?\\n]{0,25}$|^(?:entry|day|week)\\s*#?\\s*\\d+\\b[^.!?\\n]{0,30}$`, "i");
+  function journalScore(raw, lines) {
+    if (firstPersonShare(raw) < 0.03) return 0;
+    const dated = lines.filter((l) => l.split(/\s+/).length <= 8 && DATED_ENTRY.test(l));
+    const score = dated.length >= 2 ? 8.1 : dated.length === 1 && DATED_ENTRY.test(lines[0]) ? 7 : 0;
+    // A diary dated long ago is fiction told as one ("March 3rd, 1891"): a story.
+    return score && dated.some((l) => /\b1[5-8]\d\d\b|\b19[0-6]\d\b/.test(l)) ? -score : score;
+  }
+  // A college essay: applying, a major, the school, the future.
+  const COLLEGE_CUE = /\b(?:common app|personal statement|admissions?|this (?:college|university|school|program)|your (?:college|university|school|campus|program|community)|at [\p{Lu}][\p{L}]+ (?:University|College)|(?:University|College) of [\p{Lu}]|I (?:hope|want|plan|intend) to (?:study|major|attend|pursue|bring|join|contribute)|(?:major|minor) in|scholarships?|campus|applying|future (?:career|goals)|(?:my|the) (?:dream|goal) (?:school|college)|financial (?:need|aid)|first[- ]generation|college)\b/giu;
+  // A reflection on schoolwork or work: this unit, what I learned, what I'll do next time.
+  const REFLECT_ON = /\b(?:this (?:unit|class|course|semester|quarter|project|assignment|lab|internship|activity|module|presentation|essay|process|portfolio|workshop|program|experience)|next time|if I (?:could|were to|did) (?:do )?(?:it|this) (?:again|over)|going forward|in the future,? I)\b/gi;
+  const REFLECT_CUE = /\b(?:I learned|what I learned|(?:one|another|the (?:biggest|most important|main)) thing I (?:learned|would|will)|I would (?:do|change)|I struggled|I improved|my (?:strengths?|weakness(?:es)?|growth|goal for|biggest challenge)|I (?:feel|felt) (?:more )?(?:confident|proud)|I (?:am|was) proud of|(?:helped|taught) me (?:to|how|that)|looking back|I realized)\b/gi;
+  const looksLikeReflection = (raw) => firstPersonShare(raw) >= 0.025 && countDistinct(raw, REFLECT_ON) >= 1 && countDistinct(raw, REFLECT_ON) + countDistinct(raw, REFLECT_CUE) >= 3;
+  const BIO_LEAD = /^(?!(?:There|It|This|That|These|Those|He|She|They|We|I|The|A|An|One|When|After|Before|Today|Our|My|His|Her|Their|In|On|At|If|As)\b)(?:(?:Dr|Mr|Ms|Mrs|Mx|Prof|Coach)\.?\s+)?[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’.-]+){0,2}(?:\s\([^)]{1,40}\))?,?\s+(?:is|has|was|grew|earned|holds|serves|works|teaches|joined|brings|leads|founded)\b/u;
+  // A bio: a person in a few lines — who they are, where they work, what they do for fun.
+  const BIO_CUE = /\b(?:is (?:a|an|the) (?:[\w-]+ ){0,3}(?:student|junior|senior|sophomore|freshman|teacher|writer|author|artist|designer|engineer|developer|researcher|professor|coach|founder|director|manager|musician|photographer|nurse|consultant|scientist|lawyer|chef|athlete|leader|educator|speaker|entrepreneur|volunteer|graduate|major)|was born|grew up in|lives in|graduated (?:from|with)|holds an?|earned (?:a|an|her|his|their)|currently (?:serves|works|studies|attends|lives|teaches|leads)|in (?:her|his|their|my) (?:free|spare) time|when (?:she|he|they)(?:'s|'re| is| are)? not|(?:she|he|they) (?:enjoys?|loves?)|has (?:worked|written|been|published|taught|spent|led)|(?:her|his|their) work|award-winning|is passionate about|specializes in)\b/gi;
+  // A post: hashtags, handles, "link in bio".
+  function looksLikeSocial(raw, words) {
+    const tags = (raw.match(/(?:^|\s)#[\p{L}][\p{L}\d_]+/gu) ?? []).length;
+    const handles = (raw.match(/(?:^|\s)@[\w.]{2,}/g) ?? []).length;
+    const cue = /\b(?:link in (?:bio|comments)|swipe (?:up|left|right)|follow (?:me|us|for more)|tag (?:a friend|someone)|like and (?:share|subscribe)|comment below|(?:thrilled|excited|proud|humbled|honou?red) to (?:announce|share)|DM (?:me|us)|repost)\b|🧵/i.test(raw);
+    const thread = (raw.match(/^\d{1,2}\s?\/(?:\d{1,2})?\s/gm) ?? []).length; // "1/ … 2/ …"
+    return thread >= 3 || (words <= 400 && (tags >= 2 || (tags >= 1 && (handles >= 1 || cue)) || (cue && words <= 200)));
+  }
+  // Worked math: line after line of equations.
+  function mathWork(lines) {
+    const eq = lines.filter((l) => (/[=≈≤≥]/.test(l) && /\d/.test(l) || /[≅∥△∠⊥∴∵∑∫]/.test(l)) && l.split(/\s+/).length <= 16).length;
+    return (eq >= 4 && eq / lines.length >= 0.3) || /^(?:given|prove)\s*:/im.test(lines.slice(0, 4).join("\n")) && /statements?\s+reasons?/i.test(lines.join("\n"));
+  }
   const GENRE_LABEL = {
     resume: "a resume", letter: "a letter", email: "an email", coverletter: "a cover letter", research: "a research paper",
     literary: "a literary essay", homework: "homework questions", dbq: "a DBQ", lab: "a lab report", speech: "a speech",
@@ -1798,34 +2316,125 @@
     news: "News article", personal: "Personal essay", notes: "Notes", annotated: "Annotated bibliography",
     poem: "Poem", story: "Story", script: "Script",
   };
-  const COMPARE_CUE = /\b(?:similarly|likewise|in contrast|by contrast|whereas|on the other hand|unlike|alike|differs?|differences?|different from|similarit(?:y|ies)|compared (?:to|with)|in comparison)\b/gi;
-  const CAUSE_CUE = /\b(?:as a result|led to|leads to|lead to|leading to|caused|causes|cause of|consequently|due to|resulted in|results in|effects?|impacts? (?:of|on)|contributed to|because of|the (?:main|first|second|third|major|biggest|final) (?:cause|effect|result|consequence)s?)\b/gi;
+  const COMPARE_CUE = /\b(?:similarly|likewise|in contrast|by contrast|whereas|on the other hand|unlike|alike|differs?|differences?|different (?:from|than)|differently|similar(?:ly|ities|ity)?|compared (?:to|with)|in comparison|comparing|both|the same|same as|vs\.?|versus|while (?:the|[\p{Lu}][\p{L}]+)|more [\p{L}]+ than|less [\p{L}]+ than|[\p{L}]{3,}er than|as [\p{L}]+ as|in common|another (?:difference|similarity)|instead)\b/giu;
+  const CAUSE_CUE = /\b(?:as a result|led to|leads to|lead to|leading to|caused|causes|cause of|causing|consequently|due to|resulted in|results in|effects?|impacts? (?:of|on)|contributed to|because(?: of)?|the (?:main|first|second|third|major|biggest|final) (?:cause|effect|result|consequence|reason)s?|reasons?|factors?|triggered|therefore|which meant|this meant|so many|ended up|in turn|why)\b/gi;
   const STANCE_CUE = /\b(?:should|must|ought to|needs? to|I (?:believe|argue|think|contend)|we (?:must|should|need|cannot afford|can't afford)|it is (?:essential|crucial|vital|necessary|clear)|opponents|critics|some (?:people |may |might )?(?:argue|claim|believe|say)|counter-?arguments?|although some|while some|there is no doubt|historians (?:have )?(?:long )?(?:argued|debated)|the most (?:effective|important|significant|serious|obvious|convincing|practical)|the (?:main|biggest|real|best|strongest) (?:reason|problem|benefit|way|solution|argument)|arguments?|it(?:'s| is) true that|hard to justify|worth (?:saving|it|the cost)|clearly|undeniabl[ey]|to what extent)\b/gi;
   const THESIS_CUE = /\b(?:should|must|ought to|needs? to)\b/i;
-  const TELLS_TITLE = /^(?:don'?t|do not|stop|save|keep|let|ban|end|bring back|why (?:we|you|schools?|every|the)\b)/i;
+  const TELLS_TITLE = /^(?:don'?t|do not|stop|save|keep|let|ban|end|bring back|why (?:we|you|schools?|every|the)\b)|^why\b.*\b(?:needs?|should|must|deserves?|ought)\b/i;
   const BOOK_REPORT = /\bbook report\b/i;
   const BOOK_CUE = /\b(?:my favou?rite (?:part|character|scene)|I (?:would )?recommend (?:this|the) book|out of (?:five|5) stars|\d(?:\.\d)?\s?\/\s?5 stars|stars? out of)\b/i;
-  function essayTypeOf(text) {
-    const t = String(text ?? "");
+  const PROBLEM_CUE = /\b(?:the problem|this problem|a (?:serious |growing |major |big |real )?problem|problems? (?:of|with|is|are|facing)|(?:a|one|another|the (?:best|first|second|simplest|most effective|only)) (?:possible |practical |simple )?solutions?|solutions?|solve[sd]?|solving|address(?:es|ed|ing)? (?:the|this) (?:problem|issue|shortage)|fix(?:es|ed|ing)?|(?:could|would|will) (?:help )?(?:reduce|fix|solve|prevent|close)|(?:propose|recommend|suggest) (?:that|a|an|the)|implement(?:ed|ing)?|the issue|shortages?|one way to|another way to|the answer|a plan)\b/gi;
+  /* An essay's own kind, by its words, as a key of WRITING_KINDS: the
+     connectives of comparison, of cause and effect, of a problem and its
+     solutions; an argument's stance; an explanation's third person. Two
+     kinds as strong as each other, or an essay that is neither arguing nor
+     explaining, is "essay": the broader name, never a guess. */
+  function essayKindOf(t, lines, words) {
+    if (words < 40) return "essay";
     const all = t.match(/[\p{L}'’-]+/gu) ?? [];
-    const words = all.length;
-    if (words < 40) return ""; // too little to say
-    const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (BLOG_CUE.test(t)) return "Blog post";
-    if (lines.slice(0, 6).some((l) => BOOK_REPORT.test(l)) || (BOOK_CUE.test(t) && /\b(?:novel|book|author)\b/i.test(t))) return "Book report";
     const per = (re) => ((t.match(re) ?? []).length * 1000) / words; // a thousand words' worth
-    const compare = per(COMPARE_CUE), cause = per(CAUSE_CUE), stance = per(STANCE_CUE);
+    const compare = per(COMPARE_CUE), cause = per(CAUSE_CUE), stance = per(STANCE_CUE), problem = per(PROBLEM_CUE);
     const title = lines[0] ?? "";
     const titled = title.split(/\s+/).length <= 16;
     const asks = titled && /\?$/.test(title);
     const tells = titled && TELLS_TITLE.test(title);
-    const causeTitle = titled && !/[.!]$/.test(title) && /\b(?:causes?|effects?|impacts?|changed|led to|consequences?)\b/i.test(title);
-    if (compare >= 8 && compare > stance) return "Compare and contrast essay";
-    if ((cause >= 8 || (causeTitle && cause >= 4)) && cause > stance) return "Cause and effect essay";
-    if (stance >= 4 || asks || tells || THESIS_CUE.test(all.slice(0, 180).join(" "))) return "Argumentative essay";
-    return "Informative essay";
+    const causeTitle = titled && !/[.!]$/.test(title) && /\b(?:causes?|effects?|impacts?|changed|led to|consequences?|why)\b/i.test(title) && !/\b(?:needs?|should|must|deserves?|ought)\b/i.test(title);
+    const compareTitle = titled && /\b(?:vs\.?|versus|compared?|comparing|and)\b/i.test(title) && /\b(?:vs\.?|versus|compar\w+|differen\w+|similar\w*|alike|two)\b/i.test(title);
+    const problemTitle = titled && /\b(?:problem|solution|solving|fix(?:ing)?|crisis|shortage)\b/i.test(title);
+    // A kind is named when its own words clearly lead; two close together, or none leading, is an essay.
+    // An argument says "because" and "reasons" too: a cause and effect essay's causes outnumber its stance two to one.
+    const kinds = [["compare", compare + (compareTitle ? 6 : 0), 14, 0.8], ["cause", cause + (causeTitle ? 6 : 0), 12, 2], ["problem", problem + (problemTitle ? 6 : 0), 10, 1]]
+      .map(([k, v, pass, over]) => [k, v, v / pass, v > stance * over]).sort((x, y) => y[2] - x[2]);
+    const [lead, next] = kinds;
+    const argues = stance >= 5 || asks || tells || (stance >= 2.5 && THESIS_CUE.test(all.slice(0, 180).join(" ")));
+    if (lead[2] >= 1 && lead[2] >= next[2] * 1.4 && lead[3]) return lead[0];
+    if (argues && (lead[2] < 0.6 || (stance >= 8 && stance >= lead[1] * 0.6 && !lead[3]))) return "argumentative";
+    if (lead[2] >= 1) return "essay";
+    return !argues && stance < 1.5 && lead[2] < 0.6 && firstPersonShare(t) < 0.008 ? "informative" : "essay";
   }
-  const genreTitle = (genre, text) => GENRE_TITLE[genre] ?? (genre === "prose" ? essayTypeOf(text) : "");
+  // Kept for its callers: an essay's title, "" for too little to say.
+  const essayTypeOf = (text) => {
+    const t = String(text ?? "");
+    const words = (t.match(/[\p{L}'’-]+/gu) ?? []).length;
+    return words < 40 ? "" : WRITING_KINDS[essayKindOf(t, t.split("\n").map((l) => l.trim()).filter(Boolean), words)].title;
+  };
+  /* Every kind Tracely names (owner, 2026-10-15, the 56 approved): its
+     header title, the genre that decides what is checked (GENRE_QUIET,
+     GENRE_OWN, genreWantsList …, so a new kind is checked like its group's
+     old one), the "Reading this as …" label, and the broader kind a near
+     miss falls back to. Three moved group: a blog post and an op-ed (a
+     letter to the editor included) name their sources in the sentence with
+     no Works Cited, like a news article; a reference list on its own is
+     never asked where each entry is cited. */
+  const WK = (title, genre, label, parent = "") => ({ title, genre, label, parent });
+  const WRITING_KINDS = {
+    argumentative: WK("Argumentative essay", "prose", "an argumentative essay", "essay"),
+    informative: WK("Informative essay", "prose", "an informative essay", "essay"),
+    compare: WK("Compare and contrast essay", "prose", "a compare and contrast essay", "essay"),
+    cause: WK("Cause and effect essay", "prose", "a cause and effect essay", "essay"),
+    problem: WK("Problem and solution essay", "prose", "a problem and solution essay", "essay"),
+    rhetorical: WK("Rhetorical analysis", "prose", "a rhetorical analysis", "essay"),
+    summary: WK("Summary or response", "prose", "a summary or response", "essay"),
+    literary: WK("Literary analysis", "literary", "a literary essay", "essay"),
+    bookreport: WK("Book report", "prose", "a book report", "essay"),
+    essay: WK("Essay", "prose", "an essay"),
+    research: WK("Research paper", "research", "a research paper"),
+    litreview: WK("Literature review", "research", "a literature review", "research"),
+    proposal: WK("Research or project proposal", "research", "a proposal"),
+    lab: WK("Lab report", "lab", "a lab report"),
+    casestudy: WK("Case study", "research", "a case study", "research"),
+    speech: WK("Speech", "speech", "a speech"),
+    debate: WK("Debate case", "speech", "a debate case", "speech"),
+    presentation: WK("Presentation script", "speech", "a presentation script", "speech"),
+    news: WK("News article", "news", "a news article"),
+    oped: WK("Op-ed or editorial", "news", "an op-ed"),
+    feature: WK("Feature or interview", "news", "a feature or interview", "news"),
+    pressrelease: WK("Press release", "news", "a press release", "news"),
+    blog: WK("Blog post", "news", "a blog post"),
+    discussion: WK("Discussion post", "news", "a discussion post"),
+    dbq: WK("DBQ essay", "dbq", "a DBQ"),
+    synthesis: WK("Synthesis essay", "dbq", "a synthesis essay", "dbq"),
+    personal: WK("Personal essay", "personal", "a personal essay"),
+    college: WK("College or scholarship essay", "personal", "a college or scholarship essay", "personal"),
+    reflection: WK("Reflection", "personal", "a reflection", "personal"),
+    journal: WK("Journal entry", "personal", "a journal entry", "personal"),
+    review: WK("Review", "personal", "a review"),
+    bio: WK("Bio", "personal", "a bio"),
+    social: WK("Social media post", "personal", "a social media post"),
+    email: WK("Email", "email", "an email"),
+    letter: WK("Letter", "letter", "a letter"),
+    coverletter: WK("Cover letter", "coverletter", "a cover letter", "letter"),
+    recommendation: WK("Recommendation letter", "letter", "a recommendation letter", "letter"),
+    memo: WK("Memo", "letter", "a memo"),
+    resume: WK("Resume", "resume", "a resume"),
+    notes: WK("Notes", "notes", "notes"),
+    outline: WK("Outline", "notes", "an outline", "notes"),
+    studyguide: WK("Study guide", "notes", "a study guide", "notes"),
+    meeting: WK("Meeting notes", "notes", "meeting notes", "notes"),
+    peerreview: WK("Peer review", "notes", "a peer review"),
+    instructions: WK("Instructions or recipe", "notes", "instructions"),
+    lessonplan: WK("Lesson plan", "notes", "a lesson plan"),
+    annotated: WK("Annotated bibliography", "annotated", "an annotated bibliography"),
+    workscited: WK("Reference list", "annotated", "a reference list on its own"),
+    homework: WK("Homework", "homework", "homework questions"),
+    math: WK("Math work", "homework", "math work", "homework"),
+    survey: WK("Survey or questionnaire", "homework", "a survey"),
+    code: WK("Code", "homework", "code"),
+    poem: WK("Poem", "poem", "a poem"),
+    lyrics: WK("Song lyrics", "poem", "song lyrics", "poem"),
+    story: WK("Story", "story", "a story"),
+    script: WK("Script", "script", "a script"),
+  };
+  // The header's title for a kind: an essay's own kind only past 40 words (too little to say before).
+  function kindTitle(kind, text = "") {
+    const k = WRITING_KINDS[kind];
+    if (!k) return "";
+    return k.genre === "prose" && (String(text).match(/[\p{L}'’-]+/gu) ?? []).length < 40 ? "" : k.title;
+  }
+  const genreTitle = (genre, text) => {
+    const { kind, shown } = readKind(text);
+    return WRITING_KINDS[kind]?.genre === genre ? kindTitle(shown, text) : GENRE_TITLE[genre] ?? "";
+  };
   // The essay-like kinds: the citation notes, the essay review, the off-topic lines.
   const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary" || g === "lab" || g === "dbq";
   // A reference list is part of the writing — Works Cited, References — and a claim can be sent to find a source.
@@ -3567,15 +4176,54 @@
       default: return "";
     }
   }
-  // The sentence alone: the header chip's hover (panelHeadHtml), and the line a quiet kind shows in the list.
-  function genreNote(genre, text = "", style = "mla") {
-    if (GENRE_QUIET_LINE[genre]) return GENRE_QUIET_LINE[genre];
-    if (!GENRE_LABEL[genre]) return "";
-    const how = genreCiteNote(genre, text, style);
-    return `Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}`;
+  // The kinds added in 2.21.57 that say something their genre's line doesn't (WRITING_KINDS).
+  const KIND_QUIET_LINE = {
+    math: "This looks like math work. Tracely checks essays and other writing, so it is staying quiet here.",
+    survey: "This reads as a survey — its questions need no sources, so Tracely is staying quiet.",
+    code: "This looks like code. Tracely checks writing, so it is staying quiet here.",
+    lyrics: "This reads as song lyrics — nothing in them needs a source, so Tracely is staying quiet.",
+  };
+  function kindCiteNote(kind, style) {
+    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    switch (kind) {
+      case "rhetorical": return `quote the text you're analyzing and list it in your ${list}`;
+      case "summary": return `cite the work you're responding to and list it in your ${list}`;
+      case "litreview": return `every study needs an in-text citation and an entry in your ${list}`;
+      case "proposal": return `your own plan needs no source; background facts do, with an entry in your ${list}`;
+      case "casestudy": return `facts about the case need a source and an entry in your ${list}`;
+      case "debate": case "presentation": return "name each source as you say it (“According to …”); no Works Cited";
+      case "oped": return "name each source in the sentence (“…, according to …”); an op-ed has no Works Cited";
+      case "feature": return "name each person and source in the sentence; an article has no Works Cited";
+      case "pressrelease": return "name each source in the sentence; a press release has no Works Cited";
+      case "blog": return "name or link each source in the sentence; a blog post has no Works Cited";
+      case "discussion": return "name the reading or source in the sentence; a post needs no Works Cited";
+      case "synthesis": return "cite the sources by letter, like (Source A); outside evidence needs no source, and a synthesis essay has no Works Cited";
+      case "college": return "your own story needs no citations";
+      case "reflection": return "your own experience needs no citations";
+      case "review": return "your own opinion needs no citations; a wrong fact still shows";
+      case "journal": case "recommendation": case "memo": return "no citations needed";
+      case "bio": case "social": case "meeting": case "outline": case "studyguide": case "peerreview": case "instructions": case "lessonplan":
+        return "no citations needed; a wrong fact still shows";
+      case "workscited": return "Tracely won't ask where each entry is cited";
+      default: return "";
+    }
   }
-  function genreLineHtml(genre, text = "", style = "mla") {
-    const note = genreNote(genre, text, style);
+  /* The sentence alone: the header chip's hover (panelHeadHtml), and the line
+     a quiet kind shows in the list. `kind` (detectKind) names it when it is
+     one of its genre's own kinds; an essay of its own kind says nothing
+     unless it cites differently (a rhetorical analysis, a summary). */
+  function genreNote(genre, text = "", style = "mla", kind = "") {
+    const k = kind && WRITING_KINDS[kind]?.genre === genre ? kind : "";
+    if (KIND_QUIET_LINE[k] || GENRE_QUIET_LINE[genre]) return KIND_QUIET_LINE[k] || GENRE_QUIET_LINE[genre];
+    const own = k ? kindCiteNote(k, style) : "";
+    if (genre === "prose" && !own) return "";
+    const label = k ? WRITING_KINDS[k].label : GENRE_LABEL[genre];
+    if (!label) return "";
+    const how = own || genreCiteNote(genre, text, style);
+    return `Reading this as ${label}${how ? ` — ${how}` : ""}`;
+  }
+  function genreLineHtml(genre, text = "", style = "mla", kind = "") {
+    const note = genreNote(genre, text, style, kind);
     return note ? `<div class="genre-line">${note}</div>` : "";
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
@@ -4677,6 +5325,8 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
+    let docShown = "";        // the kind the header names, "" when unsure (readKind)
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
     restoreReview(review, lsGet(RCACHE_KEY)); // the same text reads back the same notes, without a new review
     function persistReview() {
@@ -4815,7 +5465,8 @@
         docText = newText;
         const before = segments;
         segments = segmentText(docText);
-        docGenre = detectGenre(docText); // always, tips or none
+        ({ kind: docKind, shown: docShown } = readKind(docText)); // always, tips or none
+        docGenre = WRITING_KINDS[docKind].genre;
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
@@ -10937,7 +11588,7 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) : "";
-        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, docText, settings.citationStyle) : "";
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, docText, settings.citationStyle, docKind) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
            citation notes and the reference list's), then the writing (the
@@ -10965,7 +11616,7 @@
         const power = `<button class="hbtn" id="turnOff" title="Turn off: stop checking Google Docs. Turn it back on from Tracely's button or Settings." aria-label="Turn off Tracely for Google Docs">${POWER_SVG}</button>`;
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, docText), { note: genreNote(docGenre, docText, settings.citationStyle), power })}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", kindTitle(docShown, docText), { note: genreNote(docGenre, docText, settings.citationStyle, docShown), power })}
           <div class="list">
             ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
@@ -11320,6 +11971,8 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
+    let docShown = "";        // the kind the header names, "" when unsure (readKind)
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
     const persistReview = () => {}; // a field has no identity a later page load could find it by
     let copiedTipId = null;
@@ -11800,7 +12453,8 @@
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
-        docGenre = detectGenre(fieldText); // always, tips or none
+        ({ kind: docKind, shown: docShown } = readKind(fieldText, location.hostname + location.pathname)); // the site counts too (placeKind)
+        docGenre = WRITING_KINDS[docKind].genre;
         if (!settings.styleChosen) settings.citationStyle = docCitationStyle(fieldText) ?? "mla";
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
@@ -12380,7 +13034,7 @@
           </div>` };
         });
         const cardsHtml = cards.length ? cardListHtml(cards) : "";
-        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, fieldText, settings.citationStyle) : "";
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, fieldText, settings.citationStyle, docKind) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
            citation notes and the reference list's), then the writing (the
@@ -12409,7 +13063,7 @@
           : `<button class="act primary" id="siteSwitch">Turn on for this site</button>`;
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", genreTitle(docGenre, fieldText), { note: genreNote(docGenre, fieldText, settings.citationStyle), power: enabled ? siteSwitch : "" })}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", kindTitle(docShown, fieldText), { note: genreNote(docGenre, fieldText, settings.citationStyle, docShown), power: enabled ? siteSwitch : "" })}
           <div class="list">
             ${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>

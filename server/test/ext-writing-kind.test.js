@@ -1,10 +1,13 @@
 /* The panel's header names the kind of writing Tracely reads (content.js
- * genreTitle). Owner, 2026-10-13: "on the widget overlay, add the type of
- * literature tracely thinks it is. So for example the header of one will be
- * arguementative essay, anotherone will be email", "create like 15 different
- * types". detectGenre's seventeen kinds, and for an essay ("prose") its own
- * kind (essayTypeOf): argumentative, informative, compare and contrast, cause
- * and effect, a book report, a blog post. Display only. */
+ * readKind → kindTitle). Owner, 2026-10-13: "on the widget overlay, add the
+ * type of literature tracely thinks it is. So for example the header of one
+ * will be arguementative essay, anotherone will be email", "create like 15
+ * different types". Since 2.21.57 (owner, 2026-10-15: "Fix it for a plethora
+ * of writing, so it is very unlikely that tracely will detect something
+ * wrong") there are 56 kinds (WRITING_KINDS), and the header names one only
+ * when it is sure: the kind it recognised, the broader "Essay", or nothing —
+ * never a guess. Display only: the genre decides the checks. The kinds'
+ * corpora are scored in ext-writing-kinds.test.js. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -25,42 +28,46 @@ const X = vm.runInContext(`
   function hashText(s) { return s; }
   ${sliceBetween(SRC, "  const ISSUE_VERDICTS =", "  /* Card titles")}
   ${sliceBetween(SRC, "  // Bibliography block", "  function wireChrome(")}
-  ({ detectGenre, genreTitle, essayTypeOf, GENRE_TITLE, panelHeadHtml })`, vm.createContext({}));
+  ({ detectGenre, readKind, kindTitle, genreTitle, essayTypeOf, GENRE_TITLE, WRITING_KINDS, panelHeadHtml })`, vm.createContext({}));
 
 const CORPORA = [...WRITING_TYPES, ...WRITING_TYPES_HOLDOUT, ...WRITING_TYPES_BLIND2];
 // What each corpus essay is, by its name in the corpus.
-const ESSAY_WANT = [[/Blog post/i, "Blog post"], [/book report/i, "Book report"], [/Compare\/contrast/i, "Compare and contrast essay"], [/Cause\/effect/i, "Cause and effect essay"], [/.*/, "Argumentative essay"]];
+const ESSAY_WANT = [[/book report/i, "Book report"], [/Compare\/contrast/i, "Compare and contrast essay"], [/Cause\/effect/i, "Cause and effect essay"], [/.*/, "Argumentative essay"]];
 
-test("every kind detectGenre reads has a header title, in sentence case", () => {
-  for (const d of CORPORA.filter((d) => d.expect !== "prose")) {
-    assert.ok(X.GENRE_TITLE[d.expect], `${d.expect} has a title`);
-    if (X.detectGenre(d.text) === d.expect) assert.equal(X.genreTitle(d.expect, d.text), X.GENRE_TITLE[d.expect], d.name);
+test("every kind has a title in sentence case, and a document is only ever named as a kind of its own genre", () => {
+  const kinds = Object.entries(X.WRITING_KINDS);
+  assert.equal(kinds.length, 56, "the 56 kinds the owner approved");
+  for (const [k, { title, genre, label, parent }] of kinds) {
+    assert.ok(/^[A-Z]/.test(title) && !/\s[A-Z][a-z]/.test(title), `${title}: sentence case`);
+    assert.ok(X.GENRE_TITLE[genre] || genre === "prose", `${k}: ${genre} is a genre`);
+    assert.ok(label, k);
+    if (parent) assert.ok(X.WRITING_KINDS[parent], `${k}: its broader name is a kind`);
   }
-  for (const t of Object.values(X.GENRE_TITLE)) assert.ok(/^[A-Z]/.test(t) && !/\s[A-Z][a-z]/.test(t), `${t}: sentence case`);
+  for (const d of CORPORA.filter((d) => d.expect !== "prose" && X.detectGenre(d.text) === d.expect)) {
+    const { kind, shown } = X.readKind(d.text);
+    assert.equal(X.WRITING_KINDS[kind].genre, d.expect, d.name);
+    if (shown) assert.equal(X.WRITING_KINDS[shown].genre, d.expect, d.name);
+  }
   assert.equal(X.GENRE_TITLE.email, "Email");
 });
 
-test("more than fifteen kinds in all", () => {
-  const essays = new Set([...ESSAY_KINDS_TUNED, ...ESSAY_KINDS_FRESH].map((d) => d.expect).concat(["Book report", "Blog post"]));
-  const all = new Set([...Object.values(X.GENRE_TITLE), ...essays]);
-  assert.ok(all.size >= 15, `${all.size} kinds`);
-  assert.equal(all.size, 23);
-});
-
-test("an essay's own kind: every essay in the three corpora (tuned on them)", () => {
+test("an essay's own kind in the three older corpora: right, the broader name, or nothing — never another kind", () => {
   const wrong = [];
+  let right = 0;
   for (const d of CORPORA.filter((d) => d.expect === "prose")) {
     const want = ESSAY_WANT.find(([re]) => re.test(d.name))[1];
     const got = X.genreTitle(X.detectGenre(d.text), d.text);
-    if (got !== want) wrong.push(`${want} → ${got}: ${d.name}`);
+    if (got === want) right++;
+    else if (got !== "Essay" && got !== "") wrong.push(`${want} → ${got}: ${d.name}`);
   }
   assert.deepEqual(wrong, [], wrong.join("\n"));
+  assert.ok(right >= 5, `${right} named exactly`);
 });
 
 test("an essay's own kind: the ones written for it, tuned and fresh", () => {
   for (const d of [...ESSAY_KINDS_TUNED, ...ESSAY_KINDS_FRESH]) {
     assert.equal(X.detectGenre(d.text), "prose", d.name);
-    assert.equal(X.genreTitle("prose", d.text), d.expect, d.name);
+    assert.ok([d.expect, "Essay", ""].includes(X.genreTitle("prose", d.text)), d.name);
   }
 });
 
@@ -69,6 +76,9 @@ test("too little text: no title rather than a guess", () => {
   assert.equal(X.essayTypeOf("Schools should start later."), "");
   assert.equal(X.genreTitle("prose", "Short."), "");
   assert.equal(X.genreTitle("unknown-kind", "x"), "");
+  assert.equal(X.kindTitle("", "x ".repeat(80)), "", "nothing named, nothing shown");
+  assert.equal(X.kindTitle("argumentative", "Short."), "", "an essay's kind needs forty words");
+  assert.equal(X.kindTitle("email", "Hi, thanks!"), "Email", "an email does not");
 });
 
 test("the header: a neutral chip beside the name, escaped, and nothing when there is no title", () => {
@@ -82,6 +92,7 @@ test("the header: a neutral chip beside the name, escaped, and nothing when ther
 
 test("wired in both modes", () => {
   // The fifth argument (2026-10-14): what the kind means for its citations, on the chip's hover (genreNote).
-  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, docText\), \{ note: genreNote\(docGenre, docText, settings\.citationStyle\)/);
-  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, fieldText\), \{ note: genreNote\(docGenre, fieldText, settings\.citationStyle\)/);
+  // Since 2.21.57 the header names what readKind is sure of (docShown), and the note follows it.
+  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", kindTitle\(docShown, docText\), \{ note: genreNote\(docGenre, docText, settings\.citationStyle, docShown\)/);
+  assert.match(SRC, /panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", kindTitle\(docShown, fieldText\), \{ note: genreNote\(docGenre, fieldText, settings\.citationStyle, docShown\)/);
 });

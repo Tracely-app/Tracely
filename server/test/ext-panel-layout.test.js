@@ -112,7 +112,7 @@ test("the header: the mark, then one row of tabs that counts each kind with its 
   // Both panels count what their list shows; a tab filters it.
   assert.equal((SRC.match(/const tally = tallyOf\(issues\.map\(\(\{ f \}\) => f\.verdict\), \[\.\.\.citeTips, \.\.\.refTips, \.\.\.essayNotes, \.\.\.offTopic, \.\.\.resumeList\]\);/g) || []).length, 2);
   // The fourth argument is the kind of writing (ext-writing-kind.test.js), the fifth its note and the off switch.
-  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", genreTitle\(docGenre, (docText|fieldText)\), \{ note: genreNote\(docGenre, \1, settings\.citationStyle\), power(?:: enabled \? siteSwitch : "")? \}\)\}/g) || []).length, 2);
+  assert.equal((SRC.match(/\$\{panelHeadHtml\(tally, statusMsg, statusKind === "error" \|\| statusKind === "offline", kindTitle\(docShown, (docText|fieldText)\), \{ note: genreNote\(docGenre, \1, settings\.citationStyle, docShown\), power(?:: enabled \? siteSwitch : "")? \}\)\}/g) || []).length, 2);
   assert.equal((SRC.match(/<div class="card" data-card="\$\{seg\.hash\}" data-cat="\$\{verdictCat\(f\.verdict\)\}">/g) || []).length, 2);
   assert.match(SRC, /<div class="card tip-card" data-card="\$\{t\.id\}" data-cat="\$\{tipCat\(t\)\}">/);
   assert.match(SRC, /for \(const tab of shadow\.querySelectorAll\("\[data-filter\]"\)\) \{\n\s+tab\.addEventListener\("click", \(\) => \{\n\s+const k = tab\.dataset\.filter;\n\s+panelFilter = k === "all" \|\| k === panelFilter \? null : k;/, "All, or the chosen tab again, shows every kind");

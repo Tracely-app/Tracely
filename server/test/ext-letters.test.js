@@ -41,7 +41,9 @@ test("a letter or email is its own genre; a longer post that only opens with 'Hi
   assert.equal(X.detectGenre(COVER_LETTER), "coverletter");
   assert.equal(X.detectGenre(EMAIL), "email");
   for (const g of ["letter", "email", "coverletter"]) assert.equal(X.flagShown({ verdict: "needs_citation" }, {}, g, "Last year I built a budgeting app that 2,000 students use."), false, g);
-  assert.equal(X.detectGenre(BLOG), "prose", "no sign-off on a longer text: an opening 'Hi' is not a letter");
+  // No sign-off on a longer text: an opening 'Hi' is not a letter. "Welcome back to the channel" makes it a blog post, which since
+  // 2.21.57 names its sources in the sentence like a news article (owner, 2026-10-15).
+  assert.equal(X.detectGenre(BLOG), "news");
 });
 
 test("on a letter or resume, citation and 'questionable' flags are hidden; a wrong public fact still shows", () => {

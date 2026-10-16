@@ -74,7 +74,7 @@ test("Check now is gone; Docs has Turn off, other sites Turn off / Turn on for t
   assert.ok(!/id="checkNow"/.test(SRC) && !/Check once/.test(SRC) && !/getElementById\("checkNow"\)/.test(SRC), "no Check now anywhere");
   // Since 2026-10-14 (the clean frame) Turn off is the header's power button, beside Settings.
   assert.match(SRC, /<button class="hbtn" id="turnOff" title="Turn off: [^"]*" aria-label="Turn off Tracely for Google Docs">\$\{POWER_SVG\}<\/button>/);
-  assert.match(SRC, /panelHeadHtml\(tally, [^\n]*\{ note: genreNote\(docGenre, docText, settings\.citationStyle\), power \}\)/, "drawn in the Docs header");
+  assert.match(SRC, /panelHeadHtml\(tally, [^\n]*\{ note: genreNote\(docGenre, docText, settings\.citationStyle, docShown\), power \}\)/, "drawn in the Docs header");
   assert.match(SRC, /shadow\.getElementById\("turnOff"\)\.addEventListener\("click", turnDocsOff\);/);
   assert.match(SRC, /function turnDocsOff\(\) \{\n\s+docsOn = false;\n\s+expanded = false;\n\s+storageSet\(\{ docsEnabled: false \}\);\n\s+hideDocsPopover\(\);\n\s+clearDocsMarks\(\);/);
   assert.match(SRC, /if \(!docsOn\) \{ if \(docsBars\.length\) clearDocsMarks\(\); return; \}/, "no underline is redrawn while off");
