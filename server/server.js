@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { runFactCheck, findSources, runFlowCheck, runReview, hasApiKey, CheckError, checkPromptBytes, CHECK_SHARD_TIMEOUT_MS } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
 import { runKind, kindExcerpt, kindCacheKey, cachedKind, rememberKind } from "./lib/kind.js";
+import { citeFitCandidates, runCiteFit, applyCiteFit } from "./lib/citeFit.js";
 import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
@@ -1327,7 +1328,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { text, sentences, model, effort, deep: deepFlag } = (await parseJsonBody(req)) ?? {};
+      const { text, sentences, model, effort, deep: deepFlag, citeFit } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || text.length > 30_000) {
         throw new CheckError("bad_request", "text must be a string of at most 30,000 characters");
       }
@@ -1398,6 +1399,25 @@ const server = http.createServer(async (req, res) => {
         onShardFailure: (e) => console.error(modelFailureLine("/api/check", e, trace)),
       });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
+      /* The wrong-source check (lib/citeFit.js; owner, 2026-10-15): whether a
+       * cited sentence's source could be where its claim comes from. Only for
+       * a build that asks (`citeFit: true`, 2.21.60), never on "Explain in
+       * depth" or the try-out, as one more call admitted like a shard. A
+       * failure leaves the check's own answer. */
+      let findings = result.findings;
+      if (citeFit === true && !deep && !gate.demo) {
+        const items = citeFitCandidates(sentences, findings);
+        if (items.length && admitExtraCalls(gate, worstRoute, modelUsed, 1)) {
+          try {
+            const fit = await runCiteFit({ items, model: modelUsed, effort: "low", mock: MOCK });
+            if (fit.usage) chargeCall(gate, { model: fit.model ?? modelUsed, usage: fit.usage, pool: gate.pool });
+            findings = applyCiteFit(findings, fit.verdicts);
+          } catch (e) {
+            if (e?.llm?.usage) chargeCall(gate, { model: e.llm.model ?? modelUsed, usage: e.llm.usage, pool: gate.pool });
+            console.error(modelFailureLine("/api/check", e, trace));
+          }
+        }
+      }
       // `thorough` (optional, deep only, hosted): whether this answer came from
       // the thorough model, and the allowance left — a whole percent, never
       // dollars — as the meter shows it. `suspended` (only when true, as on
@@ -1414,7 +1434,7 @@ const server = http.createServer(async (req, res) => {
           ...(t.suspended ? { suspended: true } : {}),
         };
       }
-      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
+      json(res, 200, { ...result, findings, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
       return;
     }
 

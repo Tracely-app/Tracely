@@ -137,6 +137,19 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   already has (an in-memory cache keyed by text) is free and not counted.
   The extension asks only when `FEATURES.modelKind` is on, and it is off
   until `eval/kinds/run.mjs` has measured it against production.
+- **The wrong-source check** (2026-10-15, `lib/citeFit.js`, prompt
+  `lib/prompts/citeFit.js`, SHA-pinned). `/api/check` runs it only when the
+  request says `citeFit: true`, and never on Explain in depth or the try-out.
+  It asks whether the source each cited sentence names could be where its
+  claim comes from (Venus cited to the OECD, PISA to NASA).
+  - It runs as one more call, admitted like a shard, on the fast model at
+    low effort. It sees at most 12 cited sentences, and only ones the check
+    called accurate.
+  - A "wrong" turns that finding into `wrong_source`, which only a build
+    that asked for it ever receives. "fits" and "unsure" change nothing,
+    and a failure leaves the check's answer.
+  - The extension sends it only while `FEATURES.citeFit` is on. That is off
+    until `eval/citefit/run.mjs` has measured it against production.
 - **The extension's routes are FROZEN while a Web Store build is in review**:
   `/api/status /api/check /api/flow /api/sources /api/cite-url /api/docs/apply
   /api/entitlement`. Their response fields, error `kind`/`message` text, the

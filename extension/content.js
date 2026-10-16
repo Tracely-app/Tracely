@@ -29,13 +29,13 @@
    Sections, by the line their anchor sits on (regenerate the numbers with
    `grep -n` when you move things; the anchors themselves must not move):
         63  Verdicts, card copy, colours, FEATURES switches
-       353  Settings and plan gate
-       692  Shared helpers: hashing, bibliography, citation formatting
-      1100  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1376  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      3712  Widget chrome, API transport, design tokens
-      5109  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     11874  Field mode (textareas and contenteditables on any site)
+       359  Settings and plan gate
+       698  Shared helpers: hashing, bibliography, citation formatting
+      1106  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1382  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      3809  Widget chrome, API transport, design tokens
+      5206  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     11983  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -60,7 +60,7 @@
   if (document.getElementById("tracely-host")) return;
 
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
+  const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation", "wrong_source"];
   /* What each kind of writing is checked for (detectGenre says which kind it
      is). Quiet: homework, a poem, a story, a script — nothing in them is a
      claim to check or a source to cite. The writer's own account: a resume,
@@ -174,14 +174,18 @@
   const isGeneralStatement = (text) => {
     const t = String(text ?? "").trim();
     if (citationWorthy(t)) return false;
-    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?[A-Z][a-z]/.test(w));
+    // A name is capitalised (Paris) or an acronym of three or more (UNESCO, NASA, COVID): "AI" and "US" stay words.
+    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?(?:[A-Z][a-z]|[A-Z]{3,}(?![a-z]))/.test(w));
   };
   const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
-     rather than tagging the sentence with a verdict. Same four verdicts. */
-  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
+     rather than tagging the sentence with a verdict. Same four verdicts, and
+     a fifth only the extension asks for: "wrong_source", a citation whose
+     source could not be where the claim comes from (owner, 2026-10-15; the
+     server's wrong-source check, FEATURES.citeFit). */
+  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation", wrong_source: "Wrong source cited" };
   /* A "Needs evidence" sentence that already cites its source is not missing
      one: what could not be confirmed is that the source says it. Owner,
      2026-10-13, on "… scored approximately 65% higher … (Johnson, 2023)":
@@ -197,13 +201,13 @@
   //   red #d93636    — wrong or makes no sense (false, incoherent)
   //   blue #2563eb   — needs evidence (questionable). Owner, 2026-10-13: "from
   //                    now on needs evidence should be blue instead of orange"
-  //   amber #ffb800  — add the attribution (needs_citation)
+  //   amber #ffb800  — add or fix the attribution (needs_citation, wrong_source)
   // A writing note (note_tip) was blue; writing tips are off (FEATURES), so
-  // no note shares it. Four verdicts on three colours, so the card TITLE is
+  // no note shares it. Five verdicts on three colours, so the card TITLE is
   // what tells false from incoherent; colour alone never has to.
-  const MARK_COLORS = { false: "#d93636", questionable: "#2563eb", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
-  const VERDICT_WASH = { false: "#fdecec", questionable: "#e9effd", incoherent: "#fdecec", needs_citation: "#fff4d6" };
-  const VERDICT_TEXT = { false: "#d93636", questionable: "#1d4ed8", incoherent: "#d93636", needs_citation: "#a67500" };
+  const MARK_COLORS = { false: "#d93636", questionable: "#2563eb", incoherent: "#d93636", needs_citation: "#ffb800", wrong_source: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
+  const VERDICT_WASH = { false: "#fdecec", questionable: "#e9effd", incoherent: "#fdecec", needs_citation: "#fff4d6", wrong_source: "#fff4d6" };
+  const VERDICT_TEXT = { false: "#d93636", questionable: "#1d4ed8", incoherent: "#d93636", needs_citation: "#a67500", wrong_source: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
 
   /* The bare-bones build: fact-checking (underline, card, suggested fix) and
@@ -224,6 +228,7 @@
     offTopic: false,      // a line that shares no word with the rest, and a correction left in (offTopicSentences, correctionResidue) — off: writing tips
     writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
     modelKind: false,     // the model names the kind of writing (askKind, POST /api/kind) — off until measured on the corpora (eval/kinds/run.mjs, server/test/kind.test.js)
+    citeFit: false,       // /api/check also asks whether each cited source could be where its claim comes from ("Wrong source cited", wrong_source) — off until measured against production (eval/citefit/run.mjs)
     essayFeedback: false, // /api/review reads an essay against its rubric (essayFeedbackTips) — off: writing tips, and no review call is made
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
@@ -257,9 +262,9 @@
      drawMarginIcons) — the same icons as the panel header's counts — and by
      the legend, which shows each line with its icon (legendHtml). */
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", cite_tip: "solid", note_tip: "solid" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", wrong_source: "solid", cite_tip: "solid", note_tip: "solid" };
   // Which header kind (TALLY_ICON) each mark's icon is: wrong, worth checking, a citation, the writing.
-  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", cite_tip: "cite", note_tip: "writing" };
+  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", wrong_source: "cite", cite_tip: "cite", note_tip: "writing" };
   const MARK_ICON_RANK = { wrong: 4, check: 3, cite: 2, writing: 1 }; // one icon a line: the most serious
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
   // "needs specific evidence", "explain this evidence". Blue (owner,
@@ -639,7 +644,7 @@
 
   // A verdict's dot-colour class suffix (the widget CSS's .d-*).
   function verdictKind(v) {
-    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" ? "cite" : v === "incoherent" ? "inco" : "ok";
+    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" || v === "wrong_source" ? "cite" : v === "incoherent" ? "inco" : "ok";
   }
 
   /* The widget cards' block (docs panel and field mode), from deepView.
@@ -2628,6 +2633,45 @@
     const caps = (study.match(/[\p{Lu}][\p{L}&.'’-]*/gu) ?? []).filter((w) => w.length > 2 && !GENERIC_BODY.test(w));
     return caps.join(" ");
   }
+  /* A named organisation the sentence credits with a finding, a
+     recommendation or a publication, with no citation: "The Centers for
+     Disease Control and Prevention recommends …", "In 2023, UNESCO
+     published guidance …". Owner, 2026-10-15, from an answer key marking
+     both "Correct fact, missing citation": named and not cited is a
+     citation issue, as a study's was on 10-14. An organisation only — an
+     acronym (CDC, OECD) or a name with a body's word in it (… Institute,
+     … Organization) — never a person: "Einstein found …" is the essay's
+     subject, not its source. "" when the sentence credits none. */
+  const ORG_WORD = /^(?:Centers?|Centres?|Organi[sz]ations?|Associations?|Institutes?|Institutions?|University|Universities|Department|Agency|Bureau|Council|Commission|Foundation|Academy|Society|Administration|Office|Board|Service|Ministry|Bank|Fund|Union|Forum|Nations|Committee|Coalition|Alliance|Federation)$/;
+  const ORG_VERB = /\s+(?:has\s+|have\s+)?(?:recommends?|recommended|reports?|reported|publish(?:es|ed)|found|finds|concluded|concludes|estimates?|estimated|warns?|warned|announced|released|issued|identified|emphasi[sz]e[sd]|advises?|advised|states?|stated)\b/gu;
+  // Capitalised words that open a clause rather than name anyone.
+  const NAME_STOP = /^(?:The|A|An|In|On|At|By|For|From|Because|However|Although|Though|When|While|Since|After|Before|Also|Then|Thus|This|That|These|Those|Its|Their|Our|His|Her|According|Recently|Today|Now|Yet|But|And|So|Both|Each|Every|Many|Most|Some)$/;
+  function orgCredited(s) {
+    const isName = (w) => w != null && /^[\p{Lu}]/u.test(w) && !NAME_STOP.test(w);
+    for (const m of String(s ?? "").matchAll(ORG_VERB)) {
+      const words = s.slice(0, m.index).split(/[,;:()"“”]/).pop().trim().split(/\s+/);
+      const run = []; // the name just before the verb: capitals, with "of", "for", "and" inside it
+      for (let i = words.length - 1; i >= 0; i--) {
+        if (isName(words[i]) || (run.length && GROUP_SMALL.test(words[i]) && isName(words[i - 1]))) run.unshift(words[i]);
+        else break;
+      }
+      const bare = (w) => w.replace(/['’]s$/u, "").replace(/[.'’]+$/u, "");
+      // "the … Board in Boston": the body, not where it sits.
+      const at = run.findIndex((w, i) => i > 0 && /^(?:in|at|to)$/.test(w));
+      const name = at > 0 ? run.slice(0, at) : run;
+      if (name.some((w) => /^[\p{Lu}]{2,}$/u.test(bare(w)) || ORG_WORD.test(bare(w)))) return name.join(" ");
+    }
+    return "";
+  }
+  // Whether the reference list has an entry by this organisation: its name, its initials, or spelled out.
+  function orgListed(org, entries) {
+    const initials = (name) => String(name).split(/\s+/).filter((w) => w && !GROUP_SMALL.test(w)).map((w) => w[0]).join("").toUpperCase();
+    const ac = /^[\p{Lu}]{2,}$/u.test(org) ? org : initials(org);
+    return (entries ?? []).some((e) => {
+      const name = (String(e).match(REF_GROUP) || [])[1]?.trim() ?? "";
+      return String(e).toLowerCase().includes(org.toLowerCase()) || (ac.length >= 2 && (initials(name) === ac || new RegExp(`\\b${ac}\\b`, "u").test(e)));
+    });
+  }
   const VERIFY_NOTE = /\b(?:requires?|needs?|pending|awaiting) (?:further )?verification\b|\b(?:citation|source) needed\b|\bto be verified\b/i;
   const PRESTIGE_EXCUSE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
   const BAD_INLINE = /\[[^\]\n]{3,120}\/[^\]\n]{1,120}\]|\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i;
@@ -2681,6 +2725,11 @@
         out.push(who
           ? { quote: s, kind: "uncited", source: who, message: `This names its source (${who}) but doesn't cite it, so a reader can't find the exact work. Add an in-text citation and a reference entry for it.` }
           : { quote: s, kind: "vague", message: "This doesn't say who found it, so no one can check it, and as written no evidence backs it. Find a source that does and cite it, or cut the claim." });
+      }
+      // An organisation the sentence credits by name and doesn't cite, in writing that cites its sources (orgCredited).
+      else if (citesSources && !FIRST_PERSON.test(s) && orgCredited(s) && !hasCitationMark(s) && !hasCitationMark(next) && !orgListed(orgCredited(s), wcBlock?.entries)) {
+        const org = orgCredited(s);
+        out.push({ quote: s, kind: "uncited", source: org, message: `This names its source (${org}) but doesn't cite it, so a reader can't find the exact work. Add an in-text citation and a reference entry for it.` });
       }
       if (out.length >= 8) break;
     }
@@ -3361,6 +3410,12 @@
   function flaggedCitationOf(verdict, sentence) {
     return CITED_VERDICTS.includes(verdict) ? lookupableCitation(sentence) : null;
   }
+  // The citation a source the writer picks takes the place of. A wrong
+  // source's too, though it is never looked up: it is not the work the
+  // claim comes from (wrong_source, owner 2026-10-15).
+  function replacedCitationOf(verdict, sentence) {
+    return verdict === "wrong_source" ? lookupableCitation(sentence) : flaggedCitationOf(verdict, sentence);
+  }
   /* What is sent: the citation's (or entry's) words without what a lookup
      cannot use — a link, a DOI, an access note, a bare site name, a volume or
      page number. `thin` when fewer than two words are left beside a year:
@@ -3797,7 +3852,7 @@
     ["cite", "needs_citation", (n) => `${n} citation ${n === 1 ? "issue" : "issues"}`],
     ["writing", "note_tip", (n) => `${n} writing ${n === 1 ? "note" : "notes"}`],
   ];
-  const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" ? "cite" : "wrong");
+  const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" || v === "wrong_source" ? "cite" : "wrong");
   const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : EVIDENCE_TIP_KINDS.includes(t?.kind) ? "check" : "writing");
   // The header's counts: the claims' verdicts, and every note the list shows.
   function tallyOf(verdicts, tips) {
@@ -5524,6 +5579,7 @@
             text: docText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
             model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
+            ...(FEATURES.citeFit ? { citeFit: true } : {}), // and whether each cited source fits its claim (wrong_source)
           });
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: usableRevision(todo.find((x) => x.hash === f.id)?.text, f.revision), confidence: f.confidence });
@@ -8595,7 +8651,7 @@
     function replaceFor(hash) {
       if (citedFallback.has(hash)) return citedFallback.get(hash);
       const seg = segments.find((s) => s.hash === hash);
-      return seg ? flaggedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
+      return seg ? replacedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
     }
     function refreshCited(key) {
       render();
@@ -10982,7 +11038,7 @@
     }
     function fixRowHtml(it, i) {
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
-      const dot = it.verdict ? `d-${it.verdict === "false" ? "false" : it.verdict === "questionable" ? "quest" : it.verdict === "needs_citation" ? "cite" : "inco"}` : tipDot({ kind: it.kind });
+      const dot = it.verdict ? `d-${it.verdict === "false" ? "false" : it.verdict === "questionable" ? "quest" : it.verdict === "needs_citation" || it.verdict === "wrong_source" ? "cite" : "inco"}` : tipDot({ kind: it.kind });
       const state = { waiting: FIX_COPY.waiting, searching: it.act === "list" ? "Looking up the cited works…" : FIX_COPY.searching, working: FIX_COPY.working, applying: FIX_COPY.applying, applied: FIX_COPY.applied, skipped: FIX_COPY.skipped, failed: it.why }[it.status] ?? "";
       const busy = ["waiting", "searching", "working", "applying"].includes(it.status);
       const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
@@ -11938,7 +11994,7 @@
     // removed with the dismissals when it is switched off.
     const FIELD_CACHE_KEY = "tracely.widget.vcache.field";
     const FIELD_CACHE_MAX = 400;
-    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "no_claim"]);
+    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "wrong_source", "no_claim"]);
 
     // Per-site enable lives in chrome.storage.local ("enabledSites": [origin])
     // so the options page can list and manage it. The old per-site localStorage
@@ -12526,6 +12582,7 @@
             text: fieldText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
             model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
+            ...(FEATURES.citeFit ? { citeFit: true } : {}), // and whether each cited source fits its claim (wrong_source)
           });
           checkedOnce = true;
           for (const f of data.findings ?? []) {
@@ -12693,7 +12750,7 @@
     function replaceFor(hash) {
       if (citedFallback.has(hash)) return citedFallback.get(hash);
       const seg = segments.find((s) => s.hash === hash);
-      return seg ? flaggedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
+      return seg ? replacedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
     }
     function startClaimSources(key, claimHash, claimText) {
       claimSearch.set(key, { hash: claimHash, text: claimText });

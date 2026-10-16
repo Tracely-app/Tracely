@@ -571,6 +571,43 @@ was timed, with that step's frame callbacks and the layout it left behind:
 Not measured in real Docs. Tests: `server/test/ext-fix-all.test.js`,
 `server/test/ext-type-preview.test.js`.
 
+## A wrong source, and a named source not cited
+
+Owner, 2026-10-15, with an answer key for a twenty-sentence test sheet
+(`server/test/fixtures/citation-key.js`). Tracely got 11 of the 20 right:
+every false sentence and three of the four overstated ones, and none of
+the eight citation problems. The owner chose:
+- **"Correct fact, wrong citation" is an amber "Wrong source cited" card.**
+  Examples: Venus cited to the OECD, PISA cited to NASA. The fact check
+  judges only the claim, and any citation counts as one. So the server
+  asks a separate question after it: could the cited source be where this
+  claim comes from? (`server/lib/citeFit.js`, its own pinned prompt.) It
+  answers `wrong_source` only to a build that sends `citeFit: true`.
+  - **Behind `FEATURES.citeFit`, which is off** until `eval/citefit/run.mjs`
+    has measured it against production.
+  - **The card:** amber, under Citations, with Find a source. A source cited
+    from it replaces the wrong citation (`replacedCitationOf`), and "Find the
+    cited work" is not offered, because it is the wrong work.
+- **"Correct fact, missing citation": named sources only.** A sentence that
+  credits a named organisation with a finding, a recommendation or a
+  publication, with no citation, gets "Source not cited". Examples: "The
+  Centers for Disease Control and Prevention recommends …", "In 2023,
+  UNESCO published …" (`orgCredited`).
+  - An organisation is an acronym or a name with a body's word in it, never
+    a person.
+  - It applies only in writing that cites its sources, and not when the
+    reference list names the body: that is MLA's signal phrase.
+  - Across the 387 essays and papers in the test corpora it adds two notes,
+    both right.
+  - Basic facts and general claims (the key's 5 and 11) are still not asked
+    for a source. That is the owner's choice, against underlining every
+    sentence.
+- **An acronym is a name.** UNESCO, NASA or COVID in a sentence means it is
+  not a general statement, whose "Needs evidence" `flagShown` hides. "AI"
+  and "US" are still words.
+
+Tests: `server/test/ext-wrong-source.test.js`, `server/test/cite-fit.test.js`.
+
 ## When Docs is slow to select
 
 Owner, 2026-10-15: "Couldn't apply (Tracely couldn't select that sentence

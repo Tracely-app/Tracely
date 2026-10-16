@@ -34,6 +34,7 @@ import * as tracer from "../lib/prompts/tracer.js";
 import * as grade from "../lib/prompts/grade.js";
 import * as sources from "../lib/prompts/sources.js";
 import * as kind from "../lib/prompts/kind.js"; // the extension's /api/kind (2.21.58); no relay copy, pinned below
+import * as citeFit from "../lib/prompts/citeFit.js"; // /api/check's wrong-source check (2.21.60); no relay copy, pinned below
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -166,6 +167,7 @@ const PINNED = {
   GRADE_SYSTEM_PROMPT: [grade, "5fb4215534fef78fba4b2f506110ba4061c9796f3bca13a01c9040955af72f1a"],
   SOURCE_SEARCH_SYSTEM_PROMPT: [sources, "1c2a55d43f15bfbb9ef61273bc6316ba1558f0a955c362483d5bea93ec841e0a"],
   KIND_SYSTEM_PROMPT: [kind, "4790128ed3056efe8e91216cb96f526cb0fa187c9a5b7b3d9a92cfee6a81d062"], // eval/kinds/run.mjs
+  CITE_FIT_SYSTEM: [citeFit, "1edfda805a61c54554a6a65b2a76774f9ccb2d21e3c239249466f898c539439f"], // eval/citefit/run.mjs
 };
 test("every prompt is still the text that was verified against the relay", () => {
   for (const [name, [mod, want]] of Object.entries(PINNED)) {
