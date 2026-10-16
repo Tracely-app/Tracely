@@ -255,6 +255,7 @@ function loadGate({ features = { typePreview: true }, harness = null, respond = 
     let answer = null;
     function showTypePreview(key, job) { shown.push({ key, steps: job.steps.map((s) => s.action) }); return new Promise((r) => { answer = r; }); }
     function tpNotePress() {}
+    function noteDocScroll() {} // the installer listens for scrolls (the "while the page scrolls" block)
     ${slice("    /* ── editing the document ──", "    // (the bridge \"highlight in doc\" feature was removed")}
     ${slice("    if (FEATURES.typePreview) {", "    // ── widget UI ──")}
     ({
@@ -492,7 +493,7 @@ function loadPreview({ reduced = true, lines = [], harness = null, docText = "",
     const harness = ${harness === null ? "null" : JSON.stringify(harness)};
     const FEATURES = ${JSON.stringify(features)};
     const APP = { font: "Test Sans" };
-    let orphaned = false, popEl = null, previewDocEdit = null;
+    let orphaned = false, popEl = null, previewDocEdit = null, docsScroller = null; // no editor box: the document's is the window
     let docText = ${JSON.stringify(docText)};
     const reducedMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
     // What the walkthrough reads, stood in for (env, from the test).
@@ -528,6 +529,7 @@ function loadPreview({ reduced = true, lines = [], harness = null, docText = "",
       walking: () => Boolean(tcWalk), walkDone: () => tcWalkDone, run: (k, j) => fakeRunDocEdit(k, j),
       setBars: (b) => { docsBars = b; }, sources: sourcesMap, edits: docEditState, steps: popSteps, busy: () => docBusy,
       setCard: (c) => { popEl = popCard = c; },
+      setScroller: (s) => { docsScroller = s; }, // the editor's box (docClip)
       POP_COPY,
     })`;
   const w = vm.runInContext(code, ctx, { filename: "content-type-preview.js" });
@@ -778,7 +780,8 @@ test("Accept is focused when it appears; Enter accepts, and everything is remove
   assert.equal(t.layer(), null, "nothing left behind");
   assert.equal(cursorOf(t), null);
   assert.equal(t.doc.activeElement, before, "focus goes back where it was");
-  assert.deepEqual(t.winListeners.map((l) => l.fn.name), ["tpNotePress", "tpNotePress"], "no listener of the preview outlives it");
+  // The installer's own stay: the press it notes, and the scroll everything Tracely draws steps aside for.
+  assert.deepEqual(t.winListeners.map((l) => l.fn.name), ["tpNotePress", "tpNotePress", "noteDocScroll", "noteDocScroll"], "no listener of the preview outlives it");
 });
 
 test("Esc, a click anywhere else, Reject, and leaving the page all reject", async () => {
@@ -788,7 +791,8 @@ test("Esc, a click anywhere else, Reject, and leaving the page all reject", asyn
     (t) => t.byAttr("data-tracely-type-reject").click(),
     (t) => { t.byAttr("data-tracely-type-reject").focus(); t.fire("keydown", { key: "Enter" }); },
     (t) => t.fire("pagehide"),
-    (t) => { t.w.setOrphaned(true); t.pump(); },
+    // Settled, it is placed every 250 ms rather than every frame (2026-10-15): it notices within one.
+    (t) => { t.w.setOrphaned(true); t.pump(300); },
   ];
   for (const [i, act] of cases.entries()) {
     const t = loadPreview({ lines: PARA_LINES, docText: PARA_DOC });
@@ -896,9 +900,17 @@ test("a repeated sentence with nothing saying which copy is never guessed at: pi
 test("it follows the text as Docs scrolls, and finds it again when Docs recycles the tile", async () => {
   const t = loadPreview({ lines: PARA_LINES, docText: PARA_DOC });
   const p = t.w.showTypePreview("fix:a", fixJob());
-  for (const n of t.svg) n.rect = { ...n.rect, top: n.rect.top - 40 };
-  t.pump();
   const strike = () => t.byAttr("data-tracely-type-strike");
+  // Docs scrolls: everything Tracely drew steps aside at once, and nothing is measured while it moves
+  // (owner, 2026-10-15: "really laggy … clips out of frame").
+  for (const n of t.svg) n.rect = { ...n.rect, top: n.rect.top - 40 };
+  t.fire("scroll");
+  assert.deepEqual([t.layer().style.opacity, t.bubble().style.opacity, t.layer().inert], ["0", "0", true], "out of the way while the page moves");
+  t.pump(60);
+  assert.equal(t.px(strike().style.top), 130, "not placed mid-scroll");
+  // Still: placed once where its words now are, and back.
+  t.pump(160);
+  assert.deepEqual([t.layer().style.opacity, t.layer().inert], ["1", false]);
   assert.equal(t.px(strike().style.top), 90);
   assert.equal(t.drawn().find((x) => x.op === "text").y, 90 + 13.8, "the typed line follows");
   // Docs drops the tile's rects and paints new ones further down.
@@ -954,4 +966,31 @@ test("walkthrough: not offered with the switch off, without an editable Doc, or 
   assert.equal(ro.w.offered(), false);
   const none = loadPreview({ env: { canEdit: true, issues: () => [{ seg: { hash: "s1", start: 0, text: SENTENCE }, f: { verdict: "questionable" } }] } });
   assert.equal(none.w.offered(), false);
+});
+
+/* Owner, 2026-10-15: "when you scroll up and down when tracely is typing
+ * suggestions, it is really laggy and the cursor and stuff clips out of frame". */
+test("after a scroll the card, the strike and the cursor stay in the document's box; settled, it is placed every 250 ms, not every frame", async () => {
+  const t = loadPreview({ lines: TWO_LINES });
+  const p = t.w.showTypePreview("fix:a", fixJob());
+  assert.equal(t.px(t.bubble().style.top), 128, "under the struck line, as ever");
+  // Docs scrolls the change up under a 50px toolbar: the editor's box now starts at 50.
+  t.w.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 50, right: 1280, bottom: 800 }) });
+  for (const n of t.svg) n.rect = { ...n.rect, top: n.rect.top - 160 };
+  t.fire("scroll");
+  t.pump(200);
+  const layer = t.layer();
+  assert.deepEqual([layer.style.top, layer.style.height, layer.style.overflow], ["50px", "750px", "hidden"], "the layer is the document's box");
+  assert.equal(t.byAttr("data-tracely-type-strike").style.display, "none", "its line is under the toolbar: not drawn over it");
+  assert.equal(t.px(t.bubble().style.top), 50 + 8, "the card waits at the box's top edge, never over the toolbar (it was clamped to the window's: 8)");
+  assert.equal(cursorOf(t).style.visibility, "hidden", "and so does the cursor");
+  // Settled: a move with no scroll is followed within 250 ms, not on the next frame.
+  for (const n of t.svg) n.rect = { ...n.rect, top: n.rect.top + 300 };
+  t.pump(16);
+  assert.equal(t.byAttr("data-tracely-type-strike").style.display, "none", "no frame loop once it has settled");
+  t.pump(260);
+  assert.deepEqual([t.byAttr("data-tracely-type-strike").style.display, t.px(t.byAttr("data-tracely-type-strike").style.top)], ["block", 240 - 50], "placed again: 100 − 160 + 300 = 240, less the box's top");
+  t.fire("keydown", { key: "Escape" });
+  assert.equal(await p, false);
+  assert.equal(t.bubble(), null, "the card goes with it");
 });
