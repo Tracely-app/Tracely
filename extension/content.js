@@ -1532,14 +1532,13 @@
   }
   const detectKind = (text, place = "") => readKind(text, place).kind;
   /* { kind, shown }: the kind (its genre decides the checks) and the kind
-     the header names, "" for none. Measured on 625 documents (2026-10-15):
-     a kind recognised by its own shape or words (a score above 1) is right
-     98% of the time from 7 up; one read off an essay's cues alone (score 1)
-     was wrong 43% of the time, often not an essay at all. So with nothing
-     specific recognised the header says "Essay" only when the text looks
-     like one (three paragraphs or more, little dialogue, not a first-person
-     story), names an essay's own kind only on a strong signal, and
-     otherwise names nothing; the checks still treat it as an essay. */
+     the header names, "" for none. The header names a kind only when very
+     sure (owner, 2026-10-15, choosing it over a chip on every document): a
+     score of KIND_SURE or more. Measured on the first 625 documents, before
+     the fresh set was written: from 7 up a kind was wrong 2% of the time,
+     from 4 to 7 one time in six, and read off an essay's words alone (score
+     1) 43% of the time. Below it the header names nothing; the checks still
+     follow the kind's genre, and a quiet kind still says why it is quiet. */
   let kindRead = { key: null, value: null }; // the last answer: a read of unchanged text costs nothing (~18 ms for 8,500 words)
   function readKind(text, place = "") {
     const key = `${place}\n${text}`;
@@ -1556,18 +1555,9 @@
     placeKind(scores, String(place ?? ""), raw);
     let best = "essay", top = 0;
     for (const [k, v] of scores) if (v > top) { best = k; top = v; } // a tie goes to the one scored first
-    if (top > 1) return { kind: best, shown: best };
-    const words = raw.split(/\s+/).filter(Boolean).length;
-    const stance = ((raw.match(STANCE_CUE) ?? []).length * 1000) / Math.max(1, words);
-    const quotes = (raw.match(/["“][^"”\n]{2,}["”]/g) ?? []).length;
-    const fp = firstPersonShare(raw);
-    const essayLike = lines.filter((l) => l.split(/\s+/).length >= 40).length >= 3 && quotes <= 6 && fp < 0.04;
-    if (!essayLike) return { kind: best, shown: "" };
-    if (best === "compare" || best === "cause" || best === "problem") return { kind: best, shown: best };
-    if (best === "argumentative" && stance >= 8) return { kind: best, shown: best };
-    if (best === "informative" && stance <= 1 && fp < 0.004 && quotes <= 2) return { kind: best, shown: best };
-    return { kind: best, shown: "essay" };
+    return { kind: best, shown: top >= KIND_SURE ? best : "" };
   }
+  const KIND_SURE = 7;
   /* Each kind's score: how sure its evidence makes it. 9.5 and up, a shape
      that is nothing else, or the document naming itself; 8 to 9, a strong
      form (a letter's two ends, a memo's head, minutes); 6 to 8, the old

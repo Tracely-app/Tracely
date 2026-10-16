@@ -661,25 +661,27 @@ discussion board a discussion post, a social site a post, a review site a
 review, an opinion page an op-ed, LinkedIn's About a bio. Docs passes no
 place.
 
-**The header names a kind only when sure** (`docShown`; the checks follow
-`docKind`). Measured on the first 625 documents: a kind scored 7 or more was
-wrong 2% of the time, and one read off an essay's words alone (score 1) was
-wrong 43% of the time, often not an essay at all. So with nothing specific
-recognised, the chip says "Essay" only when the text looks like one (three
-paragraphs of 40 words or more, little dialogue, not a first-person story).
-It names argumentative or informative only on a strong signal, and otherwise
-names nothing. The checks still treat it as an essay.
+**The header names a kind only when very sure** (`KIND_SURE`, a score of 7
+or more; `docShown`). The checks follow the kind's genre either way
+(`docKind`), and a quiet kind still says why it is quiet. Owner, 2026-10-15,
+chose this over a chip on every document. Measured on the first 625
+documents, before the fresh set was written: from 7 up a kind was wrong 2%
+of the time, from 4 to 7 one time in six, and read off an essay's words
+alone (score 1) 43% of the time, often not an essay at all. So a plain
+essay usually shows no chip.
 
 **Measured** on invented documents, five or more of every kind in each set,
 by 24 writers who never saw the detector (`server/test/fixtures/`):
 - **Tuned on (313):** 86.9% the exact kind, 3.2% in a group that changes
-  the checks, the header wrong on 3.8%.
+  the checks; the header names 63% and is wrong on 0.3%.
 - **Scored blind once, then learned from (312):** 75.0% exact and 13.1% in
-  the wrong group blind (main: 37.2%); 80.1% and 8.7% after.
+  the wrong group blind (main: 37.2%); 80.1% and 8.7% after; the header
+  names 63% and is wrong on 1.6%.
 - **Fresh, scored once and untuned (312), the honest number:** 72.1% exact,
-  13.5% in the wrong group (5 checked documents read as quiet), the header
-  wrong on 13.8%. Main on the same: 37.5% in the wrong group, 12 read as
-  quiet. Keep it untuned.
+  13.5% in the wrong group (5 checked documents read as quiet). The header
+  was wrong on 13.8% naming every document; naming only what it is sure of,
+  it names 57% and is wrong on 3.2%. Main on the same: 37.5% in the wrong
+  group, 12 read as quiet. Keep it untuned.
 - **The 157 older documents:** as main, but for the moves above, and two of
   main's misses now right.
 - **Cost:** about 1 ms a read, 18 ms for 8,500 words; an unchanged text is

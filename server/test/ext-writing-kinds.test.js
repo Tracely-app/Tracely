@@ -22,8 +22,11 @@
  *     honest number.
  *
  * "Wrong group" is the miss that changes what is checked (a story read as an
- * essay); "the header" is what the chip names, which may be the kind, the
- * broader name ("Essay") or nothing. */
+ * essay); "the header" is what the chip names: a kind only when very sure
+ * (KIND_SURE, owner 2026-10-15), else nothing. That cut-off was chosen on
+ * the first two corpora, before the fresh one was written; on the fresh one
+ * it took the header from wrong on 13.8% of documents to 3.2%, naming
+ * nothing on 43%. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -50,7 +53,7 @@ const K = X.WRITING_KINDS;
 const GROUP = (g) => ({ prose: 1, research: 1, literary: 1, lab: 1, speech: 2, news: 2, dbq: 3, homework: 5, poem: 5, story: 5, script: 5 }[g] ?? 4);
 const essayish = (k) => ["prose", "literary", "research"].includes(K[k].genre);
 function score(docs) {
-  const r = { n: docs.length, exact: 0, broader: 0, sameGroup: 0, wrongGroup: 0, toQuiet: 0, chipWrong: 0, misses: [] };
+  const r = { n: docs.length, exact: 0, broader: 0, sameGroup: 0, wrongGroup: 0, toQuiet: 0, chipWrong: 0, chipShown: 0, misses: [] };
   for (const d of docs) {
     const { kind, shown } = X.readKind(d.text, d.place ?? "");
     if (kind === d.kind) r.exact++;
@@ -61,6 +64,7 @@ function score(docs) {
       r.misses.push(`${d.kind} → ${kind}: ${d.name}`);
       if (GROUP(K[kind].genre) === 5) r.toQuiet++;
     }
+    if (shown) r.chipShown++;
     if (shown && shown !== d.kind && K[d.kind].parent !== shown && !(shown === "essay" && essayish(d.kind))) r.chipWrong++;
   }
   return r;
@@ -74,23 +78,25 @@ test("every kind has five or more documents in each corpus", () => {
   }
 });
 
-test("the tuned corpus: 85% named exactly, at most 4% in the wrong group, the header wrong at most 5%", () => {
+test("the tuned corpus: 85% named exactly, at most 4% in the wrong group, the header wrong at most 1% and naming 60% or more", () => {
   const r = score(WRITING_KINDS_TUNED);
   assert.ok(pct(r.exact, r.n) >= 85, `${r.exact}/${r.n} exact`);
   assert.ok(pct(r.wrongGroup, r.n) <= 4, `${r.wrongGroup}/${r.n} in the wrong group:\n${r.misses.join("\n")}`);
-  assert.ok(pct(r.chipWrong, r.n) <= 5, `the header wrong on ${r.chipWrong}/${r.n}`);
+  assert.ok(pct(r.chipWrong, r.n) <= 1, `the header wrong on ${r.chipWrong}/${r.n}`);
+  assert.ok(pct(r.chipShown, r.n) >= 60, `the header names ${r.chipShown}/${r.n}`);
   assert.ok(r.toQuiet <= 1, `${r.toQuiet} checked documents read as quiet`);
 });
 
-test("the once-blind corpus: 79% named exactly, at most 9% in the wrong group, the header wrong at most 10%", () => {
+test("the once-blind corpus: 79% named exactly, at most 9% in the wrong group, the header wrong at most 2% and naming 60% or more", () => {
   const r = score(WRITING_KINDS_BLIND);
   assert.ok(pct(r.exact, r.n) >= 79, `${r.exact}/${r.n} exact`);
   assert.ok(pct(r.wrongGroup, r.n) <= 9, `${r.wrongGroup}/${r.n} in the wrong group:\n${r.misses.join("\n")}`);
-  assert.ok(pct(r.chipWrong, r.n) <= 10, `the header wrong on ${r.chipWrong}/${r.n}`);
+  assert.ok(pct(r.chipWrong, r.n) <= 2, `the header wrong on ${r.chipWrong}/${r.n}`);
+  assert.ok(pct(r.chipShown, r.n) >= 60, `the header names ${r.chipShown}/${r.n}`);
   assert.ok(r.toQuiet <= 1, `${r.toQuiet} checked documents read as quiet`);
 });
 
-test("the fresh corpus, scored once and left untuned: at most 14% in the wrong group, the header wrong at most 14%", { skip: !existsSync(FRESH) && "no fresh corpus" }, async () => {
+test("the fresh corpus, scored once and left untuned: at most 14% in the wrong group, the header wrong at most 4%", { skip: !existsSync(FRESH) && "no fresh corpus" }, async () => {
   const docs = Object.values(await import(pathToFileURL(FRESH)))[0];
   assert.ok(docs.length >= 300);
   const r = score(docs);
@@ -99,7 +105,7 @@ test("the fresh corpus, scored once and left untuned: at most 14% in the wrong g
   assert.ok(pct(r.chipWrong, r.n) <= FRESH_BAR.chipWrong, `the header wrong on ${r.chipWrong}/${r.n}`);
   assert.ok(r.toQuiet <= FRESH_BAR.toQuiet, `${r.toQuiet} checked documents read as quiet`);
 });
-const FRESH_BAR = { wrongGroup: 14, chipWrong: 14, toQuiet: 5 }; // its one scoring, 2026-10-15: 13.5%, 13.8%, 5
+const FRESH_BAR = { wrongGroup: 14, chipWrong: 4, toQuiet: 5 }; // its one scoring, 2026-10-15: 13.5%, 5 read as quiet; the header 13.8%, then 3.2% naming only what it is sure of
 
 test("the three moves the owner approved: a blog post and an op-ed name their sources; a reference list alone is not asked to be cited", () => {
   assert.equal(K.blog.genre, "news");

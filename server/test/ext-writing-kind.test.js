@@ -5,9 +5,9 @@
  * different types". Since 2.21.57 (owner, 2026-10-15: "Fix it for a plethora
  * of writing, so it is very unlikely that tracely will detect something
  * wrong") there are 56 kinds (WRITING_KINDS), and the header names one only
- * when it is sure: the kind it recognised, the broader "Essay", or nothing —
- * never a guess. Display only: the genre decides the checks. The kinds'
- * corpora are scored in ext-writing-kinds.test.js. */
+ * when it is very sure (KIND_SURE), else nothing — never a guess. Display
+ * only: the genre decides the checks. The kinds' corpora are scored in
+ * ext-writing-kinds.test.js. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -51,17 +51,22 @@ test("every kind has a title in sentence case, and a document is only ever named
   assert.equal(X.GENRE_TITLE.email, "Email");
 });
 
-test("an essay's own kind in the three older corpora: right, the broader name, or nothing — never another kind", () => {
+test("an essay's own kind in the three older corpora: right or nothing — never another kind", () => {
   const wrong = [];
-  let right = 0;
   for (const d of CORPORA.filter((d) => d.expect === "prose")) {
     const want = ESSAY_WANT.find(([re]) => re.test(d.name))[1];
     const got = X.genreTitle(X.detectGenre(d.text), d.text);
-    if (got === want) right++;
-    else if (got !== "Essay" && got !== "") wrong.push(`${want} → ${got}: ${d.name}`);
+    if (got !== want && got !== "") wrong.push(`${want} → ${got}: ${d.name}`);
   }
   assert.deepEqual(wrong, [], wrong.join("\n"));
-  assert.ok(right >= 5, `${right} named exactly`);
+});
+
+test("the header names a kind only when very sure: a recognised shape, not an essay's words alone", () => {
+  const essay = "Schools should start later because teenagers need more sleep. ".repeat(12);
+  assert.deepEqual({ ...X.readKind(essay) }, { kind: "argumentative", shown: "" }, "checked as an essay, named nothing");
+  const memo = "MEMORANDUM\nTo: All staff\nFrom: Dana Ruiz\nDate: October 3\nRe: New closing checklist\n\nStarting Monday every shift lead signs the closing checklist before leaving.";
+  assert.deepEqual({ ...X.readKind(memo) }, { kind: "memo", shown: "memo" });
+  assert.deepEqual({ ...X.readKind("Thanks for the notes!", "mail.google.com/mail/u/0/") }, { kind: "email", shown: "email" }, "the site is sure");
 });
 
 test("an essay's own kind: the ones written for it, tuned and fresh", () => {
@@ -77,6 +82,7 @@ test("too little text: no title rather than a guess", () => {
   assert.equal(X.genreTitle("prose", "Short."), "");
   assert.equal(X.genreTitle("unknown-kind", "x"), "");
   assert.equal(X.kindTitle("", "x ".repeat(80)), "", "nothing named, nothing shown");
+  assert.equal(X.genreTitle("prose", "Schools should start later because teenagers need more sleep. ".repeat(12)), "", "unsure: no title");
   assert.equal(X.kindTitle("argumentative", "Short."), "", "an essay's kind needs forty words");
   assert.equal(X.kindTitle("email", "Hi, thanks!"), "Email", "an email does not");
 });
