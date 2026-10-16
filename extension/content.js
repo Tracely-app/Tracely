@@ -5787,6 +5787,8 @@
       if (!docsOn) { if (docsBars.length) clearDocsMarks(); return; } // turned off: nothing drawn
       lastLocateAt = Date.now();
       armAnnotationObserver();
+      // Whatever re-locates the underlines (Docs re-laid out, the 900 ms timer) places the suggestions too.
+      if (typeof followDocLayout === "function") followDocLayout();
       // The hook caps at 40 wants — cap here too so nothing is silently dropped
       // on the other side of the protocol.
       const issues = currentIssues().slice(0, 40);
@@ -9049,6 +9051,25 @@
     function tcCursorHide() {
       if (tcCur) tcCur.root.remove();
       tcCur = null;
+      tcAnchor = null;
+    }
+    /* Pinned, the cursor rides a point of the page — the change it is at, the
+       words it is typing — not a spot on the screen: after a scroll it comes
+       back where its words are, and is out of sight while they are outside
+       the document's box (owner, 2026-10-15: "the cursor and stuff clips out
+       of frame"). tcFollow places it; docSettle and followDocLayout call it. */
+    let tcAnchor = null;
+    function tcPin(anchor) {
+      tcAnchor = anchor;
+      tcFollow();
+    }
+    function tcFollow() {
+      if (!tcAnchor || !tcCur) return;
+      const p = tcAnchor();
+      const c = docClip();
+      if (p) tcCursorAt(p.x, p.y);
+      const vis = p && p.x >= c.left && p.x <= c.right && p.y >= c.top && p.y <= c.bottom ? "visible" : "hidden";
+      if (tcCur.root.style.visibility !== vis) tcCur.root.style.visibility = vis;
     }
 
     /* The change's paragraph, for typing in the line: its runs on screen,
@@ -9156,11 +9177,8 @@
       const under = plan.lines.find((l) => l.before) ?? null; // an entry going in above another
       const locateMain = () => (main ? svgRangeRects(main.find, span[0], span[1], near) : null);
       const locateUnder = () => (under ? svgRangeRects(under.before, 0, nrm(under.before).length) : null);
-      const scroller = document.querySelector(".kix-appview-editor");
-      const clip = () => {
-        const r = scroller && scroller.isConnected ? scroller.getBoundingClientRect() : null;
-        return { top: Math.max(0, r ? r.top : 0), bottom: Math.min(innerHeight, r ? r.bottom : innerHeight) };
-      };
+      let clipNow = null; // the document's box, read once a frame (frame)
+      const clip = () => clipNow ?? docClip(); // left, top, right, bottom, width, height
       const pointOf = (g) => {
         const r = g.at.node.getBoundingClientRect();
         return { x: r.left + g.at.f * r.width, y: r.top, h: r.height || 18 };
@@ -9191,7 +9209,10 @@
       const tl = tpTimeline({ inDoc, glide: Boolean(from), strike: Boolean(span && span[1] > span[0]), chars: ins.length });
 
       /* ── build (detached, so a failure here leaves nothing behind) ── */
-      const layer = el("div", { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "902" });
+      // The document's box, clipping what is drawn in the text (owner, 2026-10-15: "clips out of frame");
+      // inside it a position is the client's less its corner (fitLayer, every frame it is placed).
+      const layer = el("div", { position: "fixed", left: "0", top: "0", width: `${innerWidth}px`, height: `${innerHeight}px`, overflow: "hidden", contain: "layout paint", pointerEvents: "none", zIndex: "902" });
+      if (!reducedMotion()) layer.style.transition = "opacity 90ms ease";
       layer.setAttribute("data-tracely-type-preview", "");
       layer.setAttribute("data-tracely-type-mode", mode);
       // The re-flowed paragraph is painted on a canvas, as Docs paints it: same font, same metrics.
@@ -9218,13 +9239,14 @@
 
       // Typing in the line, Accept / Reject sit on a card in the right margin beside the change, the
       // way Docs puts a suggestion's card in its margin: opaque, so nothing ever shows through it.
+      // Its own fixed box, not in the clipped layer: off screen it sits beside the panel's card.
       const bubble = el("div", compact ? {
-        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
+        position: "fixed", left: "0", top: "0", zIndex: "902", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
         padding: "8px 10px 10px", background: "#fff", border: "1px solid #dadce0", borderRadius: "8px",
         boxShadow: "0 1px 3px rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
         fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "8px", opacity: "1", outline: "none", WebkitFontSmoothing: "antialiased",
       } : {
-        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
+        position: "fixed", left: "0", top: "0", zIndex: "902", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
         minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
         borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", fontFamily: APP.font, color: DM.ink,
         display: "none", flexDirection: "column", gap: "8px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
@@ -9300,7 +9322,7 @@
       bubble.setAttribute("aria-describedby", desc.id);
       bubble.appendChild(desc);
       layer.appendChild(caret);
-      layer.appendChild(bubble);
+      if (!reducedMotion()) bubble.style.transition = "opacity 90ms ease";
 
       /* ── state ── */
       const t0 = performance.now();
@@ -9325,6 +9347,7 @@
         window.removeEventListener("pointerdown", onDown, true);
         window.removeEventListener("pagehide", onHide);
         layer.remove();
+        bubble.remove();
         if (pop) pop.style.visibility = popVis;
         tcCursorHide(); // the edit's cursor goes with it
         if (tpOpen === handle) tpOpen = null;
@@ -9332,7 +9355,8 @@
         console.debug(`[tracely] type preview ${ok ? "accepted" : "rejected"}`);
         resolve(Boolean(ok));
       };
-      const handle = { finish };
+      // What noteDocScroll steps aside, and how docSettle places it again.
+      const handle = { finish, layer, bubble, place: () => frame() };
       const onKey = (e) => {
         if (e.key === "Escape") { tpStop(e); finish(false); return; }
         if (e.key === "Enter" && !e.isComposing) {
@@ -9369,28 +9393,31 @@
         };
       };
       const measure = (s) => tpMeasurer().measureText(s).width;
-      const drawFlow = (t) => {
-        flowNow = null;
-        if (!cv) return;
+      let drawnSig = null; // what the canvas shows: drawn again only when it would differ
+      const drawFlow = (t, c) => {
+        if (!cv) { flowNow = null; return; }
         const dpr = typeof devicePixelRatio === "number" && devicePixelRatio > 0 ? devicePixelRatio : 1;
-        // The layer's own box, not innerWidth: a page scrollbar narrows it, and a
-        // bitmap sized to innerWidth would be squeezed to fit — every x off a little.
-        const cw = layer.clientWidth || innerWidth, ch = layer.clientHeight || innerHeight;
+        // The layer's own box (the document's): a bitmap sized to anything else is
+        // squeezed to fit — every x off a little. Drawn in client coordinates,
+        // shifted by the box's corner.
+        const cw = layer.clientWidth || c.width || innerWidth, ch = layer.clientHeight || c.height || innerHeight;
         const W = Math.round(cw * dpr), H = Math.round(ch * dpr);
+        const g = t < tl.showAt ? null : paraLive();
+        const sig = g ? [W, H, c.left, c.top, typed.textContent.length, g.end.x, g.end.y, g.left, g.right, g.bottom, ...g.mask.map((r) => r.top)].map((v) => Math.round(v * 10)).join("|") : `${W}|${H}|none`;
+        if (sig === drawnSig) return; // nothing moved and nothing typed since the last frame
+        drawnSig = sig;
+        flowNow = null;
         if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
         const ctx = cv.getContext("2d");
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, cw, ch);
-        if (t < tl.showAt) return; // the original line, untouched, until the click lands
-        const g = paraLive();
-        if (!g) return;
+        ctx.setTransform(dpr, 0, 0, dpr, -c.left * dpr, -c.top * dpr);
+        ctx.clearRect(c.left, c.top, cw, ch);
+        if (!g) return; // the original line, untouched, until the click lands
         tpMeasurer().font = para.font;
         const flow = previewFlow([{ text: typed.textContent, ins: true }, { text: para.rest, ins: false }], measure,
           { startX: g.end.x + para.gap, left: g.left, right: g.right, top: g.end.y, pitch: para.pitch });
-        const c = clip();
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, c.top, innerWidth, c.bottom - c.top);
+        ctx.rect(c.left, c.top, c.width, c.height);
         ctx.clip();
         // Page white over the original words after the change, and under every line drawn
         // (lines past the paragraph's own overlay what is below it).
@@ -9462,11 +9489,12 @@
       };
       /* Parked, the cursor never covers a word. The words on screen: Docs' runs (re-read at
          most every 300 ms), the re-flowed lines as they will be once typed, and the bar. */
-      let runsCache = null, runsAt = -Infinity;
+      let runsCache = null, runsAt = -Infinity, runsSeq = docScrollSeq;
       const visibleRuns = () => {
         const now = performance.now();
-        if (!runsCache || now - runsAt > 300) {
+        if (!runsCache || now - runsAt > 300 || runsSeq !== docScrollSeq) { // a scroll moved every word
           runsAt = now;
+          runsSeq = docScrollSeq;
           runsCache = svgLineNodes().map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0)
             .map((r) => ({ left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height }));
         }
@@ -9539,7 +9567,8 @@
         }
         tcCursorPress(t >= tl.clickAt && t < clickEnd ? (t - tl.clickAt) / tl.clickMs : 1);
         tcCursorAt(at.x, at.y);
-        const off = t >= tl.glideMs && (at.y < c.top || at.y > c.bottom);
+        // Once it is in the text, never outside the document's box: no arrow over Docs' toolbar or rulers.
+        const off = t >= tl.glideMs && (at.y < c.top || at.y + 21 > c.bottom || at.x < c.left || at.x + 15 > c.right);
         const cur = tcCursor();
         cur.root.style.visibility = off ? "hidden" : "visible";
         // Its name shows only where it covers nothing; settled, the arrow steps back to 60%.
@@ -9555,7 +9584,7 @@
         const c = clip();
         caret.style.display = e.y + h < c.top || e.y > c.bottom ? "none" : "block";
         caret.style.height = `${h}px`;
-        caret.style.transform = `translate(${e.x}px, ${e.y}px)`;
+        caret.style.transform = `translate(${e.x - c.left}px, ${e.y - c.top}px)`; // in the layer: less its corner
       };
       const placeStrikes = (t) => {
         const pieces = inDoc && main && geo ? geo.pieces : [];
@@ -9569,7 +9598,7 @@
           const r = rects[i];
           if (!r || r.top + r.height < c.top || r.top > c.bottom) { s.box.style.display = "none"; return; }
           const share = r.width / total;
-          Object.assign(s.box.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, opacity: String(tpClamp(k * 2, 0, 1)) });
+          Object.assign(s.box.style, { display: "block", left: `${r.left - c.left}px`, top: `${r.top - c.top}px`, width: `${r.width}px`, height: `${r.height}px`, opacity: String(tpClamp(k * 2, 0, 1)) });
           s.line.style.transform = `scaleX(${share ? tpClamp((k - run) / share, 0, 1) : 1})`;
           run += share;
         });
@@ -9583,7 +9612,7 @@
         const left = Math.min(...first.map((r) => r.left)), right = Math.max(...first.map((r) => r.left + r.width));
         const c = clip();
         if (top < c.top || top > c.bottom) { mark.style.display = "none"; return; }
-        Object.assign(mark.style, { display: "block", left: `${left}px`, top: `${top - 4}px`, width: `${Math.max(24, right - left)}px` });
+        Object.assign(mark.style, { display: "block", left: `${left - c.left}px`, top: `${top - 4 - c.top}px`, width: `${Math.max(24, right - left)}px` });
       };
       const placeBubble = (t) => {
         if (t < tl.showAt) { bubble.style.display = "none"; return; }
@@ -9619,7 +9648,8 @@
               left = Math.min(...rects.map((r) => r.left), p.x);
             }
             top = lastBottom + (compact ? 8 : 10);
-            if (top + h > innerHeight - 8 && firstTop - 10 - h >= clip().top) top = firstTop - 10 - h;
+            const cb = clip();
+            if (top + h > cb.bottom - 8 && firstTop - 10 - h >= cb.top) top = firstTop - 10 - h;
           }
         } else {
           // Beside the card: the open popover, else the panel card that was pressed.
@@ -9633,8 +9663,11 @@
             top = innerHeight - h - 96;
           }
         }
-        left = tpClamp(left, 8, Math.max(8, innerWidth - w - 8));
-        top = tpClamp(top, 8, Math.max(8, innerHeight - h - 8));
+        // In the text: inside the document's box — its line scrolled away, it waits at the box's
+        // edge, never over Docs' toolbar. Pinned beside a card: inside the window.
+        const box = inDoc ? clip() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+        left = tpClamp(left, box.left + 8, Math.max(box.left + 8, box.right - w - 8));
+        top = tpClamp(top, box.top + 8, Math.max(box.top + 8, box.bottom - h - 8));
         bubble.style.left = `${left}px`;
         bubble.style.top = `${top}px`;
         barBox = { left, top, right: left + w, bottom: top + h, bar: true };
@@ -9662,8 +9695,12 @@
         if (tmr) { clearTimeout(tmr); tmr = 0; }
         if (done) return;
         if (orphaned || location.pathname !== path0) { finish(false); return; }
+        // While the page scrolls it has stepped aside (noteDocScroll): nothing is measured until docSettle places it.
+        if (docScrolling()) { tmr = setTimeout(frame, SCROLL_SETTLE_MS); return; }
+        const t = skipped ? Infinity : performance.now() - t0;
         try {
-          const t = skipped ? Infinity : performance.now() - t0;
+          clipNow = docClip(); // read once a frame
+          fitLayer(layer, clipNow);
           // Docs recycles a tile's annotation rects as it scrolls: find the
           // sentence again (a few times a second at most) when ours went.
           const gone = (g) => g && (!g.at.node.isConnected || g.pieces.some((p) => !p.node.isConnected));
@@ -9675,7 +9712,7 @@
             if (paraGone && geo) para = tpParagraph(main, diff, geo) ?? para;
           }
           paintText(t);
-          drawFlow(t);
+          drawFlow(t, clipNow);
           placeStrikes(t);
           placeMark();
           placeCaret(t);
@@ -9684,11 +9721,19 @@
           markReady(t);
         } catch (err) {
           console.debug(`[tracely] type preview frame: ${err?.message ?? err}`);
+        } finally {
+          clipNow = null;
         }
-        // A frame, or 50 ms, whichever comes first: a pane that is not
-        // compositing never runs rAF (renderer/src/frameScheduler.ts).
-        raf = requestAnimationFrame(frame);
-        tmr = setTimeout(frame, 50);
+        // Gliding, clicking, typing, settling: a frame, or 50 ms, whichever comes first (a pane that is
+        // not compositing never runs rAF; renderer/src/frameScheduler.ts). After — the arrow stepped back
+        // to 60% — only FIX_PLACE_TICK_MS apart, to follow Docs re-laying out; a scroll brings it back at once.
+        const settleAt = Math.max(tl.readyAt, tl.clickAt + tl.clickMs + 150);
+        if (!ready || t < settleAt + 1200) {
+          raf = requestAnimationFrame(frame);
+          tmr = setTimeout(frame, 50);
+        } else {
+          tmr = setTimeout(frame, FIX_PLACE_TICK_MS);
+        }
       }
 
       /* ── on screen ── */
@@ -9696,6 +9741,7 @@
       // Out of Docs' editor frame, whose keystrokes this page never hears.
       if (document.activeElement?.tagName === "IFRAME") document.activeElement.blur();
       document.documentElement.appendChild(layer);
+      document.documentElement.appendChild(bubble);
       if (inDoc) tcCursor();
       window.addEventListener("keydown", onKey, true);
       window.addEventListener("pointerdown", onDown, true);
@@ -9703,6 +9749,101 @@
       console.debug(`[tracely] type preview · ${mode} · ${main ? `${nrm(diff.removed).length} struck, ${ins.length} typed` : "no sentence change"} · ${plan.lines.length} line(s)`);
       frame();
       return handle;
+    }
+
+    /* ── while the page scrolls ──────────────────────────────────────────
+       Owner, 2026-10-15: "when you scroll up and down when tracely is typing
+       suggestions, it is really laggy and the cursor and stuff clips out of
+       frame". What Tracely draws over the text while it types — the struck
+       words, the chips, the margin cards, the Type preview, the cursor — sat
+       in fixed layers that chased Docs' text every frame: each one read the
+       page's geometry and then wrote its own, so Chrome laid the whole Doc
+       out again several times a frame while Docs was scrolling it; a layer
+       on the screen can only follow a scroll a frame or two behind; and the
+       layers covered the whole window, so a half-scrolled chip or strike
+       painted over Docs' toolbar. Now:
+         • while the page moves, all of it steps aside (a 90 ms fade, inert)
+           and nothing is measured; SCROLL_SETTLE_MS after the last scroll it
+           is placed once, where its words now are, and comes back
+           (docSettle) — Grammarly's cards do the same;
+         • each layer is the editor's own box with overflow hidden
+           (clipLayer, docClip): nothing of ours paints outside the document;
+         • placing reads every rect first and writes after, only what
+           changed, and nothing runs a frame loop once its animation is over:
+           whatever re-locates the underlines places them too
+           (followDocLayout, from requestDocsMarks). */
+    const SCROLL_SETTLE_MS = 140;
+    const FIX_PLACE_TICK_MS = 250;
+    let docScrollAt = -Infinity, docScrollSeq = 0, docSettleTmr = 0;
+    const scrollClock = () => (typeof performance === "object" ? performance.now() : Date.now());
+    const docScrolling = () => scrollClock() - docScrollAt < SCROLL_SETTLE_MS;
+    // The document's box on screen: the editor's scroll area, inside the window.
+    function docClip() {
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      const r = docsScroller ? docsScroller.getBoundingClientRect() : null;
+      const left = Math.max(0, r ? r.left : 0), top = Math.max(0, r ? r.top : 0);
+      const right = Math.min(innerWidth, r ? r.right : innerWidth), bottom = Math.min(innerHeight, r ? r.bottom : innerHeight);
+      return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    }
+    // A layer that is the document's box and clips what is in it; inside, a position is the client's less its corner.
+    function clipLayer(attr, z) {
+      const layer = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", overflow: "hidden", contain: "layout paint", zIndex: z, pointerEvents: "none" });
+      layer.setAttribute(attr, "");
+      if (!reducedMotion()) layer.style.transition = "opacity 90ms ease";
+      document.documentElement.appendChild(layer);
+      return layer;
+    }
+    const layerBoxes = new WeakMap(); // each layer's box as last written
+    function fitLayer(layer, c) {
+      const box = `${c.left}|${c.top}|${c.width}|${c.height}`;
+      if (layerBoxes.get(layer) === box) return;
+      layerBoxes.set(layer, box);
+      Object.assign(layer.style, { left: `${c.left}px`, top: `${c.top}px`, width: `${c.width}px`, height: `${c.height}px` });
+    }
+    // Out of the way while the page moves (and nothing in it can be pressed), back once it is still.
+    function stepAside(node, away) {
+      if (!node) return;
+      const op = away ? "0" : "1";
+      if (node.style.opacity !== op) node.style.opacity = op;
+      node.inert = away;
+    }
+    const docMovers = () => [fixMarksEl, fixCardsEl, tcCur?.root, tpOpen?.layer, tpOpen?.bubble].filter(Boolean);
+    function noteDocScroll() {
+      const movers = docMovers();
+      if (!movers.length) return;
+      docScrollAt = scrollClock();
+      docScrollSeq++;
+      for (const n of movers) stepAside(n, true);
+      if (!docSettleTmr) docSettleTmr = setTimeout(docSettle, SCROLL_SETTLE_MS);
+    }
+    function docSettle() {
+      docSettleTmr = 0;
+      if (docScrolling()) { docSettleTmr = setTimeout(docSettle, SCROLL_SETTLE_MS); return; }
+      placeFixMarks();
+      placeFixCards();
+      tcFollow();
+      tpOpen?.place();
+      for (const n of docMovers()) stepAside(n, false);
+    }
+    // One placing a frame at most, a frame or 50 ms whichever comes first (a pane not compositing runs no frames).
+    let fixPlaceRaf = 0, fixPlaceTmr = 0;
+    function scheduleFixPlace() {
+      if (fixPlaceRaf || fixPlaceTmr) return;
+      const go = () => {
+        if (fixPlaceRaf) cancelAnimationFrame(fixPlaceRaf);
+        if (fixPlaceTmr) clearTimeout(fixPlaceTmr);
+        fixPlaceRaf = fixPlaceTmr = 0;
+        placeFixMarks();
+        placeFixCards();
+      };
+      fixPlaceRaf = requestAnimationFrame(go);
+      fixPlaceTmr = setTimeout(go, 50);
+    }
+    // Docs laid the page out again (zoom, an edit above, the underlines' 900 ms re-locate): placed again, once.
+    function followDocLayout() {
+      if (docScrolling() || (!fixMarks.size && !fixCardsEl?.isConnected)) return;
+      scheduleFixPlace();
+      tcFollow();
     }
 
     /* ── "Let Tracely fix these": everything prepared, then the writer picks ──
@@ -9944,7 +10085,6 @@
     const FIX_CARD_W = 248;
     let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
     let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
-    let fixCardsRaf = 0;
     const fixCardsShown = new Set(); // the suggestions already on the page: only a new one slides in
     function fixBarFor(key) {
       let best = null, top = Infinity;
@@ -9960,17 +10100,34 @@
       fixTour.queue.push(item);
       if (!fixTour.running) runFixTour(fixTour);
     }
-    async function fixGlide(x, y) {
+    // A frame, or 32 ms whichever comes first: a glide paced by the display, never by a queue of timers.
+    const tcFrame = () => new Promise((r) => {
+      let done = false;
+      const go = () => { if (!done) { done = true; r(); } };
+      requestAnimationFrame(go);
+      setTimeout(go, 32);
+    });
+    // To `target()` — read again every frame, so a scroll mid-glide lands on the words, not where they were.
+    async function fixGlide(target) {
       const c = tcCursor();
+      tcPin(null); // the glide moves it now
+      const first = target();
+      if (!first) return;
       const x0 = c.x < 0 ? innerWidth - 60 : c.x, y0 = c.y < 0 ? innerHeight - 60 : c.y; // from the launcher the first time
-      if (reducedMotion()) { tcCursorAt(x, y); return; }
-      const steps = Math.round(tpClamp(Math.hypot(x - x0, y - y0) / 40, 6, 16));
-      for (let k = 1; k <= steps; k++) {
-        const e = tpEase(k / steps);
-        tcCursorAt(x0 + (x - x0) * e, y0 + (y - y0) * e);
-        await tcSleep(18);
+      if (reducedMotion()) { tcCursorAt(first.x, first.y); return; }
+      const ms = tpClamp(Math.hypot(first.x - x0, first.y - y0) * 0.45, 110, 290);
+      const t0 = Date.now();
+      for (let k = 0; k < 1;) {
+        await tcFrame();
+        k = tpClamp((Date.now() - t0) / ms, 0, 1);
+        const to = target() ?? first, e = tpEase(k);
+        tcCursorAt(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e);
       }
     }
+    // Where the change starts, for the cursor: its first struck word, else where its words go in.
+    const fixMarkPoint = (m) => () => { const s = fixMarkStart(m); return s ? { x: s.left + 2, y: s.top + s.height * 0.55 } : null; };
+    // Inside the document's box, whole.
+    const inDocBox = (r) => { const c = docClip(); return Boolean(r) && r.width >= 0 && r.top >= c.top && r.top + (r.height || 0) <= c.bottom && r.left >= c.left && r.left <= c.right; };
     async function runFixTour(t) {
       t.running = true;
       try {
@@ -9982,11 +10139,12 @@
           if (geo) {
             it.inline = true;
             const m = fixMarkMake(it, fixBatch.items.indexOf(it), geo);
-            const start = fixMarkStart(m);
-            const seen = Boolean(start && start.top >= 0 && start.top <= innerHeight && !document.hidden);
+            // Shown being made only where it is in the document's box and the page is still; else it simply appears.
+            const seen = inDocBox(fixMarkStart(m)) && !docScrolling() && !document.hidden;
             if (seen) {
-              await fixGlide(start.left + 2, start.top + start.height * 0.55);
+              await fixGlide(fixMarkPoint(m));
               for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
+              tcPin(fixMarkPoint(m));
             }
             it.dropped = true;
             await fixMarkReveal(m, seen);
@@ -9995,11 +10153,13 @@
             continue;
           }
           const bar = fixBarFor(it.key);
+          const barPoint = () => { const r = bar?.el.isConnected ? bar.el.getBoundingClientRect() : null; return r && r.width > 0 ? { x: r.left + Math.min(r.width / 2, 30), y: r.top - (bar.size || 14) * 0.45 } : null; };
           const r = bar?.el.getBoundingClientRect();
-          const seen = Boolean(r && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && !document.hidden);
+          const seen = Boolean(r && r.width > 0) && inDocBox({ left: r.left, top: r.top, width: r.width, height: r.height }) && !docScrolling() && !document.hidden;
           if (seen) {
-            await fixGlide(r.left + Math.min(r.width / 2, 30), r.top - (bar.size || 14) * 0.45);
+            await fixGlide(barPoint);
             for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
+            tcPin(barPoint);
           }
           it.dropped = true;
           paintFixCards();
@@ -10071,14 +10231,10 @@
         fixCardsEl?.remove();
         fixCardsEl = null;
         fixCardsShown.clear();
-        if (fixCardsRaf) { cancelAnimationFrame(fixCardsRaf); fixCardsRaf = 0; }
         return;
       }
-      if (!fixCardsEl?.isConnected) {
-        fixCardsEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "901", pointerEvents: "none" });
-        fixCardsEl.setAttribute("data-tracely-fix-cards", "");
-        document.documentElement.appendChild(fixCardsEl);
-      }
+      // The document's box, clipping the cards: a card beside a line half scrolled away never covers Docs' toolbar.
+      if (!fixCardsEl?.isConnected) fixCardsEl = clipLayer("data-tracely-fix-cards", "901");
       const sig = items.map(([it, i]) => `${i}:${it.status}:${it.why}`).join("|") + (docBusy || b.applying ? "|busy" : "");
       if (fixCardsEl.dataset.sig !== sig) {
         fixCardsEl.dataset.sig = sig;
@@ -10094,38 +10250,43 @@
           }
         }
       }
-      if (!fixCardsRaf) fixCardsRaf = requestAnimationFrame(placeFixCards);
+      scheduleFixPlace();
     }
-    // Beside each line, in the page's right margin; stacked so none covers another; only while its line is in view.
+    /* Beside each line, in the page's right margin; stacked so none covers
+       another; only while its line is in the document's box. Like the
+       chips: not while the page scrolls, not in a loop, reads before writes. */
     function placeFixCards() {
-      fixCardsRaf = 0;
-      if (!fixCardsEl?.isConnected || !fixCardsEl.children.length) return;
-      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
-      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-      const placed = [];
+      if (!fixCardsEl?.isConnected || !fixCardsEl.children.length || docScrolling()) return;
+      const clip = docClip();
+      // ── reads ──
+      const placed = [], hidden = [];
       for (const card of fixCardsEl.children) {
         const bar = fixBarFor(card.dataset.key);
         const r = bar ? bar.el.getBoundingClientRect() : null;
+        const h = card.offsetHeight;
         if (!r && card.dataset.loose) { // the missing Works Cited: at the foot of the margin, where the list will go
           const pg = document.querySelector(".kix-page-paginated")?.getBoundingClientRect();
-          placed.push({ card, x: Math.max(8, Math.min((pg ? pg.right : innerWidth - FIX_CARD_W - 40) + 14, innerWidth - FIX_CARD_W - 12)), want: clip.bottom - card.offsetHeight - 16 });
+          placed.push({ card, h, x: Math.max(8, Math.min((pg ? pg.right : innerWidth - FIX_CARD_W - 40) + 14, innerWidth - FIX_CARD_W - 12)), want: clip.bottom - h - 16 });
           continue;
         }
-        if (!r || r.bottom < clip.top || r.top > clip.bottom) { card.style.visibility = "hidden"; continue; }
+        if (!r || r.bottom < clip.top || r.top > clip.bottom) { hidden.push(card); continue; }
         const page = bar.el.closest?.(".kix-page-paginated");
         const right = page ? page.getBoundingClientRect().right : r.right;
-        placed.push({ card, x: Math.max(8, Math.min(right + 14, innerWidth - FIX_CARD_W - 12)), want: r.top - 10 });
+        placed.push({ card, h, x: Math.max(8, Math.min(right + 14, innerWidth - FIX_CARD_W - 12)), want: r.top - 10 });
       }
+      // ── writes ──
+      fitLayer(fixCardsEl, clip);
+      for (const card of hidden) setStyle(card, { visibility: "hidden" });
       placed.sort((a, b) => a.want - b.want);
       let floor = clip.top + 6;
       for (const p of placed) {
         const top = Math.max(p.want, floor);
-        const h = p.card.offsetHeight;
-        p.card.style.visibility = top + Math.min(h, 60) > clip.bottom ? "hidden" : "visible";
-        p.card.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(top)}px)`;
-        floor = top + h + 8;
+        setStyle(p.card, {
+          visibility: top + Math.min(p.h, 60) > clip.bottom ? "hidden" : "visible",
+          transform: `translate(${Math.round(p.x - clip.left)}px, ${Math.round(top - clip.top)}px)`,
+        });
+        floor = top + p.h + 8;
       }
-      fixCardsRaf = requestAnimationFrame(placeFixCards);
     }
     /* ── each change IN the text (owner, 2026-10-09: "when you click accept
        all there is no cursor but I want tracely cursor to go around and change
@@ -10143,7 +10304,7 @@
        in its own orange until accepted (FIX_INSERT; owner, 2026-10-13). */
     const FIX_WASH = "rgba(28,28,28,0.07)", FIX_STRIKE = "rgba(28,28,28,0.78)";
     const FIX_INSERT = "rgba(249,115,22,0.24)"; // what Tracely writes, highlighted until accepted: the Type preview's TP_INSERT
-    let fixMarksEl = null, fixMarksRaf = 0;
+    let fixMarksEl = null;
     const fixMarks = new Map(); // item key → { key, i, geo, strikes, chip, words, accept, text, typed, sig }
     // Where a change is on the page now — its struck pieces and where its new words go — or null.
     function fixInlineGeo(it) {
@@ -10161,29 +10322,26 @@
     // What its chip says: the words that go in, else that the words go.
     const fixMarkText = (geo) => (geo.inserted ? tpClip(geo.inserted, 90, false) : geo.lines.length ? `+ ${tpClip(geo.lines[geo.lines.length - 1], 70, false)}` : "Delete");
     function fixMarkMake(it, i, geo) {
-      if (!fixMarksEl?.isConnected) {
-        fixMarksEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "900", pointerEvents: "none" });
-        fixMarksEl.setAttribute("data-tracely-fix-marks", "");
-        document.documentElement.appendChild(fixMarksEl);
-      }
+      // The document's box, clipping its strikes and chips: none ever paints over Docs' toolbar or rulers.
+      if (!fixMarksEl?.isConnected) fixMarksEl = clipLayer("data-tracely-fix-marks", "900");
       fixMarks.get(it.key)?.chip.remove();
       const strikes = geo.pieces.map(() => {
-        const s = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
+        const s = el("div", { position: "absolute", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
           background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
         fixMarksEl.appendChild(s);
         return s;
       });
       const chip = el("div", {
-        position: "fixed", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
+        position: "absolute", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
         padding: "3px 3px 3px 7px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
         fontFamily: APP.font, fontSize: "12px", lineHeight: "1.3", color: DM.ink, pointerEvents: "auto", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
       chip.setAttribute("data-tracely-fix-chip", "");
       chip.dataset.key = it.key;
       fixMarksEl.appendChild(chip);
-      const m = { key: it.key, i, geo, strikes, chip, words: null, accept: null, text: fixMarkText(geo), typed: 0, sig: "", shown: false };
+      const m = { key: it.key, i, geo, strikes, chip, words: null, accept: null, text: fixMarkText(geo), typed: 0, sig: "", shown: false, size: null };
       fixMarks.set(it.key, m);
-      if (!fixMarksRaf) fixMarksRaf = requestAnimationFrame(placeFixMarks);
+      scheduleFixPlace();
       return m;
     }
     // Where the change starts on screen (the cursor's stop): its first struck run, else where the words go in.
@@ -10204,12 +10362,15 @@
       if (!animate || reducedMotion()) return;
       for (const sEl of m.strikes) if (typeof sEl.animate === "function") sEl.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: TP_STRIKE_MS, easing: "ease-out" });
       await tcSleep(m.strikes.length ? TP_STRIKE_MS : 0);
+      // The cursor rides the end of the words as they go in (and stays there, pinned, after).
+      tcPin(() => { const wr = m.words?.isConnected !== false ? m.words?.getBoundingClientRect?.() : null; return wr && wr.width > 0 ? { x: wr.left + wr.width + 2, y: wr.top + wr.height * 0.55 } : null; });
       const per = Math.max(8, Math.min(TP_CHAR_MS, TP_TYPE_MAX_MS / Math.max(1, m.text.length)));
       for (let k = 1; k <= m.text.length && fixBatch?.items[m.i] === it; k++) {
         m.typed = k;
         if (m.words) m.words.textContent = m.text.slice(0, k);
-        const wr = m.words?.getBoundingClientRect?.();
-        if (wr && wr.width > 0) tcCursorAt(wr.left + wr.width + 2, wr.top + wr.height * 0.55);
+        m.size = null; // wider now: measured again where it is placed
+        if (!docScrolling()) tcFollow();
+        scheduleFixPlace();
         await tcSleep(per);
       }
     }
@@ -10218,6 +10379,7 @@
       m.chip.textContent = "";
       m.words = null;
       m.accept = null;
+      m.size = null;
       if (it.status === "ready") {
         m.words = el("span", { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: "600", background: m.geo.inserted ? FIX_INSERT : FIX_WASH, borderRadius: "3px", padding: "1px 4px" }, m.text.slice(0, m.typed));
         m.words.setAttribute("title", m.geo.inserted || m.geo.removed);
@@ -10261,16 +10423,21 @@
       if (!fixMarks.size) {
         fixMarksEl?.remove();
         fixMarksEl = null;
-        if (fixMarksRaf) { cancelAnimationFrame(fixMarksRaf); fixMarksRaf = 0; }
-      } else if (!fixMarksRaf) fixMarksRaf = requestAnimationFrame(placeFixMarks);
+      } else scheduleFixPlace();
     }
-    // Every frame: the strikes on their runs, each chip under its change, none on another, only while in view.
+    // A style written only when it changes: an unchanged write still costs the page a style pass.
+    const setStyle = (node, styles) => { for (const k in styles) if (node.style[k] !== styles[k]) node.style[k] = styles[k]; };
+    /* The strikes on their runs, each chip under its change, none on another,
+       only in the document's box. Never while the page scrolls (docSettle
+       places it after), and never in a loop: scheduleFixPlace, followDocLayout.
+       Every rect and every chip's size is read before anything is written. */
     function placeFixMarks() {
-      fixMarksRaf = 0;
-      if (!fixMarksEl?.isConnected || !fixMarks.size) return;
-      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
-      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-      const chips = [], struck = [];
+      if (!fixMarksEl?.isConnected || !fixMarks.size || docScrolling()) return;
+      const clip = docClip();
+      const onScreen = (r) => r && r.top + r.height > clip.top && r.top < clip.bottom;
+      const inView = (r) => r && r.width > 0 && onScreen(r);
+      // ── reads ──
+      const plan = [];
       for (const m of fixMarks.values()) {
         // Docs redrew the line: find the change again (its pieces' runs are gone).
         if (![m.geo.at.node, ...m.geo.pieces.map((p) => p.node)].every((n) => n.isConnected !== false) && Date.now() - m.geo.found > 200) {
@@ -10280,24 +10447,19 @@
           else m.geo.found = Date.now();
         }
         const rects = m.geo.pieces.map((p) => barTextRect(p));
-        const onScreen = (r) => r && r.top + r.height > clip.top && r.top < clip.bottom;
-        const inView = (r) => r && r.width > 0 && onScreen(r);
-        m.strikes.forEach((sEl, k) => {
-          const r = rects[k];
-          if (!m.shown || !inView(r)) { sEl.style.visibility = "hidden"; return; }
-          Object.assign(sEl.style, { visibility: "visible", left: `${Math.round(r.left)}px`, top: `${Math.round(r.top)}px`, width: `${Math.round(r.width)}px`, height: `${Math.round(r.height)}px` });
-          struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
-        });
         const last = [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
-        if (!m.shown || !last) { m.chip.style.visibility = "hidden"; continue; }
-        const first = rects.find(inView) ?? last;
-        chips.push({ m, left: first.left, top: last.top + last.height + 4 });
+        if (m.shown && last && !m.size) m.size = { w: m.chip.offsetWidth || 220, h: m.chip.offsetHeight || 30 };
+        plan.push({ m, rects, last, first: rects.find(inView) ?? last });
       }
+      // ── where each goes ──
+      const struck = [];
+      for (const { m, rects } of plan) for (const r of rects) if (m.shown && inView(r)) struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
+      const chips = plan.filter((p) => p.m.shown && p.last).map((p) => ({ m: p.m, left: p.first.left, top: p.last.top + p.last.height + 4 }));
       chips.sort((p, q) => p.top - q.top || p.left - q.left);
       const placed = [];
       for (const c of chips) {
-        const w = c.m.chip.offsetWidth || 220, h = c.m.chip.offsetHeight || 30;
-        const left = Math.max(8, Math.min(c.left, innerWidth - w - 8));
+        const { w, h } = c.m.size ?? { w: 220, h: 30 };
+        const left = Math.max(clip.left + 8, Math.min(c.left, clip.right - w - 8));
         let top = c.top;
         // Down past anything it would cover — another chip, or words another change strikes — until it covers none.
         for (let moved = true, n = 0; moved && n < 12; n++) {
@@ -10306,12 +10468,25 @@
             if (left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) { top = p.top + p.h + 4; moved = true; }
           }
         }
-        c.m.chip.style.left = `${Math.round(left)}px`;
-        c.m.chip.style.top = `${Math.round(top)}px`;
-        c.m.chip.style.visibility = top + Math.min(h, 24) > clip.bottom ? "hidden" : "visible";
+        Object.assign(c, { left, top, h });
         placed.push({ left, top, w, h });
       }
-      fixMarksRaf = requestAnimationFrame(placeFixMarks);
+      // ── writes: in the layer, a position is the client's less the box's corner ──
+      fitLayer(fixMarksEl, clip);
+      for (const { m, rects, last } of plan) {
+        m.strikes.forEach((sEl, k) => {
+          const r = rects[k];
+          if (!m.shown || !inView(r)) { setStyle(sEl, { visibility: "hidden" }); return; }
+          setStyle(sEl, { visibility: "visible", left: `${Math.round(r.left - clip.left)}px`, top: `${Math.round(r.top - clip.top)}px`, width: `${Math.round(r.width)}px`, height: `${Math.round(r.height)}px` });
+        });
+        if (!m.shown || !last) setStyle(m.chip, { visibility: "hidden" });
+      }
+      for (const c of chips) {
+        setStyle(c.m.chip, {
+          left: `${Math.round(c.left - clip.left)}px`, top: `${Math.round(c.top - clip.top)}px`,
+          visibility: c.top + Math.min(c.h, 24) > clip.bottom ? "hidden" : "visible",
+        });
+      }
     }
 
     // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
@@ -10359,6 +10534,9 @@
       previewDocEdit = (key, job) => (harness && harness.typePreview !== true ? Promise.resolve(true) : showTypePreview(key, job));
       window.addEventListener("pointerdown", tpNotePress, true);
       window.addEventListener("keydown", tpNotePress, true);
+      // Docs scrolls its editor, not the window: heard in the capture phase, as the marks hear it.
+      window.addEventListener("scroll", noteDocScroll, { capture: true, passive: true });
+      window.addEventListener("resize", noteDocScroll, { passive: true });
     }
 
     // ── widget UI ──

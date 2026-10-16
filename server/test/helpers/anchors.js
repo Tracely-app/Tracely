@@ -39,6 +39,8 @@ export const ANCHORS = {
     "    /* A hint-styled control",
     "  // ── citation formatting ──",
     "    /* ── \"Let Tracely fix these\"",
+    // ext-fix-all.test.js: what steps aside while the page scrolls, and the clipped layers (2026-10-15).
+    "    /* ── while the page scrolls",
     "    async function runDocEdit(key, job) {",
     "    async function undoLastDocEdit() {",
     "    // A repeated sentence from the panel",

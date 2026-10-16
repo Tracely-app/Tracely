@@ -63,7 +63,7 @@ const allNodes = (n) => [n, ...n.children.flatMap(allNodes)];
 
 function load({ nolist = false, inline = [] } = {}) {
   const clock = { t: 1_000_000 };
-  const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0 };
+  const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0, rafs: 0 };
   const document = fakeDocument();
   // Every flag's underline on screen, one line apart, on a page whose right edge is at 900px.
   const page = { getBoundingClientRect: () => ({ right: 900 }) };
@@ -72,7 +72,8 @@ function load({ nolist = false, inline = [] } = {}) {
   const ctx = vm.createContext({
     clock, log, console, document, docsBars, innerWidth: 1400, innerHeight: 900,
     Date: { now: () => clock.t },
-    requestAnimationFrame: () => 1, cancelAnimationFrame: () => {},
+    requestAnimationFrame: () => { log.rafs++; return 1; }, cancelAnimationFrame: () => {}, clearTimeout: () => {},
+    performance: { now: () => clock.t },
     // A timer jumps the clock and fires on the next turn: nothing here really waits.
     setTimeout: (fn, ms = 0) => { clock.t += ms; setImmediate(fn); return 0; },
   });
@@ -106,6 +107,10 @@ function load({ nolist = false, inline = [] } = {}) {
     function tcCursorAt(x, y) { tcCur.x = x; tcCur.y = y; log.cursor.push([Math.round(x), Math.round(y)]); }
     function tcCursorPress() {}
     function tcCursorHide() { tcCur.x = tcCur.y = -100; log.hides++; }
+    // Pinned to a point of the page (the cursor section): placed there now.
+    function tcPin(anchor) { const p = anchor?.(); if (p) tcCursorAt(p.x, p.y); }
+    function tcFollow() {}
+    let tpOpen = null; // no Type preview open while the suggestions are made
     // The page's text runs: the changes named in \`inline\` are drawn whole on screen, one line each; the rest are not found.
     const INLINE = ${JSON.stringify(inline)};
     const nrm = (s) => String(s).toLowerCase().replace(/\\s+/g, "");
@@ -187,11 +192,13 @@ function load({ nolist = false, inline = [] } = {}) {
       for (const { job } of log.sent.splice(0)) for (const st of job.steps) if (st.action === "replace") docText = docText.replace(st.find, st.replacement);
       reseg();
     }
+    ${sliceBetween(SRC, "    /* ── while the page scrolls", '    /* ── "Let Tracely fix these": everything prepared')}
     ${sliceBetween(SRC, '    /* ── "Let Tracely fix these": everything prepared', "    if (FEATURES.typePreview) {")}
     ({ prepareFixes, stopFixes, closeFixes, acceptFix, skipFix, rejectAllFixes, cycle, walkStripHtml, walkOfferHtml, fixPingHtml, placeFixCards, runDocEdit,
        batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
        cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null,
-       marks: () => fixMarks, placeFixMarks })`, ctx);
+       marks: () => fixMarks, placeFixMarks, noteDocScroll, docSettle, marksLayer: () => fixMarksEl, cardsLayer: () => fixCardsEl,
+       setScroller: (s) => { docsScroller = s; } })`, ctx);
   return { X, log, clock, document };
 }
 // Let every chain of jumps run out.
@@ -391,4 +398,45 @@ test("Tracely's cursor makes each change in its place — struck, typed — with
   await drain(() => X.batch().items[0].status === "applied");
   assert.deepEqual(statuses(X), ["s1:applied", "c0:skipped", "c1:ready", "c2:none (no source backs it)", "c3:ready", "tip:x:ready"], "the rest wait for their own answer");
   assert.deepEqual(plain(log.sent.map((x) => x.key)), ["fix:s1"]);
+});
+
+/* Owner, 2026-10-15: "when you scroll up and down when tracely is typing
+ * suggestions, it is really laggy and the cursor and stuff clips out of frame".
+ * The changes' layers are the document's box and clip what is in them; while
+ * the page scrolls everything steps aside and nothing is measured; nothing
+ * places itself every frame. */
+test("the changes sit in the document's box, step aside while the page scrolls, and never run a frame loop", async () => {
+  const { X, log, clock } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  const fix = X.marks().get("s1"), cite = X.marks().get("c0");
+  // The editor's box: under a 120px toolbar and 40px in. The fix's line (top 100) is under the toolbar; the citation's (140) is in it.
+  X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 40, top: 120, right: 1400, bottom: 900 }) });
+  X.placeFixMarks();
+  const layer = X.marksLayer();
+  assert.deepEqual([layer.style.position, layer.style.overflow, layer.style.left, layer.style.top, layer.style.width, layer.style.height],
+    ["fixed", "hidden", "40px", "120px", "1360px", "780px"], "the layer is the document's box, and clips");
+  assert.equal(fix.strikes[0].style.visibility, "hidden", "a line under the toolbar is not struck over the toolbar");
+  assert.equal(fix.chip.style.visibility, "hidden");
+  assert.deepEqual([cite.chip.style.visibility, cite.chip.style.left, cite.chip.style.top], ["visible", "360px", "42px"],
+    "in the layer, its position less the box's corner: under its line (140 + 18 + 4 = 162 → 42), where its words go in (400 → 360)");
+  // The page scrolls: out of the way at once, and not measured until it is still.
+  const placedAt = cite.chip.style.top;
+  const t0 = clock.t;
+  X.noteDocScroll();
+  clock.t = t0 + 60; // 60 ms into the scroll (this harness's timers jump the clock when they are set)
+  assert.deepEqual([layer.style.opacity, layer.inert], ["0", true], "stepped aside, and nothing in it can be pressed");
+  X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 40, top: 80, right: 1400, bottom: 900 }) });
+  X.placeFixMarks();
+  assert.equal(cite.chip.style.top, placedAt, "nothing is placed while the page moves");
+  clock.t += 200;
+  X.docSettle();
+  assert.deepEqual([layer.style.opacity, layer.inert, layer.style.top], ["1", false, "80px"], "still: placed once, and back");
+  assert.deepEqual([fix.chip.style.visibility, fix.chip.style.top], ["visible", "42px"], "the fix's line is in the box now: its chip under it (122 − 80)");
+  assert.equal(cite.chip.style.top, "136px", "the citation's under that chip, never on it (122 + 90 + 4 = 216 − 80)");
+  // No frame loop: placing never asks for another frame by itself.
+  const before = log.rafs;
+  for (let i = 0; i < 5; i++) X.placeFixMarks();
+  assert.equal(log.rafs, before, "placed only when something moved, never every frame");
 });
