@@ -314,6 +314,48 @@ failed automatic search stops the rest and is not reported. Every
 other flag's automatic search is still behind the opt-in Auto-src switch
 (`FEATURES.autoSources`, off). Tests: `server/test/ext-evidence-first.test.js`.
 
+## A study Tracely can't find
+
+Owner, 2026-10-15, on "A study involving 12 college students found that 10
+participants reported positive experiences using AI": "something like this
+should be flagged as should be deleted, as tracely cant find anything like
+this. Furthermore, make it where pro and student plans has tracely find
+evidence on the web to replace this with, that fits the text".
+
+- **Which sentences.** A sentence that reports what an unnamed study found
+  (`STUDY_REPORTS`, with no one named by `sourceNamedIn` and no citation in
+  it), once its search has come back with nothing that backs it
+  (`unfoundStudy`). "Nothing" means no source, no detail to trim, and no
+  source it couldn't open: an unread page might be that study, so it never
+  says "can't find" over one. A named source stays a citation issue.
+- **What it says.** The card (both panels, the Docs hover card's problem
+  card and its sources step) reads "Tracely couldn't find this study" with
+  **Delete the sentence**. That is the note's one-replace delete
+  (`docDeleteSentence`, through the preview, with Undo). The card's own fix
+  row goes, so it has one set of buttons. A field can't delete a sentence,
+  so there it says to.
+- **Student and Pro: Replace with evidence.** The owner chose this over a
+  reworded sentence: no model writes it, so every word is the source's or
+  names it.
+  - Tracely searches the point the study is said to have found, without the
+    study: no counts, no figures, and "participants" become who it was of
+    (`studyFinding`: "College students reported positive experiences using
+    AI.").
+  - It takes the first source that backs that point and has a one-sentence
+    receipt of at most 45 words, and offers its words quoted, with who said
+    them, in the doc's style (`evidenceReplacement`): "According to Lee and
+    Park (2023), “…”". In MLA, a body that published its own work is cited
+    by title, and the body is still named in the sentence.
+  - **Replace in doc** puts the sentence and its reference entry in as one
+    group with one Undo (`citePlan` with `swapped`). In a field it is
+    Replace in field, or Copy.
+  - It spends one of the plan's source searches. On Free the card has one
+    line on what Student and Pro add, and See plans (`canRecommend`).
+
+Not seen in a browser: the mock server's search always returns a source it
+couldn't open, so it never comes back empty. Tests:
+`server/test/ext-unfound-study.test.js`.
+
 ## "Find a source" always does something
 
 Owner, 2026-10-13: "find a source action button doesnt work properly".
