@@ -328,6 +328,7 @@ function widgetContext(tier) {
       GENRE_LABEL: {}, // what the header chip says the kind of writing means (genreNote): ext-writing-types.test.js
       GENRE_QUIET: new Set(), // a kind Tracely stays quiet on says so in the list (ext-off-switch.test.js)
       turnDocsOff: () => {}, // the Turn off button's handler (ext-off-switch.test.js)
+      unfoundStudy: () => false, // a study Tracely can't find (ext-unfound-study.test.js)
       FEATURES: { evidenceHints: false }, // the evidence section is tested in ext-evidence.test.js
       showEvidence: false,
       lastTextChangeAt: 0,

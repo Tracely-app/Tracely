@@ -438,7 +438,7 @@ test("every model route names the fast model and sends no effort — the server 
   // A call site sends its own object; searchSources' fallback passes the
   // Docs search's object on, so it is that object (searchSources({) that counts.
   const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)", \{|searchSources\(\{/g)];
-  assert.equal(sites.length, 6, "docs + field /api/check, Explain in depth, docs /api/flow, docs (live) + field /api/sources");
+  assert.equal(sites.length, 8, "docs + field /api/check, Explain in depth, docs /api/flow, docs (live) + field /api/sources, docs + field evidence for a study Tracely can't find (findReplacement)");
   for (const m of sites) {
     const body = src.slice(m.index, src.indexOf("});", m.index));
     assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);

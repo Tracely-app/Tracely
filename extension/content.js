@@ -2422,6 +2422,95 @@
   // The note under a card whose search found nothing to cite.
   const unbackedNote = (st, verdict) => (isEvidenceFirst(verdict) ? EVIDENCE_COPY.none(st)
     : st?.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st?.unread?.length ?? 0));
+  /* A study Tracely can't find. Owner, 2026-10-15, on "A study involving 12
+     college students found that 10 participants reported positive
+     experiences using AI": "something like this should be flagged as should
+     be deleted, as tracely cant find anything like this. Furthermore, make it
+     where pro and student plans has tracely find evidence on the web to
+     replace this with, that fits the text".
+     A sentence that reports what an unnamed study found (STUDY_REPORTS, and
+     sourceNamedIn finds no one), once its search came back with nothing that
+     backs it, nothing to trim and nothing it couldn't open (unfoundStudy),
+     asks to be deleted. Student and Pro can ask for evidence to take its
+     place instead: the point the study is said to have found, without the
+     study (studyFinding), searched like any claim, and the first source that
+     backs it quoted word for word with its citation (evidenceReplacement).
+     The owner chose the quote over a reworded sentence (2026-10-15): no
+     model writes it, so every word in it is the source's or names it. */
+  const UNFOUND_COPY = {
+    head: "Tracely couldn't find this study",
+    body: "Tracely searched and found nothing like it, so a reader can't check it. Delete the sentence.",
+    bodyPaid: "Tracely searched and found nothing like it, so a reader can't check it. Delete the sentence, or replace it with evidence Tracely finds on the same point.",
+    delete: "Delete the sentence",
+    deleting: "Deleting…",
+    replace: "Replace with evidence",
+    finding: "Finding evidence on this point…",
+    label: "Replace with",
+    apply: "Replace in doc",
+    applyField: "Replace in field",
+    copy: "Copy replacement",
+    none: "Tracely couldn't find evidence on this point either. Delete the sentence.",
+    locked: "Student and Pro can replace it with evidence Tracely finds on the same point.",
+    done: "Deleted it from the doc",
+  };
+  const unfindableStudy = (s) => { const t = String(s ?? ""); return STUDY_REPORTS.test(t) && !sourceNamedIn(t) && !hasCitationMark(t); };
+  // Its search ran and came back with nothing that backs the sentence, nothing to trim, nothing it couldn't open.
+  const searchedEmpty = (st) => Boolean(st && !st.loading && !st.list?.length && !st.partial && !st.unread?.length);
+  const unfoundStudy = (sentence, st) => searchedEmpty(st) && unfindableStudy(sentence);
+  // What the study is said to have found, without the study: its counts, its "participants" and its figures go.
+  const STUDY_SAYS = /\b(?:found|finds|showed|shows|demonstrated|demonstrates|concluded|concludes|reported|reports|revealed|reveals|suggested|suggests|indicated|indicates|proved|proves)\b(?:\s+that)?\s+/;
+  const STUDY_GROUP = /\b(?:of|involving|with|among|surveying|including)\s+(?:(?:about|around|nearly|over|more than|just|only)\s+)?(?:\d[\d,]*\s+)?((?:[\p{L}-]+\s+){0,2}?(?:students|teachers|adults|participants|people|children|teens|teenagers|respondents|users|patients|workers|employees|parents|learners|undergraduates|kids|individuals|families|Americans))\b/iu;
+  const HEAD_COUNT = /^(?:(?:about|around|approximately|nearly|almost|over|more than|fewer than|less than|only|just)\s+)?(?:\d[\d,.]*\s*(?:%|percent)?(?:\s+(?:out\s+)?of\s+(?:the\s+)?(?:\d[\d,]*\s+)?)?|(?:most|many|all|some|half|a majority|the majority|two-thirds|three-quarters)\s+of\s+(?:the\s+)?)/i;
+  const STAND_IN = /^(?:the\s+)?(?:participants|respondents|subjects|those surveyed|them)\b/i;
+  const FIGURE = /\s*\b(?:by\s+)?(?:(?:about|around|approximately|nearly|almost|roughly|over|more than|up to)\s+)?\d[\d,.]*\s*(?:%|percent(?:age points)?|times)/gi;
+  function studyFinding(sentence) {
+    const s = String(sentence ?? "").trim().replace(/[\s.!?"”’)]+$/, "");
+    const m = s.match(STUDY_REPORTS);
+    if (!m) return null;
+    const tail = s.slice(m.index);
+    const v = tail.match(STUDY_SAYS);
+    // "According to a recent survey, most teens …": the point is after the comma.
+    const said = v ? null : tail.match(/^[^,]*,\s*/);
+    if (!v && !said) return null;
+    const frame = v ? tail.slice(0, v.index) : said[0];
+    const who = (frame.match(STUDY_GROUP) ?? [])[1]?.trim() ?? "";
+    let point = (v ? tail.slice(v.index + v[0].length) : tail.slice(said[0].length)).replace(HEAD_COUNT, "");
+    if (who && STAND_IN.test(point)) point = point.replace(STAND_IN, who);
+    point = point.replace(FIGURE, "").replace(/\s{2,}/g, " ").trim();
+    if (point.split(/\s+/).length < 4) return null;
+    return `${point.charAt(0).toUpperCase()}${point.slice(1)}.`;
+  }
+  // The sentence that takes its place: the source's own words, quoted, and who said them — one sentence, never a long quote.
+  function evidenceReplacement(src, style) {
+    const q = String(src?.quote ?? "").replace(/\s+/g, " ").trim().replace(/^["“]+|["”]+$/g, "").replace(/[\s.,;:]+$/, "");
+    if (!q || q.split(" ").length > 45 || splitLineSentences(q).length > 1) return null;
+    const end = /[?!]$/.test(q) ? "" : ".";
+    const n = narrativeCitation(src, style);
+    if (n) return `According to ${n.name}, “${q}${end}”`;
+    // Cited by its title (MLA, where the body that wrote it also published it): named in the sentence anyway.
+    const marker = formatCitation(src, style).marker;
+    const who = String(src?.groupAuthor || src?.publisher || "").trim();
+    if (marker && who) return `According to ${who}, “${q}” ${marker}.`;
+    return marker ? `“${q}” ${marker}.` : null;
+  }
+  // The first backing source that makes a replacement, or null.
+  function pickReplacement(list, style) {
+    for (const src of Array.isArray(list) ? list : []) {
+      const text = evidenceReplacement(src, style);
+      if (text) return { src, text };
+    }
+    return null;
+  }
+  // Under a card: the head, what to do, the replacement (or the search for it), then the mode's buttons.
+  function unfoundHtml(rep, actionsHtml, locked) {
+    const body = locked ? UNFOUND_COPY.body : UNFOUND_COPY.bodyPaid;
+    const repHtml = rep?.text ? `<div class="fix"><div class="fix-label">${esc(UNFOUND_COPY.label)}</div><div class="fix-text">${esc(rep.text)}</div><div class="src-meta">${esc(rep.src.title || rep.src.url)} · ${sourceMetaHtml(rep.src)}</div></div>`
+      : rep?.loading ? `<div class="loading">${esc(UNFOUND_COPY.finding)}</div>`
+        : rep?.none ? `<div class="loading">${esc(UNFOUND_COPY.none)}</div>`
+          : rep?.failed ? `<div class="loading">${esc(rep.failed)}</div>` : "";
+    return `<div class="unfound"><div class="trim-head">${esc(UNFOUND_COPY.head)}</div><div class="src-snip">${esc(body)}</div>${repHtml}<div class="row">${actionsHtml}</div>`
+      + `${locked ? `<div class="ev-locked"><span>${esc(UNFOUND_COPY.locked)}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div>` : ""}</div>`;
+  }
   /* What a source shows under its title: the receipt — "The source says:
      “…”" and where it was read — when the server read it, else the
      search's snippet, as before. */
@@ -4576,6 +4665,7 @@
     // never counts here, so it can never make a press wait or do nothing.
     let sourcesInflight = 0;
     const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote), until the next one
+    const replaceMap = new Map(); // hash → the evidence an unfound study can be replaced with (findReplacement): { loading } | { src, text } | { none } | { failed }
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
     let lastCheckFailed = false;
@@ -6742,6 +6832,22 @@
         requestPlace(); return;
       }
 
+      // A study nothing like it could be found (owner, 2026-10-15): flagged to be deleted, or replaced with evidence.
+      if (unfoundStudy(seg.text, sourcesMap.get(hash))) {
+        put(dmHead(color, UNFOUND_COPY.head));
+        paintUnfound(hash, put);
+        const dis = dmBtn(POP_COPY.dismiss, false);
+        dis.addEventListener("click", () => {
+          dismissed.add(hash);
+          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+          popSteps.delete(hash);
+          hideDocsPopover();
+          requestDocsMarks();
+          render();
+        });
+        put(dmActions(dis));
+        requestPlace(); return;
+      }
       // The problem card — exactly the app's: dot, title; body; [action][Dismiss].
       // A sentence whose citation the verdict puts in doubt also offers to
       // find the cited work: first when there is no fix to suggest, else
@@ -6887,6 +6993,49 @@
        this is; onBack — where Cancel goes; note — what the lookup before it
        found, said first. A cited source takes the place of the sentence's
        faulty citation when a card found one (replaceFor). */
+    /* A study Tracely can't find (unfoundStudy), in the hover card: what to
+       do, the evidence that can take its place when there is some, and its
+       buttons — Replace in doc or Delete the sentence first, the other
+       beside it; then the caller's way out. Free: one line on what Student
+       and Pro add, and See plans. */
+    function paintUnfound(hash, put) {
+      const rep = replaceMap.get(hash);
+      const paid = canRecommend();
+      put(dmBody(paid ? UNFOUND_COPY.bodyPaid : UNFOUND_COPY.body));
+      if (rep?.text) put(dmBlock(UNFOUND_COPY.label, dmQuote(rep.text)), dmHint(rep.src.title || rep.src.url));
+      else if (rep?.loading) put(dmHint(UNFOUND_COPY.finding));
+      else if (rep?.none) put(dmHint(UNFOUND_COPY.none));
+      else if (rep?.failed) put(dmHint(rep.failed));
+      const btns = [];
+      if (rep?.text && canEditDoc()) {
+        const v = editView(`rep:${hash}`, UNFOUND_COPY.apply);
+        const b = dmBtn(v.label, true, { disabled: v.disabled });
+        b.addEventListener("click", () => { popPinned = true; docReplaceWithEvidence(hash); });
+        btns.push(b);
+      } else if (rep?.text) {
+        const b = dmBtn(UNFOUND_COPY.copy, true);
+        b.addEventListener("click", () => { copyText(rep.text); b.textContent = POP_COPY.copied; });
+        btns.push(b);
+      }
+      if (canEditDoc()) {
+        const v = editView(`del:${hash}`, UNFOUND_COPY.delete);
+        const b = dmBtn(v.label, !btns.length, { disabled: v.disabled });
+        b.addEventListener("click", () => { popPinned = true; docDeleteSentence(hash); });
+        btns.push(b);
+      }
+      if (paid && !rep) {
+        const b = dmBtn(UNFOUND_COPY.replace, !btns.length);
+        b.addEventListener("click", () => findReplacement(hash));
+        btns.push(b);
+      }
+      if (btns.length) put(dmActions(...btns.slice(0, 2)));
+      if (!paid) {
+        const plans = dmBtn(RECOMMEND_COPY.seePlans, false);
+        plans.addEventListener("click", () => openOrderPage());
+        put(dmHint(UNFOUND_COPY.locked), dmActions(plans));
+      }
+      if (!canEditDoc()) put(dmHint(editBlockReason()));
+    }
     function paintSources(hash, seg, f, st, put, opts = {}) {
       const s = sourcesMap.get(hash);
       const style = settings.citationStyle || "mla";
@@ -6985,6 +7134,14 @@
         const keep = dmBtn(TRIM_COPY.keep, false);
         keep.addEventListener("click", () => keepDetail(hash));
         put(dmActions(rm, keep));
+        return;
+      }
+      if (unfoundStudy(seg.text, s)) {
+        put(dmHead(MARK_COLORS.questionable, UNFOUND_COPY.head), noteEl());
+        paintUnfound(hash, put);
+        const out = dmBtn(POP_COPY.back, false);
+        out.addEventListener("click", back);
+        put(dmActions(out));
         return;
       }
       if (list.length === 0) {
@@ -8373,6 +8530,80 @@
         onApplied: tipDone(tipId, key),
         onUndone: () => popSteps.delete(tipId),
       });
+    }
+    /* A study Tracely can't find (unfoundStudy): the sentence goes — the
+       same one-replace delete a note's Delete makes — or, on Student and
+       Pro, the evidence found on its point takes its place, with its
+       reference entry, as one group with one Undo (citePlan). */
+    async function docDeleteSentence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const plan = seg ? deleteEditFor(docText, seg.text) : null;
+      if (!plan || docBusy) return false;
+      return runDocEdit(`del:${hash}`, {
+        steps: [{ action: "replace", find: plan.find, replacement: plan.replacement, hint: { occurrence: plan.occurrence, occurrences: plan.occurrences } }],
+        copy: null,
+        doneMsg: "deleted it from the doc",
+        notes: { "not-found": "the passage has changed since the last read — delete it in the doc yourself" },
+        onApplied: () => markEdited(hash),
+      });
+    }
+    async function findReplacement(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      if (!seg || !canRecommend() || replaceMap.get(hash)?.loading) return false;
+      const claim = studyFinding(seg.text);
+      if (!claim) { replaceMap.set(hash, { none: true }); render(); renderPopSources(hash); return false; }
+      replaceMap.set(hash, { loading: true });
+      render();
+      renderPopSources(hash);
+      try {
+        // The point, not the study: a source can back what it is said to have found, never the study itself.
+        const data = await searchSources({ claim, context: docText.slice(0, 6000), model: CHECK_MODEL }, () => {});
+        const pick = pickReplacement(backingSources(data.sources, "questionable").list, settings.citationStyle || "mla");
+        replaceMap.set(hash, pick ?? { none: true });
+      } catch (err) {
+        replaceMap.set(hash, { failed: searchFailureNote(err) });
+      }
+      render();
+      renderPopSources(hash);
+      return true;
+    }
+    async function docReplaceWithEvidence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const rep = replaceMap.get(hash);
+      if (!seg || !rep?.text || docBusy) return false;
+      const styled = formatCitation(rep.src, settings.citationStyle || "mla");
+      const { steps, retry, hint, pasteEntry, listName } = await citePlan(seg, styled, rep.src, { swapped: rep.text });
+      if (!steps.length) return false;
+      return runDocEdit(`rep:${hash}`, {
+        steps,
+        retry,
+        copy: rep.text,
+        doneMsg: pasteEntry ? `replaced it with the evidence — paste its reference into ${listName}` : "replaced it with the evidence",
+        notes: hint.occurrences > 1 ? { ambiguous: "that sentence is in the doc more than once — paste the replacement over the one you mean" } : null,
+        onApplied: () => {
+          markEdited(hash);
+          // The new sentence quotes the source that backs it: its sources are that one, no second search.
+          const newHash = hashText(rep.text);
+          if (!sourcesMap.has(newHash)) sourcesMap.set(newHash, { loading: false, list: [rep.src], unbacked: 0, unread: [], partial: null, copiedUrl: null, citedUrl: rep.src.url });
+          if (pasteEntry) copyFallback(pasteEntry);
+          persistCaches();
+        },
+      });
+    }
+    // Under a card (panel): Delete, or the evidence that can take the sentence's place.
+    function unfoundActionsHtml(hash) {
+      const rep = replaceMap.get(hash);
+      const paid = canRecommend();
+      if (!canEditDoc()) {
+        // Docs can't be edited from here: the replacement can still be copied; deleting is the writer's.
+        const copy = rep?.text ? `<button class="act primary" data-unfound-copy="${hash}">${esc(UNFOUND_COPY.copy)}</button>` : "";
+        const find = paid && !rep ? `<button class="act" data-unfound-find="${hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+        return copy + find;
+      }
+      const del = editBtnHtml(`del:${hash}`, UNFOUND_COPY.delete, `data-unfound-del="${hash}"`);
+      if (rep?.text) return editBtnHtml(`rep:${hash}`, UNFOUND_COPY.apply, `data-unfound-apply="${hash}"`) + `<button class="act" data-unfound-del="${hash}"${docBusy ? " disabled" : ""}>${esc(UNFOUND_COPY.delete)}</button>`;
+      const find = paid && !rep ? `<button class="act" data-unfound-find="${hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+      return del + find;
     }
     async function docAddPage(tipId, page) {
       const tip = anyTipById(tipId);
@@ -10464,6 +10695,9 @@
               : `<button class="act primary" data-trim-copy="${seg.hash}">${copiedTrimHash === seg.hash ? "Copied ✓" : esc(TRIM_COPY.copy)}</button>`) +
               `<button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
             sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${editNoteHtml(`trim:${seg.hash}`)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (unfoundStudy(seg.text, st)) {
+            // A study nothing like it could be found: delete it, or (Student, Pro) put evidence in its place.
+            sourcesHtml = `<div class="sources">${unfoundHtml(replaceMap.get(seg.hash), unfoundActionsHtml(seg.hash), !canRecommend())}${editNoteHtml(`del:${seg.hash}`)}${editNoteHtml(`rep:${seg.hash}`)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
@@ -10496,6 +10730,8 @@
            a URL" waits until a search has run for the sentence. */
         const cards = issues.map(({ seg, f }) => {
           const sourcesHtml = sourcesFor(seg);
+          // A study nothing like it could be found: its block (sourcesFor) is the card's one set of buttons.
+          const unfound = unfoundStudy(seg.text, sourcesMap.get(seg.hash));
           const copied = copiedFixHash === seg.hash;
           const lead = !f.revision ? ""
             : canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Apply fix", `data-doc-fix="${seg.hash}"`)
@@ -10511,12 +10747,12 @@
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
             ${deepHtml(seg.hash, f.verdict, (h) => (canEditDoc() ? editBtnHtml(`deepfix:${h}`, "Apply fix", `data-deep-fix="${h}"`) + editNoteHtml(`deepfix:${h}`) : ""))}
-            ${f.revision ? `
+            ${f.revision && !unfound ? `
             <div class="fix">
               <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
             </div>` : ""}
-            <div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>
+            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>`}
             ${f.revision ? editNoteHtml(`fix:${seg.hash}`) : ""}
             ${sourcesHtml}
             ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>` : ""}
@@ -10628,6 +10864,13 @@
         }
         // A note's own fix (decorateCard): Delete, Rewrite in doc, the page box.
         for (const btn of shadow.querySelectorAll("[data-tip-del]")) btn.addEventListener("click", () => armOrDelete(btn.dataset.tipDel));
+        // A study Tracely can't find: delete it, find evidence for its point, put that evidence in, or copy it.
+        for (const btn of shadow.querySelectorAll("[data-unfound-del]")) btn.addEventListener("click", () => docDeleteSentence(btn.dataset.unfoundDel));
+        for (const btn of shadow.querySelectorAll("[data-unfound-find]")) btn.addEventListener("click", () => findReplacement(btn.dataset.unfoundFind));
+        for (const btn of shadow.querySelectorAll("[data-unfound-apply]")) btn.addEventListener("click", () => docReplaceWithEvidence(btn.dataset.unfoundApply));
+        for (const btn of shadow.querySelectorAll("[data-unfound-copy]")) {
+          btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundCopy); if (r?.text) { copyText(r.text); btn.textContent = "Copied ✓"; } });
+        }
         for (const btn of shadow.querySelectorAll("[data-tip-list]")) btn.addEventListener("click", () => docAddWorksCited(btn.dataset.tipList));
         for (const btn of shadow.querySelectorAll("[data-tip-rewrite]")) btn.addEventListener("click", () => docRewriteTip(btn.dataset.tipRewrite));
         for (const input of shadow.querySelectorAll("[data-page-input]")) {
@@ -10887,6 +11130,7 @@
     let inflight = false;
     let sourcesInflight = 0; // the writer's own searches in flight, as in Docs mode
     const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote)
+    const replaceMap = new Map(); // hash → the evidence an unfound study can be replaced with (findReplacement): { loading } | { src, text } | { none } | { failed }
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // see nextReadGap
     let lastCheckFailed = false;
@@ -11443,6 +11687,23 @@
       lsSet(FIELD_CACHE_KEY, JSON.stringify(keep));
     }
 
+    // A study Tracely can't find: evidence for its point (Docs mode's findReplacement, over the field's text).
+    async function findReplacement(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      if (!seg || !canRecommend() || replaceMap.get(hash)?.loading) return false;
+      const claim = studyFinding(seg.text);
+      if (!claim) { replaceMap.set(hash, { none: true }); render(); return false; }
+      replaceMap.set(hash, { loading: true });
+      render();
+      try {
+        const data = await searchSources({ claim, context: fieldText.slice(0, 6000), model: CHECK_MODEL }, () => {});
+        replaceMap.set(hash, pickReplacement(backingSources(data.sources, "questionable").list, settings.citationStyle || "mla") ?? { none: true });
+      } catch (err) {
+        replaceMap.set(hash, { failed: searchFailureNote(err) });
+      }
+      render();
+      return true;
+    }
     async function fetchSources(hash, auto = false) {
       // As in Docs mode: the writer's press always runs; an automatic search
       // waits for the writer's (it was the other way round, and a press
@@ -11881,6 +12142,13 @@
             // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
             const trimActs = `<button class="act primary" data-field-trim="${seg.hash}">${esc(TRIM_COPY.remove)}</button><button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
             sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (unfoundStudy(seg.text, st)) {
+            // A study nothing like it could be found: as in Docs, but a field cannot delete a sentence, so it says to.
+            const rep = replaceMap.get(seg.hash);
+            const acts = rep?.text
+              ? `<button class="act primary" data-unfound-apply="${seg.hash}">${fieldFixed.has(seg.hash) ? "Replaced ✓" : esc(UNFOUND_COPY.applyField)}</button><button class="act" data-unfound-copy="${seg.hash}">${esc(UNFOUND_COPY.copy)}</button>`
+              : canRecommend() && !rep ? `<button class="act" data-unfound-find="${seg.hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+            sourcesHtml = `<div class="sources">${unfoundHtml(rep, acts, !canRecommend())}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
             sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
           } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
@@ -11909,6 +12177,8 @@
         // A card: the Docs panel's (the clean frame), with Apply fix writing into the field.
         const cards = issues.map(({ seg, f }) => {
           const sourcesHtml = sourcesFor(seg);
+          // A study nothing like it could be found: its block (sourcesFor) is the card's one set of buttons.
+          const unfound = unfoundStudy(seg.text, sourcesMap.get(seg.hash));
           const copied = copiedFixHash === seg.hash;
           const lead = f.revision ? `<button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Apply fix"}</button>` : "";
           const copyIcon = f.revision ? `<button class="act icon" data-copy-fix="${seg.hash}" title="${copied ? "Copied" : "Copy fix"}" aria-label="Copy fix">${copied ? COPIED_SVG : COPY_SVG}</button>` : "";
@@ -11921,12 +12191,12 @@
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
             ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Apply fix"}</button>`)}
-            ${f.revision ? `
+            ${f.revision && !unfound ? `
             <div class="fix">
               <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
             </div>` : ""}
-            <div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>
+            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>`}
             ${sourcesHtml}
             ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>` : ""}
           </div>` };
@@ -12048,6 +12318,14 @@
         }
         for (const btn of shadow.querySelectorAll("[data-sources]")) {
           btn.addEventListener("click", () => fetchSources(btn.dataset.sources));
+        }
+        // A study Tracely can't find: evidence for its point, put in the field, or copied.
+        for (const btn of shadow.querySelectorAll("[data-unfound-find]")) btn.addEventListener("click", () => findReplacement(btn.dataset.unfoundFind));
+        for (const btn of shadow.querySelectorAll("[data-unfound-apply]")) {
+          btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundApply); if (r?.text) { fixInField(btn.dataset.unfoundApply, r.text); fieldFixed.add(btn.dataset.unfoundApply); } });
+        }
+        for (const btn of shadow.querySelectorAll("[data-unfound-copy]")) {
+          btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundCopy); if (r?.text) { navigator.clipboard?.writeText(r.text).catch(() => {}); btn.textContent = "Copied ✓"; } });
         }
         for (const btn of shadow.querySelectorAll("[data-copy-src]")) {
           btn.addEventListener("click", () => {
