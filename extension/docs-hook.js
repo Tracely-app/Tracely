@@ -617,6 +617,9 @@
           copy read-back) BEFORE anything is pasted. Any disagreement aborts.
        2. Locate → select → verify → paste run in ONE synchronous block, so no
           keystroke or remote change can land between the check and the edit.
+          When Docs is a moment late to settle a selection, the whole block
+          runs again (SELECT_SETTLE_MS); a block that refuses has changed
+          nothing, and only one whose checks all passed pastes.
        3. The edit is the SMALLEST token-aligned change, so formatting, links
           and comment anchors outside the changed words survive.
        4. Success means the model text now reads as expected. A silent no-op
@@ -639,6 +642,9 @@
     const APPLY_WAIT_MS = 1500; // a paste lands in ~40ms; this is the "it never landed" bound
     const UNDO_WAIT_MS = 1200;
     const BLIND_UNDO_MS = 10000; // an unverifiable (no-API) edit can be rolled back only this soon
+    const SELECT_SETTLE_MS = 600; // how long a selection that isn't there yet is looked at again
+    const SELECT_POLL_MS = 25;
+    const NUDGE_MAX = 6;          // no-API path: Shift+Arrow steps to bring a selection's end onto the sentence
     const CTX = 24;             // normalized chars of context used to re-find an edit later
     const MAX_FIND = 4000;
     const MAX_HTML = 20000;
@@ -900,6 +906,38 @@
       const sel = readSel(at);
       return !!sel && sel.length === 1 && sel[0].start === s && sel[0].end === e;
     }
+    /* Owner, 2026-10-15: "Couldn't apply (Tracely couldn't select that
+       sentence safely, so nothing was changed)" — "says this sometimes".
+       Docs can be a moment late to put a selection where it was asked (a
+       sentence it hasn't laid out yet, far off screen) or to copy it. So a
+       refusal that may clear runs the attempt again, every SELECT_POLL_MS
+       for up to SELECT_SETTLE_MS. `attempt` is synchronous — it reads the
+       text, selects, checks and, only when every check passes, pastes, all in
+       one task — and returns { retry: true } for a refusal worth another
+       look. A refusal has changed nothing. */
+    async function settled(attempt) {
+      const until = now() + SELECT_SETTLE_MS;
+      for (;;) {
+        const r = attempt();
+        if (!r.retry || now() >= until) { delete r.retry; return r; }
+        await sleep(SELECT_POLL_MS);
+      }
+    }
+    // The selection [s, e) proved on text that is still T1: exactly that
+    // range, the sentence and the changed words where they were planned, and
+    // Docs' own copy of it reading those words. `check` names what failed.
+    function checkSel(at, T1, loc, plan) {
+      const { s, e, oldN, oa, ob } = plan;
+      if (!selIs(at, s, e)) return { ok: false, reason: "selection-failed", check: "selection" };
+      const T = at.getText();
+      if (T !== T1 || nrm(T.slice(loc.rawS, loc.rawE)).trim() !== loc.needle) return { ok: false, reason: "selection-mismatch", check: "text" };
+      const want = oldN.slice(oa, ob).trim();
+      if (nrm(T.slice(s, e)).trim() !== want) return { ok: false, reason: "selection-mismatch", check: "plan" };
+      const copied = e > s ? copyReadback() : null;
+      const copyOk = copied == null ? null : nrm(copied).trim() === want;
+      if (copyOk === false) return { ok: false, reason: "selection-mismatch", check: "copy" };
+      return { ok: true, copyOk };
+    }
     function mapPos(p, s, e, ins) {
       if (p <= s) return p;
       if (p >= e) return p + ins - (e - s);
@@ -1061,13 +1099,15 @@
       return null;
     }
 
-    function locate(at, T, find, hint, why) {
+    // memo: one rects click per edit, however many times it is located.
+    function locate(at, T, find, hint, why, memo = {}) {
       const { N, map, needle, stripped, hits } = matchText(T, find, { sentence: true });
       if (!hits.length) { why.reason = "not-found"; return null; }
       let caret = null;
       if (hits.length > 1 && hint.rects.length && pickWhy(hits, hint) !== "stale") {
         const r = hint.rects[0];
-        caret = caretAtPoint(at, r.left + 1, r.top + (r.height || 10) / 2);
+        if (!("caret" in memo)) memo.caret = caretAtPoint(at, r.left + 1, r.top + (r.height || 10) / 2);
+        caret = memo.caret;
       }
       const pick = pickHit(hits, map, needle.length, hint, caret);
       if (!pick) { why.reason = pickWhy(hits, hint); why.matches = hits.length; return null; }
@@ -1127,58 +1167,52 @@
 
       const ed = editorEl();
       const scroll = ed ? ed.scrollTop : null;
-      const T1 = at.getText();
       const saved = readSel(at);
-      const why = {};
-      const loc = locate(at, T1, find, hint, why);
-      if (!loc) {
-        restoreUser(at, saved, null, scroll); // a rects click may have moved the caret
-        return { ok: false, reason: why.reason, matches: why.matches, mode };
+      const memo = {};
+      let done = null; // what the attempt that passed its checks planned
+      const r = await settled(() => {
+        const T1 = at.getText();
+        const why = {};
+        const loc = locate(at, T1, find, hint, why, memo);
+        if (!loc) return { ok: false, reason: why.reason, matches: why.matches, mode };
+        let rep = replacement;
+        if (kind === "insertAfter") {
+          // Appending after the sentence == replacing it with sentence + text.
+          rep = T1.slice(loc.rawS, loc.rawE) + text.replace(/\s+$/, "");
+        } else if (loc.stripped && rep.startsWith(loc.stripped.trim())) {
+          rep = rep.slice(loc.stripped.trim().length).trim();
+        }
+        const plan = planEdit(T1, loc, rep);
+        if (plan.noop) return { ok: true, noop: true, mode };
+        // Rich paste (a linked citation): op.html describes op.text, and the
+        // paste is "<last token(s) of the sentence>" + text, so the widened head
+        // goes in front of it as escaped plain text.
+        let pasteHtml = null;
+        if (kind === "insertAfter" && html) {
+          const tail = text.replace(/\s+$/, "");
+          if (plan.insert.endsWith(tail)) pasteHtml = escHtml(plan.insert.slice(0, plan.insert.length - tail.length)) + html;
+        }
+
+        // ── one synchronous block: select → verify → edit ──
+        try { at.setSelection(plan.s, plan.e); } catch { /* checkSel sees it */ }
+        const c = checkSel(at, T1, loc, plan);
+        if (!c.ok) return { ok: false, reason: c.reason, check: c.check, mode, retry: c.check !== "plan" };
+        done = { T1, loc, plan, copyOk: c.copyOk };
+        if (!dry) {
+          if (plan.insert) paste(plan.insert, pasteHtml);
+          else backspace(); // (unreachable for replace/insertAfter: planDiff never empties the new side)
+        }
+        return { ok: true };
+        // ── end of synchronous block ──
+      });
+      if (!done) {
+        restoreUser(at, saved, null, scroll); // a rects click or a refused selection moved the caret
+        return r.noop ? { ...r, ms: Math.round(now() - t0) } : r;
       }
-      const { N: docN, m, needle, stripped } = loc;
+      const { T1, loc, plan, copyOk } = done;
+      const { N: docN, m, needle } = loc;
       const oldLen = needle.length;
-
-      if (kind === "insertAfter") {
-        // Appending after the sentence == replacing it with sentence + text.
-        replacement = T1.slice(loc.rawS, loc.rawE) + text.replace(/\s+$/, "");
-      } else if (stripped && replacement.startsWith(stripped.trim())) {
-        replacement = replacement.slice(stripped.trim().length).trim();
-      }
-      const plan = planEdit(T1, loc, replacement);
-      if (plan.noop) {
-        restoreUser(at, saved, null, scroll);
-        return { ok: true, noop: true, mode, ms: Math.round(now() - t0) };
-      }
       const { oldN, newN, oa, ob, na, nb, s, e, insert, removedRaw } = plan;
-      // Rich paste (a linked citation): op.html describes op.text, and the
-      // paste is "<last token(s) of the sentence>" + text, so the widened head
-      // goes in front of it as escaped plain text.
-      let pasteHtml = null;
-      if (kind === "insertAfter" && html) {
-        const tail = text.replace(/\s+$/, "");
-        if (insert.endsWith(tail)) pasteHtml = escHtml(insert.slice(0, insert.length - tail.length)) + html;
-      }
-
-      // ── one synchronous block: select → verify → edit ──
-      try {
-        at.setSelection(s, e);
-      } catch {
-        restoreUser(at, saved, null, scroll);
-        return { ok: false, reason: "selection-failed", mode };
-      }
-      if (!selIs(at, s, e)) {
-        restoreUser(at, saved, null, scroll);
-        return { ok: false, reason: "selection-failed", mode };
-      }
-      const Tnow = at.getText();
-      const sentOk = Tnow === T1 && nrm(Tnow.slice(loc.rawS, loc.rawE)).trim() === needle;
-      const midOk = nrm(Tnow.slice(s, e)).trim() === oldN.slice(oa, ob).trim();
-      const copied = e > s ? copyReadback() : null;
-      const copyOk = copied == null ? null : nrm(copied).trim() === oldN.slice(oa, ob).trim();
-      if (!sentOk || !midOk || copyOk === false) {
-        restoreUser(at, saved, null, scroll);
-        return { ok: false, reason: "selection-mismatch", mode };
-      }
       const planned = {
         target: { start: loc.rawS, end: loc.rawE, via: loc.via, matches: loc.matches },
         edit: { start: s, end: e, remove: removedRaw, insert, copyVerified: copyOk === true },
@@ -1187,9 +1221,6 @@
         restoreUser(at, saved, null, scroll);
         return { ok: true, dryRun: true, mode, ...planned, ms: Math.round(now() - t0) };
       }
-      if (insert) paste(insert, pasteHtml);
-      else backspace(); // (unreachable for replace/insertAfter: planDiff never empties the new side)
-      // ── end of synchronous block ──
 
       const expectN = docN.slice(Math.max(0, m - CTX), m) + newN + docN.slice(m + oldLen, m + oldLen + CTX);
       let T2 = T1;
@@ -1217,6 +1248,67 @@
     }
 
     /* ── no-API fallback: select by the bar rects, verify by copy read-back ─ */
+
+    // The sentence and nothing more: no space at either end either, since a
+    // paste would take it out (Docs drops a paste's edge spaces). A line
+    // break at a copy's edge is not counted as one: whether Docs adds one to
+    // a copy was never measured, and the check before this ignored it.
+    const SPACE_AT_END = /^[ \t ]|[ \t ]$/;
+    const bare = (got) => String(got).replace(/^[\r\n]+|[\r\n]+$/g, "");
+    const exactly = (got, needle) => got != null && !SPACE_AT_END.test(bare(got)) && nrm(got).trim() === needle;
+    // One character with the arrow keys; shift moves only the selection's
+    // moving end (where the last shift-click put it).
+    const arrow = (dir, shift = false) => (dir > 0
+      ? press("ArrowRight", "ArrowRight", 39, { shift })
+      : press("ArrowLeft", "ArrowLeft", 37, { shift }));
+    // How many characters the copy starts before the sentence (+), or after
+    // its start (−); null when the copy can't say.
+    function startOffset(got, needle) {
+      const { n: g, map } = normMap(got);
+      const lead = got.match(/^[ \t ]*/)[0].length;
+      const head = needle.slice(0, 12);
+      if (g.startsWith(head) || (g && head.startsWith(g))) return lead;
+      const i = g.indexOf(head);
+      if (i > 0) return map[i]; // the raw characters before the sentence, spaces included
+      const j = g ? needle.indexOf(g.slice(0, 12)) : -1;
+      return j > 0 ? -j : null;
+    }
+    // Which way the selection's end should move: +1 a character on, −1 back, 0 stop.
+    function endStep(got, needle) {
+      if (/[ \t ]$/.test(bare(got))) return -1;
+      const g = nrm(got).trim();
+      if (g.length < needle.length && needle.startsWith(g)) return 1;
+      if (g.length > needle.length && g.startsWith(needle)) return -1;
+      return 0;
+    }
+    /* The rects are where content.js drew the underline, measured from the
+       font, so a click can land a character off — on the narrow full stop at
+       the end, or on the space before the first word. Docs' own copy says
+       what was selected, so the ends are moved a character at a time with
+       the keys a person would use, and read again: the start with the caret
+       (ArrowLeft collapses to it) and the same end shift-click, then the end
+       with Shift+Arrow. At most NUDGE_MAX characters a side; nothing is
+       pasted unless the last copy is exactly the sentence. Returns that copy,
+       and how far the start moved so the read-back can move it the same. */
+    function mendSelection(got, needle, p1) {
+      let lead = 0;
+      const k = startOffset(got, needle);
+      if (k && Math.abs(k) <= NUDGE_MAX) {
+        arrow(-1);
+        for (let i = 0; i < Math.abs(k); i++) arrow(k > 0 ? 1 : -1);
+        clickAt(p1.x, p1.y, { shift: true });
+        got = copyReadback();
+        lead = k;
+      }
+      for (let i = 0; i < NUDGE_MAX && got != null && !exactly(got, needle); i++) {
+        const dir = endStep(got, needle);
+        if (!dir) break;
+        arrow(dir, true);
+        got = copyReadback();
+      }
+      return { got, lead };
+    }
+
     // Replaces the WHOLE sentence (offsets are unknown without the API), and
     // refuses unless the copy read-back proves the selection exactly.
     async function mouseReplace(req, kind, replacement, t0) {
@@ -1230,10 +1322,12 @@
       if (!hitEditor(p0.x, p0.y) || !hitEditor(p1.x, p1.y)) return { ok: false, reason: "offscreen" };
       clickAt(p0.x, p0.y);
       clickAt(p1.x, p1.y, { shift: true });
-      const got = copyReadback();
       const collapse = () => press("ArrowLeft", "ArrowLeft", 37);
+      let got = copyReadback();
+      let lead = 0; // how far the start was moved by keyboard: + right, − left
+      if (got != null && !exactly(got, needle)) ({ got, lead } = mendSelection(got, needle, p1));
       if (got == null) { collapse(); return { ok: false, reason: "selection-unverifiable", path: "mouse" }; }
-      if (nrm(got).trim() !== needle) { collapse(); return { ok: false, reason: "selection-mismatch", path: "mouse" }; }
+      if (!exactly(got, needle)) { collapse(); return { ok: false, reason: "selection-mismatch", check: "copy", path: "mouse" }; }
       if (req.dry) {
         collapse();
         return { ok: true, dryRun: true, path: "mouse", ms: Math.round(now() - t0) };
@@ -1242,10 +1336,12 @@
       paste(text, kind === "insertAfter" && req.html ? escHtml(got.replace(/\s+$/, "")) + req.html : null);
       await sleep(120);
       // Read back: shift+click at the (unmoved) start extends from the caret
-      // at the end of the pasted text back over it.
+      // at the end of the pasted text back over it — and the start moves by
+      // the keys that moved it before the paste.
       let back = null;
       for (let i = 0; i < 8 && back == null; i++) {
         clickAt(p0.x, p0.y, { shift: true });
+        for (let k = 0; k < Math.abs(lead); k++) arrow(lead > 0 ? 1 : -1, true);
         const b = copyReadback();
         if (b != null && nrm(b).trim() === nrm(text).trim()) back = b;
         else await sleep(120);
@@ -1441,18 +1537,26 @@
       const ed = editorEl();
       const scroll = ed ? ed.scrollTop : null;
       const saved = readSel(at);
-      const T1 = at.getText();
-      const plan = planInsertBefore(T1, before, line);
-      if (plan.why) return { ok: false, reason: plan.why, mode };
-      const { c, text } = plan;
-      at.setSelection(c, c);
-      if (!selIs(at, c, c)) { restoreUser(at, saved, null, scroll); return { ok: false, reason: "selection-failed", mode }; }
+      let done = null, touched = false;
+      const r = await settled(() => {
+        const T1 = at.getText();
+        const plan = planInsertBefore(T1, before, line);
+        if (plan.why) return { ok: false, reason: plan.why, mode };
+        // ── one synchronous block: caret → verify → edit ──
+        touched = true;
+        try { at.setSelection(plan.c, plan.c); } catch { /* selIs sees it */ }
+        if (!selIs(at, plan.c, plan.c) || at.getText() !== T1) return { ok: false, reason: "selection-failed", check: "selection", mode, retry: true };
+        done = { T1, ...plan };
+        if (!dry) paste(plan.text, null);
+        return { ok: true };
+      });
+      if (!done) { if (touched) restoreUser(at, saved, null, scroll); return r; }
+      const { T1, c, text } = done;
       const planned = { edit: { start: c, end: c, insert: text } };
       if (dry) {
         restoreUser(at, saved, null, scroll);
         return { ok: true, dryRun: true, mode, ...planned, ms: Math.round(now() - t0) };
       }
-      paste(text, null);
       const T2 = (await waitText(at, (x) => x !== T1 && linedAbove(x, line, before), APPLY_WAIT_MS)) ?? at.getText();
       const changed = T2 !== T1;
       const ok = changed && linedAbove(T2, line, before);
@@ -1490,24 +1594,32 @@
       const ed = editorEl();
       const scroll = ed ? ed.scrollTop : null;
       const saved = readSel(at);
-      const T1 = at.getText();
-      const plan = planAppend(T1, line);
-      // endShape: the last characters as their KIND only — control codes by
-      // number, everything else a dot — so a refusal says what Docs' text
-      // actually ends with on this document without carrying any of its words.
-      if (!plan) return { ok: false, reason: "doc-end-unknown", mode, endShape: endShapeOf(T1) };
-      const { c, text, newParagraph } = plan;
-      // A rich paste only where no paragraph break has to be made in the same
-      // paste (verified path: plain text); the line's text is checked either way.
-      const pasteHtml = html && !newParagraph ? html : null;
-      at.setSelection(c, c);
-      if (!selIs(at, c, c)) { restoreUser(at, saved, null, scroll); return { ok: false, reason: "selection-failed", mode }; }
+      let done = null, touched = false;
+      const r = await settled(() => {
+        const T1 = at.getText();
+        const plan = planAppend(T1, line);
+        // endShape: the last characters as their KIND only — control codes by
+        // number, everything else a dot — so a refusal says what Docs' text
+        // actually ends with on this document without carrying any of its words.
+        if (!plan) return { ok: false, reason: "doc-end-unknown", mode, endShape: endShapeOf(T1) };
+        // A rich paste only where no paragraph break has to be made in the same
+        // paste (verified path: plain text); the line's text is checked either way.
+        const pasteHtml = html && !plan.newParagraph ? html : null;
+        // ── one synchronous block: caret → verify → edit ──
+        touched = true;
+        try { at.setSelection(plan.c, plan.c); } catch { /* selIs sees it */ }
+        if (!selIs(at, plan.c, plan.c) || at.getText() !== T1) return { ok: false, reason: "selection-failed", check: "selection", mode, retry: true };
+        done = { T1, pasteHtml, ...plan };
+        if (!dry) paste(plan.text, pasteHtml);
+        return { ok: true };
+      });
+      if (!done) { if (touched) restoreUser(at, saved, null, scroll); return r; }
+      const { T1, c, text, newParagraph, pasteHtml } = done;
       const planned = { edit: { start: c, end: c, insert: text, newParagraph, html: !!pasteHtml } };
       if (dry) {
         restoreUser(at, saved, null, scroll);
         return { ok: true, dryRun: true, mode, ...planned, ms: Math.round(now() - t0) };
       }
-      paste(text, pasteHtml);
       const expected = T1.slice(0, c) + text + T1.slice(c);
       const K = nrm(line).length + CTX;
       const wantTail = nrm(expected).slice(-K);

@@ -63,24 +63,34 @@ class FakeKeyboardEvent {
 }
 
 class FakeDocs {
-  constructor(body, { locked = false, mode = "Editing mode", ignoreSetSelection = false } = {}) {
+  // lateSelectionMs: a selection lands that long after it is asked for (a
+  // sentence Docs hasn't laid out yet). lateCopyMs: the copy reads the
+  // selection as it was that long ago. copyText: the copy says this, always.
+  constructor(body, { locked = false, mode = "Editing mode", ignoreSetSelection = false, lateSelectionMs = 0, lateCopyMs = 0, copyText = null } = {}) {
     this.T = "\u0003" + body + "\n\u0003\n";
     this.sel = [{ start: 1, end: 1 }];
     this.locked = locked;
     this.modeLabel = mode;
     this.ignoreSetSelection = ignoreSetSelection;
+    this.lateCopyMs = lateCopyMs;
+    this.copyText = copyText;
+    this.copySel = this.sel;
     this.undoStack = [];
     this.redoStack = [];
     this.fmt = []; // text-neutral steps (bold, a heading style): undoable, invisible to getText
     this.pastes = [];
     this.requesters = [];
+    this.setCalls = 0;
     const self = this;
     this.at = {
       getText: () => self.T,
       getSelection: () => self.sel.map((r) => ({ start: r.start, end: r.end })),
       setSelection(s, e) {
+        self.setCalls++;
         if (self.ignoreSetSelection) return;
-        if (Number.isInteger(s) && Number.isInteger(e) && s >= 0 && e >= s && e <= self.T.length) self.sel = [{ start: s, end: e }];
+        if (!(Number.isInteger(s) && Number.isInteger(e) && s >= 0 && e >= s && e <= self.T.length)) return;
+        if (lateSelectionMs) setTimeout(() => self.select([{ start: s, end: e }]), lateSelectionMs);
+        else self.select([{ start: s, end: e }]);
       },
     };
     const W = { DataTransfer: FakeDT, ClipboardEvent: FakeClipboardEvent, KeyboardEvent: FakeKeyboardEvent };
@@ -96,18 +106,40 @@ class FakeDocs {
     const { start, end } = this.sel[0];
     if (ev.shiftKey) {
       const a = this.caretEnd ? end : start;
-      this.sel = [{ start: Math.min(a, off), end: Math.max(a, off) }];
+      this.select([{ start: Math.min(a, off), end: Math.max(a, off) }]);
       this.caretEnd = off < a;
     } else {
-      this.sel = [{ start: off, end: off }];
+      this.select([{ start: off, end: off }]);
       this.caretEnd = false;
     }
     return true;
   }
+  select(sel) {
+    if (this.sel[0].start === sel[0].start && this.sel[0].end === sel[0].end) return; // asked again for the same: nothing moves
+    this.sel = sel;
+    if (this.lateCopyMs) setTimeout(() => { if (this.sel === sel) this.copySel = sel; }, this.lateCopyMs);
+  }
+  // An arrow key as kix takes it: alone, it collapses a selection to that
+  // side or moves the caret one character; with Shift it moves only the
+  // selection's moving end, the last shift-click's, and the other stays.
+  arrow(dir, shift) {
+    const { start, end } = this.sel[0];
+    const clamp = (p) => Math.max(1, Math.min(this.T.length - 2, p));
+    if (!shift) {
+      const p = start !== end ? (dir < 0 ? start : end) : clamp(start + dir);
+      this.select([{ start: p, end: p }]);
+      this.caretEnd = false;
+      return;
+    }
+    const anchor = this.caretEnd ? end : start;
+    const focus = clamp((this.caretEnd ? start : end) + dir);
+    this.select([{ start: Math.min(anchor, focus), end: Math.max(anchor, focus) }]);
+    this.caretEnd = focus < anchor;
+  }
   onEvent(ev) {
     if (ev.type === "copy") {
-      const { start, end } = this.sel[0];
-      ev.clipboardData.setData("text/plain", this.T.slice(start, end));
+      const { start, end } = (this.lateCopyMs ? this.copySel : this.sel)[0];
+      ev.clipboardData.setData("text/plain", (this.copyText ?? this.T.slice(start, end)) + (this.copySuffix ?? ""));
       ev.preventDefault();
       return false;
     }
@@ -119,10 +151,7 @@ class FakeDocs {
     } else if (ev.type === "keydown") {
       const mod = ev.metaKey || ev.ctrlKey;
       if (ev.key === "Backspace") this.apply("");
-      else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
-        const p = ev.key === "ArrowLeft" ? this.sel[0].start : this.sel[0].end;
-        this.sel = [{ start: p, end: p }];
-      }
+      else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") this.arrow(ev.key === "ArrowLeft" ? -1 : 1, !!ev.shiftKey);
       else if (mod && ev.key === "z" && !ev.shiftKey) this.undo();
       else if (mod && ((ev.key === "z" && ev.shiftKey) || ev.key === "y")) this.redo();
     }
@@ -754,6 +783,89 @@ test("engine: edits run one at a time, in order", async () => {
   assert.equal(docs.body(), "One two three four. Four five six seven.");
 });
 
+/* Owner, 2026-10-15: "Couldn't apply (Tracely couldn't select that sentence
+ * safely, so nothing was changed)" — "says this sometimes". Docs can put a
+ * selection in place, or copy it, a moment after it is asked; the hook gave
+ * up at once. */
+test("engine: a selection Docs puts in place, or copies, a moment late is waited for — then the edit lands once", async () => {
+  for (const opts of [{ lateSelectionMs: 80 }, { lateCopyMs: 80 }, { lateSelectionMs: 60, lateCopyMs: 60 }]) {
+    const docs = new FakeDocs(DOC, opts);
+    const h = loadHook({ docs });
+    const r = await h.call("replace", { find: "The film stars Tom Cruise.", replacement: "The film stars Tom Cruise and Miles Teller." });
+    assert.equal(r.ok, true, `${JSON.stringify(opts)}: ${JSON.stringify(r)}`);
+    assert.equal(r.verified, "exact");
+    assert.equal(docs.pastes.length, 1, "pasted once, after every check passed");
+    assert.ok(docs.body().startsWith("The film stars Tom Cruise and Miles Teller. Maverick"), docs.body());
+  }
+  // A Works Cited line placed in order, and one appended, wait the same way.
+  const lines = new FakeDocs("Peace (Brown).\nWorks Cited\nAdams.\nGhosh.", { lateSelectionMs: 80 });
+  const hl = loadHook({ docs: lines });
+  const a = await hl.call("insertLineBefore", { line: "Brown.", before: "Ghosh." });
+  const b = await hl.call("appendLine", { line: "Zhou." });
+  assert.equal(a.ok && b.ok, true, JSON.stringify([a, b]));
+  assert.equal(lines.body(), "Peace (Brown).\nWorks Cited\nAdams.\nBrown.\nGhosh.\nZhou.");
+});
+
+test("engine: text that moves while Docs settles the selection is read again — the edit goes where the sentence is now", async () => {
+  const docs = new FakeDocs("Intro. The film stars Tom Cruise. The end.", { lateSelectionMs: 80 });
+  const h = loadHook({ docs });
+  // A collaborator types at the top 40 ms in: every offset after it moves by 5.
+  setTimeout(() => { docs.T = docs.T.slice(0, 1) + "Hey! " + docs.T.slice(1); }, 40);
+  const r = await h.call("replace", { find: "The film stars Tom Cruise.", replacement: "The film stars Tom Cruise [1]." });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(docs.body(), "Hey! Intro. The film stars Tom Cruise [1]. The end.");
+  assert.equal(docs.pastes.length, 1);
+});
+
+test("engine: a selection that never lands, or a copy that reads other words, is still refused after the wait — nothing pasted", async () => {
+  const S = "The film stars Tom Cruise.";
+  const stuck = new FakeDocs(S, { ignoreSetSelection: true });
+  const t0 = Date.now();
+  const a = await loadHook({ docs: stuck }).call("replace", { find: S, replacement: "The film stars Tom Cruise [1]." });
+  assert.deepEqual([a.ok, a.reason, a.check], [false, "selection-failed", "selection"]);
+  assert.ok(stuck.setCalls > 1, "asked again while it waited");
+  assert.ok(Date.now() - t0 < 3000, "and gave up within the wait");
+  const other = new FakeDocs(S, { copyText: "The film stars" });
+  const b = await loadHook({ docs: other }).call("replace", { find: S, replacement: "The film stars Tom Cruise [1]." });
+  assert.deepEqual([b.ok, b.reason, b.check], [false, "selection-mismatch", "copy"]);
+  assert.equal(stuck.pastes.length + other.pastes.length, 0);
+  assert.deepEqual(other.sel, [{ start: 1, end: 1 }], "the writer's caret is back where it was");
+  assert.equal(other.body(), S);
+});
+
+test("engine (no text API): a click a character off is moved onto the sentence with the keys — spaces kept, and the read-back follows", async () => {
+  const S = "The film stars Tom Cruise.";
+  const R = "The film stars Tom Cruise and Miles Teller.";
+  const body = `It begins. ${S} The end is near.`;
+  const s = 1 + "It begins. ".length; // S's model offset: in the fake, x IS the offset
+  // p0 = left + 0.5 and p1 = left + width − 0.5 are where the hook clicks.
+  for (const [what, left, width, suffix = ""] of [
+    ["exact", s - 0.5, S.length + 1],
+    ["the end a character short (the full stop missed)", s - 0.5, S.length],
+    ["the end on the space after", s - 0.5, S.length + 2],
+    ["the start on the space before", s - 1.5, S.length + 2],
+    ["the start a character late", s + 0.5, S.length],
+    ["the start on the space before, the end short", s - 1.5, S.length + 1],
+    ["the end on the space after, and a copy that ends in a line break", s - 0.5, S.length + 2, "\n"],
+  ]) {
+    const docs = new FakeDocs(body);
+    docs.mouse = true;
+    docs.copySuffix = suffix;
+    const h = loadHook({ docs, pre: (ctx) => { delete ctx._docs_annotate_getAnnotatedText; } });
+    const r = await h.call("replace", { find: S, replacement: R, hint: { rects: [{ left, top: 100, width, height: 12 }] } });
+    assert.deepEqual([r.ok, r.verified], [true, "copy-readback"], `${what}: ${JSON.stringify(r)}`);
+    assert.equal(docs.body(), `It begins. ${R} The end is near.`, what);
+  }
+  // Further off than a few characters: refused, and the doc is as it was.
+  const far = new FakeDocs(body);
+  far.mouse = true;
+  const hf = loadHook({ docs: far, pre: (ctx) => { delete ctx._docs_annotate_getAnnotatedText; } });
+  const r = await hf.call("replace", { find: S, replacement: R, hint: { rects: [{ left: s - 0.5, top: 100, width: S.length - 9, height: 12 }] } });
+  assert.deepEqual([r.ok, r.reason], [false, "selection-mismatch"]);
+  assert.equal(far.pastes.length, 0);
+  assert.equal(far.body(), body);
+});
+
 /* ── content.js wiring ────────────────────────────────────────────────── */
 
 function contentSlice(from, to) {
@@ -839,6 +951,7 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
       setBridge: (v) => { bridgeReady = v; },
       setDoc: (text, segs) => { docText = text; segments = segs; },
       setBars: (b) => { docsBars = b; },
+      setPreview: (fn) => { previewDocEdit = fn; },
       cache, sourcesMap, flowDismissed, editedHashes, docEditState, citedMap,
       state: () => ({ inDoc, lastDocEdit, statusMsg, statusKind, docBusy, flowSig, renders, marks, lastCheckEnd }),
     })`;
@@ -1118,6 +1231,29 @@ test("content.js: an edit the hook could only verify blind lands without an Undo
   assert.equal(await w.docFix(h), true);
   assert.equal(w.state().lastDocEdit, null, "a later Cmd+Z could hit the user's own typing");
   assert.ok(!/Undo/.test(w.editBtnHtml(`fix:${h}`, "Fix in doc", "")));
+});
+
+test("content.js: where the sentence is on screen is measured when the edit is sent, not before the preview", async () => {
+  // The Type preview waits for Accept, and the page can scroll under it. The
+  // no-API path clicks where the hint says; a hint from before the scroll
+  // clicked other words, and the hook refused the selection.
+  const S = "Einstein was a basketball player.";
+  const { w, ops } = loadWiring({ respond: (m) => (m.op === "ping" ? { ok: true, api: false, editor: true, editable: true } : m.op === "replace" ? { ok: true, undoToken: "m1", rollbackOnly: true, path: "mouse" } : undefined), body: S });
+  await w.probeInDoc();
+  const h = w.hashText(S);
+  w.setDoc(S, [{ ...seg(S), hash: h }]);
+  w.cache.set(h, { verdict: "false", revision: "Einstein was a physicist." });
+  let top = 100;
+  w.setBars([{ hash: h, el: { isConnected: true }, node: { getBoundingClientRect: () => ({ left: 50, top, width: 300, height: 14 }) }, f0: 0, f1: 1 }]);
+  let accept;
+  w.setPreview(() => new Promise((r) => { accept = r; }));
+  const done = w.docFix(h);
+  top = 400; // scrolled while the preview showed
+  accept(true);
+  assert.equal(await done, true);
+  const rep = ops().find((o) => o.op === "replace");
+  assert.deepEqual(plain(rep.hint.rects), [{ left: 50, top: 400, width: 300, height: 14 }]);
+  assert.equal(rep.freshHint, undefined, "only data crosses to the hook");
 });
 
 // docCite asks the hook to PLAN the Sources line (appendLine, dryRun) before

@@ -571,6 +571,32 @@ was timed, with that step's frame callbacks and the layout it left behind:
 Not measured in real Docs. Tests: `server/test/ext-fix-all.test.js`,
 `server/test/ext-type-preview.test.js`.
 
+## When Docs is slow to select
+
+Owner, 2026-10-15: "Couldn't apply (Tracely couldn't select that sentence
+safely, so nothing was changed)", "says this sometimes". It was not
+reproduced in real Docs, so the three likely causes were fixed in
+docs-hook.js and content.js:
+- **Docs settles a selection late.** Selecting a sentence Docs hasn't laid
+  out yet (far off screen, from the panel), or copying it, can lag. A
+  refusal now runs the read → select → check block again every 25 ms, for
+  up to 600 ms (`settled`, `SELECT_SETTLE_MS`). Each block is still
+  synchronous, and only one whose checks all pass pastes. Text that changed
+  in the meantime is read again.
+- **Without the text API, a click lands a character off.** The clicks come
+  from the underline's measured edges, and the full stop at the end is
+  about 2px wide. Docs' copy of the selection now guides the keys: the
+  start moves with the caret, the end with Shift+Arrow, up to 6 characters
+  (`mendSelection`). The selection must be the sentence with no space at
+  either end, so a paste no longer swallows the space beside it.
+- **The hint was measured before the Type preview.** The preview waits for
+  Accept, and the page can scroll in the meantime. A step's `freshHint`
+  measures the underline again when the step is sent.
+
+A refusal names the check that failed (`check`: selection, text, copy or
+plan) in the console line `[tracely] edit …`. Tests:
+`server/test/ext-docs-edit.test.js`.
+
 ## Kinds of writing, and how each is cited
 
 Since 2.21.35 (owner, 2026-10-09: "make it extremely good at type of

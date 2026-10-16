@@ -9023,12 +9023,17 @@
       };
       try {
         for (const step of job.steps) {
-          const { hint, ...payload } = step;
-          const r = await docApply(payload, hint, path);
+          // freshHint: where the sentence is on screen NOW. The preview before
+          // this can take seconds, and the page may have scrolled under it.
+          const { hint, freshHint, ...payload } = step;
+          let fresh = null;
+          try { fresh = freshHint?.() ?? null; } catch { fresh = null; }
+          // Rects that can't be measured now (the underline is being redrawn) stay as they were.
+          const r = await docApply(payload, fresh ? (fresh.rects || !hint?.rects ? fresh : { ...fresh, rects: hint.rects }) : hint, path);
           // One line per step, so "it didn't work" can be read off the console
           // rather than guessed at. No document text: the action, the path
           // and the hook's answer only.
-          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
+          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"}${r.check ? `: ${r.check}` : ""})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
@@ -9138,7 +9143,7 @@
       // verdict and its underline (hiding the hash would hide every copy).
       const repeated = hint.occurrences > 1;
       return runDocEdit(key ?? `${revision ? "deepfix" : "fix"}:${hash}`, {
-        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, rev), hint }],
+        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, rev), hint, freshHint: () => segHint(seg, anchor) }],
         copy: rev,
         doneMsg: "fixed in doc",
         notes: repeated && !anchor ? { ambiguous: REPEATED_NOTE } : null,
@@ -9483,14 +9488,15 @@
       const pasteEntry = entryLine && !canAppend ? (list ? entryLine : `${heading}\n${entryLine}`) : null;
       // The marker first: it is the step most likely to be refused (the
       // sentence changed), and refusing before anything landed needs no rollback.
+      const freshHint = () => segHint(seg, anchor);
       if (swapped) {
         replacement = swapped;
-        steps.push({ action: "replace", find: seg.text, replacement, hint });
+        steps.push({ action: "replace", find: seg.text, replacement, hint, freshHint });
       } else if (!seg.text.includes(marker)) {
         const punct = seg.text.match(/[.!?]+["'’”)\]]*$/);
         const at = punct ? seg.text.length - punct[0].length : seg.text.length;
         replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` ${marker}` + seg.text.slice(at);
-        steps.push({ action: "replace", find: seg.text, replacement, hint });
+        steps.push({ action: "replace", find: seg.text, replacement, hint, freshHint });
       }
       if (entryLine && canAppend) {
         if (over) steps.push({ action: "replace", find: over, replacement: entryLine, hint: overHint });
