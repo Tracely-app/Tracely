@@ -20,7 +20,7 @@ function load() {
   return vm.runInContext(`const CHECK_INTERVAL_MS = 10000;
     function hashText(s) { return s.toLowerCase().replace(/\\s+/g, " ").trim(); }
     ${SRC.slice(a, b)}
-    ({ smallEdit, inheritedVerdict, segmentText, hashText })`, vm.createContext({}));
+    ({ smallEdit, inheritedVerdict, inheritVerdictsInto, segmentText, hashText })`, vm.createContext({}));
 }
 const X = load();
 
@@ -76,13 +76,30 @@ test("inheritedVerdict: only from a checked sentence that is gone, and each one 
   assert.equal(X.inheritedVerdict(seg, prev, new Set(["new1"]), new Map(), new Set()), null, "never checked: nothing to inherit");
 });
 
+test("a sentence a typo fix changed takes its old verdict and its dismissal, once; a checked or uncheckable one keeps its own", () => {
+  const S = (text, hash, checkable = true) => ({ text, hash, checkable });
+  const before = [S("The Great Wall is visibel from space.", "old1"), S("Napoleon was short.", "old2")];
+  const segments = [S("The Great Wall is visible from space.", "new1"), S("Napoleon was short.", "old2"), S("Hi", "new3", false)];
+  const cache = new Map([["old1", { verdict: "false" }], ["old2", { verdict: "false" }]]);
+  const dismissed = new Set(["old1"]);
+  let saves = 0;
+  assert.equal(X.inheritVerdictsInto(segments, before, cache, dismissed, () => saves++), 1);
+  assert.equal(cache.get("new1"), cache.get("old1"), "the same verdict object");
+  assert.ok(dismissed.has("new1"), "dismissed stays dismissed");
+  assert.equal(saves, 1, "and saved");
+  assert.equal(X.inheritVerdictsInto(segments, before, cache, dismissed, () => saves++), 0, "already inherited: nothing more");
+  assert.equal(saves, 1);
+});
+
 test("wired into both modes: before the check, with the dismissal carried and a console count", () => {
   assert.equal((SRC.match(/const before = segments;\n\s+segments = segmentText\((?:docText|fieldText)\);/g) || []).length, 2);
   // (sourceAttr, 2026-10-14: what each sentence's source note says, read beside citedLater.)
   assert.match(SRC, /settleEditStates\(readAt\);\n\s+if \(inheritVerdicts\(before\)\) persistCaches\(\);\n\s+citedLater = coveredByLaterCitation\(\w+, segments\);\n\s+sourceAttr = [^\n]+\n\s+const todo = uncheckedSegments\(\)/, "Docs: after the edit bookkeeping, before choosing what to send");
   assert.match(SRC, /segments = segmentText\(fieldText\);\n\s+if \(inheritVerdicts\(before\)\) persistFieldCache\(\);\n\s+citedLater = coveredByLaterCitation\(\w+, segments\);\n\s+sourceAttr = [^\n]+\n\s+const todo = uncheckedSegments\(\)/, "field mode: before choosing what to send");
   assert.equal((SRC.match(/function inheritVerdicts\(before\) \{/g) || []).length, 2);
-  assert.equal((SRC.match(/if \(dismissed\.has\(old\.hash\) && !dismissed\.has\(seg\.hash\)\) \{/g) || []).length, 2, "a dismissed flag stays dismissed after a typo fix");
+  // Since 2026-10-15 the carrying is written once (inheritVerdictsInto), and each mode saves its own dismissals.
+  assert.equal((SRC.match(/if \(dismissed\.has\(old\.hash\) && !dismissed\.has\(seg\.hash\)\) \{/g) || []).length, 1, "a dismissed flag stays dismissed after a typo fix");
+  assert.equal((SRC.match(/const n = inheritVerdictsInto\(segments, before, cache, dismissed, \(\) => lsSet\(DISMISS_KEY, JSON\.stringify\(\[\.\.\.dismissed\]\)\)\);/g) || []).length, 2, "in both modes");
   assert.equal((SRC.match(/sentencesChecked \+= todo\.length;/g) || []).length, 2);
   assert.equal((SRC.match(/\[tracely\] reused \$\{n\} verdict\(s\) after a small edit/g) || []).length, 2);
 });

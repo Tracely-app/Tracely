@@ -32,10 +32,10 @@
        359  Settings and plan gate
        698  Shared helpers: hashing, bibliography, citation formatting
       1106  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1382  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      3809  Widget chrome, API transport, design tokens
-      5206  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     11983  Field mode (textareas and contenteditables on any site)
+      1401  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      3844  Widget chrome, API transport, design tokens
+      5249  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     11999  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -1367,6 +1367,25 @@
       if (smallEdit(old.text, seg.text)) { taken.add(old.hash); return old; }
     }
     return null;
+  }
+  // Both modes, after a read: each unchecked sentence a small edit made takes
+  // its old verdict, and its dismissal (onDismissed saves those). How many.
+  function inheritVerdictsInto(segments, before, cache, dismissed, onDismissed) {
+    const live = new Set(segments.map((sg) => sg.hash));
+    const taken = new Set();
+    let n = 0;
+    for (const seg of segments) {
+      if (!seg.checkable || cache.has(seg.hash)) continue;
+      const old = inheritedVerdict(seg, before, live, cache, taken);
+      if (!old) continue;
+      cache.set(seg.hash, cache.get(old.hash));
+      if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
+        dismissed.add(seg.hash);
+        onDismissed();
+      }
+      n++;
+    }
+    return n;
   }
   /* Whether a resume's review stands in for the fact check. Cost idea 5,
      2026-10-04: on a resume the check's only visible output is "false" — a
@@ -3416,6 +3435,22 @@
   function replacedCitationOf(verdict, sentence) {
     return verdict === "wrong_source" ? lookupableCitation(sentence) : flaggedCitationOf(verdict, sentence);
   }
+  /* The two modes' cards ask the same of a sentence's citation, so the
+     answer is written once; each mode passes its own sentences, verdicts and
+     notes (docsMode and fieldMode, citedTargetFor and replaceFor). */
+  // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation.
+  function citedTargetIn(key, segments, cache, tipById) {
+    if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
+    const seg = segments.find((s) => s.hash === key);
+    const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
+    return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
+  }
+  // The citation a source cited for this sentence takes the place of, or null (added beside).
+  function citationReplacedIn(hash, segments, cache, citedFallback) {
+    if (citedFallback.has(hash)) return citedFallback.get(hash);
+    const seg = segments.find((s) => s.hash === hash);
+    return seg ? replacedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
+  }
   /* What is sent: the citation's (or entry's) words without what a lookup
      cannot use — a link, a DOI, an access note, a bare site name, a volume or
      page number. `thin` when fewer than two words are left beside a year:
@@ -3998,6 +4033,14 @@
     return [...quoteCitationTips(text, style), ...citationHygieneTips(text)].filter(notInDbq)
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
       .filter((t) => !dismissed.has(t.id));
+  }
+  // Every note an essay or paper's panel lists, in both modes (each keeps its own memo, allTips).
+  function tipsOf(text, genre, dismissed, review, style) {
+    return [
+      ...citationTips(text, style, dismissed, genre),
+      ...(FEATURES.refList ? referenceTips(text, dismissed, genre, style) : []),
+      ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(text, review.findings, dismissed) : []),
+    ];
   }
   // The citation notes and the reference list's, as one group: both are about citing.
   // Sources nobody could find are claims that need evidence: a group of their own, before the citations.
@@ -5509,20 +5552,7 @@
     // the verdict it had (smallEdit). The counts are for the console.
     let verdictsReused = 0, sentencesChecked = 0;
     function inheritVerdicts(before) {
-      const live = new Set(segments.map((sg) => sg.hash));
-      const taken = new Set();
-      let n = 0;
-      for (const seg of segments) {
-        if (!seg.checkable || cache.has(seg.hash)) continue;
-        const old = inheritedVerdict(seg, before, live, cache, taken);
-        if (!old) continue;
-        cache.set(seg.hash, cache.get(old.hash));
-        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
-          dismissed.add(seg.hash);
-          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
-        }
-        n++;
-      }
+      const n = inheritVerdictsInto(segments, before, cache, dismissed, () => lsSet(DISMISS_KEY, JSON.stringify([...dismissed])));
       if (n) {
         verdictsReused += n;
         console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
@@ -8612,13 +8642,8 @@
       if (!isArgumentGenre(docGenre)) return [];
       const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
-      const list = [
-        ...citationTips(docText, settings.citationStyle, dismissed, docGenre),
-        ...(FEATURES.refList ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : []),
-        ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : []),
-      ];
-      tipsMemo = { k, list };
-      return list;
+      tipsMemo = { k, list: tipsOf(docText, docGenre, dismissed, review, settings.citationStyle) };
+      return tipsMemo.list;
     }
     function tipById(id) { return tipMarkById.get(id) ?? allTips().find((t) => t.id === id) ?? null; }
     /* A note's own fix (Delete, the page box, Rewrite in doc): the state its
@@ -8640,19 +8665,10 @@
     }
     const canDeleteTip = (tip) => canEditDoc() && tipDeletes(tip) && Boolean(deleteEditFor(docText, tip.quote, tip.kind === "refdup"));
     const tipRewrite = (tip) => (tip?.quote && tip.suggestion && tip.kind !== "page" ? usableRevision(tip.quote, tip.suggestion) : "");
-    // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation.
-    function citedTargetFor(key) {
-      if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
-      const seg = segments.find((s) => s.hash === key);
-      const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
-      return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
-    }
+    // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation (shared with fieldMode).
+    function citedTargetFor(key) { return citedTargetIn(key, segments, cache, tipById); }
     // The citation a source cited for this sentence takes the place of, or null (added beside).
-    function replaceFor(hash) {
-      if (citedFallback.has(hash)) return citedFallback.get(hash);
-      const seg = segments.find((s) => s.hash === hash);
-      return seg ? replacedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
-    }
+    function replaceFor(hash) { return citationReplacedIn(hash, segments, cache, citedFallback); }
     function refreshCited(key) {
       render();
       if (popEl && popHash === key) paintPop();
@@ -12494,20 +12510,7 @@
     // the verdict it had (smallEdit). The counts are for the console.
     let verdictsReused = 0, sentencesChecked = 0;
     function inheritVerdicts(before) {
-      const live = new Set(segments.map((sg) => sg.hash));
-      const taken = new Set();
-      let n = 0;
-      for (const seg of segments) {
-        if (!seg.checkable || cache.has(seg.hash)) continue;
-        const old = inheritedVerdict(seg, before, live, cache, taken);
-        if (!old) continue;
-        cache.set(seg.hash, cache.get(old.hash));
-        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
-          dismissed.add(seg.hash);
-          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
-        }
-        n++;
-      }
+      const n = inheritVerdictsInto(segments, before, cache, dismissed, () => lsSet(DISMISS_KEY, JSON.stringify([...dismissed])));
       if (n) {
         verdictsReused += n;
         console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
@@ -12732,26 +12735,12 @@
       if (!isArgumentGenre(docGenre)) return [];
       const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
-      const list = [
-        ...citationTips(fieldText, settings.citationStyle, dismissed, docGenre),
-        ...(FEATURES.refList ? referenceTips(fieldText, dismissed, docGenre, settings.citationStyle) : []),
-        ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : []),
-      ];
-      tipsMemo = { k, list };
-      return list;
+      tipsMemo = { k, list: tipsOf(fieldText, docGenre, dismissed, review, settings.citationStyle) };
+      return tipsMemo.list;
     }
     function tipById(id) { return allTips().find((t) => t.id === id) ?? null; }
-    function citedTargetFor(key) {
-      if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
-      const seg = segments.find((s) => s.hash === key);
-      const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
-      return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
-    }
-    function replaceFor(hash) {
-      if (citedFallback.has(hash)) return citedFallback.get(hash);
-      const seg = segments.find((s) => s.hash === hash);
-      return seg ? replacedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
-    }
+    function citedTargetFor(key) { return citedTargetIn(key, segments, cache, tipById); }
+    function replaceFor(hash) { return citationReplacedIn(hash, segments, cache, citedFallback); }
     function startClaimSources(key, claimHash, claimText) {
       claimSearch.set(key, { hash: claimHash, text: claimText });
       if (!sourcesMap.get(claimHash)?.list?.length) fetchSources(claimHash);
