@@ -475,12 +475,60 @@ is made IN ITS PLACE: the cursor goes to it, strikes the words it takes out
 on their exact runs (`fixInlineGeo` → `svgRangeRects`, the Type preview's own
 locating) and types the new words into a chip right under the change with
 ✓ Accept and ✕ Reject (`fixMarkMake`, `fixMarkReveal`, `fillFixChip`,
-`placeFixMarks`: every frame, chips keep clear of each other and of struck
-words). Nothing reaches the Doc until Accept; Accept all sends the cursor
+`placeFixMarks`: chips keep clear of each other and of struck words).
+Nothing reaches the Doc until Accept; Accept all sends the cursor
 round again to click each ✓ (`fixClickAccept`). A change the page can't show
 in place — the Works Cited list, a sentence Docs isn't drawing whole — keeps
 its card in the margin. A test page opts in with `harness.canEdit` (its edits
 go nowhere: "Docs' editor isn't ready").
+
+## While the page scrolls
+
+Since 2.21.55 (owner, 2026-10-15: "when you scroll up and down when tracely
+is typing suggestions, it is really laggy and the cursor and stuff clips out
+of frame"). The struck words, the chips, the margin cards, the Type preview
+and the cursor are all overlays over the text, and each of them used to
+follow it every frame. Each frame they read the page's geometry, then wrote
+their own, then read again, so Chrome laid the document out several times a
+frame while Docs was scrolling it. Their layers also covered the whole
+window, so a half-scrolled strike or chip painted over Docs' toolbar. Now
+(the "while the page scrolls" block in content.js):
+
+- **While the page moves, they step aside.** A scroll (`noteDocScroll`, heard
+  in the capture phase) fades every layer out in 90 ms and makes it inert.
+  Nothing is measured until `SCROLL_SETTLE_MS` (140 ms) after the last
+  scroll; then `docSettle` places each once, where its words now are, and
+  fades it back. Grammarly's cards do the same.
+- **Every layer is the document's box.** `clipLayer` / `docClip` give the
+  editor's scroll area with `overflow: hidden`. Inside it a position is the
+  client's less the box's corner, so nothing of Tracely's paints outside the
+  document. The Type preview's card is its own fixed box: in the text it is
+  clamped inside the document's box, and off screen it sits beside the
+  panel's card. Once the cursor is in the text, it is hidden while its words
+  are outside the box (`tcPin` / `tcFollow`).
+- **No frame loop once the animation is over.** Placing reads every rect and
+  every chip's size first, then writes only what changed (`setStyle`). The
+  chips and cards are placed when something changes (`scheduleFixPlace`)
+  and whenever the underlines are re-located (`followDocLayout`, from
+  `requestDocsMarks`). The Type preview runs a frame at a time only while it
+  glides, strikes and types; after that it runs every `FIX_PLACE_TICK_MS`.
+  Its canvas is redrawn only when its words moved or one more letter went
+  in. The tour's glide re-reads its target every frame (`fixGlide`), so a
+  scroll mid-glide lands on the words, not where they were.
+
+Measured on a Docs stand-in (an SVG annotation layer like Docs', a scrolling
+editor box under a toolbar, 12,000 laid-out nodes). Each of 150 scroll steps
+was timed, with that step's frame callbacks and the layout it left behind:
+- **Review all, three chips on the page:** 23.8 / 31.7 / 45.8 ms (p50 /
+  p95 / max) before, 4.4 / 6.2 / 10.6 ms after. Rect reads per step went
+  from 32.6 to 0.
+- **A Type preview open:** 12.5 / 19 / 29.4 ms before, 5.0 / 5.9 / 7.6 ms
+  after. Rect reads went from 33 to 0.
+- **The toolbar:** with a struck line half under it, a strike painted over
+  it before and nothing does after.
+
+Not measured in real Docs. Tests: `server/test/ext-fix-all.test.js`,
+`server/test/ext-type-preview.test.js`.
 
 ## Kinds of writing, and how each is cited
 
