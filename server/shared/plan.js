@@ -188,6 +188,7 @@ export function clampModel(requested, plan) {
  *                ("Explain in depth", extension 2.20.0)
  *   flow         /api/flow                                          luna low
  *   review       /api/review (resume bullets and format, extension 2.21.6) luna low
+ *   kind         /api/kind (the kind of writing, extension 2.21.58)  luna low
  *   sources      /api/sources                                       luna low
  *                (the vendor default — what every source search was measured at)
  *   findSources  /api/find-sources                                  luna low
@@ -201,7 +202,7 @@ export function clampModel(requested, plan) {
  * luna@medium on /api/check measured 100% (0 harmful verdicts) against 90% at
  * low; nothing else was measured at medium, so everything else is low (the
  * lib/llm.js default). astra was measured at low only. */
-export const ROUTES = ["check", "checkDeep", "flow", "review", "sources", "findSources", "verifySources", "detect", "structure", "tracer", "correction", "critique", "grade"];
+export const ROUTES = ["check", "checkDeep", "flow", "review", "kind", "sources", "findSources", "verifySources", "detect", "structure", "tracer", "correction", "critique", "grade"];
 
 /* astra grading was never measured. Flip only if the grade eval shows a gain. */
 export const GRADE_ON_THOROUGH = false;
@@ -343,6 +344,18 @@ export const REVIEW_MIN_INTERVAL_MS = 60_000;
 
 export function dailyReviewLimit(plan) {
   return DAILY_REVIEW[normalizePlan(plan)];
+}
+
+/* Kind-of-writing reads (/api/kind) per day, a usage kind of their own. One
+ * call reads at most 4,000 characters of a document and names its kind; the
+ * extension asks once per document and again only when it has changed a lot,
+ * and an answer the server already has (the same text) is free and not
+ * counted. The paid limits leave room for a measurement run (eval/kinds). */
+export const DAILY_KIND = { free: 60, student: 400, pro: 400 };
+export const KIND_MIN_INTERVAL_MS = 2_000;
+
+export function dailyKindLimit(plan) {
+  return DAILY_KIND[normalizePlan(plan)];
 }
 
 /**

@@ -223,6 +223,7 @@
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
     offTopic: false,      // a line that shares no word with the rest, and a correction left in (offTopicSentences, correctionResidue) — off: writing tips
     writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
+    modelKind: false,     // the model names the kind of writing (askKind, POST /api/kind) — off until measured on the corpora (eval/kinds/run.mjs, server/test/kind.test.js)
     essayFeedback: false, // /api/review reads an essay against its rubric (essayFeedbackTips) — off: writing tips, and no review call is made
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
@@ -1558,6 +1559,47 @@
     return { kind: best, shown: top >= KIND_SURE ? best : "" };
   }
   const KIND_SURE = 7;
+
+  /* The model's answer to "what kind of writing is this" (POST /api/kind,
+     server/lib/kind.js; owner, 2026-10-15: "model next"). Asked once per
+     document, and again only when its opening or its size has changed a lot
+     (kindPrint), at most every KIND_ASK_GAP_MS; never for under 40 words or
+     where the site already says (placeKind). Only the start and the end go,
+     4,000 characters at most (kindExcerptOf, the server's kindExcerpt). A
+     kind it names is used for the checks and the header; "unsure", a
+     failure, a limit or an older server (404: never asked again) leaves
+     the rules' answer (readKind). Both modes keep one per page: a field
+     whose opening differs gets the rules until it has its own answer. */
+  const KIND_ASK_GAP_MS = 30_000;
+  const KIND_EXCERPT_HEAD = 3_600, KIND_EXCERPT_TAIL = 400;
+  const kindExcerptOf = (text) => {
+    const t = String(text ?? "");
+    return t.length <= KIND_EXCERPT_HEAD + KIND_EXCERPT_TAIL ? t : `${t.slice(0, KIND_EXCERPT_HEAD)}\n[…]\n${t.slice(-KIND_EXCERPT_TAIL)}`;
+  };
+  // The opening and the size in steps of about 40%: typing a sentence asks nothing new, a doubled draft does.
+  const kindPrint = (text) => `${Math.round(Math.log2(Math.max(1, String(text).length)) * 2)}:${String(text).slice(0, 200)}`;
+  let kindAsked = { print: "", head: "", kind: "", at: 0, inflight: false, off: false };
+  function kindWithModel(read, text) {
+    if (!FEATURES.modelKind || !WRITING_KINDS[kindAsked.kind] || kindAsked.head !== String(text).slice(0, 200)) return read;
+    return { kind: kindAsked.kind, shown: kindAsked.kind };
+  }
+  async function askKind(text, place, ask, then) {
+    const t = String(text ?? "");
+    if (!FEATURES.modelKind || kindAsked.off || kindAsked.inflight) return;
+    if (t.split(/\s+/).filter(Boolean).length < 40 || (place && PLACE_KINDS.some(([re]) => re.test(place)))) return;
+    const print = kindPrint(t);
+    if (print === kindAsked.print || Date.now() - kindAsked.at < KIND_ASK_GAP_MS) return;
+    kindAsked = { ...kindAsked, inflight: true, at: Date.now() };
+    try {
+      const data = await ask("/api/kind", { text: kindExcerptOf(t) });
+      kindAsked = { ...kindAsked, print, head: t.slice(0, 200), kind: WRITING_KINDS[data?.kind] ? data.kind : "unsure" };
+      then?.();
+    } catch (err) {
+      if (err?.kind === "not_found") kindAsked.off = true; // an older server: the rules, for good
+    } finally {
+      kindAsked.inflight = false;
+    }
+  }
   /* Each kind's score: how sure its evidence makes it. 9.5 and up, a shape
      that is nothing else, or the document naming itself; 8 to 9, a strong
      form (a letter's two ends, a memo's head, minutes); 6 to 8, the old
@@ -5317,6 +5359,11 @@
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
     let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
+    // The kind of writing (readKind), or the model's when it has named one (kindWithModel); its genre decides the checks.
+    function readDocKind() {
+      ({ kind: docKind, shown: docShown } = kindWithModel(readKind(docText), docText));
+      docGenre = WRITING_KINDS[docKind].genre;
+    }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
     restoreReview(review, lsGet(RCACHE_KEY)); // the same text reads back the same notes, without a new review
     function persistReview() {
@@ -5455,8 +5502,8 @@
         docText = newText;
         const before = segments;
         segments = segmentText(docText);
-        ({ kind: docKind, shown: docShown } = readKind(docText)); // always, tips or none
-        docGenre = WRITING_KINDS[docKind].genre;
+        readDocKind(); // always, tips or none
+        askKind(docText, "", api, () => { readDocKind(); render(); });
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
@@ -11963,6 +12010,11 @@
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
     let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
+    // The kind of writing (readKind, the site counting too), or the model's when it has named one; its genre decides the checks.
+    function readFieldKind() {
+      ({ kind: docKind, shown: docShown } = kindWithModel(readKind(fieldText, location.hostname + location.pathname), fieldText));
+      docGenre = WRITING_KINDS[docKind].genre;
+    }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
     const persistReview = () => {}; // a field has no identity a later page load could find it by
     let copiedTipId = null;
@@ -12443,8 +12495,8 @@
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
-        ({ kind: docKind, shown: docShown } = readKind(fieldText, location.hostname + location.pathname)); // the site counts too (placeKind)
-        docGenre = WRITING_KINDS[docKind].genre;
+        readFieldKind(); // the site counts too (placeKind)
+        askKind(fieldText, location.hostname + location.pathname, api, () => { readFieldKind(); render(); });
         if (!settings.styleChosen) settings.citationStyle = docCitationStyle(fieldText) ?? "mla";
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";

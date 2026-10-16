@@ -128,6 +128,15 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
 
 ## Two products on one server: keep them apart
 
+- **`/api/kind`** (2026-10-15, `lib/kind.js`, prompt `lib/prompts/kind.js`,
+  SHA-pinned): the model names the kind of writing, one of the extension's 56
+  (`WRITING_KINDS`; `test/kind.test.js` keeps the two lists equal) or
+  "unsure". It reads the first 3,600 and last 400 characters, uses the fast
+  model at low effort, and costs about 0.1¢ a call. It has its own daily
+  count (`DAILY_KIND`) and a 2 s floor. An answer for text the server
+  already has (an in-memory cache keyed by text) is free and not counted.
+  The extension asks only when `FEATURES.modelKind` is on, and it is off
+  until `eval/kinds/run.mjs` has measured it against production.
 - **The extension's routes are FROZEN while a Web Store build is in review**:
   `/api/status /api/check /api/flow /api/sources /api/cite-url /api/docs/apply
   /api/entitlement`. Their response fields, error `kind`/`message` text, the

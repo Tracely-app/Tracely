@@ -692,6 +692,21 @@ read as a personal essay, an op-ed with no byline or masthead read as an
 argument, a prose poem, a document in a shape no rule knows yet (a recall
 notice, an R script with long comments).
 
+**The model's kind** (owner, 2026-10-15: "model next"; `askKind`,
+`kindWithModel`, server `/api/kind`). It is behind `FEATURES.modelKind`,
+which is off until the model is measured on the same corpora
+(`eval/kinds/run.mjs` against production, then `eval/kinds/score.mjs`). When
+on:
+- **When it asks:** once per document, and again only when the opening or
+  the size changes a lot (`kindPrint`), at most every 30 s. Never for under
+  40 words, and never where the site already says (`placeKind`).
+- **What it sends:** the first 3,600 and last 400 characters.
+- **What it uses:** a kind the model names decides the checks and the
+  header. "Unsure", a failure, a limit or an older server (404, never asked
+  again) leaves the rules' answer.
+- **Before turning it on:** add the 4,000 characters to PRIVACY.md's
+  "Checking" paragraph and the reads to its usage-count row.
+
 Not checked in a browser: the harness page stands down while the browser
 pane is hidden. Tests: `server/test/ext-writing-kinds.test.js`,
 `server/test/ext-writing-kind.test.js`.

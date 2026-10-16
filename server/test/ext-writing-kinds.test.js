@@ -172,3 +172,59 @@ test("shapes that are nothing else win over a word in the title", () => {
   const grandpa = "Grandpa —\n\nCollege is good. My roommate puts ranch on everything.\n\nThe dorm is loud but I have stopped noticing.\n\nLove you lots,\nEllie";
   assert.equal(X.readKind(grandpa).kind, "letter", "a letter that opens on a name alone");
 });
+
+/* The model's kind (askKind → POST /api/kind, server/lib/kind.js), behind
+ * FEATURES.modelKind until it is measured. With the switch on: a kind it
+ * names is used; "unsure", a failure and an older server leave the rules. */
+const ON = vm.runInContext(`
+  const CHECK_INTERVAL_MS = 10000;
+  const FEATURES = { citeHintsToggle: false, modelKind: true };
+  function hashText(s) { return s; }
+  ${sliceBetween(SRC, "  const ISSUE_VERDICTS =", "  /* Card titles")}
+  ${sliceBetween(SRC, "  // Bibliography block", "  function wireChrome(")}
+  ({ readKind, kindWithModel, askKind, kindExcerptOf, resetKindAsk: () => { kindAsked = { print: "", head: "", kind: "", at: 0, inflight: false, off: false }; } })`, vm.createContext({}));
+const ESSAYISH = "Every summer my town floods a little more, and the council keeps saying it will study the problem. ".repeat(6);
+
+test("the model's kind: used when it names one, the rules when it is unsure, fails or the server is older", async () => {
+  const asked = [];
+  const answer = (kind) => async (path, body) => { asked.push([path, body.text.length]); return { kind }; };
+  ON.resetKindAsk();
+  let rendered = 0;
+  await ON.askKind(ESSAYISH, "", answer("oped"), () => rendered++);
+  assert.deepEqual(asked, [["/api/kind", ESSAYISH.length]]);
+  assert.equal(rendered, 1, "the panel is drawn again with the answer");
+  assert.deepEqual({ ...ON.kindWithModel(ON.readKind(ESSAYISH), ESSAYISH) }, { kind: "oped", shown: "oped" });
+  await ON.askKind(ESSAYISH, "", answer("lab"));
+  assert.equal(asked.length, 1, "the same document is not asked again");
+  assert.notEqual(ON.kindWithModel(ON.readKind("Another document entirely."), "Another document entirely.").kind, "oped", "another text keeps its own rules");
+
+  ON.resetKindAsk();
+  await ON.askKind(ESSAYISH, "", answer("unsure"));
+  assert.deepEqual({ ...ON.kindWithModel(ON.readKind(ESSAYISH), ESSAYISH) }, { ...ON.readKind(ESSAYISH) }, "unsure: the rules");
+  ON.resetKindAsk();
+  await ON.askKind(ESSAYISH, "", answer("Op-ed"));
+  assert.deepEqual({ ...ON.kindWithModel(ON.readKind(ESSAYISH), ESSAYISH) }, { ...ON.readKind(ESSAYISH) }, "not a kind: the rules");
+
+  ON.resetKindAsk();
+  let calls = 0;
+  const older = async () => { calls++; throw Object.assign(new Error("Not found"), { kind: "not_found" }); };
+  await ON.askKind(ESSAYISH, "", older);
+  ON.resetKindAsk;
+  await ON.askKind(ESSAYISH + " More.", "", older);
+  assert.equal(calls, 1, "an older server is never asked again");
+
+  ON.resetKindAsk();
+  const none = async () => { throw new Error("should not be asked"); };
+  await ON.askKind("Too short to ask about.", "", none);
+  await ON.askKind(ESSAYISH, "mail.google.com/mail/u/0/", none);
+  assert.deepEqual({ ...X.readKind(ESSAYISH) }, { ...ON.readKind(ESSAYISH) }, "the switch changes nothing until an answer comes");
+});
+
+test("the model's kind: off by default, and only the start and end of the document are sent", async () => {
+  assert.match(SRC, /modelKind: false, {5}\/\/ the model names the kind of writing/);
+  const { kindExcerpt } = await import("../lib/kind.js");
+  for (const t of ["short", "x".repeat(4_000), `HEAD ${"y".repeat(9_000)} TAIL`]) assert.equal(ON.kindExcerptOf(t), kindExcerpt(t), "the same excerpt on both sides");
+  // Both modes read with it, and ask after the read.
+  assert.equal((SRC.match(/\(\{ kind: docKind, shown: docShown \} = kindWithModel\(readKind\((?:docText|fieldText, location\.hostname \+ location\.pathname)\), (?:docText|fieldText)\)\);/g) || []).length, 2);
+  assert.equal((SRC.match(/askKind\((?:docText, ""|fieldText, location\.hostname \+ location\.pathname), api, \(\) => \{ read(?:Doc|Field)Kind\(\); render\(\); \}\);/g) || []).length, 2);
+});

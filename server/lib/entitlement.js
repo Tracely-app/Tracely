@@ -36,6 +36,7 @@ import {
   dailyAiLimit,
   dailyFlowLimit,
   dailyReviewLimit,
+  dailyKindLimit,
   fairUseLimits,
   thoroughMonthlyUsd,
   wantsThorough,
@@ -210,6 +211,7 @@ const CHECK_KIND = "check";
 const AI_KIND = "ai"; // the desktop's app routes — never shares a count with "check"
 const FLOW_KIND = "flow";
 const REVIEW_KIND = "review";
+const KIND_READ_KIND = "kind"; // /api/kind: what kind of writing a document is
 /* Micro-cent totals, not call counts (usageAdd). Kinds of their own so an
  * operator summing a pool's "spend_ucents" (lib/spend.js) never adds an
  * account's spend in twice: the pools are "__global*__" accounts, these are
@@ -424,6 +426,18 @@ export function recordReview(ent, id, at = Date.now()) {
   const q = reviewQuota(ent, id, at);
   if (q.limit === null) return 0;
   return usageBump(id, q.day, REVIEW_KIND);
+}
+
+/* Kind-of-writing reads (/api/kind), metered like reviews (DAILY_KIND). The
+ * KIND_MIN_INTERVAL_MS floor is a rate limiter in server.js. */
+export function kindQuota(ent, id, at = Date.now()) {
+  return dailyQuota(ent, id, KIND_READ_KIND, dailyKindLimit, at);
+}
+
+export function recordKind(ent, id, at = Date.now()) {
+  const q = kindQuota(ent, id, at);
+  if (q.limit === null) return 0;
+  return usageBump(id, q.day, KIND_READ_KIND);
 }
 
 // ── per-account spend and the fair-use limit ───────────────────────────

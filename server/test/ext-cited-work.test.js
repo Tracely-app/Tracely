@@ -514,7 +514,7 @@ test("the route is on the extension's surface, gated as a lookup, and relayed by
   assert.match(SERVER, /const rate = kind === "sources" \? sourceRate : kind === "lookup" \? lookupRate : checkRate;/);
   assert.match(BG, /const API_PATHS = new Set\(\[[^\]]*"\/api\/compare-source"/, "or api() fails with 'No reply from the Tracely background worker'");
   // Appended at the end: the frozen routes keep their place and their meaning.
-  assert.match(SERVER, /"\/api\/entitlement", "\/api\/account", "\/api\/compare-source"(?:, "\/api\/sources\/stream")?\]\);/); // append-only: later routes follow it
+  assert.match(SERVER, /"\/api\/entitlement", "\/api\/account", "\/api\/compare-source"(?:, "\/api\/sources\/stream")?(?:, "\/api\/kind")?\]\);/); // append-only: later routes follow it
 });
 
 const freePort = () => new Promise((resolve, reject) => {

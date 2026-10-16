@@ -48,7 +48,7 @@ chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
 // options.html's sections (its SECTIONS), the ones the widget may open it at.
 const SETTINGS_SECTIONS = new Set(["account", "checking", "docs", "sites", "privacy"]);
 
-const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream"]);
+const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream", "/api/kind"]);
 // The routes that answer as a stream of events (relayStream, over a port).
 const STREAM_PATHS = new Set(["/api/sources/stream"]);
 
