@@ -310,7 +310,41 @@ export interface AppSettings {
    * or Settings will name a model the app is not using.
    */
   modelTier: ModelTier
+  // Settings → Checking and Citations (2026-10-16, the extension's mirrored):
+  // CheckingCitationSettings below, one field each.
+  showEvidenceKinds: boolean
+  showCitationKinds: boolean
+  checkingStrictness: 'clear' | 'balanced' | 'thorough'
+  matchDocumentStyle: boolean
+  worksCitedHeading: WorksCitedHeadingChoice
+  citationLinks: boolean
+  citationAccessDates: boolean
+  citableOnlySources: boolean
+  avoidSourceSites: string[]
 }
+
+/** The reference list's heading when Tracely adds one: "" is the style's own (worksCited.ts WORKS_CITED_HEADINGS). */
+export type WorksCitedHeadingChoice = '' | 'Works Cited' | 'References' | 'Bibliography'
+
+/**
+ * Settings → Checking and Citations, as one group (defaults in
+ * shared/citationPrefs.ts). Checking: the blue and amber kinds on or off, and
+ * how strict (findingFilter.ts). Citations: one style everywhere or each
+ * document's own, the list's heading, links and access dates in entries, and
+ * which sources are offered.
+ */
+export type CheckingCitationSettings = Pick<
+  AppSettings,
+  | 'showEvidenceKinds'
+  | 'showCitationKinds'
+  | 'checkingStrictness'
+  | 'matchDocumentStyle'
+  | 'worksCitedHeading'
+  | 'citationLinks'
+  | 'citationAccessDates'
+  | 'citableOnlySources'
+  | 'avoidSourceSites'
+>
 
 // The document editor's saved work. Rich text rather than plain: the editor is
 // an execCommand surface (bold/italic/colour/alignment), so storing plain text

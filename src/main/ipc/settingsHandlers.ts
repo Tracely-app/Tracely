@@ -9,6 +9,7 @@ import { scanInstalledApps } from '../services/appScan'
 import { registerGlobalHotkey, registerScreenWatchHotkey } from '../hotkey'
 import { getAllSettingsRaw, setSetting } from '../services/storage/settingsRepo'
 import { applyMainWindowFontSize } from '../windows/mainWindow'
+import { checkingCitationsFrom, siteOf } from '@shared/citationPrefs'
 
 const setSchema = z.object({
   defaultCitationStyle: z.enum(['APA', 'MLA', 'Chicago']).optional(),
@@ -24,7 +25,16 @@ const setSchema = z.object({
   suppressSaveConfirm: z.boolean().optional(),
   gradingLevel: z.number().int().min(MIN_GRADE_LEVEL).max(GRADE_LEVELS[GRADE_LEVELS.length - 1]).optional(),
   autoCritiqueCited: z.boolean().optional(),
-  modelTier: z.enum(MODEL_TIERS).optional()
+  modelTier: z.enum(MODEL_TIERS).optional(),
+  showEvidenceKinds: z.boolean().optional(),
+  showCitationKinds: z.boolean().optional(),
+  checkingStrictness: z.enum(['clear', 'balanced', 'thorough']).optional(),
+  matchDocumentStyle: z.boolean().optional(),
+  worksCitedHeading: z.enum(['', 'Works Cited', 'References', 'Bibliography']).optional(),
+  citationLinks: z.boolean().optional(),
+  citationAccessDates: z.boolean().optional(),
+  citableOnlySources: z.boolean().optional(),
+  avoidSourceSites: z.array(z.string().max(253)).max(200).optional()
 })
 
 function buildSettings(): AppSettings {
@@ -52,7 +62,8 @@ function buildSettings(): AppSettings {
     // reach the renderer as a tier it has no label for. A row an earlier build
     // wrote as 'balanced' (the retired middle tier) reads as 'fast', the tier
     // it now means — not as the 'thorough' default.
-    modelTier: storedModelTier(raw.modelTier)
+    modelTier: storedModelTier(raw.modelTier),
+    ...checkingCitationsFrom(raw)
   }
 }
 
@@ -116,6 +127,15 @@ export function registerSettingsHandlers(): void {
     }
     if (patch.screenWatchAllowedApps !== undefined) {
       setSetting('screenWatchAllowedApps', patch.screenWatchAllowedApps)
+    }
+    // Settings → Checking and Citations: stored as strings, read back by checkingCitationsFrom.
+    for (const key of ['showEvidenceKinds', 'showCitationKinds', 'matchDocumentStyle', 'citationLinks', 'citationAccessDates', 'citableOnlySources'] as const) {
+      if (patch[key] !== undefined) setSetting(key, String(patch[key]))
+    }
+    if (patch.checkingStrictness !== undefined) setSetting('checkingStrictness', patch.checkingStrictness)
+    if (patch.worksCitedHeading !== undefined) setSetting('worksCitedHeading', patch.worksCitedHeading)
+    if (patch.avoidSourceSites !== undefined) {
+      setSetting('avoidSourceSites', patch.avoidSourceSites.map(siteOf).filter((s): s is string => s !== null).join(','))
     }
 
     return buildSettings()

@@ -4076,7 +4076,7 @@ export default function OverlayApp(): JSX.Element {
     setCitedWork(claimId, null)
     setFlow(claimId, { step: 'searching' })
     try {
-      const { candidates, cited } = await window.tracely.screenWatch.findSource({ claimId })
+      const { candidates, cited, style } = await window.tracely.screenWatch.findSource({ claimId })
       // The user may have cancelled (flow entry removed) while this was in
       // flight — a stale result landing after that shouldn't reopen it, and
       // nothing should be paid for on a card nobody is looking at.
@@ -4091,7 +4091,8 @@ export default function OverlayApp(): JSX.Element {
           // Nothing is pre-selected until the receipts say what may be cited.
           selectedRef: null,
           receipts: candidates.length ? { status: 'checking' } : { status: 'checked', byId: {} },
-          style: defaultStyle,
+          // The document's own style when Settings matches it (main knows the text); this window's default otherwise.
+          style: style ?? defaultStyle,
           preview: null
         })
         return next
@@ -4288,7 +4289,7 @@ export default function OverlayApp(): JSX.Element {
           step: 'results',
           response,
           selectedRef: response.candidates[0]?.ref ?? null,
-          style: defaultStyle,
+          style: response.style ?? defaultStyle,
           copied: null
         })
       })

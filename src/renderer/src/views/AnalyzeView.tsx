@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { CitationStyle, Claim, DocumentOutline, DocumentRecord, Source } from '@shared/types'
+import { ALL_FINDINGS, type FindingFilter } from '@shared/findingFilter'
+import { documentCitationStyle } from '@shared/citationPrefs'
 import { splitParagraphs } from '@shared/paragraphSplit'
 import { DESKTOP_FEATURES } from '@shared/desktopFeatures'
 import { clientToLayout, contentOffset, readZoom } from '@shared/zoomLayout'
@@ -449,12 +451,30 @@ function DocumentEditor({
   // open, and defaulting to MLA on a failed read is better than blocking the
   // citation flow on a settings call.
   const [citationStyle, setCitationStyle] = useState<CitationStyle>('MLA')
+  // Settings → Checking and Citations (2026-10-16), read with the style. This
+  // view remounts on every visit, so a change made in Settings is here the
+  // next time a document opens.
+  const [checkPrefs, setCheckPrefs] = useState<{ findings: FindingFilter; matchStyle: boolean; heading: string }>({
+    findings: ALL_FINDINGS,
+    matchStyle: false,
+    heading: ''
+  })
   useEffect(() => {
     void tracelyApi
       .getSettings()
-      .then((s) => setCitationStyle(s.defaultCitationStyle))
+      .then((s) => {
+        setCitationStyle(s.defaultCitationStyle)
+        setCheckPrefs({
+          findings: { evidence: s.showEvidenceKinds, citations: s.showCitationKinds, strictness: s.checkingStrictness },
+          matchStyle: s.matchDocumentStyle,
+          heading: s.worksCitedHeading
+        })
+      })
       .catch(() => {})
   }, [])
+  // The style a citation flow opens in: the document's own when Settings says to match it and it shows one, else the default.
+  const flowStyle = (): CitationStyle =>
+    checkPrefs.matchStyle ? (documentCitationStyle(bodyText()) ?? citationStyle) : citationStyle
 
   const [wordCount, setWordCount] = useState(0)
   const [fontFamily, setFontFamily] = useState('Arial')
@@ -832,7 +852,7 @@ function DocumentEditor({
     if (!body || !wrap) return
     return scheduleFrame(window, () => {
       const live = (claims ?? []).filter((claim) => !dismissed.has(claim.id))
-      setMarks(measureMarks(body, wrap, live, articleCounts, offTopicIds))
+      setMarks(measureMarks(body, wrap, live, articleCounts, offTopicIds, checkPrefs.findings))
       // In the same frame as the claim marks, not behind a debounce of its own:
       // findProseIssues is pure and local — a thousand-word draft is a few
       // milliseconds — and measuring both together is what keeps the two layers
@@ -860,7 +880,7 @@ function DocumentEditor({
     // `checking` is in the deps so the pending lines appear when a sweep starts
     // and clear when it ends — without it they would only ever be measured on
     // the next keystroke.
-  }, [claims, dismissed, articleCounts, measureTick, fontFamily, fontSize, align, checking, offTopicIds])
+  }, [claims, dismissed, articleCounts, measureTick, fontFamily, fontSize, align, checking, offTopicIds, checkPrefs.findings])
 
   // The editor reflows on window resize, which does not go through
   // handleInput.
@@ -1179,7 +1199,8 @@ function DocumentEditor({
     const worksCited = addWorksCitedEntry(body, {
       entry: citation,
       sourceTitle: source.title,
-      style
+      style,
+      heading: checkPrefs.heading // Settings → Citations; the style's own when empty
     })
 
     // Formatted here rather than through an IPC round-trip: formatInTextCitation
@@ -1345,7 +1366,7 @@ function DocumentEditor({
                 // cited — see checkReceipts.
                 selectedId: null,
                 receipts: candidates.length ? { status: 'checking' } : { status: 'checked', byId: {} },
-                style: citationStyle,
+                style: flowStyle(),
                 preview: null
               }
             }
@@ -1684,7 +1705,7 @@ function DocumentEditor({
                 step: 'results',
                 response,
                 selectedRef: response.candidates[0]?.ref ?? null,
-                style: citationStyle
+                style: flowStyle()
               }
             }
       )
@@ -1733,7 +1754,8 @@ function DocumentEditor({
         oldEntry,
         entry: worksCitedEntry,
         sourceTitle: candidate.title,
-        style
+        style,
+        heading: checkPrefs.heading
       })
       if (!replaceCitationText(body, claim, flow.citation, inTextCitation)) {
         // Roll the list back out: an entry for a citation that never reached
@@ -2883,7 +2905,8 @@ function DocumentEditor({
           paragraphTexts={paragraphTexts}
           loading={insightsLoading || outlineLoading}
           error={outlineError}
-          citationStyle={citationStyle}
+          citationStyle={scoreOpen ? flowStyle() : citationStyle}
+          findings={checkPrefs.findings}
           onInsertCitation={insertCitation}
           onReanalyze={() => void runStructure()}
           // Re-read the claims the moment the report searches one. This is what

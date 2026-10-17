@@ -314,14 +314,50 @@ revamp (`extension/CLAUDE.md`, "Settings (options.html)").
 - **Wording follows the owner's rules here:** sentence case (the field labels
   and the plan badge no longer upper-case themselves) and no dots on the plan
   list. The rest of the app's small-caps labels are untouched.
-- **Still to mirror** (PR 2, PR 3): which finding kinds show, strictness,
-  the automatic evidence search, "match each document's style", the list's
-  heading, links and access dates, citable-only and never-suggest sources,
-  each document's own settings, Memory, and a durable "Never flag this" list.
-  The owner chose that last one over the session-only dismissals
-  (`AnalyzeView`'s note): plain Dismiss stays per session.
+- **Checking** (PR 2): which kinds show, and how strict. It is decided in
+  ONE place, `problemKindsFor`'s `findings` input (`findingFilter.ts`), which
+  all three callers pass:
+  - Screen Watch (main, `getSetting` live, so within a poll tick);
+  - the editor's `measureMarks`;
+  - the report's `gradeClaims`. AnalyzeView reads the settings on mount, and
+    it remounts on every visit.
+  - **The switches follow the colours.** Blue (the five evidence kinds) is
+    "Needs evidence", amber is "Citation issues", and red (contradicted,
+    invented) is never switched off.
+  - **"Only clear errors"** keeps the kinds certain by nature
+    (`CLEAR_KINDS`), because desktop verdicts carry no confidence.
+    **"Thorough"** lifts the `citationWorthy` gate. Neither touches
+    `claimSensitivity` (whether a sentence is a claim) or
+    `MIN_CLAIM_CONFIDENCE`.
+  - **No "look for evidence automatically" switch on the desktop.** The
+    search is free (scholarly indexes), and every underline waits for it, so
+    off would leave the editor blank and Screen Watch on "Searching…". The
+    paid web fallback is already capped (`webBudget.ts`).
+- **Citations** (PR 2, `citationPrefs.ts`):
+  - **"Match each document's style"** is `documentCitationStyle`, a port of
+    the extension's `docCitationStyle`.
+    - The editor applies it where a flow opens (`flowStyle`).
+    - Screen Watch's main applies it from the text it holds
+      (`citationStyleHere` → the `style` on the find-source and
+      find-cited-work answers). The overlay never has the whole text.
+  - **The list's heading** is `worksCitedHeading` → `planWorksCited`'s
+    `heading`. It is for a new list only; an existing list keeps its own.
+  - **Links and access dates** are applied in main's `formatCitation`, read
+    live. An access date goes on a web page only (`isWebPage`).
+  - **Which sources are offered** (`citableOnlySources`, `avoidSourceSites`)
+    is `services/search/sourceFilter.ts`, applied where the lists people
+    pick from are served: `evidenceHandlers`' find, get-for-claim and
+    for-text, and Screen Watch's `findSourceForClaim` (before it numbers
+    the list). It never touches the score or the critique.
+  - **Not changed:** the web bridge's own formatter copy (`bridge/adapters.ts`,
+    an experiment), and the "WORKS CITED" wording on the cards.
+- **Still to mirror** (PR 3): each document's own settings, Memory, and a
+  durable "Never flag this" list. The owner chose that over the
+  session-only dismissals (`AnalyzeView`'s note): plain Dismiss stays per
+  session.
 
-Tests: `src/shared/settingsHelp.test.ts`.
+Tests: `src/shared/settingsHelp.test.ts`, `src/shared/findingFilter.test.ts`,
+`src/shared/citationPrefs.test.ts`.
 
 ## Previewing the UI (`npm run preview:ui`, or `/preview`)
 

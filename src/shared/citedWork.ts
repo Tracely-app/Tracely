@@ -476,20 +476,23 @@ export function planEntryReplacement({
   oldEntry,
   entry,
   sourceTitle,
-  style
+  style,
+  heading = null
 }: {
   text: string
   oldEntry: string | null
   entry: string
   sourceTitle: string | null
   style: CitationStyle
+  /** Settings → Citations: a new list's heading (planWorksCited). */
+  heading?: string | null
 }): { edit: TextEdit | null; outcome: EntryOutcome } {
   const section = findWorksCitedSection(text)
   const old = oldEntry?.trim() ?? ''
   const position = section && old ? section.entries.indexOf(old) : -1
 
   if (!section || position === -1) {
-    const { edit } = planWorksCited({ text, entry, sourceTitle, style })
+    const { edit } = planWorksCited({ text, entry, sourceTitle, style, heading })
     return edit
       ? { edit: { start: edit.start, end: edit.end, replacement: edit.replacement }, outcome: 'added' }
       : { edit: null, outcome: 'already-listed' }
@@ -499,7 +502,7 @@ export function planEntryReplacement({
   const rest = `${section.heading}\n${remaining.join('\n')}`
   // Planned against the section alone, so the edit's own offsets are
   // irrelevant: whatever comes back IS the rewritten section.
-  const { edit } = planWorksCited({ text: rest, entry, sourceTitle, style })
+  const { edit } = planWorksCited({ text: rest, entry, sourceTitle, style, heading })
   return {
     edit: { start: section.start, end: section.end, replacement: edit ? edit.replacement : rest },
     outcome: edit ? 'replaced' : 'already-listed'

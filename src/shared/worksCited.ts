@@ -222,6 +222,8 @@ export interface PlanWorksCitedInput {
   sourceTitle: string | null
   /** Style being inserted — decides the heading, if a heading has to be written. */
   style: CitationStyle
+  /** Settings → Citations: the heading a new list gets instead of the style's own. Empty or absent: the style's. */
+  heading?: string | null
 }
 
 /**
@@ -233,7 +235,7 @@ export interface PlanWorksCitedInput {
  * also repairs a list that was already out of order or already duplicated,
  * which a splice could not.
  */
-export function planWorksCited({ text, entry, sourceTitle, style }: PlanWorksCitedInput): WorksCitedPlan {
+export function planWorksCited({ text, entry, sourceTitle, style, heading = null }: PlanWorksCitedInput): WorksCitedPlan {
   const clean = entry.replace(/\s+/g, ' ').trim()
   if (clean.length === 0) return { edit: null }
 
@@ -249,7 +251,7 @@ export function planWorksCited({ text, entry, sourceTitle, style }: PlanWorksCit
       edit: {
         start: at,
         end: at,
-        replacement: `\n\n${WORKS_CITED_HEADINGS[style]}\n${clean}`,
+        replacement: `\n\n${heading || WORKS_CITED_HEADINGS[style]}\n${clean}`,
         created: true
       }
     }
