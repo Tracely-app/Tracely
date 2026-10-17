@@ -388,7 +388,7 @@ const PREF_DEFAULTS = {
   pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
   showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
   citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
-  undismissedAt: 0,
+  undismissedAt: 0, appearance: "light",
 };
 let prefs = { ...PREF_DEFAULTS };
 // What storage holds, over the defaults; a list that isn't one (an older build, a bad write) reads as empty.
@@ -419,6 +419,8 @@ function renderGeneral() {
   $("pauseToday").hidden = off || paused;
   $("resumeNow").hidden = !paused;
   for (const b of document.querySelectorAll("[data-side]")) b.setAttribute("aria-pressed", String(b.dataset.side === prefs.launcherSide));
+  const look = APPEARANCES.includes(prefs.appearance) ? prefs.appearance : "light";
+  for (const b of document.querySelectorAll("[data-appearance]")) b.setAttribute("aria-pressed", String(b.dataset.appearance === look));
   $("panelOpenTgl").checked = prefs.panelOpen === true;
   // The page says "running" again when a pause ends, without a reload.
   clearTimeout(resumeTimer);
@@ -429,6 +431,9 @@ $("pauseHour").addEventListener("click", () => savePrefs({ pausedUntil: Date.now
 $("pauseToday").addEventListener("click", () => { const d = new Date(); d.setHours(24, 0, 0, 0); savePrefs({ pausedUntil: d.getTime() }); });
 $("resumeNow").addEventListener("click", () => savePrefs({ pausedUntil: 0 }));
 for (const b of document.querySelectorAll("[data-side]")) b.addEventListener("click", () => savePrefs({ launcherSide: b.dataset.side === "left" ? "left" : "right" }));
+// Appearance: the widget's panel and cards (content.js themeDark). This page follows the browser on its own.
+const APPEARANCES = ["light", "dark", "system"];
+for (const b of document.querySelectorAll("[data-appearance]")) b.addEventListener("click", () => savePrefs({ appearance: APPEARANCES.includes(b.dataset.appearance) ? b.dataset.appearance : "light" }));
 $("panelOpenTgl").addEventListener("change", (e) => savePrefs({ panelOpen: e.target.checked === true }));
 
 function renderPrefs() {
@@ -732,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.66", "A dark theme for the panel and Tracely's cards: Settings → General → Appearance (Light, Dark or Match system)."],
   ["2.21.65", "Signed out, Find a source asks you to sign in first instead of coming back empty. Out of searches, it says so and shows the plans that give more."],
   ["2.21.64", "Settings → Documents lists the Docs Tracely has checked, each with its own style, kind and switch; Memory shows what is kept and clears it. Cards have Never flag this."],
   ["2.21.63", "Settings for what Tracely flags and how strict it is, your usual kind of writing, citation style, links and access dates, and sources to leave out."],

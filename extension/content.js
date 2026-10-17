@@ -559,12 +559,15 @@
      Memory (2.21.64):
        undismissedAt — "Bring back dismissed notes": every page, in either
                      mode, empties its dismissed list once (newMark).
+     Appearance (2.21.66):
+       appearance  — "light", "dark" or "system": the panel and the cards on
+                     the page (themeDark, applyTheme). Light by default.
      A plain test page has no extension storage and keeps the defaults. */
   const PREF_DEFAULTS = {
     pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
     showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
     citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
-    undismissedAt: 0,
+    undismissedAt: 0, appearance: "light",
   };
   let prefs = { ...PREF_DEFAULTS };
   let prefsStored = {}; // what storage holds, before the defaults: a style picked before 2.21.63 moves in once (citeStyleFor)
@@ -642,6 +645,25 @@
   const untilLabel = (t) => { const d = new Date(t); return d.getHours() === 0 && d.getMinutes() === 0 ? "midnight" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
   const pausedLine = () => (prefs.pausedUntil === -1 ? "Tracely is off until you turn it back on." : `Tracely is paused until ${untilLabel(prefs.pausedUntil)}.`);
   const resumeTracely = () => storageSet({ prefs: { ...prefs, pausedUntil: 0 } });
+  /* Settings → General → Appearance. Dark: the widget's shadow host gets
+     .tracely-dark (WIDGET_CSS's dark tokens), and the cards Tracely puts in
+     the page itself (the Docs hover card, Review all's) take the dark palette
+     (themeListeners: Docs mode swaps DM). "system" follows the browser, as
+     it changes. What sits on the document's own text (the cursor, the Type
+     preview) stays as it is in both. */
+  const darkQuery = extCall(() => window.matchMedia("(prefers-color-scheme: dark)"), null);
+  const themeDark = () => prefs.appearance === "dark" || (prefs.appearance === "system" && Boolean(darkQuery?.matches));
+  const themeListeners = new Set();
+  let themeWasDark = false;
+  function applyTheme() {
+    const dark = themeDark();
+    document.getElementById("tracely-host")?.classList.toggle("tracely-dark", dark);
+    if (dark === themeWasDark) return;
+    themeWasDark = dark;
+    for (const fn of themeListeners) { try { fn(dark); } catch { /* a mode's hook never breaks another's */ } }
+  }
+  prefsListeners.add(applyTheme); // first, so a mode's own listener draws in the new theme
+  extCall(() => darkQuery?.addEventListener("change", () => { if (prefs.appearance === "system") { applyTheme(); for (const fn of prefsListeners) { try { fn(); } catch { /* as notePrefs */ } } } }));
   // The launcher's corner, on the widget's root.
   const placeRoot = (root) => root?.classList?.toggle("left", prefs.launcherSide === "left");
   // A change made in the widget (the style picker) is the Settings page's too: written, and heard here at once.
@@ -5138,6 +5160,30 @@
       --chip-wash: ${APP.chipWash};
       --shadow-sm: ${APP.shadowSm}; --shadow-card: ${APP.shadowCard}; --shadow-lg: ${APP.shadowLg};
       --r-card: ${APP.rCard}; --r-btn: ${APP.rBtn}; --r-chip: ${APP.rChip};
+      /* The widget's own neutrals (Settings → General → Appearance: themeDark). */
+      --w-ink: #1a1a1f; --w-muted: #6b6c72; --w-hint: #9a9ba1; --w-faint: #8a8b90; --w-sub: #55565c; --w-dim: #3a3b40;
+      --w-line: #ececee; --w-edge: #e4e4e7; --w-ctl: #d4d4d8; --w-ctl-hover: #c4c4ca;
+      --w-fill: #f4f4f5; --w-fill-hover: #ececee; --w-hover: #f2f2f2; --w-soft: #f7f7f8; --w-ins: #efeff2;
+      --w-frame: #000; --w-primary: #1a1a1f; --w-primary-hover: #000; --w-on-primary: #fff; --w-on-primary-dim: rgba(255,255,255,.7);
+      --w-ok-ink: #1f7a4d; --w-bad-ink: #b02a2a; --w-link-ink: #245d99;
+      --w-launcher: #1c1c1c; /* the launcher sits on the page, which stays light: dark in both themes */
+    }
+    /* Dark (Settings → General → Appearance): the desktop app's dark tokens, as
+       the Settings page uses them. The finding colours, the brand orange and
+       the launcher stay as they are. */
+    :host(.tracely-dark) {
+      --surface: #17171b; --bg: #0b0b0d; --surface-2: rgba(255,255,255,.04);
+      --text: #f6f6f8; --ink: #f6f6f8; --body: rgba(246,246,248,.66);
+      --muted: rgba(246,246,248,.66); --label: rgba(246,246,248,.62); --chip-ink: rgba(246,246,248,.8);
+      --border: rgba(255,255,255,.18); --border-strong: rgba(255,255,255,.28); --hairline: rgba(255,255,255,.14);
+      --accent-ink: #f97316; --accent-wash: rgba(244,123,32,.16); --accent-border: rgba(244,123,32,.3); --ring: rgba(244,123,32,.4);
+      --chip-wash: rgba(255,255,255,.08); --danger: #ff5c4d;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.4); --shadow-lg: 0 20px 40px rgba(0,0,0,.5);
+      --w-ink: #f6f6f8; --w-muted: rgba(246,246,248,.66); --w-hint: rgba(246,246,248,.45); --w-faint: rgba(246,246,248,.5); --w-sub: rgba(246,246,248,.72); --w-dim: rgba(246,246,248,.8);
+      --w-line: rgba(255,255,255,.1); --w-edge: rgba(255,255,255,.12); --w-ctl: rgba(255,255,255,.22); --w-ctl-hover: rgba(255,255,255,.32);
+      --w-fill: rgba(255,255,255,.06); --w-fill-hover: rgba(255,255,255,.1); --w-hover: rgba(255,255,255,.08); --w-soft: rgba(255,255,255,.05); --w-ins: rgba(255,255,255,.12);
+      --w-frame: rgba(255,255,255,.22); --w-primary: #f6f6f8; --w-primary-hover: #ffffff; --w-on-primary: #17171b; --w-on-primary-dim: rgba(23,23,27,.7);
+      --w-ok-ink: #4fbf85; --w-bad-ink: #f07a7a; --w-link-ink: #82b4ee;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
@@ -5160,7 +5206,7 @@
     }
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
     .pill.quiet { color: var(--label); font-weight: 500; }
-    .pill.quiet .plane { background: #c8c8cc; }
+    .pill.quiet .plane { background: var(--w-ctl-hover); }
     .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
     .pill.orphan:hover { transform: none; border-color: var(--border); }
     .plane {
@@ -5187,7 +5233,7 @@
        nothing flagged there is no badge at all, as in the frame. */
     .launcher {
       position: relative; width: 56px; height: 56px; border-radius: 50%;
-      background: var(--ink); cursor: pointer; user-select: none;
+      background: var(--w-launcher); cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 2px 10px rgba(0,0,0,.18);
       transition: box-shadow .12s ease, transform .12s ease;
@@ -5218,7 +5264,7 @@
     .panel {
       position: absolute; right: 0; bottom: 70px;
       width: min(440px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
-      background: var(--surface); border: 1px solid #000; border-radius: 24px;
+      background: var(--surface); border: 1px solid var(--w-frame); border-radius: 24px;
       box-shadow: 0 12px 32px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06);
       display: flex; flex-direction: column; overflow: hidden;
     }
@@ -5230,42 +5276,42 @@
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
     .head-mark { width: 20px; height: 20px; flex-shrink: 0; color: #ff5900; display: block; }
-    .head .name { font-weight: 600; font-size: 16px; color: #1a1a1f; white-space: nowrap; }
+    .head .name { font-weight: 600; font-size: 16px; color: var(--w-ink); white-space: nowrap; }
     /* What Tracely reads the writing as (genreTitle): neutral, never a finding's colour. */
     .head .kind { min-width: 0; padding: 3px 8px; border-radius: 999px; background: var(--chip-wash); color: var(--chip-ink); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* The tabs: the count, the filter and the legend in one row (panelHeadHtml). */
-    .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 14px; border-bottom: 1px solid #ececee; flex-shrink: 0; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 14px; border-bottom: 1px solid var(--w-line); flex-shrink: 0; }
     .tab {
       display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
-      border-radius: 8px; border: none; background: #f4f4f5;
-      font-family: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer;
+      border-radius: 8px; border: none; background: var(--w-fill);
+      font-family: inherit; font-size: 13px; font-weight: 500; color: var(--w-ink); cursor: pointer;
       transition: background .15s ease, color .15s ease;
     }
-    .tab:hover { background: #ececee; }
+    .tab:hover { background: var(--w-fill-hover); }
     .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .tab-n { color: #6b6c72; font-variant-numeric: tabular-nums; }
-    .tab.on, .tab.on:hover { background: #1a1a1f; color: #fff; }
-    .tab.on .tab-n { color: rgba(255,255,255,.7); }
+    .tab-n { color: var(--w-muted); font-variant-numeric: tabular-nums; }
+    .tab.on, .tab.on:hover { background: var(--w-primary); color: var(--w-on-primary); }
+    .tab.on .tab-n { color: var(--w-on-primary-dim); }
     .tab .kico svg { width: 13px; height: 13px; }
     .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
     .chip-ico svg { width: 13px; height: 13px; display: block; }
-    .tabs-clear { display: inline-flex; align-items: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 500; color: #3a3b40; }
+    .tabs-clear { display: inline-flex; align-items: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 500; color: var(--w-dim); }
     /* Settings, the off switch and Close: quiet 28px squares until hovered. */
     .hbtn {
       flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; padding: 0;
-      border: none; background: transparent; color: #6b6c72; cursor: pointer;
+      border: none; background: transparent; color: var(--w-muted); cursor: pointer;
       display: flex; align-items: center; justify-content: center; transition: background .15s ease, color .15s ease;
     }
     .hbtn svg { width: 16px; height: 16px; display: block; }
-    .hbtn:hover { background: #f2f2f2; color: #1a1a1f; }
+    .hbtn:hover { background: var(--w-hover); color: var(--w-ink); }
     .hbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .head .hbtn + .hbtn { margin-left: -4px; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
-    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
-    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
+    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid var(--w-line); }
+    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: var(--w-ink); cursor: pointer; }
     .ev-toggle:hover { text-decoration: underline; }
-    .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
-    .ev-locked { display: flex; align-items: center; gap: 10px; padding: 6px 2px; font-size: 12.5px; color: #6b6c72; }
+    .ev-intro { font-size: 12px; color: var(--w-muted); margin-top: -6px; padding: 0 2px; }
+    .ev-locked { display: flex; align-items: center; gap: 10px; padding: 6px 2px; font-size: 12.5px; color: var(--w-muted); }
     .ev-locked span { flex: 1; min-width: 0; }
     .ev-locked .act { flex-shrink: 0; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
@@ -5273,10 +5319,10 @@
        and its cards; the name is chrome, so ink, never a finding colour. */
     .tips { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
     .tips + .tips { margin-top: 2px; }
-    .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
-    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
+    .tips-head { font-size: 12px; font-weight: 600; color: var(--w-muted); letter-spacing: .01em; padding: 2px 2px 0; }
+    .genre-line { font-size: 12px; color: var(--w-muted); padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--w-faint); max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
@@ -5297,28 +5343,28 @@
        icon on a tint of its colour, its title small over one line of the
        sentence, and a chevron that says it opens. */
     .card {
-      background: var(--surface); border: 1px solid #e4e4e7; border-radius: 14px;
+      background: var(--surface); border: 1px solid var(--w-edge); border-radius: 14px;
       padding: 14px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;
     }
-    .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .card[aria-expanded="true"] { border-color: var(--w-ctl); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
     .card.out { display: none; }
     .card.shut {
       display: grid; grid-template-columns: 32px minmax(0, 1fr) 16px; column-gap: 12px; row-gap: 1px; align-items: center;
       padding: 10px 8px 10px 10px; border-color: transparent; border-radius: 12px; cursor: pointer;
     }
-    .card.shut:hover { background: #f7f7f8; border-color: transparent; }
+    .card.shut:hover { background: var(--w-soft); border-color: transparent; }
     .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .card.shut > :not(.top):not(.quote) { display: none; }
     .card.shut > .top { display: contents; }
-    .card.shut .kico { grid-column: 1; grid-row: 1 / span 2; width: 32px; height: 32px; border-radius: 9px; justify-content: center; align-items: center; background: color-mix(in srgb, currentColor 13%, #fff); }
+    .card.shut .kico { grid-column: 1; grid-row: 1 / span 2; width: 32px; height: 32px; border-radius: 9px; justify-content: center; align-items: center; background: color-mix(in srgb, currentColor 13%, var(--surface)); }
     .card.shut .kico svg { width: 14px; height: 14px; }
-    .card.shut .ctitle { grid-column: 2; grid-row: 1; font-size: 12px; font-weight: 500; color: #6b6c72; }
+    .card.shut .ctitle { grid-column: 2; grid-row: 1; font-size: 12px; font-weight: 500; color: var(--w-muted); }
     .card.shut .x { display: none; }
     .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .card.shut .quote { grid-column: 2; grid-row: 2; display: block; color: #1a1a1f; }
+    .card.shut .quote { grid-column: 2; grid-row: 2; display: block; color: var(--w-ink); }
     .card.shut::after {
       content: ""; grid-column: 3; grid-row: 1 / span 2; justify-self: center; width: 6px; height: 6px;
-      border-right: 1.75px solid #9a9ba1; border-bottom: 1.75px solid #9a9ba1; transform: rotate(-45deg);
+      border-right: 1.75px solid var(--w-hint); border-bottom: 1.75px solid var(--w-hint); transform: rotate(-45deg);
     }
     .top { display: flex; align-items: center; gap: 8px; }
     .kico { display: inline-flex; flex-shrink: 0; }
@@ -5340,22 +5386,22 @@
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 13px; font-weight: 600; color: #1a1a1f; min-width: 0; }
+    .ctitle { font-size: 13px; font-weight: 600; color: var(--w-ink); min-width: 0; }
     .x {
       margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px; padding: 0;
-      background: none; border: none; color: #9a9ba1; cursor: pointer;
+      background: none; border: none; color: var(--w-hint); cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center;
     }
     .x svg { width: 14px; height: 14px; display: block; }
-    .x:hover { color: var(--text); background: #f2f2f2; }
+    .x:hover { color: var(--text); background: var(--w-hover); }
     /* "Never flag this" sits before Dismiss: it takes the free space, Dismiss sits beside it. */
     .x.never + .x { margin-left: 0; }
     /* The writer's own words, quiet and two lines at most; why it is flagged, under it, is the body. */
     .quote {
-      font-size: 13px; line-height: 19px; color: #6b6c72;
+      font-size: 13px; line-height: 19px; color: var(--w-muted);
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
     }
-    .expl { font-size: 13px; line-height: 19px; color: #1a1a1f; }
+    .expl { font-size: 13px; line-height: 19px; color: var(--w-ink); }
 
     /* ── Insets (deep dive, suggested fix) ────────────────────────────── */
     .deep {
@@ -5363,7 +5409,7 @@
       border-radius: var(--r-btn); padding: 10px 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
-    .fix { background: #f4f4f5; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+    .fix { background: var(--w-fill); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
     .deep-row { margin: -2px 0 0; }
     .deep-btn {
       background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
@@ -5386,8 +5432,8 @@
     .deep-sub { margin-top: 6px; }
     .deep .row { margin-top: 4px; }
     .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
-    .fix-text { white-space: normal; color: #1a1a1f; line-height: 19px; }
-    .fix-label { font-weight: 500; color: #9a9ba1; }
+    .fix-text { white-space: normal; color: var(--w-ink); line-height: 19px; }
+    .fix-label { font-weight: 500; color: var(--w-hint); }
     .deep-note { font-size: 11px; color: var(--label); }
     .deep-note.err { color: var(--danger); }
     .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
@@ -5403,15 +5449,15 @@
     /* Copy, as an icon at the row's end beside Apply fix and Find a source. */
     .row > button.act.icon {
       margin-left: auto; width: 32px; height: 32px; padding: 0; border: none; border-radius: 8px;
-      background: none; color: #6b6c72; display: inline-flex; align-items: center; justify-content: center;
+      background: none; color: var(--w-muted); display: inline-flex; align-items: center; justify-content: center;
     }
     .row > button.act.icon svg { width: 16px; height: 16px; display: block; }
-    .row > button.act.icon:hover:not([disabled]) { background: #f2f2f2; color: #1a1a1f; }
+    .row > button.act.icon:hover:not([disabled]) { background: var(--w-hover); color: var(--w-ink); }
     .edit-note { font-size: 11px; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12.5px; font-weight: 500; color: var(--ink);
-      background: #f4f4f5; border-radius: 10px; padding: 6px 6px 6px 12px;
+      background: var(--w-fill); border-radius: 10px; padding: 6px 6px 6px 12px;
     }
     .undo-strip button.act { padding: 5px 10px; font-size: 12px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
@@ -5448,18 +5494,18 @@
     .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
     .fixes-acts { display: inline-flex; gap: 6px; }
     .fixes-acts button.act { padding: 5px 12px; font-size: 12px; }
-    .fixes-note { font-size: 11.5px; color: #6b6c72; }
-    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #ececec; border-radius: 10px; background: var(--surface); }
+    .fixes-note { font-size: 11.5px; color: var(--w-muted); }
+    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--w-line); border-radius: 10px; background: var(--surface); }
     .fx-top { display: flex; align-items: center; gap: 8px; }
-    .fx-title { font-size: 12.5px; font-weight: 600; color: #1a1a1f; }
-    .fx-diff { font-size: 12.5px; line-height: 1.5; color: #55565c; }
-    .fx-diff del { color: #8a8b90; text-decoration: line-through; }
-    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: #efeff2; border-radius: 3px; padding: 0 2px; }
-    .fx-line { font-size: 11.5px; color: #55565c; }
-    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #55565c; min-width: 0; }
+    .fx-title { font-size: 12.5px; font-weight: 600; color: var(--w-ink); }
+    .fx-diff { font-size: 12.5px; line-height: 1.5; color: var(--w-sub); }
+    .fx-diff del { color: var(--w-faint); text-decoration: line-through; }
+    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: var(--w-ins); border-radius: 3px; padding: 0 2px; }
+    .fx-line { font-size: 11.5px; color: var(--w-sub); }
+    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--w-sub); min-width: 0; }
     .fx-src img { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
     .fx-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6c72; }
+    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--w-muted); }
     .fx-applied { opacity: .75; }
     .fx-applied .fx-state { color: var(--ink); font-weight: 500; }
     .fx-skipped { opacity: .55; }
@@ -5469,15 +5515,15 @@
     /* 8px rounded rectangles (the clean frame): an ink fill for the one a
        card asks for first, a grey outline for the rest. */
     button.act {
-      border: 1px solid #d4d4d8; background: var(--surface); color: #1a1a1f;
+      border: 1px solid var(--w-ctl); background: var(--surface); color: var(--w-ink);
       border-radius: 8px; padding: 7px 12px;
       font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
       transition: transform .1s ease, border-color .15s ease, background .15s ease, color .15s ease;
     }
-    button.act:hover:not([disabled]) { background: #f7f7f8; border-color: #c4c4ca; }
+    button.act:hover:not([disabled]) { background: var(--w-soft); border-color: var(--w-ctl-hover); }
     button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: #1a1a1f; border-color: #1a1a1f; color: #fff; }
-    button.act.primary:hover:not([disabled]) { background: #000; border-color: #000; color: #fff; }
+    button.act.primary { background: var(--w-primary); border-color: var(--w-primary); color: var(--w-on-primary); }
+    button.act.primary:hover:not([disabled]) { background: var(--w-primary-hover); border-color: var(--w-primary-hover); color: var(--w-on-primary); }
     button.act[disabled] { opacity: .5; cursor: default; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
@@ -5489,11 +5535,11 @@
       margin-top: 2px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
-    .st-supports { color: #1f7a4d; }
-    .st-refutes { color: #b02a2a; }
+    .st-supports { color: var(--w-ok-ink); }
+    .st-refutes { color: var(--w-bad-ink); }
     .st-context { color: var(--chip-ink); }
-    .st-manual { color: #245d99; }
-    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .st-manual { color: var(--w-link-ink); }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid var(--w-line); background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .src-ico:empty { display: none; }
     .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
@@ -5516,9 +5562,9 @@
     .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
     .loading { font-size: 13px; color: var(--body); }
     /* A search that needs a sign-in, or ran out (searchGateHtml): grey, never a finding's colour. */
-    .gate { margin-top: 8px; padding: 12px; border-radius: 10px; background: #f7f7f8; display: flex; flex-direction: column; gap: 6px; }
-    .gate-head { font-size: 13px; font-weight: 600; color: #1a1a1f; }
-    .gate-body { font-size: 12px; line-height: 1.45; color: #6b6c72; }
+    .gate { margin-top: 8px; padding: 12px; border-radius: 10px; background: var(--w-soft); display: flex; flex-direction: column; gap: 6px; }
+    .gate-head { font-size: 13px; font-weight: 600; color: var(--w-ink); }
+    .gate-body { font-size: 12px; line-height: 1.45; color: var(--w-muted); }
     .gate .row { margin-top: 4px; flex-wrap: wrap; }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
@@ -5531,10 +5577,10 @@
     .autosrc input { accent-color: var(--accent); }
     /* The footer holds the panel's one bulk action ("N fixes to review",
        Review all), or a site's Turn on; with nothing to offer it is not drawn. */
-    .foot { flex-shrink: 0; padding: 12px 14px 12px 20px; border-top: 1px solid #ececee; font-size: 13px; color: #6b6c72; display: flex; align-items: center; gap: 8px; }
+    .foot { flex-shrink: 0; padding: 12px 14px 12px 20px; border-top: 1px solid var(--w-line); font-size: 13px; color: var(--w-muted); display: flex; align-items: center; gap: 8px; }
     .foot.empty { display: none; }
     .foot > button.act, .foot > a { margin-left: auto; }
-    .foot-ready b { color: #1a1a1f; font-weight: 600; }
+    .foot-ready b { color: var(--w-ink); font-weight: 600; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
     .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -5553,6 +5599,7 @@
   function makeWidget() {
     const host = document.createElement("div");
     host.id = "tracely-host";
+    if (themeDark()) host.classList.add("tracely-dark"); // Settings → General → Appearance (applyTheme)
     const shadow = host.attachShadow({ mode: "open" });
     document.documentElement.appendChild(host);
     const style = document.createElement("style");
@@ -5687,6 +5734,8 @@
       if (!docQuiet()) { requestDocsMarks(); cycle(); }
     });
     panelTogglers.add(() => { expanded = !expanded; render(); });
+    // Settings → General → Appearance: the cards in the page take the theme's palette (DM, below), and an open card is drawn again.
+    themeListeners.add((dark) => { Object.assign(DM, dark ? DM_DARK : DM_LIGHT); hideDocsPopover({ instant: true }); });
     /* Settings → Documents: this Doc's line in the list — its title, where it
        is, what is open, when it was read and how much it keeps here. Under its
        own key ("doc.<id>"), so two open Docs never write over each other, and
@@ -7244,7 +7293,26 @@
       ink: "#1c1c1c", body: "#737373", hint: "#9a9ba1", green: "#16a34a", red: "#d93636", amber: "#ffb800", orange: "#ff5900",
       blockBg: "#f8f8f8", rowSel: "#f8f8f8", rowBorder: "#e5e5e5", chipBg: "#f2f2f2", pillBorder: "#e0e0e0",
       badge: "#1a56db", credBg: "#eef7f0", credOtherBg: "#f2f2f3",
+      surface: "#fff", onInk: "#fff", inkHover: "#000", hover: "rgba(0,0,0,0.04)", ctl: "#d9d9d9", radio: "#d1d1d1",
+      line: "#ededed", skel: "#ebebeb", skel2: "#f4f4f4", frame: "#000", faint: "#8a8b90", ins: "#efeff2", wash: "rgba(0,0,0,.07)",
     };
+    /* The cards Tracely puts in the page (the hover card, Review all's) read
+       DM when they are drawn, so Settings → General → Appearance swaps its
+       values (themeListeners, beside this mode's prefs listener) and the next
+       paint is in the new theme. `ink` is text and the primary fill, `onInk`
+       what sits on it. DOC_INK is for what is drawn on the document's own
+       text (the cursor, the Type preview): the page stays light, so it never
+       changes. */
+    const DM_LIGHT = { ...DM };
+    const DM_DARK = {
+      ...DM_LIGHT, // the finding colours, the brand orange and the badge blue stay
+      ink: "#f6f6f8", body: "rgba(246,246,248,.66)", hint: "rgba(246,246,248,.45)", green: "#34d399",
+      blockBg: "rgba(255,255,255,.05)", rowSel: "rgba(255,255,255,.07)", rowBorder: "rgba(255,255,255,.12)", chipBg: "rgba(255,255,255,.08)", pillBorder: "rgba(255,255,255,.18)",
+      credBg: "rgba(52,211,153,.12)", credOtherBg: "rgba(255,255,255,.06)",
+      surface: "#17171b", onInk: "#17171b", inkHover: "#ffffff", hover: "rgba(255,255,255,.06)", ctl: "rgba(255,255,255,.22)", radio: "rgba(255,255,255,.3)",
+      line: "rgba(255,255,255,.1)", skel: "rgba(255,255,255,.09)", skel2: "rgba(255,255,255,.05)", frame: "rgba(255,255,255,.28)", faint: "rgba(246,246,248,.5)", ins: "rgba(255,255,255,.12)", wash: "rgba(255,255,255,.1)",
+    };
+    const DOC_INK = DM_LIGHT.ink;
     /* The app's copy, verbatim where a state exists there (fixFlowCopy.ts,
        citationFlowCopy.ts), and in its voice where it does not. */
     const POP_COPY = {
@@ -7313,15 +7381,15 @@
       const b = el("button", {
         padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
         fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
-        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
-        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+        background: primary ? DM.ink : DM.surface, border: `1px solid ${primary ? DM.ink : DM.ctl}`,
+        color: primary ? DM.onInk : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
       }, label);
       b.type = "button";
       b.disabled = disabled;
       if (title) b.title = title;
       if (!disabled) {
-        b.addEventListener("mouseenter", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
-        b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : "#fff"; });
+        b.addEventListener("mouseenter", () => { b.style.background = primary ? DM.inkHover : DM.hover; });
+        b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : DM.surface; });
       }
       return b;
     }
@@ -7350,7 +7418,7 @@
       return w;
     }
     function dmProgress() {
-      const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: "#ededed", overflow: "hidden", flex: "0 0 auto" });
+      const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: DM.line, overflow: "hidden", flex: "0 0 auto" });
       // Ink, not the frame's orange: orange is a finding colour, and a search
       // in progress is not a finding (CLAUDE.md "UI decisions").
       const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.ink });
@@ -7364,10 +7432,10 @@
       const w = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
       for (const [wide, narrow] of [[214, 122], [186, 96]]) {
         const row = el("div", { display: "flex", alignItems: "center", gap: "10px" });
-        row.appendChild(el("span", { display: "block", width: "28px", height: "28px", borderRadius: "8px", background: "#ebebeb", flexShrink: "0" }));
+        row.appendChild(el("span", { display: "block", width: "28px", height: "28px", borderRadius: "8px", background: DM.skel, flexShrink: "0" }));
         const lines = el("span", { display: "flex", flexDirection: "column", gap: "6px" });
-        lines.appendChild(el("span", { display: "block", height: "9px", borderRadius: "999px", background: "#ebebeb", width: `${wide}px` }));
-        lines.appendChild(el("span", { display: "block", height: "8px", borderRadius: "999px", background: "#f4f4f4", width: `${narrow}px` }));
+        lines.appendChild(el("span", { display: "block", height: "9px", borderRadius: "999px", background: DM.skel, width: `${wide}px` }));
+        lines.appendChild(el("span", { display: "block", height: "8px", borderRadius: "999px", background: DM.skel2, width: `${narrow}px` }));
         row.appendChild(lines);
         w.appendChild(row);
         if (!reducedMotion() && typeof row.animate === "function") row.animate([{ opacity: 0.5 }, { opacity: 1 }, { opacity: 0.5 }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
@@ -7387,7 +7455,7 @@
       const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
       const icon = faviconUrl(src.url);
       if (!icon) return box;
-      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: `1px solid ${DM.rowBorder}`, borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
       const img = el("img", { width: "18px", height: "18px", display: "block" });
       img.alt = "";
       img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
@@ -7437,7 +7505,7 @@
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
-      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      else Object.assign(radio.style, { border: `1.5px solid ${DM.radio}`, background: DM.surface });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
       return row;
@@ -7474,7 +7542,7 @@
       w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
       for (const [key] of CITE_STYLES) {
         const on = key === current;
-        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? DM.onInk : DM.body, background: on ? DM.ink : DM.surface, border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
         p.type = "button";
         p.addEventListener("click", () => onSet(key));
         w.appendChild(p);
@@ -7490,7 +7558,7 @@
         transform: pointing === "down" ? "scaleY(-1)" : "", ...(above ? { marginTop: "-2px" } : { marginBottom: "-2px" }) });
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", "M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z");
-      path.setAttribute("fill", "white"); path.setAttribute("stroke", "black"); path.setAttribute("stroke-width", "2");
+      path.setAttribute("fill", DM.surface); path.setAttribute("stroke", DM.frame); path.setAttribute("stroke-width", "2"); // the card's own fill and edge
       svg.appendChild(path);
       return svg;
     }
@@ -7636,7 +7704,7 @@
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
-      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: DM.surface, border: `2px solid ${DM.frame}`, borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
       popStepShown = null;
@@ -7823,7 +7891,7 @@
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box", marginTop: "2px" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
-      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      else Object.assign(radio.style, { border: `1.5px solid ${DM.radio}`, background: DM.surface });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
       return row;
@@ -8114,7 +8182,7 @@
       if (v.kind === "result") {
         const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
         const w = dmIssue(title, v.text);
-        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: DM.wash, color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
         if (!v.basis && !v.revision) return w;
         // What the fuller answer rests on, and its own fix — applied like the
@@ -8978,13 +9046,13 @@
         const ico = faviconUrl(src.url);
         let icon;
         if (ico) {
-          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#f2f2f2" });
+          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: DM.chipBg });
           icon.src = ico;
           icon.alt = "";
           icon.referrerPolicy = "no-referrer";
           icon.addEventListener("error", () => { icon.style.visibility = "hidden"; });
         } else {
-          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#ebebeb", fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: DM.skel, fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
         }
         const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column" });
         meta.appendChild(el("span", { fontSize: "13px", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, src.title));
@@ -10466,10 +10534,10 @@
       Object.assign(arrow.style, { position: "absolute", left: "-2px", top: "-2px", overflow: "visible", transformOrigin: "2px 2px" });
       const path = document.createElementNS(ns, "path");
       path.setAttribute("d", "M2 2 L2 19.5 L6.6 15.2 L9.6 22 L12.9 20.6 L9.9 13.9 L16.2 13.9 Z");
-      path.setAttribute("fill", DM.ink); path.setAttribute("stroke", "#fff"); path.setAttribute("stroke-width", "1.5"); path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("fill", DOC_INK); path.setAttribute("stroke", "#fff"); path.setAttribute("stroke-width", "1.5"); path.setAttribute("stroke-linejoin", "round");
       arrow.appendChild(path);
       const pill = el("div", {
-        position: "absolute", left: "13px", top: "19px", background: DM.ink, color: "#fff", fontFamily: APP.font, fontSize: "11.5px",
+        position: "absolute", left: "13px", top: "19px", background: DOC_INK, color: "#fff", fontFamily: APP.font, fontSize: "11.5px",
         fontWeight: "600", lineHeight: "18px", padding: "0 7px", borderRadius: "6px", whiteSpace: "nowrap", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
       }, "Tracely");
       root.append(ring, arrow, pill);
@@ -10690,7 +10758,7 @@
         fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "8px", opacity: "1", outline: "none", WebkitFontSmoothing: "antialiased",
       } : {
         position: "fixed", left: "0", top: "0", zIndex: "902", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
-        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
+        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DOC_INK}`,
         borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", fontFamily: APP.font, color: DM.ink,
         display: "none", flexDirection: "column", gap: "8px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
       });
@@ -10699,7 +10767,7 @@
       bubble.setAttribute("data-tracely-type-bubble", "");
       bubble.tabIndex = -1;
       const head = el("div", { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
-      head.appendChild(el("span", { background: DM.ink, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
+      head.appendChild(el("span", { background: DOC_INK, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
       if (mode === "strike" && diff) head.appendChild(el("span", { fontSize: "12px", color: DM.ink }, diff.removed.trim() ? TP_COPY.deletes : TP_COPY.same));
       const status = el("span", { fontSize: "11.5px", color: DM.body }, TP_COPY.typing);
       head.appendChild(status);
@@ -10906,7 +10974,7 @@
         for (const l of flow) {
           for (const s of l.spans) {
             if (s.ins) { ctx.fillStyle = TP_INSERT; ctx.fillRect(s.x, l.top, measure(s.text.replace(/\s+$/, "")), para.h); }
-            ctx.fillStyle = s.ins ? DM.ink : "#000";
+            ctx.fillStyle = s.ins ? DOC_INK : "#000";
             ctx.fillText(s.text, s.x, l.top + para.base);
           }
         }
@@ -11636,7 +11704,7 @@
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
       const card = el("div", {
         position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "10px 12px 12px",
-        background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
+        background: DM.surface, border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
         pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "6px", fontFamily: APP.font, color: DM.ink,
         fontSize: "12.5px", lineHeight: "1.45", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
@@ -11652,8 +11720,8 @@
         const d = previewDiff(e.find, e.next);
         const diff = el("div", { color: DM.body });
         diff.append(document.createTextNode(tpClip(d.keepBefore, 46, true)));
-        if (d.removed.trim()) diff.appendChild(el("span", { textDecoration: "line-through", color: "#8a8b90" }, d.removed));
-        if (d.inserted.trim()) diff.appendChild(el("span", { fontWeight: "600", color: DM.ink, background: "#efeff2", borderRadius: "3px", padding: "0 2px" }, d.inserted));
+        if (d.removed.trim()) diff.appendChild(el("span", { textDecoration: "line-through", color: DM.faint }, d.removed));
+        if (d.inserted.trim()) diff.appendChild(el("span", { fontWeight: "600", color: DM.ink, background: DM.ins, borderRadius: "3px", padding: "0 2px" }, d.inserted));
         diff.append(document.createTextNode(tpClip(d.keepAfter, 30, false)));
         card.appendChild(diff);
       }
@@ -11828,7 +11896,7 @@
       const strikes = geo.pieces.map(() => fixStrikeEl());
       const chip = el("div", {
         position: "absolute", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
-        padding: "3px 3px 3px 7px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
+        padding: "3px 3px 3px 7px", background: DM.surface, border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
         fontFamily: APP.font, fontSize: "12px", lineHeight: "1.3", color: DM.ink, pointerEvents: "auto", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
       chip.setAttribute("data-tracely-fix-chip", "");

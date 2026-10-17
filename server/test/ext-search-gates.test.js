@@ -72,7 +72,7 @@ test("the card's block: sign in before a search; out of searches, the server's w
   assert.doesNotMatch(student, /data-upgrade="student"/);
   for (const t of [{ plan: "pro" }, { beta: true }, { unenforced: true }]) assert.doesNotMatch(cards(t).X.searchGateHtml({ kind: "plan_limit", note: "n" }), /data-upgrade/, JSON.stringify(t));
   // Never a finding's colour.
-  assert.match(SRC, /\.gate \{ margin-top: 8px; padding: 12px; border-radius: 10px; background: #f7f7f8;/);
+  assert.match(SRC, /\.gate \{ margin-top: 8px; padding: 12px; border-radius: 10px; background: var\(--w-soft\);/, "a neutral grey (#f7f7f8, or its dark token)");
 });
 
 test("Sign in with Google runs the worker's sign-in; anything but a cancel finishes in Settings → Account", async () => {
