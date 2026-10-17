@@ -275,6 +275,19 @@ test("General: the button's corner, the panel on open, and the shortcut Chrome h
   assert.deepEqual(prefsOf(OPTIONS, /const PREF_DEFAULTS = (\{[^}]*\});/), prefsOf(SRC, /const PREF_DEFAULTS = (\{[^}]*\});/), "options.js and content.js: one set of names and defaults");
 });
 
+test("General → Appearance: Light, Dark or Match system, saved where the widget reads it", async () => {
+  const p = await openPage({ signedIn: false, plan: "free" });
+  assert.equal(p.look("light").getAttribute("aria-pressed"), "true", "light by default");
+  p.look("dark").click();
+  assert.equal(lastPrefs(p).appearance, "dark");
+  assert.equal(p.look("dark").getAttribute("aria-pressed"), "true");
+  assert.equal(p.look("light").getAttribute("aria-pressed"), "false");
+  p.look("system").click();
+  assert.equal(lastPrefs(p).appearance, "system");
+  const odd = await openPage({ signedIn: false, plan: "free" }, { stored: { prefs: { appearance: "sepia" } } });
+  assert.equal(odd.look("light").getAttribute("aria-pressed"), "true", "a value this page doesn't know shows as Light");
+});
+
 test("Checking: each kind, how strict, the usual kind of writing, the evidence search, the preview and Review all — saved where the widget reads them", async () => {
   const p = await openPage({ signedIn: false, plan: "free" });
   for (const id of ["showEvidence", "showCitations", "autoEvidence", "previewEdits", "reviewTyping"]) assert.equal(p.$(id).checked, true, `${id}: on, as the widget was`);

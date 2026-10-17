@@ -30,12 +30,12 @@
    `grep -n` when you move things; the anchors themselves must not move):
         63  Verdicts, card copy, colours, FEATURES switches
        385  Settings and plan gate; what the Settings page sets (prefs, docPrefs, ignoreList)
-       917  Shared helpers: hashing, bibliography, citation formatting
-      1345  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1640  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      4142  Widget chrome, API transport, design tokens
-      5603  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     12535  Field mode (textareas and contenteditables on any site)
+       939  Shared helpers: hashing, bibliography, citation formatting
+      1367  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1662  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      4164  Widget chrome, API transport, design tokens
+      5653  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12606  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -5115,9 +5115,11 @@
      (src/renderer/src/styles/index.css, and markMotion/problemCopy for the
      marks). Two copies on purpose: CSS custom properties for the widget's
      shadow root, and this object for the Docs popovers, which live in the
-     page DOM and cannot see shadow CSS. Dark mode is deliberately absent —
-     the app's dark tokens are --bg #0b0b0d / --surface #17171b / --text
-     #f6f6f8 / --border rgba(255,255,255,.18) for whoever adds it. */
+     page DOM and cannot see shadow CSS. Dark (2.21.66, Settings → General →
+     Appearance, themeDark): the app's dark tokens (--bg #0b0b0d / --surface
+     #17171b / --text #f6f6f8 / --border rgba(255,255,255,.18)) under
+     WIDGET_CSS's :host(.tracely-dark), and Docs mode's DM_DARK for the page's
+     cards. This object stays the light values. */
   const APP = {
     // The app ships NO webfont: it renders in the reader's system font, so
     // matching it means using the same stack, not bundling a face. The
@@ -5172,6 +5174,7 @@
        the Settings page uses them. The finding colours, the brand orange and
        the launcher stay as they are. */
     :host(.tracely-dark) {
+      color-scheme: dark; /* the list scrollbar and native controls too */
       --surface: #17171b; --bg: #0b0b0d; --surface-2: rgba(255,255,255,.04);
       --text: #f6f6f8; --ink: #f6f6f8; --body: rgba(246,246,248,.66);
       --muted: rgba(246,246,248,.66); --label: rgba(246,246,248,.62); --chip-ink: rgba(246,246,248,.8);

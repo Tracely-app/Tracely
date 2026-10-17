@@ -1037,6 +1037,34 @@ Since 2.21.64 (phase 1, PR 3) two more sections follow Citations:
 Tests: `server/test/ext-settings-documents.test.js`,
 `server/test/ext-settings-page.test.js`.
 
+Since 2.21.66 **Appearance** (General, "The Tracely button") sets
+`prefs.appearance`: `light` (the default), `dark` or `system` (the
+browser's choice, followed as it changes; `themeDark`). This Settings page
+follows the browser on its own.
+- **The panel.** `applyTheme` puts `.tracely-dark` on the shadow host (and
+  `makeWidget` does for a widget made later). WIDGET_CSS's
+  `:host(.tracely-dark)` redefines the app's tokens and the widget's own
+  neutrals (`--w-*`), with `color-scheme: dark`.
+  - Every neutral in WIDGET_CSS is a token. Only these are written as
+    colours: the finding colours, the brand orange, the "still checking"
+    grey, white on a mark, and the launcher (`--w-launcher`, dark in both:
+    it sits on the page). A test fails on any other hex.
+- **The cards in the page** (the Docs hover card, Review all's chips and
+  margin cards) read Docs mode's `DM` when they are drawn.
+  - A theme change swaps it between `DM_LIGHT` and `DM_DARK`
+    (`themeListeners`) and closes an open card.
+  - `ink` is text and the primary fill; `onInk` sits on it; `surface` and
+    `frame` are a card's fill and edge.
+  - The `const DM = {` line is a test anchor and keeps the light values.
+- **The document's own text keeps the page's ink** (`DOC_INK`): the Tracely
+  cursor, the Type preview's card and canvas. The page stays light whatever
+  the theme.
+
+Checked in the browser pane on a page that runs the real WIDGET_CSS (from
+content.js) on a sample panel, and the real `DM` palette and `dm*` helpers
+on a sample hover card, in both themes. Not checked in real Docs. Tests:
+`server/test/ext-dark-theme.test.js`.
+
 ## Measuring
 
 Prompt and model changes go through `eval/models/harness` and get a dated
