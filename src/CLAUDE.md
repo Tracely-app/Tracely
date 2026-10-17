@@ -279,6 +279,50 @@ reported the difference between their builds as a bug in one of them.
   older preview has to install one build by hand; every one after that is
   automatic. Auto-update can only be delivered *by* an update.
 
+## Settings mirrors the extension's (2026-10-16)
+
+Owner: "start the desktop settings mirror", after the extension's Settings
+revamp (`extension/CLAUDE.md`, "Settings (options.html)").
+
+- **The sections** (`SettingsView.tsx`) follow the extension's: General,
+  Checking, Citations, Account and billing, Privacy and data, Help. The
+  desktop's own Appearance and Profile stay.
+  - The disabled Notifications, Security and Integrations are gone, by the
+    owner's choice.
+  - A link can open Settings at a section (`initialSection`). Home's "You
+    choose where Tracely works" opens General.
+- **General → Pause for 1 hour / for today** lives in main
+  (`pauseScreenWatch` → `stopScreenWatch(until)`), not the view.
+  - The time is the `screenWatchResumeAt` setting, so a pause outlives a
+    restart, and one that ended while the app was closed starts Screen Watch
+    at launch (`initScreenWatch`).
+  - The switch, the tray and the shortcut end a pause: off means off until
+    turned on.
+  - `ScreenWatchStatus.resumeAt` says when a pause ends.
+- **Account and billing's bars** come from `/api/entitlement`
+  (`fetchUsage` → `settingsHelp.usageFromEntitlement`): source searches
+  today and this month against the plan's limits. They show nothing when
+  the server doesn't say.
+- **Privacy and data → Export my data** (`main/ipc/dataHandlers.ts`): a save
+  dialog, then one JSON file with the documents, the library with its
+  citations, and the settings. It leaves out the bookkeeping rows
+  (`EXPORT_SETTINGS_LEAVE_OUT`), and never includes the avatar, the cache or
+  the session.
+- **Help:** the version on every build, `WHATS_NEW` (newest first, dated),
+  the shortcuts as set, Copy diagnostics (`buildDiagnostics`: never a word
+  of writing, a name or learned names), and Email us.
+- **Wording follows the owner's rules here:** sentence case (the field labels
+  and the plan badge no longer upper-case themselves) and no dots on the plan
+  list. The rest of the app's small-caps labels are untouched.
+- **Still to mirror** (PR 2, PR 3): which finding kinds show, strictness,
+  the automatic evidence search, "match each document's style", the list's
+  heading, links and access dates, citable-only and never-suggest sources,
+  each document's own settings, Memory, and a durable "Never flag this" list.
+  The owner chose that last one over the session-only dismissals
+  (`AnalyzeView`'s note): plain Dismiss stays per session.
+
+Tests: `src/shared/settingsHelp.test.ts`.
+
 ## Previewing the UI (`npm run preview:ui`, or `/preview`)
 
 **`/preview` is the command for this** — it covers booting the harness, driving

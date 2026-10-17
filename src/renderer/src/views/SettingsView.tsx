@@ -1009,13 +1009,21 @@ export default function SettingsView({
                           {row.used} of {row.of}
                         </span>
                       </div>
-                      <meter
-                        className="settings-usage-meter"
-                        min={0}
-                        max={row.of}
-                        value={Math.min(row.used, row.of)}
+                      {/* A drawn bar, not a <meter>: Chromium ignores accent-color on one,
+                          and its own green bar read as a finding's colour. */}
+                      <span
+                        className="settings-usage-track"
+                        role="meter"
+                        aria-valuemin={0}
+                        aria-valuemax={row.of}
+                        aria-valuenow={Math.min(row.used, row.of)}
                         aria-label={`${row.label}: ${row.used} of ${row.of}`}
-                      />
+                      >
+                        <span
+                          className="settings-usage-fill"
+                          style={{ width: `${row.of > 0 ? Math.min(100, Math.round((row.used / row.of) * 100)) : 100}%` }}
+                        />
+                      </span>
                     </div>
                   ))}
                   {usage?.aiActionsPerDay ? (
