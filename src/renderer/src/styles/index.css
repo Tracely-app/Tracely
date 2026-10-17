@@ -3244,6 +3244,71 @@ textarea:disabled {
   color: var(--text);
 }
 
+/* Memory → Never flag these: a whole sentence, so it wraps and Remove stays put. */
+.settings-never-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Settings → Documents: one tile a document, its name over its own settings. Tokens only. */
+.settings-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-doc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.settings-doc-head {
+  min-width: 0;
+}
+
+.settings-doc-head .settings-toggle-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-doc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.settings-doc-controls select {
+  width: auto;
+  min-width: 170px;
+  margin-top: 0;
+}
+
+.settings-doc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Not .settings-panel input's full-width field: a plain checkbox, as .settings-toggle-row draws it. */
+.settings-doc-check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+}
+
 .settings-kbd {
   padding: 3px 8px;
   border: 1px solid var(--border);
@@ -6837,6 +6902,24 @@ textarea:disabled {
 
 /* The automatic evidence sweep's progress, beside the word count. Same corner,
    same weight — it is status, not an alert, and it disappears on its own. */
+/* "Tracely is off for this document": the same pill, with a button in it. */
+.docedit-checking.docedit-off {
+  pointer-events: auto;
+}
+
+.docedit-off-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.docedit-off-btn:hover {
+  text-decoration: underline;
+}
+
 .docedit-checking {
   position: absolute;
   left: 50%;

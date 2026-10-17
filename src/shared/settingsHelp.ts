@@ -116,6 +116,8 @@ export function buildDiagnostics(input: {
 
 /** Newest first, in the words a tester would use; dated, as the desktop ships by date as much as by number. */
 export const WHATS_NEW: readonly { date: string; text: string }[] = [
+  { date: '2026-10-17', text: 'Never flag a sentence again with the eye on a card. Each document can have its own citation style or be left unchecked, and Memory shows what Tracely keeps.' },
+  { date: '2026-10-16', text: 'Choose what Tracely flags and how strict it is, and how it cites: your document\'s style, the list\'s heading, links and access dates, and which sites it suggests.' },
   { date: '2026-10-16', text: 'A new Settings: pause Screen Watch for an hour or for the day, see what you have used, export your data, and this Help.' },
   { date: '2026-10-13', text: 'Apply revision changes one sentence at a time, writing tips are gone, and Needs evidence is blue.' },
   { date: '2026-10-12', text: 'Fewer wrong citation flags: a date is not a quantity, and a quoted title is not a quotation.' },

@@ -351,10 +351,42 @@ revamp (`extension/CLAUDE.md`, "Settings (options.html)").
     the list). It never touches the score or the critique.
   - **Not changed:** the web bridge's own formatter copy (`bridge/adapters.ts`,
     an experiment), and the "WORKS CITED" wording on the cards.
-- **Still to mirror** (PR 3): each document's own settings, Memory, and a
-  durable "Never flag this" list. The owner chose that over the
-  session-only dismissals (`AnalyzeView`'s note): plain Dismiss stays per
-  session.
+- **Never flag this** (PR 3, `neverFlag.ts`): the eye after Dismiss on the
+  editor's card (`DocumentMarkLayer`'s `onNeverFlag`) and on Screen Watch's
+  (`ProblemCard`). The owner chose a durable list over the session-only
+  dismissals (`AnalyzeView`'s note); plain Dismiss stays per session.
+  - The list is the `neverFlagSentences` setting (JSON, newest last, 500 at
+    most). A card sends `neverFlagAdd`, so main appends and two windows
+    can't drop each other's. Settings → Memory removes one by one.
+  - A sentence matches whatever its case, spacing, quote marks or end stop
+    (`neverFlagKey`, the extension's `ignoreKey`).
+  - It is honoured in `problemKindsFor` (`findings.never` → no kinds at all,
+    not even a factual error or "searching"), so all three callers obey it.
+    Screen Watch reads it live; the editor adds it to its own copy at once.
+- **Documents** (PR 3): the editor's own documents, each with its own
+  citation style and "Check this document". The kind of writing isn't
+  mirrored: the desktop has no kind detection to override.
+  - They live in `document_prefs` (a new table, so `SCHEMA_SQL` makes it for
+    everyone; it cascades with the document). `DocumentRecord.prefs` comes on
+    every read (`PREFS_JOIN`); no row means "as Settings says".
+  - The editor reads them when the document opens. The document's style
+    comes first in `flowStyle`. "Never check" stops live detection and the
+    grade (`neverCheckRef`) and draws no underlines. The pill where
+    "Checking sources" sits says so, with Check this document.
+  - **Forget grade** deletes the document's `document_structure` row.
+  - **No "bring back dismissed".** Desktop dismissals are per session, so
+    there is nothing kept to bring back.
+- **Memory** (PR 3, `dataHandlers.ts`): each part counted
+  (`db.memoryCounts`) and cleared on its own.
+  - **Saved checks** (`clearSavedChecks`): analyses, kept answers, grades.
+    It keeps the sources table, as Privacy's clear does.
+  - **Tracer chats** (`clearTracerChats`) and **document settings**.
+  - **Settings → Reset** (`resetSettingsToDefaults`) runs the defaults
+    through the same `applySettingsPatch` a change takes, so the hotkeys
+    register again. It keeps Screen Watch's apps and its on/off, the
+    never-flag list and the profile.
+  - The library is counted, never cleared here. Privacy's Clear analysis
+    history and Delete everything stay the one-press versions.
 
 Tests: `src/shared/settingsHelp.test.ts`, `src/shared/findingFilter.test.ts`,
 `src/shared/citationPrefs.test.ts`.

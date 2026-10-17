@@ -5,12 +5,16 @@ import type {
   AppSettings,
   CitationStyle,
   Density,
+  DocumentListItem,
+  DocumentPrefs,
   FontSize,
   Theme,
   WorksCitedHeadingChoice
 } from '@shared/types'
 import type {
   AppGetBuildInfoResponse,
+  MemoryInfo,
+  MemoryPart,
   ProfileInfo,
   ScannedApp,
   ScreenWatchStatus,
@@ -20,7 +24,9 @@ import Button from '../components/Button'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
 import SettingsField from '../components/SettingsField'
-import { CheckCheck, CircleHelp, CreditCard, Quote } from 'lucide-react'
+import { CheckCheck, CircleHelp, CreditCard, Database, FileText, Quote } from 'lucide-react'
+import { withoutNeverFlag } from '@shared/neverFlag'
+import { gradedOn } from '../components/documentSort'
 import { accessedPhrase, siteOf } from '@shared/citationPrefs'
 import {
   WHATS_NEW,
@@ -147,6 +153,8 @@ export type SettingsSection =
   | 'general'
   | 'checking'
   | 'citations'
+  | 'documents'
+  | 'memory'
   | 'appearance'
   | 'profile'
   | 'account'
@@ -157,6 +165,8 @@ const NAV: { id: SettingsSection; label: string; icon: (props: { size?: number }
   { id: 'general', label: 'General', icon: SlidersIcon },
   { id: 'checking', label: 'Checking', icon: (p) => <CheckCheck size={p.size ?? 15} /> },
   { id: 'citations', label: 'Citations', icon: (p) => <Quote size={p.size ?? 15} /> },
+  { id: 'documents', label: 'Documents', icon: (p) => <FileText size={p.size ?? 15} /> },
+  { id: 'memory', label: 'Memory', icon: (p) => <Database size={p.size ?? 15} /> },
   { id: 'appearance', label: 'Appearance', icon: SunIcon },
   { id: 'profile', label: 'Profile', icon: UserIcon },
   { id: 'account', label: 'Account and billing', icon: (p) => <CreditCard size={p.size ?? 15} /> },
@@ -173,6 +183,39 @@ const STRICT_LINE: Record<AppSettings['checkingStrictness'], string> = {
   clear: 'Shows only what is certain: a claim the evidence contradicts, a citation to a work that does not exist, a malformed citation. You may miss a real gap.',
   balanced: 'Shows everything Tracely finds.',
   thorough: 'Also asks for a source for general statements, not only for figures, quotations and findings.'
+}
+
+// Memory: what each confirm asks. Document settings has none: it is a few choices, made again in a click.
+const MEMORY_CONFIRM: Record<MemoryPart, { title: string; message: string; label: string }> = {
+  checks: {
+    title: 'Clear saved checks?',
+    message: 'Every kept answer, check and grade is deleted. Checking the same words again asks again, and a grade is read fresh.',
+    label: 'Clear saved checks'
+  },
+  tracer: {
+    title: 'Clear Tracer chats?',
+    message: 'Every conversation with Tracer is deleted from this computer. There is no other copy.',
+    label: 'Clear chats'
+  },
+  documentSettings: { title: 'Clear document settings?', message: 'Every document goes back to what Settings says.', label: 'Clear' },
+  settings: {
+    title: 'Reset settings?',
+    message: "Everything on these pages goes back to how Tracely starts. Screen Watch's apps, your profile and the never-flag sentences stay.",
+    label: 'Reset'
+  }
+}
+
+// Memory: what each Clear says it did.
+const MEMORY_DONE: Record<MemoryPart, string> = {
+  checks: 'Saved checks cleared. The next check of the same words asks again.',
+  tracer: 'Tracer chats cleared.',
+  documentSettings: 'Every document is back to what Settings says.',
+  settings: 'Settings are back to how Tracely starts.'
+}
+
+// "1 check", "3 checks": Memory's counts in words.
+function countOf(n: number, noun: string): string {
+  return `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`
 }
 
 // Where "Something went wrong?" writes to (the extension's Help has the same).
@@ -226,6 +269,74 @@ export default function SettingsView({
       .then(setSettings)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
+
+  // Settings → Documents: the editor's documents with their own settings, read when the section opens.
+  const [docs, setDocs] = useState<DocumentListItem[] | null>(null)
+  const [docsError, setDocsError] = useState<string | null>(null)
+  useEffect(() => {
+    if (section !== 'documents') return
+    tracelyApi
+      .listDocuments()
+      .then((res) => setDocs(res.documents))
+      .catch((err) => setDocsError(err instanceof Error ? err.message : String(err)))
+  }, [section])
+  async function saveDocPrefs(id: string, patch: Partial<DocumentPrefs>): Promise<void> {
+    setDocsError(null)
+    try {
+      const res = await tracelyApi.setDocumentPrefs(id, patch)
+      const prefs = res.document?.prefs
+      if (prefs) setDocs((list) => list?.map((d) => (d.id === id ? { ...d, prefs } : d)) ?? list)
+    } catch (err) {
+      setDocsError(err instanceof Error ? err.message : String(err))
+    }
+  }
+  async function forgetGrade(id: string): Promise<void> {
+    setDocsError(null)
+    try {
+      await tracelyApi.forgetDocumentGrade(id)
+      setDocs((list) => list?.map((d) => (d.id === id ? { ...d, score: null, gradedAt: null } : d)) ?? list)
+    } catch (err) {
+      setDocsError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // Settings → Memory: each part counted when the section opens, and cleared on its own.
+  const [memory, setMemory] = useState<MemoryInfo | null>(null)
+  const [memoryBusy, setMemoryBusy] = useState<MemoryPart | null>(null)
+  const [memoryConfirm, setMemoryConfirm] = useState<MemoryPart | null>(null)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
+  const [memoryDone, setMemoryDone] = useState<string | null>(null)
+  useEffect(() => {
+    if (section !== 'memory') return
+    setMemoryDone(null)
+    tracelyApi
+      .getMemory()
+      .then(setMemory)
+      .catch(() => setMemory(null))
+  }, [section])
+  async function clearMemoryPart(part: MemoryPart): Promise<void> {
+    setMemoryBusy(part)
+    setMemoryError(null)
+    setMemoryDone(null)
+    try {
+      const res = await tracelyApi.clearMemory(part)
+      setMemory(res.memory)
+      setSettings(res.settings)
+      if (part === 'settings') {
+        // Applied here as the controls apply them on change; main has re-registered the hotkeys.
+        applyTheme(res.settings.theme)
+        applyAccentColor(res.settings.accentColor)
+        applyDensity(res.settings.density)
+        applyFontSize(res.settings.fontSize)
+      }
+      setMemoryDone(MEMORY_DONE[part])
+    } catch (err) {
+      setMemoryError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setMemoryBusy(null)
+      setMemoryConfirm(null)
+    }
+  }
 
   // Citations → Never suggest these sites: a site as main compares it (citationPrefs.siteOf).
   const [avoidInput, setAvoidInput] = useState('')
@@ -577,6 +688,18 @@ export default function SettingsView({
             busy={profileSaving}
             onConfirm={(suppress) => void confirmSaveProfile(suppress)}
             onCancel={() => setConfirmingSave(false)}
+          />
+        ) : null}
+
+        {memoryConfirm ? (
+          <ConfirmDialog
+            title={MEMORY_CONFIRM[memoryConfirm].title}
+            message={MEMORY_CONFIRM[memoryConfirm].message}
+            confirmLabel={MEMORY_CONFIRM[memoryConfirm].label}
+            danger={memoryConfirm !== 'settings'}
+            busy={memoryBusy !== null}
+            onConfirm={() => void clearMemoryPart(memoryConfirm)}
+            onCancel={() => setMemoryConfirm(null)}
           />
         ) : null}
 
@@ -1153,6 +1276,181 @@ export default function SettingsView({
             hands off to the browser rather than reproducing the frame's payment
             method and billing-history boxes over nothing.
           */}
+          {/*
+            Documents (2026-10-17, the extension's per-Doc settings mirrored):
+            the editor's own documents, each with settings of its own, kept in
+            document_prefs and read by the editor when it opens the document.
+          */}
+          {section === 'documents' ? (
+            <div key="documents" className="settings-panel-content">
+              <div className="settings-panel-header">
+                <h3>Documents</h3>
+                <p>Your documents, and the settings each one has of its own.</p>
+              </div>
+              {docsError ? <p className="error-text">{docsError}</p> : null}
+              {docs && docs.length === 0 ? (
+                <p className="muted">None yet. A document you write in Tracely shows here once it has been saved.</p>
+              ) : null}
+              {docs && docs.length > 0 ? (
+                <div className="settings-doc-list">
+                  {docs.slice(0, 50).map((doc) => {
+                    const own = doc.prefs ?? { citationStyle: null, neverCheck: false }
+                    return (
+                      <div key={doc.id} className="settings-doc-row">
+                        <div className="settings-doc-head">
+                          <div className="settings-toggle-row-title">{doc.title || 'Untitled document'}</div>
+                          <div className="settings-toggle-row-subtitle">
+                            Edited {gradedOn(doc.updatedAt)}
+                            {doc.score !== null ? ` · Graded ${doc.score} out of 100` : ''}
+                          </div>
+                        </div>
+                        <div className="settings-doc-controls">
+                          <select
+                            aria-label={`Citation style for ${doc.title || 'this document'}`}
+                            value={own.citationStyle ?? ''}
+                            onChange={(e) =>
+                              void saveDocPrefs(doc.id, { citationStyle: (e.target.value || null) as CitationStyle | null })
+                            }
+                          >
+                            <option value="">Style as Settings says</option>
+                            <option value="APA">APA</option>
+                            <option value="MLA">MLA</option>
+                            <option value="Chicago">Chicago</option>
+                          </select>
+                          <label className="settings-doc-check">
+                            <input
+                              type="checkbox"
+                              checked={!own.neverCheck}
+                              onChange={(e) => void saveDocPrefs(doc.id, { neverCheck: !e.target.checked })}
+                            />
+                            Check this document
+                          </label>
+                          {doc.score !== null ? (
+                            <Button variant="ghost" onClick={() => void forgetGrade(doc.id)}>
+                              Forget grade
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+              <p className="muted settings-app-note">
+                A document's own style comes before Settings → Citations. One that isn't checked gets no underlines, no
+                searches and no grade until you turn it back on, here or in the document. Forget grade drops the kept
+                grade, so the next one is read fresh.
+              </p>
+            </div>
+          ) : null}
+
+          {/*
+            Memory (2026-10-17, the extension's mirrored): what Tracely keeps on
+            this computer, each part counted and cleared on its own. Privacy's
+            Clear analysis history and Delete everything stay the one-press
+            versions.
+          */}
+          {section === 'memory' ? (
+            <div key="memory" className="settings-panel-content">
+              <div className="settings-panel-header">
+                <h3>Memory</h3>
+                <p>What Tracely remembers on this computer, and how to clear each part.</p>
+              </div>
+              <div className="settings-danger-list">
+                <div className="settings-danger-row">
+                  <div>
+                    <div className="settings-toggle-row-title">Saved checks</div>
+                    <div className="settings-toggle-row-subtitle">
+                      {memory
+                        ? `${countOf(memory.answers, 'kept answer')}, ${countOf(memory.checks, 'check')} and ${countOf(memory.grades, 'grade')}. `
+                        : ''}
+                      Kept so the same words are never checked or paid for twice. Cleared, the next check of them asks again.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => setMemoryConfirm('checks')} disabled={memoryBusy !== null}>
+                    Clear
+                  </Button>
+                </div>
+                <div className="settings-danger-row">
+                  <div>
+                    <div className="settings-toggle-row-title">Tracer chats</div>
+                    <div className="settings-toggle-row-subtitle">
+                      {memory ? `${countOf(memory.tracerChats, 'conversation')}. ` : ''}Your conversations with Tracer,
+                      which quote your writing back to you.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => setMemoryConfirm('tracer')} disabled={memoryBusy !== null}>
+                    Clear
+                  </Button>
+                </div>
+                <div className="settings-danger-row">
+                  <div>
+                    <div className="settings-toggle-row-title">Document settings</div>
+                    <div className="settings-toggle-row-subtitle">
+                      {memory
+                        ? `${countOf(memory.documentSettings, 'document')} with settings of ${memory.documentSettings === 1 ? 'its' : 'their'} own. `
+                        : ''}
+                      Each
+                      one goes back to what Settings says. The documents stay.
+                    </div>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void clearMemoryPart('documentSettings')}
+                    disabled={memoryBusy !== null || memory?.documentSettings === 0}
+                  >
+                    Clear
+                  </Button>
+                </div>
+                <div className="settings-danger-row">
+                  <div>
+                    <div className="settings-toggle-row-title">Settings</div>
+                    <div className="settings-toggle-row-subtitle">
+                      Everything on these pages goes back to how Tracely starts. Screen Watch's apps, your profile and
+                      the sentences below stay.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => setMemoryConfirm('settings')} disabled={memoryBusy !== null}>
+                    Reset
+                  </Button>
+                </div>
+              </div>
+              {memory && memory.library > 0 ? (
+                <p className="muted settings-app-note">
+                  Your library holds {countOf(memory.library, 'saved source')}. Remove them in the Library, or all at
+                  once under Privacy and data.
+                </p>
+              ) : null}
+              {memoryError ? <p className="error-text">{memoryError}</p> : null}
+              {memoryDone ? <p className="muted">{memoryDone}</p> : null}
+
+              <h4 className="settings-group-title">Never flag these</h4>
+              <div className="settings-toggle-row-subtitle">
+                Sentences you told Tracely never to flag again, with the eye on a card. They stay unflagged everywhere:
+                in your documents and in Screen Watch.
+              </div>
+              {settings.neverFlagSentences.length ? (
+                <div className="settings-keys">
+                  {[...settings.neverFlagSentences].reverse().map((sentence) => (
+                    <div key={sentence} className="settings-key-row settings-never-row">
+                      <span>{sentence}</span>
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          void save({ neverFlagSentences: withoutNeverFlag(settings.neverFlagSentences, sentence) })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">None yet.</p>
+              )}
+            </div>
+          ) : null}
+
           {section === 'account' ? (
             <div key="account" className="settings-panel-content">
               <div className="settings-panel-header">
