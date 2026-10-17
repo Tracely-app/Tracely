@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..", "..");
 const SRC = readFileSync(path.join(ROOT, "extension", "content.js"), "utf8");
-const HTML = readFileSync(path.join(ROOT, "extension", "options.html"), "utf8");
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 function between(from, to) {
@@ -105,11 +104,12 @@ test("My writing is usually…: read where the rules aren't sure and the site do
   assert.deepEqual(plain(X.kindWithUsual({ kind: "essay", shown: "" })), { kind: "essay", shown: "" });
   X.notePrefs({});
   assert.deepEqual(plain(X.kindWithUsual({ kind: "essay", shown: "" })), { kind: "essay", shown: "" }, "Let Tracely tell");
-  // The page's list: each choice is a kind the widget knows, named as its header names it.
-  const options = [...HTML.slice(HTML.indexOf('id="usualKind"'), HTML.indexOf("</select>", HTML.indexOf('id="usualKind"'))).matchAll(/<option value="(\w*)">([^<]+)<\/option>/g)].map((m) => [m[1], m[2]]);
-  assert.ok(options.length >= 10);
-  assert.deepEqual(options[0], ["", "Let Tracely tell"]);
-  for (const [k, title] of options.slice(1)) assert.match(SRC, new RegExp(`\\n    ${k}: WK\\("${title}", "(?!homework|poem|story|script)`), `${k}: a checked kind, titled ${title}`);
+  // The page's list (options.js KIND_CHOICES, for "usually" and each Doc's own): each a checked kind the widget knows, named as its header names it.
+  const OPTIONS_JS = readFileSync(path.join(ROOT, "extension", "options.js"), "utf8");
+  const choices = JSON.parse(OPTIONS_JS.match(/const KIND_CHOICES = (\[[\s\S]*?\]);/)[1].replace(/,\s*\]$/, "]"));
+  assert.ok(choices.length >= 10);
+  assert.match(OPTIONS_JS, /usual\.innerHTML = kindOptionsHtml\("Let Tracely tell"\);/);
+  for (const [k, title] of choices) assert.match(SRC, new RegExp(`\\n    ${k}: WK\\("${title}", "(?!homework|poem|story|script)`), `${k}: a checked kind, titled ${title}`);
 });
 
 test("the citation style: Settings' everywhere, else the document's own, else MLA; a pick from before moves in once", () => {

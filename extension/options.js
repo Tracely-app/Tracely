@@ -8,6 +8,10 @@
                       Review all typing; the model, evidence recommendations
      Citations        the style, the list's heading, links and access dates,
                       the sources suggested (2.21.63)
+     Documents        each Doc checked here, and its own style, kind,
+                      never-check, reset and dismissed notes (2.21.64)
+     Memory           what is kept here, clearing each part, and the
+                      sentences never to flag again (2.21.64)
      Account and billing   sign-in, the plan card, what's been used
      Privacy and data what leaves the browser, export, clear saved checks,
                       delete the account
@@ -330,6 +334,7 @@ function load() {
   refreshAccount(); // fills the plan meters too, once the server has answered
   renderShortcut();
   renderWhatsNew();
+  loadMemory(); // Documents and Memory
   // Which section to show: the address's #section (a reload, a bookmark), or
   // the one the widget asked for (background.js "tracely-openSettings"),
   // else General.
@@ -344,7 +349,7 @@ function load() {
    One panel at a time. The address carries the section (#account …), so a
    reload or a bookmark comes back to it, and the widget's gear can open the
    page at the section it is about. */
-const SECTIONS = ["general", "checking", "citations", "account", "privacy", "help"];
+const SECTIONS = ["general", "checking", "citations", "documents", "memory", "account", "privacy", "help"];
 // Sections a bookmark or an older widget may still name: Google Docs and Sites are in General now.
 const SECTION_MOVED = { docs: "general", sites: "general" };
 function showSection(id) {
@@ -440,13 +445,25 @@ const STRICT_LINE = {
   balanced: "Shows everything Tracely finds.",
   thorough: "Also asks for a source for general statements, and for a figure a later citation in its paragraph might cover.",
 };
+// The kinds a writer most often writes, named as the widget's header names them (content.js WRITING_KINDS; a test keeps them equal).
+const KIND_CHOICES = [
+  ["essay", "Essay"], ["argumentative", "Argumentative essay"], ["informative", "Informative essay"], ["literary", "Literary analysis"],
+  ["rhetorical", "Rhetorical analysis"], ["research", "Research paper"], ["lab", "Lab report"], ["dbq", "DBQ essay"],
+  ["synthesis", "Synthesis essay"], ["speech", "Speech"], ["news", "News article"], ["blog", "Blog post"],
+  ["personal", "Personal essay"], ["college", "College or scholarship essay"],
+];
+// `none` names the first choice: Tracely decides (Checking), or the Doc follows Settings (Documents).
+const kindOptionsHtml = (none, picked = "") => [["", none], ...KIND_CHOICES]
+  .map(([k, label]) => `<option value="${k}"${k === picked ? " selected" : ""}>${escHtml(label)}</option>`).join("");
 const CHECK_SWITCHES = ["showEvidence", "showCitations", "autoEvidence", "previewEdits", "reviewTyping"];
 function renderChecking() {
   for (const id of CHECK_SWITCHES) $(id).checked = prefs[id] !== false;
   const strict = STRICT_LINE[prefs.strictness] ? prefs.strictness : "balanced";
   for (const b of document.querySelectorAll("[data-strict]")) b.setAttribute("aria-pressed", String(b.dataset.strict === strict));
   $("strictLine").textContent = STRICT_LINE[strict];
-  $("usualKind").value = typeof prefs.usualKind === "string" ? prefs.usualKind : ""; // its options are options.html's, named as content.js WRITING_KINDS names them
+  const usual = $("usualKind");
+  if (!usual.innerHTML) usual.innerHTML = kindOptionsHtml("Let Tracely tell");
+  usual.value = KIND_CHOICES.some(([k]) => k === prefs.usualKind) ? prefs.usualKind : "";
 }
 for (const id of CHECK_SWITCHES) $(id).addEventListener("change", (e) => savePrefs({ [id]: e.target.checked === true }));
 for (const b of document.querySelectorAll("[data-strict]")) b.addEventListener("click", () => savePrefs({ strictness: b.dataset.strict }));
@@ -501,6 +518,178 @@ $("avoidForm").addEventListener("submit", (e) => {
   if (!prefs.avoidSites.includes(site)) savePrefs({ avoidSites: [...prefs.avoidSites, site] });
 });
 
+/* ── Documents: each Doc Tracely has checked, and its own settings ───────
+   content.js (Docs mode) writes a line per Doc ("doc.<id>": title, url,
+   counts, checkedAt, bytes, noteDocIndex) and reads "docPrefs" (docPref).
+   This page can't reach the Doc's own storage, so a reset or the dismissed
+   notes brought back are marks the Doc takes the next time it is open. */
+let docs = [];    // [{ id, title, url, counts, checkedAt, bytes }], newest first
+let docPrefs = {};
+const DOC_ID_RE = /^[\w-]{10,}$/;
+const DOC_KEEP = 100; // lines kept; the oldest beyond go when the page opens
+function readDocs(all) {
+  const out = [];
+  for (const [k, v] of Object.entries(all ?? {})) {
+    const id = k.startsWith("doc.") ? k.slice(4) : "";
+    if (!DOC_ID_RE.test(id) || !v || typeof v !== "object") continue;
+    out.push({
+      id, title: typeof v.title === "string" && v.title.trim() ? v.title.trim() : "Untitled document",
+      // Only a Google Docs address is ever a link here.
+      url: typeof v.url === "string" && v.url.startsWith("https://docs.google.com/document/") ? v.url : "",
+      counts: v.counts && typeof v.counts === "object" ? v.counts : {}, checkedAt: Number(v.checkedAt) || 0, bytes: Number(v.bytes) || 0,
+    });
+  }
+  return out.sort((a, b) => b.checkedAt - a.checkedAt);
+}
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function countsLine(c) {
+  const parts = [];
+  if (c.wrong > 0) parts.push(plural(c.wrong, "factual error", "factual errors"));
+  if (c.check > 0) parts.push(`${c.check} ${c.check === 1 ? "needs" : "need"} evidence`);
+  if (c.cite > 0) parts.push(plural(c.cite, "citation issue", "citation issues"));
+  return parts.length ? parts.join(" · ") : "Nothing open";
+}
+function agoLine(t) {
+  if (!t) return "";
+  const min = Math.round((Date.now() - t) / 60_000);
+  if (min < 1) return "checked just now";
+  if (min < 60) return `checked ${min} min ago`;
+  if (min < 24 * 60) return `checked ${Math.round(min / 60)} h ago`;
+  return `checked ${new Date(t).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+}
+const STYLE_CHOICES = [["", "Citation style: as in Settings"], ["mla", "MLA"], ["apa", "APA"], ["chicago", "Chicago"]];
+function renderDocs() {
+  const list = docs.slice(0, 50);
+  $("noDocs").hidden = list.length > 0;
+  $("docList").innerHTML = list.map((d) => {
+    const p = docPrefs[d.id] && typeof docPrefs[d.id] === "object" ? docPrefs[d.id] : {};
+    const title = d.url ? `<a class="doc-title" href="${escHtml(d.url)}" target="_blank" rel="noopener noreferrer">${escHtml(d.title)}</a>` : `<span class="doc-title">${escHtml(d.title)}</span>`;
+    const styles = STYLE_CHOICES.map(([k, label]) => `<option value="${k}"${(p.style ?? "") === k ? " selected" : ""}>${escHtml(label)}</option>`).join("");
+    return `<div class="tile" data-doc-row="${d.id}">
+      <div class="row">
+        <div class="grow">${title}<div class="row-sub">${escHtml(p.never === true ? "Never checked" : [countsLine(d.counts), agoLine(d.checkedAt)].filter(Boolean).join(" · "))}</div></div>
+        <label class="doc-check">Check it<input type="checkbox" class="switch" data-doc-check="${d.id}"${p.never === true ? "" : " checked"} aria-label="Check ${escHtml(d.title)}" /></label>
+      </div>
+      <div class="doc-controls">
+        <select class="select" data-doc-style="${d.id}" aria-label="Citation style for ${escHtml(d.title)}">${styles}</select>
+        <select class="select" data-doc-kind="${d.id}" aria-label="Kind of writing for ${escHtml(d.title)}">${kindOptionsHtml("Kind: Tracely decides", p.kind ?? "")}</select>
+        <button class="btn btn-sm" data-doc-act="reset" data-doc="${d.id}">Reset saved checks</button>
+        <button class="btn btn-sm" data-doc-act="undismiss" data-doc="${d.id}">Bring back dismissed notes</button>
+        <button class="btn btn-sm btn-ghost" data-doc-act="forget" data-doc="${d.id}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+function saveDocPref(id, patch) {
+  docPrefs = { ...docPrefs, [id]: { ...(docPrefs[id] ?? {}), ...patch } };
+  chrome.storage.local.set({ docPrefs });
+  renderDocs();
+}
+const docTitle = (id) => docs.find((d) => d.id === id)?.title ?? "that document";
+$("docList").addEventListener("change", (e) => {
+  const t = e.target, ds = t?.dataset ?? {};
+  if (DOC_ID_RE.test(ds.docCheck ?? "")) saveDocPref(ds.docCheck, { never: t.checked !== true });
+  else if (DOC_ID_RE.test(ds.docStyle ?? "")) saveDocPref(ds.docStyle, { style: t.value });
+  else if (DOC_ID_RE.test(ds.docKind ?? "")) saveDocPref(ds.docKind, { kind: t.value });
+});
+$("docList").addEventListener("click", (e) => {
+  const ds = e.target?.dataset ?? {};
+  const id = ds.doc;
+  if (!DOC_ID_RE.test(id ?? "") || !ds.docAct) return;
+  if (ds.docAct === "reset") {
+    saveDocPref(id, { resetAt: Date.now() });
+    $("docsStatus").textContent = `“${docTitle(id)}” forgets its saved checks the next time it is open.`;
+  } else if (ds.docAct === "undismiss") {
+    saveDocPref(id, { undismissAt: Date.now() });
+    $("docsStatus").textContent = `“${docTitle(id)}” shows its dismissed notes again the next time it is open.`;
+  } else if (ds.docAct === "forget") {
+    const { [id]: _gone, ...rest } = docPrefs;
+    docPrefs = rest;
+    chrome.storage.local.remove(`doc.${id}`);
+    chrome.storage.local.set({ docPrefs });
+    docs = docs.filter((d) => d.id !== id);
+    renderDocs();
+    renderMemory();
+    $("docsStatus").textContent = "Removed from the list. It comes back, with Settings' defaults, the next time it is checked.";
+  }
+});
+
+/* ── Memory: what Tracely keeps in this browser, and clearing each part ── */
+let ignoreList = [];
+let diagCount = 0;
+const kb = (bytes) => (bytes < 1024 ? "under 1 KB" : `about ${Math.round(bytes / 1024)} KB`);
+function renderMemory() {
+  const checked = docs.reduce((n, d) => n + d.bytes, 0);
+  $("memChecks").textContent = docs.length
+    ? `The checks, sources and reviews kept with each document and site, so nothing is checked twice. ${plural(docs.length, "Google Doc", "Google Docs")}: ${kb(checked)}; other sites keep their own.`
+    : "The checks, sources and reviews kept with each document and site, so nothing is checked twice.";
+  $("memDocs").textContent = `${plural(docs.length, "document", "documents")} under Documents, and each one's own settings.`;
+  $("memDiag").textContent = `What the last ${diagCount || "few"} edits in a Doc answered, for Help's Copy diagnostics.`;
+  const ul = $("ignoreList");
+  ul.innerHTML = ignoreList.map((text, i) => `<li><span class="origin">${escHtml(text)}</span><button data-ignore-i="${i}">Remove</button></li>`).join("");
+  $("noIgnore").hidden = ignoreList.length > 0;
+  $("clearIgnore").hidden = ignoreList.length === 0;
+  if (typeof chrome.storage.local.getBytesInUse === "function") {
+    chrome.storage.local.getBytesInUse(null, (n) => { $("storageTotal").textContent = `Tracely's own storage in this browser: ${kb(n ?? 0)}.`; });
+  }
+}
+// Everything this page lists comes from one read of the extension's storage.
+function loadMemory() {
+  chrome.storage.local.get(null, (all) => {
+    docs = readDocs(all);
+    for (const d of docs.slice(DOC_KEEP)) chrome.storage.local.remove(`doc.${d.id}`);
+    docs = docs.slice(0, DOC_KEEP);
+    docPrefs = all?.docPrefs && typeof all.docPrefs === "object" && !Array.isArray(all.docPrefs) ? all.docPrefs : {};
+    ignoreList = Array.isArray(all?.ignoreList) ? all.ignoreList.filter((t) => typeof t === "string" && t.trim()) : [];
+    diagCount = Array.isArray(all?.diag?.edits) ? all.diag.edits.length : 0;
+    renderDocs();
+    renderMemory();
+  });
+}
+$("ignoreList").addEventListener("click", (e) => {
+  const i = Number(e.target?.dataset?.ignoreI);
+  if (!Number.isInteger(i) || !ignoreList[i]) return;
+  ignoreList = ignoreList.filter((_t, j) => j !== i);
+  chrome.storage.local.set({ ignoreList });
+  renderMemory();
+});
+$("clearIgnore").addEventListener("click", () => {
+  if (!confirm("Let Tracely flag all of these sentences again?")) return;
+  ignoreList = [];
+  chrome.storage.local.set({ ignoreList });
+  renderMemory();
+});
+$("memClearChecks").addEventListener("click", () => {
+  if (!confirm("Clear the checks, sources and reviews Tracely saved on this device? Your settings and sign-in stay.")) return;
+  savePrefs({ clearedAt: Date.now() });
+  $("memoryStatus").textContent = "Cleared. An open document clears now; others when you next open them.";
+});
+$("memUndismiss").addEventListener("click", () => {
+  savePrefs({ undismissedAt: Date.now() });
+  $("memoryStatus").textContent = "Dismissed notes come back in each document the next time it is open.";
+});
+$("memClearDocs").addEventListener("click", () => {
+  if (!confirm("Clear the document list and each document's own settings?")) return;
+  chrome.storage.local.remove([...docs.map((d) => `doc.${d.id}`), "docPrefs"]);
+  docs = [];
+  docPrefs = {};
+  renderDocs();
+  renderMemory();
+  $("memoryStatus").textContent = "The document list is cleared.";
+});
+$("memClearDiag").addEventListener("click", () => {
+  chrome.storage.local.remove("diag");
+  diagCount = 0;
+  renderMemory();
+  $("memoryStatus").textContent = "Diagnostics cleared.";
+});
+// Back to how Tracely starts, but never undoing a clear the pages are still to take.
+$("memResetPrefs").addEventListener("click", () => {
+  if (!confirm("Put every setting on these pages back to how Tracely starts?")) return;
+  savePrefs({ ...PREF_DEFAULTS, clearedAt: prefs.clearedAt, undismissedAt: prefs.undismissedAt });
+  $("memoryStatus").textContent = "Settings are back to how Tracely starts.";
+});
+
 /* The keyboard shortcut (manifest "commands": toggle-panel). Chrome owns the
    key: this page shows the one set, and Change opens Chrome's own page. */
 function renderShortcut() {
@@ -543,6 +732,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.64", "Settings → Documents lists the Docs Tracely has checked, each with its own style, kind and switch; Memory shows what is kept and clears it. Cards have Never flag this."],
   ["2.21.63", "Settings for what Tracely flags and how strict it is, your usual kind of writing, citation style, links and access dates, and sources to leave out."],
   ["2.21.62", "A new Settings: pause or turn Tracely off, move its button, a keyboard shortcut, your usage, export and clear your data, and this Help."],
   ["2.21.61", "Review all never cuts a suggestion off, says how many are out of view, and stops with one press (or Esc)."],
@@ -627,6 +817,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // Resumed or turned on from the widget's own card while this page is open.
   if (changes.prefs) { prefs = readPrefs(changes.prefs.newValue); renderPrefs(); }
   if (changes.docsEnabled) $("docsTgl").checked = changes.docsEnabled.newValue === true;
+  // A Doc checked, a card's "Never flag this", or another tab: Documents and Memory read again.
+  if (Object.keys(changes).some((k) => k.startsWith("doc.") || k === "docPrefs" || k === "ignoreList" || k === "diag")) loadMemory();
   // The widget's gear while this page is already open in a tab.
   if (changes.settingsOpenAt?.newValue) takeOpenAt(changes.settingsOpenAt.newValue);
   // The worker refreshes the entitlement cache on its own schedule; a plan

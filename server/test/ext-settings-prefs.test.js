@@ -32,6 +32,7 @@ function load({ ls = {} } = {}) {
     storageSet: (o) => log.sets.push(plain(o)),
     storageOnChanged: (fn) => { log.changed = fn; },
     extCall: (fn, fallback) => { try { return fn(); } catch { return fallback; } },
+    ignoreKey: (t) => String(t ?? "").toLowerCase().trim(), // (the verdicts section's; not in this slice)
     chrome: { runtime: { onMessage: { addListener: (fn) => { log.onMessage = fn; } } } },
   });
   // Object.keys(localStorage) is what the clear walks: the keys, not the methods.

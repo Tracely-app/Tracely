@@ -235,18 +235,18 @@
   .meter-fill { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .3s var(--ease); }
 
   /* The sites lists (auto-check on, never suggest): one row per site, Remove at its end. */
-  #sites, #avoidList { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-  #sites li, #avoidList li {
+  #sites, #avoidList, #ignoreList { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  #sites li, #avoidList li, #ignoreList li {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 8px 8px 8px 16px; border: 1px solid var(--border); border-radius: var(--r-tile);
   }
-  #sites .origin, #avoidList .origin { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-  #sites button, #avoidList button {
+  #sites .origin, #avoidList .origin, #ignoreList .origin { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  #sites button, #avoidList button, #ignoreList button {
     height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--r-ctl); border: 1px solid transparent;
     background: transparent; color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
     transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
   }
-  #sites button:hover, #avoidList button:hover { background: var(--hover); color: var(--text); }
+  #sites button:hover, #avoidList button:hover, #ignoreList button:hover { background: var(--hover); color: var(--text); }
   .empty { padding: 16px; border: 1px dashed var(--border); border-radius: var(--r-tile); font-size: 13px; line-height: 1.5; color: var(--muted); }
 
   /* ── the 2026-10-16 sections (General, Help, Privacy and data) ──────── */
@@ -272,6 +272,14 @@
   .select { padding-right: 28px; max-width: 100%; }
   .text-input { flex: 1; }
   .add-row { display: flex; gap: 8px; }
+  /* ── the 2026-10-16 Documents and Memory sections ─────────────────── */
+  #ignoreList .origin { font-weight: 400; }
+  .doc-list { display: flex; flex-direction: column; gap: 12px; }
+  .doc-title { font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+  .doc-title:hover { text-decoration: underline; }
+  .doc-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; flex-shrink: 0; }
+  .doc-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .doc-controls .select { height: var(--ctl-h-sm); font-size: 12px; }
   .switch:disabled { opacity: .55; cursor: not-allowed; }
   label.row.toggle.locked { cursor: default; }
   /* What's been used: a label, the numbers, and a bar under them. */
@@ -323,6 +331,8 @@
           <button class="nav-item" data-nav="general" aria-controls="sec-general"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>General</button>
           <button class="nav-item" data-nav="checking" aria-controls="sec-checking"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Checking</button>
           <button class="nav-item" data-nav="citations" aria-controls="sec-citations"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 7H6a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h3v1a3 3 0 0 1-3 3"/><path d="M20 7h-4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h3v1a3 3 0 0 1-3 3"/></svg>Citations</button>
+          <button class="nav-item" data-nav="documents" aria-controls="sec-documents"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>Documents</button>
+          <button class="nav-item" data-nav="memory" aria-controls="sec-memory"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>Memory</button>
           <button class="nav-item" data-nav="account" aria-controls="sec-account"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Account and billing</button>
           <button class="nav-item" data-nav="privacy" aria-controls="sec-privacy"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6z"/></svg>Privacy and data</button>
           <button class="nav-item" data-nav="help" aria-controls="sec-help"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><path d="M12 17h.01"/></svg>Help</button>
@@ -455,23 +465,7 @@
                 <div class="row-title">My writing is usually</div>
                 <div class="row-sub">Tracely reads each document's kind from its shape, which decides what it checks. When it can't tell, it reads it as this.</div>
               </div>
-              <select class="select" id="usualKind" aria-label="My writing is usually">
-                <option value="">Let Tracely tell</option>
-                <option value="essay">Essay</option>
-                <option value="argumentative">Argumentative essay</option>
-                <option value="informative">Informative essay</option>
-                <option value="literary">Literary analysis</option>
-                <option value="rhetorical">Rhetorical analysis</option>
-                <option value="research">Research paper</option>
-                <option value="lab">Lab report</option>
-                <option value="dbq">DBQ essay</option>
-                <option value="synthesis">Synthesis essay</option>
-                <option value="speech">Speech</option>
-                <option value="news">News article</option>
-                <option value="blog">Blog post</option>
-                <option value="personal">Personal essay</option>
-                <option value="college">College or scholarship essay</option>
-              </select>
+              <select class="select" id="usualKind" aria-label="My writing is usually"></select>
             </div>
           </div>
 
@@ -593,6 +587,73 @@
           <p id="citationsStatus" class="saved" role="status"></p>
         </section>
 
+        <section class="panel-content" id="sec-documents" data-panel="documents">
+          <header class="panel-head">
+            <h2>Documents</h2>
+            <p>The Google Docs Tracely has checked in this browser, and each one's own settings.</p>
+          </header>
+          <!-- content.js writes each Doc's line (chrome.storage "doc.<id>": title,
+               url, counts, checkedAt, bytes) and reads its settings from
+               "docPrefs" (docPref): style, kind, never, resetAt, undismissAt. -->
+          <div id="docList" class="doc-list"></div>
+          <p id="noDocs" class="empty">None yet. Open a Google Doc with Tracely on, and it shows here once it has been checked.</p>
+          <p id="docsStatus" class="saved" role="status"></p>
+        </section>
+
+        <section class="panel-content" id="sec-memory" data-panel="memory">
+          <header class="panel-head">
+            <h2>Memory</h2>
+            <p>What Tracely remembers in this browser, and how to clear each part.</p>
+          </header>
+          <div class="tile">
+            <div class="row">
+              <div class="grow">
+                <div class="row-title">Saved checks</div>
+                <div class="row-sub" id="memChecks">The checks, sources and reviews kept with each document and site, so nothing is checked twice.</div>
+              </div>
+              <button class="btn btn-sm" id="memClearChecks">Clear</button>
+            </div>
+            <div class="row">
+              <div class="grow">
+                <div class="row-title">Dismissed notes</div>
+                <div class="row-sub">Notes you dismissed stay hidden in their document. Bring them all back, in every document.</div>
+              </div>
+              <button class="btn btn-sm" id="memUndismiss">Bring back</button>
+            </div>
+            <div class="row">
+              <div class="grow">
+                <div class="row-title">Document list</div>
+                <div class="row-sub" id="memDocs">The documents under Documents, and each one's own settings.</div>
+              </div>
+              <button class="btn btn-sm" id="memClearDocs">Clear</button>
+            </div>
+            <div class="row">
+              <div class="grow">
+                <div class="row-title">Diagnostics</div>
+                <div class="row-sub" id="memDiag">What the last edits in a Doc answered, for Help's Copy diagnostics.</div>
+              </div>
+              <button class="btn btn-sm" id="memClearDiag">Clear</button>
+            </div>
+            <div class="row">
+              <div class="grow">
+                <div class="row-title">Settings</div>
+                <div class="row-sub">Everything on these pages goes back to how Tracely starts. Your sign-in and your sites stay.</div>
+              </div>
+              <button class="btn btn-sm" id="memResetPrefs">Reset</button>
+            </div>
+          </div>
+
+          <h3 class="group">Never flag these</h3>
+          <div class="tile">
+            <div class="row-sub">Sentences you told Tracely never to flag again, with the eye on a card. They stay unflagged in every document.</div>
+            <ul id="ignoreList"></ul>
+            <p id="noIgnore" class="empty">None yet. On a card, the struck-through eye beside Dismiss adds its sentence here.</p>
+            <div class="actions"><button class="btn btn-sm" id="clearIgnore" hidden>Remove all</button></div>
+          </div>
+          <p class="note" id="storageTotal"></p>
+          <p id="memoryStatus" class="saved" role="status"></p>
+        </section>
+
         <section class="panel-content" id="sec-account" data-panel="account">
           <header class="panel-head">
             <h2>Account and billing</h2>
@@ -662,7 +723,7 @@
             <div class="row">
               <div class="grow">
                 <div class="row-title">Export my data</div>
-                <div class="row-sub">A file of everything Tracely keeps in this browser's extension storage: your settings, sites and plan. Sign-in tokens are left out.</div>
+                <div class="row-sub">A file of everything Tracely keeps in this browser's extension storage: your settings, sites, plan, document list and the sentences you never want flagged. Sign-in tokens are left out.</div>
               </div>
               <button class="btn" id="exportData">Export</button>
             </div>

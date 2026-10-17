@@ -32,7 +32,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 // Since 2026-10-16 (owner: "revamp settings"): Google Docs and Sites live in General, and Help is new.
-const SECTIONS = ["general", "checking", "citations", "account", "privacy", "help"];
+const SECTIONS = ["general", "checking", "citations", "documents", "memory", "account", "privacy", "help"];
 
 test("one sidebar item and one panel per section, in the same order — and options.js and the worker name the same sections", () => {
   assert.deepEqual([...HTML.matchAll(/class="nav-item" data-nav="(\w+)"/g)].map((m) => m[1]), SECTIONS);
@@ -85,7 +85,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
       getManifest: () => ({ version: "2.21.99" }),
     },
     storage: {
-      local: { get: (d, cb) => cb?.({ ...d, ...stored }), set: (o) => { sets.push(plain(o)); Object.assign(stored, plain(o)); }, remove: (k) => { removed.push(k); } },
+      local: { get: (d, cb) => cb?.({ ...d, ...stored }), set: (o) => { sets.push(plain(o)); Object.assign(stored, plain(o)); }, remove: (k) => { removed.push(k); for (const x of [].concat(k)) delete stored[x]; } },
       onChanged: { addListener: (fn) => storageListeners.push(fn) },
     },
     commands: { getAll: (cb) => cb([{ name: "toggle-panel", shortcut: "Alt+Shift+K" }]) },
@@ -112,6 +112,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
     strict: (s) => stricts.find((b) => b.dataset.strict === s),
     pick: (id, value) => { const e = el(id); e.value = value; for (const fn of e.listeners.change ?? []) fn({ target: e }); },
     submit: (id) => { for (const fn of el(id).listeners.submit ?? []) fn({ preventDefault() {} }); },
+    fire: (id, type, target) => { for (const fn of el(id).listeners[type] ?? []) fn({ target, preventDefault() {} }); },
   };
 }
 
@@ -229,6 +230,7 @@ test("the sidebar's brand is the Tracely mark, not the plane", () => {
 /* ── General, Privacy and data, Help (owner, 2026-10-16: "yes to all, go
    ahead with phase 1") ─────────────────────────────────────────────────── */
 const lastPrefs = (p) => p.sets.filter((o) => o.prefs).at(-1)?.prefs;
+const lastSet = (p, key) => p.sets.filter((o) => key in o).at(-1)?.[key];
 
 test("General: on, paused for an hour or for today, or off — saved where the widget reads it", async () => {
   const p = await openPage({ signedIn: false, plan: "free" });
@@ -323,6 +325,79 @@ test("Citations: the style, the heading, links and access dates, and the sources
   // Another tab, or the widget's style picker, changes it: the page follows.
   p.storageChange({ prefs: { newValue: { citeStyle: "chicago" } } });
   assert.equal(p.$("citeStyle").value, "chicago");
+});
+
+test("Documents: each Doc checked here, newest first, with its own style, kind, switch, reset and dismissed notes", async () => {
+  const id = "1AbCdEfGhIjKlMnOpQr", old = "9ZyXwVuTsRqPoNmLk";
+  const p = await openPage({ signedIn: false, plan: "free" }, { stored: {
+    [`doc.${old}`]: { title: "Old <draft>", url: "javascript:alert(1)", counts: {}, checkedAt: Date.now() - 3 * 86_400_000, bytes: 100 },
+    [`doc.${id}`]: { title: "History essay", url: `https://docs.google.com/document/d/${id}/edit`, counts: { wrong: 2, check: 1, cite: 0 }, checkedAt: Date.now() - 5 * 60_000, bytes: 2048 },
+    "doc.short": { title: "not a doc id" },
+    docPrefs: { [old]: { never: true } },
+  } });
+  const html = p.$("docList").innerHTML;
+  assert.ok(html.indexOf("History essay") >= 0 && html.indexOf("History essay") < html.indexOf("Old &lt;draft&gt;"), "newest first, titles escaped");
+  assert.match(html, /<a class="doc-title" href="https:\/\/docs\.google\.com\/document\/d\/1AbCdEfGhIjKlMnOpQr\/edit" target="_blank" rel="noopener noreferrer">History essay<\/a>/);
+  assert.doesNotMatch(html, /javascript:/, "only a Google Docs address is a link");
+  assert.match(html, /2 factual errors · 1 needs evidence · checked 5 min ago/);
+  assert.match(html, /Never checked/);
+  assert.match(html, new RegExp(`data-doc-check="${old}" aria-label`), "its switch off");
+  assert.doesNotMatch(html, /not a doc id/);
+  assert.equal(p.$("noDocs").hidden, true);
+  // Each control writes that Doc's line in docPrefs, and keeps the rest.
+  const t = (dataset, extra = {}) => ({ dataset, ...extra });
+  p.fire("docList", "change", t({ docStyle: id }, { value: "apa" }));
+  assert.deepEqual(lastSet(p, "docPrefs")[id], { style: "apa" });
+  assert.deepEqual(lastSet(p, "docPrefs")[old], { never: true });
+  p.fire("docList", "change", t({ docKind: id }, { value: "research" }));
+  p.fire("docList", "change", t({ docCheck: id }, { checked: false }));
+  assert.deepEqual(lastSet(p, "docPrefs")[id], { style: "apa", kind: "research", never: true });
+  p.fire("docList", "click", t({ docAct: "reset", doc: id }));
+  assert.ok(lastSet(p, "docPrefs")[id].resetAt > 0);
+  assert.equal(p.$("docsStatus").textContent, "“History essay” forgets its saved checks the next time it is open.");
+  p.fire("docList", "click", t({ docAct: "undismiss", doc: id }));
+  assert.ok(lastSet(p, "docPrefs")[id].undismissAt > 0);
+  p.fire("docList", "click", t({ docAct: "forget", doc: old }));
+  assert.ok(p.removedAll.includes(`doc.${old}`));
+  assert.equal(old in lastSet(p, "docPrefs"), false, "and its own settings");
+  assert.doesNotMatch(p.$("docList").innerHTML, /Old &lt;draft&gt;/);
+  const n = p.sets.length;
+  p.fire("docList", "click", t({ docAct: "reset", doc: "<script>" }));
+  assert.equal(p.sets.length, n, "not a Doc's id: nothing");
+});
+
+test("Memory: what is kept, clearing each part, and the sentences never to flag again", async () => {
+  const id = "1AbCdEfGhIjKlMnOpQr";
+  const p = await openPage({ signedIn: false, plan: "free" }, { stored: {
+    [`doc.${id}`]: { title: "Essay", counts: {}, checkedAt: Date.now(), bytes: 4096 },
+    ignoreList: ["My grandmother was born in 1890 in Lagos", "<b>x</b>"], diag: { edits: [{}, {}, {}] }, docPrefs: { [id]: { style: "apa" } },
+  } });
+  assert.match(p.$("memChecks").textContent, /1 Google Doc: about 4 KB; other sites keep their own\.$/);
+  assert.match(p.$("memDocs").textContent, /^1 document under Documents/);
+  assert.match(p.$("memDiag").textContent, /the last 3 edits/);
+  assert.match(p.$("ignoreList").innerHTML, /<li><span class="origin">My grandmother was born in 1890 in Lagos<\/span><button data-ignore-i="0">Remove<\/button><\/li>/);
+  assert.match(p.$("ignoreList").innerHTML, /&lt;b&gt;x&lt;\/b&gt;/, "escaped");
+  assert.equal(p.$("noIgnore").hidden, true);
+  p.fire("ignoreList", "click", { dataset: { ignoreI: "0" } });
+  assert.deepEqual(lastSet(p, "ignoreList"), ["<b>x</b>"]);
+  p.$("clearIgnore").click();
+  assert.deepEqual(lastSet(p, "ignoreList"), []);
+  assert.equal(p.$("noIgnore").hidden, false);
+  p.$("memUndismiss").click();
+  assert.ok(lastPrefs(p).undismissedAt > 0, "every page brings its dismissed notes back");
+  p.$("memClearDocs").click();
+  assert.ok(p.removedAll.some((k) => Array.isArray(k) && k.includes(`doc.${id}`) && k.includes("docPrefs")));
+  assert.match(p.$("memDocs").textContent, /^0 documents/);
+  p.$("memClearDiag").click();
+  assert.ok(p.removedAll.includes("diag"));
+  p.change("showEvidence", false);
+  p.$("memResetPrefs").click();
+  assert.equal(lastPrefs(p).showEvidence, true, "back to how Tracely starts");
+  assert.ok(lastPrefs(p).undismissedAt > 0, "a mark the pages are still to take is kept");
+  // A Doc checked in another tab: the lists read again.
+  p.stored[`doc.${id}`] = { title: "Essay, again", counts: { cite: 1 }, checkedAt: Date.now(), bytes: 10 };
+  p.storageChange({ [`doc.${id}`]: { newValue: p.stored[`doc.${id}`] } });
+  assert.match(p.$("docList").innerHTML, /Essay, again[\s\S]*1 citation issue/);
 });
 
 test("the shortcut is a manifest command that asks for no permission, and the worker hands it to the tab in front", async () => {

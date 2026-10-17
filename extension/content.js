@@ -29,13 +29,13 @@
    Sections, by the line their anchor sits on (regenerate the numbers with
    `grep -n` when you move things; the anchors themselves must not move):
         63  Verdicts, card copy, colours, FEATURES switches
-       376  Settings and plan gate; what the Settings page sets (prefs: General, Checking, Citations)
-       835  Shared helpers: hashing, bibliography, citation formatting
-      1263  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1558  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      4013  Widget chrome, API transport, design tokens
-      5454  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     12305  Field mode (textareas and contenteditables on any site)
+       385  Settings and plan gate; what the Settings page sets (prefs, docPrefs, ignoreList)
+       907  Shared helpers: hashing, bibliography, citation formatting
+      1335  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1630  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      4085  Widget chrome, API transport, design tokens
+      5541  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12429  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -414,8 +414,8 @@
      the sites with auto-check on. A content script cannot open an extension
      page, so the worker does (background.js "tracely-openSettings") — bringing
      an open Settings tab forward rather than stacking another — at `section`
-     ("general", "checking", "citations", "account", "privacy", "help") when
-     one is given. */
+     ("general", "checking", "citations", "documents", "memory", "account",
+     "privacy", "help") when one is given. */
   function openSettings(section) {
     return Promise.resolve(sendMsg({ type: "tracely-openSettings", section: section ?? null })).catch(() => null);
   }
@@ -579,10 +579,15 @@
        ignoreList — the sentences never to flag again, in any document
                     (ignoreKey, neverFlagged). */
   let docPrefsAll = {};
-  let ignoreSet = new Set();
+  let ignoreTexts = []; // the sentences as the writer wrote them, so Settings can list them
+  let ignoreSet = new Set(); // and as they are compared (ignoreKey)
   let ignoreGen = 0; // a new list lists the notes again (tipKindsOn)
   const noteDocPrefs = (next) => { docPrefsAll = next && typeof next === "object" && !Array.isArray(next) ? next : {}; };
-  const noteIgnore = (list) => { ignoreSet = new Set((Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && x)); ignoreGen++; };
+  const noteIgnore = (list) => {
+    ignoreTexts = (Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && ignoreKey(x));
+    ignoreSet = new Set(ignoreTexts.map(ignoreKey));
+    ignoreGen++;
+  };
   storageGet({ prefs: {}, docPrefs: {}, ignoreList: [] }, (st) => { noteDocPrefs(st?.docPrefs); noteIgnore(st?.ignoreList); notePrefs(st?.prefs); });
   storageOnChanged((changes, area) => {
     if (area !== "local" || !(changes.prefs || changes.docPrefs || changes.ignoreList)) return;
@@ -607,8 +612,8 @@
   function neverFlag(text) {
     const key = ignoreKey(text);
     if (!key || ignoreSet.has(key)) return;
-    noteIgnore([...ignoreSet, key].slice(-500));
-    storageSet({ ignoreList: [...ignoreSet] });
+    noteIgnore([...ignoreTexts, String(text).replace(/\s+/g, " ").trim()].slice(-500));
+    storageSet({ ignoreList: ignoreTexts });
     notePrefs(prefsStored);
   }
   /* A mark the Settings page leaves for pages it can't reach (a reset, the

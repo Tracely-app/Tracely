@@ -957,6 +957,48 @@ Since 2.21.63 (phase 1, PR 2) **Checking** has its own controls, and
 Tests: `server/test/ext-settings-checking.test.js`,
 `server/test/ext-settings-page.test.js`.
 
+Since 2.21.64 (phase 1, PR 3) two more sections follow Citations:
+**Documents** and **Memory**.
+- **The document list.** Docs mode writes one line per Doc to extension
+  storage (`noteDocIndex`).
+  - It goes under its own key, `doc.<id>`, so two open Docs never write over
+    each other.
+  - The line holds the title, link, open counts, when it was checked, and the
+    bytes it keeps in the page.
+  - It is written only when the line changes, or every 10 minutes. Never on a
+    test page, in a quiet Doc, or from a field.
+  - The page lists the newest 50 and keeps 100. Only a
+    `https://docs.google.com/document/` address becomes a link.
+- **Each Doc's own settings** are in `docPrefs[id]`, read through `docPref`:
+  - `style` comes before Settings' (`citeStyleFor(text, own)`);
+  - `kind` replaces the kind read, sure or not (`kindForDoc`);
+  - `never` makes the Doc quiet (`docQuiet`: nothing read, sent or drawn).
+    The paused card then says "Off for this document" with "Check this
+    document" (`quietCopy`, `pausedWire`'s `resume`).
+- **Marks.** The Settings page can't reach a Doc's own storage, so a reset
+  (`resetAt`), dismissed notes brought back (`undismissAt`) and Memory's
+  "Bring back" in every document (`prefs.undismissedAt`) are marks.
+  - Each page takes a mark once per new time (`newMark`, its time kept in
+    `tracely.resetAt.<id>` and the like).
+  - Clear saved checks keeps the marks (`MARK_KEEP`). Otherwise a reset
+    already done would run again over newer checks.
+- **Never flag this.** The struck-through eye beside Dismiss is on every
+  claim card in both modes, and on a note with words of its own
+  (`neverBtnHtml`). It adds the sentence, as written, to `ignoreList`
+  (`neverFlag`, 500 at most).
+  - The sentence is compared whatever its case, spacing, quote marks or end
+    stop (`ignoreKey`), and only as a whole sentence (`neverFlagged`, in
+    `flagShown` and `tipKindShown`).
+  - Not in the Docs hover card yet; its buttons are full.
+- **Memory** shows and clears each part: saved checks (Clear saved checks),
+  dismissed notes, the document list with each Doc's settings, diagnostics,
+  and settings back to defaults (which keeps marks the pages are still to
+  take). It also lists the never-flag sentences, each with Remove.
+  PRIVACY.md's on-device paragraph names all of it.
+
+Tests: `server/test/ext-settings-documents.test.js`,
+`server/test/ext-settings-page.test.js`.
+
 ## Measuring
 
 Prompt and model changes go through `eval/models/harness` and get a dated
