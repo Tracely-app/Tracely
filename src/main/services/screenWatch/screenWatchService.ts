@@ -1577,7 +1577,8 @@ function updateOverlayAndWidget(
   const findings = findingFilterFrom({
     showEvidenceKinds: getSetting('showEvidenceKinds'),
     showCitationKinds: getSetting('showCitationKinds'),
-    checkingStrictness: getSetting('checkingStrictness')
+    checkingStrictness: getSetting('checkingStrictness'),
+    neverFlagSentences: getSetting('neverFlagSentences')
   })
   const problemKindById = new Map(
     claims.map((c) => {

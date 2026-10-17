@@ -5,15 +5,19 @@ import type {
   DocumentsGetResponse,
   DocumentsLatestResponse,
   DocumentsListResponse,
+  DocumentsForgetGradeResponse,
   DocumentsRemoveResponse,
-  DocumentsSaveResponse
+  DocumentsSaveResponse,
+  DocumentsSetPrefsResponse
 } from '@shared/ipc-contract'
 import {
+  forgetDocumentGrade,
   getDocument,
   getLatestDocument,
   listDocuments,
   removeDocument,
-  saveDocument
+  saveDocument,
+  setDocumentPrefs
 } from '../services/storage/documentsRepo'
 
 const idSchema = z.object({ id: z.string().min(1) })
@@ -22,6 +26,12 @@ const idSchema = z.object({ id: z.string().min(1) })
 // that is fully re-serialized on every write. Roughly a 100-page document.
 const MAX_BODY_CHARS = 400_000
 const MAX_TITLE_CHARS = 200
+
+const prefsSchema = z.object({
+  id: z.string().min(1),
+  citationStyle: z.enum(['APA', 'MLA', 'Chicago']).nullable().optional(),
+  neverCheck: z.boolean().optional()
+})
 
 const saveSchema = z.object({
   id: z.string().min(1).nullish(),
@@ -57,6 +67,19 @@ export function registerDocumentsHandlers(): void {
   ipcMain.handle(IPC.DOCUMENTS_REMOVE, (_event, raw): DocumentsRemoveResponse => {
     const { id } = idSchema.parse(raw)
     removeDocument(id)
+    return { ok: true }
+  })
+
+  // Settings → Documents (2026-10-17): its own citation style and "Never check
+  // this document". The editor reads them when it opens the document.
+  ipcMain.handle(IPC.DOCUMENTS_SET_PREFS, (_event, raw): DocumentsSetPrefsResponse => {
+    const { id, ...patch } = prefsSchema.parse(raw)
+    return { document: setDocumentPrefs(id, patch) }
+  })
+
+  ipcMain.handle(IPC.DOCUMENTS_FORGET_GRADE, (_event, raw): DocumentsForgetGradeResponse => {
+    const { id } = idSchema.parse(raw)
+    forgetDocumentGrade(id)
     return { ok: true }
   })
 }

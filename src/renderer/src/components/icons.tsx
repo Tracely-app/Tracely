@@ -103,3 +103,14 @@ export function ShieldIcon({ size = 15, className }: IconProps): JSX.Element {
     </svg>
   )
 }
+
+/** "Never flag this": the struck-through eye beside Dismiss, as the extension's cards have it. */
+export function EyeOffIcon({ size = 16, className }: IconProps): JSX.Element {
+  return (
+    <svg {...base(size)} className={className} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M3 12s3.3-6 9-6 9 6 9 6-3.3 6-9 6-9-6-9-6z" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="2.6" />
+      <path d="M4 4l16 16" strokeLinecap="round" />
+    </svg>
+  )
+}

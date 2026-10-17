@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { CitationStyle, Claim, DocumentOutline, DocumentRecord, Source } from '@shared/types'
 import { ALL_FINDINGS, type FindingFilter } from '@shared/findingFilter'
 import { documentCitationStyle } from '@shared/citationPrefs'
+import { neverFlagSet, withNeverFlag } from '@shared/neverFlag'
 import { splitParagraphs } from '@shared/paragraphSplit'
 import { DESKTOP_FEATURES } from '@shared/desktopFeatures'
 import { clientToLayout, contentOffset, readZoom } from '@shared/zoomLayout'
@@ -454,7 +455,7 @@ function DocumentEditor({
   // Settings → Checking and Citations (2026-10-16), read with the style. This
   // view remounts on every visit, so a change made in Settings is here the
   // next time a document opens.
-  const [checkPrefs, setCheckPrefs] = useState<{ findings: FindingFilter; matchStyle: boolean; heading: string }>({
+  const [checkPrefs, setCheckPrefs] = useState<{ findings: FindingFilter; matchStyle: boolean; heading: string; neverList?: string[] }>({
     findings: ALL_FINDINGS,
     matchStyle: false,
     heading: ''
@@ -464,10 +465,17 @@ function DocumentEditor({
       .getSettings()
       .then((s) => {
         setCitationStyle(s.defaultCitationStyle)
+        const neverList = s.neverFlagSentences ?? []
         setCheckPrefs({
-          findings: { evidence: s.showEvidenceKinds, citations: s.showCitationKinds, strictness: s.checkingStrictness },
+          findings: {
+            evidence: s.showEvidenceKinds,
+            citations: s.showCitationKinds,
+            strictness: s.checkingStrictness,
+            ...(neverList.length > 0 ? { never: neverFlagSet(neverList) } : {})
+          },
           matchStyle: s.matchDocumentStyle,
-          heading: s.worksCitedHeading
+          heading: s.worksCitedHeading,
+          neverList
         })
       })
       .catch(() => {})
@@ -2810,6 +2818,16 @@ function DocumentEditor({
           onDismiss={(mark) => {
             setDismissed((prev) => new Set(prev).add(mark.claim.id))
             setActiveMark(null)
+          }}
+          onNeverFlag={(mark) => {
+            // Gone here at once; the list in settings keeps it gone everywhere (Screen Watch on its next tick).
+            setDismissed((prev) => new Set(prev).add(mark.claim.id))
+            setActiveMark(null)
+            setCheckPrefs((prev) => {
+              const list = withNeverFlag([...(prev.neverList ?? [])], mark.claim.text)
+              return { ...prev, neverList: list, findings: { ...prev.findings, never: neverFlagSet(list) } }
+            })
+            void tracelyApi.setSettings({ neverFlagAdd: mark.claim.text }).catch(() => {})
           }}
           onPopoverEnter={() => {
             insidePopoverRef.current = true

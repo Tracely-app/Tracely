@@ -1140,6 +1140,16 @@ textarea:disabled {
   background: rgba(0, 0, 0, 0.04);
 }
 
+/* "Never flag this": the eye after Dismiss, square, its words in the title. */
+.docmark-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  margin-left: auto;
+  color: #6b6b6b;
+}
+
 .docmark-btn-primary:disabled,
 .docmark-btn-secondary:disabled {
   opacity: 0.6;

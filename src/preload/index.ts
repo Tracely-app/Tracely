@@ -55,6 +55,13 @@ import type {
   DocumentsRemoveResponse,
   DocumentsSaveRequest,
   DocumentsSaveResponse,
+  DocumentsSetPrefsRequest,
+  DocumentsSetPrefsResponse,
+  DocumentsForgetGradeRequest,
+  DocumentsForgetGradeResponse,
+  MemoryInfo,
+  MemoryClearRequest,
+  MemoryClearResponse,
   LibrarySaveRequest,
   LibrarySaveResponse,
   LibraryUpdateRequest,
@@ -178,7 +185,11 @@ const api = {
     save: (req: DocumentsSaveRequest): Promise<DocumentsSaveResponse> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_SAVE, req),
     remove: (req: DocumentsRemoveRequest): Promise<DocumentsRemoveResponse> =>
-      ipcRenderer.invoke(IPC.DOCUMENTS_REMOVE, req)
+      ipcRenderer.invoke(IPC.DOCUMENTS_REMOVE, req),
+    setPrefs: (req: DocumentsSetPrefsRequest): Promise<DocumentsSetPrefsResponse> =>
+      ipcRenderer.invoke(IPC.DOCUMENTS_SET_PREFS, req),
+    forgetGrade: (req: DocumentsForgetGradeRequest): Promise<DocumentsForgetGradeResponse> =>
+      ipcRenderer.invoke(IPC.DOCUMENTS_FORGET_GRADE, req)
   },
   structure: {
     analyze: (req: StructureAnalyzeRequest): Promise<StructureAnalyzeResponse> =>
@@ -223,7 +234,9 @@ const api = {
   },
   // Settings → Privacy and data → Export my data: a save dialog, then one JSON file.
   data: {
-    export: (): Promise<DataExportResponse> => ipcRenderer.invoke(IPC.DATA_EXPORT, {})
+    export: (): Promise<DataExportResponse> => ipcRenderer.invoke(IPC.DATA_EXPORT, {}),
+    memory: (): Promise<MemoryInfo> => ipcRenderer.invoke(IPC.DATA_MEMORY, {}),
+    memoryClear: (req: MemoryClearRequest): Promise<MemoryClearResponse> => ipcRenderer.invoke(IPC.DATA_MEMORY_CLEAR, req)
   },
   history: {
     clear: (req: HistoryClearRequest): Promise<HistoryClearResponse> =>

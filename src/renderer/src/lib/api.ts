@@ -41,6 +41,10 @@ export const tracelyApi = {
   saveDocument: (input: { id?: string | null; title: string; bodyHtml: string }) =>
     call(window.tracely.documents.save(input)),
   removeDocument: (id: string) => call(window.tracely.documents.remove({ id })),
+  /** Settings → Documents: a document's own citation style and "Never check this document". */
+  setDocumentPrefs: (id: string, patch: Omit<Parameters<typeof window.tracely.documents.setPrefs>[0], 'id'>) =>
+    call(window.tracely.documents.setPrefs({ id, ...patch })),
+  forgetDocumentGrade: (id: string) => call(window.tracely.documents.forgetGrade({ id })),
 
   getTracerConversation: (conversationId?: string) =>
     call(window.tracely.tracer.getConversation({ conversationId })),
@@ -102,6 +106,10 @@ export const tracelyApi = {
   getUsage: () => call(window.tracely.auth.getUsage()),
   /** Settings → Privacy and data → Export my data. */
   exportData: () => call(window.tracely.data.export()),
+  /** Settings → Memory: each part counted, and cleared on its own. */
+  getMemory: () => call(window.tracely.data.memory()),
+  clearMemory: (part: Parameters<typeof window.tracely.data.memoryClear>[0]['part']) =>
+    call(window.tracely.data.memoryClear({ part })),
   onAuthStateChanged: (cb: Parameters<typeof window.tracely.onAuthStateChanged>[0]) =>
     window.tracely.onAuthStateChanged(cb)
 }

@@ -4,6 +4,7 @@ import { MAX_VERIFY_SOURCES, abstractToSend, type SourceReceipt } from '@shared/
 import { DEFAULT_WIDGET_VIEW_MODE } from '@shared/ipc-contract'
 import type { Plan } from '@shared/plan'
 import type {
+  MemoryInfo,
   ScreenWatchClaimSummary,
   ScreenWatchWidget,
   ScreenWatchHoverEvent,
@@ -29,6 +30,7 @@ import type {
 // src/preload/index.d.ts, which tsconfig.web.json includes.
 type TracelyApi = Window['tracely']
 import * as fx from './fixtures'
+import { withNeverFlag } from '@shared/neverFlag'
 
 // ---------------------------------------------------------------------------
 // THE DRIFT GUARD
@@ -151,6 +153,19 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
   // the panel appends what the bridge returns rather than what it typed.
   const previewConversation = fx.tracerConversation
   let previewTracerMessages: TracerMessage[] = [...fx.tracerMessages]
+  // Settings → Memory: counts in the shape main gives, a part reading 0 once it is cleared.
+  const previewMemoryCleared = new Set<'checks' | 'tracer'>()
+  const previewMemory = (): MemoryInfo => {
+    const checks = !previewMemoryCleared.has('checks')
+    return {
+      answers: checks ? 214 : 0,
+      checks: checks ? 9 : 0,
+      grades: checks ? previewDocs.filter((d) => d.score !== null).length : 0,
+      tracerChats: previewMemoryCleared.has('tracer') ? 0 : 3,
+      documentSettings: previewDocs.filter((d) => d.prefs && (d.prefs.citationStyle !== null || d.prefs.neverCheck)).length,
+      library: 6
+    }
+  }
   // Screen Watch's claims are pushed, not fetched: the real service folds a
   // refresh or a critique into its in-memory claim and redraws the overlay, so
   // the panel's two result states are only reachable here if the mock does the
@@ -522,6 +537,17 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
       remove: (req) => {
         previewDocs = previewDocs.filter((d) => d.id !== req.id)
         return ok('documents.remove', { ok: true as const })
+      },
+      setPrefs: ({ id, ...patch }) => {
+        const doc = previewDocs.find((d) => d.id === id)
+        if (!doc) return ok('documents.setPrefs', { document: null })
+        const next = { ...doc, prefs: { citationStyle: null, neverCheck: false, ...doc.prefs, ...patch } }
+        previewDocs = previewDocs.map((d) => (d.id === id ? next : d))
+        return ok('documents.setPrefs', { document: next })
+      },
+      forgetGrade: (req) => {
+        previewDocs = previewDocs.map((d) => (d.id === req.id ? { ...d, score: null, gradedAt: null } : d))
+        return ok('documents.forgetGrade', { ok: true as const })
       }
     },
     structure: {
@@ -614,7 +640,12 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
       // useless for exactly the round-trips it should be proving — the Save
       // changes dialog's "Do not show anymore" could never take effect here.
       set: (patch) => {
-        previewSettings = { ...previewSettings, ...patch }
+        // neverFlagAdd is an instruction, not a field: added the way main adds it.
+        const { neverFlagAdd, ...fields } = patch
+        previewSettings = { ...previewSettings, ...fields }
+        if (neverFlagAdd !== undefined) {
+          previewSettings = { ...previewSettings, neverFlagSentences: withNeverFlag(previewSettings.neverFlagSentences, neverFlagAdd) }
+        }
         return ok('settings.set', previewSettings)
       },
       scanInstalledApps: () =>
@@ -649,7 +680,18 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     },
     // Settings → Privacy and data: the save dialog is the main process's; here it "saves".
     data: {
-      export: () => ok('data.export', { ok: true as const, path: 'C:\\Users\\preview\\Documents\\tracely-data-2026-10-16.json' })
+      export: () => ok('data.export', { ok: true as const, path: 'C:\\Users\\preview\\Documents\\tracely-data-2026-10-16.json' }),
+      memory: () => ok('data.memory', previewMemory()),
+      memoryClear: ({ part }) => {
+        if (part === 'checks') previewMemoryCleared.add('checks')
+        else if (part === 'tracer') previewMemoryCleared.add('tracer')
+        else if (part === 'documentSettings') {
+          previewDocs = previewDocs.map(({ prefs: _prefs, ...d }) => d)
+        } else {
+          previewSettings = { ...fx.settings, neverFlagSentences: previewSettings.neverFlagSentences }
+        }
+        return ok('data.memoryClear', { memory: previewMemory(), settings: previewSettings })
+      }
     },
     history: {
       clear: () => ok('history.clear', { ok: true as const })

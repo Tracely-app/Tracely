@@ -308,6 +308,10 @@ export interface SettingsSetRequest {
   citationAccessDates?: boolean
   citableOnlySources?: boolean
   avoidSourceSites?: string[]
+  /** The whole list, as Settings → Memory edits it. */
+  neverFlagSentences?: string[]
+  /** One more, from a card's "Never flag this": added in main, so two windows cannot lose each other's. */
+  neverFlagAdd?: string
 }
 export type SettingsSetResponse = AppSettings
 
@@ -1316,3 +1320,45 @@ export type DataExportResponse =
   | { ok: true; path: string }
   | { ok: false; canceled: true }
   | { ok: false; canceled: false; message: string }
+
+/** Settings → Documents: one document's own settings; a field left out is unchanged. */
+export interface DocumentsSetPrefsRequest {
+  id: string
+  citationStyle?: CitationStyle | null
+  neverCheck?: boolean
+}
+export interface DocumentsSetPrefsResponse {
+  /** The document with its settings as stored now; null when it no longer exists. */
+  document: DocumentRecord | null
+}
+export interface DocumentsForgetGradeRequest {
+  id: string
+}
+export interface DocumentsForgetGradeResponse {
+  ok: true
+}
+
+/** Settings → Memory: what this machine keeps, each part counted (main's db.memoryCounts). */
+export interface MemoryInfo {
+  /** Kept answers and searches, so the same words are never asked or paid for twice. */
+  answers: number
+  /** Checks of the editor's documents (analyses, with their claims and evidence). */
+  checks: number
+  /** Documents with a kept grade. */
+  grades: number
+  tracerChats: number
+  /** Documents with settings of their own (Settings → Documents). */
+  documentSettings: number
+  /** Saved sources; cleared only from the Library or Privacy's Delete everything. */
+  library: number
+}
+/** The parts Memory clears; never-flag sentences are removed one by one through settings. */
+export type MemoryPart = 'checks' | 'tracer' | 'documentSettings' | 'settings'
+export interface MemoryClearRequest {
+  part: MemoryPart
+}
+export interface MemoryClearResponse {
+  memory: MemoryInfo
+  /** Settings as they are now (changed only by the `settings` part). */
+  settings: AppSettings
+}

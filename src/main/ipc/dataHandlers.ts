@@ -1,9 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { IPC } from '@shared/ipc-channels'
-import type { DataExportResponse } from '@shared/ipc-contract'
+import { z } from 'zod'
+import type { DataExportResponse, MemoryClearResponse, MemoryInfo } from '@shared/ipc-contract'
+import type { AppSettings } from '@shared/types'
 import { exportFileName, EXPORT_SETTINGS_LEAVE_OUT } from '@shared/settingsHelp'
-import { getDocument, listDocuments } from '../services/storage/documentsRepo'
+import { clearDocumentPrefs, countDocumentPrefs, getDocument, listDocuments } from '../services/storage/documentsRepo'
+import { clearSavedChecks, clearTracerChats, memoryCounts } from '../services/storage/db'
+import { currentSettings, resetSettingsToDefaults } from './settingsHandlers'
 import { listLibrary } from '../services/storage/libraryRepo'
 import { listCitationsForSource } from '../services/storage/citationsRepo'
 import { getAllSettingsRaw } from '../services/storage/settingsRepo'
@@ -45,4 +49,25 @@ export function registerDataHandlers(): void {
       return { ok: false, canceled: false, message: err instanceof Error ? err.message : String(err) }
     }
   })
+
+  // Settings → Memory (2026-10-17, the extension's mirrored): each part
+  // counted, and cleared on its own. Privacy's Clear analysis history and
+  // Delete everything stay as the one-press versions.
+  ipcMain.handle(IPC.DATA_MEMORY, (): MemoryInfo => memoryInfo())
+
+  ipcMain.handle(IPC.DATA_MEMORY_CLEAR, (_event, raw): MemoryClearResponse => {
+    const { part } = memoryClearSchema.parse(raw)
+    let settings: AppSettings | null = null
+    if (part === 'checks') clearSavedChecks()
+    else if (part === 'tracer') clearTracerChats()
+    else if (part === 'documentSettings') clearDocumentPrefs()
+    else settings = resetSettingsToDefaults()
+    return { memory: memoryInfo(), settings: settings ?? currentSettings() }
+  })
+}
+
+const memoryClearSchema = z.object({ part: z.enum(['checks', 'tracer', 'documentSettings', 'settings']) })
+
+function memoryInfo(): MemoryInfo {
+  return { ...memoryCounts(), documentSettings: countDocumentPrefs() }
 }

@@ -73,7 +73,9 @@ const DEFAULTS: Record<string, string> = {
   citationAccessDates: 'false',
   citableOnlySources: 'false',
   // Sites never to suggest, comma-separated hosts (citationPrefs.siteOf).
-  avoidSourceSites: ''
+  avoidSourceSites: '',
+  // "Never flag this" (2026-10-17): a JSON array of sentences (shared/neverFlag.ts).
+  neverFlagSentences: '[]'
 }
 
 export function getSetting(key: string): string {
@@ -106,6 +108,11 @@ export function setSetting(key: string, value: string): void {
     $key: key,
     $value: value
   })
+}
+
+/** Every setting at its default (Settings → Memory → Reset). */
+export function settingDefaults(): Record<string, string> {
+  return { ...DEFAULTS }
 }
 
 export function getAllSettingsRaw(): Record<string, string> {

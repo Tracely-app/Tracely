@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { DocumentListItem, DocumentRecord } from '@shared/types'
+import type { CitationStyle, DocumentListItem, DocumentPrefs, DocumentRecord } from '@shared/types'
 // Imported rather than duplicated: this query treats an outline written by an
 // older schema as ungraded, and a copy of the number here would silently start
 // trusting stale rows the day analyzeStructure bumps it.
@@ -12,17 +12,31 @@ interface DocumentRow {
   body_html: string
   created_at: string
   updated_at: string
+  // From `LEFT JOIN document_prefs p` (PREFS_SELECT): null when the document has none.
+  p_citation_style?: string | null
+  p_never_check?: number | null
 }
 
+const STYLES: readonly CitationStyle[] = ['APA', 'MLA', 'Chicago']
+
 function toDomain(row: DocumentRow): DocumentRecord {
+  const style = row.p_citation_style as CitationStyle | null | undefined
   return {
     id: row.id,
     title: row.title,
     bodyHtml: row.body_html,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    prefs: {
+      citationStyle: style && STYLES.includes(style) ? style : null,
+      neverCheck: row.p_never_check === 1
+    }
   }
 }
+
+// Settings → Documents: each document's own settings, joined onto every read.
+const PREFS_SELECT = 'p.citation_style AS p_citation_style, p.never_check AS p_never_check'
+const PREFS_JOIN = 'LEFT JOIN document_prefs p ON p.document_id = d.id'
 
 /**
  * Every document, newest-edited first, with the grade it last earned.
@@ -43,12 +57,13 @@ function toDomain(row: DocumentRow): DocumentRecord {
  */
 export function listDocuments(): DocumentListItem[] {
   return queryAll<DocumentRow & { score: number | null; graded_at: string | null }>(
-    `SELECT d.*,
+    `SELECT d.*, ${PREFS_SELECT},
             CASE WHEN s.schema_version = $version
                  THEN json_extract(s.outline_json, '$.score') END AS score,
             CASE WHEN s.schema_version = $version THEN s.analyzed_at END AS graded_at
        FROM documents d
        LEFT JOIN document_structure s ON s.document_id = d.id
+       ${PREFS_JOIN}
       ORDER BY d.updated_at DESC`,
     { $version: STRUCTURE_SCHEMA_VERSION }
   ).map((row) => ({
@@ -59,14 +74,54 @@ export function listDocuments(): DocumentListItem[] {
 }
 
 export function getDocument(id: string): DocumentRecord | null {
-  const row = queryOne<DocumentRow>('SELECT * FROM documents WHERE id = $id', { $id: id })
+  const row = queryOne<DocumentRow>(`SELECT d.*, ${PREFS_SELECT} FROM documents d ${PREFS_JOIN} WHERE d.id = $id`, {
+    $id: id
+  })
   return row ? toDomain(row) : null
 }
 
 /** The most recently edited document, for reopening where the user left off. */
 export function getLatestDocument(): DocumentRecord | null {
-  const row = queryOne<DocumentRow>('SELECT * FROM documents ORDER BY updated_at DESC LIMIT 1')
+  const row = queryOne<DocumentRow>(
+    `SELECT d.*, ${PREFS_SELECT} FROM documents d ${PREFS_JOIN} ORDER BY d.updated_at DESC LIMIT 1`
+  )
   return row ? toDomain(row) : null
+}
+
+/**
+ * Settings → Documents: change one document's own settings. A patch names only
+ * what it changes; a row back at "as Settings says" for everything is removed,
+ * so the table holds only documents that differ.
+ */
+export function setDocumentPrefs(id: string, patch: Partial<DocumentPrefs>): DocumentRecord | null {
+  const doc = getDocument(id)
+  if (!doc) return null
+  const next: DocumentPrefs = { citationStyle: null, neverCheck: false, ...doc.prefs, ...patch }
+  if (next.citationStyle === null && !next.neverCheck) {
+    run('DELETE FROM document_prefs WHERE document_id = $id', { $id: id })
+  } else {
+    run(
+      `INSERT INTO document_prefs (document_id, citation_style, never_check, updated_at)
+       VALUES ($id, $style, $never, $now)
+       ON CONFLICT(document_id) DO UPDATE SET
+         citation_style = excluded.citation_style, never_check = excluded.never_check, updated_at = excluded.updated_at`,
+      { $id: id, $style: next.citationStyle, $never: next.neverCheck ? 1 : 0, $now: new Date().toISOString() }
+    )
+  }
+  return getDocument(id)
+}
+
+/** Settings → Documents → Forget its grade: the cached outline goes; the next grade is a fresh one. */
+export function forgetDocumentGrade(id: string): void {
+  run('DELETE FROM document_structure WHERE document_id = $id', { $id: id })
+}
+
+/** Settings → Memory: how many documents have settings of their own, and clearing them all. */
+export function countDocumentPrefs(): number {
+  return queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM document_prefs')?.n ?? 0
+}
+export function clearDocumentPrefs(): void {
+  run('DELETE FROM document_prefs')
 }
 
 /**

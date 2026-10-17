@@ -138,6 +138,18 @@ CREATE INDEX IF NOT EXISTS idx_documents_updated ON documents(updated_at DESC);
 --
 -- source_hash is over the innerText, so reformatting (bold, colour, alignment)
 -- leaves the analysis valid while an edit to the words marks it stale.
+-- Settings → Documents (2026-10-17, the extension's per-Doc settings mirrored):
+-- one document's own settings. A table of its own rather than columns on
+-- documents, so it is a brand-new table (SCHEMA_SQL creates it for every
+-- install; no migration) and it cascades with the document. No row is "as
+-- Settings says" for everything.
+CREATE TABLE IF NOT EXISTS document_prefs (
+  document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+  citation_style TEXT,
+  never_check INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS document_structure (
   document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
   source_hash TEXT NOT NULL,

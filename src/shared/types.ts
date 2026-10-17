@@ -321,6 +321,8 @@ export interface AppSettings {
   citationAccessDates: boolean
   citableOnlySources: boolean
   avoidSourceSites: string[]
+  /** "Never flag this": the sentences as written, newest last (shared/neverFlag.ts). Managed under Settings → Memory. */
+  neverFlagSentences: string[]
 }
 
 /** The reference list's heading when Tracely adds one: "" is the style's own (worksCited.ts WORKS_CITED_HEADINGS). */
@@ -355,6 +357,20 @@ export interface DocumentRecord {
   bodyHtml: string
   createdAt: string
   updatedAt: string
+  /**
+   * Settings → Documents, this document's own (the `document_prefs` table).
+   * Optional: a record from a save, or from a build or bridge without them,
+   * has none, which is the same as "as Settings says".
+   */
+  prefs?: DocumentPrefs
+}
+
+/** One document's own settings. Each null or false is "as Settings says". */
+export interface DocumentPrefs {
+  /** Its citation style, before Settings → Citations' (match the document, or the default). */
+  citationStyle: CitationStyle | null
+  /** Never check it: no claims read, no searches, no underlines, until it is turned back on. */
+  neverCheck: boolean
 }
 
 /**
