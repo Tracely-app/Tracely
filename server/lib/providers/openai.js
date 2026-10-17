@@ -22,6 +22,7 @@
 import { CheckError } from "../errors.js";
 
 const API = "https://api.openai.com/v1/responses";
+const MODELS_API = "https://api.openai.com/v1/models";
 
 export const openai = {
   name: "openai",
@@ -111,6 +112,28 @@ export const openai = {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw openai.mapError(res.status, json);
     return json;
+  },
+
+  /* Does OpenAI accept this key? GET /v1/models is authenticated and runs no
+   * model, so it spends no tokens. A 401 is a rejected key — the same answer
+   * mapError turns into "OpenAI rejected the API key." on every real call.
+   * Anything else that is not a 200 cannot tell, so `valid` is null: OpenAI
+   * down or rate limited, no answer in time, or a restricted key without the
+   * models-read scope, which OpenAI also answers 401 ("insufficient
+   * permissions … Missing scopes") although that key may still run the
+   * Responses API. Never throws. Optional for a provider (lib/llm.js
+   * keyStatus). */
+  async probeKey({ key, timeoutMs }) {
+    let res;
+    try {
+      res = await fetch(MODELS_API, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(timeoutMs) });
+    } catch {
+      return { valid: null, status: null };
+    }
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) return { valid: true, status: res.status };
+    const scoped = /insufficient permissions|missing scopes/i.test(String(json?.error?.message ?? ""));
+    return { valid: res.status === 401 && !scoped ? false : null, status: res.status };
   },
 
   mapError(status, json) {

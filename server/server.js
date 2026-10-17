@@ -23,7 +23,7 @@ import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUse
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
-import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
+import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents, keyStatus } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter, keyedRollingSum } from "./shared/guards.js";
 import { problemsFor, markFor } from "./shared/marks.js";
 import { isModelFailure, modelFailureLine, noteUpstreamFailure, upstreamStatus } from "./lib/failureLog.js";
@@ -1221,8 +1221,15 @@ const server = http.createServer(async (req, res) => {
       // `paidBudget` (optional) is the Student/Pro pool on the extension's
       // routes; like both others it is spend on disk, not calls in flight.
       const betaOn = betaTokens().length > 0;
+      // `keyCheck` (optional): whether OpenAI ACCEPTS the key, which hasKey
+      // cannot say (lib/llm.js keyStatus) — from the last real call, or from
+      // a free probe (GET /v1/models, no tokens) that only `?keyCheck=1`
+      // runs. healthcheck.sh asks; the extension never does, so its status
+      // probe never waits on OpenAI. Absent until something has tried the key.
+      const keyCheck = MOCK ? null : await keyStatus({ probe: url.searchParams.has("keyCheck") });
       json(res, 200, {
         hasKey: hasApiKey() || MOCK, mock: MOCK, docsBridge: bridgeConfigured(),
+        ...(keyCheck ? { keyCheck } : {}),
         budget: spendSummary({ enforced: entitlementConfigured() }),
         ...(betaOn ? { betaBudget: spendSummary({ enforced: entitlementConfigured(), pool: "beta" }) } : {}),
         paidBudget: spendSummary({ enforced: entitlementConfigured(), pool: "paid" }),

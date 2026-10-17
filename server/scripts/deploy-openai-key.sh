@@ -57,7 +57,16 @@ grep '^OPENAI_API_KEY=' "$LOCAL_ENV" | head -1 | cut -d= -f2- \
 echo
 echo "Verifying against the live API ..."
 if command -v curl >/dev/null 2>&1; then
-  curl -s --max-time 15 https://api.jointracely.com/api/status \
-    | sed -E 's/.*"hasKey":(true|false).*/  server reports hasKey=\1/' || true
+  # hasKey only says a key is SET. ?keyCheck=1 has the server try the new key
+  # on OpenAI (GET /v1/models, no tokens) and report keyCheck.valid.
+  STATUS=$(curl -s --max-time 15 'https://api.jointracely.com/api/status?keyCheck=1' || true)
+  printf '%s' "$STATUS" | grep -o '"hasKey":[a-z]*' | sed 's/"hasKey":/  server reports hasKey=/'
+  if printf '%s' "$STATUS" | grep -q '"keyCheck"'; then
+    printf '%s' "$STATUS" | grep -o '"keyCheck":{"valid":[a-z]*' | sed 's/"keyCheck":{"valid":/  OpenAI accepts the key: /'
+  else
+    echo "  (this server build does not report whether OpenAI accepts the key)"
+  fi
 fi
-echo "  (hasKey=true means it is live; nothing needs restarting)"
+echo "  (accepts the key: true means it is live; nothing needs restarting."
+echo "   false: OpenAI rejected it, and every model call fails until it is replaced."
+echo "   null: OpenAI could not be asked; run server/scripts/healthcheck.sh in a minute.)"

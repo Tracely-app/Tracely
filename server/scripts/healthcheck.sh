@@ -8,8 +8,10 @@
 #   server/scripts/healthcheck.sh https://api.jointracely.com --demo  # insist on the try-out
 #
 # The checks are the ones server/DEPLOY.md runs after every deploy: status
-# shape, a bad token answers as free, the extension's CORS allow and deny, the
-# prefs route refused, (when the server reports it) that the live commit is
+# shape, that OpenAI ACCEPTS the key rather than only that one is set (the
+# server's own probe, GET /v1/models, which spends no tokens; a probe that
+# cannot tell is a WARN), a bad token answers as free, the extension's CORS
+# allow and deny, the prefs route refused, (when the server reports it) that the live commit is
 # the one you expect, and — while the try-out is configured, which /api/status
 # shows as `demoBudget` (TRACELY_DEMO_SECRET set) — that /try answers 200 with
 # its frame rule and /ext-content.js answers 200 (the deploy copies
@@ -30,12 +32,18 @@ done
 EXT="chrome-extension://dffmoeebkkghhgcklkbmaibfhgiegmdm"
 fail() { printf 'FAIL  %s\n' "$1"; exit 1; }
 ok() { printf 'ok    %s\n' "$1"; }
+WARNED=0
+warn() { printf 'WARN  %s\n' "$1"; WARNED=$((WARNED + 1)); }
 
-status=$(curl -sS --max-time 15 "$BASE/api/status") || fail "GET /api/status did not answer"
-read -r hasKey mock enforced paid release demo demoOn <<<"$(printf '%s' "$status" | node -e '
+# ?keyCheck=1 asks the server to probe its key (lib/llm.js keyStatus). A
+# server from before keyCheck ignores the query and answers without it.
+status=$(curl -sS --max-time 15 "$BASE/api/status?keyCheck=1") || fail "GET /api/status did not answer"
+read -r hasKey mock enforced paid release demo demoOn keyValid keyBy keyAt keyCode <<<"$(printf '%s' "$status" | node -e '
   let s=""; process.stdin.on("data", d => s += d).on("end", () => {
     let j; try { j = JSON.parse(s) } catch { console.log("parse parse parse parse parse parse parse"); return }
-    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j), String(Boolean(j.demoBudget && j.demoBudget.enforced)))
+    const k = j.keyCheck || {};
+    console.log(String(j.hasKey), String(j.mock), String(j.budget && j.budget.enforced), String("paidBudget" in j), j.release && j.release.commit ? j.release.commit : "-", String("demoBudget" in j), String(Boolean(j.demoBudget && j.demoBudget.enforced)),
+      j.keyCheck ? String(k.valid) : "-", k.by || "-", k.checkedAt || "-", k.status || "-")
   })')"
 [ "$hasKey" = "parse" ] && fail "/api/status is not JSON — not a Tracely server"
 if [ "$MOCK" = 1 ]; then
@@ -47,6 +55,15 @@ else
   [ "$enforced" = "true" ] || fail "/api/status budget.enforced=$enforced (spend cap off)"
   [ "$paid" = "true" ] || fail "/api/status has no paidBudget"
   ok "/api/status: hasKey, enforced, paidBudget"
+  # hasKey only says a key is SET. On 2026-10-13 it said true, and this script
+  # said healthy, while every model call answered 503 no_key.
+  case "$keyValid" in
+    true) ok "OpenAI accepts the key (by $keyBy at $keyAt)" ;;
+    false) fail "OpenAI REJECTS the API key (by $keyBy at $keyAt): every model call answers 503 no_key. Replace OPENAI_API_KEY in server/.env on the Linode (server/scripts/deploy-openai-key.sh)" ;;
+    null) [ "$keyCode" = "-" ] && why="no answer in time" || why="OpenAI answered $keyCode"
+      warn "could not confirm the key with OpenAI ($why, at $keyAt): OpenAI down or rate limited, or a restricted key that cannot list models. The server probes at most once a minute; run again." ;;
+    *) warn "/api/status has no keyCheck (a server from before it): a key is set, but nothing says OpenAI accepts it" ;;
+  esac
 fi
 
 code=$(curl -sS -o /tmp/hc.$$ -w '%{http_code}' --max-time 15 -H "Authorization: Bearer not-a-token" "$BASE/api/entitlement") || fail "GET /api/entitlement did not answer"
@@ -85,4 +102,4 @@ fi
 if [ -n "$WANT" ]; then
   case "$release" in "$WANT"*|"${WANT:0:7}"*) ok "release.commit $release matches $WANT" ;; "-") fail "server reports no release.commit (older build, or release.json missing) — wanted $WANT" ;; *) fail "release.commit is $release, wanted $WANT" ;; esac
 elif [ "$release" != "-" ]; then ok "release.commit $release"; fi
-echo "healthy: $BASE"
+if [ "$WARNED" -gt 0 ]; then echo "healthy: $BASE (with $WARNED warning(s) above)"; else echo "healthy: $BASE"; fi
