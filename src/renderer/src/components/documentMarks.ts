@@ -18,6 +18,7 @@ import {
   sentenceRangeAround
 } from '@shared/inlineCitation'
 import { hasRelevantSource, problemKindsFor } from '@shared/problemKind'
+import type { FindingFilter } from '@shared/findingFilter'
 import { retrievalScopeFor } from '@shared/retrievalScope'
 import { findWorksCitedSection, planWorksCited } from '@shared/worksCited'
 // The app is scaled with CSS `zoom`, which puts measured rects and the
@@ -122,7 +123,9 @@ export function measureMarks(
    * distinction through rather than collapsing it to a Set is what stops a
    * failed embed from underlining half a document as off topic.
    */
-  offTopicClaimIds: ReadonlySet<string> | null = null
+  offTopicClaimIds: ReadonlySet<string> | null = null,
+  /** Settings → Checking (findingFilter.ts): the kinds shown and how strict. Null: everything, balanced. */
+  findings: FindingFilter | null = null
 ): DocumentMark[] {
   if (claims.length === 0) return []
 
@@ -210,7 +213,8 @@ export function measureMarks(
       },
       critiqueVerdict: span.claim.critiqueVerdict,
       outOfIndexScope: retrievalScopeFor(span.claim.text),
-      onTopic: offTopicClaimIds === null ? null : !offTopicClaimIds.has(span.claim.id)
+      onTopic: offTopicClaimIds === null ? null : !offTopicClaimIds.has(span.claim.id),
+      findings
     }) as MarkProblemKind[]
     // Nothing is wrong with this sentence. Not drawing it is the point: a
     // document where every claim is underlined tells the writer nothing.
@@ -617,11 +621,12 @@ export function applyEntryReplacement(
     oldEntry,
     entry,
     sourceTitle,
-    style
-  }: { oldEntry: string | null; entry: string; sourceTitle: string | null; style: CitationStyle }
+    style,
+    heading = null
+  }: { oldEntry: string | null; entry: string; sourceTitle: string | null; style: CitationStyle; heading?: string | null }
 ): { outcome: EntryOutcome | 'failed'; wrote: boolean } {
   const { text } = buildTextMap(body)
-  const { edit, outcome } = planEntryReplacement({ text, oldEntry, entry, sourceTitle, style })
+  const { edit, outcome } = planEntryReplacement({ text, oldEntry, entry, sourceTitle, style, heading })
   // `wrote` is what Undo counts. 'already-listed' can still be a write — the
   // old line coming out — so the outcome alone cannot say whether a step was
   // taken.
@@ -699,10 +704,10 @@ export type WorksCitedResult = 'added' | 'already-listed' | 'failed'
  */
 export function addWorksCitedEntry(
   body: HTMLElement,
-  { entry, sourceTitle, style }: { entry: string; sourceTitle: string | null; style: CitationStyle }
+  { entry, sourceTitle, style, heading = null }: { entry: string; sourceTitle: string | null; style: CitationStyle; heading?: string | null }
 ): WorksCitedResult {
   const { text } = buildTextMap(body)
-  const { edit } = planWorksCited({ text, entry, sourceTitle, style })
+  const { edit } = planWorksCited({ text, entry, sourceTitle, style, heading })
   if (!edit) return 'already-listed'
   return replaceRange(body, edit.start, edit.end, edit.replacement) ? 'added' : 'failed'
 }

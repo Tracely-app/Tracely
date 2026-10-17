@@ -59,7 +59,21 @@ const DEFAULTS: Record<string, string> = {
   // Settings → General → Pause for 1 hour / for today: when Screen Watch comes
   // back on by itself (epoch ms), or '0'. Kept here so a pause outlives a
   // restart, and a pause that ended while the app was closed starts it again.
-  screenWatchResumeAt: '0'
+  screenWatchResumeAt: '0',
+  // Settings → Checking and Citations (2026-10-16, the extension's mirrored).
+  // Every default is the app as it was: all kinds shown, balanced, the one
+  // default style, the style's own heading, links in, no access dates, every
+  // source offered.
+  showEvidenceKinds: 'true',
+  showCitationKinds: 'true',
+  checkingStrictness: 'balanced',
+  matchDocumentStyle: 'false',
+  worksCitedHeading: '',
+  citationLinks: 'true',
+  citationAccessDates: 'false',
+  citableOnlySources: 'false',
+  // Sites never to suggest, comma-separated hosts (citationPrefs.siteOf).
+  avoidSourceSites: ''
 }
 
 export function getSetting(key: string): string {

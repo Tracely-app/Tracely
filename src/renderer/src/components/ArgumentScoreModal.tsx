@@ -39,6 +39,7 @@ import {
 } from './EssayGradeReport'
 import { useEffectiveDark } from '../lib/theme'
 import { hasRelevantSource, problemKindsFor } from '@shared/problemKind'
+import type { FindingFilter } from '@shared/findingFilter'
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { retrievalScopeFor } from '@shared/retrievalScope'
 import { paragraphPreviews } from '@shared/paragraphPreview'
@@ -336,7 +337,7 @@ function ComponentBar({ value, max, label }: { value: number; max: number; label
  * run here rather than reused from the marks because marks only exist for text
  * currently on screen — a report is about the whole draft.
  */
-function gradeClaims(claims: Claim[]): GradeClaim[] {
+function gradeClaims(claims: Claim[], findings: FindingFilter | null = null): GradeClaim[] {
   return claims.map((claim) => ({
     id: claim.id,
     confidence: claim.confidence,
@@ -355,7 +356,8 @@ function gradeClaims(claims: Claim[]): GradeClaim[] {
             },
             critiqueVerdict: claim.critiqueVerdict,
             citedWorkRead: claim.citedWorkRead,
-            outOfIndexScope: retrievalScopeFor(claim.text)
+            outOfIndexScope: retrievalScopeFor(claim.text),
+            findings
           })
   }))
 }
@@ -428,6 +430,7 @@ export default function ArgumentScoreModal({
   loading,
   error,
   citationStyle,
+  findings,
   onInsertCitation,
   onReanalyze,
   onEvidenceSearched,
@@ -445,6 +448,8 @@ export default function ArgumentScoreModal({
   error: string | null
   /** The user's configured style — shown on the pill and used to format. */
   citationStyle: CitationStyle
+  /** Settings → Checking: the kinds the report labels by, as the editor's underlines (findingFilter.ts). */
+  findings?: FindingFilter | null
   /**
    * Writes a citation into the document at the end of the claim's sentence.
    *
@@ -640,7 +645,7 @@ export default function ArgumentScoreModal({
             <GradePaletteProvider palette={dark ? GRADE_DARK : GRADE_LIGHT}>
               <EssayGradeReportPanel
                 structure={gradeInput(outline, paragraphTexts)}
-                claims={gradeClaims(claims)}
+                claims={gradeClaims(claims, findings ?? null)}
                 gradingLevel={gradingLevel}
                 onClose={onClose}
                 onBackToSummary={() => setView({ name: 'summary' })}

@@ -218,6 +218,8 @@ export interface ScreenWatchFindCitedWorkResponse extends CitationFindCitedWorkR
    * is about, and guessing would look up the wrong work.
    */
   target: 'one' | 'none' | 'several'
+  /** Settings → Citations: the style to cite in — the document's own when matching, else the default. Absent from an older main. */
+  style?: CitationStyle
 }
 
 export interface CritiqueGenerateRequest {
@@ -296,6 +298,16 @@ export interface SettingsSetRequest {
   autoCritiqueCited?: boolean
   /** Requested model tier. Clamped to the plan on every call — see AppSettings. */
   modelTier?: ModelTier
+  // Settings → Checking and Citations (CheckingCitationSettings).
+  showEvidenceKinds?: boolean
+  showCitationKinds?: boolean
+  checkingStrictness?: 'clear' | 'balanced' | 'thorough'
+  matchDocumentStyle?: boolean
+  worksCitedHeading?: '' | 'Works Cited' | 'References' | 'Bibliography'
+  citationLinks?: boolean
+  citationAccessDates?: boolean
+  citableOnlySources?: boolean
+  avoidSourceSites?: string[]
 }
 export type SettingsSetResponse = AppSettings
 
@@ -699,6 +711,8 @@ export interface ScreenWatchFindSourceResponse {
    * look one up by later, only the in-memory claim this call already has.
    */
   cited: ResolvedCitedWork | null
+  /** Settings → Citations: the style to cite in (see ScreenWatchFindCitedWorkResponse.style). */
+  style?: CitationStyle
 }
 
 /**

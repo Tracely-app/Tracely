@@ -38,6 +38,9 @@ import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
 import { computeTextRelevance } from '../search/scoring'
 import type { NormalizedSourceResult } from '../search/types'
 import { getSetting, setSetting } from '../storage/settingsRepo'
+import { findingFilterFrom } from '@shared/findingFilter'
+import { offeredSourceFilter } from '../search/sourceFilter'
+import { styleForDocument } from '@shared/citationPrefs'
 import { sourceHashFor } from '../structure/analyzeStructure'
 import { focusedShieldableWindow } from '../../windows/overlayShield'
 import {
@@ -1216,6 +1219,19 @@ async function resolveCitedForClaim(claimId: string): Promise<ResolvedCitedWork 
  * Refuses rather than guesses when the sentence carries two citations: there
  * is no telling which one the card is about. The overlay then says so.
  */
+/**
+ * Settings → Citations: the style a citation in the watched document is
+ * written in — its own, when Settings says to match each document and it
+ * shows one (citationPrefs.documentCitationStyle), else the default. The
+ * overlay never holds the whole text; main does.
+ */
+function citationStyleHere(): CitationStyle {
+  return styleForDocument(lastAnalyzedText || null, {
+    matchDocumentStyle: getSetting('matchDocumentStyle') === 'true',
+    defaultCitationStyle: getSetting('defaultCitationStyle') as CitationStyle
+  })
+}
+
 export async function findCitedWorkForClaim(claimId: string): Promise<ScreenWatchFindCitedWorkResponse> {
   const empty = (target: ScreenWatchFindCitedWorkResponse['target']): ScreenWatchFindCitedWorkResponse => ({
     target,
@@ -1237,21 +1253,21 @@ export async function findCitedWorkForClaim(claimId: string): Promise<ScreenWatc
     documentText: lastAnalyzedText,
     hint: critiqueByClaimId.get(claimId)?.citationFix ?? null
   })
-  return { ...result, target: 'one' }
+  return { ...result, target: 'one', style: citationStyleHere() }
 }
 
 /** Both halves of the comparison, in one round trip from the overlay. */
 export async function findSourceWithCited(
   claimId: string,
   query?: string
-): Promise<{ candidates: ScreenWatchSourceCandidate[]; cited: ResolvedCitedWork | null }> {
+): Promise<{ candidates: ScreenWatchSourceCandidate[]; cited: ResolvedCitedWork | null; style: CitationStyle }> {
   // In parallel: the lookup is two unmetered HTTP requests and the search is
   // already the slow half, so the comparison costs nothing in wall clock.
   const [candidates, cited] = await Promise.all([
     findSourceForClaim(claimId, query),
     resolveCitedForClaim(claimId)
   ])
-  return { candidates, cited }
+  return { candidates, cited, style: citationStyleHere() }
 }
 
 // User-initiated only (the overlay's "Check Claim" button) — unlike
@@ -1312,9 +1328,12 @@ export async function findSourceForClaim(claimId: string, query?: string): Promi
   if (!claim) return []
   const result = await findEvidenceCached(query ?? claim.searchQuery, claim.text)
   if (!currentClaims.some((c) => c.id === claimId)) return []
-  findSourceResultByClaimId.set(claimId, result.evidence)
+  // Settings → Citations → Sources, before the list is kept and numbered: a
+  // source's ref can be its rank, and the insert looks it up in this same list.
+  const offered = result.evidence.filter(offeredSourceFilter())
+  findSourceResultByClaimId.set(claimId, offered)
 
-  const ranked = result.evidence
+  const ranked = offered
     .map((item, i) => {
       // The aggregator's own figure, not a re-derivation. It recomputed word
       // overlap here, which now disagrees with how the results were actually
@@ -1554,6 +1573,12 @@ function updateOverlayAndWidget(
     sentenceInfoById.get(claim.id) ?? readSentence(claim.text, hasInlineCitation(claim.text))
 
   /** Decided once here, so the underline and the card cannot disagree. */
+  // Settings → Checking, read live: a change shows within one poll tick, underlines, cards and counts alike.
+  const findings = findingFilterFrom({
+    showEvidenceKinds: getSetting('showEvidenceKinds'),
+    showCitationKinds: getSetting('showCitationKinds'),
+    checkingStrictness: getSetting('checkingStrictness')
+  })
   const problemKindById = new Map(
     claims.map((c) => {
       const evidence = evidenceResultByClaimId.get(c.id)
@@ -1581,7 +1606,8 @@ function updateOverlayAndWidget(
           // The critique is kept in memory here rather than in SQLite, so the
           // flag comes straight off the result that carried the verdict.
           citedWorkRead: critiqueByClaimId.get(c.id)?.citedWorkRead ?? null,
-          outOfIndexScope: retrievalScopeFor(c.text)
+          outOfIndexScope: retrievalScopeFor(c.text),
+          findings
         })
       ] as const
     })

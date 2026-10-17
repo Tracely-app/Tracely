@@ -19,6 +19,7 @@ import { getClaim, updateClaimScore } from '../services/storage/claimsRepo'
 import { transaction } from '../services/storage/db'
 import { upsertSource } from '../services/storage/sourcesRepo'
 import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
+import { offeredSourceFilter } from '../services/search/sourceFilter'
 import { getFaviconDataUrl } from '../services/search/favicon'
 import { formatCitation } from '../services/citations'
 import { MIN_EVIDENCE_TEXT_CHARS, MAX_TEXT_SOURCE_CANDIDATES } from '@shared/evidenceLimits'
@@ -89,12 +90,16 @@ export function registerEvidenceHandlers(): void {
       return items
     })
 
-    return { evidence, strengthScore: result.score, scoreBreakdown: result.breakdown }
+    // Settings → Citations → Sources: what may be offered (the score above still counts every source found).
+    const offered = offeredSourceFilter()
+    return { evidence: evidence.filter((e) => offered(e.source)), strengthScore: result.score, scoreBreakdown: result.breakdown }
   })
 
   ipcMain.handle(IPC.EVIDENCE_GET_FOR_CLAIM, (_event, raw): EvidenceGetForClaimResponse => {
     const { claimId } = claimIdSchema.parse(raw)
-    return { evidence: getEvidenceForClaim(claimId) }
+    // Rows stored before a Settings change are filtered again on the way out, as the extension's refilterSources does.
+    const offered = offeredSourceFilter()
+    return { evidence: getEvidenceForClaim(claimId).filter((e) => offered(e.source)) }
   })
 
   /**
@@ -132,7 +137,8 @@ export function registerEvidenceHandlers(): void {
     // for a surface someone can press repeatedly. See search/webBudget.ts.
     const result = await findEvidenceCached(trimmed, trimmed, null)
 
-    const ranked = result.evidence.slice(0, MAX_TEXT_SOURCE_CANDIDATES)
+    const offered = offeredSourceFilter() // Settings → Citations → Sources
+    const ranked = result.evidence.filter(offered).slice(0, MAX_TEXT_SOURCE_CANDIDATES)
     const candidates: ScreenWatchSourceCandidate[] = await Promise.all(
       ranked.map(async (item, i) => ({
         sourceRef: `text:${i}`,

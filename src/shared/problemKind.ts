@@ -1,6 +1,7 @@
 import type { ClaimType, CritiqueVerdict, ScoreBreakdown } from '@shared/types'
 import type { OutOfScopeReason } from './retrievalScope'
 import { citationWorthy } from './citationWorthy.ts'
+import { filterKinds, type FindingFilter } from './findingFilter.ts'
 
 /**
  * What is actually wrong with a claim — decided once, in main, and sent to the
@@ -256,6 +257,13 @@ export interface ProblemKindInput {
    * retrieval miss as an unsupported claim.
    */
   onTopic?: boolean | null
+  /**
+   * Settings → Checking (findingFilter.ts): the kinds the writer turned off,
+   * and how sure a finding must be. Thorough also asks a general statement
+   * for a source (the citationWorthy gate lifted). Omitted means everything,
+   * balanced — the behaviour from before the setting.
+   */
+  findings?: FindingFilter | null
 }
 
 /**
@@ -371,7 +379,8 @@ export function problemKindsFor({
   evidence,
   critiqueVerdict,
   outOfIndexScope = null,
-  onTopic = null
+  onTopic = null,
+  findings = null
 }: ProblemKindInput): ScreenWatchProblemKind[] {
   // Nothing is known yet, so nothing else can be asserted. Sole kind.
   if (!evidence) return ['searching']
@@ -562,7 +571,7 @@ export function problemKindsFor({
   // databases do not hold this kind of claim", which is the accusation the
   // second line exists to withdraw.
   // Only a sentence that owes a source of its own is told it lacks one.
-  const owesSource = claimText == null || citationWorthy(claimText, claimType)
+  const owesSource = claimText == null || findings?.strictness === 'thorough' || citationWorthy(claimText, claimType)
   if (owesSource && nothingFound && !hasInlineCitation && outOfIndexScope) kinds.push('outside-index')
   else if (owesSource && nothingFound && !hasInlineCitation && claimType === 'statistic') kinds.push('unverified-statistic')
   else if (owesSource && nothingFound && !hasInlineCitation) kinds.push('no-sources')
@@ -579,8 +588,10 @@ export function problemKindsFor({
 
   // An empty list is a real answer, and the caller treats it as "say nothing
   // about this sentence": a cited claim that is well supported, and a cited
-  // claim the databases simply have no opinion on, both land here.
-  return kinds.sort((a, b) => problemSeverity(a) - problemSeverity(b))
+  // claim the databases simply have no opinion on, both land here. So does a
+  // sentence whose only kinds Settings → Checking turned off.
+  const sorted = kinds.sort((a, b) => problemSeverity(a) - problemSeverity(b))
+  return findings ? filterKinds(sorted, findings) : sorted
 }
 
 /** The worst of them — what the underline is coloured by and the card shows. */

@@ -6,7 +6,8 @@ import type {
   CitationStyle,
   Density,
   FontSize,
-  Theme
+  Theme,
+  WorksCitedHeadingChoice
 } from '@shared/types'
 import type {
   AppGetBuildInfoResponse,
@@ -20,6 +21,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
 import SettingsField from '../components/SettingsField'
 import { CheckCheck, CircleHelp, CreditCard, Quote } from 'lucide-react'
+import { accessedPhrase, siteOf } from '@shared/citationPrefs'
 import {
   WHATS_NEW,
   buildDiagnostics,
@@ -166,6 +168,13 @@ const NAV: { id: SettingsSection; label: string; icon: (props: { size?: number }
   { id: 'help', label: 'Help', icon: (p) => <CircleHelp size={p.size ?? 15} /> }
 ]
 
+// Checking → How strict: what each choice does, said where it is chosen (findingFilter.ts).
+const STRICT_LINE: Record<AppSettings['checkingStrictness'], string> = {
+  clear: 'Shows only what is certain: a claim the evidence contradicts, a citation to a work that does not exist, a malformed citation. You may miss a real gap.',
+  balanced: 'Shows everything Tracely finds.',
+  thorough: 'Also asks for a source for general statements, not only for figures, quotations and findings.'
+}
+
 // Where "Something went wrong?" writes to (the extension's Help has the same).
 const SUPPORT_EMAIL = 'hello@jointracely.com'
 
@@ -217,6 +226,21 @@ export default function SettingsView({
       .then(setSettings)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
+
+  // Citations → Never suggest these sites: a site as main compares it (citationPrefs.siteOf).
+  const [avoidInput, setAvoidInput] = useState('')
+  const [avoidError, setAvoidError] = useState<string | null>(null)
+  async function addAvoidSite(): Promise<void> {
+    const site = siteOf(avoidInput)
+    if (!site) {
+      setAvoidError("That isn't a site. Try one like wikipedia.org.")
+      return
+    }
+    setAvoidError(null)
+    setAvoidInput('')
+    const current = settings?.avoidSourceSites ?? []
+    if (!current.includes(site)) await save({ avoidSourceSites: [...current, site] })
+  }
 
   // Privacy and data → Export my data: the main process asks where, then writes one JSON file.
   const [exportStatus, setExportStatus] = useState<string | null>(null)
@@ -808,10 +832,25 @@ export default function SettingsView({
             <div key="citations" className="settings-panel-content">
               <div className="settings-panel-header">
                 <h3>Citations</h3>
-                <p>How the citations Tracely writes look.</p>
+                <p>How the citations Tracely writes look, and which sources it suggests.</p>
               </div>
+              {/* 2026-10-16, the extension's Citations mirrored (citationPrefs.ts). */}
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Match each document's style</div>
+                  <div className="settings-toggle-row-subtitle">
+                    Cite a document the way it already does: its own citations and its list's heading say which
+                    style. Picking a style on a citation card still changes that card.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.matchDocumentStyle}
+                  onChange={(e) => void save({ matchDocumentStyle: e.target.checked })}
+                />
+              </label>
               <div className="settings-panel-grid">
-                <SettingsField label="Default citation style">
+                <SettingsField label={settings.matchDocumentStyle ? "When a document doesn't show its own" : 'Citation style'}>
                   <select
                     value={settings.defaultCitationStyle}
                     onChange={(e) => void save({ defaultCitationStyle: e.target.value as CitationStyle })}
@@ -821,7 +860,92 @@ export default function SettingsView({
                     <option value="Chicago">Chicago</option>
                   </select>
                 </SettingsField>
+                <SettingsField label="Reference list heading">
+                  <select
+                    value={settings.worksCitedHeading}
+                    onChange={(e) => void save({ worksCitedHeading: e.target.value as WorksCitedHeadingChoice })}
+                  >
+                    <option value="">The style's own</option>
+                    <option value="Works Cited">Works Cited</option>
+                    <option value="References">References</option>
+                    <option value="Bibliography">Bibliography</option>
+                  </select>
+                </SettingsField>
               </div>
+              <p className="muted settings-app-note">
+                The heading is for a list Tracely adds. A list you already have keeps the heading you gave it.
+              </p>
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Links in entries</div>
+                  <div className="settings-toggle-row-subtitle">The DOI, or the page's address, at the end of each entry.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.citationLinks}
+                  onChange={(e) => void save({ citationLinks: e.target.checked })}
+                />
+              </label>
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Access dates</div>
+                  <div className="settings-toggle-row-subtitle">
+                    Adds the day you read a web page, which some teachers ask for. In MLA: “{accessedPhrase('MLA', new Date())}”
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.citationAccessDates}
+                  onChange={(e) => void save({ citationAccessDates: e.target.checked })}
+                />
+              </label>
+
+              <h4 className="settings-group-title">Sources Tracely suggests</h4>
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Only sources teachers usually accept</div>
+                  <div className="settings-toggle-row-subtitle">
+                    Peer-reviewed, official, reference works and news of record. Wikipedia, blogs and sites Tracely
+                    can't place are left out of what you can cite. Your score still counts everything the search found.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.citableOnlySources}
+                  onChange={(e) => void save({ citableOnlySources: e.target.checked })}
+                />
+              </label>
+              <div className="settings-toggle-row-title">Never suggest these sites</div>
+              <div className="settings-toggle-row-subtitle">A site here, and every part of it, is left out of what Tracely suggests.</div>
+              <div className="settings-app-add">
+                <input
+                  value={avoidInput}
+                  placeholder="wikipedia.org"
+                  onChange={(e) => setAvoidInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void addAvoidSite()
+                  }}
+                />
+                <Button variant="secondary" onClick={() => void addAvoidSite()}>
+                  Add
+                </Button>
+              </div>
+              {avoidError ? <p className="error-text">{avoidError}</p> : null}
+              {settings.avoidSourceSites.length ? (
+                <div className="settings-keys">
+                  {settings.avoidSourceSites.map((site) => (
+                    <div key={site} className="settings-key-row">
+                      <span>{site}</span>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void save({ avoidSourceSites: settings.avoidSourceSites.filter((s) => s !== site) })}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -829,8 +953,61 @@ export default function SettingsView({
             <div key="checking" className="settings-panel-content">
               <div className="settings-panel-header">
                 <h3>Checking</h3>
-                <p>How Tracely checks your claims and grades your writing, and what it spends doing it.</p>
+                <p>What Tracely flags, how sure it must be, how it grades your writing, and what it spends doing it.</p>
               </div>
+              {/* 2026-10-16, the extension's Checking mirrored (findingFilter.ts). Read
+                  live by Screen Watch, and by the editor the next time a document opens. */}
+              <h4 className="settings-group-title">What Tracely flags</h4>
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Factual errors</div>
+                  <div className="settings-toggle-row-subtitle">
+                    Claims the evidence contradicts, and citations to works that don't exist. Always on.
+                  </div>
+                </div>
+                <input type="checkbox" checked disabled />
+              </label>
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Needs evidence</div>
+                  <div className="settings-toggle-row-subtitle">
+                    Claims nothing backs yet: no sources, weak or partial evidence, an unverified figure.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.showEvidenceKinds}
+                  onChange={(e) => void save({ showEvidenceKinds: e.target.checked })}
+                />
+              </label>
+              <label className="settings-toggle-row">
+                <div>
+                  <div className="settings-toggle-row-title">Citation issues</div>
+                  <div className="settings-toggle-row-subtitle">
+                    A missing or malformed citation, a cited work Tracely couldn't check, a claim that says more than
+                    its sources.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.showCitationKinds}
+                  onChange={(e) => void save({ showCitationKinds: e.target.checked })}
+                />
+              </label>
+              <div className="settings-panel-grid">
+                <SettingsField label="How strict">
+                  <select
+                    value={settings.checkingStrictness}
+                    onChange={(e) => void save({ checkingStrictness: e.target.value as AppSettings['checkingStrictness'] })}
+                  >
+                    <option value="clear">Only clear errors</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="thorough">Thorough</option>
+                  </select>
+                  <div className="settings-toggle-row-subtitle">{STRICT_LINE[settings.checkingStrictness]}</div>
+                </SettingsField>
+              </div>
+              <h4 className="settings-group-title">Grading and the checker</h4>
               <div className="settings-panel-grid">
                 {/*
                   The school year the LETTER is graded against.

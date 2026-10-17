@@ -42,6 +42,8 @@ import type {
 } from '@shared/ipc-contract'
 import { receiptsInOrder, settleReceipts, verifyRequestBody } from '@shared/sourceReceipts'
 import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
+import type { CheckingCitationSettings } from '@shared/types'
+import { CHECKING_CITATION_DEFAULTS, checkingCitationsOf, definedCheckingCitations } from '@shared/citationPrefs'
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { parseReferences } from '@shared/citedReference'
 import { formatInTextCitation } from '@shared/citationInText'
@@ -143,7 +145,7 @@ function saveJson(key: string, value: unknown): void {
   }
 }
 
-interface SettingsExtras {
+interface SettingsExtras extends CheckingCitationSettings {
   hotkeyAccelerator: string
   enableStrengthSummaries: boolean
   claimSensitivity: number
@@ -183,7 +185,8 @@ const DEFAULT_EXTRAS: SettingsExtras = {
   username: 'local',
   // Matches settingsRepo's default. It is a request either way — the relay
   // clamps it to the plan, and this build has no paid plan behind it.
-  modelTier: 'thorough'
+  modelTier: 'thorough',
+  ...CHECKING_CITATION_DEFAULTS
 }
 
 // ── bridge state ────────────────────────────────────────────────────────────
@@ -338,6 +341,8 @@ export function createHttpApi(): TracelyApi {
       screenWatchAllowedApps: (p.watchApps ?? []).join(','),
       suppressSaveConfirm: extras.suppressSaveConfirm,
       modelTier: extras.modelTier,
+      // Kept in the browser, like the other extras (none of them reaches this build's server).
+      ...checkingCitationsOf({ ...DEFAULT_EXTRAS, ...extras }),
       gradingLevel: p.gradingLevel ?? 12,
       autoCritiqueCited: p.autoCritique !== false
     }
@@ -943,6 +948,7 @@ export function createHttpApi(): TracelyApi {
         }
         if (typeof req.suppressSaveConfirm === 'boolean') extras.suppressSaveConfirm = req.suppressSaveConfirm
         if (req.modelTier) extras.modelTier = req.modelTier
+        Object.assign(extras, definedCheckingCitations(req))
         saveJson(KEYS.extras, extras)
         const updated = Object.keys(serverPatch).length
           ? await put<ServerPrefs>('/api/prefs', serverPatch)
