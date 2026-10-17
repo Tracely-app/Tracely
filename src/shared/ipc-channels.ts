@@ -94,7 +94,19 @@ export const IPC = {
   AUTH_GET_THOROUGH: 'auth:getThorough',
   SOURCES_FAVICONS: 'sources:favicons',
   // Receipts for the list a surface is showing — shared/sourceReceipts.ts.
-  SOURCES_VERIFY: 'sources:verify'
+  SOURCES_VERIFY: 'sources:verify',
+  // Settings (2026-10-16, the extension's Settings mirrored): Screen Watch
+  // paused until a time, what the server says has been used, and a file of
+  // what this machine keeps.
+  SCREENWATCH_PAUSE: 'screenWatch:pause',
+  AUTH_GET_USAGE: 'auth:getUsage',
+  DATA_EXPORT: 'data:export',
+  // Settings → Documents and Memory (2026-10-17): a document's own settings,
+  // forgetting its grade, and what is kept, counted and cleared part by part.
+  DOCUMENTS_SET_PREFS: 'documents:setPrefs',
+  DOCUMENTS_FORGET_GRADE: 'documents:forgetGrade',
+  DATA_MEMORY: 'data:memory',
+  DATA_MEMORY_CLEAR: 'data:memoryClear'
 } as const
 
 export const IPC_EVENTS = {

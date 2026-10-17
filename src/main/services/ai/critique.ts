@@ -5,6 +5,7 @@ import { getCached, setCached } from '../storage/cacheRepo'
 import { callServer } from './client'
 import { modelForCall } from './modelTier'
 import { normalizeCritique } from './normalizeCritique'
+import { oneSentenceRevision } from './oneSentence'
 import { checkReferences, citedWorkEvidence, describeReferenceChecks } from '../search/referenceCheck'
 import { buildEvidenceSummary, searchedSlots, type CritiqueSource } from '@shared/citedEvidence'
 import {
@@ -212,7 +213,8 @@ export async function generateCritique(
   const key = cacheKey(claim, evidence, referenceCheck, citedWork, model)
 
   const cached = getCached<CritiqueResult>(key)
-  if (cached) return { ...cached, citedWorkRead: citedWork !== null }
+  // One sentence for one sentence, cached or fresh (oneSentence.ts).
+  if (cached) return { ...cached, suggestedRevision: oneSentenceRevision(claim.text, cached.suggestedRevision), citedWorkRead: citedWork !== null }
 
   const topEvidence = selectCritiqueEvidence(
     evidence,
@@ -244,9 +246,10 @@ export async function generateCritique(
   // condition that makes the prompt's Pass 2(c) unavailable. Passing it here is
   // what turns that from an instruction the model may ignore into a rule it
   // cannot. See CritiqueFacts.referenceLookupRan.
-  const result = normalizeCritique(raw, claim.text, {
+  const normalized = normalizeCritique(raw, claim.text, {
     referenceLookupRan: referenceCheck !== null
   })
+  const result = { ...normalized, suggestedRevision: oneSentenceRevision(claim.text, normalized.suggestedRevision) }
   // Stored under the model the server actually RAN, which on Pro is the fast
   // one once the month's Thorough allowance is spent. Keyed on the request, a
   // fast fallback would be served from this cache as a Thorough critique for

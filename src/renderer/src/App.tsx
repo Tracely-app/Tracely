@@ -3,7 +3,7 @@ import AnalyzeView from './views/AnalyzeView'
 import DocumentsView from './views/DocumentsView'
 import LibraryView from './views/LibraryView'
 import HomeView from './views/HomeView'
-import SettingsView from './views/SettingsView'
+import SettingsView, { type SettingsSection } from './views/SettingsView'
 import { applyTheme } from './lib/theme'
 import { applyAccentColor, applyDensity, applyFontSize, trackWindowZoom } from './lib/appearance'
 import { tracelyApi } from './lib/api'
@@ -42,6 +42,13 @@ export default function App(): JSX.Element {
   // AnalyzeView because the Documents page is what chooses it, and the two are
   // siblings. `null` means a new, untitled one.
   const [openDocumentId, setOpenDocumentId] = useState<string | null>(null)
+  // Which section Settings opens at, when a link asks for one; General otherwise.
+  // Cleared on the way to any other tab, so the gear always lands on General.
+  const [settingsAt, setSettingsAt] = useState<SettingsSection | undefined>(undefined)
+  function openTab(next: Tab): void {
+    if (next !== 'settings') setSettingsAt(undefined)
+    setTab(next)
+  }
 
   // Before the settings round-trip, not after: the window opens at whatever
   // size it was last left at, and until the zoom matches that width the card
@@ -74,7 +81,11 @@ export default function App(): JSX.Element {
       <main className={`app-main ${tab === 'home' ? 'app-main-fixed' : ''}`}>
         {tab === 'home' ? (
           <HomeView
-            onNavigate={setTab}
+            onNavigate={openTab}
+            onOpenSettingsAt={(at) => {
+              setSettingsAt(at)
+              setTab('settings')
+            }}
             // The same route DocumentsView's "+ New document" takes: a null id
             // is what the editor reads as "start an Untitled document", so
             // Home's primary action lands in the editor rather than one page
@@ -103,7 +114,7 @@ export default function App(): JSX.Element {
         ) : null}
         {tab === 'analyze' ? <AnalyzeView onNavigate={setTab} openDocumentId={openDocumentId} /> : null}
         {tab === 'library' ? <LibraryView onNavigate={setTab} /> : null}
-        {tab === 'settings' ? <SettingsView onNavigate={setTab} /> : null}
+        {tab === 'settings' ? <SettingsView onNavigate={openTab} initialSection={settingsAt} /> : null}
       </main>
     </div>
     </PlanProvider>

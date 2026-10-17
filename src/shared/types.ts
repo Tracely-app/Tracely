@@ -310,7 +310,43 @@ export interface AppSettings {
    * or Settings will name a model the app is not using.
    */
   modelTier: ModelTier
+  // Settings → Checking and Citations (2026-10-16, the extension's mirrored):
+  // CheckingCitationSettings below, one field each.
+  showEvidenceKinds: boolean
+  showCitationKinds: boolean
+  checkingStrictness: 'clear' | 'balanced' | 'thorough'
+  matchDocumentStyle: boolean
+  worksCitedHeading: WorksCitedHeadingChoice
+  citationLinks: boolean
+  citationAccessDates: boolean
+  citableOnlySources: boolean
+  avoidSourceSites: string[]
+  /** "Never flag this": the sentences as written, newest last (shared/neverFlag.ts). Managed under Settings → Memory. */
+  neverFlagSentences: string[]
 }
+
+/** The reference list's heading when Tracely adds one: "" is the style's own (worksCited.ts WORKS_CITED_HEADINGS). */
+export type WorksCitedHeadingChoice = '' | 'Works Cited' | 'References' | 'Bibliography'
+
+/**
+ * Settings → Checking and Citations, as one group (defaults in
+ * shared/citationPrefs.ts). Checking: the blue and amber kinds on or off, and
+ * how strict (findingFilter.ts). Citations: one style everywhere or each
+ * document's own, the list's heading, links and access dates in entries, and
+ * which sources are offered.
+ */
+export type CheckingCitationSettings = Pick<
+  AppSettings,
+  | 'showEvidenceKinds'
+  | 'showCitationKinds'
+  | 'checkingStrictness'
+  | 'matchDocumentStyle'
+  | 'worksCitedHeading'
+  | 'citationLinks'
+  | 'citationAccessDates'
+  | 'citableOnlySources'
+  | 'avoidSourceSites'
+>
 
 // The document editor's saved work. Rich text rather than plain: the editor is
 // an execCommand surface (bold/italic/colour/alignment), so storing plain text
@@ -321,6 +357,20 @@ export interface DocumentRecord {
   bodyHtml: string
   createdAt: string
   updatedAt: string
+  /**
+   * Settings → Documents, this document's own (the `document_prefs` table).
+   * Optional: a record from a save, or from a build or bridge without them,
+   * has none, which is the same as "as Settings says".
+   */
+  prefs?: DocumentPrefs
+}
+
+/** One document's own settings. Each null or false is "as Settings says". */
+export interface DocumentPrefs {
+  /** Its citation style, before Settings → Citations' (match the document, or the default). */
+  citationStyle: CitationStyle | null
+  /** Never check it: no claims read, no searches, no underlines, until it is turned back on. */
+  neverCheck: boolean
 }
 
 /**

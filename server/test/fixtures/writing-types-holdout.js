@@ -954,7 +954,8 @@ Crestview High School
   },
   {
     name: "Letter to the editor about a pool closure",
-    expect: "letter",
+    // Was "letter". Since 2.21.57 it names its sources in the sentence, like a news article (owner, 2026-10-15).
+    expect: "news",
     text: `To the Editor:
 
 Your Sept. 28 article, "County weighs closing Eastfield pool to save $310,000," did a good job explaining the budget numbers, but it left out the people who actually use the pool.
@@ -1401,7 +1402,8 @@ Osei, Daniel. "Orange by Accident: The Making of the Golden Gate." Bay Area Heri
   },
   {
     name: "Newspaper op-ed against cutting late-night buses",
-    expect: "prose",
+    // Was "prose". Since 2.21.57 it names its sources in the sentence, like a news article (owner, 2026-10-15).
+    expect: "news",
     text: `Don't cut the late-night bus. For some of us, it's the only way home.
 
 By Renata Fiore

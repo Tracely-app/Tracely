@@ -26,7 +26,7 @@ function load(extra = {}) {
     ${sliceBetween(SRC, "  const TALLY_ICON = {", "\n  };\n")}
   };
     ${sliceBetween(SRC, "  const MARK_PATTERN =", "  const MARK_LINE_RADIUS")}
-    ({ MARK_COLORS, MARK_PATTERN, MARK_ICON, MARK_ICON_RANK, TALLY_ICON, markFill, markLineHeight, svgMarkFill, legendHtml, LEGEND })`;
+    ({ MARK_COLORS, MARK_PATTERN, MARK_ICON, MARK_ICON_RANK, TALLY_ICON, markFill, markLineHeight, svgMarkFill })`;
   return vm.runInContext(code, vm.createContext(extra));
 }
 
@@ -39,8 +39,9 @@ test("every line is solid; each kind has its own icon, so colour is never the on
     seen.set(MARK_ICON[v], MARK_COLORS[v]);
   }
   assert.deepEqual([...seen.keys()].sort(), ["check", "cite", "writing", "wrong"], "the header's four kinds");
-  // Two kinds share orange (worth checking, a writing note): their icons differ.
-  assert.equal(seen.get("check"), seen.get("writing"));
+  // Owner, 2026-10-13: "from now on needs evidence should be blue instead of orange". Writing notes,
+  // also blue, are off (no writing tips), so nothing on the page shares it; the icons differ anyway.
+  assert.equal(MARK_COLORS.questionable, "#2563eb");
   assert.notEqual(TALLY_ICON.check, TALLY_ICON.writing);
 });
 
@@ -54,15 +55,14 @@ test("the lines themselves: a plain colour, 2px (3px hovered), in a div or in Do
   assert.match(SRC, /borderBottom: `2px solid \$\{color\}`, opacity: "0\.45",/, "still checking: a faint solid grey line");
 });
 
-test("one legend: each kind's icon beside its solid line, in the cards' words", () => {
-  const { legendHtml, MARK_COLORS, TALLY_ICON } = load();
-  const html = legendHtml();
-  assert.equal((html.match(/class="legend-item"/g) || []).length, 4);
-  for (const [v, label, kind] of [["false", "Contradicted or doesn't make sense", "wrong"], ["questionable", "Worth checking", "check"], ["needs_citation", "Missing or incomplete citation", "cite"], ["note_tip", "Writing note", "writing"]]) {
-    assert.ok(html.includes(`<span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[kind]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: 2px"></span>${label}`), label);
-  }
-  assert.match(html, /aria-label="What the underlines and margin icons mean"/);
-  assert.equal((SRC.match(/cardListHtml\(cards\) \+ legendHtml\(\)/g) || []).length, 2, "in both panels, under the cards");
+/* Since 2026-10-14 (owner: the panel was "cluttered … wordy"; the Figma frame
+ * "Overlay Mockup - Widget (Clean)") the legend is the header's tabs: each
+ * kind's icon in its line's colour beside its word. ext-panel-layout.test.js
+ * renders them; here, that there is no second legend and the colours are the lines'. */
+test("one legend: the header's tabs, each kind's icon in its line's colour", () => {
+  assert.ok(!/function legendHtml|const LEGEND =/.test(SRC), "no legend row under the cards");
+  assert.match(SRC, /\$\{TALLY\.map\(\(\[k, mark\]\) => `\.k-\$\{k\} \{ color: \$\{MARK_COLORS\[mark\]\}; \}`\)/, "an icon's colour is its underline's (MARK_COLORS)");
+  assert.match(SRC, /const kindIcoHtml = \(cat\) => \(TALLY\.some\(\(\[k\]\) => k === cat\) \? `<span class="kico k-\$\{cat\}" aria-hidden="true">\$\{TALLY_ICON\[cat\]\}<\/span>` : ""\);/, "the margin's own icon");
 });
 
 /* drawMarginIcons over a stand-in of Docs' annotation SVG: one line's runs. */

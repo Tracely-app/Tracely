@@ -438,7 +438,7 @@ test("every model route names the fast model and sends no effort — the server 
   // A call site sends its own object; searchSources' fallback passes the
   // Docs search's object on, so it is that object (searchSources({) that counts.
   const sites = [...src.matchAll(/api\("\/api\/(check|flow|sources)", \{|searchSources\(\{/g)];
-  assert.equal(sites.length, 6, "docs + field /api/check, Explain in depth, docs /api/flow, docs (live) + field /api/sources");
+  assert.equal(sites.length, 8, "docs + field /api/check, Explain in depth, docs /api/flow, docs (live) + field /api/sources, docs + field evidence for a study Tracely can't find (findReplacement)");
   for (const m of sites) {
     const body = src.slice(m.index, src.indexOf("});", m.index));
     assert.doesNotMatch(body, /^\s*effort\s*:/m, `${m[1]} at ${m.index} sends an effort`);
@@ -518,7 +518,7 @@ async function renderOptions(answer, { stored = {} } = {}) {
     return els.get(id);
   };
   // What options.html starts with: both account blocks and the beta badges hidden.
-  for (const id of ["signedIn", "signedOut", "manageLink", "acctBeta", "thoroughPro", "thoroughLocked", "thoroughMeter", "thoroughMeterText", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
+  for (const id of ["signedIn", "signedOut", "manageLink", "acctBeta", "recommendPlan", "recommendLocked", "sourcesLine", "fairUseLine"]) el(id).hidden = true;
   const chrome = {
     runtime: { sendMessage: async (m) => (m.type === "tracely-entitlement" ? answer : { ok: true }) },
     storage: {
@@ -546,8 +546,8 @@ test("options: a signed-out beta tester sees Pro (beta) and no way to pay", asyn
   assert.equal($("acctBeta").hidden, false, "and badges it Beta");
   assert.equal($("manageLink").hidden, true, "signed out, the account's own link is not offered");
   assert.equal($("seePlans").hidden, true, "See plans is a pay link");
-  assert.equal($("thoroughLocked").hidden, true, "a beta tester has Thorough, so no upgrade note");
-  assert.equal($("thoroughPro").hidden, false);
+  assert.equal($("recommendLocked").hidden, true, "a beta tester has evidence recommendations, so no upgrade note");
+  assert.equal($("recommendPlan").hidden, false);
   assert.match($("acctHint").textContent, /test build/);
 });
 
@@ -569,8 +569,8 @@ test("options: nothing changes for a user who is not on the test build", async (
   assert.equal(out("acctBeta").hidden, true);
   assert.equal(out("acctPlan").textContent, "Free");
   assert.equal(out("seePlans").hidden, false);
-  assert.equal(out("thoroughLocked").hidden, false);
-  assert.equal(out("thoroughPro").hidden, true);
+  assert.equal(out("recommendLocked").hidden, false);
+  assert.equal(out("recommendPlan").hidden, true);
 
   const free = await renderOptions({ ...BASE, signedIn: true, email: "f@example.com", userId: "u-1", plan: "free" });
   assert.equal(free("manageLink").hidden, false);
@@ -614,7 +614,7 @@ test("options.html lets `hidden` beat the link and badge display rules", () => {
   // Upgrade link would stay visible with hidden = true.
   const html = read("options.html");
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
-  for (const id of ["acctPlan", "acctBeta", "seePlans", "manageLink", "deleteRow", "thoroughPro", "thoroughLocked"]) {
+  for (const id of ["acctPlan", "acctBeta", "seePlans", "manageLink", "deleteRow", "recommendPlan", "recommendLocked"]) {
     assert.match(html, new RegExp(`id="${id}"`), `options.html is missing #${id}`);
   }
 });

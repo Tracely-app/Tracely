@@ -38,6 +38,9 @@ import { byCredibility, credibilityOf } from '@shared/sourceCredibility'
 import { computeTextRelevance } from '../search/scoring'
 import type { NormalizedSourceResult } from '../search/types'
 import { getSetting, setSetting } from '../storage/settingsRepo'
+import { findingFilterFrom } from '@shared/findingFilter'
+import { offeredSourceFilter } from '../search/sourceFilter'
+import { styleForDocument } from '@shared/citationPrefs'
 import { sourceHashFor } from '../structure/analyzeStructure'
 import { focusedShieldableWindow } from '../../windows/overlayShield'
 import {
@@ -130,6 +133,9 @@ function getMinClaimConfidence(): number {
 
 let enabled = false
 let timer: ReturnType<typeof setTimeout> | null = null
+// Paused from Settings → General: off until resumeAt, then started again by resumeTimer.
+let resumeAt = 0
+let resumeTimer: ReturnType<typeof setTimeout> | null = null
 let ticking = false
 let detecting = false
 
@@ -1213,6 +1219,19 @@ async function resolveCitedForClaim(claimId: string): Promise<ResolvedCitedWork 
  * Refuses rather than guesses when the sentence carries two citations: there
  * is no telling which one the card is about. The overlay then says so.
  */
+/**
+ * Settings → Citations: the style a citation in the watched document is
+ * written in — its own, when Settings says to match each document and it
+ * shows one (citationPrefs.documentCitationStyle), else the default. The
+ * overlay never holds the whole text; main does.
+ */
+function citationStyleHere(): CitationStyle {
+  return styleForDocument(lastAnalyzedText || null, {
+    matchDocumentStyle: getSetting('matchDocumentStyle') === 'true',
+    defaultCitationStyle: getSetting('defaultCitationStyle') as CitationStyle
+  })
+}
+
 export async function findCitedWorkForClaim(claimId: string): Promise<ScreenWatchFindCitedWorkResponse> {
   const empty = (target: ScreenWatchFindCitedWorkResponse['target']): ScreenWatchFindCitedWorkResponse => ({
     target,
@@ -1234,21 +1253,21 @@ export async function findCitedWorkForClaim(claimId: string): Promise<ScreenWatc
     documentText: lastAnalyzedText,
     hint: critiqueByClaimId.get(claimId)?.citationFix ?? null
   })
-  return { ...result, target: 'one' }
+  return { ...result, target: 'one', style: citationStyleHere() }
 }
 
 /** Both halves of the comparison, in one round trip from the overlay. */
 export async function findSourceWithCited(
   claimId: string,
   query?: string
-): Promise<{ candidates: ScreenWatchSourceCandidate[]; cited: ResolvedCitedWork | null }> {
+): Promise<{ candidates: ScreenWatchSourceCandidate[]; cited: ResolvedCitedWork | null; style: CitationStyle }> {
   // In parallel: the lookup is two unmetered HTTP requests and the search is
   // already the slow half, so the comparison costs nothing in wall clock.
   const [candidates, cited] = await Promise.all([
     findSourceForClaim(claimId, query),
     resolveCitedForClaim(claimId)
   ])
-  return { candidates, cited }
+  return { candidates, cited, style: citationStyleHere() }
 }
 
 // User-initiated only (the overlay's "Check Claim" button) — unlike
@@ -1309,9 +1328,12 @@ export async function findSourceForClaim(claimId: string, query?: string): Promi
   if (!claim) return []
   const result = await findEvidenceCached(query ?? claim.searchQuery, claim.text)
   if (!currentClaims.some((c) => c.id === claimId)) return []
-  findSourceResultByClaimId.set(claimId, result.evidence)
+  // Settings → Citations → Sources, before the list is kept and numbered: a
+  // source's ref can be its rank, and the insert looks it up in this same list.
+  const offered = result.evidence.filter(offeredSourceFilter())
+  findSourceResultByClaimId.set(claimId, offered)
 
-  const ranked = result.evidence
+  const ranked = offered
     .map((item, i) => {
       // The aggregator's own figure, not a re-derivation. It recomputed word
       // overlap here, which now disagrees with how the results were actually
@@ -1551,6 +1573,13 @@ function updateOverlayAndWidget(
     sentenceInfoById.get(claim.id) ?? readSentence(claim.text, hasInlineCitation(claim.text))
 
   /** Decided once here, so the underline and the card cannot disagree. */
+  // Settings → Checking, read live: a change shows within one poll tick, underlines, cards and counts alike.
+  const findings = findingFilterFrom({
+    showEvidenceKinds: getSetting('showEvidenceKinds'),
+    showCitationKinds: getSetting('showCitationKinds'),
+    checkingStrictness: getSetting('checkingStrictness'),
+    neverFlagSentences: getSetting('neverFlagSentences')
+  })
   const problemKindById = new Map(
     claims.map((c) => {
       const evidence = evidenceResultByClaimId.get(c.id)
@@ -1578,7 +1607,8 @@ function updateOverlayAndWidget(
           // The critique is kept in memory here rather than in SQLite, so the
           // flag comes straight off the result that carried the verdict.
           citedWorkRead: critiqueByClaimId.get(c.id)?.citedWorkRead ?? null,
-          outOfIndexScope: retrievalScopeFor(c.text)
+          outOfIndexScope: retrievalScopeFor(c.text),
+          findings
         })
       ] as const
     })
@@ -1920,19 +1950,49 @@ export function isScreenWatchEnabled(): boolean {
   return enabled
 }
 
+/** A pause ends: by its own timer, by being turned on, or by being turned off for good. */
+function clearResume(): void {
+  if (resumeTimer) {
+    clearTimeout(resumeTimer)
+    resumeTimer = null
+  }
+  if (resumeAt) {
+    resumeAt = 0
+    setSetting('screenWatchResumeAt', '0')
+  }
+}
+
+function scheduleResume(at: number): void {
+  resumeAt = at
+  setSetting('screenWatchResumeAt', String(at))
+  // setTimeout's ceiling is about 24.8 days; a pause "for today" is under one.
+  resumeTimer = setTimeout(() => {
+    resumeTimer = null
+    startScreenWatch()
+  }, Math.min(Math.max(0, at - Date.now()), 2 ** 31 - 1))
+}
+
 export function startScreenWatch(): void {
+  clearResume()
   if (enabled) return
   enabled = true
   setSetting('screenWatchEnabled', 'true')
   resetTrackingState()
   resetScreenWatchLog()
   lastError = null
-  lastStatus = { ...lastStatus, enabled: true, lastError: null }
+  lastStatus = { ...lastStatus, enabled: true, lastError: null, resumeAt: 0 }
   startHoverTracking()
   void tick()
 }
 
-export function stopScreenWatch(): void {
+/**
+ * Off. With `nextResumeAt` in the future it is a pause (Settings → General):
+ * the same off, plus a timer that turns it back on then, kept across restarts.
+ * Without one — the switch, the tray, the shortcut — it is off until turned on.
+ */
+export function stopScreenWatch(nextResumeAt = 0): void {
+  clearResume()
+  if (nextResumeAt > Date.now()) scheduleResume(nextResumeAt)
   enabled = false
   setSetting('screenWatchEnabled', 'false')
   if (timer) {
@@ -1954,18 +2014,37 @@ export function stopScreenWatch(): void {
     claimCount: 0,
     lastError: null,
     authRequired,
-    blockedApp: null
+    blockedApp: null,
+    resumeAt
   })
+}
+
+/** Settings → General → Pause for 1 hour / for today. */
+export function pauseScreenWatch(until: number): void {
+  stopScreenWatch(until)
 }
 
 export function initScreenWatch(): void {
   if (getSetting('screenWatchEnabled') === 'true') {
+    startScreenWatch()
+    return
+  }
+  // A pause from the last session: still running, or over while the app was closed.
+  const at = Number(getSetting('screenWatchResumeAt')) || 0
+  if (at > Date.now()) {
+    scheduleResume(at)
+    lastStatus = { ...lastStatus, resumeAt: at }
+  } else if (at > 0) {
     startScreenWatch()
   }
 }
 
 export function shutdownScreenWatch(): void {
   enabled = false
+  if (resumeTimer) {
+    clearTimeout(resumeTimer) // the stored time stays: the next launch picks the pause up
+    resumeTimer = null
+  }
   if (timer) {
     clearTimeout(timer)
     timer = null

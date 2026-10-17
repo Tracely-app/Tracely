@@ -342,3 +342,42 @@ export function clearAnalysisHistory(): void {
   getDb().exec('VACUUM')
   persist()
 }
+
+// Settings → Memory (2026-10-17, the extension's mirrored): the same history,
+// one part at a time. clearAnalysisHistory above is Privacy's one-press
+// version and stays as it is.
+
+/** What each part of Memory holds now, counted. */
+export function memoryCounts(): { answers: number; checks: number; grades: number; tracerChats: number; library: number } {
+  const n = (sql: string): number => queryOne<{ n: number }>(sql)?.n ?? 0
+  return {
+    // Answers kept so the same words are never asked or paid for twice: checks, critiques, grades, searches.
+    answers: n('SELECT COUNT(*) AS n FROM request_cache'),
+    checks: n('SELECT COUNT(*) AS n FROM analyses'),
+    grades: n('SELECT COUNT(*) AS n FROM document_structure'),
+    tracerChats: n('SELECT COUNT(*) AS n FROM tracer_conversations'),
+    library: n('SELECT COUNT(*) AS n FROM library_items')
+  }
+}
+
+/**
+ * Saved checks: the analyses with their claims and evidence, every kept answer
+ * and search, and the documents' grades — clearAnalysisHistory's rows less
+ * Tracer's. Tracer chats, the library and the documents stay. The sources
+ * table stays too, as clearAnalysisHistory leaves it: it is public records
+ * (titles, authors), and an open Screen Watch card may still cite one by id.
+ */
+export function clearSavedChecks(): void {
+  getDb().exec(
+    'DELETE FROM claim_evidence; DELETE FROM claims; DELETE FROM analyses; DELETE FROM request_cache; DELETE FROM document_structure;'
+  )
+  getDb().exec('VACUUM')
+  persist()
+}
+
+/** Tracer chats: every conversation and its messages. */
+export function clearTracerChats(): void {
+  getDb().exec('DELETE FROM tracer_messages; DELETE FROM tracer_conversations;')
+  getDb().exec('VACUUM')
+  persist()
+}

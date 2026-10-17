@@ -1140,6 +1140,16 @@ textarea:disabled {
   background: rgba(0, 0, 0, 0.04);
 }
 
+/* "Never flag this": the eye after Dismiss, square, its words in the title. */
+.docmark-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  margin-left: auto;
+  color: #6b6b6b;
+}
+
 .docmark-btn-primary:disabled,
 .docmark-btn-secondary:disabled {
   opacity: 0.6;
@@ -2526,11 +2536,10 @@ textarea:disabled {
   gap: 4px;
 }
 
+/* Sentence case, as written (owner: no capitals in this UI; 2026-10-16, with the extension's Settings). */
 .settings-field-label {
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--label);
 }
 
@@ -3089,10 +3098,8 @@ textarea:disabled {
   border: 1px solid var(--accent-border);
   border-radius: 999px;
   background: var(--accent-wash);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--accent);
 }
 
@@ -3105,22 +3112,10 @@ textarea:disabled {
   gap: 6px;
 }
 
+/* Plain lines, no dots (the owner's rule, as on the extension's plan card). */
 .settings-plan-includes li {
-  position: relative;
-  padding-left: 16px;
   font-size: 12.5px;
   color: var(--muted-2);
-}
-
-.settings-plan-includes li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
 }
 
 /* Same row shape as Privacy's, without borrowing a class called danger. */
@@ -3144,6 +3139,186 @@ textarea:disabled {
    without this the button wraps to "See / plans". */
 .settings-plan-upgrade .btn {
   flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Settings, 2026-10-16 (the extension's Settings mirrored): a group's
+   heading inside a section, General's pause buttons, Account and billing's
+   usage bars, Privacy and data's plain lines, Help's changes and keys. ── */
+.settings-group-title {
+  margin: 22px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.settings-pause-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+
+.settings-pause-row:empty {
+  display: none;
+}
+
+.settings-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-usage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-usage-track {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.settings-usage-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.settings-privacy-lines p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.settings-privacy-lines .settings-group-title {
+  margin-top: 0;
+}
+
+.settings-changes,
+.settings-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-change {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.settings-change-date {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Memory → Never flag these: a whole sentence, so it wraps and Remove stays put. */
+.settings-never-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Settings → Documents: one tile a document, its name over its own settings. Tokens only. */
+.settings-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-doc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.settings-doc-head {
+  min-width: 0;
+}
+
+.settings-doc-head .settings-toggle-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-doc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.settings-doc-controls select {
+  width: auto;
+  min-width: 170px;
+  margin-top: 0;
+}
+
+.settings-doc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Not .settings-panel input's full-width field: a plain checkbox, as .settings-toggle-row draws it. */
+.settings-doc-check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.settings-kbd {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
   white-space: nowrap;
 }
 
@@ -4504,22 +4679,8 @@ textarea:disabled {
 /* No width. The frame's buttons hug their text — see 361:335/361:337. */
 
 
-/* The one line that says why a Figma-accurate settings page cannot be used. */
-.settings-unavailable-note {
-  margin: 0 0 18px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--muted-2);
-}
-
-.settings-static-value.is-unavailable {
-  color: var(--muted);
-  font-style: italic;
-}
+/* (The disabled "Not available yet" sections and their note went on
+   2026-10-16, with SettingsUnavailable.tsx: the owner removed them.) */
 
 /* ---- Document toolbar menus (Figma 226:95 / 226:104 / 234:46 / 234:67 /
    234:74 / 234:85) — chrome read off 226:95 with get_design_context. ------- */
@@ -6741,6 +6902,24 @@ textarea:disabled {
 
 /* The automatic evidence sweep's progress, beside the word count. Same corner,
    same weight — it is status, not an alert, and it disappears on its own. */
+/* "Tracely is off for this document": the same pill, with a button in it. */
+.docedit-checking.docedit-off {
+  pointer-events: auto;
+}
+
+.docedit-off-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.docedit-off-btn:hover {
+  text-decoration: underline;
+}
+
 .docedit-checking {
   position: absolute;
   left: 50%;

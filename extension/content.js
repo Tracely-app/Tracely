@@ -28,14 +28,14 @@
 /* FILE MAP — one file, no build step, two developers editing it at once.
    Sections, by the line their anchor sits on (regenerate the numbers with
    `grep -n` when you move things; the anchors themselves must not move):
-        56  Verdicts, card copy, colours, FEATURES switches
-       378  Settings and plan gate
-       630  Shared helpers: hashing, bibliography, citation formatting
-       987  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1311  Genre detection, evidence suggestions, local checks
-      2311  Widget chrome, API transport, design tokens
-      2769  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-      6589  Field mode (textareas and contenteditables on any site)
+        63  Verdicts, card copy, colours, FEATURES switches
+       385  Settings and plan gate; what the Settings page sets (prefs, docPrefs, ignoreList)
+       939  Shared helpers: hashing, bibliography, citation formatting
+      1367  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1662  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      4164  Widget chrome, API transport, design tokens
+      5653  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12606  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -60,7 +60,7 @@
   if (document.getElementById("tracely-host")) return;
 
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation"];
+  const ISSUE_VERDICTS = ["false", "questionable", "incoherent", "needs_citation", "wrong_source"];
   /* What each kind of writing is checked for (detectGenre says which kind it
      is). Quiet: homework, a poem, a story, a script — nothing in them is a
      claim to check or a source to cite. The writer's own account: a resume,
@@ -78,7 +78,16 @@
      can be switched off in the widget; a tester's history essay had every
      sentence underlined amber and the pill read like an error count. Off hides
      only that verdict; a false or incoherent sentence always shows. */
-  const flagShown = (f, settings, genre, text, covered = false) => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
+  const flagShown = (f, settings, genre, text, covered = false, attribution = "") => Boolean(f) && !GENRE_QUIET.has(genre) && ISSUE_VERDICTS.includes(f.verdict)
+    // What the sentence says about its own source decides its kind (owner,
+    // 2026-10-14; attributionBySentence): a source it names but doesn't cite
+    // ("a 2023 study conducted by Harvard University") is a citation issue,
+    // its "Source not cited" note; one nobody could find ("a survey of 25
+    // students at a California high school") needs evidence, never "accurate
+    // but uncited". A note carries it, so the model's softer verdict gives
+    // way; a false or incoherent one never does.
+    && !(attribution === "named" && (f.verdict === "questionable" || f.verdict === "needs_citation"))
+    && !(attribution === "unnamed" && f.verdict === "needs_citation")
     // A hidden switch must not keep acting on a value an earlier build saved.
     && (f.verdict !== "needs_citation" || !FEATURES.citeHintsToggle || settings?.citeHints !== false)
     // The author's own account needs no source: a resume's figures and awards
@@ -96,9 +105,10 @@
     // when a citation later in the same paragraph already carries it
     // (`covered`, coveredByLaterCitation): a generalization followed by its
     // cited evidence is how essays are written.
-    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || covered))
-    // "Worth checking" is for something specific that cannot be verified.
-    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text))
+    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || (covered && !checkThorough())))
+    // "Worth checking" is for something specific that cannot be verified
+    // (Settings → Checking → Thorough asks a source for a general one too).
+    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text) && !checkThorough())
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
@@ -108,7 +118,31 @@
     // writer's note, not a claim: owner, 2026-10-08, "tracely is trying to
     // cite this instead of remove it". Its own note (kind "excuse") offers
     // Delete; a verdict here would offer to find it a source.
-    && !(typeof text === "string" && EXCUSE_SENTENCE.test(text));
+    && !(typeof text === "string" && EXCUSE_SENTENCE.test(text))
+    // Settings → Checking: the kinds the writer turned off, and how sure a finding must be.
+    && kindShown(f)
+    // Settings → Memory: a sentence the writer said never to flag again, in any document.
+    && !neverFlagged(text);
+  /* Settings → Checking (prefs, "Settings → the widget"). A page with no
+     extension storage (a test page) reads the defaults. A factual error is
+     never switched off; "Only clear errors" keeps what the check was sure
+     of (confidence "high"; the server says "medium" when the model says
+     nothing), so it can hide a real mistake, which the setting says. */
+  const checkPref = (k, d) => (typeof prefs === "object" && prefs ? prefs[k] ?? d : d);
+  const checkThorough = () => checkPref("strictness", "balanced") === "thorough";
+  function kindShown(f) {
+    if (checkPref("strictness", "balanced") === "clear" && (f.confidence ?? "medium") !== "high") return false;
+    if (f.verdict === "questionable") return checkPref("showEvidence", true) !== false;
+    if (f.verdict === "needs_citation" || f.verdict === "wrong_source") return checkPref("showCitations", true) !== false;
+    return true;
+  }
+  /* "Never flag this again" (a card's button; the list is Settings → Memory,
+     chrome.storage "ignoreList"): the sentence as it reads, whatever its case,
+     spacing, quote marks or end stop, so the same sentence in another
+     document is the same entry. Only that sentence: never a word or a phrase
+     inside others. */
+  const ignoreKey = (text) => String(text ?? "").toLowerCase().replace(/[“”"‘’']/g, "").replace(/\s+/g, " ").trim().replace(/[.!?;:,\s]+$/, "");
+  const neverFlagged = (text) => typeof ignoreSet === "object" && ignoreSet?.size > 0 && typeof text === "string" && ignoreSet.has(ignoreKey(text));
   // PRESTIGE_EXCUSE's pattern (citationHygieneTips), here because flagShown is
   // read without that section; ext-card-fixes.test.js keeps the two the same.
   const EXCUSE_SENTENCE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
@@ -134,36 +168,71 @@
      a topic sentence, an abstraction or the writer's own argument is the
      essay talking. A copy of src/shared/citationWorthy.ts —
      server/test/citation-worthy-mirror.test.js keeps the two in step. */
-  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|a third|a quarter|twice|double|triple|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority)\b/i;
-  const WORTHY_QUOTATION = /["“][^"”]*\S+\s+\S+\s+\S+[^"”]*["”]/;
+  const WORTHY_QUANTITY = /\d|\b(?:percent|per cent|half|halved|a third|a quarter|twice|double|doubled|triple|tripled|quadrupled|dozens?|hundreds?|thousands?|millions?|billions?|trillions?|majority|minority|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|one (?:in|out of|degree|percent|point)\b)\b/i;
+  // Numbers that are not quantities, blanked before WORTHY_QUANTITY looks: a
+  // year, a span of years, a decade, an ordinal, a clock time, a label
+  // ("Chapter 5", "World War 2"), a name with a number ("COVID-19"). "A date
+  // is not a quantity" is the check's own rule; "1500 deaths" still counts.
+  const WORTHY_NOT_A_QUANTITY = [
+    /\b\d{1,2}:\d{2}\b/g,
+    /\b\d+(?:st|nd|rd|th)\b/gi,
+    /\b\d{2,4}'?s\b/g,
+    /\b(?:1\d{3}|20\d{2})\s*[/–-]\s*(?:\d{4}|\d{2})\b/g,
+    /\b(?:chapters?|pages?|p\.|pp\.|vol\.|volume|no\.|sections?|figure|fig\.|table|doc\.?|documents?|grades?|world war|ww|level|part|step|phase|act|scene|lines?|issue|edition|article|title|round|season|book|verse|room|route|version)\s*\d+(?:[.:–-]\d+)*/gi,
+    /\b[a-z]+-?\d+[a-z0-9]*\b/gi,
+    /\b(?:1\d{3}|20\d{2})\b(?!\s*(?:%|percent|per cent)|\s+(?:[a-z-]+\s+)?(?:people|persons|cases|deaths|students|adults|children|soldiers|troops|men|women|workers|copies|words|pages|miles|dollars)\b)/gi,
+  ];
+  // A quotation is three or more of someone's words in quotation marks; a
+  // quoted title ("The Road Not Taken", "Pride and Prejudice") is a name.
+  const WORTHY_QUOTED = /["“]([^"”]*)["”]/g;
+  const WORTHY_TITLE_SMALL = /^(?:a|an|the|and|but|or|nor|for|of|in|on|at|to|by|with|from|as|vs\.?)$/i;
+  const worthyQuotation = (t) => [...t.matchAll(WORTHY_QUOTED)].some((m) => {
+    const words = m[1].trim().split(/\s+/).filter(Boolean);
+    return words.length >= 3 && !words.every((w, i) => (i > 0 && WORTHY_TITLE_SMALL.test(w)) || /^['‘(]?[A-Z0-9]/.test(w));
+  });
   const WORTHY_FINDING = /\b(?:stud(?:y|ies)|research(?:ers)?|survey(?:s|ed)?|experiments?|data|scientists|report(?:s|ed)?|according to)\b/i;
-  const citationWorthy = (text) => WORTHY_QUANTITY.test(String(text ?? "")) || WORTHY_QUOTATION.test(String(text ?? "")) || WORTHY_FINDING.test(String(text ?? ""));
+  const citationWorthy = (text) => {
+    const t = String(text ?? "");
+    return WORTHY_QUANTITY.test(WORTHY_NOT_A_QUANTITY.reduce((s, re) => s.replace(re, " "), t)) || worthyQuotation(t) || WORTHY_FINDING.test(t);
+  };
   // Names nothing specific either: "Worth checking" has nothing to check there.
   const isGeneralStatement = (text) => {
     const t = String(text ?? "").trim();
     if (citationWorthy(t)) return false;
-    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?[A-Z][a-z]/.test(w));
+    // A name is capitalised (Paris) or an acronym of three or more (UNESCO, NASA, COVID): "AI" and "US" stay words.
+    return !t.replace(/^["“(]+/, "").split(/\s+/).slice(1).some((w) => /^["“(]?(?:[A-Z][a-z]|[A-Z]{3,}(?![a-z]))/.test(w));
   };
   const authorsOwnAccount = (text) => typeof text === "string" && OWN_ACCOUNT.test(text.replace(ROMAN_I, " "));
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
   /* Card titles, in the app's voice: it names the problem in a short sentence
      (problemCopy.ts — "Missing citation", "Contradicted — check this fact")
-     rather than tagging the sentence with a verdict. Same four verdicts. */
-  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Worth checking", incoherent: "Doesn't make sense", needs_citation: "Missing citation" };
+     rather than tagging the sentence with a verdict. Same four verdicts, and
+     a fifth only the extension asks for: "wrong_source", a citation whose
+     source could not be where the claim comes from (owner, 2026-10-15; the
+     server's wrong-source check, FEATURES.citeFit). */
+  const VERDICT_LABEL = { false: "Contradicted — check this fact", questionable: "Needs evidence", incoherent: "Doesn't make sense", needs_citation: "Missing citation", wrong_source: "Wrong source cited" };
+  /* A "Needs evidence" sentence that already cites its source is not missing
+     one: what could not be confirmed is that the source says it. Owner,
+     2026-10-13, on "… scored approximately 65% higher … (Johnson, 2023)":
+     "it flagged this for needing a verifiable source which it obviously
+     gave". Its card says so and offers "Find the cited work", and Tracely
+     spends no search on new evidence for it (EVIDENCE_FIRST). */
+  const citedClaim = (verdict, text) => verdict === "questionable" && hasCitationMark(text);
+  const verdictLabel = (verdict, text) => (citedClaim(verdict, text) ? "Source not confirmed" : VERDICT_LABEL[verdict]);
   const AUTO_SOURCE_VERDICTS = ["false", "questionable", "needs_citation"];
   // The mark vocabulary is the desktop app's (PROBLEM_COLOR in
   // src/renderer/src/components/problemCopy.ts, COLORS in server/shared/marks.js;
   // CLAUDE.md "UI decisions"), read off the Figma "Inline Detection" frames:
   //   red #d93636    — wrong or makes no sense (false, incoherent)
-  //   orange #ff5900 — thin evidence, an unverified figure (questionable)
-  //   amber #ffb800  — add the attribution (needs_citation)
-  // Four verdicts on three colours, so the card TITLE is what tells false
-  // from incoherent; colour alone never has to. It used to be a fourth hue
-  // per verdict (amber, violet, blue), which made the same finding a
-  // different colour here than in the app.
-  const MARK_COLORS = { false: "#d93636", questionable: "#ff5900", incoherent: "#d93636", needs_citation: "#ffb800", cite_tip: "#ffb800", note_tip: "#ff5900" };
-  const VERDICT_WASH = { false: "#fdecec", questionable: "#ffeee5", incoherent: "#fdecec", needs_citation: "#fff4d6" };
-  const VERDICT_TEXT = { false: "#d93636", questionable: "#c24400", incoherent: "#d93636", needs_citation: "#a67500" };
+  //   blue #2563eb   — needs evidence (questionable). Owner, 2026-10-13: "from
+  //                    now on needs evidence should be blue instead of orange"
+  //   amber #ffb800  — add or fix the attribution (needs_citation, wrong_source)
+  // A writing note (note_tip) was blue; writing tips are off (FEATURES), so
+  // no note shares it. Five verdicts on three colours, so the card TITLE is
+  // what tells false from incoherent; colour alone never has to.
+  const MARK_COLORS = { false: "#d93636", questionable: "#2563eb", incoherent: "#d93636", needs_citation: "#ffb800", wrong_source: "#ffb800", cite_tip: "#ffb800", note_tip: "#2563eb" };
+  const VERDICT_WASH = { false: "#fdecec", questionable: "#e9effd", incoherent: "#fdecec", needs_citation: "#fff4d6", wrong_source: "#fff4d6" };
+  const VERDICT_TEXT = { false: "#d93636", questionable: "#1d4ed8", incoherent: "#d93636", needs_citation: "#a67500", wrong_source: "#a67500" };
   const MARK_PENDING = "#9a9ba1"; // a faint solid grey line while a sentence's check is in flight
 
   /* The bare-bones build: fact-checking (underline, card, suggested fix) and
@@ -175,15 +244,17 @@
      file and runs in isolation, so those tests keep running the real code. */
   const FEATURES = {
     flow: false,          // "Flow issue" passage flags (/api/flow) and their margin bracket
-    deepDive: true,       // "Explain in depth" (Pro) in the fix card and the widget cards — back on in 2.21.24 (off only for the 2026-10-02 bare-bones build)
+    deepDive: false,      // "Explain in depth" (Pro) in the fix card and the widget cards — off (owner, 2026-10-13: "it should not say explain in depth for pro"); Student and Pro get evidence recommendations instead (canRecommend)
     citeHintsToggle: false, // the "Citation suggestions" switch; off = missing-citation marks always shown
     autoSources: false,   // the "Auto-src" switch; off = sources are looked up only when asked
-    evidenceHints: true,  // "Evidence you could add": suggested, searched only on a click (evidenceCandidates)
-    resumeTips: true,     // on a resume: free format rules, plus /api/review's bullet and typo notes (detectGenre)
+    evidenceHints: true,  // "Evidence recommendations": suggested, searched only on a click (evidenceCandidates) — Student and Pro only (canRecommend)
+    resumeTips: false,    // on a resume: free format rules, plus /api/review's bullet and typo notes — off: no writing tips (owner, 2026-10-13)
     quoteTips: true,      // on an essay or paper: a direct quote cited without its page (quoteCitationTips)
-    offTopic: true,       // on an essay or paper: a line that shares no word with the rest of it (offTopicSentences)
+    offTopic: false,      // a line that shares no word with the rest, and a correction left in (offTopicSentences, correctionResidue) — off: writing tips
     writingOnly: true,    // homework questions (detectGenre "homework"): nothing sent, nothing drawn
-    essayFeedback: true,  // on an essay or paper: /api/review reads it against its rubric (a DBQ's, for one) — essayFeedbackTips
+    modelKind: false,     // the model names the kind of writing (askKind, POST /api/kind) — off until measured on the corpora (eval/kinds/run.mjs, server/test/kind.test.js)
+    citeFit: false,       // /api/check also asks whether each cited source could be where its claim comes from ("Wrong source cited", wrong_source) — off until measured against production (eval/citefit/run.mjs)
+    essayFeedback: false, // /api/review reads an essay against its rubric (essayFeedbackTips) — off: writing tips, and no review call is made
     citeMarks: true,      // underline the citation a note is about — the "(Fitzgerald)", the reference entry (citationMarks)
     refList: true,        // on an essay or paper: a reference listed twice, or one nothing in the text cites (referenceListIssues)
     typePreview: true,    // Docs: every in-doc edit is typed as a private preview first, sent only on Accept (the "Type preview" block, previewDocEdit)
@@ -216,13 +287,13 @@
      drawMarginIcons) — the same icons as the panel header's counts — and by
      the legend, which shows each line with its icon (legendHtml). */
   // TEST ANCHOR (server/test/ext-*) — do not rename or re-indent the next line.
-  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", cite_tip: "solid", note_tip: "solid" };
+  const MARK_PATTERN = { false: "solid", incoherent: "solid", questionable: "solid", needs_citation: "solid", wrong_source: "solid", cite_tip: "solid", note_tip: "solid" };
   // Which header kind (TALLY_ICON) each mark's icon is: wrong, worth checking, a citation, the writing.
-  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", cite_tip: "cite", note_tip: "writing" };
+  const MARK_ICON = { false: "wrong", incoherent: "wrong", questionable: "check", needs_citation: "cite", wrong_source: "cite", cite_tip: "cite", note_tip: "writing" };
   const MARK_ICON_RANK = { wrong: 4, check: 3, cite: 2, writing: 1 }; // one icon a line: the most serious
   // note_tip: a writing-feedback note on one sentence (essayFeedbackTips) —
-  // "needs specific evidence", "explain this evidence". Orange: the
-  // thin-evidence family ("Worth checking"), never red, which means wrong.
+  // "needs specific evidence", "explain this evidence". Blue (owner,
+  // 2026-10-13): about the writing, not a fact, so never a fact's colour.
   // cite_tip is not a verdict: it is a note about the CITATION itself (a quote
   // with no page, a reference listed twice or never cited — citationMarks),
   // drawn under the parenthetical or the entry rather than the sentence, so a
@@ -230,13 +301,9 @@
   // Same family as needs_citation ("add or fix the attribution"), same colour.
   // CSS for a div-drawn line (field mode, and Docs' fallback bars): solid.
   const markFill = (color) => color;
-  /* The panel's legend: each kind's icon (as in the page margin and the
-     header) beside its solid line, in the cards' own words. */
-  const LEGEND = [["false", "Contradicted or doesn't make sense"], ["questionable", "Worth checking"], ["needs_citation", "Missing or incomplete citation"], ["note_tip", "Writing note"]];
-  function legendHtml() {
-    const items = LEGEND.map(([v, label]) => `<span class="legend-item"><span class="legend-ico" aria-hidden="true" style="color:${MARK_COLORS[v]}">${TALLY_ICON[MARK_ICON[v]]}</span><span class="legend-line" aria-hidden="true" style="background: ${MARK_COLORS[v]}; height: ${MARK_LINE_HEIGHT}px"></span>${label}</span>`).join("");
-    return `<div class="legend" role="note" aria-label="What the underlines and margin icons mean">${items}</div>`;
-  }
+  /* The panel's legend is its header's tabs (panelHeadHtml, 2026-10-14):
+     each kind's icon, as in the page margin, in its line's colour, beside
+     its word. */
   const markLineHeight = (pattern, hovered) => (hovered ? MARK_LINE_HEIGHT_HOVERED : MARK_LINE_HEIGHT);
   // The bars drawn INSIDE Docs' SVG layer: solid, like every line.
   const svgMarkFill = (color) => color;
@@ -293,6 +360,7 @@
   const storageOnChanged = (cb) => extCall(() => chrome.storage.onChanged.addListener(cb));
   const sendMsg = (msg) => extCall(() => chrome.runtime.sendMessage(msg), Promise.resolve(null));
 
+
   /* Flow flags — passage-level coaching, drawn as a margin bracket rather
      than an underline (Figma "Overlay Mockup — Inline Flow Flag"). Colors
      sampled from that file: bracket/badge, then the chip + link accent. */
@@ -346,7 +414,8 @@
      the sites with auto-check on. A content script cannot open an extension
      page, so the worker does (background.js "tracely-openSettings") — bringing
      an open Settings tab forward rather than stacking another — at `section`
-     ("account", "checking", "docs", "sites", "privacy") when one is given. */
+     ("general", "checking", "citations", "documents", "memory", "account",
+     "privacy", "help") when one is given. */
   function openSettings(section) {
     return Promise.resolve(sendMsg({ type: "tracely-openSettings", section: section ?? null })).catch(() => null);
   }
@@ -358,13 +427,38 @@
 
   // `provisional`: the worker had no real answer (server unreachable or
   // erroring on the test build) — shown, never acted on as a downgrade.
-  let tier = { plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false };
+  let tier = { plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false, signedIn: false, configured: false };
+  /* Source searches need an account (owner, 2026-10-16: signed out, "it just
+     says it can't find sources and doesn't cite anything, without explaining
+     why, so it sounds like Tracely is glitching. Please add a little pop-up
+     beforehand that says you need to be logged in."). Signed out, the
+     writer's search asks them to sign in first (SIGNIN_COPY) and no automatic
+     one runs. Never where there are no accounts (a server that meters
+     nothing, a build with no project), for a test build's Pro grant, before
+     the worker has answered, or on a page with no worker. Cosmetic like the
+     plan gate: the server still answers a signed-out search. */
+  const needsSignIn = () => useRelay && tierResolved && tier.configured && !tier.signedIn && !tier.beta && !tier.unenforced;
   const tierListeners = []; // widget re-renders to run when the tier resolves
   function tierChanged() {
     forgetDeepLocks();
     for (const fn of tierListeners) { try { fn(); } catch { /* widget torn down */ } }
   }
   let tierResolved = false;
+  /* The writer's source searches left today, as of the server's last
+     entitlement answer (its `limits.sources` less `usage.sources`), less the
+     automatic searches started since that answer. Infinity when the server
+     meters nothing or did not say. Only EVIDENCE_FIRST reads it. */
+  let searchUsage = { left: Infinity, key: "" };
+  let autoSinceUsage = 0;
+  function noteSearchUsage(r) {
+    const lim = r?.limits?.sources, used = r?.usage?.sources;
+    const key = JSON.stringify([lim ?? null, used ?? null]);
+    if (key === searchUsage.key) return;
+    const left = (cap, n) => (typeof cap === "number" ? Math.max(0, cap - (typeof n === "number" ? n : 0)) : Infinity);
+    searchUsage = { left: Math.min(left(lim?.day, used?.today), left(lim?.month, used?.month)), key };
+    autoSinceUsage = 0;
+  }
+  const searchesLeft = () => searchUsage.left - autoSinceUsage;
 
   /* A widget's settings (citation style, auto-sources) in the page's
      localStorage. Whatever an earlier build left there must not break a
@@ -407,9 +501,10 @@
     }
     pending.then((r) => {
       if (!r?.ok) return;
-      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
+      noteSearchUsage(r);
+      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true, signedIn: r.signedIn === true, configured: r.configured === true };
       if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey && next.beta === tier.beta
-          && next.unenforced === tier.unenforced && next.provisional === tier.provisional) return;
+          && next.unenforced === tier.unenforced && next.provisional === tier.provisional && next.signedIn === tier.signedIn && next.configured === tier.configured) return;
       tier = next;
       tierResolved = true;
       tierChanged(); // first resolve fires too: the widgets repaint the Explain in depth button
@@ -429,6 +524,210 @@
       });
       tierTimer = setInterval(refreshTier, 5 * 60_000); // matches the worker's entitlement TTL
     } catch { /* harness page: no chrome.* — stays free tier */ }
+  }
+
+  /* ── Settings → the widget (owner, 2026-10-16: "revamp settings") ───────
+     What the Settings page sets, in chrome.storage "prefs" (options.js
+     PREF_DEFAULTS keeps the same names and defaults):
+       pausedUntil — 0 runs; a time pauses until then; -1 is off until it is
+                     turned back on. Paused: nothing is read or sent, nothing
+                     is drawn, and the launcher says so (pausedHtml).
+       launcherSide — "right" or "left": the corner the launcher sits in.
+       panelOpen   — Docs opens with the panel open.
+       clearedAt   — "Clear saved checks": this page's saved checks, sources
+                     and dismissed notes go the next time it looks (clearTracelyStore).
+     Checking (2.21.63):
+       showEvidence, showCitations — whether "Needs evidence" and the citation
+                     findings show at all (kindShown). A factual error always does.
+       strictness  — "clear" shows only what the check was sure of (confidence
+                     "high"); "balanced" is as before; "thorough" also asks a
+                     source for a general statement, and for a figure a later
+                     citation in its paragraph may carry (flagShown).
+       usualKind   — "My writing is usually…": the kind read when the rules
+                     aren't sure (kindWithUsual); "" lets Tracely tell.
+       autoEvidence, previewEdits, reviewTyping — the automatic evidence
+                     search, the preview before an edit goes in, the cursor
+                     typing Review all's suggestions.
+     Citations (2.21.63):
+       citeStyle   — "match" each document's own style (MLA when it says
+                     nothing), or one style everywhere (citeStyleFor). The
+                     widget's style picker writes it too.
+       listHeading — the reference list's heading; "" is the style's own (refHeadingFor).
+       citeLinks, citeAccessed — the DOI or URL at the end of an entry, and
+                     the day a web page was read (formatCitation).
+       citableOnly, avoidSites — which sources are offered (sourceAllowed).
+     Memory (2.21.64):
+       undismissedAt — "Bring back dismissed notes": every page, in either
+                     mode, empties its dismissed list once (newMark).
+     Appearance (2.21.66):
+       appearance  — "light", "dark" or "system": the panel and the cards on
+                     the page (themeDark, applyTheme). Light by default.
+     A plain test page has no extension storage and keeps the defaults. */
+  const PREF_DEFAULTS = {
+    pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
+    showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
+    citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
+    undismissedAt: 0, appearance: "light",
+  };
+  let prefs = { ...PREF_DEFAULTS };
+  let prefsStored = {}; // what storage holds, before the defaults: a style picked before 2.21.63 moves in once (citeStyleFor)
+  const prefsListeners = new Set();
+  let prefsResumeTmr = 0;
+  function notePrefs(next) {
+    prefsStored = next && typeof next === "object" ? next : {};
+    prefs = { ...PREF_DEFAULTS, ...prefsStored };
+    if (!Array.isArray(prefs.avoidSites)) prefs.avoidSites = [];
+    // A pause with an end: wake when it ends, so the checking comes back on its own.
+    clearTimeout(prefsResumeTmr);
+    const left = prefs.pausedUntil > 0 ? prefs.pausedUntil - Date.now() : 0;
+    if (left > 0) prefsResumeTmr = setTimeout(() => notePrefs(prefs), Math.min(left + 50, 2 ** 31 - 1));
+    for (const fn of prefsListeners) { try { fn(); } catch { /* a mode's hook never breaks another's */ } }
+  }
+  /* Settings → Documents and Memory (2.21.64), beside prefs in the same
+     storage, heard by the same listeners:
+       docPrefs   — { [docId]: { style, kind, never, resetAt, undismissAt } }:
+                    a Doc's own citation style and kind of writing, never
+                    checking it, and the marks that reset its saved checks or
+                    bring back its dismissed notes (docPref; Docs mode).
+       ignoreList — the sentences never to flag again, in any document
+                    (ignoreKey, neverFlagged). */
+  let docPrefsAll = {};
+  let ignoreTexts = []; // the sentences as the writer wrote them, so Settings can list them
+  let ignoreSet = new Set(); // and as they are compared (ignoreKey)
+  let ignoreGen = 0; // a new list lists the notes again (tipKindsOn)
+  const noteDocPrefs = (next) => { docPrefsAll = next && typeof next === "object" && !Array.isArray(next) ? next : {}; };
+  const noteIgnore = (list) => {
+    ignoreTexts = (Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && ignoreKey(x));
+    ignoreSet = new Set(ignoreTexts.map(ignoreKey));
+    ignoreGen++;
+  };
+  storageGet({ prefs: {}, docPrefs: {}, ignoreList: [] }, (st) => { noteDocPrefs(st?.docPrefs); noteIgnore(st?.ignoreList); notePrefs(st?.prefs); });
+  storageOnChanged((changes, area) => {
+    if (area !== "local" || !(changes.prefs || changes.docPrefs || changes.ignoreList)) return;
+    if (changes.docPrefs) noteDocPrefs(changes.docPrefs.newValue);
+    if (changes.ignoreList) noteIgnore(changes.ignoreList.newValue);
+    notePrefs(changes.prefs ? changes.prefs.newValue : prefsStored);
+  });
+  // One Doc's own settings, each checked: a style or kind this build doesn't know reads as none.
+  function docPref(id) {
+    const d = docPrefsAll[id] && typeof docPrefsAll[id] === "object" ? docPrefsAll[id] : {};
+    return {
+      style: isCiteStyle(d.style) ? d.style : "", kind: WRITING_KINDS[d.kind] ? d.kind : "", never: d.never === true,
+      resetAt: Number(d.resetAt) || 0, undismissAt: Number(d.undismissAt) || 0,
+    };
+  }
+  function setDocPref(id, patch) {
+    noteDocPrefs({ ...docPrefsAll, [id]: { ...(docPrefsAll[id] ?? {}), ...patch } });
+    storageSet({ docPrefs: docPrefsAll });
+    notePrefs(prefsStored);
+  }
+  // A card's "Never flag this": the list is the Settings page's, 500 sentences at most, the newest kept.
+  function neverFlag(text) {
+    const key = ignoreKey(text);
+    if (!key || ignoreSet.has(key)) return;
+    noteIgnore([...ignoreTexts, String(text).replace(/\s+/g, " ").trim()].slice(-500));
+    storageSet({ ignoreList: ignoreTexts });
+    notePrefs(prefsStored);
+  }
+  /* A mark the Settings page leaves for pages it can't reach (a reset, the
+     dismissed notes brought back): true once for each new one, its time kept
+     in this page's own storage (and kept by Clear saved checks). */
+  const MARK_KEEP = /^tracely\.(?:resetAt|undismissAt)\.|^tracely\.undismissedAt$/;
+  function newMark(key, at) {
+    try {
+      if (!(at > Number(localStorage.getItem(key) || 0))) return false;
+      localStorage.setItem(key, String(at));
+      return true;
+    } catch { return false; } // storage denied
+  }
+  const tracelyPaused = () => prefs.pausedUntil === -1 || prefs.pausedUntil > Date.now();
+  // "4:30 PM", or "midnight" for a pause for today (options.js untilLabel).
+  const untilLabel = (t) => { const d = new Date(t); return d.getHours() === 0 && d.getMinutes() === 0 ? "midnight" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+  const pausedLine = () => (prefs.pausedUntil === -1 ? "Tracely is off until you turn it back on." : `Tracely is paused until ${untilLabel(prefs.pausedUntil)}.`);
+  const resumeTracely = () => storageSet({ prefs: { ...prefs, pausedUntil: 0 } });
+  /* Settings → General → Appearance. Dark: the widget's shadow host gets
+     .tracely-dark (WIDGET_CSS's dark tokens), and the cards Tracely puts in
+     the page itself (the Docs hover card, Review all's) take the dark palette
+     (themeListeners: Docs mode swaps DM). "system" follows the browser, as
+     it changes. What sits on the document's own text (the cursor, the Type
+     preview) stays as it is in both. */
+  const darkQuery = extCall(() => window.matchMedia("(prefers-color-scheme: dark)"), null);
+  const themeDark = () => prefs.appearance === "dark" || (prefs.appearance === "system" && Boolean(darkQuery?.matches));
+  const themeListeners = new Set();
+  let themeWasDark = false;
+  function applyTheme() {
+    const dark = themeDark();
+    document.getElementById("tracely-host")?.classList.toggle("tracely-dark", dark);
+    if (dark === themeWasDark) return;
+    themeWasDark = dark;
+    for (const fn of themeListeners) { try { fn(dark); } catch { /* a mode's hook never breaks another's */ } }
+  }
+  prefsListeners.add(applyTheme); // first, so a mode's own listener draws in the new theme
+  extCall(() => darkQuery?.addEventListener("change", () => { if (prefs.appearance === "system") { applyTheme(); for (const fn of prefsListeners) { try { fn(); } catch { /* as notePrefs */ } } } }));
+  // The launcher's corner, on the widget's root.
+  const placeRoot = (root) => root?.classList?.toggle("left", prefs.launcherSide === "left");
+  // A change made in the widget (the style picker) is the Settings page's too: written, and heard here at once.
+  function setPrefs(patch) {
+    notePrefs({ ...prefsStored, ...patch });
+    storageSet({ prefs: { ...prefsStored } });
+  }
+  /* The style a document is cited in: the one Settings names, else the
+     document's own (docCitationStyle), else MLA. A style the writer picked
+     in the widget before 2.21.63 was kept with the site (`styleChosen`): it
+     moves into Settings the first time a page sees both (adoptStylePick). */
+  const isCiteStyle = (s) => CITE_STYLES.some(([k]) => k === s);
+  function citeStyleFor(text, own = "") {
+    if (isCiteStyle(own)) return own; // the Doc's own (Settings → Documents)
+    return isCiteStyle(prefs.citeStyle) ? prefs.citeStyle : docCitationStyle(text) ?? "mla";
+  }
+  function adoptStylePick(settings) {
+    if ("citeStyle" in prefsStored || !settings?.styleChosen || !isCiteStyle(settings.citationStyle)) return;
+    // Called from a prefs listener: noted here without running the listeners again; storage tells every page.
+    prefsStored = { ...prefsStored, citeStyle: settings.citationStyle };
+    prefs.citeStyle = settings.citationStyle;
+    storageSet({ prefs: prefsStored });
+  }
+  /* "My writing is usually…": where the rules aren't sure of the kind (the
+     header names none) and the site doesn't say (placeKind), the writer's
+     usual kind is read instead. A shape Tracely is sure of — a letter, code,
+     a poem — is never overridden. */
+  // Sources already found: what Settings now leaves out goes from them too (backingSources filters the new ones).
+  function refilterSources(map) {
+    for (const st of map.values()) {
+      if (Array.isArray(st?.list)) st.list = st.list.filter(sourceAllowed);
+      if (Array.isArray(st?.unread)) st.unread = st.unread.filter(sourceAllowed);
+    }
+  }
+  // A Doc whose kind Settings → Documents names is read as that, sure or not.
+  const kindForDoc = (read, own) => (WRITING_KINDS[own] ? { kind: own, shown: own } : read);
+  function kindWithUsual(read, place = "") {
+    const usual = prefs.usualKind;
+    if (read.shown || !WRITING_KINDS[usual] || (place && PLACE_KINDS.some(([re]) => re.test(place)))) return read;
+    return { kind: usual, shown: usual };
+  }
+  /* "Clear saved checks" (Settings → Privacy and data): this origin's saved
+     checks, sources, dismissed notes and reviews go. The settings, the panel's
+     place and the clear's own mark stay. True when it cleared something new. */
+  const CLEARED_KEY = "tracely.clearedAt";
+  function clearTracelyStore() {
+    try {
+      if (!(prefs.clearedAt > Number(localStorage.getItem(CLEARED_KEY) || 0))) return false;
+      const keep = new Set(["tracely.widget.settings", "tracely.widget.panelPos", CLEARED_KEY]);
+      for (const k of Object.keys(localStorage)) if (k.startsWith("tracely.") && !keep.has(k) && !MARK_KEEP.test(k)) localStorage.removeItem(k);
+      localStorage.setItem(CLEARED_KEY, String(prefs.clearedAt));
+      return true;
+    } catch { return false; } // storage denied
+  }
+  // The keyboard shortcut (manifest "commands", background.js): each mode opens or closes its panel.
+  const panelTogglers = new Set();
+  extCall(() => chrome.runtime.onMessage.addListener((m) => { if (m?.type === "tracely-toggle-panel") for (const fn of panelTogglers) fn(); }));
+  /* What the last edits did, for Settings → Help → Copy diagnostics: the
+     action, the path and the hook's answer — never a word of the document. */
+  const diagEdits = [];
+  function noteDiag(entry) {
+    diagEdits.push({ at: new Date().toISOString(), ...entry });
+    while (diagEdits.length > 20) diagEdits.shift();
+    storageSet({ diag: { edits: diagEdits } });
   }
 
   /* ── "Explain in depth" (2.20.0) ─────────────────────────────────────────
@@ -462,6 +761,18 @@
 
   function canDeep() {
     return tier.unenforced || tier.beta || DEEP_PLANS.includes(tier.plan);
+  }
+  /* What each plan gets. Owner, 2026-10-13: "Normal tracely only helps with
+     their mistakes and bad parts, pro and student plans allow for tracely to
+     give recommendations … extra evidence that tracely thinks will make their
+     essay or writing BETTER." Free: the flags, their fixes and their sources.
+     Student and Pro also get evidence recommendations (evidenceCandidates):
+     accurate points that a source would make stronger. Cosmetic, like
+     canDeep: a recommendation's search is an ordinary /api/sources call on
+     the writer's own search allowance. */
+  const RECOMMEND_PLANS = ["student", "pro"];
+  function canRecommend() {
+    return tier.unenforced || tier.beta || RECOMMEND_PLANS.includes(tier.plan);
   }
   // A lock shown after a click or a 403 belongs to the plan it was shown on.
   function forgetDeepLocks() {
@@ -574,7 +885,7 @@
 
   // A verdict's dot-colour class suffix (the widget CSS's .d-*).
   function verdictKind(v) {
-    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" ? "cite" : v === "incoherent" ? "inco" : "ok";
+    return v === "false" ? "false" : v === "questionable" ? "quest" : v === "needs_citation" || v === "wrong_source" ? "cite" : v === "incoherent" ? "inco" : "ok";
   }
 
   /* The widget cards' block (docs panel and field mode), from deepView.
@@ -689,6 +1000,9 @@
      number to parse, and deduping only needs to know whether a source's
      address is already in one. */
   const REF_HEADINGS = { mla: "Works Cited", apa: "References", chicago: "References" };
+  // The heading a list Tracely adds gets: the one Settings → Citations names, else the style's own.
+  const LIST_HEADINGS = ["Works Cited", "References", "Bibliography"];
+  const refHeadingFor = (style) => (typeof prefs === "object" && LIST_HEADINGS.includes(prefs?.listHeading) ? prefs.listHeading : REF_HEADINGS[style] ?? REF_HEADINGS.mla);
   /* The order a reference list is kept in: by its first word, the way MLA,
      APA and Chicago all alphabetise — opening quotes and brackets ignored, and
      a leading "A", "An" or "The" skipped (a title-first entry files under its
@@ -705,15 +1019,78 @@
     const k = refSortKey(line);
     return entries.find((e) => refSortKey(e) > k) ?? null;
   }
+  /* A list's marker is not part of its entry. When the References are a list,
+     the text arrives with each item's marker ("* National Education
+     Association. (2024). …", "1. Johnson, R. (2023). …"), which is not text
+     on the page; which glyph Google Docs' export uses was not checked against
+     a real export, so every common one is taken off. Owner, 2026-10-14: the
+     NEA entry read "Not cited in your text" though the paper cites
+     "(NEA, 2024)" (reproduced only with a marker on the entries), and its
+     underline, searched for with a marker the page does not have, fell on the
+     paper's title instead (svgLocate). `numbered` counts the entries that carried
+     a number, for referenceListIssues: a numbered list cited (1) or [1] is
+     not traced by name. A "[1]" is kept: it is how IEEE cites. MLA's "---."
+     for the same author again is not a marker (no space after the first dash). */
+  const LIST_MARK = /^(?:[*•●○◦▪■□▫·‣⁃–—-]|\(?\d{1,3}[.)])\s+/u;
   function worksCitedBlock(text) {
-    const re = /(?:^|\n)[ \t]*(works cited|references|bibliography)[ \t]*:?[ \t]*(?=\n|$)/gi;
+    // A page break or a non-breaking space beside the heading is still the heading.
+    const re = /(?:^|\n)[^\S\n]*(works cited|references|bibliography)[^\S\n]*:?[^\S\n]*(?=\n|$)/gi;
     let m, last = null;
     while ((m = re.exec(text))) last = m;
     if (!last) return null;
     const headStart = last.index + (last[0].startsWith("\n") ? 1 : 0);
     const bodyStart = last.index + last[0].length;
-    const entries = text.slice(bodyStart).split("\n").map((l) => l.trim()).filter(Boolean);
-    return { heading: last[1], headStart, end: text.length, entries };
+    let numbered = 0;
+    const entries = text.slice(bodyStart).split("\n").map((l) => {
+      const line = l.trim(), mark = line.match(LIST_MARK);
+      if (mark && /\d/.test(mark[0])) numbered++;
+      return mark ? line.slice(mark[0].length).trim() : line;
+    }).filter(Boolean);
+    return { heading: last[1], headStart, end: text.length, entries, numbered };
+  }
+
+  // ── source credibility ──
+  // Would a marker accept this source? A copy of the desktop's
+  // src/shared/sourceCredibility.ts: decided here from the publisher, never
+  // by the model (a model grading its own search grades it generously), and
+  // an unvetted source is ranked last and labelled, never dropped.
+  // server/test/ext-source-credibility.test.js keeps the two in step.
+  const CRED_ORDER = { scholarly: 0, official: 1, reference: 2, "news-of-record": 3, unvetted: 4 };
+  const CRED_OFFICIAL_SUFFIX = /(^|\.)(gov|mil|int|edu)$|(^|\.)(gov|ac|edu)\.[a-z]{2}$/i;
+  const CRED_OFFICIAL_HOSTS = ["un.org", "unicef.org", "unesco.org", "unhcr.org", "who.int", "worldbank.org", "imf.org", "oecd.org", "wto.org", "icrc.org", "redcross.org", "europa.eu"];
+  const CRED_REFERENCE_HOSTS = ["britannica.com", "oxforddnb.com", "oed.com", "oxfordreference.com", "loc.gov", "bl.uk", "archives.gov", "nationalarchives.gov.uk", "jstor.org", "niod.nl", "iwm.org.uk", "si.edu", "ushmm.org", "yadvashem.org"];
+  const CRED_NEWS_OF_RECORD = ["nytimes.com", "washingtonpost.com", "wsj.com", "ft.com", "economist.com", "theguardian.com", "bbc.co.uk", "bbc.com", "reuters.com", "apnews.com", "npr.org", "pbs.org", "time.com", "theatlantic.com", "newyorker.com", "nature.com", "science.org", "scientificamerican.com", "smithsonianmag.com", "nationalgeographic.com", "telegraph.co.uk", "thetimes.co.uk", "latimes.com", "cbc.ca", "abc.net.au"];
+  const CRED_OPEN_ENCYCLOPEDIA = /(^|\.)(wikipedia|wikimedia|fandom|wikiwand)\./i;
+  function credHost(url) {
+    if (!url) return null;
+    try { return new URL(String(url).trim()).hostname.toLowerCase().replace(/^www\./, ""); } catch { return null; }
+  }
+  // On a dot boundary: news.bbc.co.uk counts, nottime.com does not.
+  const credMatches = (host, list) => list.some((e) => host === e || host.endsWith(`.${e}`));
+  /* { tier, label, citable, why } from { url, venueType, doi }: the desktop's
+     credibilityOf, word for word (the label is the chip, the why its hover). */
+  function credibilityOf(source) {
+    const host = credHost(source?.url);
+    const scholarlyVenue = source?.venueType === "journal" || source?.venueType === "conference" || source?.venueType === "preprint";
+    if (source?.doi && scholarlyVenue) return { tier: "scholarly", label: "Peer-reviewed", citable: true, why: "A journal article with a DOI. The strongest thing you can cite." };
+    if (host && (CRED_OFFICIAL_SUFFIX.test(host) || credMatches(host, CRED_OFFICIAL_HOSTS))) return { tier: "official", label: "Official", citable: true, why: "Published by the government, university or organisation it is about." };
+    if (host && credMatches(host, CRED_REFERENCE_HOSTS)) return { tier: "reference", label: "Reference work", citable: true, why: "An established work of record — an encyclopedia, archive or museum." };
+    if (host && credMatches(host, CRED_NEWS_OF_RECORD)) return { tier: "news-of-record", label: "News of record", citable: true, why: "A masthead with editors and a corrections policy." };
+    if (host && CRED_OPEN_ENCYCLOPEDIA.test(host)) return { tier: "unvetted", label: "Encyclopedia", citable: false, why: "Anyone can edit it, so most teachers will not accept it. Follow its references and cite those instead." };
+    if (source?.doi || scholarlyVenue) return { tier: "unvetted", label: "Check this one", citable: false, why: "Looks academic, but Tracely could not confirm the publisher. Check who published it before citing." };
+    return { tier: "unvetted", label: "Check this one", citable: false, why: "Tracely does not recognise this publisher. It may still be fine — check who wrote it and whether they cite their own sources." };
+  }
+  // A source from /api/sources carries `kind` (server/lib/citeFields.js), not
+  // a venue type: a journal article is kind "journal" (Crossref sets it for a DOI).
+  const credibilityFor = (src) => credibilityOf({ url: src?.url, doi: src?.doi, venueType: src?.kind === "journal" ? "journal" : null });
+  // Most citable first. A STABLE sort: within a tier the server's best-first order stands.
+  const byCredibility = (items) => [...items].sort((a, b) => CRED_ORDER[credibilityFor(a).tier] - CRED_ORDER[credibilityFor(b).tier]);
+  /* The line under a source's title: its publisher, and how citable it is,
+     the reason on hover. In the meta's own grey: colour only ever means a
+     finding (CLAUDE.md, UI decisions). */
+  function sourceMetaHtml(src) {
+    const c = credibilityFor(src);
+    return `${src?.publisher ? `${esc(src.publisher)} · ` : ""}<span class="src-cred" title="${esc(c.why)}">${esc(c.label)}</span>`;
   }
 
   // ── citation formatting ──
@@ -840,6 +1217,22 @@
     return s;
   }
 
+  /* Settings → Citations: the DOI or URL at an entry's end (citeLinks), and
+     the day a web page was read (citeAccessed), in each style's words: MLA
+     "Accessed 16 Oct. 2026." at the end, Chicago "Accessed October 16,
+     2026." before the link, APA "Retrieved October 16, 2026, from" the
+     link (APA dates a retrieval only with its address). A page with no
+     extension storage keeps the defaults: the link, no date. */
+  function citeEntryEnd({ doc, ref, marker }, style, locator, webPage) {
+    const o = typeof prefs === "object" && prefs ? prefs : {};
+    const links = o.citeLinks !== false && Boolean(locator);
+    if (o.citeAccessed !== true || !webPage) return { doc, ref: links ? ref : doc, marker };
+    const now = new Date();
+    if (style === "mla") return { doc, ref: `${links ? ref : doc} Accessed ${now.getDate()} ${CITE_MLA_MONTHS[now.getMonth()]} ${now.getFullYear()}.`, marker };
+    const day = `${CITE_MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    if (style === "chicago") return { doc, ref: `${doc} Accessed ${day}.${links ? ` ${citeEndDot(locator)}` : ""}`, marker };
+    return { doc, ref: links ? `${doc} Retrieved ${day}, from ${locator}` : doc, marker };
+  }
   function formatCitation(src, style) {
     const url = citeStr(src.url);
     const title = citeStr(src.title || src.url).replace(/[.]\s*$/, "") || url;
@@ -861,6 +1254,7 @@
     const doi = citeStr(src.doi).replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
     const permalink = citeStr(src.permalink);
     const locator = doi ? `https://doi.org/${doi}` : (isRef && permalink && hasDay ? permalink : url);
+    const webPage = !doi && !isJournal && !isBookLike && !isChapter; // what an access date is for
     const vol = citeStr(src.volume), iss = citeStr(src.issue), pages = citeStr(src.pages);
     const join = (parts) => parts.filter(Boolean).join(" ");
     const edList = (fmt, amp) => (editors.length === 2
@@ -896,7 +1290,7 @@
       else if (people.length > 2) lead = `${people[0].family} et al.`;
       else if (group && !authorIsPublisher) lead = group;
       else lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
-      return { doc, ref, marker: `(${lead})` };
+      return citeEntryEnd({ doc, ref, marker: `(${lead})` }, style, locator, webPage);
     }
 
     if (style === "chicago") {
@@ -934,7 +1328,7 @@
       const doc = join(parts);
       const ref = join([doc, citeEndDot(locator)]);
       if (!lead) lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
-      return { doc, ref, marker: `(${lead} ${y})` };
+      return citeEntryEnd({ doc, ref, marker: `(${lead} ${y})` }, style, locator, webPage);
     }
 
     // APA 7
@@ -967,7 +1361,7 @@
     const ref = join([...parts, locator]);
     if (!lead) lead = standalone || (!isRef && kind !== "news" && !isJournal && !isChapter) ? citeShortTitle(title) : `“${citeShortTitle(title)},”`;
     const marker = lead.endsWith(",”") ? `(${lead} ${year ?? "n.d."})` : `(${lead}, ${year ?? "n.d."})`;
-    return { doc, ref, marker };
+    return citeEntryEnd({ doc, ref, marker }, style, locator, webPage);
   }
 
   /* ── sentence boundaries: the server's rules, inlined ─────────────────
@@ -1235,6 +1629,25 @@
     }
     return null;
   }
+  // Both modes, after a read: each unchecked sentence a small edit made takes
+  // its old verdict, and its dismissal (onDismissed saves those). How many.
+  function inheritVerdictsInto(segments, before, cache, dismissed, onDismissed) {
+    const live = new Set(segments.map((sg) => sg.hash));
+    const taken = new Set();
+    let n = 0;
+    for (const seg of segments) {
+      if (!seg.checkable || cache.has(seg.hash)) continue;
+      const old = inheritedVerdict(seg, before, live, cache, taken);
+      if (!old) continue;
+      cache.set(seg.hash, cache.get(old.hash));
+      if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
+        dismissed.add(seg.hash);
+        onDismissed();
+      }
+      n++;
+    }
+    return n;
+  }
   /* Whether a resume's review stands in for the fact check. Cost idea 5,
      2026-10-04: on a resume the check's only visible output is "false" — a
      public fact stated wrongly, like a school's real name (flagShown hides
@@ -1325,7 +1738,7 @@
      that prompt still sends. Deliberately strict: a resume needs two section
      headings of its own AND contact details or date ranges, and is not mostly
      full sentences. An essay that says "experience" in a heading is not one. */
-  const RESUME_HEADING = /^(?:education|(?:work |professional |relevant )?experience|employment(?: history)?|skills(?:\s*[/&]\s*interests)?|technical skills|projects|certifications?|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary|profile|objective|interests|languages|publications|references)$/i;
+  const RESUME_HEADING = /^(?:education(?:\s*[/&]?\s*(?:and )?(?:training|certifications?))?|(?:work |professional |relevant )?experience|(?:employment|work|career) history|employment|(?:key |core |technical )?skills(?:\s*[/&]\s*(?:interests|tools))?|projects|certifications?(?:\s*[/&]?\s*(?:and )?training)?|training|awards(?:\s*[/&]\s*achievements)?|honou?rs|extracurricular(?: activities)?|activities|leadership|volunteer(?:ing| work| experience)?|summary(?: of qualifications)?|qualifications|highlights|profile|objective|interests|languages|publications|references|what I can do)$/i;
   const MONTH = "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
   const DATE_RANGE = new RegExp(`\\b${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}\\s*[–—-]\\s*(?:${MONTH}\\s+(?:\\d{1,2},\\s*)?\\d{4}|Present|Current|Now)\\b|\\b(?:19|20)\\d{2}\\s*[–—-]\\s*(?:(?:19|20)\\d{2}|Present|Current|Now)\\b`, "gi");
   /* A letter or email: it opens with a salutation and closes with a sign-off.
@@ -1333,7 +1746,7 @@
      no citation flags (flagShown). Checked before the length floor, because
      an email is often four lines. Both ends are required for anything longer
      than a short note: "Hi" alone opens plenty of blog posts. */
-  const SALUTATION = /^(?:dear|hi|hello|hey|greetings|good (?:morning|afternoon|evening)|to whom it may concern|to the (?:editor|editors|admissions committee|selection committee|hiring committee))\b[^!?\n]{0,60}[,:!]?$/i;
+  const SALUTATION = /^(?:dear|hi|hello|hey|greetings|good (?:morning|afternoon|evening)|to whom it may concern|to the (?:editor|editors|admissions committee|selection committee|hiring committee))\b[^!?\n]{0,60}[,:!]*$/i;
   const SIGNOFF_WORDS = "sincerely|sincerely yours|best|best regards|best wishes|all the best|kind regards|warm regards|warmest regards|warm wishes|regards|respectfully|respectfully yours|thanks|thank you|thanks so much|thank you so much|thanks again|thank you again|many thanks|with gratitude|gratefully|cheers|warmly|love|with love|lots of love|take care|talk soon|see you soon|yours|yours truly|yours sincerely|yours faithfully|cordially";
   const SIGNOFF = new RegExp(`^(?:${SIGNOFF_WORDS}|(?:thanks|thank you)(?: so much| again)? for [^,.!?]{2,40})[,.!]?$`, "i");
   /* Homework, not writing. Owner, 2026-10-04: Tracely "keeps trying to help
@@ -1367,7 +1780,8 @@
     const asked = items.filter((l) => NUMBERED_ITEM.test(l) && (TASK_START.test(l) || /\?["”’)]?$/.test(l))).length;
     // Worked math — "3x + y = 16" line after line — and a sheet that says what it is.
     const mathy = items.filter((l) => /[=≈≤≥]/.test(l) && /\d/.test(l) && l.split(/\s+/).length <= 16).length;
-    const sheet = /^(?:directions?\s*:|worksheet\b|show (?:all )?(?:of )?your work|answer key\b)|\bworksheet\b/im.test(items.slice(0, 4).join("\n"));
+    const sheet = /^(?:directions?\s*:|worksheet\b|show (?:all )?(?:of )?your work|answer key\b)|\bworksheet\b/im.test(items.slice(0, 4).join("\n"))
+      || (/\bpart [a-e]\s*[:.)–-]|\bfill in the blank|\banswer (?:each|the following|in complete sentences)|\btrue or false\b|\bmultiple choice\b|\bshort answer\b|\bproblem set\b/im.test(items.slice(0, 5).join("\n")) && !looksLikeLab(items));
     return (tasks >= 1 && tasks / n >= 0.5 && stem / n >= 0.3) || (numbered >= 3 && numbered / n >= 0.4) || (asked >= 3 && asked / items.length >= 0.25)
       || (mathy >= 4 && mathy / items.length >= 0.3) || (sheet && (asked >= 2 || mathy >= 3 || items.filter((l) => NUMBERED_ITEM.test(l)).length >= 3));
   }
@@ -1388,26 +1802,301 @@
      literary essay's quotations, a news story's attributions, and last the
      voice — a story's dialogue, a personal essay's looking back. Anything
      else is an essay ("prose"). Measured on
-     server/test/fixtures/writing-types.js (ext-writing-types.test.js). */
-  function detectGenre(text) {
+     server/test/fixtures/writing-types.js (ext-writing-types.test.js).
+
+     Since 2.21.57 (owner, 2026-10-15: "Fix it for a plethora of writing, so
+     it is very unlikely that tracely will detect something wrong") it tells
+     56 kinds apart (WRITING_KINDS), and the kind's genre is what decides the
+     checks. Every kind is scored (kindScores) and the highest wins, so one
+     stray cue no longer decides: the shapes that are nothing else score
+     highest (code, song tags, a press release's dateline, a memo's head, a
+     document that names itself in its title), then the old order as
+     strengths, then the voices. A kind with no clear win falls back to the
+     broader name ("Essay"). In a field, the site counts too (placeKind). */
+  function detectGenre(text, place = "") {
+    return WRITING_KINDS[detectKind(text, place)]?.genre ?? "prose";
+  }
+  const detectKind = (text, place = "") => readKind(text, place).kind;
+  /* { kind, shown }: the kind (its genre decides the checks) and the kind
+     the header names, "" for none. The header names a kind only when very
+     sure (owner, 2026-10-15, choosing it over a chip on every document): a
+     score of KIND_SURE or more. Measured on the first 625 documents, before
+     the fresh set was written: from 7 up a kind was wrong 2% of the time,
+     from 4 to 7 one time in six, and read off an essay's words alone (score
+     1) 43% of the time. Below it the header names nothing; the checks still
+     follow the kind's genre, and a quiet kind still says why it is quiet. */
+  let kindRead = { key: null, value: null }; // the last answer: a read of unchanged text costs nothing (~18 ms for 8,500 words)
+  function readKind(text, place = "") {
+    const key = `${place}\n${text}`;
+    if (kindRead.key === key) return kindRead.value;
+    const value = readKindOf(text, place);
+    kindRead = { key, value };
+    return value;
+  }
+  function readKindOf(text, place) {
     const raw = String(text ?? "").replace(/\r\n?|[\u000b\u2028\u2029]/g, "\n");
     const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) return "prose";
+    if (!lines.length) return { kind: "essay", shown: "" };
+    const scores = kindScores(raw, lines);
+    placeKind(scores, String(place ?? ""), raw);
+    let best = "essay", top = 0;
+    for (const [k, v] of scores) if (v > top) { best = k; top = v; } // a tie goes to the one scored first
+    return { kind: best, shown: top >= KIND_SURE ? best : "" };
+  }
+  const KIND_SURE = 7;
+
+  /* The model's answer to "what kind of writing is this" (POST /api/kind,
+     server/lib/kind.js; owner, 2026-10-15: "model next"). Asked once per
+     document, and again only when its opening or its size has changed a lot
+     (kindPrint), at most every KIND_ASK_GAP_MS; never for under 40 words or
+     where the site already says (placeKind). Only the start and the end go,
+     4,000 characters at most (kindExcerptOf, the server's kindExcerpt). A
+     kind it names is used for the checks and the header; "unsure", a
+     failure, a limit or an older server (404: never asked again) leaves
+     the rules' answer (readKind). Both modes keep one per page: a field
+     whose opening differs gets the rules until it has its own answer. */
+  const KIND_ASK_GAP_MS = 30_000;
+  const KIND_EXCERPT_HEAD = 3_600, KIND_EXCERPT_TAIL = 400;
+  const kindExcerptOf = (text) => {
+    const t = String(text ?? "");
+    return t.length <= KIND_EXCERPT_HEAD + KIND_EXCERPT_TAIL ? t : `${t.slice(0, KIND_EXCERPT_HEAD)}\n[…]\n${t.slice(-KIND_EXCERPT_TAIL)}`;
+  };
+  // The opening and the size in steps of about 40%: typing a sentence asks nothing new, a doubled draft does.
+  const kindPrint = (text) => `${Math.round(Math.log2(Math.max(1, String(text).length)) * 2)}:${String(text).slice(0, 200)}`;
+  let kindAsked = { print: "", head: "", kind: "", at: 0, inflight: false, off: false };
+  function kindWithModel(read, text) {
+    if (!FEATURES.modelKind || !WRITING_KINDS[kindAsked.kind] || kindAsked.head !== String(text).slice(0, 200)) return read;
+    return { kind: kindAsked.kind, shown: kindAsked.kind };
+  }
+  async function askKind(text, place, ask, then) {
+    const t = String(text ?? "");
+    if (!FEATURES.modelKind || kindAsked.off || kindAsked.inflight) return;
+    if (t.split(/\s+/).filter(Boolean).length < 40 || (place && PLACE_KINDS.some(([re]) => re.test(place)))) return;
+    const print = kindPrint(t);
+    if (print === kindAsked.print || Date.now() - kindAsked.at < KIND_ASK_GAP_MS) return;
+    kindAsked = { ...kindAsked, inflight: true, at: Date.now() };
+    try {
+      const data = await ask("/api/kind", { text: kindExcerptOf(t) });
+      kindAsked = { ...kindAsked, print, head: t.slice(0, 200), kind: WRITING_KINDS[data?.kind] ? data.kind : "unsure" };
+      then?.();
+    } catch (err) {
+      if (err?.kind === "not_found") kindAsked.off = true; // an older server: the rules, for good
+    } finally {
+      kindAsked.inflight = false;
+    }
+  }
+  /* Each kind's score: how sure its evidence makes it. 9.5 and up, a shape
+     that is nothing else, or the document naming itself; 8 to 9, a strong
+     form (a letter's two ends, a memo's head, minutes); 6 to 8, the old
+     order's shapes, earlier ones stronger; 4 to 6, the essays' and the
+     voices' cues; 1, an essay of its own kind (essayKindOf). A kind named
+     only weakly in the title ("… notes", "Persuasive speech") adds to what
+     its shape already says, never on its own. */
+  function kindScores(raw, lines) {
+    const s = new Map();
+    const add = (k, v) => { if (v > (s.get(k) ?? 0)) s.set(k, v); };
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    const essay = essayKindOf(raw, lines, words);
+    add(essay, essay === "compare" ? 4.5 : 1); // a comparison holds its shape in the first person too
+    const named = namedKinds(lines);
+    named.strong.forEach((k, i) => add(k, (NAMED_FIRST.includes(k) ? 9.7 : 9.5) - i / 100)); // the first named is the one
+    // Shapes that are nothing else.
+    if (looksLikeCode(lines)) add("code", 9.5);
+    const tags = lines.filter((l) => LYRIC_TAG.test(l)).length;
+    if (tags >= 2) add("lyrics", 9.5);
+    if (looksLikePressRelease(raw, lines)) add("pressrelease", 9.5);
+    if (/^resolved\s*[:,]/im.test(raw)) add("debate", 9.3);
+    const memo = memoScore(lines);
+    if (memo) add("memo", memo);
+    if (countDistinct(raw, MEETING_CUE) >= 3) add("meeting", 9);
+    if (looksLikeLessonPlan(raw)) add("lessonplan", 9.6); // over what it teaches ("Personal Narrative Unit, Lesson 4")
+    if (lines.filter((l) => SLIDE_CUE.test(l)).length >= 2) add("presentation", 9);
+    if (looksLikeSurvey(raw, lines)) add("survey", 9);
+    if (looksLikeRefList(lines)) add("workscited", 8.9);
+    if (looksLikeInterview(lines)) add("feature", 8.6);
+    if (countDistinct(raw, DISCUSSION_CUE) >= 2 && DISCUSSION_TALK.test(raw)) add("discussion", 8.3);
+    if (countDistinct(raw, PEER_CUE) >= 3 && countDistinct(raw, FEEDBACK_CUE) >= 3) add("peerreview", 8.3);
+    // The old order, as strengths.
     const letter = letterKind(raw, lines);
-    if (letter) return letter;
-    if (looksLikeHomework(raw)) return "homework";
-    if (looksLikeScript(lines)) return "script";
-    if (lines.length >= 6 && looksLikeResume(raw, lines)) return "resume";
-    if (looksLikeDbq(raw)) return "dbq";
-    if (looksLikeAnnotated(lines)) return "annotated";
-    if (looksLikeSpeech(raw, lines)) return "speech";
-    if (looksLikeLab(lines)) return "lab";
-    if (looksLikePoem(raw, lines)) return "poem";
-    if (looksLikeNotes(lines)) return "notes";
-    const kind = essayKind(raw, lines);
-    if (kind !== "prose") return kind;
-    if (looksLikeNews(raw, lines)) return "news";
-    return narrativeKind(raw) ?? "prose";
+    if (letter) add(letter, 8);
+    const math = mathWork(lines);
+    const tasks = looksLikeHomework(raw);
+    if (tasks) add(math ? "math" : "homework", named.strong.includes("lab") && !math ? 9.6 : 7.6); // "Lab 4: Motion graphs" over numbered questions is a worksheet; a lab's calculations are a lab's
+    else if (math) add("math", 7.6);
+    const script = scriptKind(lines) ?? ((raw.match(SCRIPT_MARKS) ?? []).length >= 3 || lowercaseCues(lines) ? "script" : null);
+    if (script) add(script, 7.4);
+    // A Model UN position paper's head (Committee / Country / Delegate), or a debate's own words.
+    if (lines.slice(0, 8).filter((l) => /^(?:committee|country|delegate|delegation|topic|school)\s*:/i.test(l)).length >= 3) add("debate", 9);
+    if (lines.length >= 6 && looksLikeResume(raw, lines)) add("resume", 7.2);
+    if (looksLikeDbq(raw)) add(looksLikeSynthesis(raw) ? "synthesis" : "dbq", 7);
+    if (BLOG_SAYS.test(raw)) add("blog", 7);
+    if (countDistinct(raw, DEBATE_CUE) >= 2) add("debate", 6.9);
+    if (looksLikeAnnotated(lines)) add("annotated", 6.8);
+    if (looksLikeSpeech(raw, lines)) add("speech", 6.6);
+    if (lines.filter((l) => /^(?:note )?card\s*#?\d+\b/i.test(l)).length >= 2) add("speech", 7); // a speech on note cards
+    if (looksLikeLab(lines)) add("lab", 6.4);
+    const proposal = proposalScore(raw, lines);
+    if (proposal) add("proposal", proposal);
+    if (looksLikeLabDraft(raw, lines)) add("lab", 6.1); // over plain notes: a lab is checked
+    if (looksLikePoem(raw, lines)) add(tags || repeatedStanza(raw) ? "lyrics" : "poem", 6.2);
+    // A draft's notes to self ("[check: …]", "TODO: …") are not its shape.
+    const own = lines.filter((l) => !/^\[[^\]]*\]$|^(?:todo|note to self|ntm)\b/i.test(l));
+    const drafted = own.length < lines.length && own.filter((l) => l.split(/\s+/).length >= 40).length >= 2;
+    const list = drafted ? null : listKind(raw, own);
+    if (list) add(list[0], list[1]);
+    if (!drafted && looksLikeNotes(own)) add("notes", 6);
+    // Essays and papers, by what they do.
+    const listed = worksCitedBlock(raw);
+    const noted = (raw.match(/[.!?,;”"’)][¹²³⁴⁵⁶⁷⁸⁹⁰]+|\[\d{1,3}\]/g) ?? []).length;
+    if ((essay === "informative" || essay === "essay") && ((listed && listed.entries.length >= 4 && (raw.slice(0, listed.headStart).match(WORK_CITE) ?? []).length >= 4) || (noted >= 5 && /^(?:notes|endnotes|bibliography|works cited|references)\s*:?$/im.test(raw)))) add("research", 5);
+    const paper = essayKind(raw, lines);
+    if (paper !== "prose") add(paper, paper === "research" && lines.some((l) => /^(?:abstract|methods?|methodology|participants)\s*:?$/i.test(l.replace(/^(?:\d+|[IVX]+)[.)]?\s+/, ""))) ? 6.5 : 5);
+    if (looksLikeLitReview(raw, words)) add("litreview", 5.5);
+    if (looksLikeCaseStudy(raw, lines)) add("casestudy", 5.5);
+    if (countDistinct(raw, RHETORIC_CORE) >= 3 && RHETORIC_ANCHOR.test(raw) && (raw.match(/\b(?:the (?:novel|poem|narrator|protagonist|play)|stanza)\b/gi) ?? []).length < 3) add("rhetorical", 5.5);
+    if (looksLikeSummary(raw)) add("summary", 5.2);
+    if (looksLikeBookReport(raw, lines)) add("bookreport", countDistinct(raw, BOOK_REPORT_CUE) >= 3 || lines.slice(0, 6).some((l) => /\b(?:book|reading) report\b/i.test(l)) ? 6.6 : 5.2);
+    const review = countDistinct(raw, REVIEW_CUE);
+    if (review >= 3 || (review >= 1 && /^(?:[★☆⭐]{3,5}|\d(?:\.\d)?\s?\/\s?(?:5|10)|(?:not )?recommended|[\d.]+ hrs on record)\s*$/im.test(raw))) add("review", 6.5);
+    const oped = opEdScore(raw, lines);
+    if (oped) add("oped", oped);
+    const news = looksLikeNews(raw, lines);
+    if (news) add("news", 4.6);
+    const press = journalism(raw, lines);
+    if (press >= 3 && countDistinct(raw, FEATURE_VOICE) >= (news ? 2 : 1) && !lines.slice(0, 5).some((l) => DATELINE.test(l))) add("feature", 5); // a dateline is the day's news
+    else if (press >= 3 || (lines.slice(0, 4).some((l) => BYLINE.test(l)) && (raw.match(ATTRIBUTION) ?? []).length >= 3 && (raw.match(/["“][^"”\n]{8,}["”]/g) ?? []).length >= 2 && firstPersonShare(raw) < 0.01 && !(raw.match(WORK_CITE) ?? []).length
+      && (raw.match(/\b(?:he|she|they)\s+(?:said|asked|whispered|replied|shouted|yelled)\b/gi) ?? []).length * 2 <= (raw.match(ATTRIBUTION) ?? []).length && (raw.match(NARRATION) ?? []).length < 4)) add("news", 4.6); // fiction says "she said" and "he turned"
+    // The writer's own voice.
+    const voice = narrativeKind(raw);
+    if (voice) add(voice, 4);
+    const journal = journalScore(raw, lines);
+    if (journal) add(journal > 0 ? "journal" : "story", Math.abs(journal));
+    // Fiction told in the third person: "She stood in the doorway …", sentence after sentence, with no dates or sources.
+    const told = raw.split(/(?<=[.!?]["”’)]?)\s+/).filter((x) => /^["“]?(?:He|She|They)\s+(?:\w+ed|was|were|had|went|came|took|stood|sat|felt|knew|thought|saw|ran|got|made|put|found|told|kept|left|began|held|said|did|didn't|wasn't|couldn't|wouldn't|could|would)\b/.test(x)).length;
+    const acted = (raw.match(/\b(?:he|she|they)\s+(?:\w+ed|was|were|had|went|came|took|stood|sat|felt|knew|thought|saw|ran|got|made|put|found|told|kept|left|began|held|said|did|could|would|didn't|couldn't|wasn't|sits|stands|knows|listens|folds|watches|looks|turns|walks|waits|says|thinks|feels|comes|goes|holds|takes|wants)\b/gi) ?? []).length;
+    if (acted >= 8 && acted * 100 / words >= 1.2 && (raw.match(/\b(?:1[5-9]|20)\d\d\b/g) ?? []).length <= 2 && !(raw.match(WORK_CITE) ?? []).length && firstPersonShare(raw) < 0.02) add("story", 4.2);
+    if (told >= 5 && told / Math.max(1, raw.split(/(?<=[.!?])\s+/).length) >= 0.12 && (raw.match(/\b(?:1[5-9]|20)\d\d\b/g) ?? []).length <= 2
+      && !(raw.match(WORK_CITE) ?? []).length && firstPersonShare(raw) < 0.02) add("story", 4.2);
+    if (firstPersonShare(raw) >= 0.02 && countDistinct(raw, COLLEGE_CUE) >= 2) add("college", 5.5);
+    if (looksLikeReflection(raw)) add("reflection", 5.5);
+    if (words <= 320 && countDistinct(raw, BIO_CUE) >= 3) add("bio", 6);
+    // A bio opens on its person: "Dr. Elena Marsh is …", "OLIVIA PRESCOTT (Mrs. Paroo) is thrilled …", then she, he or they.
+    const body = lines.find((l) => l.split(/\s+/).length > 8) ?? "";
+    if (words <= 450 && BIO_LEAD.test(body) && (raw.match(/\b(?:she|he|they|her|his|their)\b/gi) ?? []).length >= 2 && countDistinct(raw, BIO_CUE) >= 1 && firstPersonShare(raw) < 0.02) add("bio", 6);
+    // A cover letter typed into an application box: the job, the applying, and no letter around it.
+    if (words <= 500 && firstPersonShare(raw) >= 0.03 && countDistinct(raw, COVER_CUE) >= 1 && /\b(?:position|job|role|internship|shift|spot|opening|hire|hiring|employer|join (?:your|the) team)\b/i.test(raw)
+      && /\b(?:I(?:'d| would) love to|I am applying|I'm applying|apply(?:ing)? for|interview|trial shift|my (?:resume|résumé)|available (?:to start|mornings|evenings|weekends))\b/i.test(raw)) add("coverletter", 6.4);
+    if (looksLikeSocial(raw, words)) add("social", 7);
+    for (const k of named.weak) if ((s.get(k) ?? 0) >= 3) s.set(k, s.get(k) + 1.5);
+    return s;
+  }
+  // How many different cues of a pattern (global, case-insensitive) a text has.
+  function countDistinct(text, re) {
+    return new Set((String(text).match(re) ?? []).map((m) => m.toLowerCase().replace(/\s+/g, " "))).size;
+  }
+  const firstPersonShare = (raw) => {
+    const words = raw.split(/\s+/).filter(Boolean).length;
+    return words ? (raw.replace(/["“][^"”]*["”]/g, " ").match(/\b(?:I|[Mm]y|[Mm]e|[Mm]ine|[Mm]yself)\b/g) ?? []).length / words : 0;
+  };
+  /* What the document calls itself: its title block (the short lines above
+     the body — a title, an MLA heading of name, teacher, class and date) and
+     any "Assignment:" line. A strong name is that kind; a weak one only adds
+     to what its shape says ("Persuasive speech" over a speech, never over an
+     essay that analyses one). Most specific first: a tie goes to the first. */
+  const KIND_NAMES = [
+    ["coverletter", /\bcover letter\b/i],
+    ["recommendation", /(?<!\b(?:request(?:ing)?|ask(?:ing)?|need|for)\b[^.\n]{0,12})\b(?:letter of (?:recommendation|reference)|recommendation letter|reference letter|(?:character|personal|employment|employer|rental|tenant) reference|peer recommendation|recommendation (?:for|[—–:-]))\b/i], // not "Request for a letter of recommendation"
+    ["annotated", /\bannotated bib(?:liography)?\b/i],
+    ["litreview", /\bliterature review\b|\breview of (?:the )?(?:related |existing )?(?:literature|research)\b/i],
+    ["proposal", /\b(?:research|project|grant|science fair|capstone|thesis|study|program|event|funding|policy|book|experiment) proposal\b|^proposal\b|\bproposal\s*[:–—-]|\bproposal (?:for|to)\b|[:–—-]\s*proposal\s*$/i],
+    ["casestudy", /\bcase (?:study|analysis)\b/i],
+    ["lab", /\blab(?:oratory)? (?:report|write[- ]?up)\b|^lab\s*(?:#?\s*\d+[a-z]?)?\s*[:–—-]|^(?:[\p{L}'’-]+ ){0,4}lab(?:oratory)?$/iu],
+    ["rhetorical", /\brhetorical (?:analysis|essay)\b|\bSOAPS?Tone\b/i],
+    ["summary", /\b(?:article|chapter|reading|text|video|lecture|documentary|podcast|ted talk) (?:summary|response|reaction|critique)\b|\b(?:summary|response|reaction|critique) (?:paper|essay)\b|\bsummary (?:and|&) (?:response|analysis|reflection)\b|\bpr[ée]cis\b|\breading response\b/i],
+    ["bookreport", /\bbook report\b/i],
+    ["peerreview", /\bpeer (?:review|feedback|edit(?:ing)?|response|evaluation|critique)\b|\bworkshop letter\b|^feedback (?:for|on)\b|\b(?:referee|reviewer)(?:'s)? (?:report|comments)\b|^manuscript (?:id|number)\b/i],
+    ["review", /\b(?:book|film|movie|album|game|video game|product|restaurant|app|tv|show|series|concert|theat(?:er|re)|music) review\b|^review\s*[:–—-]/i],
+    ["synthesis", /\bsynthesis (?:essay|prompt|question)\b/i],
+    ["dbq", /\bDBQ\b|\bdocument[- ]based (?:question|essay)\b/i],
+    ["compare", /\bcompar(?:e|ing|ison)\s*(?:and|&|\/|-)\s*contrast\b|\bcomparison essay\b/i],
+    ["cause", /\bcauses?\s*(?:and|&|\/|-)\s*effects?\b/i],
+    ["problem", /\bproblem\s*(?:and|&|\/|-)\s*solution\b/i],
+    ["argumentative", /\b(?:argumentative|persuasive|argument|opinion|position) (?:essay|paper|writing)\b/i],
+    ["informative", /\b(?:informative|informational|expository|explanatory) (?:essay|paper|writing|report)\b/i],
+    ["literary", /\b(?:literary (?:analysis|essay)|character analysis|theme (?:essay|analysis)|poetry analysis|close reading)\b/i],
+    ["research", /\bresearch (?:paper|essay|report)\b/i],
+    ["college", /\b(?:college|application|scholarship|supplement(?:al)?|admissions?|transfer) essay\b|\bpersonal statement\b|\bcommon app\b|\bscholarship (?:application|prompt)\b/i],
+    ["personal", /\b(?:personal (?:narrative|essay)|memoir)\b/i],
+    ["reflection", /^(?:[\p{L}\d'’&-]+ ){0,5}reflection\s*$|\breflection\s*[:–—-]|\breflective (?:essay|journal|writing|statement)\b|\bself[- ](?:reflection|assessment|evaluation)\b/iu],
+    ["journal", /\bjournal entry\b|^dear (?:diary|journal)\b/i],
+    ["memo", /^memo(?:randum)?\b/i],
+    ["meeting", /\bmeeting (?:notes|minutes|agenda)\b|^(?:[\p{L}\d'’&-]+ ){0,5}minutes\b|^agenda\b/iu],
+    ["lessonplan", /\blesson plan\b|\b(?:section|class|period|unit|sub(?:stitute)?) plan\b/i],
+    ["studyguide", /\bstudy guide\b|\breview (?:sheet|guide|packet)\b|\bflash ?cards?\b|\bquizlet\b|\bvocab(?:ulary)? (?:list|words|terms|review)\b|\b(?:test|exam|quiz|midterm|final) (?:review|prep)\b|\b(?:unit|chapter|ch\.?) \d+ review\b(?! questions| worksheet| packet questions)|\breview for (?:the )?(?:quiz|test|exam|final|midterm)\b/i],
+    ["outline", /\boutline\b|\b(?:essay|speech|paper|story) plan\b|\bplanning sheet\b|\bgraphic organizer\b/i],
+    ["pressrelease", /\bfor immediate release\b|\bpress release\b|\bnews release\b|\bmedia advisory\b/i],
+    ["speech", /\b(?:valedictory|valedictorian|salutatory|commencement|graduation|keynote|farewell|inaugural|acceptance|retirement|wedding) (?:address|speech|remarks)\b|^(?:eulogy|toast)\b/i],
+    ["oped", /\bop[- ]?ed\b|\beditorial\b|\bletter to the editor\b|\bguest column\b|^opinion\s*[|:–—-]|\bcolumnist\b/i],
+    ["debate", /\bdebate (?:case|speech|constructive|brief)\b|^rebuttal\b|\bTHW\b|\b(?:affirmative|negative|aff|neg) (?:case|constructive|rebuttal|speech)\b|\b(?:1AC|1NC|2AC|2NC)\b|\bposition paper\b/i],
+    ["discussion", /\bdiscussion (?:post|board|forum|question|response|reply)\b|\bdiscussion\s*#?\d+\b|\binitial post\b|\b(?:reply|response) to (?:a )?(?:classmate|peer)\b/i],
+    ["bio", /^(?:(?:short|author|speaker|artist|professional|my|cast|team) )?bio(?:graphy)?\s*:?$|^about (?:me|the (?:author|speaker|artist))\s*:?$/i],
+  ];
+  const NAMED_FIRST = ["summary", "proposal", "studyguide", "lessonplan", "reflection", "peerreview", "outline"]; // last is first
+  const KIND_NAMES_WEAK = [
+    ["presentation", /\b(?:presentation|slide ?show|speaker notes|slide deck|slides)\b/i],
+    ["speech", /\bspeech\b|\btoast\b|\beulogy\b|\bcommencement address\b|\bvaledictor/i],
+    ["notes", /\bnotes\b/i],
+    ["instructions", /\brecipe\b|\bhow to\b|\binstructions\b|\bdirections\b|\bstep[- ]by[- ]step\b|\btutorial\b/i],
+    ["survey", /\bsurvey\b|\bquestionnaire\b|\bfeedback form\b|\bpoll\b/i],
+    ["lyrics", /\blyrics\b|\bsong\b/i],
+    ["homework", /\bworksheet\b|\bhomework\b|\bproblem set\b|\bpractice problems\b|\breading (?:guide|questions)\b/i],
+    ["math", /\bworksheet\b|\bhomework\b|\bproblem set\b|\bpractice problems\b|\bmath\b|\balgebra\b|\bgeometry\b|\bcalculus\b/i],
+    ["bio", /\bbiography\b/i],
+    ["feature", /\binterview\b|\bQ\s?&\s?A\b|\bprofile\b|\bspotlight\b/i],
+    ["story", /\bshort story\b|\bfan ?fic(?:tion)?\b|\bflash fiction\b|^ch(?:apter|\.)?\s*(?:one|1|i)\b|\bnovel draft\b/i],
+    ["poem", /\bpoem\b|\bhaiku\b|\bsonnet\b/i],
+    ["script", /\bscript\b|\bscreenplay\b|\bskit\b|\bteleplay\b/i],
+    ["resume", /\bresume\b|\brésumé\b|\bcurriculum vitae\b|^CV$/i],
+    ["email", /^(?:subject|re|fwd?)\s*:/i],
+    ["journal", /\bjournal\b|\bdiary\b/i],
+    ["news", /\bnews\b|\bbreaking\b/i],
+  ];
+  function namedKinds(lines) {
+    const head = [];
+    for (const l of lines.slice(0, 8)) {
+      const n = l.split(/\s+/).length;
+      if (n > 14 || (n > 6 && /[.!]["”’)]?$/.test(l))) break; // a title may ask a question
+      head.push(l.replace(/^(?:title|assignment|prompt|task|type)\s*:\s*/i, ""));
+    }
+    for (const l of lines.slice(0, 10)) if (/^(?:assignment|prompt|task)\s*:/i.test(l)) head.push(l.replace(/^\w+\s*:\s*/, ""));
+    const strong = [], weak = [];
+    for (const [k, re] of KIND_NAMES) if (head.some((l) => re.test(l))) strong.push(k);
+    // A document about a kind is the document: "Argument essay outline" is an outline, "Lab report reflection" a reflection.
+    strong.sort((a, b) => NAMED_FIRST.indexOf(b) - NAMED_FIRST.indexOf(a));
+    for (const [k, re] of KIND_NAMES_WEAK) if (head.some((l) => re.test(l))) weak.push(k);
+    return { strong, weak };
+  }
+  /* In a field, the site says what it is: a mail client's box holds an
+     email (or a cover letter, a reference, a memo sent by mail), a class
+     discussion board's a post, a social site's a post unless it runs long, a
+     review site's a review, a blog editor's a post. Docs passes no place. */
+  const PLACE_KINDS = [
+    [/linkedin\.com\/in\/[^/]+\/(?:edit\/)?(?:about|intro)|instagram\.com\/accounts\/edit|(?:x|twitter)\.com\/settings\/profile|\/about-?me\b|\/(?:edit-)?bio\b/i, "bio"],
+    [/^(?:play\.google\.com\/store|apps\.apple\.com\/)/i, "review"],
+    [/^(?:mail\.google\.com|outlook\.(?:live|office|office365)\.com|mail\.yahoo\.com|mail\.proton\.me|mail\.aol\.com)/i, "email"],
+    [/\/discussion_topics\/|\/discussions?\b|\/mod\/forum\/|\/forum\/|^(?:[\w-]+\.)*(?:piazza\.com|edstem\.org)\b|^classroom\.google\.com/i, "discussion"],
+    [/^(?:www\.)?(?:x\.com|twitter\.com|facebook\.com|instagram\.com|linkedin\.com\/feed|threads\.(?:net|com)|tiktok\.com|reddit\.com|bsky\.app)/i, "social"],
+    [/goodreads\.com\/review|yelp\.[\w.]+\/writeareview|amazon\.[\w.]+\/review|tripadvisor\.[\w.]+\/UserReview|letterboxd\.com|imdb\.com\/review|steamcommunity\.com\/.*(?:review|recommended)/i, "review"],
+    [/\/opinion\/|\/letters?[-_]to[-_]the[-_]editor|\/letters\/submit|\/op-?eds?\//i, "oped"],
+    [/linkedin\.com\/.*\/recommendation/i, "recommendation"],
+    [/^(?:[\w-]+\.)?wordpress\.com|\/wp-admin\/|blogger\.com|medium\.com\/(?:new-story|p\/[\w-]+\/edit)|substack\.com\/publish|ghost\.io\/ghost/i, "blog"],
+  ];
+  function placeKind(scores, place, raw) {
+    const kind = place && PLACE_KINDS.find(([re]) => re.test(place))?.[1];
+    if (!kind) return;
+    if (kind === "email" && ["coverletter", "recommendation", "memo", "peerreview"].some((k) => (scores.get(k) ?? 0) >= 8)) return;
+    if (kind === "social" && raw.split(/\s+/).length > 600) return;
+    scores.set(kind, 9.8);
   }
   // A resume: two section headings of its own AND contact details or date ranges, and not mostly sentences.
   function looksLikeResume(raw, lines) {
@@ -1427,6 +2116,7 @@
   const AUDIENCE = /\b(?:everyone|everybody|y'all|all of you|ladies|gentlemen|fellow|class of|graduates|classmates|students|teachers|parents|families|delegates|judges|faculty|guests|members of)\b/i;
   const COVER_CUE = /\b(?:position|internship|role|opening|job|application|apply|applying|candidate|résumé|resume|interview|qualifications?|qualified|employer|hire|hiring|join (?:your|the) team)\b/gi;
   const EMAIL_CUE = /\b(?:hope (?:this|you)(?: email| message| note)? finds you|hope you(?:'re| are) (?:doing )?well|let me know|thanks in advance|attached|following up|quick question|get back to me|looking forward to hearing|extension|deadline|due (?:date|on|by)|office hours|meeting|zoom|tomorrow|this (?:week|weekend|friday|monday|tuesday|wednesday|thursday)|next (?:week|class|period)|assignment|absent|reschedule)\b/i;
+  const RECOMMEND_CUE = /\b(?:(?:pleasure|privilege|honou?r|delighted|pleased|happy|glad|proud) to (?:write (?:this letter )?(?:in support of|on behalf of|for)|recommend)|(?:highly|strongly|wholeheartedly|enthusiastically|unreservedly) recommend|recommend (?:her|him|them|[A-Z][a-z]+) (?:for|to|without|as)|(?:writing|write) (?:to|in order to) recommend|without (?:reservation|hesitation)|letter of (?:recommendation|reference)|I have (?:known|taught|supervised|coached|mentored|worked with) [A-Z][a-z]+|(?:her|his|their) (?:application|candidacy)|in support of (?:her|his|their|[A-Z][a-z]+'s)|(?:one of the (?:best|most|top)|top \d+%) (?:students|employees|interns|people))\b/g;
   function signOffLine(l) {
     if (SIGNOFF.test(l)) return "bare";
     const m = l.match(SIGNOFF_LEAD);
@@ -1439,6 +2129,7 @@
       if (SALUTATION.test(lines[i])) { at = i; break; }
       if (lines[i].split(/\s+/).length > 8 && !/^(?:subject|re|fwd?|to|from|date|cc|bcc|sent)\s*:/i.test(lines[i])) break; // body text before any salutation: no letter's head
     }
+    if (at < 0 && /^(?:dear\s+)?[\p{Lu}][\p{L}'’.-]+(?: [\p{Lu}][\p{L}'’.-]+){0,2}\s*(?:,|[—–-])\s*$/u.test(lines[0]) && lines.length > 3) at = 0;
     if (at < 0) return null;
     const sal = lines[at];
     const tail = lines.slice(-7); // a signature can carry a title, a school and a phone number under the name
@@ -1448,21 +2139,35 @@
     // A formal letter may be signed with the name alone ("To the Editor: … Ruth Ellison / Westfield").
     const last = lines[lines.length - 1];
     const formal = /^(?:dear|to whom|to the)\b/i.test(sal) && SIGNATURE.test(last) && last.split(/\s+/).length <= 4;
-    if (AUDIENCE.test(sal) && !named) return null;
-    if (!named && !formal && !offs.includes("bare") && lines.length > 4) return null; // both ends, unless it is a short note
+    // Or a signature block: a name near the end with only its title, school or phone under it ("Rick Delaney / Store Manager / 555-0187").
+    const tail4 = lines.slice(-4);
+    const sigAt = tail4.findIndex((l) => SIGNATURE.test(l.replace(/,?\s+(?:Ph\.?D|M\.?D|Ed\.?D|Jr|Sr|M\.?A|M\.?S|B\.?A)\.?$/i, "")) && l.split(/\s+/).length <= 5);
+    const signed = sigAt >= 0 && tail4.slice(sigAt + 1).every((l) => l.split(/\s+/).length <= 9 && !/[.!?]["”’)]?$/.test(l.replace(/\b(?:Ave|St|Rd|Dr|Inc|Co|Ltd)\.$/, "")));
+    if (AUDIENCE.test(sal) && !named && !signed) return null;
+    if (!named && !formal && !signed && !offs.includes("bare") && lines.length > 4 && !/^(?:subject|re|fwd?)\s*:/im.test(lines.slice(0, at + 1).join("\n"))) return null; // both ends, unless it is a short note or has a Subject line
     const head = lines.slice(0, at + 1).join("\n");
     const body = lines.slice(at + 1).join(" ");
+    if (/^(?:to the editors?|dear editors?)\b/i.test(sal)) return "oped"; // a letter to the editor is published opinion
+    // A reference speaks of someone else: "I recommend her …", and her, his or their name throughout.
+    if (countDistinct(body, RECOMMEND_CUE) >= 1 && !/\b(?:would|could|can|will) you (?:be (?:willing|able) to |please )?write\b/i.test(body) && (body.match(/\b(?:she|he|her|his|him|they|their|them)\b/gi) ?? []).length >= 5
+      && (countDistinct(body, RECOMMEND_CUE) >= 2 || /\brecommend\b/i.test(body))) return "recommendation";
     if (/\bhiring\b/i.test(sal) || (body.match(COVER_CUE) ?? []).length >= 3) return "coverletter";
-    if (/^(?:subject|re|fwd?)\s*:/im.test(head) || /^(?:hi|hello|hey)\b/i.test(sal) || EMAIL_CUE.test(body)) return "email";
-    return "letter";
+    // An email or a letter: what each would say that the other wouldn't. A tie is an email (the old rule: any email cue).
+    const emailish = (/^(?:subject|re|fwd?)\s*:/im.test(head) ? 2 : 0) + (/^(?:hi|hello|hey)\b/i.test(sal) ? 1 : 0) + countDistinct(body, EMAIL_CUES);
+    const letterish = (/^dear\b/i.test(sal) ? 1 : 0) + (tail.some((l) => /^(?:sincerely|(?:very )?(?:truly )?yours|love|with love|lots of love|love you\b|respectfully|fondly|cordially|your (?:loving |favorite )?(?:grand)?(?:son|daughter|friend|student|niece|nephew|kid))/i.test(l)) ? 1 : 0)
+      + (/\bP\.\s?S\.?|\bthis letter\b|\bwrit(?:e|ing) (?:to )?you\b|\benvelope\b|\bfuture (?:me|self)\b|\bmail(?:ed|ing)? (?:this|it)\b/i.test(raw) ? 1 : 0)
+      + (at > 0 && lines.slice(0, at).some((l) => DATED_ENTRY.test(l) || /\b\d{5}\b|\b(?:street|avenue|road|lane|drive|apt\.?)\b/i.test(l)) ? 1 : 0);
+    return emailish > 0 && emailish >= letterish ? "email" : "letter";
   }
+  const EMAIL_CUES = new RegExp(EMAIL_CUE.source, "gi");
   /* A script: screenplay sluglines (INT. / EXT.), or the same few speakers
      cued again and again — "MAYA: …" in a play, a capitalised name above
      each speech in a screenplay. A label that is not a person ("Thesis:",
      "Note:", "Q:") never counts. */
   const NOT_A_SPEAKER = /^(?:thesis|claim|evidence|reasoning|note|notes|example|answer|question|hook|topic|source|summary|date|name|period|subject|re|to|from|cc|step|part|title|tip|warning|objective|purpose|hypothesis|conclusion|introduction|materials|procedure|data|results|analysis|q|a|definition|key|main idea|vocab|vocabulary|cause|causes|effect|effects|pro|pros|con|cons|ps|p\.s|education|experience|skills|projects|awards|summary)$/i;
-  function looksLikeScript(lines) {
-    if (lines.filter((l) => /^(?:INT|EXT|INT\.?\/EXT|I\/E)[.\s]/.test(l) || /^(?:FADE (?:IN|OUT)|CUT TO|DISSOLVE TO)\b/.test(l)).length >= 2) return true;
+  // "script", or "feature" when the speakers are an interviewer and the person interviewed.
+  function scriptKind(lines) {
+    if (lines.filter((l) => /^(?:INT|EXT|INT\.?\/EXT|I\/E)[.\s]/.test(l) || /^(?:FADE (?:IN|OUT)|CUT TO|DISSOLVE TO)\b/.test(l)).length >= 2) return "script";
     const speakers = new Map();
     let cued = 0;
     for (const l of lines) {
@@ -1474,7 +2179,8 @@
       speakers.set(key, (speakers.get(key) ?? 0) + 1);
       cued++;
     }
-    return [...speakers.values()].filter((c) => c >= 2).length >= 2 && cued >= 5 && cued / lines.length >= 0.25;
+    if (!([...speakers.values()].filter((c) => c >= 2).length >= 2 && cued >= 5 && cued / lines.length >= 0.25)) return null;
+    return [...speakers.keys()].some((k) => /^(?:INTERVIEWER|INTERVIEWEE|REPORTER|ME|Q|A)$/.test(k)) ? "feature" : "script";
   }
   /* A DBQ: the documents it was given, cited by number or letter — (Doc 3),
      "Document A shows", IB's "Source B" — two different ones, or one with the
@@ -1497,8 +2203,9 @@
   const SUMMARY_CUE = /\b(?:this (?:[\w-]+ ){0,2}(?:article|source|book|study|website|site|essay|report|chapter|piece|paper|author|text|film|documentary|video|podcast|interview|collection)|the (?:authors?|article|study|source|book|website|writer|researchers?) (?:argues?|explains?|describes?|discuss(?:es)?|shows?|claims?|suggests?|provides?|presents?|explores?|examines?|focus(?:es)?|uses?|offers?)|(?:will|would) (?:be|help)|is (?:useful|helpful|relevant|credible|reliable)|I (?:will|plan to|can) use)\b/i;
   function looksLikeAnnotated(lines) {
     if (lines.slice(0, 6).some((l) => /\bannotated bibliography\b/i.test(l) && l.split(/\s+/).length <= 12)) return true;
-    const isRef = (l) => (REF_START.test(l) || /^["“][^"”]{3,}["”]\s*[.,]?\s+\S/.test(l)) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l);
+    const isRef = (l) => (REF_START.test(l) || /^["“][^"”]{3,}["”]\s*[.,]?\s+\S/.test(l)) && /\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\.|\b[\w-]+\.(?:com|org|gov|edu|net)\b/.test(l);
     let refs = 0, said = 0;
+    lines = lines.map((l) => l.replace(/^(?:[-•●○■▪◦*–]\s*|\(?\d{1,3}[.)\]]\s*|\[\d{1,3}\]\s*)/, ""));
     lines.forEach((l, i) => {
       if (!isRef(l)) return;
       refs++;
@@ -1513,14 +2220,20 @@
   const SPEECH_CLOSE = /\bthank you\b[^.!?]{0,40}[.!]?$|\b(?:vote for me|god bless)\b/i;
   const SPEECH_CUE = /\b(?:I stand (?:here|before you)|today,? I (?:want|would like|am here|'d like) to|I(?:'m| am) here (?:today )?to|let me (?:tell|ask|remind) you|imagine (?:a|if|for a moment|with me)|raise your hand|vote for me|please vote|my fellow|as your (?:president|representative|class president|treasurer|secretary)|ask yourselves?|look around (?:you|this room)|(?:each|all|many|some|most) of you|thank you (?:all )?for (?:listening|your (?:time|attention|support))|I ask you|together,? we)\b/gi;
   const BLOG_CUE = /\b(?:blog|this post|in the comments|subscribe|newsletter|my channel|this video|link (?:below|in my bio)|follow me)\b/i;
+  // The occasions a speech is given at: a toast, a eulogy, an award, a public comment, a campaign.
+  const SPEECH_MORE = /\b(?:for those (?:of you )?who don'?t know me|my name is [\p{Lu}][\p{L}'’-]+(?: [\p{Lu}][\p{L}'’-]+)? and I|I'?m here (?:today |tonight )?(?:because|to)|I(?:'m| am) running for|(?:raise|lift) (?:your|a) glass(?:es)?|if everyone could raise|join me in (?:raising|welcoming|thanking)|(?:a )?toast to|here'?s to|cheers|to the (?:happy couple|bride|groom|newlyweds)|we are (?:here|gathered) (?:today |tonight )?(?:to|because)|thank you (?:all )?(?:so much )?for (?:coming|being here|this (?:honou?r|award))|I(?:'m| am) (?:honou?red|humbled|grateful) to (?:accept|receive|be here|stand)|this award|(?:members of|to) the (?:school )?(?:board|committee|council)|thank you for your time|I yield|passed away|we(?:'ll| will) (?:all )?miss (?:her|him)|fellowship hall|(?:her|his|their) (?:service|funeral|memorial)|the reception|celebrat(?:e|ing) (?:her|his|their) life|rest in peace|raise your hands?|show of hands|until I sit down|take out your phones?|vote (?:for )?[\p{Lu}][\p{L}'’-]+)\b/giu;
+  const DELIVERY_CUE = /\[(?:pause|slow|look|hold|wait|breathe|beat|smile|laugh|applause|point|gesture|make eye contact|walk|turn)[^\]\n]{0,60}\]/i;
+  const BLOG_SAYS = /\b(?:blog|this post|in the comments|subscribe|my channel|link (?:below|in my bio)|follow me|welcome back)\b/i;
   function looksLikeSpeech(raw, lines) {
     if (BLOG_CUE.test(raw)) return false; // "Hi everyone! Welcome back to the blog." greets readers, not a room
-    const open = lines.slice(0, 3).some((l) => SPEECH_OPEN.test(l));
-    const close = lines.slice(-3).some((l) => SPEECH_CLOSE.test(l));
-    const cues = (raw.match(SPEECH_CUE) ?? []).length;
+    const open = lines.slice(0, 3).some((l) => SPEECH_OPEN.test(l)) || /^thank you(?: (?:so much|all|everyone|very much))?[.!,]/i.test(lines[0] ?? "");
+    // The end said to someone in the room or remembered: "Grandma, thank you for …", "To Marcus and Priya."
+    const addressed = lines.slice(-3).some((l) => /^[\p{Lu}][\p{L}'’-]+,\s+(?:thank you|we love you|I love you|rest|goodbye|congratulations)\b/u.test(l));
+    const close = addressed || lines.slice(-3).some((l) => SPEECH_CLOSE.test(l));
+    const cues = (raw.match(SPEECH_CUE) ?? []).length + countDistinct(raw, SPEECH_MORE) + (DELIVERY_CUE.test(raw) ? 1 : 0);
     const words = raw.split(/\s+/).filter(Boolean).length;
     const you = (raw.match(/\byou(?:r|rs|rself|rselves|'re|'ll|'ve)?\b/gi) ?? []).length;
-    return (open && (close || cues >= 1 || you / words >= 0.015)) || (close && cues >= 2) || cues >= 3;
+    return (open && (close || cues >= 1 || you / words >= 0.015)) || (close && cues >= 2) || (addressed && cues >= 1) || cues >= 3;
   }
   /* A lab report: its sections — Hypothesis, Materials, Procedure, Data,
      Observations, Calculations, Sources of error — as headings or as
@@ -1539,7 +2252,7 @@
      runs to a paragraph's length, and its stanzas, its rhymes or its open
      line-ends say so. A list, notes or an outline are short-lined too —
      bullets, numbers, "Label:" lines and an outline's words rule them out. */
-  const OUTLINE_WORD = /^(?:[IVX]{1,4}\.\s*|[A-H][.)]\s*|\d{1,2}[.)]\s*)?(?:introduction|intro|body(?: paragraph)?(?: \d)?|conclusion|thesis(?: statement)?|hook|claim|evidence|reasoning|counter ?argument|counterclaim|rebuttal|topic sentence|transition|background|main idea|supporting (?:detail|evidence))\b/i;
+  const OUTLINE_WORD = /^(?:[IVX]{1,4}\.\s*|[A-H][.)]\s*|\d{1,2}[.)]\s*)?(?:introduction|intro|body(?: paragraph)?(?: \d)?|paragraph (?:\d|one|two|three|four)|conclusion|thesis(?: statement)?|hook|claim|evidence|reasoning|counter ?argument|counterclaim|rebuttal|topic sentence|transition|background|main idea|supporting (?:detail|evidence))\b/i;
   const WEAK_RHYME = new Set(["ed", "ly", "es", "ng", "er", "al", "on", "ts", "ns", "rs", "ds", "st", "nt", "le", "ty", "ry", "re", "se", "ce", "te"]);
   function looksLikePoem(raw, lines) {
     let body = lines;
@@ -1551,7 +2264,7 @@
     const avg = body.reduce((sum, l) => sum + l.split(/\s+/).length, 0) / n;
     if (share((l) => /^(?:[-•●○■▪◦*–>]|\(?\d{1,2}[.)]|[A-Za-z][.)]\s|[IVX]{1,4}\.\s)/.test(l)) > 0.3) return false; // a list
     if (share((l) => /[=≈≤≥]/.test(l) && /\d/.test(l)) > 0.2) return false; // worked math
-    if (share((l) => /^[^:.!?]{2,30}:\s*\S/.test(l) || OUTLINE_WORD.test(l)) > 0.25) return false; // notes, an outline
+    if (share((l) => /^[^:.!?]{2,30}:\s*\S/.test(l) || OUTLINE_WORD.test(l) || /\s=\s|→|\s-\s\S/.test(l) || /\t/.test(l)) > 0.25) return false; // notes, an outline, a table
     if (body.some((l) => RESEARCH_HEADING.test(l.replace(/[:.]$/, "")))) return false; // a paper's sections
     const groups = raw.split(/\n[ \t]*\n/).map((g) => g.split("\n").map((l) => l.trim()).filter(Boolean)).filter((g) => g.length);
     const stanzas = groups.filter((g) => g.length >= 2).length;
@@ -1561,6 +2274,7 @@
     if (stanzas >= 2 && stanzas === groups.length && inner.length >= 3
       && inner.filter((l) => !/[.!?]["”’)]?$/.test(l) && l.split(/\s+/).length >= 6).length / inner.length >= 0.6) return true;
     if (share((l) => /[.!?]["”’)]?\s+["“(]?[A-Z]/.test(l)) > 0.2 || avg > 14) return false; // paragraphs
+    if (avg <= 12 && share((l, i) => i > 0 && /^[a-z]/.test(l) && !/[.!?]["”’)]?$/.test(body[i - 1])) >= 0.25) return true; // enjambed
     const end = (l) => (l.toLowerCase().match(/([a-z]+)[^a-z]*$/) ?? [])[1] ?? "";
     const rhymes = (a, b) => a.length >= 2 && b.length >= 2 && a !== b && (a.slice(-3) === b.slice(-3) || (a.slice(-2) === b.slice(-2) && !WEAK_RHYME.has(a.slice(-2))));
     const rhymed = share((l, i) => [body[i + 1], body[i + 2]].some((o) => o && rhymes(end(l), end(o))));
@@ -1572,7 +2286,7 @@
   function looksLikeNotes(lines) {
     const n = lines.length;
     if (n < 5) return false;
-    const pointed = lines.filter((l) => /^(?:[-•●○■▪◦*–>]\s*|\(?\d{1,2}[.)]\s+|[a-hA-H][.)]\s+|[IVX]{1,4}\.\s+)/.test(l) || /^[^.!?:]{2,40}:(?:\s|$)/.test(l) || OUTLINE_WORD.test(l)).length;
+    const pointed = lines.filter((l) => /^(?:[-•●○■▪◦*–>]\s*|\(?\d{1,2}[.)]\s+|[a-hA-H][.)]\s+|[IVX]{1,4}\.\s+)/.test(l) || /^[^.!?:]{2,40}:(?:\s|$)/.test(l) || OUTLINE_WORD.test(l) || (l.split(/\s+/).length <= 12 && !/[.!?]["”’)]?$/.test(l) && /^[^.!?]{2,40}(?:\s=\s|\s[-–]\s|\s?→)/.test(l))).length;
     const fragments = lines.filter((l) => !/[.!?]["”’)]?$/.test(l) || l.split(/\s+/).length <= 6).length;
     return pointed / n >= 0.5 && fragments / n >= 0.5;
   }
@@ -1588,7 +2302,7 @@
      is an essay — "prose", the default it always was. */
   const RESEARCH_HEADING = /^(?:abstract|introduction|background|literature review|related work|methods?|methodology|materials and methods|participants|procedure|data|results|findings|analysis|discussion|limitations|conclusions?|references|bibliography|works cited)$/i;
   const RESEARCH_CORE = /^(?:abstract|literature review|related work|methods?|methodology|materials and methods|participants|procedure|results|findings|discussion|limitations)$/i;
-  const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*)\b/gi;
+  const LITERARY_CUE = /\b(?:the (?:author|narrator|speaker|protagonist|antagonist|novel|novella|poem|play|playwright|story|reader)|symboli[sz]\w*|imagery|metaphor\w*|simile\w*|foreshadow\w*|irony|ironic\w*|motif\w*|characteri[sz]ation|soliloquy|stanza\w*|juxtapos\w*|personif\w*|allusion\w*|symbol(?:s|ic|ism|i[sz]es?|i[sz]ed)?|themes?|characters?|the (?:book|novella)|chapter \d+|conflict|represents?|portray\w*|characteri[sz]\w*)\b/gi;
   // An in-text citation of a work: (Lee, 2019), (Lee 2019, 45), (Lee 45).
   const WORK_CITE = /\([^()\n]*\b(?:1[5-9]|20)\d\d[a-z]?\b[^()\n]*\)|\([\p{Lu}][\p{L}'’-]+(?: (?:and|&) [\p{Lu}][\p{L}'’-]+| et al\.)? \d{1,4}(?:[-–]\d{1,4})?\)/gu;
   function essayKind(text, lines) {
@@ -1648,11 +2362,395 @@
     if (firstPerson >= 0.04 && reflection >= 1) return "personal";
     return null;
   }
+
+  /* The kinds added in 2.21.57, each by what it does that the others don't.
+     Patterns ending _CUE are counted for how many DIFFERENT cues a text has
+     (countDistinct), so one phrase said five times is one cue. */
+  // Code: a program pasted in, line after line of braces, keywords and calls.
+  const CODE_LINE = /[{};]\s*$|^(?:def |class \w|import |from [\w.]+ import |function\b|const |let |var |public |private |protected |static |return\b|elif\b|except\b|catch\s*\(|#include|package |print\(|printf\(|console\.log|System\.out|for\s*\(|while\s*\(|if\s*\(|for \w+ in |else:$|<\/?[a-z][\w-]*[^>]*>$|--\s|(?:SELECT|FROM|WHERE|JOIN|LEFT JOIN|INNER JOIN|ORDER BY|GROUP BY|HAVING|INSERT INTO|UPDATE|DELETE FROM|CREATE TABLE|VALUES|LIMIT)\b)|==|!=|&&|\|\||\w\(\)|\+\+|=>|->/;
+  const looksLikeCode = (lines) => lines.length >= 4 && lines.filter((l) => CODE_LINE.test(l)).length / lines.length >= 0.35;
+  // A song's sections: [Chorus], Verse 2:, (Bridge).
+  const LYRIC_TAG = /^[[(]?\s*(?:verse|chorus|pre-?chorus|post-?chorus|bridge|hook|intro|outro|refrain|interlude)(?:\s*\d+)?\s*(?:[:x×]\s*\d*)?\s*[\])]?:?$/i;
+  // A stanza sung again word for word: a chorus. A poem's refrain is a line, not a stanza.
+  function repeatedStanza(raw) {
+    const seen = new Set();
+    for (const g of raw.split(/\n[ \t]*\n/)) {
+      const key = g.split("\n").map((l) => l.trim().toLowerCase()).filter(Boolean);
+      if (key.length < 2) continue;
+      if (seen.has(key.join("\n"))) return true;
+      seen.add(key.join("\n"));
+    }
+    return false;
+  }
+  // A press release: "FOR IMMEDIATE RELEASE", or a media contact and the closing "###" or "About …" boilerplate.
+  function looksLikePressRelease(raw, lines) {
+    if (/\bfor immediate release\b|\b(?:press|news) release\b|\bmedia advisory\b|\bembargoed\b/i.test(lines.slice(0, 6).join("\n"))) return true;
+    const end = /^(?:#{3}|-\s*30\s*-|-30-)$/m.test(raw);
+    const contact = /\b(?:media|press) (?:contact|inquiries|kit)\b|\bpress (?:folks|friends)\b|\bfor (?:the )?press\b|\breview (?:keys|copies) (?:are )?available\b/i.test(raw);
+    const about = /^about [\p{Lu}][\p{L}&.'’ -]{1,60}$/mu.test(raw);
+    return (end && (contact || about)) || (contact && about) || (contact && /\b(?:announces?|launch(?:es)?|unveils?|to (?:launch|open|release)|releases?|opens?)\b/i.test(lines[0] ?? ""));
+  }
+  // A memo's head: MEMO or MEMORANDUM, or To/From/Subject lines with no "Dear" under them.
+  function memoScore(lines) {
+    const top = lines.slice(0, 10);
+    const fields = new Set(top.map((l) => l.match(/^(to|from|date|subject|re|cc|attn|attention)\s*:/i)?.[1].toLowerCase()).filter(Boolean));
+    const greeted = top.some((l) => SALUTATION.test(l));
+    if (top.slice(0, 3).some((l) => /^(?:inter-?office |office |internal )?memo(?:randum)?\b/i.test(l))) return greeted ? 7.9 : 9;
+    // A notice to staff: "ATTENTION ALL KITCHEN STAFF / from Luis".
+    if (top.slice(0, 2).some((l) => /^(?:attention|attn|notice|to)\b:?\s*(?:all\b|staff\b|employees\b|team\b|everyone\b)/i.test(l)) && top.slice(0, 4).some((l) => /^from\b/i.test(l))) return 8.4;
+    return fields.has("from") && fields.has("to") && (fields.has("subject") || fields.has("re")) && !greeted ? 8.4 : 0;
+  }
+  // Minutes: who came, what was moved and seconded, what is to be done by whom.
+  const MEETING_CUE = /\b(?:attendees|attendance|in attendance|present\s*:|absent\s*:|members present|minutes|agenda|action items?|call(?:ed)? to order|adjourn(?:ed|ment)?|motion (?:to|passed|carried|approved|failed)|seconded|old business|new business|unfinished business|next meeting|meeting (?:notes|minutes)|treasurer'?s report|roll call|quorum|facilitator|note[- ]?taker|time ?keeper|follow[- ]ups?|owner\s*:|discussion items?|decisions?\s*:)/gi;
+  // A lesson plan: what students will be able to do, and the lesson's parts by the clock.
+  const LESSON_CUE = /\b(?:objectives?|learning (?:targets?|goals?|objectives?)|standards?|students will(?: be able to)?|SWBAT|teacher will|warm[- ]up|do now|bell ?ringer|anticipatory set|direct instruction|mini[- ]lesson|guided practice|independent practice|closure|exit (?:ticket|slip)|formative|summative|assessment|differentiation|accommodations|modifications|grade level|duration|lesson|modeling|think[- ]pair[- ]share|materials|agenda|\d+ min(?:utes|s)?\b)/gi;
+  const looksLikeLessonPlan = (raw) => countDistinct(raw, LESSON_CUE) >= 5 && /\b(?:students will|SWBAT|teacher will|exit (?:ticket|slip)|warm[- ]up|do now|bell ?ringer|learning targets?|lesson|(?:section|class) plan)\b/i.test(raw);
+  // A presentation's script: what is said over each slide.
+  const SLIDE_CUE = /^[[(]?\s*slide\s*(?:#?\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\b(?:next slide|on this slide|this slide|(?:click|advance) to (?:the )?next|title slide)\b|[[(]\s*(?:slide\b|click\b|next\b|title slide)[^\])\n]{0,80}[\])]/i;
+  // A survey asks the reader about themselves and gives them choices.
+  const SURVEY_CHOICE = /^(?:[☐□◯○⬜▢]|\(\s?\)|\[\s?\]|_{3,})|\b(?:strongly (?:agree|disagree)|somewhat (?:agree|disagree)|neither agree nor disagree|(?:very|somewhat|not (?:at all|very)) (?:satisfied|likely|important|useful|helpful|interested)|on a scale (?:of|from) (?:1|one|0)|select (?:all|one)|check (?:all|one)(?: that apply)?|choose one|circle one|prefer not to (?:say|answer)|(?:yes|no)\s*\/\s*(?:no|yes|maybe)|1\s+2\s+3\s+4\s+5|never\s*\/\s*rarely|other \(please specify\)|daily\s*\/\s*weekly)/i;
+  const RESPONDENT_Q = /\b(?:do|did|have|would|are|were|will|could) you\b|\bhow (?:often|much|many|satisfied|likely|old|long) (?:do|did|are|have|would|were) you\b|\bwhat (?:is|was) your\b|\bwhich (?:of the following )?(?:best describes|do you)\b|\byour (?:age|grade|gender|year|major|favorite)\b/i;
+  function looksLikeSurvey(raw, lines) {
+    // A question with its answers listed under it, each a few words ("- yes", "- no, I'm on the waitlist").
+    const offered = lines.filter((l, i) => /\?|\((?:check|select|choose|circle|skip)[^)]*\)\s*$/i.test(l) && lines.slice(i + 1, i + 3).every((o) => /^(?:[-•●○■▪◦*–☐□]|\(?[a-e][.)]|\[\s?\])\s*\S/.test(o) && o.split(/\s+/).length <= 8)).length;
+    const choices = lines.filter((l) => SURVEY_CHOICE.test(l)).length + offered;
+    const asks = lines.filter((l) => /\?\s*$/.test(l)).length;
+    const about = lines.filter((l) => RESPONDENT_Q.test(l)).length;
+    return (choices >= 3 && asks >= 2 && about >= 1) || (about >= 3 && (choices >= 2 || asks >= 5)) || (about >= 2 && offered >= 3);
+  }
+  // A script's own marks: a two-column VIDEO / AUDIO table, shot sizes, sound cues, voice-over, scene numbers.
+  const SCRIPT_MARK = /^(?:VIDEO\s+AUDIO\b|SFX\s*:|MUSIC\s*:|(?:CU|ECU|MS|MCU|WS|LS|OTS|POV)\s*[:.-]\s|SCENE\s+\d+\b|ACT\s+(?:I{1,3}|ONE|TWO|1|2)\b)|\((?:V\.O\.|O\.S\.|beat|pause|CONT'D)\)|\b[A-Z]{2,}(?:\s\([^)]{1,20}\))?\s*\(V\.O\.\)/m;
+  const SCRIPT_MARKS = new RegExp(SCRIPT_MARK.source, "gm");
+  // The same lowercase names cueing their lines ("claire: are you seriously keeping that").
+  function lowercaseCues(lines) {
+    const names = new Map();
+    for (const l of lines) {
+      const m = l.match(/^([a-z][a-z'’-]{1,15})\s*(?:\([^)]{1,30}\))?\s*:\s*\S/);
+      if (m && !NOT_A_SPEAKER.test(m[1])) names.set(m[1], (names.get(m[1]) ?? 0) + 1);
+    }
+    return [...names.values()].filter((c) => c >= 3).length >= 2;
+  }
+  // A reference list and nothing else: never "cited nowhere" (there is no essay to cite them in).
+  const REF_LIST_HEAD = /^(?:works cited|works consulted|references|reference list|bibliography|sources(?: cited)?|citations|literature cited)\s*:?$/i;
+  function looksLikeRefList(lines) {
+    let body = lines;
+    const h = lines.findIndex((l) => REF_LIST_HEAD.test(l));
+    if (h > 5) return false;
+    if (h >= 0) body = lines.slice(h + 1);
+    body = body.map((l) => l.replace(/^(?:[-•●○■▪◦*–]\s*|\(?\d{1,3}[.)\]]\s*|\[\d{1,3}\]\s*)/, ""));
+    if (body.length < 3) return false;
+    const refs = body.filter(isRefLine);
+    const annotated = refs.filter((l) => l.split(/\s+/).length > 50 || SUMMARY_CUE.test(l.slice(60))).length;
+    const prose = body.filter((l) => !isRefLine(l) && l.split(/\s+/).length >= 8).length;
+    if (refs.length >= 3 && refs.length / body.length >= 0.7 && prose <= 1 && annotated < 2) return true;
+    // A young writer's list under its heading: each line a website, a book, a video, an interview.
+    const named = body.filter((l) => /https?:\/\/|www\.|\.(?:com|org|gov|edu|net)\b|\b(?:website|book|video|youtube|article|interview|magazine|encyclopedia|journal|podcast|documentary)\b/i.test(l) && l.split(/\s+/).length <= 30).length;
+    return h >= 0 && h <= 2 && named >= 3 && named / body.length >= 0.7;
+  }
+  // A line that is a reference: dated, and an author, a title, an organisation or an address. IEEE's "X. Feng, M. Ouyang, …" included.
+  const isRefLine = (l) => (/\b(?:1[5-9]|20)\d\d\b|\bn\.\s?d\./.test(l)
+    && (REF_START.test(l) || /^["“]/.test(l) || /^[\p{Lu}][\p{L}&.'’ -]{2,80}\.\s/u.test(l) || /^(?:[\p{Lu}]\.\s?)+[\p{Lu}][\p{L}'’-]+,/u.test(l) || /https?:\/\/|doi\.org|www\./i.test(l) || /["“][^"”]{5,}["”]/.test(l) || /\b(?:vol\.|pp?\.|no\.|eds?\.|Press|Journal|Retrieved|Accessed|doi|thesis|Proc\.|Rep\.|et al\.)/.test(l)))
+    || /^(?:https?:\/\/|www\.)\S+$/i.test(l);
+  // An interview written up: Q and A, or the interviewer's questions and someone's first-person answers.
+  function looksLikeInterview(lines) {
+    const qs = lines.filter((l) => /^(?:Q|Question|Interviewer|Me)\s*\d*\s*[:.)–-]\s*\S/i.test(l)).length;
+    const as = lines.filter((l) => /^(?:A|Answer)\s*\d*\s*[:.)–-]\s*\S/.test(l));
+    const own = as.filter((l) => /\b(?:I|my|me|we|our)\b/.test(l)).length;
+    if (qs >= 3 && (as.length >= 3 ? own / as.length >= 0.5 : lines.filter((l) => /\b(?:I|my|me)\b/.test(l)).length >= qs)) return true;
+    const asked = lines.filter((l, i) => /\?["”]?\s*$/.test(l) && /\byou(?:r)?\b/i.test(l) && l.split(/\s+/).length <= 20 && lines[i + 1] && !/\?["”]?\s*$/.test(lines[i + 1]) && lines[i + 1].split(/\s+/).length >= 8);
+    const posed = lines.filter((l, i) => /\?["”]?\s*$/.test(l) && l.split(/\s+/).length <= 20 && lines[i + 1] && !/\?["”]?\s*$/.test(lines[i + 1]) && lines[i + 1].split(/\s+/).length >= 8);
+    return asked.length >= 3 || (posed.length >= 4 && asked.length >= 2 && lines.filter((l) => /\b(?:I|my|me)\b/.test(l)).length >= posed.length);
+  }
+  /* A feature or a profile: journalism's marks (a byline, a surname after
+     the full name, "Pruitt, 63,", "said senior Andre Cole") around one
+     person or place, told in its present ("she says", "has been … for 32
+     years") rather than a news story's event. */
+  function journalism(raw, lines) {
+    const surnames = new Set([...raw.matchAll(/\b[\p{Lu}][\p{L}'’-]+ ([\p{Lu}][\p{L}'’-]{2,})\b/gu)].map((m) => m[1]));
+    const said = [...raw.matchAll(/\b([\p{Lu}][\p{L}'’-]+),? (?:said|says|recalls|remembers|explains|explained|added|adds)\b|\b(?:said|says) (?:[\p{Ll}]+ )*(?:[\p{Lu}][\p{L}'’-]+ )?([\p{Lu}][\p{L}'’-]+)\b/gu)]
+      .filter((m) => surnames.has(m[1] ?? m[2])).length;
+    const apposed = (raw.match(/\b[\p{Lu}][\p{L}'’-]+, (?:\d{1,3}|a (?:senior|junior|sophomore|freshman|[\p{L}-]+ (?:major|student|teacher|owner|founder|director|coach|manager|librarian|nurse)))\b/gu) ?? []).length;
+    return said + apposed + (lines.slice(0, 4).some((l) => BYLINE.test(l)) ? 1 : 0);
+  }
+  const FEATURE_VOICE = /\b(?:says|recalls|remembers|grew up|has been|have been|(?:for|after) (?:the past |more than |over |nearly |almost )?(?:\d+|two|three|four|five|six|ten|twenty) (?:years|decades)|since (?:19|20)\d\d)\b/gi;
+  // A class discussion board: the week's reading, the prompt, classmates.
+  const DISCUSSION_CUE = /\b(?:your (?:initial )?post|great post|I (?:really |completely |strongly )?(?:agree|disagree) with (?:you|your|what you)|you (?:mentioned|brought up|made (?:a|some) (?:good|great|interesting|strong|valid) points?)|great (?:point|question)|(?:this|last) week'?s (?:reading|readings|prompt|discussion|module|lecture|topic|video|chapter)|in (?:the|this week'?s|our) (?:assigned )?(?:readings?|module|lecture|textbook)|the (?:textbook|assigned reading|course readings?|module)|classmates?|discussion (?:post|board|question|prompt)|initial post|(?:in )?response to (?:the )?(?:prompt|discussion question)|to answer (?:the|this week'?s) (?:prompt|question)|replying to|thanks? (?:you )?for sharing|I look forward to (?:reading|hearing)|what do (?:you all|you guys|others) think|does anyone (?:else|have)|our (?:reading|readings|textbook|module|class discussion)|(?:a )?question for (?:the|my) (?:group|class|classmates))\b/gi;
+  // …and one of them is talk on a board: to a classmate, to the group, about this week's prompt.
+  const DISCUSSION_TALK = /\b(?:your (?:initial )?post|great post|I (?:really |completely |strongly )?(?:agree|disagree) with (?:you|your|what you)|you (?:mentioned|brought up|made (?:a|some) (?:good|great|interesting|strong|valid) points?)|great (?:point|question)|(?:this|last) week'?s|discussion (?:post|board|question|prompt)|initial post|(?:in )?response to (?:the )?(?:prompt|discussion question)|replying to|thanks? (?:you )?for sharing|a question for (?:the|my) (?:group|class|classmates)|what do (?:you all|you guys|others|you think)|does anyone)\b/i;
+  // A peer review talks to the writer about their draft.
+  const PEER_CUE = /\byour (?:essay|draft|paper|thesis|intro(?:duction)?|conclusion|paragraphs?|story|claim|argument|hook|evidence|topic sentences?|sources?|writing|piece|poem|ending|title|transitions?|counter ?argument|analysis|body paragraphs?|citations?|word choice|voice|organization|first paragraph|second paragraph)\b/gi;
+  const FEEDBACK_CUE = /\b(?:I (?:liked|loved|really liked|enjoyed|noticed|think you|would (?:suggest|recommend|add|change|cut)|was (?:confused|lost)|got (?:confused|lost)|wonder(?:ed)?)|you (?:could|should|might|may want to|need to|did (?:a )?(?:great|good|nice) job)|consider (?:adding|revising|changing|cutting|explaining|moving)|strengths?|(?:areas?|room) (?:for|of) improvement|one (?:suggestion|thing to work on)|glows?|grows?|(?:overall|great|nice) (?:job|work)|keep up)\b/gi;
+  // A debate case: contentions, the resolution, the other side.
+  const DEBATE_CUE = /\b(?:contention (?:one|two|three|1|2|3|i{1,3})|the resolution|affirm(?:ative)?|negat(?:e|ive) (?:side|team)|my opponents?|the (?:pro|con|opposing|other) (?:side|team)|value (?:premise|criterion)|framework|weigh(?:ing)? (?:the|this) (?:round|debate)|extend (?:my|our)|cross[- ]ex(?:amination)?|honou?rable (?:judges|delegates)|the delegation of|(?:pro|con|aff|neg) (?:side|team)|we (?:affirm|negate)|I (?:affirm|negate)|this house (?:would|believes)|THW|madam speaker|mister speaker|points? of information|POIs?|rebuttal|they said)\b/gi;
+  // An AP Language synthesis essay cites its sources by letter like an IB history essay; a history essay talks history.
+  const HISTORY_CUE = /\b(?:1[0-8]\d\d|19[0-4]\d)\b|\bcentur(?:y|ies)\b|\b(?:empire|dynasty|revolution(?:ary)?|colonial|colonies|kingdom|treaty|reign|emperor|pharaoh|medieval|ancient|feudal|Meiji|Ottoman|Mughal|Ming|Qing|Soviet|Cold War|World War|slavery|abolition|Reconstruction|New Deal|Great Depression|monarch\w*|imperialis\w*)\b/gi;
+  function looksLikeSynthesis(raw) {
+    if (/\bsynthesis\b/i.test(raw)) return true;
+    const docs = (raw.match(DOC_REF) ?? []).length;
+    const sources = (raw.match(IB_SOURCE) ?? []).length;
+    return sources > docs && (raw.match(HISTORY_CUE) ?? []).length < 4;
+  }
+  /* A plan not yet carried out: "we will …", "I plan to …", a timeline, a
+     budget. Results already measured make it a lab, however it is worded
+     (owner, 2026-10-15, on "Report: Build A Calibrated Spring Scale": its
+     every sentence says "we will", and its "23 cm for 2.9 newtons" lines
+     are a lab's data). */
+  const PLAN_CUE = /\b(?:propos(?:e|ed|al|ing)|timeline|time ?line|budget|cost|funding|expected (?:results?|outcomes?|findings)|anticipated|significance|deliverables?|research questions?|methodology|by week|week \d+|phase (?:one|two|\d)|milestones?|approval|feasib\w+|objectives?|rationale|scope|stakeholders?)\b/gi;
+  const MEASURE_LINE = /\d(?:\.\d+)?\s*(?:cm|mm|m|km|g|kg|mg|mL|ml|L|N|newtons?|J|W|V|A|Hz|s|sec|seconds|min|°C|°F|degrees|mol|M|psi|grams|meters|centimeters)\b/;
+  function measuredLines(lines) {
+    return lines.filter((l) => MEASURE_LINE.test(l) && l.split(/\s+/).length <= 14 && !/\b(?:will|would|plan)\b/i.test(l)).length;
+  }
+  function proposalScore(raw, lines) {
+    const future = (raw.match(/\b(?:I|we|students|participants|the team)\s+(?:will|plan to|intend to|propose to|hope to|am going to|are going to|would like to|aim to)\b|\bwill be (?:measured|tested|collected|recorded|used|conducted|surveyed|given|asked|analy[sz]ed|built|compared|interviewed|divided|randomly)\b/gi) ?? []).length;
+    const past = (raw.match(/\b(?:we|I)\s+(?:measured|recorded|found|observed|tested|collected|calculated|noticed|concluded)\b|\bresults? (?:show(?:ed)?|indicated?)\b/gi) ?? []).length;
+    if (future < 3 || future <= 2 * past || measuredLines(lines) >= 2) return 0;
+    return countDistinct(raw, PLAN_CUE) >= 2 ? 7 : 0;
+  }
+  // A lab written up before its headings: an experiment, trials, and the numbers it measured.
+  const EXPERIMENT_CUE = /\b(?:experiment\w*|trials?|measur\w+|calibrat\w+|hypothes\w+|variables?|data|results|weights?|masses|apparatus|procedure|observations?|recorded|tested|spring scale|beakers?|test tubes?|graduated cylinder|stopwatch|thermometer|ruler|newtons?|average|controlled)\b/gi;
+  function looksLikeLabDraft(raw, lines) {
+    const titled = lines.slice(0, 4).some((l) => /\b(?:lab|experiment|report|investigation|project)\b/i.test(l) && l.split(/\s+/).length <= 12);
+    return measuredLines(lines) >= 2 && countDistinct(raw, EXPERIMENT_CUE) >= 3 && (titled || countDistinct(raw, EXPERIMENT_CUE) >= 5);
+  }
+  /* The list-shaped kinds, beyond plain notes: an outline's levels, a study
+     guide's terms and definitions, instructions' steps. [kind, score] or null. */
+  const STEP_LINE = /^(?:(?:step\s*)?\d{1,2}[.):]\s*|[-•●○■▪◦*–]\s*|step \w+[.:]\s*)(?:(?:first|then|next|finally|now),?\s+)?(?:add|preheat|mix|stir|pour|bake|cook|boil|simmer|chop|slice|cut|place|put|open|click|select|go to|press|turn|insert|remove|wait|let|fold|combine|whisk|heat|bring|serve|attach|connect|install|download|type|enter|choose|tap|make sure|check|use|take|fill|set|repeat|rinse|apply|plug|unplug|hold|drag|save|log in|sign in|navigate|grab|cover|spread|sprinkle|season|drain|beat|melt|measure|mark|sand|glue|tape|draw|wrap|lay|line|scroll|find|copy|paste|restart|unscrew|screw|tighten|loosen|lift|lower|pull|push|slide|clean|wash|dry|store|keep|leave|allow|start|stop|plant|water|dig|unbox|charge|pair|log|sign|fill out|write|label|cool|transfer|top|garnish|flip|knead|roll|soak|toast|fry|grease|crack|separate|dissolve)\b/i;
+  const IMPERATIVE = /^(?:(?:\d{1,2}[.)]|[-•●*–])\s*)?(?:please\s+)?(?:take|turn|go|drive|head|follow|keep|park|call|text|put|give|let|make sure|check|use|click|open|press|add|mix|stir|bake|don'?t|do not|never|always|be sure|remember to|try|ask|bring|pick|set|leave|lock|feed|wash|tap|select|enter|type|choose|log in|sign in|wait|plug|unplug|restart|install|download|fill|pour|heat|cook|serve|store|cover|look for|stay|avoid|skip|stop|start|hold|push|pull|lift|place|remove|insert|connect|attach|charge|empty|clean|rinse|dry|fold|cut|slice|chop|grab|drop|cross|exit|merge|continue|veer|bear|read|email|have them|text me|call me)\b/i;
+  const HOWTO_HEAD = /^(?:ingredients|directions|instructions|steps|method|what you(?:'ll)? need|you(?:'ll)? need|tools(?: needed)?|supplies|equipment needed|prep time|cook time|serves \d+|yield|setup|set ?up|before you (?:start|begin)|getting started|troubleshooting|requirements)\b/im;
+  const TERM_LINE = /^(?:[-•●○■▪◦*–]\s*|\d{1,2}[.)]\s*)?[\p{L}][\p{L}\d '’()/-]{1,40}?\s*(?:[-–—:=]\s+|\s+(?:is|are|means|refers to)\s+(?:a|an|the|when|how|to|any)\b)\S/u;
+  function listKind(raw, lines) {
+    const n = lines.length;
+    if (n < 4) return null;
+    const steps = lines.filter((l) => STEP_LINE.test(l)).length;
+    if (steps >= 3 && (HOWTO_HEAD.test(raw) || steps >= 5)) return ["instructions", HOWTO_HEAD.test(raw) ? 7.8 : 6.3];
+    const said = raw.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x.split(/\s+/).length >= 3);
+    const told = said.filter((x) => IMPERATIVE.test(x)).length;
+    if (told >= 5 && told / said.length >= 0.3) return ["instructions", HOWTO_HEAD.test(raw) ? 7.8 : 6.3];
+    // An outline is points, not paragraphs: a paper's "I. Introduction" headings over paragraphs are a paper's.
+    const fragments = lines.filter((l) => !/[.!?]["”’)]?$/.test(l) || l.split(/\s+/).length <= 12).length / n;
+    const roman = lines.filter((l) => /^[IVX]{1,4}\.\s/.test(l)).length;
+    const parts = lines.filter((l) => OUTLINE_WORD.test(l)).length;
+    if (fragments >= 0.6 && (roman >= 2 || (parts >= 3 && parts / n >= 0.2))) return ["outline", 6.15];
+    const terms = lines.filter((l) => TERM_LINE.test(l) && l.split(/\s+/).length <= 40).length;
+    if (n >= 5 && terms / n >= 0.35 && /\b(?:test|quiz|exam|know|review|vocab\w*|terms?|define|definitions?|key (?:terms|ideas|people|concepts)|study)\b/i.test(lines.slice(0, 3).filter((l) => l.split(/\s+/).length <= 14).join(" "))) return ["studyguide", 6.15];
+    return null;
+  }
+  // A literature review: what other studies found, study after study, and no study of its own.
+  const LIT_REVIEW_CUE = /\b(?:(?:several|many|few|other|recent|previous|prior|existing|some|these|both|most) (?:studies|researchers|scholars|authors)|(?:the|this) (?:literature|body of (?:research|work))|(?:a|one|another|their|his|her) (?:\d{4} )?(?:study|meta-analysis|review|survey|experiment)|(?:found|reported|concluded|argued|suggested|observed|noted|demonstrated|showed) that|gaps? in (?:the )?(?:literature|research)|(?:et al\.)|(?:in contrast|similarly|likewise|however),? [\p{Lu}][\p{L}'’-]+ (?:\(|and|et))/giu;
+  const OWN_STUDY = /\b(?:we|I) (?:surveyed|measured|collected|recruited|interviewed|conducted|ran|tested|administered|randomly assigned)\b|\bparticipants were\b|\bour (?:results|findings|data|study|sample|survey)\b|\bthis study (?:found|examined|investigated|used)\b|^(?:method|methods|methodology|participants|results)\s*:?$/im;
+  function looksLikeLitReview(raw, words) {
+    const cites = (raw.match(WORK_CITE) ?? []).length + (raw.match(/\b[\p{Lu}][\p{L}'’-]+(?: et al\.)? \((?:1[5-9]|20)\d\d\)/gu) ?? []).length;
+    return words >= 150 && cites >= 5 && !OWN_STUDY.test(raw) && countDistinct(raw, LIT_REVIEW_CUE) >= 7; // short of its name, a research paper reports studies too
+  }
+  // A case study: one company, patient or event — its background, problem, options and recommendations.
+  const CASE_HEAD = /^(?:(?:\d+|[IVX]+)[.)]\s*)?(?:background|(?:the )?problem(?: statement)?|(?:key )?issues?(?: identified)?|analysis|alternatives?(?: considered)?|options?|recommendations?|implementation(?: plan)?|swot(?: analysis)?|case (?:facts|summary|overview|background)|executive summary|situation(?: analysis)?|evaluation|patient (?:history|background|information|presentation)|(?:history of )?present illness|diagnosis|assessment|treatment(?: plan)?|outcomes?|lessons learned|stakeholders|company (?:background|overview)|conclusion)\s*:?$/i;
+  const CASE_CUE = /\b(?:the (?:company|firm|organization|client|patient|hospital|brand|startup|retailer|manufacturer)|(?:its|the company's) (?:revenue|market share|employees|customers|competitors|management|CEO)|presented with|was diagnosed|recommend(?:ation|ed)? (?:that|is)|should (?:consider|implement|adopt|invest))\b/gi;
+  function looksLikeCaseStudy(raw, lines) {
+    const heads = new Set(lines.filter((l) => l.length <= 45 && CASE_HEAD.test(l)).map((l) => l.toLowerCase().replace(/[:\s\d.)IVX]+$/g, "")));
+    return heads.size >= 3 && countDistinct(raw, CASE_CUE) >= 2;
+  }
+  // A rhetorical analysis: how a speaker or writer moves an audience.
+  const RHETORIC_CORE = /\b(?:ethos|pathos|logos|kairos|rhetoric(?:al)?(?! question)|rhetorical (?:choices?|strateg(?:y|ies)|devices?|situation|appeals?)|appeals? to (?:(?:the|his|her|their) )?(?:audience'?s? )?(?:emotions?|logic|reason|credibility|authority|values|fears?|patriotism|sense of)|(?:emotional|logical|ethical) appeals?|(?:the )?(?:speaker|author|writer|orator|president|senator)'s (?:use of|purpose|audience|tone|diction|syntax|choices?|credibility)|persuade (?:his|her|their|the) (?:audience|readers|listeners)|(?:his|her|their) (?:audience|listeners|readers)|anaphora|parallel(?:ism| structure)|rhetorical questions?|diction|syntax|antithesis|(?:target|intended) audience|persuasive|persuad\w+|appeal(?:s|ing)? to|the (?:ad|advertisement|commercial|campaign)|uses? (?:repetition|humor|statistics|anecdotes?|contrast|a personal anecdote)|credibility|call to action)\b/gi;
+  const RHETORIC_ANCHOR = /\b(?:ethos|pathos|logos|rhetoric\w*|audience|persuad\w+|persuasive|appeals?|advertisement|commercial|the ad\b|campaign|speech|address|readers? (?:to|into))\b/i;
+  // A summary or response to one reading: "In the article, the author argues …", then what the writer makes of it.
+  const SUMMARY_LEAD = /\b(?:in (?:the|his|her|their|this) (?:article|essay|chapter|reading|video|text|speech|TED talk|talk|documentary|podcast|op-ed|editorial|report|lecture)|the (?:article|essay|chapter|author|reading|video|text|writer|speaker|documentary|lecture)(?: also)? (?:argues|explains|discusses|describes|claims|states|says|suggests|points out|believes|presents|focuses|begins|ends|concludes|mentions|introduces|writes|shows|uses))\b/gi;
+  const RESPONSE_CUE = /\b(?:I (?:agree|disagree|think the (?:author|article|writer)|found the (?:article|reading|author|video)|was (?:surprised|interested|struck)|liked how)|the author'?s (?:main|central) (?:point|idea|argument|claim)|in summary|to summarize|my (?:response|reaction|opinion)|this (?:article|reading|chapter|video) (?:made me|taught me|shows))\b/gi;
+  const looksLikeSummary = (raw) => {
+    const lead = countDistinct(raw, SUMMARY_LEAD), said = (raw.match(SUMMARY_LEAD) ?? []).length;
+    return said >= 3 && lead >= 2 || (said >= 2 && countDistinct(raw, RESPONSE_CUE) >= 2);
+  };
+  // A book report: the book's characters, setting and plot, and whether the student liked it.
+  const BOOK_REPORT_CUE = /\b(?:the main characters?|the setting|the plot|the climax|the (?:author|book) (?:is|was|wrote)|this book (?:is|was) about|the book (?:is|was) about|my favou?rite (?:part|character|scene)|I (?:would|'d) (?:recommend|give) (?:this|the) book|I (?:read|chose) (?:the book|this book)|the (?:conflict|resolution|theme) (?:is|was)|the story (?:is|takes place)|pages? long|(?:in|at) the (?:beginning|end) of the (?:book|story))\b/gi;
+  const looksLikeBookReport = (raw, lines) => lines.slice(0, 6).some((l) => BOOK_REPORT.test(l)) || (BOOK_CUE.test(raw) && /\b(?:novel|book|author)\b/i.test(raw)) || countDistinct(raw, BOOK_REPORT_CUE) >= 3;
+  // A review: a verdict, stars, the parts of the thing reviewed.
+  const REVIEW_CUE = /(?:★|⭐|\b\d(?:\.\d)?\s?(?:\/\s?(?:5|10)\b|out of (?:5|five|10|ten)\b|stars?\b)|\b(?:I (?:would|'d) (?:recommend|give)|(?:highly|would(?:n't| not)?) recommend|worth (?:the (?:price|money|wait|hype|read|watch)|it|watching|reading|a visit|seeing|buying|playing)|skip (?:it|this)|(?:the )?(?:food|service|staff|plot|acting|gameplay|graphics|soundtrack|price|battery(?: life)?|camera|menu|ambiance|atmosphere|cinematography|pacing|cast|ending|visuals|sound quality|portions?|customer service|build quality|writing|characters|wait time) (?:is|was|were|are)\b|overall,? (?:I|this|it|the)\b|my (?:rating|verdict)\b|verdict\b|pros?\s*:|cons?\s*:|spoilers?\b|(?:five|four|three|two|one)[- ]stars?\b|(?:must[- ](?:see|read|try|watch))\b|dir\.|directed by|starring|(?:this|the) (?:film|movie|album|show|series|app|game|restaurant|place) (?:is|was|isn't|wasn't|knows|follows|feels|has|does)\b|I left the theat(?:er|re)|(?:the|this) (?:soundtrack|cast|director|chef|update|sequel)\b))/gi;
+  const OPINION_CUE = /\b(?:I(?:'d| would) argue|I(?:'m| am) asking|we need|lawmakers|legislators|legislature|the (?:city|council|board|district|state|bill|policy|plan|proposal|mayor|governor|administration|university)|vote|oppose|it(?:'s| is) time|let's|ask (?:your|our)|call (?:your|on))\b/gi;
+  // An op-ed says where it ran and who wrote it ("— Jane Doe is a senior at …").
+  function opEdScore(raw, lines) {
+    // Its own masthead words — not an op-ed it cites ("an op-ed in the Times (Source C)").
+    if (/\b(?:editorial board|this newspaper|our (?:editorial )?board|readers of this (?:paper|newspaper))\b/i.test(raw)) return 8.2;
+    if (/^(?:regarding|re:?|in response to)\b[^.\n]{0,80}\b(?:column|editorial|op-?ed|article|letter|story)\b/i.test(lines[0] ?? "")) return 8.2;
+    const last = lines[lines.length - 1] ?? "";
+    if (/^[-—–]?\s*[\p{Lu}][\p{L}.'’-]+(?: [\p{Lu}][\p{L}.'’-]+){0,3},? (?:is|was|are) (?:a|an|the)\b.{3,160}$/u.test(last) && countDistinct(raw, STANCE_CUE) >= 2) return 7.5;
+    // A byline over an argument in the first person: a column ("By Renée Castellano, RN").
+    return lines.slice(0, 4).some((l) => BYLINE.test(l)) && countDistinct(raw, STANCE_CUE) + countDistinct(raw, OPINION_CUE) >= 3 && firstPersonShare(raw) >= 0.01 && !(raw.match(WORK_CITE) ?? []).length ? 5.6 : 0;
+  }
+  // A journal: dated entries in the writer's own voice, or "Dear Diary".
+  // An entry's date line: "Tues. 5:52am", "Saturday, 18 April", "March 3rd, 1891", "10/4", "Day 12".
+  const WEEKDAY = "(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?\\b\\.?";
+  const DAY_DATE = `(?:${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b(?:,?\\s+\\d{4})?|\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH}(?:,?\\s+\\d{4})?|\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?)`;
+  const CLOCK = "\\d{1,2}:\\d{2}\\s*(?:[ap]\\.?m\\.?)?";
+  const DATED_ENTRY = new RegExp(`^(?:${WEEKDAY}(?:,?\\s*${DAY_DATE})?(?:,?\\s*${CLOCK})?|${DAY_DATE}(?:,?\\s*${CLOCK})?|${CLOCK})(?:\\s*[:—–-]\\s*|\\s+)?[^.!?\\n]{0,25}$|^(?:entry|day|week)\\s*#?\\s*\\d+\\b[^.!?\\n]{0,30}$`, "i");
+  function journalScore(raw, lines) {
+    if (firstPersonShare(raw) < 0.03) return 0;
+    const dated = lines.filter((l) => l.split(/\s+/).length <= 8 && DATED_ENTRY.test(l));
+    const score = dated.length >= 2 ? 8.1 : dated.length === 1 && DATED_ENTRY.test(lines[0]) ? 7 : 0;
+    // A diary dated long ago is fiction told as one ("March 3rd, 1891"): a story.
+    return score && dated.some((l) => /\b1[5-8]\d\d\b|\b19[0-6]\d\b/.test(l)) ? -score : score;
+  }
+  // A college essay: applying, a major, the school, the future.
+  const COLLEGE_CUE = /\b(?:common app|personal statement|admissions?|this (?:college|university|school|program)|your (?:college|university|school|campus|program|community)|at [\p{Lu}][\p{L}]+ (?:University|College)|(?:University|College) of [\p{Lu}]|I (?:hope|want|plan|intend) to (?:study|major|attend|pursue|bring|join|contribute)|(?:major|minor) in|scholarships?|campus|applying|future (?:career|goals)|(?:my|the) (?:dream|goal) (?:school|college)|financial (?:need|aid)|first[- ]generation|college)\b/giu;
+  // A reflection on schoolwork or work: this unit, what I learned, what I'll do next time.
+  const REFLECT_ON = /\b(?:this (?:unit|class|course|semester|quarter|project|assignment|lab|internship|activity|module|presentation|essay|process|portfolio|workshop|program|experience)|next time|if I (?:could|were to|did) (?:do )?(?:it|this) (?:again|over)|going forward|in the future,? I)\b/gi;
+  const REFLECT_CUE = /\b(?:I learned|what I learned|(?:one|another|the (?:biggest|most important|main)) thing I (?:learned|would|will)|I would (?:do|change)|I struggled|I improved|my (?:strengths?|weakness(?:es)?|growth|goal for|biggest challenge)|I (?:feel|felt) (?:more )?(?:confident|proud)|I (?:am|was) proud of|(?:helped|taught) me (?:to|how|that)|looking back|I realized)\b/gi;
+  const looksLikeReflection = (raw) => firstPersonShare(raw) >= 0.025 && countDistinct(raw, REFLECT_ON) >= 1 && countDistinct(raw, REFLECT_ON) + countDistinct(raw, REFLECT_CUE) >= 3;
+  const BIO_LEAD = /^(?!(?:There|It|This|That|These|Those|He|She|They|We|I|The|A|An|One|When|After|Before|Today|Our|My|His|Her|Their|In|On|At|If|As)\b)(?:(?:Dr|Mr|Ms|Mrs|Mx|Prof|Coach)\.?\s+)?[\p{Lu}][\p{L}'’-]+(?:\s[\p{Lu}][\p{L}'’.-]+){0,2}(?:\s\([^)]{1,40}\))?,?\s+(?:is|has|was|grew|earned|holds|serves|works|teaches|joined|brings|leads|founded)\b/u;
+  // A bio: a person in a few lines — who they are, where they work, what they do for fun.
+  const BIO_CUE = /\b(?:is (?:a|an|the) (?:[\w-]+ ){0,3}(?:student|junior|senior|sophomore|freshman|teacher|writer|author|artist|designer|engineer|developer|researcher|professor|coach|founder|director|manager|musician|photographer|nurse|consultant|scientist|lawyer|chef|athlete|leader|educator|speaker|entrepreneur|volunteer|graduate|major)|was born|grew up in|lives in|graduated (?:from|with)|holds an?|earned (?:a|an|her|his|their)|currently (?:serves|works|studies|attends|lives|teaches|leads)|in (?:her|his|their|my) (?:free|spare) time|when (?:she|he|they)(?:'s|'re| is| are)? not|(?:she|he|they) (?:enjoys?|loves?)|has (?:worked|written|been|published|taught|spent|led)|(?:her|his|their) work|award-winning|is passionate about|specializes in)\b/gi;
+  // A post: hashtags, handles, "link in bio".
+  function looksLikeSocial(raw, words) {
+    const tags = (raw.match(/(?:^|\s)#[\p{L}][\p{L}\d_]+/gu) ?? []).length;
+    const handles = (raw.match(/(?:^|\s)@[\w.]{2,}/g) ?? []).length;
+    const cue = /\b(?:link in (?:bio|comments)|swipe (?:up|left|right)|follow (?:me|us|for more)|tag (?:a friend|someone)|like and (?:share|subscribe)|comment below|(?:thrilled|excited|proud|humbled|honou?red) to (?:announce|share)|DM (?:me|us)|repost)\b|🧵/i.test(raw);
+    const thread = (raw.match(/^\d{1,2}\s?\/(?:\d{1,2})?\s/gm) ?? []).length; // "1/ … 2/ …"
+    return thread >= 3 || (words <= 400 && (tags >= 2 || (tags >= 1 && (handles >= 1 || cue)) || (cue && words <= 200)));
+  }
+  // Worked math: line after line of equations.
+  function mathWork(lines) {
+    const eq = lines.filter((l) => (/[=≈≤≥]/.test(l) && /\d/.test(l) || /[≅∥△∠⊥∴∵∑∫]/.test(l)) && l.split(/\s+/).length <= 16).length;
+    return (eq >= 4 && eq / lines.length >= 0.3) || /^(?:given|prove)\s*:/im.test(lines.slice(0, 4).join("\n")) && /statements?\s+reasons?/i.test(lines.join("\n"));
+  }
   const GENRE_LABEL = {
     resume: "a resume", letter: "a letter", email: "an email", coverletter: "a cover letter", research: "a research paper",
     literary: "a literary essay", homework: "homework questions", dbq: "a DBQ", lab: "a lab report", speech: "a speech",
     news: "a news article", personal: "a personal essay", notes: "notes", annotated: "an annotated bibliography",
     poem: "a poem", story: "a story", script: "a script",
+  };
+  /* What the panel's header says the writing is. Owner, 2026-10-13: "on the
+     widget overlay, add the type of literature tracely thinks it is … the
+     header of one will be arguementative essay, another one will be email",
+     "create like 15 different types". detectGenre's kinds, and for an essay
+     ("prose") its own kind, read off its words: a blog's or a book report's
+     own words; compare-and-contrast and cause-and-effect connectives (and a
+     title about causes or effects); an argument's stance (should, must,
+     critics, "it's true that"), a thesis with "should" in its opening, or a
+     title that asks or tells; otherwise informative. Display only: nothing
+     checked depends on it. Tuned on every essay in the three writing-type
+     corpora and three written for it (ext-writing-kind.test.js). */
+  const GENRE_TITLE = {
+    resume: "Resume", letter: "Letter", email: "Email", coverletter: "Cover letter", research: "Research paper",
+    literary: "Literary analysis", homework: "Homework", dbq: "DBQ essay", lab: "Lab report", speech: "Speech",
+    news: "News article", personal: "Personal essay", notes: "Notes", annotated: "Annotated bibliography",
+    poem: "Poem", story: "Story", script: "Script",
+  };
+  const COMPARE_CUE = /\b(?:similarly|likewise|in contrast|by contrast|whereas|on the other hand|unlike|alike|differs?|differences?|different (?:from|than)|differently|similar(?:ly|ities|ity)?|compared (?:to|with)|in comparison|comparing|both|the same|same as|vs\.?|versus|while (?:the|[\p{Lu}][\p{L}]+)|more [\p{L}]+ than|less [\p{L}]+ than|[\p{L}]{3,}er than|as [\p{L}]+ as|in common|another (?:difference|similarity)|instead)\b/giu;
+  const CAUSE_CUE = /\b(?:as a result|led to|leads to|lead to|leading to|caused|causes|cause of|causing|consequently|due to|resulted in|results in|effects?|impacts? (?:of|on)|contributed to|because(?: of)?|the (?:main|first|second|third|major|biggest|final) (?:cause|effect|result|consequence|reason)s?|reasons?|factors?|triggered|therefore|which meant|this meant|so many|ended up|in turn|why)\b/gi;
+  const STANCE_CUE = /\b(?:should|must|ought to|needs? to|I (?:believe|argue|think|contend)|we (?:must|should|need|cannot afford|can't afford)|it is (?:essential|crucial|vital|necessary|clear)|opponents|critics|some (?:people |may |might )?(?:argue|claim|believe|say)|counter-?arguments?|although some|while some|there is no doubt|historians (?:have )?(?:long )?(?:argued|debated)|the most (?:effective|important|significant|serious|obvious|convincing|practical)|the (?:main|biggest|real|best|strongest) (?:reason|problem|benefit|way|solution|argument)|arguments?|it(?:'s| is) true that|hard to justify|worth (?:saving|it|the cost)|clearly|undeniabl[ey]|to what extent)\b/gi;
+  const THESIS_CUE = /\b(?:should|must|ought to|needs? to)\b/i;
+  const TELLS_TITLE = /^(?:don'?t|do not|stop|save|keep|let|ban|end|bring back|why (?:we|you|schools?|every|the)\b)|^why\b.*\b(?:needs?|should|must|deserves?|ought)\b/i;
+  const BOOK_REPORT = /\bbook report\b/i;
+  const BOOK_CUE = /\b(?:my favou?rite (?:part|character|scene)|I (?:would )?recommend (?:this|the) book|out of (?:five|5) stars|\d(?:\.\d)?\s?\/\s?5 stars|stars? out of)\b/i;
+  const PROBLEM_CUE = /\b(?:the problem|this problem|a (?:serious |growing |major |big |real )?problem|problems? (?:of|with|is|are|facing)|(?:a|one|another|the (?:best|first|second|simplest|most effective|only)) (?:possible |practical |simple )?solutions?|solutions?|solve[sd]?|solving|address(?:es|ed|ing)? (?:the|this) (?:problem|issue|shortage)|fix(?:es|ed|ing)?|(?:could|would|will) (?:help )?(?:reduce|fix|solve|prevent|close)|(?:propose|recommend|suggest) (?:that|a|an|the)|implement(?:ed|ing)?|the issue|shortages?|one way to|another way to|the answer|a plan)\b/gi;
+  /* An essay's own kind, by its words, as a key of WRITING_KINDS: the
+     connectives of comparison, of cause and effect, of a problem and its
+     solutions; an argument's stance; an explanation's third person. Two
+     kinds as strong as each other, or an essay that is neither arguing nor
+     explaining, is "essay": the broader name, never a guess. */
+  function essayKindOf(t, lines, words) {
+    if (words < 40) return "essay";
+    const all = t.match(/[\p{L}'’-]+/gu) ?? [];
+    const per = (re) => ((t.match(re) ?? []).length * 1000) / words; // a thousand words' worth
+    const compare = per(COMPARE_CUE), cause = per(CAUSE_CUE), stance = per(STANCE_CUE), problem = per(PROBLEM_CUE);
+    const title = lines[0] ?? "";
+    const titled = title.split(/\s+/).length <= 16;
+    const asks = titled && /\?$/.test(title);
+    const tells = titled && TELLS_TITLE.test(title);
+    const causeTitle = titled && !/[.!]$/.test(title) && /\b(?:causes?|effects?|impacts?|changed|led to|consequences?|why)\b/i.test(title) && !/\b(?:needs?|should|must|deserves?|ought)\b/i.test(title);
+    const compareTitle = titled && /\b(?:vs\.?|versus|compared?|comparing|and)\b/i.test(title) && /\b(?:vs\.?|versus|compar\w+|differen\w+|similar\w*|alike|two)\b/i.test(title);
+    const problemTitle = titled && /\b(?:problem|solution|solving|fix(?:ing)?|crisis|shortage)\b/i.test(title);
+    // A kind is named when its own words clearly lead; two close together, or none leading, is an essay.
+    // An argument says "because" and "reasons" too: a cause and effect essay's causes outnumber its stance two to one.
+    const kinds = [["compare", compare + (compareTitle ? 6 : 0), 14, 0.8], ["cause", cause + (causeTitle ? 6 : 0), 12, 2], ["problem", problem + (problemTitle ? 6 : 0), 10, 1]]
+      .map(([k, v, pass, over]) => [k, v, v / pass, v > stance * over]).sort((x, y) => y[2] - x[2]);
+    const [lead, next] = kinds;
+    const argues = stance >= 5 || asks || tells || (stance >= 2.5 && THESIS_CUE.test(all.slice(0, 180).join(" ")));
+    if (lead[2] >= 1 && lead[2] >= next[2] * 1.4 && lead[3]) return lead[0];
+    if (argues && (lead[2] < 0.6 || (stance >= 8 && stance >= lead[1] * 0.6 && !lead[3]))) return "argumentative";
+    if (lead[2] >= 1) return "essay";
+    return !argues && stance < 1.5 && lead[2] < 0.6 && firstPersonShare(t) < 0.008 ? "informative" : "essay";
+  }
+  // Kept for its callers: an essay's title, "" for too little to say.
+  const essayTypeOf = (text) => {
+    const t = String(text ?? "");
+    const words = (t.match(/[\p{L}'’-]+/gu) ?? []).length;
+    return words < 40 ? "" : WRITING_KINDS[essayKindOf(t, t.split("\n").map((l) => l.trim()).filter(Boolean), words)].title;
+  };
+  /* Every kind Tracely names (owner, 2026-10-15, the 56 approved): its
+     header title, the genre that decides what is checked (GENRE_QUIET,
+     GENRE_OWN, genreWantsList …, so a new kind is checked like its group's
+     old one), the "Reading this as …" label, and the broader kind a near
+     miss falls back to. Three moved group: a blog post and an op-ed (a
+     letter to the editor included) name their sources in the sentence with
+     no Works Cited, like a news article; a reference list on its own is
+     never asked where each entry is cited. */
+  const WK = (title, genre, label, parent = "") => ({ title, genre, label, parent });
+  const WRITING_KINDS = {
+    argumentative: WK("Argumentative essay", "prose", "an argumentative essay", "essay"),
+    informative: WK("Informative essay", "prose", "an informative essay", "essay"),
+    compare: WK("Compare and contrast essay", "prose", "a compare and contrast essay", "essay"),
+    cause: WK("Cause and effect essay", "prose", "a cause and effect essay", "essay"),
+    problem: WK("Problem and solution essay", "prose", "a problem and solution essay", "essay"),
+    rhetorical: WK("Rhetorical analysis", "prose", "a rhetorical analysis", "essay"),
+    summary: WK("Summary or response", "prose", "a summary or response", "essay"),
+    literary: WK("Literary analysis", "literary", "a literary essay", "essay"),
+    bookreport: WK("Book report", "prose", "a book report", "essay"),
+    essay: WK("Essay", "prose", "an essay"),
+    research: WK("Research paper", "research", "a research paper"),
+    litreview: WK("Literature review", "research", "a literature review", "research"),
+    proposal: WK("Research or project proposal", "research", "a proposal"),
+    lab: WK("Lab report", "lab", "a lab report"),
+    casestudy: WK("Case study", "research", "a case study", "research"),
+    speech: WK("Speech", "speech", "a speech"),
+    debate: WK("Debate case", "speech", "a debate case", "speech"),
+    presentation: WK("Presentation script", "speech", "a presentation script", "speech"),
+    news: WK("News article", "news", "a news article"),
+    oped: WK("Op-ed or editorial", "news", "an op-ed"),
+    feature: WK("Feature or interview", "news", "a feature or interview", "news"),
+    pressrelease: WK("Press release", "news", "a press release", "news"),
+    blog: WK("Blog post", "news", "a blog post"),
+    discussion: WK("Discussion post", "news", "a discussion post"),
+    dbq: WK("DBQ essay", "dbq", "a DBQ"),
+    synthesis: WK("Synthesis essay", "dbq", "a synthesis essay", "dbq"),
+    personal: WK("Personal essay", "personal", "a personal essay"),
+    college: WK("College or scholarship essay", "personal", "a college or scholarship essay", "personal"),
+    reflection: WK("Reflection", "personal", "a reflection", "personal"),
+    journal: WK("Journal entry", "personal", "a journal entry", "personal"),
+    review: WK("Review", "personal", "a review"),
+    bio: WK("Bio", "personal", "a bio"),
+    social: WK("Social media post", "personal", "a social media post"),
+    email: WK("Email", "email", "an email"),
+    letter: WK("Letter", "letter", "a letter"),
+    coverletter: WK("Cover letter", "coverletter", "a cover letter", "letter"),
+    recommendation: WK("Recommendation letter", "letter", "a recommendation letter", "letter"),
+    memo: WK("Memo", "letter", "a memo"),
+    resume: WK("Resume", "resume", "a resume"),
+    notes: WK("Notes", "notes", "notes"),
+    outline: WK("Outline", "notes", "an outline", "notes"),
+    studyguide: WK("Study guide", "notes", "a study guide", "notes"),
+    meeting: WK("Meeting notes", "notes", "meeting notes", "notes"),
+    peerreview: WK("Peer review", "notes", "a peer review"),
+    instructions: WK("Instructions or recipe", "notes", "instructions"),
+    lessonplan: WK("Lesson plan", "notes", "a lesson plan"),
+    annotated: WK("Annotated bibliography", "annotated", "an annotated bibliography"),
+    workscited: WK("Reference list", "annotated", "a reference list on its own"),
+    homework: WK("Homework", "homework", "homework questions"),
+    math: WK("Math work", "homework", "math work", "homework"),
+    survey: WK("Survey or questionnaire", "homework", "a survey"),
+    code: WK("Code", "homework", "code"),
+    poem: WK("Poem", "poem", "a poem"),
+    lyrics: WK("Song lyrics", "poem", "song lyrics", "poem"),
+    story: WK("Story", "story", "a story"),
+    script: WK("Script", "script", "a script"),
+  };
+  // The header's title for a kind: an essay's own kind only past 40 words (too little to say before).
+  function kindTitle(kind, text = "") {
+    const k = WRITING_KINDS[kind];
+    if (!k) return "";
+    return k.genre === "prose" && (String(text).match(/[\p{L}'’-]+/gu) ?? []).length < 40 ? "" : k.title;
+  }
+  const genreTitle = (genre, text) => {
+    const { kind, shown } = readKind(text);
+    return WRITING_KINDS[kind]?.genre === genre ? kindTitle(shown, text) : GENRE_TITLE[genre] ?? "";
   };
   // The essay-like kinds: the citation notes, the essay review, the off-topic lines.
   const isArgumentGenre = (g) => g === "prose" || g === "research" || g === "literary" || g === "lab" || g === "dbq";
@@ -1750,7 +2848,19 @@
     const before = new Set(words(original));
     return words(rewrite).every((w) => before.has(w));
   }
-  const usableRevision = (original, rewrite) => (bareNegation(original, rewrite) ? "" : rewrite);
+  /* One sentence in, one sentence out. Owner, 2026-10-13: "make tracely
+     extension and app both not overpower stuff … it shouldnt replace more
+     than one sentence at once". The check is told a fix never adds a
+     sentence; one that does anyway is dropped here — the card keeps the
+     finding and offers nothing to paste. Counted with the splitter the
+     sentences themselves come from (splitLineSentences), so "Dr. Smith" or
+     "U.S." is one sentence, as it is in the document. */
+  function sentenceCount(x) {
+    const s = String(x ?? "").replace(/\s+/g, " ").trim();
+    return s ? splitLineSentences(s).filter(([a, b]) => /\p{L}/u.test(s.slice(a, b))).length : 0;
+  }
+  const oneSentenceFix = (rewrite) => (typeof rewrite === "string" && sentenceCount(rewrite) <= 1 ? rewrite : "");
+  const usableRevision = (original, rewrite) => (bareNegation(original, rewrite) ? "" : oneSentenceFix(rewrite));
 
   /* Citations that cannot lead a reader to a source. Owner, 2026-10-05, on a
      deliberately flawed essay whose revisions kept "[History.com / Gutenberg
@@ -1759,7 +2869,89 @@
      publication date because Harvard is a famous institution". Each rule says
      what is missing and never supplies it — no date, author, title or page is
      ever filled in. Free and local; underlined on the passage (cite_tip). */
-  const VAGUE_ATTRIBUTION = /\b(?:some|many|several|most|certain) (?:researchers|scholars|historians|experts|scientists|studies|sources|people)(?: (?:have|has))? (?:argued|argue|say|said|claim|claimed|believe|believed|suggest|suggested|found|shown|show|think)\b|\b(?:experts|studies|research|scientists|historians) (?:say|says|show|shows|agree|suggest|suggests)\b|\bit is (?:widely|generally|often) (?:believed|said|thought|accepted)\b/i;
+  const VAGUE_ATTRIBUTION = /\b(?:some|many|several|most|certain|recent|numerous|multiple) (?:researchers|scholars|historians|experts|scientists|studies|sources|people)(?: (?:have|has))? (?:argued|argue|say|said|claim|claimed|believe|believed|suggest|suggested|found|shown|show|think|demonstrated|demonstrate|questioned|noted|reported|warned|concluded|indicated|proven|proved)\b|\b(?:experts|studies|research|scientists|historians) (?:say|says|show|shows|agree|suggest|suggests)\b|\b(?:research|studies|evidence) (?:from|by) [^.!?]{2,80}?\b(?:shows?|demonstrates?|suggests?|finds?|found|indicates?|proves?)\b|\bit is (?:widely|generally|often) (?:believed|said|thought|accepted)\b/i;
+  /* A study, survey or report the sentence describes but never names, and does
+     not cite — "a 2023 study conducted by Harvard University", "a 2024 Pew
+     survey", "A study involving 12 college students found …" (owner,
+     2026-10-13, on a paper Tracely had let through with all three). Only
+     when the sentence reports what it found or says "according to"; never
+     the writer's own ("we surveyed"); and not when the reference list names
+     who did it. */
+  const UNNAMED_STUDY = /\b(?:[Aa]|[Aa]n|[Oo]ne)\s+(?:(?:recent|new|small|large|(?:1[5-9]|20)\d\d)\s+)?(?:[\p{Lu}][\p{L}&.'’-]*\s+){0,3}(?:study|survey|report|poll|experiment|analysis)\b/u;
+  // The study is what reports — "according to a … survey", "a study … found" — not a word that happens to sit
+  // in the same sentence ("… rather than an experiment on the margins" is no study).
+  const STUDY_REPORTS = new RegExp(`\\b[Aa]ccording to (?:the )?${UNNAMED_STUDY.source.slice(2)}|${UNNAMED_STUDY.source}[^.!?,;]{0,80}?\\b(?:found|finds|showed|shows|demonstrated|demonstrates|concluded|concludes|reported|reports|revealed|reveals|suggested|suggests|indicated|indicates|proved|proves)\\b`, "u");
+  const FIRST_PERSON = /(?:^|[^\w'])(?:I|[Ww]e|[Oo]ur|[Mm]y)(?=$|[^\w'])/;
+  // Words that name a kind of body, not which one: "Harvard University" is named by "Harvard".
+  const GENERIC_BODY = /^(?:The|A|An|One|University|College|Institute|Center|Centre|Association|Organization|Organisation|Department|School|Research|Journal|National|International|Society|Foundation|Council|Group|Survey|Study|Report)$/;
+  function unnamedStudy(s, next, refs) {
+    const m = s.match(UNNAMED_STUDY);
+    if (!m || !STUDY_REPORTS.test(s) || hasCitationMark(s) || hasCitationMark(next) || FIRST_PERSON.test(s)) return false;
+    const by = (s.match(/\b(?:by|from|at)\s+(?:the\s+)?([\p{Lu}][\p{L}&.'’-]*(?:\s+[\p{Lu}][\p{L}&.'’-]*){0,4})/u) ?? [])[1] ?? "";
+    const who = [...(m[0].match(/[\p{Lu}][\p{L}&.'’-]*/gu) ?? []), ...by.split(/\s+/)].filter((w) => w.length > 2 && !GENERIC_BODY.test(w));
+    // Who did it is in the reference list: the writer cites it the way they cite the rest.
+    return !who.some((w) => refs.includes(w));
+  }
+  /* Who a sentence says the study or claim is from, when it says: "Harvard
+     University" in "a 2023 study conducted by Harvard University", "Pew" in
+     "a 2024 Pew survey", "Stanford" in "research from Stanford shows". Not
+     where it happened ("a survey of 25 students at a California high
+     school"), not a kind of body ("leading universities"), and a "by" only
+     just after the study ("caused by Germany" names no source). "" when it
+     names no one. Owner, 2026-10-14: named and uncited is a citation issue;
+     named by no one, the claim needs evidence. */
+  // The study's own "by"/"from", right after it or its verb: "study conducted by", "research from", "report published by".
+  const STUDY_BY = /\b(?:[Ss]tudy|[Ss]tudies|[Ss]urveys?|[Rr]eports?|[Pp]olls?|[Ee]xperiments?|[Aa]nalysis|[Rr]esearch|[Dd]ata|[Ff]indings)(?:\s+(?:conducted|carried out|published|released|run|done|led|commissioned|funded|performed))?\s+(?:by|from|at)\s+(?:the\s+)?([\p{Lu}][\p{L}&.'’-]*(?:\s+(?:of\s+)?[\p{Lu}][\p{L}&.'’-]*){0,5})/u;
+  const SAID_BY = /\b[Aa]ccording to (?:the\s+)?([\p{Lu}][\p{L}&.'’-]*(?:\s+(?:of\s+)?[\p{Lu}][\p{L}&.'’-]*){0,5})/u;
+  function sourceNamedIn(s) {
+    const named = (phrase) => String(phrase).split(/\s+/).some((w) => w.length > 2 && !GROUP_SMALL.test(w) && !GENERIC_BODY.test(w));
+    for (const re of [STUDY_BY, SAID_BY]) {
+      const p = (s.match(re) ?? [])[1];
+      if (p && named(p)) return p.trim();
+    }
+    const study = (s.match(UNNAMED_STUDY) ?? [])[0] ?? "";
+    const caps = (study.match(/[\p{Lu}][\p{L}&.'’-]*/gu) ?? []).filter((w) => w.length > 2 && !GENERIC_BODY.test(w));
+    return caps.join(" ");
+  }
+  /* A named organisation the sentence credits with a finding, a
+     recommendation or a publication, with no citation: "The Centers for
+     Disease Control and Prevention recommends …", "In 2023, UNESCO
+     published guidance …". Owner, 2026-10-15, from an answer key marking
+     both "Correct fact, missing citation": named and not cited is a
+     citation issue, as a study's was on 10-14. An organisation only — an
+     acronym (CDC, OECD) or a name with a body's word in it (… Institute,
+     … Organization) — never a person: "Einstein found …" is the essay's
+     subject, not its source. "" when the sentence credits none. */
+  const ORG_WORD = /^(?:Centers?|Centres?|Organi[sz]ations?|Associations?|Institutes?|Institutions?|University|Universities|Department|Agency|Bureau|Council|Commission|Foundation|Academy|Society|Administration|Office|Board|Service|Ministry|Bank|Fund|Union|Forum|Nations|Committee|Coalition|Alliance|Federation)$/;
+  const ORG_VERB = /\s+(?:has\s+|have\s+)?(?:recommends?|recommended|reports?|reported|publish(?:es|ed)|found|finds|concluded|concludes|estimates?|estimated|warns?|warned|announced|released|issued|identified|emphasi[sz]e[sd]|advises?|advised|states?|stated)\b/gu;
+  // Capitalised words that open a clause rather than name anyone.
+  const NAME_STOP = /^(?:The|A|An|In|On|At|By|For|From|Because|However|Although|Though|When|While|Since|After|Before|Also|Then|Thus|This|That|These|Those|Its|Their|Our|His|Her|According|Recently|Today|Now|Yet|But|And|So|Both|Each|Every|Many|Most|Some)$/;
+  function orgCredited(s) {
+    const isName = (w) => w != null && /^[\p{Lu}]/u.test(w) && !NAME_STOP.test(w);
+    for (const m of String(s ?? "").matchAll(ORG_VERB)) {
+      const words = s.slice(0, m.index).split(/[,;:()"“”]/).pop().trim().split(/\s+/);
+      const run = []; // the name just before the verb: capitals, with "of", "for", "and" inside it
+      for (let i = words.length - 1; i >= 0; i--) {
+        if (isName(words[i]) || (run.length && GROUP_SMALL.test(words[i]) && isName(words[i - 1]))) run.unshift(words[i]);
+        else break;
+      }
+      const bare = (w) => w.replace(/['’]s$/u, "").replace(/[.'’]+$/u, "");
+      // "the … Board in Boston": the body, not where it sits.
+      const at = run.findIndex((w, i) => i > 0 && /^(?:in|at|to)$/.test(w));
+      const name = at > 0 ? run.slice(0, at) : run;
+      if (name.some((w) => /^[\p{Lu}]{2,}$/u.test(bare(w)) || ORG_WORD.test(bare(w)))) return name.join(" ");
+    }
+    return "";
+  }
+  // Whether the reference list has an entry by this organisation: its name, its initials, or spelled out.
+  function orgListed(org, entries) {
+    const initials = (name) => String(name).split(/\s+/).filter((w) => w && !GROUP_SMALL.test(w)).map((w) => w[0]).join("").toUpperCase();
+    const ac = /^[\p{Lu}]{2,}$/u.test(org) ? org : initials(org);
+    return (entries ?? []).some((e) => {
+      const name = (String(e).match(REF_GROUP) || [])[1]?.trim() ?? "";
+      return String(e).toLowerCase().includes(org.toLowerCase()) || (ac.length >= 2 && (initials(name) === ac || new RegExp(`\\b${ac}\\b`, "u").test(e)));
+    });
+  }
   const VERIFY_NOTE = /\b(?:requires?|needs?|pending|awaiting) (?:further )?verification\b|\b(?:citation|source) needed\b|\bto be verified\b/i;
   const PRESTIGE_EXCUSE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
   const BAD_INLINE = /\[[^\]\n]{3,120}\/[^\]\n]{1,120}\]|\baccessed (?:yesterday|today|last (?:week|month|year)|recently)\b/i;
@@ -1782,12 +2974,16 @@
   }
   function citationHygieneTips(text) {
     const out = [];
-    const body = (() => { const wc = worksCitedBlock(String(text ?? "")); return wc ? String(text).slice(0, wc.headStart) : String(text ?? ""); })();
+    const wcBlock = worksCitedBlock(String(text ?? ""));
+    const body = wcBlock ? String(text).slice(0, wcBlock.headStart) : String(text ?? "");
+    const refsText = wcBlock ? wcBlock.entries.join(" ") : "";
+    const citesSources = Boolean(wcBlock) || inTextCitations(body).length > 0;
     // Sentences paragraph by paragraph, so an unnamed source the NEXT sentence
     // goes on to cite ("Studies show X. Smith (2019) found …") is left alone.
     const sentences = [];
     for (const para of body.split(/\n+/)) {
-      const ss = para.split(/(?<=[.!?]["”’)\]]?)\s+/).map((x) => x.trim()).filter(Boolean);
+      // The document's own splitter: "U.S." or "Dr." does not end a sentence (a quote cut there underlines half of it).
+      const ss = splitLineSentences(para).map(([a, b]) => para.slice(a, b).trim()).filter(Boolean);
       ss.forEach((x, i) => sentences.push({ s: x, next: ss[i + 1] ?? "" }));
     }
     for (const { s, next } of sentences) {
@@ -1800,8 +2996,34 @@
         const { raw, name } = nameOnlyCitation(s, text);
         out.push({ quote: s, kind: "nameonly", message: `${raw} names a person, not which of their works you mean. Find the cited work lists what ${name} has published on this subject — cite the one that makes this point, with its year.` });
       }
-      else if (VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) out.push({ quote: s, kind: "vague", message: "An unnamed source is not a citation: say which researchers or study, and cite it — or remove the claim." });
+      // A source the sentence leans on without citing it (owner, 2026-10-14): one it names is a citation
+      // issue ("uncited"); one nobody could look up leaves the claim with no evidence ("vague", Needs evidence).
+      // The study rule only runs in writing that cites its sources: there an uncited study stands out
+      // (elsewhere the check's own "Missing citation" asks).
+      else if ((VAGUE_ATTRIBUTION.test(s) && !hasCitationMark(s) && !hasCitationMark(next)) || (citesSources && unnamedStudy(s, next, refsText))) {
+        const who = sourceNamedIn(s);
+        out.push(who
+          ? { quote: s, kind: "uncited", source: who, message: `This names its source (${who}) but doesn't cite it, so a reader can't find the exact work. Add an in-text citation and a reference entry for it.` }
+          : { quote: s, kind: "vague", message: "This doesn't say who found it, so no one can check it, and as written no evidence backs it. Find a source that does and cite it, or cut the claim." });
+      }
+      // An organisation the sentence credits by name and doesn't cite, in writing that cites its sources (orgCredited).
+      else if (citesSources && !FIRST_PERSON.test(s) && orgCredited(s) && !hasCitationMark(s) && !hasCitationMark(next) && !orgListed(orgCredited(s), wcBlock?.entries)) {
+        const org = orgCredited(s);
+        out.push({ quote: s, kind: "uncited", source: org, message: `This names its source (${org}) but doesn't cite it, so a reader can't find the exact work. Add an in-text citation and a reference entry for it.` });
+      }
       if (out.length >= 8) break;
+    }
+    return out;
+  }
+  /* sentence hash → "named" | "unnamed": what each sentence's source note
+     (citationHygieneTips "uncited" / "vague") says about where it got its
+     claim. flagShown reads it, so the note decides the sentence's kind. */
+  function attributionBySentence(text, segs) {
+    const out = new Map();
+    const notes = citationHygieneTips(text).filter((t) => t.kind === "uncited" || t.kind === "vague");
+    for (const seg of Array.isArray(segs) ? segs : []) {
+      const t = notes.find((n) => tipCoversSentence(seg.text, n.quote));
+      if (t) out.set(seg.hash, t.kind === "uncited" ? "named" : "unnamed");
     }
     return out;
   }
@@ -1974,6 +3196,31 @@
     }
     return cites;
   }
+  /* An organisation as author — "National Education Association. (2024). …" —
+     is cited by its name in the text, or by its initials: "(NEA, 2024)".
+     Owner, 2026-10-13: Tracely said the NEA entry was cited nowhere in a
+     paper that cited it as (NEA, 2024) after "According to the National
+     Education Association". A person's entry ("Johnson, R.") has a comma
+     after the surname and is matched by surname above. */
+  const REF_GROUP = /^([\p{Lu}][^.,(\n]{1,118}?)\.?\s*\((?:1[5-9]\d\d|20\d\d|n\.\s?d\.)/u;
+  const GROUP_SMALL = /^(?:of|the|and|for|on|in|to|at|&)$/i;
+  function citedGroup(entry, body, cites, yearOk) {
+    const name = (String(entry).match(REF_GROUP) || [])[1]?.trim();
+    if (!name) return false;
+    // Named in a sentence that carries the entry's year (or any, for an n.d. entry): "United Nations"
+    // in a 2025 citation does not cite its 2023 entry.
+    const nameRe = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "iu");
+    const years = String(entry).match(new RegExp(REF_YEAR.source, "g")) || [];
+    for (const line of String(body).split("\n")) {
+      for (const [a, b] of splitLineSentences(line)) {
+        const s = line.slice(a, b);
+        if (nameRe.test(s) && (!years.length || years.some((y) => s.includes(y)))) return true;
+      }
+    }
+    const words = name.split(/\s+/).filter((w) => !GROUP_SMALL.test(w));
+    const initials = words.length >= 2 ? words.map((w) => w[0]).join("").toLowerCase() : "";
+    return initials.length >= 2 && cites.some((c) => c.surname === initials && yearOk(c.year));
+  }
   function referenceListIssues(text) {
     const refs = worksCitedBlock(text);
     if (!refs || refs.entries.length < 2) return [];
@@ -2000,9 +3247,13 @@
       if (/\b(?:website|site|article|page|book|study|video|document) (?:about|on|regarding)\b/i.test(entry)) missing.push("the source's actual title");
       if (missing.length) out.push({ quote: entry, kind: "refincomplete", missing });
     }
-    const numbered = /\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹]/.test(body) || refs.entries.filter((e) => /^\[?\d+[.)\]]/.test(e)).length >= refs.entries.length / 2;
-    if (numbered) return out;
+    // Numbered work is cited by its number, which this does not trace. A list
+    // Docs numbered for layout, under a paper that cites (Author, year), is
+    // not: its entries are checked like any others.
     const cites = inTextCitations(body);
+    const numberedList = (refs.numbered ?? 0) >= refs.entries.length / 2 && !cites.length;
+    const numbered = /\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹]/.test(body) || numberedList || refs.entries.filter((e) => /^\[?\d+[.)\]]/.test(e)).length >= refs.entries.length / 2;
+    if (numbered) return out;
     const flagged = new Set(out.map((o) => o.quote));
     for (const entry of refs.entries) {
       if (flagged.has(entry)) continue; // a duplicate's note already says what to do
@@ -2014,7 +3265,7 @@
         : c.title.length >= 1 && c.title.filter((w) => words.has(w)).length >= Math.max(1, Math.ceil(c.title.length * 0.6))));
       const lead = (entry.match(/^([\p{Lu}][\p{L}'’-]+),\s+[\p{Lu}]/u) || [])[1];
       const named = lead && new RegExp(`\\b${lead.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "u").test(body);
-      if (!cited && !named && !out.some((o) => o.quote === entry)) out.push({ quote: entry, kind: "refuncited" });
+      if (!cited && !named && !citedGroup(entry, body, cites, yearOk) && !out.some((o) => o.quote === entry)) out.push({ quote: entry, kind: "refuncited" });
     }
     return out;
   }
@@ -2037,12 +3288,74 @@
      (`verified: false`) is never backing, whatever its stance: it goes to
      `unread`, shown collapsed with Open only — never Cite or Copy cite. An
      older server sends no `verified`, and its sources behave as before. */
+  /* Settings → Citations → Sources: a site the writer never wants suggested
+     (avoidSites: the site or any part of it), and with "Only sources
+     teachers usually accept" (citableOnly) only the citable tiers
+     (credibilityOf). Left out entirely, as if the search never found them.
+     A source the writer pasted (stance "manual") is theirs and always kept;
+     a page with no extension storage filters nothing. */
+  function sourceAllowed(s) {
+    if (!s || s.stance === "manual" || typeof prefs !== "object" || !prefs) return true;
+    const host = credHost(s.url);
+    if (host && (prefs.avoidSites ?? []).some((d) => host === d || host.endsWith(`.${d}`))) return false;
+    return !prefs.citableOnly || credibilityOf(s).citable === true;
+  }
   function backingSources(list, verdict) {
-    const all = Array.isArray(list) ? list : [];
+    const all = (Array.isArray(list) ? list : []).filter(sourceAllowed);
     const unread = all.filter((s) => s && s.verified === false);
     const keep = all.filter((s) => s && s.verified !== false && (s.stance === undefined || s.stance === "manual" || s.stance === "supports" ||
       (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
-    return { list: keep, unbacked: all.length - keep.length - unread.length, unread };
+    // A source that backs all but one small detail (the server's detail check,
+    // sourceVerify.js coverDetail): never backing as written; offered as
+    // "remove the detail" instead (TRIM_COPY), the most citable one.
+    const partial = byCredibility(all.filter((s) => s && s.verified !== false && !keep.includes(s) && typeof s.partial?.trimmed === "string" && typeof s.partial?.missing === "string" && s.partial.trimmed && s.partial.missing))[0] ?? null;
+    // Most citable first (byCredibility, stable): the first offered is the one to cite.
+    return { list: byCredibility(keep), unbacked: all.length - keep.length - unread.length, unread, partial };
+  }
+  /* Backs all but one small detail. Owner, 2026-10-13: when no source backs
+     a whole sentence but one backs all of it except a small detail, offer to
+     remove that detail — only a small part or detail, never the claim (the
+     server decides what counts: server/lib/claimTrim.js). The writer sees
+     what the source says, the detail it does not mention, and the sentence
+     with that detail struck through, and decides. */
+  const TRIM_COPY = {
+    head: "One detail isn't in this source",
+    body: (missing) => `It backs the rest of your sentence but doesn't mention “${missing}.” Remove that detail and you can cite it, or keep it and find a source for it.`,
+    remove: "Remove the detail",
+    copy: "Copy it without the detail",
+    keep: "Keep as is",
+    preview: "Without it:",
+  };
+  // The sentence with the detail struck through: exactly what would go.
+  function trimPreviewHtml(sentence, missing) {
+    const s = String(sentence ?? "");
+    const m = String(missing ?? "");
+    const at = m ? s.toLowerCase().indexOf(m.toLowerCase()) : -1;
+    if (at < 0) return esc(s);
+    return `${esc(s.slice(0, at))}<s class="trim-cut">${esc(s.slice(at, at + m.length))}</s>${esc(s.slice(at + m.length))}`;
+  }
+  // The card in both panels; `actionsHtml` is the mode's own buttons.
+  function partialSourceHtml(sentence, src, actionsHtml) {
+    const p = src.partial;
+    return `<div class="src partial">
+      <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
+      <div class="src-body">
+        <div class="trim-head">${esc(TRIM_COPY.head)}</div>
+        <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title || src.url)}</a>
+        <div class="src-meta">${sourceMetaHtml(src)}</div>
+        ${p.quote ? `<div class="src-says">${esc(RECEIPT_COPY.says)} “${esc(p.quote)}”</div>` : ""}
+        <div class="trim-note">${esc(TRIM_COPY.body(p.missing))}</div>
+        <div class="trim-preview"><span class="trim-label">${esc(TRIM_COPY.preview)}</span> ${trimPreviewHtml(sentence, p.missing)}</div>
+        <div class="src-actions">${actionsHtml}</div>
+      </div>
+    </div>`;
+  }
+  /* After the detail is removed, the source backs the sentence that is left
+     (every remaining part was quoted from it): the new sentence's sources,
+     ready to cite with its receipt, no second search. */
+  function trimmedSourceEntry(src) {
+    const { partial, ...rest } = src;
+    return { loading: false, list: [{ ...rest, stance: "supports", quote: partial.quote, snippet: `“${partial.quote}”` }], unbacked: 0, unread: [], partial: null, copiedUrl: null };
   }
   const UNBACKED_NOTE = (n) => `The search found ${n} source${n === 1 ? "" : "s"} on this topic, but none says what this sentence says. Reword it to match what you can cite, or search again.`;
   const RECEIPT_COPY = {
@@ -2052,6 +3365,134 @@
     unreadOnly: (n) => `The search found ${n} source${n === 1 ? "" : "s"}, but Tracely couldn't open ${n === 1 ? "it" : "them"} to check what ${n === 1 ? "it says" : "they say"}. Read ${n === 1 ? "it" : "them"} yourself before citing, or search again.`,
     open: "Open ↗",
   };
+  /* "Needs evidence" (questionable) is searched before the writer is asked
+     to look. Owner, 2026-10-13: "instead of having it say six to double
+     check, please search for it first and say like look for evidence to
+     back it up". Up to `perCheck` of a check's new flags, one at a time, and
+     never the writer's last `keep` searches of the day: the allowance is
+     theirs (free: 5 a day) and a missing citation needs it too. Every other
+     flag's automatic search stays behind the opt-in Auto-src switch. */
+  const EVIDENCE_FIRST = { verdicts: ["questionable"], perCheck: 3, keep: 2 };
+  const isEvidenceFirst = (verdict) => EVIDENCE_FIRST.verdicts.includes(verdict);
+  const EVIDENCE_COPY = {
+    looking: "Looking for evidence…",
+    found: (n) => `Tracely found ${n} source${n === 1 ? "" : "s"} that back${n === 1 ? "s" : ""} this.`,
+    see: (n) => `See the source${n === 1 ? "" : "s"}`,
+    next: "Look for evidence to back it up, or narrow the claim.",
+    // A sentence that cites its own source (citedClaim): check that source, don't find another.
+    cited: "You cited a source, but Tracely couldn't confirm it says this. Check the work you cited.",
+    // What a search that found nothing to cite says, and what to do next.
+    none: (st) => `${st?.unbacked ? `Tracely found ${st.unbacked} source${st.unbacked === 1 ? "" : "s"} on this topic, but none backs this sentence.`
+      : st?.unread?.length ? `Tracely found ${st.unread.length} source${st.unread.length === 1 ? "" : "s"} but couldn't open ${st.unread.length === 1 ? "it" : "them"} to check.`
+        : "Tracely couldn't find a source that backs this."} ${EVIDENCE_COPY.next}`,
+  };
+  /* Which of a check's new findings Tracely searches by itself. `optIn`: the
+     verdicts the Auto-src switch adds ([] when off); `skip(f)`: already
+     searched, dismissed, not shown or gone; `left`: the writer's searches
+     left today (Infinity when the server meters nothing or did not say). */
+  function autoSearchPicks(findings, { optIn = [], skip = () => false, left = Infinity } = {}) {
+    const picks = [];
+    for (const f of findings ?? []) {
+      if (picks.length >= EVIDENCE_FIRST.perCheck) break;
+      if (!isEvidenceFirst(f?.verdict) && !optIn.includes(f?.verdict)) continue;
+      if (skip(f)) continue;
+      if (left - picks.length <= EVIDENCE_FIRST.keep) break;
+      picks.push(f);
+    }
+    return picks;
+  }
+  // The note under a card whose search found nothing to cite.
+  const unbackedNote = (st, verdict) => (isEvidenceFirst(verdict) ? EVIDENCE_COPY.none(st)
+    : st?.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st?.unread?.length ?? 0));
+  /* A study Tracely can't find. Owner, 2026-10-15, on "A study involving 12
+     college students found that 10 participants reported positive
+     experiences using AI": "something like this should be flagged as should
+     be deleted, as tracely cant find anything like this. Furthermore, make it
+     where pro and student plans has tracely find evidence on the web to
+     replace this with, that fits the text".
+     A sentence that reports what an unnamed study found (STUDY_REPORTS, and
+     sourceNamedIn finds no one), once its search came back with nothing that
+     backs it, nothing to trim and nothing it couldn't open (unfoundStudy),
+     asks to be deleted. Student and Pro can ask for evidence to take its
+     place instead: the point the study is said to have found, without the
+     study (studyFinding), searched like any claim, and the first source that
+     backs it quoted word for word with its citation (evidenceReplacement).
+     The owner chose the quote over a reworded sentence (2026-10-15): no
+     model writes it, so every word in it is the source's or names it. */
+  const UNFOUND_COPY = {
+    head: "Tracely couldn't find this study",
+    body: "Tracely searched and found nothing like it, so a reader can't check it. Delete the sentence.",
+    bodyPaid: "Tracely searched and found nothing like it, so a reader can't check it. Delete the sentence, or replace it with evidence Tracely finds on the same point.",
+    delete: "Delete the sentence",
+    deleting: "Deleting…",
+    replace: "Replace with evidence",
+    finding: "Finding evidence on this point…",
+    label: "Replace with",
+    apply: "Replace in doc",
+    applyField: "Replace in field",
+    copy: "Copy replacement",
+    none: "Tracely couldn't find evidence on this point either. Delete the sentence.",
+    locked: "Student and Pro can replace it with evidence Tracely finds on the same point.",
+    done: "Deleted it from the doc",
+  };
+  const unfindableStudy = (s) => { const t = String(s ?? ""); return STUDY_REPORTS.test(t) && !sourceNamedIn(t) && !hasCitationMark(t); };
+  // Its search ran and came back with nothing that backs the sentence, nothing to trim, nothing it couldn't open.
+  const searchedEmpty = (st) => Boolean(st && !st.loading && !st.list?.length && !st.partial && !st.unread?.length);
+  const unfoundStudy = (sentence, st) => searchedEmpty(st) && unfindableStudy(sentence);
+  // What the study is said to have found, without the study: its counts, its "participants" and its figures go.
+  const STUDY_SAYS = /\b(?:found|finds|showed|shows|demonstrated|demonstrates|concluded|concludes|reported|reports|revealed|reveals|suggested|suggests|indicated|indicates|proved|proves)\b(?:\s+that)?\s+/;
+  const STUDY_GROUP = /\b(?:of|involving|with|among|surveying|including)\s+(?:(?:about|around|nearly|over|more than|just|only)\s+)?(?:\d[\d,]*\s+)?((?:[\p{L}-]+\s+){0,2}?(?:students|teachers|adults|participants|people|children|teens|teenagers|respondents|users|patients|workers|employees|parents|learners|undergraduates|kids|individuals|families|Americans))\b/iu;
+  const HEAD_COUNT = /^(?:(?:about|around|approximately|nearly|almost|over|more than|fewer than|less than|only|just)\s+)?(?:\d[\d,.]*\s*(?:%|percent)?(?:\s+(?:out\s+)?of\s+(?:the\s+)?(?:\d[\d,]*\s+)?)?|(?:most|many|all|some|half|a majority|the majority|two-thirds|three-quarters)\s+of\s+(?:the\s+)?)/i;
+  const STAND_IN = /^(?:the\s+)?(?:participants|respondents|subjects|those surveyed|them)\b/i;
+  const FIGURE = /\s*\b(?:by\s+)?(?:(?:about|around|approximately|nearly|almost|roughly|over|more than|up to)\s+)?\d[\d,.]*\s*(?:%|percent(?:age points)?|times)/gi;
+  function studyFinding(sentence) {
+    const s = String(sentence ?? "").trim().replace(/[\s.!?"”’)]+$/, "");
+    const m = s.match(STUDY_REPORTS);
+    if (!m) return null;
+    const tail = s.slice(m.index);
+    const v = tail.match(STUDY_SAYS);
+    // "According to a recent survey, most teens …": the point is after the comma.
+    const said = v ? null : tail.match(/^[^,]*,\s*/);
+    if (!v && !said) return null;
+    const frame = v ? tail.slice(0, v.index) : said[0];
+    const who = (frame.match(STUDY_GROUP) ?? [])[1]?.trim() ?? "";
+    let point = (v ? tail.slice(v.index + v[0].length) : tail.slice(said[0].length)).replace(HEAD_COUNT, "");
+    if (who && STAND_IN.test(point)) point = point.replace(STAND_IN, who);
+    point = point.replace(FIGURE, "").replace(/\s{2,}/g, " ").trim();
+    if (point.split(/\s+/).length < 4) return null;
+    return `${point.charAt(0).toUpperCase()}${point.slice(1)}.`;
+  }
+  // The sentence that takes its place: the source's own words, quoted, and who said them — one sentence, never a long quote.
+  function evidenceReplacement(src, style) {
+    const q = String(src?.quote ?? "").replace(/\s+/g, " ").trim().replace(/^["“]+|["”]+$/g, "").replace(/[\s.,;:]+$/, "");
+    if (!q || q.split(" ").length > 45 || splitLineSentences(q).length > 1) return null;
+    const end = /[?!]$/.test(q) ? "" : ".";
+    const n = narrativeCitation(src, style);
+    if (n) return `According to ${n.name}, “${q}${end}”`;
+    // Cited by its title (MLA, where the body that wrote it also published it): named in the sentence anyway.
+    const marker = formatCitation(src, style).marker;
+    const who = String(src?.groupAuthor || src?.publisher || "").trim();
+    if (marker && who) return `According to ${who}, “${q}” ${marker}.`;
+    return marker ? `“${q}” ${marker}.` : null;
+  }
+  // The first backing source that makes a replacement, or null.
+  function pickReplacement(list, style) {
+    for (const src of Array.isArray(list) ? list : []) {
+      const text = evidenceReplacement(src, style);
+      if (text) return { src, text };
+    }
+    return null;
+  }
+  // Under a card: the head, what to do, the replacement (or the search for it), then the mode's buttons.
+  function unfoundHtml(rep, actionsHtml, locked) {
+    const body = locked ? UNFOUND_COPY.body : UNFOUND_COPY.bodyPaid;
+    const repHtml = rep?.text ? `<div class="fix"><div class="fix-label">${esc(UNFOUND_COPY.label)}</div><div class="fix-text">${esc(rep.text)}</div><div class="src-meta">${esc(rep.src.title || rep.src.url)} · ${sourceMetaHtml(rep.src)}</div></div>`
+      : rep?.loading ? `<div class="loading">${esc(UNFOUND_COPY.finding)}</div>`
+        : rep?.none ? `<div class="loading">${esc(UNFOUND_COPY.none)}</div>`
+          : rep?.failed ? `<div class="loading">${esc(rep.failed)}</div>` : "";
+    return `<div class="unfound"><div class="trim-head">${esc(UNFOUND_COPY.head)}</div><div class="src-snip">${esc(body)}</div>${repHtml}<div class="row">${actionsHtml}</div>`
+      + `${locked ? `<div class="ev-locked"><span>${esc(UNFOUND_COPY.locked)}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div>` : ""}</div>`;
+  }
   /* What a source shows under its title: the receipt — "The source says:
      “…”" and where it was read — when the server read it, else the
      search's snippet, as before. */
@@ -2073,7 +3514,7 @@
         <div class="src src-unread-row">
           <div class="src-body">
             <span class="src-title">${esc(src.title || src.url)}</span>
-            <div class="src-meta">${esc(src.publisher || "")}</div>
+            <div class="src-meta">${sourceMetaHtml(src)}</div>
             <div class="src-actions"><a class="src-open" href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(RECEIPT_COPY.open)}</a></div>
           </div>
         </div>`).join("") : "";
@@ -2260,6 +3701,28 @@
   const CITED_VERDICTS = ["false", "questionable", "incoherent"];
   function flaggedCitationOf(verdict, sentence) {
     return CITED_VERDICTS.includes(verdict) ? lookupableCitation(sentence) : null;
+  }
+  // The citation a source the writer picks takes the place of. A wrong
+  // source's too, though it is never looked up: it is not the work the
+  // claim comes from (wrong_source, owner 2026-10-15).
+  function replacedCitationOf(verdict, sentence) {
+    return verdict === "wrong_source" ? lookupableCitation(sentence) : flaggedCitationOf(verdict, sentence);
+  }
+  /* The two modes' cards ask the same of a sentence's citation, so the
+     answer is written once; each mode passes its own sentences, verdicts and
+     notes (docsMode and fieldMode, citedTargetFor and replaceFor). */
+  // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation.
+  function citedTargetIn(key, segments, cache, tipById) {
+    if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
+    const seg = segments.find((s) => s.hash === key);
+    const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
+    return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
+  }
+  // The citation a source cited for this sentence takes the place of, or null (added beside).
+  function citationReplacedIn(hash, segments, cache, citedFallback) {
+    if (citedFallback.has(hash)) return citedFallback.get(hash);
+    const seg = segments.find((s) => s.hash === hash);
+    return seg ? replacedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
   }
   /* What is sent: the citation's (or entry's) words without what a lookup
      cannot use — a link, a DOI, an access note, a bare site name, a volume or
@@ -2583,7 +4046,7 @@
     return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg?.hash ?? null, sentence: seg?.text ?? "" } : null;
   }
   // The notes whose fix is a source for the claim they excuse or hedge.
-  const TIP_FIND_SOURCE = ["excuse", "placeholder", "vague"];
+  const TIP_FIND_SOURCE = ["excuse", "placeholder", "vague", "uncited"];
   // A lookup that answered nothing usable, in words that never call a source fake.
   function citedFailureNote(err) {
     const kind = err?.kind;
@@ -2591,6 +4054,68 @@
     if (kind === "rate_limit" || kind === "budget") return `${String(err?.message ?? "Too many lookups just now.")} This citation wasn't checked.`;
     if (err?.offline || kind === "no_engine") return "Couldn't reach Tracely to look up the cited work, so this citation wasn't checked.";
     return `The lookup didn't answer${err?.message ? ` (${String(err.message).slice(0, 80)})` : ""}, so this citation wasn't checked.`;
+  }
+  /* Why "Find a source" found nothing to show, in the card that asked
+     (sourceFailures). The server's limit and plan messages are written for
+     the writer and are said as they are. Anything on Tracely's side, such as
+     a rejected OpenAI key ("no_key", 2026-10-13) or a server error, says so
+     plainly, so the writer is not left thinking it is their sentence. */
+  /* Two things a search can't do, said as what they are rather than as a
+     failure (owner, 2026-10-16):
+     - Signed out (needsSignIn): "add a little pop-up beforehand that says you
+       need to be logged in". Nothing is searched; the card asks for a
+       sign-in, and a sign-in from it runs the search that was asked for.
+     - Out of searches (the server's 429 plan_limit): "have it show an alert
+       like 'Uh-oh, you ran out of free searches,' and prompt users to 'Get
+       Pro for more' or 'Get Student plan for more.'" The server's own words
+       under it say when they come back. Neither is red: colour means a
+       finding. */
+  const SIGNIN_COPY = {
+    head: "Sign in to find sources",
+    body: "Tracely finds sources with your free Tracely account. Signing in takes a few seconds with Google, and checking keeps working without it.",
+    button: "Sign in with Google",
+    later: "Not now",
+  };
+  const OUT_COPY = {
+    head: (plan) => (plan === "free" ? "Uh-oh, you ran out of free searches" : "Uh-oh, you ran out of searches"),
+    pro: "Get Pro for more",
+    student: "Get Student plan for more",
+  };
+  // More searches to offer: Pro and Student from Free, Pro from Student, none from Pro or where nothing is sold.
+  const upgradesFor = () => (tier.beta || tier.unenforced || tier.plan === "pro" ? [] : tier.plan === "student" ? ["pro"] : ["pro", "student"]);
+  // The panel card's block for a search that needs a sign-in or ran out (a sourceFailures entry's kind); "" for any other failure.
+  function searchGateHtml(failed) {
+    if (failed?.kind === "signin") {
+      return `<div class="sources gate"><div class="gate-head">${esc(SIGNIN_COPY.head)}</div><div class="gate-body">${esc(SIGNIN_COPY.body)}</div><div class="row"><button class="act primary" data-signin="1">${esc(SIGNIN_COPY.button)}</button></div></div>`;
+    }
+    if (failed?.kind === "plan_limit") {
+      const ups = upgradesFor();
+      return `<div class="sources gate"><div class="gate-head">${esc(OUT_COPY.head(tier.plan))}</div><div class="gate-body">${esc(failed.note)}</div>${ups.length ? `<div class="row">${ups.map((p, i) => `<button class="act${i === 0 ? " primary" : ""}" data-upgrade="${p}">${esc(OUT_COPY[p])}</button>`).join("")}</div>` : ""}</div>`;
+    }
+    return "";
+  }
+  /* "Sign in with Google" on a card: the worker opens Google's own sign-in
+     window (background.js signIn), as Settings does. Anything but a cancel
+     opens Settings → Account to finish there. True once signed in. */
+  async function signInFromCard() {
+    const r = await Promise.resolve(sendMsg({ type: "tracely-signIn" })).catch(() => null);
+    if (r?.ok) {
+      tier = { ...tier, signedIn: true }; // at once: the search it was for runs now; refreshTier brings the plan
+      refreshTier();
+      return true;
+    }
+    if (!/cancel/i.test(String(r?.message ?? ""))) openSettings("account");
+    return false;
+  }
+  function searchFailureNote(err) {
+    const kind = err?.kind;
+    const msg = String(err?.message ?? "").trim();
+    if (offlineError(err)) return "Couldn't reach Tracely, so nothing was searched. Check your connection and try again.";
+    if ((kind === "rate_limit" || kind === "budget" || kind === "plan_limit") && msg) return msg;
+    if (kind === "no_key" || kind === "server" || (typeof err?.status === "number" && err.status >= 500)) {
+      return "Tracely's source search isn't working on our side right now, so nothing was searched. It isn't your writing. Try again later.";
+    }
+    return `The search didn't answer${msg ? ` (${msg.slice(0, 80)})` : ""}. Try again.`;
   }
   const CITED_COPY = {
     find: "Find the cited work",
@@ -2650,6 +4175,7 @@
      the plane glyph instead (wireChrome), never an empty circle. */
   const MARK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAtCAYAAADV2ImkAAAACXBIWXMAAAsTAAALEwEAmpwYAAALJUlEQVR42s1ZCVRTVxqO1VmsnZn2nOl05py258zMmZ5KBdk3WSQLBAKEJLxAQhDZgoiCtvVU64xxrFUURW07WusyrR3RBpcCLuBSUNzQ6tTqUK1Lre0RkS1hCy/v3vfNDUub2mmnm8I95z//TfLeu9/77vcv90QCWB5wmdXKjcbdVhs5pt/A5v3XSR6Q/MTDEmkZ80GJadzVEtPv7Oum/uXO2nSfO28aI+zWDJWtcqqxe3fu8z3bM0u6NqaX20r0837QIhxnHf3+esuD1w6af9O4Pu0Pl7Zwf7y0Qed1ZSMX0m41hN0pS1XZylM4Wzln6NphmtFbYZrnqDD+vbfCsKZ3V8rm3h36d/t2pOx37Eg55dhpuMjvMnzOV6a3Cfsze8jBbF48lANUm4Gd2eBfTUb7gpiPmosiV98pkPpKWo/medjOZvg170sKs1ckxdsqtSm2Km5G5x5ubnuVemnH3oQ1tirVZlulurxzb9Kenmrt0b4a7Zmeas1lvlrzae9eTZtjr9Yh7NcR1HDAAWY1OmZatiizg2x+OAWoNQzYYSP7LpV5Nq8zAUczmc+GuC8bdGsGyCot2gon0+v6wMuXlB4vN3o+6WuRuO1s02bNOuyLA63XUJxhDz+VBBxXAyeYP8UWbEhmXjdgDYP+BLNjzOqZHWG/1zGrTQY9nAxySCcKB3QiqdFRyozUcIRWcwKp1gv0gEHAkSmCeCybkLocga/I5O2v6knnHDnajQG4qnimpTHsqU1nPZ+U1T4qeWgII4BRODF7LCSSURJOIhndXORdipIgkLeiBGd1gpOc0BGhQUvIMTUh9UmCcDSJCEe1RKjXElrPANSnuIySej0VjqaI9GgqM4NIjhjRb3WGfqPMUM9YbGAsNphBanPQ+0462pepSfO0SGrX+eK23ANXIp5quBz259zzSs/H+wG6gLHRuibtcUeluaB3S+aZlmJD/hfoXf5W/oRpfXO8+rDAF/wr4cRZkQhyMhX0nBHiGbb4qRSIp5hvMLK5acAa0kBPprHr0pmfAnoig9kUiKenQvyAbfO/zRCOmNFbxkAuikNzxiTyeZwXtUWPZ0DHC9cVT++4luCtuGix/HyITVfwt71uUvZZM7eixnwb5WY0z45+d8tjknGSobdxZQTX/OqcAFnPXO+bmOcJ5xwv4lwcIjq3xEKoY8Au5II25kA8nwlyjoE7y/zZLND3mZ1l+jtvBv3PdJCLBRCO58NRlgb7QiU6poaiVeVJW2UepEflhfZ4L+ETlWfV5USfCHc2T8zmxnZuNSXx1vTDwt5sEXXTKUo0uJzgUz5TIvmF+7X9o9YSOcblz1siH7fN938PC31B50yg/CwP6pzrDecaGfg9bKvPTQP9uIhZIeilIpDrz7P5cxBOF4Evz0Lv4nj0ZAajM8ET9tjxYqdqAuG1PiKf7IOmRJ/TV+MDZO6LWzludPdb2XEOq+l97GfSeS9XdFZkO20z5WiMmlBpDQ4e23+95X+k1P7cyx7EsYe0zAtezC/wo7B4u4AToWi8KMyeAGFhCPo2qeE8zsA2LgRfMxP8ai34wkkQUr0h6Lzg5CaiT+9D+RRfAhZMNs7n1k2NT6bruQMyHNTom9mBvWXGWlo5BdifBRzKoo7tmX22KaG4PPnp2kpz/IODL/fN+d/1JlarpP/BN+aHhHa/6Hsei/xAX/Sh5AUvQoo8RZIzHs48P/BzI0BmsJ3I8YSY4w0xyw9Chr8omAIJMoLBpwUIbfqA1ZfMfr8d0qfLX9tQ+JjtzdSNwk5jH/YzeVWZiFhnJva1aUJ7kjduyp45uSdf9cg3Mvs10G66PpaV+Ks78/0X9D3na8dsBnyaNxXM3kTM9AEx+4A+6w+xKAB0uj9olj9FTgBBXii6pgafuzklJOKLnRtcuH1DagZfpr+JfSaQCiMle9MJPWRG+xItvRPthVtyj48+1Pr/aUgu36uiuW6AxdK/0Lm0MI8Wc/A2Z4E/j5kMYJ4vA+5LSGGASAoZ2HwGtCAIQn6Ioy03/OWa5xTjBhjy6M8A11ZzT/Zu0lhRzoHu5kRht4GQ/ekiPZiPthfjaWuUB24rPZtP6/x9+u/jJKN/UBkeYntId1fMoSG2HL+DQkGggMIgYEaQSGcEUhSyQJsWcvFGbnjoANDIMUOB3PF6ipbfpG5CuRbEqiNkdyoVa1hVq8lHx7OxYqvUA7aEic4rat+Y/gQQOXDfjxoupt3eetSN/KjQVnPQbn5GYB+dFYbWvPC1NaZBVq1cP6s3rbPH2tdr1tKtrHJuTRSFbRpCdqaAVmfAuS8P9hkKdMpZQGt8cSPRr7D/3p8C7NeA48t8eCk/zKupSDZ5KPphGQD72T90Xp2b4s9jexLI24nEuV0t0h160H3pcFbloTtPhp5oDwHJAWhJCtr4o2TwnYC76fvLzwPstG/Qmfgtie3YnsAamkRBKNeKdBcDyzKCUMEqX44MjpiJBPpAdGkDj9coTOO+VhjuGXAW/RiMZleQdmzmltLtGiaBBFEoS6Rkpw60gpX4Q1PgfNeMnqzJ4JXeIrhA8Fxwe2N8uO/QzknuxxhipdZiGWP/V9I2VLHO7Z14gVg1VNzFMkIl6z8OZUDYNw2OXCmcyokQNEEU+hC06SJz74luvzX1Debr5lJFNDbGML2qBWFXsihWsWZpD2P2cCac1ay3mCYHiWVVMIkVFS6UVb/wLfeVWfdy7vL2JfKXUDoZwsooQjaoIOzkWG88FcIBBraINVDx3iAalv50rLSnTLrRkBH5+/um268AHswYXUuiq7FSyk4MUYS+Fg1hQxz4XWlwzIoFifNlPUawSLXMuEloTonQDgXqsICtLVI/3LU46lMsY4BXRlGyLpZlhyTWVyfDEcf6iwQWYInBBCnhsOvD3hkWKbgv+tEitWfvEikVl04GKZWLdJ0KtEyPnufj4JD7whkfIiIhGA7tpNarBvlfvnNTc6/0+1lJogorFEBxFKWroiG+zjS8gbGrD4MzOghOVRCBNhy3k8IswyKFu5v+9mXK6ShVQFwqJWIpA/xGAnjWyPMxAQxsCIU6FD3asAtvK5W/HpZA+1ISA4BtxcrlWB0DWiwTaCnzb2jgLJBDUASCJk4i0EnRlByVOazsuuuwY0XcNqxiQEvkAl3FssIrWjj1EXDGsQKhi0SXTnrSwnFDB81RkuEeXctj68CkQJbLCH0lDs5FieBVoSJVh1FwUbidqtQMP7uDTFlYSe5eqrjoCjqhRE7pawxsoRJCXAhBshSdnKzBz2z+2bCz+8Wp18I91LlEfhPLZaAroildzQ6oaTKQeMauXorPU+X6YWfXvWjUzzU+0lscfdvFMF2pFIWXWXbQRlIkR6FTL/3QkhH5y2HNDHcDriiUPsYAt6KEscoAO+eyvkEdwY73CjQZ5S+MCHbdAVvnKR/tLpa3uCQhrFCK/EylCO1k9KUqWi5MVT/hfu2IALzbon64d5miCStYw7NCRfksOUGqDK2G6OHrGb4t6Law43z3csUnWMkAL1FRZ5qUwiDDVWOMdsTI4StBxBjsWhbzAViFc/4tToBRil6D9FKN6T6e074vaHtx7Huu0izMieZhlKE9RV46oti9u73seFlVhtWsWBTJnS45fGxSJIxQwIPNz0uKYpQqgekydKVKP3k7bZi7sv/XXrYtUplREgMUxKDLGL1+RLLrDurWSwlKFMcBuUo0GUaoHNw1fJ4dkfrYfxjdGbLOC+roJwaSh+SBkQd4sHj8kx1CO+erOmxZMafcfh4lGYljCLT9r+rTLWblq+5nvZEJeFAW12ep0xuzYkLudTn+L96+p5yNvf0WAAAAAElFTkSuQmCC";
   let focusCard = null;     // the open card (foldCards): the underline last clicked, or the card last opened
+  let panelFilter = null;   // the header tab chosen (wrong | check | cite | writing); null shows every kind
   function launcherHtml(countCls, countTxt, title) {
     return `<div class="launcher" id="pill" role="button" tabindex="0" title="${esc(title)}">
       <img class="launch-mark" src="${MARK_PNG}" alt="" draggable="false" />
@@ -2677,12 +4203,16 @@
   // [kind, its MARK_COLORS key (read when drawn), its words]
   const TALLY = [
     ["wrong", "false", (n) => `${n} factual ${n === 1 ? "error" : "errors"}`],
-    ["check", "questionable", (n) => `${n} to double-check`],
+    ["check", "questionable", (n) => `${n} need${n === 1 ? "s" : ""} evidence`],
     ["cite", "needs_citation", (n) => `${n} citation ${n === 1 ? "issue" : "issues"}`],
     ["writing", "note_tip", (n) => `${n} writing ${n === 1 ? "note" : "notes"}`],
   ];
-  const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" ? "cite" : "wrong");
-  const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : "writing");
+  const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" || v === "wrong_source" ? "cite" : "wrong");
+  const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : EVIDENCE_TIP_KINDS.includes(t?.kind) ? "check" : "writing");
+  // Settings → Checking: a note of a kind the writer turned off is not listed (the verdicts' half is flagShown). No storage, no switch.
+  // (`never`: the never-flag list's version, so the notes' memo lists them again when it changes.)
+  const tipKindsOn = () => (typeof prefs === "object" && prefs ? { check: prefs.showEvidence !== false, cite: prefs.showCitations !== false, never: typeof ignoreGen === "number" ? ignoreGen : 0 } : { check: true, cite: true, never: 0 });
+  const tipKindShown = (t) => tipKindsOn()[tipCat(t)] !== false && !neverFlagged(t.quote);
   // The header's counts: the claims' verdicts, and every note the list shows.
   function tallyOf(verdicts, tips) {
     const c = { wrong: 0, check: 0, cite: 0, writing: 0 };
@@ -2692,49 +4222,90 @@
   }
   // Settings (options.html), the gear in the header (owner, 2026-10-11).
   const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
-  const GRIP_SVG = `<svg viewBox="0 0 10 16" width="8" height="14"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>`;
-  function panelHeadHtml(counts, statusMsg, statusErr) {
+  const CLOSE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+  // "Never flag this again" (an eye, struck through), beside Dismiss on a card.
+  const NEVER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-2.4 3.4M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
+  const neverBtnHtml = (attr, id) => `<button class="x never" ${attr}="${id}" title="Never flag this again, in any document" aria-label="Never flag this again">${NEVER_SVG}</button>`;
+  const COPY_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>`;
+  const COPIED_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+  const POWER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg>`;
+  /* The Tracely mark in one solid colour, the brand orange (owner,
+     2026-10-14, Figma "Overlay Mockup - Widget (Clean)": "include the
+     tracely logo somewhere but make it a solid color"). Traced from the
+     store-icon artwork; inline, so no page policy can refuse it. */
+  const MARK_SOLID_SVG = `<svg class="head-mark" viewBox="0 0 399.44 405.46" aria-hidden="true"><path fill="currentColor" d="M399.25 4.29C399.25 4.29 396.96 6.72 395.45 7.29C368.43 17.43 340.71 25.67 313.89 36.33C297.14 42.99 280.8 50.72 264.89 59.19C245.73 69.39 227.16 80.68 208.81 92.29C191.14 103.47 156.89 127.52 156.89 127.52C156.89 127.52 148.08 125.27 143.89 123.54C136.38 120.45 129.05 116.92 121.89 113.11C108.21 105.83 94.58 98.43 81.4 90.29C70.22 83.39 59.37 75.93 48.89 68.02C34.63 57.25 20.7 46.04 7.25 34.29C4.35 31.75 0 25.29 0 25.29C0 25.29 2.28 22.54 3.89 22.42C60.5 18.33 117.21 15.65 173.89 12.71C195.54 11.59 217.24 11.52 238.89 10.26C289.92 7.3 340.87 3.17 391.89 0.07C393.89 -0.05 397.89 0.59 397.89 0.59L399.25 4.29Z"/><path fill="currentColor" d="M387.89 34.84L388.43 37.29C388.43 37.29 387.74 39.48 386.97 40.29C373.19 54.81 358.28 68.26 344.89 83.14C328.85 100.96 313.45 119.36 298.75 138.29C287.1 153.27 276.52 169.07 265.89 184.79C261.18 191.75 256.75 198.91 252.74 206.29C240.7 228.42 228.26 250.38 217.77 273.29C209.14 292.12 202.49 311.8 195.47 331.29C191.31 342.81 187.65 354.52 184.24 366.29C180.8 378.19 178.49 390.41 174.94 402.29C174.57 403.51 172.57 405.29 172.57 405.29L168.89 404.35C168.89 404.35 166.81 400.42 166.26 398.29C164.38 391.03 162.73 383.7 161.62 376.29C159.18 360.01 157 343.68 155.62 327.29C154.45 313.33 153.95 299.3 153.96 285.29C153.97 273.61 154.6 261.92 155.69 250.29C157.15 234.57 159.13 218.88 161.59 203.29C163.13 193.53 165.34 183.89 167.66 174.29C168.88 169.21 168.7 163.16 172.2 159.29C182.88 147.48 196.32 138.47 208.89 128.7C219.56 120.39 230.71 112.71 241.89 105.1C253.42 97.24 265.02 89.45 276.99 82.29C288.89 75.17 301.14 68.67 313.44 62.29C323.78 56.93 334.18 51.66 344.89 47.08C354.36 43.04 364.12 39.71 373.89 36.45C377.47 35.26 381.14 34.16 384.89 33.73C385.95 33.6 387.89 34.84 387.89 34.84Z"/></svg>`;
+  /* The header and its filter tabs (owner, 2026-10-14: the panel was "too
+     cluttered, confusing, not well structured, wordy"; the Figma frame
+     "Overlay Mockup - Widget (Clean)" is the design). One row of tabs is the
+     count, the filter and the legend at once: All, then each kind with its
+     icon in its finding's colour and a short word; the long words (TALLY)
+     are each tab's title. A tab shows only its kind (panelFilter, applied in
+     foldCards); the chosen tab again, or All, shows everything. `opts.note`
+     is what the kind of writing means for its citations (genreNote), on the
+     chip's hover; `opts.power` is the mode's off switch, beside Settings. */
+  const TAB_LABEL = { wrong: "Errors", check: "Evidence", cite: "Citations", writing: "Writing" };
+  // A finding's kind as its icon, in its underline's colour (.k-wrong … in WIDGET_CSS, from MARK_COLORS); a card's title says it in words.
+  const kindIcoHtml = (cat) => (TALLY.some(([k]) => k === cat) ? `<span class="kico k-${cat}" aria-hidden="true">${TALLY_ICON[cat]}</span>` : "");
+  function panelHeadHtml(counts, statusMsg, statusErr, kind = "", opts = {}) {
     const c = counts ?? {};
     const total = TALLY.reduce((n, [k]) => n + (c[k] || 0), 0);
-    const chips = TALLY.filter(([k]) => c[k] > 0).map(([k, mark, label]) =>
-      `<button class="chip" data-jump="${k}" title="Show the first one"><span class="chip-ico" style="color:${MARK_COLORS[mark]}" aria-hidden="true">${TALLY_ICON[k]}</span>${esc(label(c[k]))}</button>`);
-    if (!total && !statusErr && statusMsg === "all clear") chips.push(`<span class="chip chip-clear"><span class="chip-ico" aria-hidden="true">${TALLY_ICON.clear}</span>All clear</span>`);
+    const present = TALLY.filter(([k]) => c[k] > 0);
+    const filter = present.some(([k]) => k === panelFilter) ? panelFilter : null;
+    const tab = (k, word, n, title, ico = "") =>
+      `<button class="tab${(k === "all" ? !filter : filter === k) ? " on" : ""}" data-filter="${k}" aria-pressed="${k === "all" ? !filter : filter === k}" title="${esc(title)}">${ico}<span>${esc(word)}</span><span class="tab-n">${n}</span></button>`;
+    const tabs = total ? [tab("all", "All", total, "Show every finding"), ...present.map(([k, , words]) => tab(k, TAB_LABEL[k], c[k], words(c[k]), kindIcoHtml(k)))] : [];
+    if (!total && !statusErr && statusMsg === "all clear") tabs.push(`<span class="tabs-clear"><span class="chip-ico" aria-hidden="true">${TALLY_ICON.clear}</span>All clear</span>`);
     const quiet = /^(?:all clear|\d+ issues? found)$/.test(String(statusMsg ?? ""));
     const status = statusErr || !quiet ? statusMsg : "";
     return `<div class="head" id="dragHead" title="Drag to move · double-click to put it back">
-      <span class="grip" aria-hidden="true">${GRIP_SVG}</span>
+      ${MARK_SOLID_SVG}
       <span class="name">Tracely</span>
+      ${kind ? `<span class="kind" title="${esc(opts.note || "What Tracely reads this as")}">${esc(kind)}</span>` : ""}
       <span class="status${statusErr ? " error" : ""}">${esc(status)}</span>
+      ${opts.power ?? ""}
       <button class="hbtn" id="panelSettings" title="Settings" aria-label="Tracely settings">${GEAR_SVG}</button>
-      <button class="close" id="panelClose" title="Close" aria-label="Close">×</button>
+      <button class="hbtn close" id="panelClose" title="Close" aria-label="Close">${CLOSE_SVG}</button>
     </div>
-    <div class="tally">${chips.join("")}</div>`;
+    ${tabs.length ? `<div class="tabs" role="toolbar" aria-label="Show findings by kind">${tabs.join("")}</div>` : ""}`;
   }
   // The claim cards, all of them: foldCards keeps one open. `cards` pairs each hash with its HTML.
   function cardListHtml(cards) {
     return cards.map((c) => c.html).join("");
   }
-  // A group of the list under its name and count — "Claims (2)", "Citations (1)".
+  // A group of the list — "Claims (2)", "Citations (1)" — named for a screen reader; the tabs say the rest.
   function groupHtml(title, n, inner) {
-    return `<div class="tips"><div class="tips-head">${title}${n ? ` (${n})` : ""}</div>${inner}</div>`;
+    return `<div class="tips" role="group" aria-label="${esc(title)}${n ? ` (${n})` : ""}">${inner}</div>`;
   }
   /* The panel's evidence section (see evidenceCandidates). Folded until
      opened; neutral, never a finding colour (CLAUDE.md "Colour only ever
      means a finding"); every card can be dismissed. `sourcesFor(seg)` is the
-     mode's own source list, so citing works exactly as on an issue card. */
-  function evidenceSectionHtml(candidates, open, sourcesFor, searched) {
+     mode's own source list, so citing works exactly as on an issue card.
+     Student and Pro only (canRecommend; owner, 2026-10-13): on Free,
+     `locked`, it is one line saying what the plans add and See plans, and
+     no card, quote or search button. Free helps with mistakes only. */
+  const RECOMMEND_COPY = {
+    head: (n) => `Evidence recommendations (${n})`,
+    intro: "Optional — only where evidence would make your writing stronger.",
+    title: "Evidence would make this stronger",
+    body: "This holds up. A study or an official source behind it would make your point harder to argue with.",
+    find: "Find evidence",
+    locked: (n) => `Student and Pro recommend evidence that would make your writing stronger: ${n} ${n === 1 ? "point" : "points"} here.`,
+    seePlans: "See plans",
+  };
+  function evidenceSectionHtml(candidates, open, sourcesFor, searched, locked = false) {
     if (!candidates.length) return "";
-    const head = `<button class="ev-toggle" id="evidenceToggle" aria-expanded="${open}">${open ? "▾" : "▸"} Evidence you could add (${candidates.length})</button>`;
+    if (locked) return `<div class="evidence"><div class="ev-locked"><span>${esc(RECOMMEND_COPY.locked(candidates.length))}</span><button class="act" data-rec-plans="1">${esc(RECOMMEND_COPY.seePlans)}</button></div></div>`;
+    const head = `<button class="ev-toggle" id="evidenceToggle" aria-expanded="${open}">${open ? "▾" : "▸"} ${esc(RECOMMEND_COPY.head(candidates.length))}</button>`;
     if (!open) return `<div class="evidence">${head}</div>`;
     const cards = candidates.map((seg) => `
       <div class="card ev-card" data-card="${seg.hash}">
-        <div class="top"><span class="ctitle">A source would strengthen this</span><button class="x" data-dismiss="${seg.hash}" title="Not needed">✕</button></div>
+        <div class="top"><span class="ctitle">${esc(RECOMMEND_COPY.title)}</span><button class="x" data-dismiss="${seg.hash}" title="Not needed" aria-label="Not needed">${CLOSE_SVG}</button></div>
         <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
-        <div class="expl">This holds up, but it is a point a reader may want backed. A study or official source would make it harder to argue with.</div>
-        ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">Find evidence</button></div>`}
+        <div class="expl">${esc(RECOMMEND_COPY.body)}</div>
+        ${searched(seg) ? "" : `<div class="row"><button class="act" data-sources="${seg.hash}">${esc(RECOMMEND_COPY.find)}</button></div>`}
         ${sourcesFor(seg)}
       </div>`).join("");
-    return `<div class="evidence">${head}<div class="ev-intro">Optional — only where evidence would help your argument.</div>${cards}</div>`;
+    return `<div class="evidence">${head}<div class="ev-intro">${esc(RECOMMEND_COPY.intro)}</div>${cards}</div>`;
   }
   /* Resume tips: the free format rules first (instant), then what /api/review
      found, a line once — a model note on a line the rules already flagged is
@@ -2746,7 +4317,7 @@
     documents: "Document evidence (DBQ)", sourcing: "Sourcing (DBQ)", complexity: "Complexity (DBQ)",
     relevance: "Doesn't support the argument", source: "Source problem", quotation: "Quotation problem", citation: "Citation problem",
     bibliography: "Works Cited problem", reasoning: "Reasoning", contradiction: "Contradiction",
-    vague: "Unnamed source", nameonly: "Citation names no work", nolist: "No Works Cited", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
+    vague: "Needs evidence", uncited: "Source not cited", nameonly: "Citation names no work", nolist: "No Works Cited", placeholder: "Unverified placeholder", excuse: "Missing citation details", badcite: "Unusable citation", refincomplete: "Incomplete entry" };
   const NOTE_ACTION = { delete: "Delete this", rewrite: "Rewrite", cite: "Add a real source", needs_info: "Needs more information" };
   const NOTE_STATUS = { confirmed: "confirmed", unsupported: "unsupported", unverified: "unverified", possible: "possible" };
   function resumeTips(text, modelFindings, dismissed) {
@@ -2785,14 +4356,29 @@
      an essay with every quote paged gets no empty section. */
   function citationTips(text, style, dismissed, genre = "prose") {
     // A DBQ cites its documents by number: no page, no Works Cited entry, no source for its outside evidence.
-    const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague"].includes(t.kind);
+    const notInDbq = (t) => genre !== "dbq" || !["page", "nameonly", "vague", "uncited"].includes(t.kind);
     return [...quoteCitationTips(text, style), ...citationHygieneTips(text)].filter(notInDbq)
       .map((t) => ({ ...t, id: "tip:" + hashText(t.quote + "|" + t.kind), suggestion: "" }))
       .filter((t) => !dismissed.has(t.id));
   }
+  // Every note an essay or paper's panel lists, in both modes (each keeps its own memo, allTips).
+  function tipsOf(text, genre, dismissed, review, style) {
+    return [
+      ...citationTips(text, style, dismissed, genre),
+      ...(FEATURES.refList ? referenceTips(text, dismissed, genre, style) : []),
+      ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(text, review.findings, dismissed) : []),
+    ].filter(tipKindShown);
+  }
   // The citation notes and the reference list's, as one group: both are about citing.
+  // Sources nobody could find are claims that need evidence: a group of their own, before the citations.
   function citationTipsHtml(tips, copiedId) {
-    return tips.length ? tipsSectionHtml("Citations", tips, "", copiedId) : "";
+    const unnamed = tips.filter((t) => tipCat(t) === "check"), rest = tips.filter((t) => tipCat(t) !== "check");
+    return (unnamed.length ? tipsSectionHtml("Unnamed sources", unnamed, "", copiedId) : "") + (rest.length ? tipsSectionHtml("Citations", rest, "", copiedId) : "");
+  }
+  /* A sentence the model already flagged "Needs evidence" carries its own
+     unnamed-source note: one card, not two of the same kind. */
+  function withoutCarriedNotes(tips, issues) {
+    return tips.filter((t) => !(EVIDENCE_TIP_KINDS.includes(t.kind) && issues.some(({ seg, f }) => f?.verdict === "questionable" && tipCoversSentence(seg.text, t.quote))));
   }
   // Lines that share no word with the rest of the essay (offTopicSentences): shown only when there is one.
   const OFF_TOPIC_MESSAGE = "Nothing in this line connects to the rest of your writing. If it doesn't belong, delete it; if it does, tie it to your point.";
@@ -2865,7 +4451,7 @@
     if (!genreWantsList(genre)) return [];
     const works = citedWorksWithoutList(text);
     if (!works.length) return [];
-    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    const list = refHeadingFor(style);
     const named = works.slice(0, 3).map((w) => w.raw).join(", ") + (works.length > 3 ? ` and ${works.length - 3} more` : "");
     return [{
       id: "tip:" + hashText(`nolist|${works.map((w) => w.key).join(",")}`), quote: "", kind: "nolist", label: `No ${list}`, suggestion: "",
@@ -2920,11 +4506,16 @@
      sentence or on the whole essay. Shown only when they belong to the text
      on screen: a sentence note whose sentence is gone drops out at once. */
   const ESSAY_NOTE_KINDS = ["relevance", "source", "quotation", "citation", "bibliography", "reasoning", "contradiction", "evidence", "analysis", "thesis", "structure", "documents", "sourcing", "complexity"];
+  const CITED_NOTE_KINDS = ["source", "evidence"]; // the notes that ask for a source
   function essayFeedbackTips(text, findings, dismissed) {
     const norm = (x) => String(x).toLowerCase().replace(/\s+/g, " ").trim();
     const hay = norm(text);
     return (Array.isArray(findings) ? findings : [])
       .filter((f) => f && ESSAY_NOTE_KINDS.includes(f.kind) && f.message && (!f.quote || hay.includes(norm(f.quote))))
+      // "Needs a source" on a sentence that cites one (owner, 2026-10-13): the
+      // citation is there; whether it says this is the fact check's to ask
+      // (citedClaim). A source impossible on its face ("confirmed") still shows.
+      .filter((f) => !(CITED_NOTE_KINDS.includes(f.kind) && f.status !== "confirmed" && inTextCitationsOf(f.quote).length > 0))
       .map((f) => ({
         id: "tip:" + hashText(String(f.quote ?? "") + "|" + f.kind + "|" + (f.quote ? "" : f.message)),
         quote: String(f.quote ?? ""), kind: f.kind, message: String(f.message),
@@ -2999,7 +4590,8 @@
     for (const t of citationTips(text, style, dismissed, genre)) {
       const at = text.indexOf(t.quote);
       if (at < 0) continue;
-      if (t.kind !== "page") { out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false }); continue; }
+      // A source nobody could find is drawn as what it is, a claim that needs evidence (blue).
+      if (t.kind !== "page") { out.push({ ...t, start: at, end: at + t.quote.length, mark: t.quote, lastCopy: false, ...(EVIDENCE_TIP_KINDS.includes(t.kind) ? { markKind: "questionable" } : {}) }); continue; }
       const p = t.quote.lastIndexOf("(");
       if (p < 0) continue;
       out.push({ ...t, start: at + p, end: at + t.quote.length, mark: t.quote.slice(p), lastCopy: false });
@@ -3021,7 +4613,7 @@
     script: "This reads as a script — nothing in it needs a source, so Tracely is staying quiet.",
   };
   function genreCiteNote(genre, text, style) {
-    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    const list = refHeadingFor(style);
     switch (genre) {
       case "dbq": return "cite the documents by number, like (Doc 3); outside evidence needs no source, and a DBQ has no Works Cited";
       case "research": return `every finding needs an in-text citation and an entry in your ${list}`;
@@ -3041,28 +4633,75 @@
       default: return "";
     }
   }
-  function genreLineHtml(genre, text = "", style = "mla") {
-    if (GENRE_QUIET_LINE[genre]) return `<div class="genre-line">${GENRE_QUIET_LINE[genre]}</div>`;
-    if (!GENRE_LABEL[genre]) return "";
-    const how = genreCiteNote(genre, text, style);
-    return `<div class="genre-line">Reading this as ${GENRE_LABEL[genre]}${how ? ` — ${how}` : ""}</div>`;
+  // The kinds added in 2.21.57 that say something their genre's line doesn't (WRITING_KINDS).
+  const KIND_QUIET_LINE = {
+    math: "This looks like math work. Tracely checks essays and other writing, so it is staying quiet here.",
+    survey: "This reads as a survey — its questions need no sources, so Tracely is staying quiet.",
+    code: "This looks like code. Tracely checks writing, so it is staying quiet here.",
+    lyrics: "This reads as song lyrics — nothing in them needs a source, so Tracely is staying quiet.",
+  };
+  function kindCiteNote(kind, style) {
+    const list = refHeadingFor(style);
+    switch (kind) {
+      case "rhetorical": return `quote the text you're analyzing and list it in your ${list}`;
+      case "summary": return `cite the work you're responding to and list it in your ${list}`;
+      case "litreview": return `every study needs an in-text citation and an entry in your ${list}`;
+      case "proposal": return `your own plan needs no source; background facts do, with an entry in your ${list}`;
+      case "casestudy": return `facts about the case need a source and an entry in your ${list}`;
+      case "debate": case "presentation": return "name each source as you say it (“According to …”); no Works Cited";
+      case "oped": return "name each source in the sentence (“…, according to …”); an op-ed has no Works Cited";
+      case "feature": return "name each person and source in the sentence; an article has no Works Cited";
+      case "pressrelease": return "name each source in the sentence; a press release has no Works Cited";
+      case "blog": return "name or link each source in the sentence; a blog post has no Works Cited";
+      case "discussion": return "name the reading or source in the sentence; a post needs no Works Cited";
+      case "synthesis": return "cite the sources by letter, like (Source A); outside evidence needs no source, and a synthesis essay has no Works Cited";
+      case "college": return "your own story needs no citations";
+      case "reflection": return "your own experience needs no citations";
+      case "review": return "your own opinion needs no citations; a wrong fact still shows";
+      case "journal": case "recommendation": case "memo": return "no citations needed";
+      case "bio": case "social": case "meeting": case "outline": case "studyguide": case "peerreview": case "instructions": case "lessonplan":
+        return "no citations needed; a wrong fact still shows";
+      case "workscited": return "Tracely won't ask where each entry is cited";
+      default: return "";
+    }
+  }
+  /* The sentence alone: the header chip's hover (panelHeadHtml), and the line
+     a quiet kind shows in the list. `kind` (detectKind) names it when it is
+     one of its genre's own kinds; an essay of its own kind says nothing
+     unless it cites differently (a rhetorical analysis, a summary). */
+  function genreNote(genre, text = "", style = "mla", kind = "") {
+    const k = kind && WRITING_KINDS[kind]?.genre === genre ? kind : "";
+    if (KIND_QUIET_LINE[k] || GENRE_QUIET_LINE[genre]) return KIND_QUIET_LINE[k] || GENRE_QUIET_LINE[genre];
+    const own = k ? kindCiteNote(k, style) : "";
+    if (genre === "prose" && !own) return "";
+    const label = k ? WRITING_KINDS[k].label : GENRE_LABEL[genre];
+    if (!label) return "";
+    const how = own || genreCiteNote(genre, text, style);
+    return `Reading this as ${label}${how ? ` — ${how}` : ""}`;
+  }
+  function genreLineHtml(genre, text = "", style = "mla", kind = "") {
+    const note = genreNote(genre, text, style, kind);
+    return note ? `<div class="genre-line">${note}</div>` : "";
   }
   /* A note's dot is its underline's colour (MARK_COLORS): amber for a note on
-     a citation (cite_tip), orange for one on the writing (note_tip). A note
+     a citation (cite_tip), blue for one on the writing (note_tip). A note
      with no underline — a resume line, a stray line — has none: colour only
      ever means a finding someone can see in the text. */
-  const CITE_TIP_KINDS = ["page", "vague", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete", "nolist"];
-  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-quest" : "");
+  const CITE_TIP_KINDS = ["page", "uncited", "nameonly", "excuse", "placeholder", "badcite", "refdup", "refuncited", "refincomplete", "nolist"];
+  // A source nobody could find ("vague") needs evidence: blue, counted with the claims that do (owner, 2026-10-14).
+  const EVIDENCE_TIP_KINDS = ["vague"];
+  const tipDot = (t) => (CITE_TIP_KINDS.includes(t.kind) ? "d-cite" : EVIDENCE_TIP_KINDS.includes(t.kind) ? "d-quest" : ESSAY_NOTE_KINDS.includes(t.kind) ? "d-note" : "");
   function tipsSectionHtml(title, tips, note, copiedId) {
+    // The kind's icon where the note has an underline (tipDot), none where it has not.
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? `<span class="dot ${tipDot(t)}"></span>` : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss">✕</button></div>
+        <div class="top">${tipDot(t) ? kindIcoHtml(tipCat(t)) : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span>${t.quote ? neverBtnHtml("data-never-tip", t.id) : ""}<button class="x" data-tip-x="${t.id}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
         ${t.suggestion ? `<div class="fix"><div class="fix-label">Suggested rewrite</div><div class="fix-text">${esc(t.suggestion)}</div><div class="row"><button class="act" data-tip-copy="${t.id}">${copiedId === t.id ? "Copied ✓" : "Copy rewrite"}</button></div></div>` : ""}
       </div>`).join("");
-    return `<div class="tips"><div class="tips-head">${title}${tips.length ? ` (${tips.length})` : ""}</div>${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
+    return `<div class="tips" role="group" aria-label="${esc(title)}${tips.length ? ` (${tips.length})` : ""}">${note ? `<div class="ev-intro">${note}</div>` : ""}${cards}</div>`;
   }
   /* "Find the cited work" in a panel card (both modes). `c` is one card's
      lookup: { loading } | { resolved:false, note } | { resolved:true,
@@ -3108,9 +4747,16 @@
      writer works in it even if a new card lands above it. The rest fold to
      their title and the first line of their sentence and open on a click or
      Enter. A card's own buttons are only in the open card. Evidence cards
-     sit in their own fold and are left as they are. */
+     sit in their own fold and are left as they are. A header tab
+     (panelFilter) leaves only its kind's cards; when none of that kind is
+     left, every card shows again. */
   function foldCards(shadow, rerender) {
-    const cards = [...shadow.querySelectorAll(".list .card[data-card]:not(.ev-card)")];
+    let cards = [...shadow.querySelectorAll(".list .card[data-card]:not(.ev-card)")];
+    if (panelFilter && !cards.some((c) => c.dataset.cat === panelFilter)) panelFilter = null;
+    if (panelFilter) {
+      for (const c of cards) if (c.dataset.cat !== panelFilter) c.classList.add("out");
+      cards = cards.filter((c) => c.dataset.cat === panelFilter);
+    }
     if (cards.length < 2) return;
     if (!cards.some((c) => c.dataset.card === focusCard)) focusCard = cards[0].dataset.card;
     for (const card of cards) {
@@ -3131,14 +4777,16 @@
   function wireChrome(shadow, close, rerender) {
     shadow.getElementById("panelClose")?.addEventListener("click", close);
     shadow.getElementById("panelSettings")?.addEventListener("click", () => openSettings());
-    // A count in the header opens the first card of its kind.
-    for (const chip of shadow.querySelectorAll("[data-jump]")) {
-      chip.addEventListener("click", () => {
-        const card = shadow.querySelector(`.list .card[data-cat="${chip.dataset.jump}"]`);
-        if (!card) return;
-        focusCard = card.dataset.card;
+    // A tab in the header shows its kind only, its first card open; All, or the same tab again, shows every kind.
+    for (const tab of shadow.querySelectorAll("[data-filter]")) {
+      tab.addEventListener("click", () => {
+        const k = tab.dataset.filter;
+        panelFilter = k === "all" || k === panelFilter ? null : k;
+        const open = shadow.querySelector(`.list .card[data-card="${CSS.escape(String(focusCard))}"]`);
+        const first = panelFilter ? shadow.querySelector(`.list .card[data-cat="${panelFilter}"]`) : null;
+        if (first && open?.dataset.cat !== panelFilter) focusCard = first.dataset.card;
         rerender();
-        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(focusCard)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
+        try { shadow.querySelector(`.list .card[data-card="${CSS.escape(String(focusCard))}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* old engine */ }
       });
     }
     wireDrag(shadow);
@@ -3421,7 +5069,44 @@
      throw away what they were typing. */
   const ORPHAN_PILL_TEXT = "Tracely was updated or turned off — reload this tab";
   function orphanPillHtml() {
-    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}"><span class="plane">${PLANE_SVG}</span>${ORPHAN_PILL_TEXT}</div>`;
+    return `<div class="pill quiet orphan" id="pill" title="${ORPHAN_PILL_TEXT}">${PILL_MARK}${ORPHAN_PILL_TEXT}</div>`;
+  }
+  /* The Tracely mark (MARK_PNG) in its own colours, wherever a pill or a
+     panel head names Tracely. Owner, 2026-10-13: the grey circle with a
+     plane was not the logo. A page whose policy refuses data: images gets
+     the plane in a circle instead (makeWidget), never a broken image. */
+  const PILL_MARK = `<img class="pill-mark" src="${MARK_PNG}" alt="" draggable="false" />`;
+  /* Paused or off from Settings (prefs.pausedUntil): a quiet pill that says
+     so, and, opened, one card with Resume — both modes (pausedWire). Nothing
+     is read, sent or drawn while it shows. */
+  /* `docOff`: this Doc is set never to be checked (Settings → Documents), so
+     the same quiet card says that instead, and its button checks this Doc
+     again. A pause from Settings says its own words first. */
+  function quietCopy(docOff = false) {
+    if (docOff && !tracelyPaused()) return { title: "Off for this document", pill: "Off for this doc", hover: "Tracely never checks this document.", line: "You set Tracely never to check this document, so nothing in it is read or sent.", button: "Check this document", section: "documents" };
+    const off = prefs.pausedUntil === -1;
+    return { title: off ? "Tracely is off" : "Tracely is paused", pill: off ? "Tracely is off" : "Paused", hover: pausedLine(), line: `${pausedLine()} Nothing is checked or sent until then.`, button: off ? "Turn on" : "Resume now", section: "general" };
+  }
+  function pausedHtml(open, docOff = false) {
+    const c = quietCopy(docOff);
+    return `${open ? `
+      <div class="panel opening">
+        <div class="head">${MARK_SOLID_SVG}<span class="name">Tracely</span></div>
+        <div class="list">
+          <div class="card">
+            <div class="top"><span class="dot"></span><span class="ctitle">${c.title}</span></div>
+            <div class="expl">${esc(c.line)}</div>
+            <div class="row"><button class="act primary" id="tracelyResume">${c.button}</button><button class="act" id="tracelyPausedSettings">Settings</button></div>
+          </div>
+        </div>
+      </div>` : ""}
+      <div class="pill quiet" id="pill" title="${esc(c.hover)}">${PILL_MARK}${c.pill}</div>`;
+  }
+  // `resume`: what the card's button does (Docs passes "check this Doc again" when that is what stops it).
+  function pausedWire(shadow, toggle, resume = resumeTracely, section = "general") {
+    shadow.getElementById("pill")?.addEventListener("click", toggle);
+    shadow.getElementById("tracelyResume")?.addEventListener("click", () => resume());
+    shadow.getElementById("tracelyPausedSettings")?.addEventListener("click", () => openSettings(section));
   }
 
   /* ── the app's design tokens ───────────────────────────────────────────
@@ -3430,9 +5115,11 @@
      (src/renderer/src/styles/index.css, and markMotion/problemCopy for the
      marks). Two copies on purpose: CSS custom properties for the widget's
      shadow root, and this object for the Docs popovers, which live in the
-     page DOM and cannot see shadow CSS. Dark mode is deliberately absent —
-     the app's dark tokens are --bg #0b0b0d / --surface #17171b / --text
-     #f6f6f8 / --border rgba(255,255,255,.18) for whoever adds it. */
+     page DOM and cannot see shadow CSS. Dark (2.21.66, Settings → General →
+     Appearance, themeDark): the app's dark tokens (--bg #0b0b0d / --surface
+     #17171b / --text #f6f6f8 / --border rgba(255,255,255,.18)) under
+     WIDGET_CSS's :host(.tracely-dark), and Docs mode's DM_DARK for the page's
+     cards. This object stays the light values. */
   const APP = {
     // The app ships NO webfont: it renders in the reader's system font, so
     // matching it means using the same stack, not bundling a face. The
@@ -3475,9 +5162,40 @@
       --chip-wash: ${APP.chipWash};
       --shadow-sm: ${APP.shadowSm}; --shadow-card: ${APP.shadowCard}; --shadow-lg: ${APP.shadowLg};
       --r-card: ${APP.rCard}; --r-btn: ${APP.rBtn}; --r-chip: ${APP.rChip};
+      /* The widget's own neutrals (Settings → General → Appearance: themeDark). */
+      --w-ink: #1a1a1f; --w-muted: #6b6c72; --w-hint: #9a9ba1; --w-faint: #8a8b90; --w-sub: #55565c; --w-dim: #3a3b40;
+      --w-line: #ececee; --w-edge: #e4e4e7; --w-ctl: #d4d4d8; --w-ctl-hover: #c4c4ca;
+      --w-fill: #f4f4f5; --w-fill-hover: #ececee; --w-hover: #f2f2f2; --w-soft: #f7f7f8; --w-ins: #efeff2;
+      --w-frame: #000; --w-primary: #1a1a1f; --w-primary-hover: #000; --w-on-primary: #fff; --w-on-primary-dim: rgba(255,255,255,.7);
+      --w-ok-ink: #1f7a4d; --w-bad-ink: #b02a2a; --w-link-ink: #245d99;
+      --w-launcher: #1c1c1c; /* the launcher sits on the page, which stays light: dark in both themes */
+    }
+    /* Dark (Settings → General → Appearance): the desktop app's dark tokens, as
+       the Settings page uses them. The finding colours, the brand orange and
+       the launcher stay as they are. */
+    :host(.tracely-dark) {
+      color-scheme: dark; /* the list scrollbar and native controls too */
+      --surface: #17171b; --bg: #0b0b0d; --surface-2: rgba(255,255,255,.04);
+      --text: #f6f6f8; --ink: #f6f6f8; --body: rgba(246,246,248,.66);
+      --muted: rgba(246,246,248,.66); --label: rgba(246,246,248,.62); --chip-ink: rgba(246,246,248,.8);
+      --border: rgba(255,255,255,.18); --border-strong: rgba(255,255,255,.28); --hairline: rgba(255,255,255,.14);
+      --accent-ink: #f97316; --accent-wash: rgba(244,123,32,.16); --accent-border: rgba(244,123,32,.3); --ring: rgba(244,123,32,.4);
+      --chip-wash: rgba(255,255,255,.08); --danger: #ff5c4d;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.4); --shadow-lg: 0 20px 40px rgba(0,0,0,.5);
+      --w-ink: #f6f6f8; --w-muted: rgba(246,246,248,.66); --w-hint: rgba(246,246,248,.45); --w-faint: rgba(246,246,248,.5); --w-sub: rgba(246,246,248,.72); --w-dim: rgba(246,246,248,.8);
+      --w-line: rgba(255,255,255,.1); --w-edge: rgba(255,255,255,.12); --w-ctl: rgba(255,255,255,.22); --w-ctl-hover: rgba(255,255,255,.32);
+      --w-fill: rgba(255,255,255,.06); --w-fill-hover: rgba(255,255,255,.1); --w-hover: rgba(255,255,255,.08); --w-soft: rgba(255,255,255,.05); --w-ins: rgba(255,255,255,.12);
+      --w-frame: rgba(255,255,255,.22); --w-primary: #f6f6f8; --w-primary-hover: #ffffff; --w-on-primary: #17171b; --w-on-primary-dim: rgba(23,23,27,.7);
+      --w-ok-ink: #4fbf85; --w-bad-ink: #f07a7a; --w-link-ink: #82b4ee;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
+    /* Settings → General → the launcher's corner (prefs.launcherSide, placeRoot): the bottom left, everything in it mirrored. */
+    .root.left { right: auto; left: 22px; }
+    .root.left .launcher { margin-left: 0; margin-right: auto; }
+    .root.left .panel { right: auto; left: 0; }
+    .root.left .ready-ping { margin-left: 0; margin-right: auto; }
+    .root.left .pill { margin-left: 0; margin-right: auto; }
     /* ── Pill ─────────────────────────────────────────────────────────── */
     .pill {
       display: flex; align-items: center; gap: 8px; height: 40px;
@@ -3491,7 +5209,7 @@
     }
     .pill:hover { transform: translateY(-1px); border-color: var(--border-strong); }
     .pill.quiet { color: var(--label); font-weight: 500; }
-    .pill.quiet .plane { background: #c8c8cc; }
+    .pill.quiet .plane { background: var(--w-ctl-hover); }
     .pill.orphan { cursor: default; color: var(--label); font-weight: 500; height: auto; min-height: 40px; padding: 8px 14px 8px 8px; white-space: normal; max-width: min(360px, calc(100vw - 44px)); }
     .pill.orphan:hover { transform: none; border-color: var(--border); }
     .plane {
@@ -3501,6 +5219,7 @@
       color: #fff; flex-shrink: 0;
     }
     .plane svg { width: 13px; height: 13px; }
+    .pill-mark { width: 24px; height: 24px; padding: 1px; box-sizing: border-box; object-fit: contain; display: block; flex-shrink: 0; pointer-events: none; }
     /* The app's count chip: neutral, so the number carries the meaning. */
     .count, .badge {
       background: var(--chip-wash); color: var(--chip-ink);
@@ -3517,7 +5236,7 @@
        nothing flagged there is no badge at all, as in the frame. */
     .launcher {
       position: relative; width: 56px; height: 56px; border-radius: 50%;
-      background: var(--ink); cursor: pointer; user-select: none;
+      background: var(--w-launcher); cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 2px 10px rgba(0,0,0,.18);
       transition: box-shadow .12s ease, transform .12s ease;
@@ -3531,7 +5250,7 @@
     .launch-plane svg { width: 100%; height: 100%; }
     .launcher .count {
       position: absolute; top: -8.5px; right: -3.5px; min-width: 31px; height: 31px; padding: 0 8px;
-      border-radius: 999px; border: 2px solid #fff; background: ${MARK_COLORS.questionable}; color: #fff;
+      border-radius: 999px; border: 2px solid #fff; background: #ff5900; color: #fff; /* the brand orange: it counts findings, it is none of them */
       font-size: 16px; font-weight: 600; letter-spacing: 0;
       display: flex; align-items: center; justify-content: center;
     }
@@ -3539,133 +5258,161 @@
     .launcher .count.ok { display: none; }
 
     /* ── Panel ────────────────────────────────────────────────────────── */
-    /* ── Panel (Figma "Widget over Document" 282:70) ─────────────────────
-       480 wide, 1px ink border, 24px radius, 22/24 padding, a hairline under
-       the header inset to the content width. Capped to the viewport: a 480px
-       card does not fit beside a narrow Docs window. */
+    /* ── Panel (Figma "Overlay Mockup - Widget (Clean)", 2026-10-14) ──────
+       440 wide, 1px ink border, 24px radius. Top to bottom: the header (the
+       mark, the name, the kind of writing, the switches), the tabs, the
+       list (one card open, the rest one line each), and a footer only when
+       it has something to offer. Capped to the viewport: the panel does not
+       always fit beside a narrow Docs window. */
     .panel {
       position: absolute; right: 0; bottom: 70px;
-      width: min(480px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
-      background: var(--surface); border: 1px solid #000; border-radius: 24px;
-      box-shadow: 0 8px 12px rgba(0,0,0,.18);
+      width: min(440px, calc(100vw - 44px)); max-height: min(620px, calc(100vh - 120px));
+      background: var(--surface); border: 1px solid var(--w-frame); border-radius: 24px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06);
       display: flex; flex-direction: column; overflow: hidden;
     }
-    /* The header is the panel's handle (wireDrag): a grip, the name, and the
-       close; the counts sit under it (.tally) and carry the rule. */
+    /* The header is the panel's handle (wireDrag). */
     .head {
-      display: flex; align-items: center; gap: 8px;
-      margin: 0 24px; padding: 18px 0 10px; cursor: grab; user-select: none; touch-action: none;
+      display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+      padding: 16px 14px 12px 20px; cursor: grab; user-select: none; touch-action: none;
     }
     .panel.dragging { box-shadow: 0 16px 36px rgba(0,0,0,.24); }
     .panel.dragging .head { cursor: grabbing; }
-    .grip { display: flex; color: #b9bac0; margin-left: -4px; }
-    .head:hover .grip { color: #6b6c72; }
-    .head .name { font-weight: 600; font-size: 18px; color: #1a1a1f; white-space: nowrap; }
-    .tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 24px; padding: 0 0 14px; border-bottom: 1px solid #e7e7e7; }
-    .chip {
-      display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px;
-      border-radius: 999px; border: 1px solid #e4e4e7; background: #fff;
-      font-family: inherit; font-size: 12.5px; font-weight: 600; color: #1a1a1f; cursor: pointer;
-      transition: border-color .15s ease, background .15s ease;
+    .head-mark { width: 20px; height: 20px; flex-shrink: 0; color: #ff5900; display: block; }
+    .head .name { font-weight: 600; font-size: 16px; color: var(--w-ink); white-space: nowrap; }
+    /* What Tracely reads the writing as (genreTitle): neutral, never a finding's colour. */
+    .head .kind { min-width: 0; padding: 3px 8px; border-radius: 999px; background: var(--chip-wash); color: var(--chip-ink); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* The tabs: the count, the filter and the legend in one row (panelHeadHtml). */
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 14px; border-bottom: 1px solid var(--w-line); flex-shrink: 0; }
+    .tab {
+      display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+      border-radius: 8px; border: none; background: var(--w-fill);
+      font-family: inherit; font-size: 13px; font-weight: 500; color: var(--w-ink); cursor: pointer;
+      transition: background .15s ease, color .15s ease;
     }
-    .chip:hover { border-color: #c9c9ce; background: #fafafa; }
-    .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tab:hover { background: var(--w-fill-hover); }
+    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tab-n { color: var(--w-muted); font-variant-numeric: tabular-nums; }
+    .tab.on, .tab.on:hover { background: var(--w-primary); color: var(--w-on-primary); }
+    .tab.on .tab-n { color: var(--w-on-primary-dim); }
+    .tab .kico svg { width: 13px; height: 13px; }
     .chip-ico { display: inline-flex; width: 13px; height: 13px; flex-shrink: 0; }
     .chip-ico svg { width: 13px; height: 13px; display: block; }
-    .chip-clear { cursor: default; font-weight: 500; color: #3a3b40; }
-    .chip-clear:hover { border-color: #e4e4e7; background: #fff; }
-    .close {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
-      border: none; background: #f2f2f2; color: #1a1a1f; cursor: pointer;
-      font-size: 17px; font-weight: 500; line-height: 1; font-family: inherit;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .close:hover { background: #e7e7e7; }
-    /* Settings: a 30px circle like the close, quiet until hovered. */
+    .tabs-clear { display: inline-flex; align-items: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 500; color: var(--w-dim); }
+    /* Settings, the off switch and Close: quiet 28px squares until hovered. */
     .hbtn {
-      margin-left: 8px; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; padding: 0;
-      border: none; background: transparent; color: #6b6c72; cursor: pointer;
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; padding: 0;
+      border: none; background: transparent; color: var(--w-muted); cursor: pointer;
       display: flex; align-items: center; justify-content: center; transition: background .15s ease, color .15s ease;
     }
     .hbtn svg { width: 16px; height: 16px; display: block; }
-    .hbtn:hover { background: #f2f2f2; color: #1a1a1f; }
+    .hbtn:hover { background: var(--w-hover); color: var(--w-ink); }
     .hbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .hbtn + .close { margin-left: 4px; }
-    /* The one legend (never colour alone): what each underline's LINE means. */
-    .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 2px 4px 0; font-size: 12px; color: #6b6c72; flex-shrink: 0; }
-    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-    .legend-line { display: inline-block; width: 22px; border-radius: 1px; }
-    .legend-ico { display: inline-flex; width: 12px; height: 12px; }
-    .legend-ico svg { width: 12px; height: 12px; display: block; }
+    .head .hbtn + .hbtn { margin-left: -4px; }
     /* Evidence suggestions: neutral on purpose — not a finding, so no finding colour. */
-    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid #ededed; }
-    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: #1a1a1f; cursor: pointer; }
+    .evidence { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; padding-top: 4px; border-top: 1px solid var(--w-line); }
+    .ev-toggle { align-self: flex-start; border: none; background: none; padding: 6px 2px; font: inherit; font-size: 13px; font-weight: 500; color: var(--w-ink); cursor: pointer; }
     .ev-toggle:hover { text-decoration: underline; }
-    .ev-intro { font-size: 12px; color: #6b6c72; margin-top: -6px; padding: 0 2px; }
+    .ev-intro { font-size: 12px; color: var(--w-muted); margin-top: -6px; padding: 0 2px; }
+    .ev-locked { display: flex; align-items: center; gap: 10px; padding: 6px 2px; font-size: 12.5px; color: var(--w-muted); }
+    .ev-locked span { flex: 1; min-width: 0; }
+    .ev-locked .act { flex-shrink: 0; }
     /* Resume tips: neutral, like evidence suggestions — writing advice, not a finding. */
     /* The list's groups — Claims, Citations, Writing feedback — each a name
        and its cards; the name is chrome, so ink, never a finding colour. */
-    .tips { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-    .tips + .tips { margin-top: 6px; }
-    .tips-head { font-size: 12px; font-weight: 600; color: #6b6c72; letter-spacing: .01em; padding: 2px 2px 0; }
-    .genre-line { font-size: 12px; color: #6b6c72; padding: 0 2px; flex-shrink: 0; }
+    .tips { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .tips + .tips { margin-top: 2px; }
+    .tips-head { font-size: 12px; font-weight: 600; color: var(--w-muted); letter-spacing: .01em; padding: 2px 2px 0; }
+    .genre-line { font-size: 12px; color: var(--w-muted); padding: 0 2px; flex-shrink: 0; }
     .head .autosrc { flex-shrink: 0; }
-    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: #8a8b90; max-width: 170px; text-align: right; }
+    .status { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--w-faint); max-width: 170px; text-align: right; }
     .status.error { color: var(--danger); }
     .selects { display: flex; gap: 6px; padding: 9px 16px; border-bottom: 1px solid var(--border); align-items: center; }
-    .foot .act { padding: 5px 10px; font-size: 11px; }
     .foot-left { display: flex; align-items: center; gap: 10px; }
+    .foot-left:empty { display: none; }
     select {
       font-size: 12px; font-weight: 500; font-family: ${JAKARTA};
       border: 1px solid var(--border-strong); border-radius: var(--r-btn);
       padding: 5px 8px; background: var(--surface); color: var(--text); outline: none;
     }
     select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-    .list { overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px; }
+    .list { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+    .list > .genre-line, .list > .empty, .list > .undo-strip, .list > .fixes, .list > .evidence { margin: 6px 0; }
     .empty { text-align: center; color: var(--body); font-size: 13px; line-height: 18.2px; padding: 28px 12px; }
 
     /* ── Cards ────────────────────────────────────────────────────────── */
-    /* Each card is its own box, so where one ends is never a guess; the
-       open one (foldCards) is drawn a shade firmer, the folded ones are a
-       title and one line of their sentence. */
+    /* The open card (foldCards) is a box: its kind, the sentence, why, the
+       fix, and its buttons. The folded ones are rows, no box: the kind's
+       icon on a tint of its colour, its title small over one line of the
+       sentence, and a chevron that says it opens. */
     .card {
-      background: var(--surface); border: 1px solid #ececec; border-radius: 12px;
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+      background: var(--surface); border: 1px solid var(--w-edge); border-radius: 14px;
+      padding: 14px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;
     }
-    .card[aria-expanded="true"] { border-color: #d4d4d8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-    .card.shut { gap: 4px; padding: 10px 14px; cursor: pointer; }
-    .card.shut:hover { background: #fafafa; border-color: #dcdcdf; }
+    .card[aria-expanded="true"] { border-color: var(--w-ctl); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+    .card.out { display: none; }
+    .card.shut {
+      display: grid; grid-template-columns: 32px minmax(0, 1fr) 16px; column-gap: 12px; row-gap: 1px; align-items: center;
+      padding: 10px 8px 10px 10px; border-color: transparent; border-radius: 12px; cursor: pointer;
+    }
+    .card.shut:hover { background: var(--w-soft); border-color: transparent; }
     .card.shut:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .card.shut > :not(.top):not(.quote) { display: none; }
+    .card.shut > .top { display: contents; }
+    .card.shut .kico { grid-column: 1; grid-row: 1 / span 2; width: 32px; height: 32px; border-radius: 9px; justify-content: center; align-items: center; background: color-mix(in srgb, currentColor 13%, var(--surface)); }
+    .card.shut .kico svg { width: 14px; height: 14px; }
+    .card.shut .ctitle { grid-column: 2; grid-row: 1; font-size: 12px; font-weight: 500; color: var(--w-muted); }
+    .card.shut .x { display: none; }
     .card.shut .quote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card.shut .quote { grid-column: 2; grid-row: 2; display: block; color: var(--w-ink); }
+    .card.shut::after {
+      content: ""; grid-column: 3; grid-row: 1 / span 2; justify-self: center; width: 6px; height: 6px;
+      border-right: 1.75px solid var(--w-hint); border-bottom: 1.75px solid var(--w-hint); transform: rotate(-45deg);
+    }
     .top { display: flex; align-items: center; gap: 8px; }
+    .kico { display: inline-flex; flex-shrink: 0; }
+    .kico svg { width: 14px; height: 14px; display: block; }
+    /* TALLY's kinds in MARK_COLORS, so an icon matches the underline that raised it. */
+    ${TALLY.map(([k, mark]) => `.k-${k} { color: ${MARK_COLORS[mark]}; }`).join("\n    ")}
     /* The dot replaces the left colour bar; the title beside it says the same
        thing in words, so colour is never the only carrier. */
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9ba1; flex-shrink: 0; }
     /* MARK_COLORS, so a card's dot matches the underline that raised it. */
     .d-false { background: #d93636; }
-    .d-quest { background: #ff5900; }
+    .d-quest { background: ${MARK_COLORS.questionable}; }
     .d-inco { background: #d93636; }
     .d-cite { background: #ffb800; }
+    .d-note { background: ${MARK_COLORS.note_tip}; }
     .d-flow { background: #7344f1; }
     /* FEATURES: the switched-off controls are drawn and then hidden here, so
        render() stays the code server/test exercises. */
     ${FEATURES.citeHintsToggle ? "" : "label.autosrc:has(#citeTgl) { display: none; }"}
     ${FEATURES.autoSources ? "" : "label.autosrc:has(#autoSrcTgl) { display: none; }"}
     ${FEATURES.deepDive ? "" : ".deep, .deep-row { display: none; }"}
-    .ctitle { font-size: 14px; font-weight: 600; color: #1a1a1f; min-width: 0; }
-    .x { margin-left: auto; background: none; border: none; color: var(--label); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px; }
-    .x:hover { color: var(--text); }
-    /* The writer's own words, set off by a rule; the advice under it is the body. */
-    .quote { font-size: 13px; line-height: 1.45; color: #55565c; padding-left: 10px; border-left: 2px solid #e4e4e7; }
-    .expl { font-size: 13px; line-height: 1.45; color: var(--body); }
+    .ctitle { font-size: 13px; font-weight: 600; color: var(--w-ink); min-width: 0; }
+    .x {
+      margin-left: auto; flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px; padding: 0;
+      background: none; border: none; color: var(--w-hint); cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .x svg { width: 14px; height: 14px; display: block; }
+    .x:hover { color: var(--text); background: var(--w-hover); }
+    /* "Never flag this" sits before Dismiss: it takes the free space, Dismiss sits beside it. */
+    .x.never + .x { margin-left: 0; }
+    /* The writer's own words, quiet and two lines at most; why it is flagged, under it, is the body. */
+    .quote {
+      font-size: 13px; line-height: 19px; color: var(--w-muted);
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+    }
+    .expl { font-size: 13px; line-height: 19px; color: var(--w-ink); }
 
-    /* ── Insets (deep dive, suggested revision) ───────────────────────── */
-    .deep, .fix {
+    /* ── Insets (deep dive, suggested fix) ────────────────────────────── */
+    .deep {
       background: var(--surface-2); border: 1px solid var(--border);
       border-radius: var(--r-btn); padding: 10px 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
+    .fix { background: var(--w-fill); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
     .deep-row { margin: -2px 0 0; }
     .deep-btn {
       background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-btn);
@@ -3688,7 +5435,8 @@
     .deep-sub { margin-top: 6px; }
     .deep .row { margin-top: 4px; }
     .deep-text, .fix-text { font-size: 13px; line-height: 18.2px; color: var(--body); white-space: pre-line; }
-    .fix-text { white-space: normal; }
+    .fix-text { white-space: normal; color: var(--w-ink); line-height: 19px; }
+    .fix-label { font-weight: 500; color: var(--w-hint); }
     .deep-note { font-size: 11px; color: var(--label); }
     .deep-note.err { color: var(--danger); }
     .deep-note a { color: var(--accent-ink); font-weight: 500; text-decoration: none; }
@@ -3699,16 +5447,22 @@
     @media (prefers-reduced-motion: reduce) { .deep-spin { animation: none; } }
     /* A card's actions sit at their own width, the one it asks for first and
        filled: a full-width bar per button outweighed the advice. */
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .row > button.act { flex: 0 0 auto; }
+    /* Copy, as an icon at the row's end beside Apply fix and Find a source. */
+    .row > button.act.icon {
+      margin-left: auto; width: 32px; height: 32px; padding: 0; border: none; border-radius: 8px;
+      background: none; color: var(--w-muted); display: inline-flex; align-items: center; justify-content: center;
+    }
+    .row > button.act.icon svg { width: 16px; height: 16px; display: block; }
+    .row > button.act.icon:hover:not([disabled]) { background: var(--w-hover); color: var(--w-ink); }
     .edit-note { font-size: 11px; color: var(--label); }
     .undo-strip {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
-      background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
+      font-size: 12.5px; font-weight: 500; color: var(--ink);
+      background: var(--w-fill); border-radius: 10px; padding: 6px 6px 6px 12px;
     }
-    .undo-strip button.act { padding: 5px 10px; font-size: 11px; }
+    .undo-strip button.act { padding: 5px 10px; font-size: 12px; }
     /* The live search: its sites' icons in the panel card, and the "Sources
        ready" note over the launcher (ink only — colour is for findings). */
     .live-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
@@ -3723,6 +5477,10 @@
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
+    /* The fix-all bar: wider, and its words wrap rather than lose "out of view" to an ellipsis. */
+    .ready-ping.fix-ping { max-width: 400px; }
+    .fix-ping .ready-text { white-space: normal; line-height: 1.35; }
+    .fix-ping .fix-away { color: var(--muted); }
     /* A note rises in out of the launcher the first time it shows (not on
        every re-render: the class is only on the render that brings it). */
     .ready-ping.enter { animation: tracely-ping-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -3731,14 +5489,6 @@
       to { opacity: 1; transform: none; }
     }
     @media (prefers-reduced-motion: reduce) { .ready-ping.enter { animation: none; } }
-    /* "Let Tracely fix these" (Docs): the undo strip's shape, ink only. */
-    .walk-strip {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      font-size: 12px; font-weight: 500; color: var(--ink);
-      background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--r-btn); padding: 6px 8px 6px 12px;
-    }
-    .walk-strip button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
     /* "Let Tracely fix these": the prepared changes, each waiting for the
        writer. Ink only — a removed word struck through, an added one
        underlined; the dot is the flag's own finding colour. */
@@ -3747,35 +5497,36 @@
     .fixes-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
     .fixes-acts { display: inline-flex; gap: 6px; }
     .fixes-acts button.act { padding: 5px 12px; font-size: 12px; }
-    .fixes-note { font-size: 11.5px; color: #6b6c72; }
-    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #ececec; border-radius: 10px; background: var(--surface); }
+    .fixes-note { font-size: 11.5px; color: var(--w-muted); }
+    .fx { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--w-line); border-radius: 10px; background: var(--surface); }
     .fx-top { display: flex; align-items: center; gap: 8px; }
-    .fx-title { font-size: 12.5px; font-weight: 600; color: #1a1a1f; }
-    .fx-diff { font-size: 12.5px; line-height: 1.5; color: #55565c; }
-    .fx-diff del { color: #8a8b90; text-decoration: line-through; }
-    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: #efeff2; border-radius: 3px; padding: 0 2px; }
-    .fx-line { font-size: 11.5px; color: #55565c; }
-    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #55565c; min-width: 0; }
+    .fx-title { font-size: 12.5px; font-weight: 600; color: var(--w-ink); }
+    .fx-diff { font-size: 12.5px; line-height: 1.5; color: var(--w-sub); }
+    .fx-diff del { color: var(--w-faint); text-decoration: line-through; }
+    .fx-diff ins { color: var(--ink); text-decoration: none; font-weight: 600; background: var(--w-ins); border-radius: 3px; padding: 0 2px; }
+    .fx-line { font-size: 11.5px; color: var(--w-sub); }
+    .fx-src { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--w-sub); min-width: 0; }
     .fx-src img { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
     .fx-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6c72; }
+    .fx-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--w-muted); }
     .fx-applied { opacity: .75; }
     .fx-applied .fx-state { color: var(--ink); font-weight: 500; }
     .fx-skipped { opacity: .55; }
     .fx .row button.act { padding: 5px 12px; font-size: 12px; }
 
     /* ── Buttons: the app's .btn / .btn-dark ──────────────────────────── */
-    /* The frame's pills: an ink fill, or a 1.5px ink outline. */
+    /* 8px rounded rectangles (the clean frame): an ink fill for the one a
+       card asks for first, a grey outline for the rest. */
     button.act {
-      border: 1.5px solid #111; background: var(--surface); color: #1a1a1f;
-      border-radius: 999px; padding: 7px 14px;
-      font-size: 12.5px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
-      transition: transform .1s ease, border-color .15s ease, color .15s ease, filter .15s ease;
+      border: 1px solid var(--w-ctl); background: var(--surface); color: var(--w-ink);
+      border-radius: 8px; padding: 7px 12px;
+      font-size: 13px; font-weight: 500; font-family: ${JAKARTA}; cursor: pointer;
+      transition: transform .1s ease, border-color .15s ease, background .15s ease, color .15s ease;
     }
-    button.act:hover:not([disabled]) { background: rgba(0,0,0,.04); }
+    button.act:hover:not([disabled]) { background: var(--w-soft); border-color: var(--w-ctl-hover); }
     button.act:active:not([disabled]) { transform: scale(.98); }
-    button.act.primary { background: #111; border-color: #111; color: #fff; }
-    button.act.primary:hover:not([disabled]) { background: #000; color: #fff; }
+    button.act.primary { background: var(--w-primary); border-color: var(--w-primary); color: var(--w-on-primary); }
+    button.act.primary:hover:not([disabled]) { background: var(--w-primary-hover); border-color: var(--w-primary-hover); color: var(--w-on-primary); }
     button.act[disabled] { opacity: .5; cursor: default; }
 
     /* ── Sources ──────────────────────────────────────────────────────── */
@@ -3787,11 +5538,11 @@
       margin-top: 2px; flex-shrink: 0;
       background: var(--chip-wash); color: var(--chip-ink);
     }
-    .st-supports { color: #1f7a4d; }
-    .st-refutes { color: #b02a2a; }
+    .st-supports { color: var(--w-ok-ink); }
+    .st-refutes { color: var(--w-bad-ink); }
     .st-context { color: var(--chip-ink); }
-    .st-manual { color: #245d99; }
-    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .st-manual { color: var(--w-link-ink); }
+    .src-ico { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: 6px; border: 1px solid var(--w-line); background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .src-ico:empty { display: none; }
     .src-ico img { width: 14px; height: 14px; display: block; }
     .src-body { flex: 1; min-width: 0; }
@@ -3799,6 +5550,10 @@
     .src-title { font-size: 13px; font-weight: 500; color: var(--ink); display: block; }
     .src a:hover { color: var(--accent-ink); }
     .src-meta { font-size: 11px; color: var(--label); }
+    .trim-head { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+    .trim-note, .trim-preview { font-size: 12px; line-height: 1.45; margin-top: 4px; }
+    .trim-label { color: var(--label); }
+    .trim-cut { color: var(--label); }
     .src-snip { font-size: 12px; line-height: 16.8px; color: var(--body); }
     .src-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     /* The receipt: the source's own words, and where they were read. */
@@ -3809,6 +5564,11 @@
     .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; }
     .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
     .loading { font-size: 13px; color: var(--body); }
+    /* A search that needs a sign-in, or ran out (searchGateHtml): grey, never a finding's colour. */
+    .gate { margin-top: 8px; padding: 12px; border-radius: 10px; background: var(--w-soft); display: flex; flex-direction: column; gap: 6px; }
+    .gate-head { font-size: 13px; font-weight: 600; color: var(--w-ink); }
+    .gate-body { font-size: 12px; line-height: 1.45; color: var(--w-muted); }
+    .gate .row { margin-top: 4px; flex-wrap: wrap; }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
       flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -3818,7 +5578,12 @@
     .cite-url input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
     .autosrc { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--label); cursor: pointer; user-select: none; }
     .autosrc input { accent-color: var(--accent); }
-    .foot { margin: 0 24px; padding: 12px 0 18px; border-top: 1px solid #e7e7e7; font-size: 11px; color: var(--label); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    /* The footer holds the panel's one bulk action ("N fixes to review",
+       Review all), or a site's Turn on; with nothing to offer it is not drawn. */
+    .foot { flex-shrink: 0; padding: 12px 14px 12px 20px; border-top: 1px solid var(--w-line); font-size: 13px; color: var(--w-muted); display: flex; align-items: center; gap: 8px; }
+    .foot.empty { display: none; }
+    .foot > button.act, .foot > a { margin-left: auto; }
+    .foot-ready b { color: var(--w-ink); font-weight: 600; }
     /* The panel eases up out of the pill when it opens (re-renders while it
        stays open don't replay it). Reduced motion: it just appears. */
     .panel.opening { animation: tracely-panel-in 170ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -3837,6 +5602,7 @@
   function makeWidget() {
     const host = document.createElement("div");
     host.id = "tracely-host";
+    if (themeDark()) host.classList.add("tracely-dark"); // Settings → General → Appearance (applyTheme)
     const shadow = host.attachShadow({ mode: "open" });
     document.documentElement.appendChild(host);
     const style = document.createElement("style");
@@ -3845,6 +5611,10 @@
     const root = document.createElement("div");
     root.className = "root";
     shadow.appendChild(root);
+    // A page whose policy refuses data: images: the plane in a circle for the mark (PILL_MARK).
+    shadow.addEventListener("error", (e) => {
+      if (e.target?.classList?.contains("pill-mark")) e.target.outerHTML = `<span class="plane">${PLANE_SVG}</span>`;
+    }, true);
     return { host, shadow, root };
   }
 
@@ -3885,6 +5655,9 @@
   function docsMode() {
     const DOC_ID = harness ? "harness" : (location.pathname.match(/\/document\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] ?? null);
     if (!DOC_ID) return;
+    // Settings → Documents: this Doc's own settings, and whether Tracely is quiet here — paused everywhere, or never checking this Doc.
+    const docOff = () => docPref(DOC_ID).never;
+    const docQuiet = () => tracelyPaused() || docOff();
     const ACCOUNT_PREFIX = harness ? "" : docAccountPrefix(
       (() => { try { return performance.getEntriesByType("navigation")[0]?.name; } catch { return ""; } })(),
       location.href,
@@ -3912,15 +5685,18 @@
     const docsStorage = useRelay && typeof chrome !== "undefined" && Boolean(chrome.storage?.local);
     let docsOn = harness || !docsStorage;
     if (docsStorage) {
+      // (`widget` was read here, a name this mode never declares: unless the page had an element
+      // with that id, the answer threw before render and cycle, and a Doc just turned on waited for
+      // the next tick. A storage answer comes after this mode is set up: the widget is there by then.)
       storageGet({ docsEnabled: false }, (st) => {
         docsOn = st.docsEnabled === true;
-        if (widget) render();
+        render();
         if (docsOn) cycle();
       });
       storageOnChanged((changes, area) => {
         if (area !== "local" || !changes.docsEnabled) return;
         docsOn = changes.docsEnabled.newValue === true;
-        if (widget) render();
+        render();
         if (docsOn) cycle();
       });
     }
@@ -3930,10 +5706,57 @@
     // Verdicts and source lists persist per doc: reopening the tab re-checks
     // NOTHING that hasn't changed (hash-keyed, stale entries just never
     // match) and never re-searches a claim it already has sources for.
-    const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", []));
+    const cache = new Map(jsonParse(lsGet(VCACHE_KEY) ?? "[]", [])
+      // A fix saved by an earlier build is held to one sentence too (oneSentenceFix).
+      .map((e) => (Array.isArray(e) && e[1] && typeof e[1] === "object" && e[1].revision ? [e[0], { ...e[1], revision: oneSentenceFix(e[1].revision) }] : e)));
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
-      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+      .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, partial: typeof st.partial?.partial?.trimmed === "string" ? st.partial : null, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+    /* Settings (prefs): a pause takes the underlines and the open card at once
+       and the checking stops; the end of one starts it again. "Clear saved
+       checks" empties what this page holds too, not only what it saved. The
+       first answer opens the panel when Settings asks for it on a new Doc.
+       The keyboard shortcut opens and closes the panel. */
+    let prefsSeen = false;
+    prefsListeners.add(() => {
+      if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); requestDocsMarks(); }
+      if (!prefsSeen) { prefsSeen = true; if (prefs.panelOpen && docsOn && !docQuiet()) expanded = true; }
+      // Settings → Documents and Memory: this Doc's saved checks reset, its dismissed notes back (here, or in every document).
+      const own = docPref(DOC_ID);
+      if (newMark(`tracely.resetAt.${DOC_ID}`, own.resetAt)) {
+        cache.clear(); sourcesMap.clear(); review.lastText = null; review.findings = [];
+        for (const k of [VCACHE_KEY, SCACHE_KEY, RCACHE_KEY, FCACHE_KEY]) lsDel(k);
+      }
+      if ([newMark(`tracely.undismissAt.${DOC_ID}`, own.undismissAt), newMark("tracely.undismissedAt", prefs.undismissedAt)].some(Boolean)) { dismissed.clear(); lsDel(DISMISS_KEY); }
+      if (docQuiet()) { hideDocsPopover(); clearDocsMarks(); }
+      // Checking and Citations, on the text already read: the kind of writing, the style, the sources offered, what is underlined.
+      adoptStylePick(settings);
+      if (docText) { readDocKind(); settings.citationStyle = citeStyleFor(docText, own.style); }
+      refilterSources(sourcesMap);
+      render(); // (a storage answer comes after this mode is set up: the widget is there)
+      if (!docQuiet()) { requestDocsMarks(); cycle(); }
+    });
+    panelTogglers.add(() => { expanded = !expanded; render(); });
+    // Settings → General → Appearance: the cards in the page take the theme's palette (DM, below), and an open card is drawn again.
+    themeListeners.add((dark) => { Object.assign(DM, dark ? DM_DARK : DM_LIGHT); hideDocsPopover({ instant: true }); });
+    /* Settings → Documents: this Doc's line in the list — its title, where it
+       is, what is open, when it was read and how much it keeps here. Under its
+       own key ("doc.<id>"), so two open Docs never write over each other, and
+       only when the line changes or every 10 minutes. Never on a test page, in
+       a Doc Tracely is quiet in, or before the Doc has been read. */
+    let indexLine = "", indexAt = 0;
+    function noteDocIndex(tally) {
+      if (harness || !docsStorage || !docsOn || docQuiet() || !docText) return;
+      const title = String(document.title || "").replace(/\s*-\s*Google Docs\s*$/i, "").trim().slice(0, 200) || "Untitled document";
+      const counts = { wrong: tally.wrong || 0, check: tally.check || 0, cite: tally.cite || 0 };
+      const line = JSON.stringify([title, counts]);
+      if (line === indexLine && Date.now() - indexAt < 600_000) return;
+      indexLine = line;
+      indexAt = Date.now();
+      let bytes = 0;
+      for (const k of [VCACHE_KEY, SCACHE_KEY, RCACHE_KEY, FCACHE_KEY, DISMISS_KEY]) bytes += (lsGet(k) ?? "").length;
+      storageSet({ [`doc.${DOC_ID}`]: { title, url: `https://docs.google.com/document${ACCOUNT_PREFIX}/d/${DOC_ID}/edit`, counts, checkedAt: indexAt, bytes } });
+    }
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -4033,8 +5856,8 @@
         keep.push(...entries.filter(([h]) => !live.has(h)).slice(-(400 - keep.length)));
       }
       const src = [...sourcesMap]
-        .filter(([, st]) => st.list?.length)
-        .map(([h, st]) => [h, { list: st.list.slice(0, 5), unread: (st.unread ?? []).slice(0, 5), citedUrl: st.citedUrl ?? null }]);
+        .filter(([, st]) => st.list?.length || st.partial)
+        .map(([h, st]) => [h, { list: (st.list ?? []).slice(0, 5), unread: (st.unread ?? []).slice(0, 5), partial: st.partial ?? null, citedUrl: st.citedUrl ?? null }]);
       let ok = lsSet(VCACHE_KEY, JSON.stringify(keep));
       ok = lsSet(SCACHE_KEY, JSON.stringify(src.slice(-20))) && ok;
       if (!ok) {
@@ -4069,8 +5892,14 @@
     let settings = loadSettings(SETTINGS_KEY);
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
+    let sourceAttr = new Map(); // sentence hash → "named" | "unnamed": what its source note says (attributionBySentence)
     let inflight = false;
-    let sourcesInflight = false;
+    // The writer's own searches in flight (fetchSources). An automatic one
+    // never counts here, so it can never make a press wait or do nothing.
+    let sourcesInflight = 0;
+    const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote), until the next one
+    let searchesOut = false; // the last search was refused for the plan's allowance (plan_limit): Review all says so
+    const replaceMap = new Map(); // hash → the evidence an unfound study can be replaced with (findReplacement): { loading } | { src, text } | { none } | { failed }
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
     let lastCheckFailed = false;
@@ -4082,6 +5911,13 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
+    let docShown = "";        // the kind the header names, "" when unsure (readKind)
+    // The kind of writing (readKind), or the model's when it has named one (kindWithModel); its genre decides the checks.
+    function readDocKind() {
+      ({ kind: docKind, shown: docShown } = kindForDoc(kindWithUsual(kindWithModel(readKind(docText), docText)), docPref(DOC_ID).kind));
+      docGenre = WRITING_KINDS[docKind].genre;
+    }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
     restoreReview(review, lsGet(RCACHE_KEY)); // the same text reads back the same notes, without a new review
     function persistReview() {
@@ -4125,6 +5961,7 @@
     let panelWasOpen = false; // so only the render that OPENS the panel animates it
     let docText = "";
     let copiedFixHash = null; // survives re-renders, unlike a bare textContent swap
+    let copiedTrimHash = null; // the trim card's Copy, when the Docs editor cannot take the edit
     let bridgeReady = false;  // Docs bridge configured server-side (developer builds) → in-doc edit buttons
     let docBusy = false;      // one document edit at a time, across every button
     // The in-editor engine's last ping (docs-hook.js). editable = its text API
@@ -4171,20 +6008,7 @@
     // the verdict it had (smallEdit). The counts are for the console.
     let verdictsReused = 0, sentencesChecked = 0;
     function inheritVerdicts(before) {
-      const live = new Set(segments.map((sg) => sg.hash));
-      const taken = new Set();
-      let n = 0;
-      for (const seg of segments) {
-        if (!seg.checkable || cache.has(seg.hash)) continue;
-        const old = inheritedVerdict(seg, before, live, cache, taken);
-        if (!old) continue;
-        cache.set(seg.hash, cache.get(old.hash));
-        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
-          dismissed.add(seg.hash);
-          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
-        }
-        n++;
-      }
+      const n = inheritVerdictsInto(segments, before, cache, dismissed, () => lsSet(DISMISS_KEY, JSON.stringify([...dismissed])));
       if (n) {
         verdictsReused += n;
         console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
@@ -4209,7 +6033,7 @@
 
     async function cycle() {
       if (orphaned || inflight || document.hidden) return;
-      if (!docsOn) return; // nothing leaves the page until Docs is turned on
+      if (!docsOn || docQuiet()) return; // nothing leaves the page until Docs is turned on, while Tracely is paused, or in a Doc it never checks
       inflight = true;
       lastCheckFailed = false;
       try {
@@ -4219,7 +6043,8 @@
         docText = newText;
         const before = segments;
         segments = segmentText(docText);
-        docGenre = FEATURES.resumeTips ? detectGenre(docText) : "prose";
+        readDocKind(); // always, tips or none
+        askKind(docText, "", api, () => { readDocKind(); render(); });
         // A sentence we rewrote stays hidden until the export stops showing it
         // (the edit has propagated) — or for 30s, if it never does (undone by hand).
         const liveHashes = new Set(segments.map((sg) => sg.hash));
@@ -4227,9 +6052,10 @@
         settleEditStates(readAt);
         if (inheritVerdicts(before)) persistCaches();
         citedLater = coveredByLaterCitation(docText, segments);
+        sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(docText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
-        if (!settings.styleChosen) settings.citationStyle = docCitationStyle(docText) ?? "mla"; // cite the way the doc already does
+        settings.citationStyle = citeStyleFor(docText, docPref(DOC_ID).style); // this Doc's, else Settings', else the way the doc already cites
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -4239,6 +6065,7 @@
             text: docText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
             model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
+            ...(FEATURES.citeFit ? { citeFit: true } : {}), // and whether each cited source fits its claim (wrong_source)
           });
           for (const f of data.findings ?? []) {
             cache.set(f.id, { verdict: f.verdict, explanation: f.explanation, revision: usableRevision(todo.find((x) => x.hash === f.id)?.text, f.revision), confidence: f.confidence });
@@ -4281,7 +6108,7 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
+        if (!f || dismissed.has(seg.hash) || editedHashes.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash), sourceAttr.get(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
@@ -4432,10 +6259,26 @@
             if (r && (line.joined.indexOf(S) >= 0 || r[1] === line.joined.length && r[0] > 0 || r[0] === 0 && S.startsWith(line.joined.slice(0, r[1])))) fromTop = Math.max(fromTop, line.top);
           }
         }
-        for (const line of lines) {
-          if (line.top < fromTop - 1) continue;
+        /* A line that sits wholly INSIDE the text counts only beside the rest
+           of it, on the line above or below. Owner, 2026-10-14: a title
+           wrapped as "The Impact of Artificial Intelligence on" is inside the
+           entry "… (2024). The impact of artificial intelligence on academic
+           integrity …", so the title was underlined as that entry, "Not cited
+           in your text". A line holding the text's start or its end is tied to
+           it, and stays (the text's other end may be scrolled out). */
+        const parts = [];
+        ordered.forEach((line, i) => {
+          if (line.top < fromTop - 1) return;
           const range = svgOverlapRange(line.joined, S);
-          if (!range) continue;
+          if (!range) return;
+          const piece = line.joined.slice(range[0], range[1]);
+          const whole = range[0] === 0 && range[1] === line.joined.length;
+          const sAt = piece === S || range[0] > 0 ? 0 : whole && S.includes(piece) ? S.indexOf(piece) : S.length - piece.length;
+          parts.push({ i, line, range, sAt, sEnd: sAt + piece.length, inside: whole && sAt > 0 && sAt + piece.length < S.length });
+        });
+        const partAt = new Map(parts.map((p) => [p.i, p]));
+        for (const { i, line, range, sAt, sEnd, inside } of parts) {
+          if (inside && partAt.get(i - 1)?.sEnd !== sAt && partAt.get(i + 1)?.sAt !== sEnd) continue;
           for (const [s, e, run] of line.spans) {
             if (e <= range[0] || s >= range[1]) continue;
             let f0 = 0, f1 = 1;
@@ -4490,7 +6333,7 @@
           if (e <= lo || s >= hi) continue;
           const f0 = lo > s ? frac(run, svgRawIndexAt(run.raw, lo - s)) : 0;
           const f1 = hi < e ? frac(run, svgRawIndexAt(run.raw, hi - s)) : 1;
-          if (f1 - f0 > 0.005) out.push({ node: run.node, f0, f1 });
+          if (f1 - f0 > 0.005) out.push({ node: run.node, f0, f1, raw: run.raw }); // raw: the run's words, to tell a redrawn run (fixGeoStale)
         }
         return out;
       };
@@ -4510,8 +6353,8 @@
       let point = null;
       for (const [s, e, run] of runs) {
         if (a === b && a > 0) {
-          if (lo - 1 >= s && lo - 1 < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - 1 - s) + 1) }; break; }
-        } else if (lo >= s && lo < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - s)) }; break; }
+          if (lo - 1 >= s && lo - 1 < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - 1 - s) + 1), raw: run.raw }; break; }
+        } else if (lo >= s && lo < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - s)), raw: run.raw }; break; }
       }
       return point ? { pieces: piecesOf(lo, at + b), at: point } : null;
     }
@@ -5261,9 +7104,11 @@
 
     function requestDocsMarks() {
       if (orphaned || document.hidden) return;
-      if (!docsOn) { if (docsBars.length) clearDocsMarks(); return; } // turned off: nothing drawn
+      if (!docsOn || docQuiet()) { if (docsBars.length) clearDocsMarks(); return; } // turned off, paused, or never checked here: nothing drawn
       lastLocateAt = Date.now();
       armAnnotationObserver();
+      // Whatever re-locates the underlines (Docs re-laid out, the 900 ms timer) places the suggestions too.
+      if (typeof followDocLayout === "function") followDocLayout();
       // The hook caps at 40 wants — cap here too so nothing is silently dropped
       // on the other side of the protocol.
       const issues = currentIssues().slice(0, 40);
@@ -5280,6 +7125,7 @@
       const tips = [];
       for (const t of allTips) {
         const host = issues.find(({ seg }) => tipCoversSentence(seg.text, t.mark));
+        if (host && EVIDENCE_TIP_KINDS.includes(t.kind) && host.f.verdict === "questionable") continue; // the same kind, already its card (withoutCarriedNotes)
         if (host) coTipsByHash.set(host.seg.hash, [...(coTipsByHash.get(host.seg.hash) ?? []), t]);
         else if (tips.length < Math.max(0, 40 - issues.length)) tips.push(t);
       }
@@ -5450,7 +7296,26 @@
       ink: "#1c1c1c", body: "#737373", hint: "#9a9ba1", green: "#16a34a", red: "#d93636", amber: "#ffb800", orange: "#ff5900",
       blockBg: "#f8f8f8", rowSel: "#f8f8f8", rowBorder: "#e5e5e5", chipBg: "#f2f2f2", pillBorder: "#e0e0e0",
       badge: "#1a56db", credBg: "#eef7f0", credOtherBg: "#f2f2f3",
+      surface: "#fff", onInk: "#fff", inkHover: "#000", hover: "rgba(0,0,0,0.04)", ctl: "#d9d9d9", radio: "#d1d1d1",
+      line: "#ededed", skel: "#ebebeb", skel2: "#f4f4f4", frame: "#000", faint: "#8a8b90", ins: "#efeff2", wash: "rgba(0,0,0,.07)",
     };
+    /* The cards Tracely puts in the page (the hover card, Review all's) read
+       DM when they are drawn, so Settings → General → Appearance swaps its
+       values (themeListeners, beside this mode's prefs listener) and the next
+       paint is in the new theme. `ink` is text and the primary fill, `onInk`
+       what sits on it. DOC_INK is for what is drawn on the document's own
+       text (the cursor, the Type preview): the page stays light, so it never
+       changes. */
+    const DM_LIGHT = { ...DM };
+    const DM_DARK = {
+      ...DM_LIGHT, // the finding colours, the brand orange and the badge blue stay
+      ink: "#f6f6f8", body: "rgba(246,246,248,.66)", hint: "rgba(246,246,248,.45)", green: "#34d399",
+      blockBg: "rgba(255,255,255,.05)", rowSel: "rgba(255,255,255,.07)", rowBorder: "rgba(255,255,255,.12)", chipBg: "rgba(255,255,255,.08)", pillBorder: "rgba(255,255,255,.18)",
+      credBg: "rgba(52,211,153,.12)", credOtherBg: "rgba(255,255,255,.06)",
+      surface: "#17171b", onInk: "#17171b", inkHover: "#ffffff", hover: "rgba(255,255,255,.06)", ctl: "rgba(255,255,255,.22)", radio: "rgba(255,255,255,.3)",
+      line: "rgba(255,255,255,.1)", skel: "rgba(255,255,255,.09)", skel2: "rgba(255,255,255,.05)", frame: "rgba(255,255,255,.28)", faint: "rgba(246,246,248,.5)", ins: "rgba(255,255,255,.12)", wash: "rgba(255,255,255,.1)",
+    };
+    const DOC_INK = DM_LIGHT.ink;
     /* The app's copy, verbatim where a state exists there (fixFlowCopy.ts,
        citationFlowCopy.ts), and in its voice where it does not. */
     const POP_COPY = {
@@ -5492,10 +7357,11 @@
       if (text != null) n.textContent = text;
       return n;
     }
-    function dmHead(color, title, right = null) {
+    // `wrap`: a title too long for one line keeps all its words (the out-of-searches card's).
+    function dmHead(color, title, right = null, { wrap = false } = {}) {
       const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
       h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
-      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      h.appendChild(el("span", wrap ? { fontSize: "14px", fontWeight: "600", color: DM.ink, lineHeight: "1.3" } : { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
       if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
       return h;
     }
@@ -5518,15 +7384,15 @@
       const b = el("button", {
         padding: "8px 14px", borderRadius: "8px", fontSize: "13px", whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer",
         fontFamily: "inherit", lineHeight: "normal", opacity: disabled ? ".6" : "1",
-        background: primary ? DM.ink : "#fff", border: `1px solid ${primary ? DM.ink : "#d9d9d9"}`,
-        color: primary ? "#fff" : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
+        background: primary ? DM.ink : DM.surface, border: `1px solid ${primary ? DM.ink : DM.ctl}`,
+        color: primary ? DM.onInk : DM.ink, fontWeight: primary ? "600" : "400", width: wide ? "100%" : "",
       }, label);
       b.type = "button";
       b.disabled = disabled;
       if (title) b.title = title;
       if (!disabled) {
-        b.addEventListener("mouseenter", () => { b.style.background = primary ? "#000" : "rgba(0,0,0,0.04)"; });
-        b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : "#fff"; });
+        b.addEventListener("mouseenter", () => { b.style.background = primary ? DM.inkHover : DM.hover; });
+        b.addEventListener("mouseleave", () => { b.style.background = primary ? DM.ink : DM.surface; });
       }
       return b;
     }
@@ -5555,7 +7421,7 @@
       return w;
     }
     function dmProgress() {
-      const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: "#ededed", overflow: "hidden", flex: "0 0 auto" });
+      const bar = el("div", { width: "100%", height: "6px", borderRadius: "999px", background: DM.line, overflow: "hidden", flex: "0 0 auto" });
       // Ink, not the frame's orange: orange is a finding colour, and a search
       // in progress is not a finding (CLAUDE.md "UI decisions").
       const fill = el("div", { height: "100%", width: "40%", borderRadius: "999px", background: DM.ink });
@@ -5569,10 +7435,10 @@
       const w = el("div", { display: "flex", flexDirection: "column", gap: "10px", flex: "0 0 auto" });
       for (const [wide, narrow] of [[214, 122], [186, 96]]) {
         const row = el("div", { display: "flex", alignItems: "center", gap: "10px" });
-        row.appendChild(el("span", { display: "block", width: "28px", height: "28px", borderRadius: "8px", background: "#ebebeb", flexShrink: "0" }));
+        row.appendChild(el("span", { display: "block", width: "28px", height: "28px", borderRadius: "8px", background: DM.skel, flexShrink: "0" }));
         const lines = el("span", { display: "flex", flexDirection: "column", gap: "6px" });
-        lines.appendChild(el("span", { display: "block", height: "9px", borderRadius: "999px", background: "#ebebeb", width: `${wide}px` }));
-        lines.appendChild(el("span", { display: "block", height: "8px", borderRadius: "999px", background: "#f4f4f4", width: `${narrow}px` }));
+        lines.appendChild(el("span", { display: "block", height: "9px", borderRadius: "999px", background: DM.skel, width: `${wide}px` }));
+        lines.appendChild(el("span", { display: "block", height: "8px", borderRadius: "999px", background: DM.skel2, width: `${narrow}px` }));
         row.appendChild(lines);
         w.appendChild(row);
         if (!reducedMotion() && typeof row.animate === "function") row.animate([{ opacity: 0.5 }, { opacity: 1 }, { opacity: 0.5 }], { duration: 1100, iterations: Infinity, easing: "ease-in-out" });
@@ -5592,7 +7458,7 @@
       const box = el("span", { position: "relative", width: "28px", height: "28px", flexShrink: "0", borderRadius: "8px", overflow: "hidden", background: DM.badge, color: "#fff", fontSize: "10px", fontWeight: "600", display: "flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
       const icon = faviconUrl(src.url);
       if (!icon) return box;
-      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: "1px solid #e5e5e5", borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
+      const wrap = el("span", { position: "absolute", inset: "0", background: "#fff", border: `1px solid ${DM.rowBorder}`, borderRadius: "8px", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" });
       const img = el("img", { width: "18px", height: "18px", display: "block" });
       img.alt = "";
       img.referrerPolicy = "no-referrer"; // the domain is all Google needs; never the page the user is on
@@ -5613,7 +7479,11 @@
       const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" });
       meta.appendChild(el("span", { fontSize: "13.5px", fontWeight: "500", color: DM.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, src.title || src.url));
       const sub = el("span", { display: "flex", alignItems: "center", gap: "6px", minWidth: "0", fontSize: "12px", color: DM.hint });
-      sub.appendChild(el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""}`));
+      // Publisher, year and how citable it is (credibilityFor), the reason on hover.
+      const cred = credibilityFor(src);
+      const pubLine = el("span", { minWidth: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, `${src.publisher || "Unknown publisher"}${src.year ? ` · ${src.year}` : ""} · ${cred.label}`);
+      pubLine.title = cred.why;
+      sub.appendChild(pubLine);
       // The app's match column never shrinks; here it says the source's stance on the claim.
       const stance = STANCE_LABEL[src.stance] ?? "Context";
       sub.appendChild(el("span", { color: src.stance === "supports" ? DM.green : src.stance === "refutes" ? DM.red : DM.body, fontWeight: "500", whiteSpace: "nowrap", flexShrink: "0" }, stance));
@@ -5638,7 +7508,7 @@
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
-      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      else Object.assign(radio.style, { border: `1.5px solid ${DM.radio}`, background: DM.surface });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
       return row;
@@ -5675,7 +7545,7 @@
       w.appendChild(el("span", { fontSize: "12px", fontWeight: "500", color: DM.body }, POP_COPY.style));
       for (const [key] of CITE_STYLES) {
         const on = key === current;
-        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? "#fff" : DM.body, background: on ? DM.ink : "#fff", border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
+        const p = el("button", { borderRadius: "999px", padding: "5px 11px", fontFamily: "inherit", fontSize: "12px", fontWeight: on ? "600" : "400", color: on ? DM.onInk : DM.body, background: on ? DM.ink : DM.surface, border: `1px solid ${on ? DM.ink : DM.pillBorder}`, cursor: "pointer" }, CITE_STYLE_LABEL[key]);
         p.type = "button";
         p.addEventListener("click", () => onSet(key));
         w.appendChild(p);
@@ -5691,7 +7561,7 @@
         transform: pointing === "down" ? "scaleY(-1)" : "", ...(above ? { marginTop: "-2px" } : { marginBottom: "-2px" }) });
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", "M11.5708 6.5H2.28562L6.9282 1.47363L11.5708 6.5Z");
-      path.setAttribute("fill", "white"); path.setAttribute("stroke", "black"); path.setAttribute("stroke-width", "2");
+      path.setAttribute("fill", DM.surface); path.setAttribute("stroke", DM.frame); path.setAttribute("stroke-width", "2"); // the card's own fill and edge
       svg.appendChild(path);
       return svg;
     }
@@ -5837,7 +7707,7 @@
       popEl = el("div", { position: "fixed", zIndex: "901", width: `${width}px`, display: "flex", flexDirection: "column", fontFamily: APP.font, color: DM.ink, WebkitFontSmoothing: "antialiased" });
       popEl.setAttribute("data-tracely-docs-popover", "");
       popEl.appendChild(dmTail("up", false));
-      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: "#fff", border: "2px solid #000", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
+      popCard = el("div", { display: "flex", flexDirection: "column", gap: "12px", background: DM.surface, border: `2px solid ${DM.frame}`, borderRadius: "16px", padding: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", boxSizing: "border-box", width: "100%", overflow: "hidden" });
       popCard.setAttribute("data-pop-card", "");
       popEl.appendChild(popCard);
       popStepShown = null;
@@ -6024,7 +7894,7 @@
       row.appendChild(meta);
       const radio = el("span", { width: "18px", height: "18px", flexShrink: "0", borderRadius: "999px", boxSizing: "border-box", marginTop: "2px" });
       if (selected) Object.assign(radio.style, { border: "none", background: DM.ink, boxShadow: `inset 0 0 0 6px ${DM.ink}, inset 0 0 0 3px #fff` });
-      else Object.assign(radio.style, { border: "1.5px solid #d1d1d1", background: "#fff" });
+      else Object.assign(radio.style, { border: `1.5px solid ${DM.radio}`, background: DM.surface });
       row.appendChild(radio);
       row.addEventListener("click", onSelect);
       return row;
@@ -6092,7 +7962,7 @@
       scroll.appendChild(rows);
       const yn = citedYearNote(src.year, c.plan?.citedYear);
       if (yn) scroll.appendChild(dmBlock("THE YEAR", dmBlockBody(yn)));
-      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; settings.styleChosen = true; saveSettings(); paintPop(); render(); }));
+      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; settings.styleChosen = true; saveSettings(); setPrefs({ citeStyle: k }); paintPop(); render(); }));
       const { marker, entry } = citedWorkEntry(src, style);
       const swapped = t?.kind === "sentence" && t.raw ? swapCitation(t.sentence, t.raw, marker, style) : null;
       // The sentence already cites it as the style would ("(Shiraishi)" in
@@ -6214,24 +8084,55 @@
         requestPlace(); return;
       }
 
+      // A study nothing like it could be found (owner, 2026-10-15): flagged to be deleted, or replaced with evidence.
+      if (unfoundStudy(seg.text, sourcesMap.get(hash))) {
+        put(dmHead(color, UNFOUND_COPY.head));
+        paintUnfound(hash, put);
+        const dis = dmBtn(POP_COPY.dismiss, false);
+        dis.addEventListener("click", () => {
+          dismissed.add(hash);
+          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
+          popSteps.delete(hash);
+          hideDocsPopover();
+          requestDocsMarks();
+          render();
+        });
+        put(dmActions(dis));
+        requestPlace(); return;
+      }
       // The problem card — exactly the app's: dot, title; body; [action][Dismiss].
       // A sentence whose citation the verdict puts in doubt also offers to
       // find the cited work: first when there is no fix to suggest, else
       // under the row (two buttons to a row; a third pushes Dismiss off).
-      put(dmHead(color, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      put(dmHead(color, verdictLabel(f.verdict, seg.text) ?? f.verdict));
       const also = (coTipsByHash.get(hash) ?? []).filter((t) => !dismissed.has(t.id));
-      if (also.length) put(dmAlso(also, hash, VERDICT_LABEL[f.verdict] ?? f.verdict));
+      if (also.length) put(dmAlso(also, hash, verdictLabel(f.verdict, seg.text) ?? f.verdict));
       put(dmBody(f.explanation || f.basis || seg.text));
+      // "Needs evidence": what Tracely's own search (EVIDENCE_FIRST) found so far.
+      const ev = isEvidenceFirst(f.verdict) ? sourcesMap.get(hash) ?? null : null;
+      const evDone = Boolean(ev && !ev.loading);
+      const evFound = evDone ? ev.list?.length ?? 0 : 0;
+      if (ev) put(dmHint(ev.loading ? EVIDENCE_COPY.looking : evFound ? EVIDENCE_COPY.found(evFound) : ev.partial ? TRIM_COPY.head : EVIDENCE_COPY.none(ev)));
+      else if (citedClaim(f.verdict, seg.text)) put(dmHint(EVIDENCE_COPY.cited));
       const citedHere = Boolean(flaggedCitationOf(f.verdict, seg.text));
+      const evOpen = evDone && (evFound > 0 || Boolean(ev.partial));
+      // Its own search came back with nothing to open, and the card already
+      // says so: "Find a source" is the writer asking again, so it searches
+      // again. It used to open that same empty answer (owner, 2026-10-13:
+      // "find a source action button doesnt work properly").
+      const evEmpty = evDone && !evOpen;
       const findSource = () => {
+        // Searching by itself, or found something: open it, never a second search.
+        if (ev && !evEmpty) { setStep(hash, { step: "sources", searched: true }); return; }
+        if (evEmpty && sourcesMap.get(hash) === ev) sourcesMap.delete(hash);
         // The search marks itself in flight before its first await, so the
         // card painted next already reads "searching" rather than "failed".
         const started = fetchSources(hash);
         setStep(hash, { step: "sources", searched: true });
         started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       };
-      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : POP_COPY.findSource, true);
-      if (!hasRevision && !citedHere) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
+      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : evOpen ? EVIDENCE_COPY.see(evFound || 1) : POP_COPY.findSource, true);
+      if (!hasRevision && !citedHere && !ev) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
       action.addEventListener("click", () => {
         if (hasRevision) { setStep(hash, { step: "fix" }); return; }
         if (citedHere) { findCitedWork(hash); return; }
@@ -6252,6 +8153,11 @@
         if (!hasRevision) more.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
         more.addEventListener("click", () => { if (hasRevision) findCitedWork(hash); else findSource(); });
         put(more);
+      }
+      if (hasRevision && evOpen) {
+        const see = dmBtn(EVIDENCE_COPY.see(evFound || 1), false, { wide: true });
+        see.addEventListener("click", () => setStep(hash, { step: "sources", searched: true }));
+        put(see);
       }
       // A card with no fix of its own has no fix card to hold "Explain in
       // depth": it lives here instead — the answer, and its own fix when it
@@ -6279,7 +8185,7 @@
       if (v.kind === "result") {
         const title = v.prefix ? `${POP_COPY.deepLabel} — ${v.prefix}` : POP_COPY.deepLabel;
         const w = dmIssue(title, v.text);
-        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: "rgba(0,0,0,.07)", color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
+        if (v.verdictLabel) w.insertBefore(el("span", { alignSelf: "flex-start", fontSize: "10px", fontWeight: "600", padding: "1px 6px", borderRadius: "20px", background: DM.wash, color: "#55555c", margin: "2px 0" }, v.verdictLabel), w.lastChild);
         if (v.note) w.appendChild(dmHint(v.note));
         if (!v.basis && !v.revision) return w;
         // What the fuller answer rests on, and its own fix — applied like the
@@ -6339,6 +8245,49 @@
        this is; onBack — where Cancel goes; note — what the lookup before it
        found, said first. A cited source takes the place of the sentence's
        faulty citation when a card found one (replaceFor). */
+    /* A study Tracely can't find (unfoundStudy), in the hover card: what to
+       do, the evidence that can take its place when there is some, and its
+       buttons — Replace in doc or Delete the sentence first, the other
+       beside it; then the caller's way out. Free: one line on what Student
+       and Pro add, and See plans. */
+    function paintUnfound(hash, put) {
+      const rep = replaceMap.get(hash);
+      const paid = canRecommend();
+      put(dmBody(paid ? UNFOUND_COPY.bodyPaid : UNFOUND_COPY.body));
+      if (rep?.text) put(dmBlock(UNFOUND_COPY.label, dmQuote(rep.text)), dmHint(rep.src.title || rep.src.url));
+      else if (rep?.loading) put(dmHint(UNFOUND_COPY.finding));
+      else if (rep?.none) put(dmHint(UNFOUND_COPY.none));
+      else if (rep?.failed) put(dmHint(rep.failed));
+      const btns = [];
+      if (rep?.text && canEditDoc()) {
+        const v = editView(`rep:${hash}`, UNFOUND_COPY.apply);
+        const b = dmBtn(v.label, true, { disabled: v.disabled });
+        b.addEventListener("click", () => { popPinned = true; docReplaceWithEvidence(hash); });
+        btns.push(b);
+      } else if (rep?.text) {
+        const b = dmBtn(UNFOUND_COPY.copy, true);
+        b.addEventListener("click", () => { copyText(rep.text); b.textContent = POP_COPY.copied; });
+        btns.push(b);
+      }
+      if (canEditDoc()) {
+        const v = editView(`del:${hash}`, UNFOUND_COPY.delete);
+        const b = dmBtn(v.label, !btns.length, { disabled: v.disabled });
+        b.addEventListener("click", () => { popPinned = true; docDeleteSentence(hash); });
+        btns.push(b);
+      }
+      if (paid && !rep) {
+        const b = dmBtn(UNFOUND_COPY.replace, !btns.length);
+        b.addEventListener("click", () => findReplacement(hash));
+        btns.push(b);
+      }
+      if (btns.length) put(dmActions(...btns.slice(0, 2)));
+      if (!paid) {
+        const plans = dmBtn(RECOMMEND_COPY.seePlans, false);
+        plans.addEventListener("click", () => openOrderPage());
+        put(dmHint(UNFOUND_COPY.locked), dmActions(plans));
+      }
+      if (!canEditDoc()) put(dmHint(editBlockReason()));
+    }
     function paintSources(hash, seg, f, st, put, opts = {}) {
       const s = sourcesMap.get(hash);
       const style = settings.citationStyle || "mla";
@@ -6364,10 +8313,10 @@
           : s.replaced
             ? `${c ? c.marker : "The source"} now stands where the citation that couldn't be traced was. ${CITE_STYLE_LABEL[style]} in-text citation.`
             : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
-        const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
+        const listName = s.citedList || refHeadingFor(style);
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
-        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash)) && !dismissed.has(x.hash)).length;
+        const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash), sourceAttr.get(x.hash)) && !dismissed.has(x.hash)).length;
         const res = el("div", { display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", whiteSpace: "nowrap", flex: "0 0 auto" });
         res.append(el("span", { color: DM.green, fontWeight: "500" }, POP_COPY.resolved), dmHint(`· ${left === 0 ? "no flags left" : `${left} flag${left === 1 ? "" : "s"} left`}`));
         put(res);
@@ -6394,8 +8343,30 @@
       }
       // Searching.
       if (!s || s.loading) {
-        if (!s && !sourcesInflight && st.searched) {
-          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(statusMsg || "The search did not answer — try again."), noteEl());
+        const failed = !s && st.searched ? sourceFailures.get(hash) : null;
+        // Signed out, or out of searches: what it is, and the way on (searchGateHtml's words), never "Search failed".
+        if (failed?.kind === "signin" || failed?.kind === "plan_limit") {
+          const signin = failed.kind === "signin";
+          put(dmHead(DM.hint, signin ? SIGNIN_COPY.head : OUT_COPY.head(tier.plan), null, { wrap: true }), dmBody(failed.note), noteEl());
+          const later = dmBtn(SIGNIN_COPY.later, false);
+          later.addEventListener("click", back);
+          if (signin) {
+            const go = dmBtn(SIGNIN_COPY.button, true);
+            go.addEventListener("click", async () => {
+              if (!(await signInFromCard())) return;
+              sourceFailures.delete(hash);
+              const p = fetchSources(hash);
+              setStep(stepKey, { searched: true });
+              p.catch(() => {});
+            });
+            put(dmActions(go, later));
+          } else {
+            put(dmActions(...upgradesFor().map((plan, i) => { const b = dmBtn(OUT_COPY[plan], i === 0); b.addEventListener("click", () => openOrderPage()); return b; }), later));
+          }
+          return;
+        }
+        if (failed || (!s && !sourcesInflight && st.searched)) {
+          put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(failed?.note || "The search did not answer — try again."), noteEl());
           const again = dmBtn(POP_COPY.searchAgain, true);
           again.addEventListener("click", () => { const p = fetchSources(hash); setStep(stepKey, { searched: true }); p.catch(() => {}); });
           const cancel = dmBtn(POP_COPY.cancel, false);
@@ -6421,8 +8392,34 @@
       const unread = s.unread ?? [];
       const unreadEl = () => dmUnread(unread, st.unreadOpen === true, () => setStep(stepKey, { unreadOpen: !st.unreadOpen }));
       const searchAgain = () => { sourcesMap.delete(hash); const p = fetchSources(hash); setStep(stepKey, { searched: true, selected: null }); p.catch(() => {}); };
+      // Backs all but one small detail (TRIM_COPY): what the source says, the
+      // detail it doesn't mention, the sentence without it, Remove or Keep.
+      if (list.length === 0 && s.partial?.partial?.trimmed) {
+        const src = s.partial;
+        put(dmHead(DM.amber, TRIM_COPY.head), dmBody(TRIM_COPY.body(src.partial.missing)));
+        put(dmRow({ ...src, quote: src.partial.quote }, true, () => {}));
+        const prev = el("p", { margin: "0", fontSize: "13px", lineHeight: "1.4", color: DM.body, flex: "0 0 auto" });
+        prev.innerHTML = `<span style="color:${DM.hint}">${esc(TRIM_COPY.preview)}</span> ${trimPreviewHtml(seg.text, src.partial.missing)}`;
+        put(prev, noteEl());
+        const rm = canEditDoc() ? dmBtn(TRIM_COPY.remove, true) : dmBtn(TRIM_COPY.copy, true);
+        if (canEditDoc()) rm.addEventListener("click", () => { const plan = trimPlan(hash); if (plan) docFix(hash, null, plan.trimmed, plan.opts); });
+        else rm.addEventListener("click", () => { copiedTrimHash = hash; copyText(src.partial.trimmed); rm.textContent = "Copied ✓"; });
+        const keep = dmBtn(TRIM_COPY.keep, false);
+        keep.addEventListener("click", () => keepDetail(hash));
+        put(dmActions(rm, keep));
+        return;
+      }
+      if (unfoundStudy(seg.text, s)) {
+        put(dmHead(MARK_COLORS.questionable, UNFOUND_COPY.head), noteEl());
+        paintUnfound(hash, put);
+        const out = dmBtn(POP_COPY.back, false);
+        out.addEventListener("click", back);
+        put(dmActions(out));
+        return;
+      }
       if (list.length === 0) {
-        if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
+        if (isEvidenceFirst(f?.verdict)) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(EVIDENCE_COPY.none(s)));
+        else if (s.unbacked) put(dmHead(DM.amber, POP_COPY.noBacking), dmBody(UNBACKED_NOTE(s.unbacked)));
         else if (unread.length) put(dmHead(DM.amber, POP_COPY.couldntRead), dmBody(RECEIPT_COPY.unreadOnly(unread.length)));
         else put(dmHead(DM.amber, POP_COPY.noSources), dmBody(`Nothing came back for “${truncateClaim(seg.text)}.” That does not make the claim wrong — it means there is nothing here to cite for it yet.`));
         put(noteEl());
@@ -6462,7 +8459,7 @@
       // under the line, and with these fixed the list was what collapsed —
       // to nothing. Its own rule decides it: the header and the buttons
       // never move, everything between them gives.
-      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; settings.styleChosen = true; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; settings.styleChosen = true; persistSettings(settings, SETTINGS_KEY); setPrefs({ citeStyle: key }); paintPop(); }));
       // Naming the source rewrites the writer's words, so what the sentence
       // will say is shown without asking, not behind Preview.
       const named = src && !replace ? nameTheSource(seg.text, src, style) : null;
@@ -6881,6 +8878,12 @@
       standDown("extension reloaded");
     }, 900) : 0;
 
+    // Signed in from a card: the searches the writer asked for run now.
+    async function signInThenSearch() {
+      if (!(await signInFromCard())) return;
+      for (const [h, f] of [...sourceFailures]) if (f.kind === "signin") { sourceFailures.delete(h); fetchSources(h); }
+      render();
+    }
     async function fetchSources(hash, auto = false, { batch = false } = {}) {
       // Returns false when NOTHING was started (another claim's search holds
       // the slot, or the sentence vanished) so callers can restore their UI
@@ -6890,11 +8893,28 @@
       // status line (the list says it).
       if (sourcesMap.get(hash)?.list?.length) return true; // cached — never re-search
       if (sourcesMap.get(hash)?.loading) return true; // already running: started on the press (prestartSearch)
-      if (sourcesInflight && !batch) return false;
+      // Signed out (needsSignIn): nothing is searched. The card that asked says to sign in; an automatic or batch search doesn't run.
+      if (needsSignIn()) {
+        if (auto || batch) return false;
+        sourceFailures.set(hash, { note: SIGNIN_COPY.body, auto: false, kind: "signin" });
+        render();
+        renderPopSources(hash);
+        return true;
+      }
+      /* An automatic search waits for the writer's; the writer's waits for
+         nothing. Owner, 2026-10-13: "find a source action button doesnt work
+         properly". A press while the automatic "Needs evidence" search ran
+         (EVIDENCE_FIRST: up to three, 10–15 s each) found the one slot taken
+         and was refused without a word: the card flipped back. The server
+         allows a caller 4 searches a minute (callerSourcesPerMinute), and a
+         refusal there is said in the card (sourceFailures). */
+      if (auto && sourcesInflight) return false;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return false;
       const f = cache.get(hash);
-      if (!batch) sourcesInflight = true;
+      const mine = !batch && !auto;
+      if (mine) sourcesInflight++;
+      sourceFailures.delete(hash);
       // What the live search has said so far (searchSources' events), drawn
       // by the card while it runs (dmLive, liveSourcesHtml). `shown`: the
       // sites already animated in, so a repaint never replays their entrance.
@@ -6929,16 +8949,22 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         }, onEvent);
-        const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
-        sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
+        const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
+        searchesOut = false;
         persistCaches();
         noteSourcesReady(hash, list.length, auto);
       } catch (err) {
         sourcesMap.delete(hash);
-        if (!auto) statusKind = "error";
-        if (!batch) statusMsg = err?.message ?? "source search failed";
+        // Said in the card that was waiting on it; an automatic search's
+        // failure only where the writer opened its card (the panel stays quiet).
+        // Out of searches (plan_limit) is the card's own block (searchGateHtml), not an error in the header.
+        searchesOut = err?.kind === "plan_limit";
+        if (!batch) sourceFailures.set(hash, { note: searchFailureNote(err), auto, kind: err?.kind });
+        if (!auto && !searchesOut) statusKind = "error";
+        if (!batch && !auto && !searchesOut) statusMsg = err?.message ?? "source search failed";
       } finally {
-        if (!batch) sourcesInflight = false;
+        if (mine) sourcesInflight = Math.max(0, sourcesInflight - 1);
         render();
         renderPopSources(hash); // popover may be waiting on this claim
       }
@@ -7023,13 +9049,13 @@
         const ico = faviconUrl(src.url);
         let icon;
         if (ico) {
-          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#f2f2f2" });
+          icon = el("img", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: DM.chipBg });
           icon.src = ico;
           icon.alt = "";
           icon.referrerPolicy = "no-referrer";
           icon.addEventListener("error", () => { icon.style.visibility = "hidden"; });
         } else {
-          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: "#ebebeb", fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
+          icon = el("span", { width: "20px", height: "20px", borderRadius: "5px", flexShrink: "0", background: DM.skel, fontSize: "9px", fontWeight: "600", color: DM.body, display: "inline-flex", alignItems: "center", justifyContent: "center" }, initialsOf(src));
         }
         const meta = el("span", { minWidth: "0", flex: "1", display: "flex", flexDirection: "column" });
         meta.appendChild(el("span", { fontSize: "13px", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, src.title));
@@ -7064,19 +9090,23 @@
     }
 
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
+    // "Needs evidence" always (EVIDENCE_FIRST); the rest only with Auto-src on (cost).
     async function autoFindSources(findings) {
-      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
-      let started = 0;
-      for (const f of findings) {
-        if (started >= 3) break;
-        if (!AUTO_SOURCE_VERDICTS.includes(f.verdict)) continue;
-        if (sourcesMap.has(f.id) || dismissed.has(f.id)) continue;
-        if (!segments.some((s) => s.hash === f.id)) continue;
+      if (prefs.autoEvidence === false) return; // Settings → Checking: the writer searches when they choose
+      const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
+      const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
+      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
+        skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) || citedClaim(f.verdict, segments.find((s) => s.hash === f.id)?.text) });
+      for (const f of picks) {
         autoSourceTimes = autoSourceTimes.filter((t) => Date.now() - t < 3_600_000);
         if (autoSourceTimes.length >= 15) { statusMsg = "auto-sources paused — hourly cap"; break; }
+        // The writer's own search holds the slot: wait for it (a minute at most).
+        for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
+        if (sourcesMap.has(f.id)) continue; // they searched this one meanwhile
         autoSourceTimes.push(Date.now());
-        started++;
-        await fetchSources(f.id, true); // sequential: one paid search at a time
+        autoSinceUsage++;
+        if (await fetchSources(f.id, true) === false) break;
+        if (!sourcesMap.has(f.id)) break; // failed (out of searches, offline): stop, and say nothing — nobody asked
       }
     }
 
@@ -7125,15 +9155,10 @@
     let tipsMemo = null;
     function allTips() {
       if (!isArgumentGenre(docGenre)) return [];
-      const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
+      const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle, kinds: JSON.stringify(tipKindsOn()), genre: docGenre };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
-      const list = [
-        ...citationTips(docText, settings.citationStyle, dismissed, docGenre),
-        ...(FEATURES.refList ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : []),
-        ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : []),
-      ];
-      tipsMemo = { k, list };
-      return list;
+      tipsMemo = { k, list: tipsOf(docText, docGenre, dismissed, review, settings.citationStyle) };
+      return tipsMemo.list;
     }
     function tipById(id) { return tipMarkById.get(id) ?? allTips().find((t) => t.id === id) ?? null; }
     /* A note's own fix (Delete, the page box, Rewrite in doc): the state its
@@ -7155,19 +9180,10 @@
     }
     const canDeleteTip = (tip) => canEditDoc() && tipDeletes(tip) && Boolean(deleteEditFor(docText, tip.quote, tip.kind === "refdup"));
     const tipRewrite = (tip) => (tip?.quote && tip.suggestion && tip.kind !== "page" ? usableRevision(tip.quote, tip.suggestion) : "");
-    // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation.
-    function citedTargetFor(key) {
-      if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
-      const seg = segments.find((s) => s.hash === key);
-      const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
-      return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
-    }
+    // What a card's lookup is about: a tip's own target, or a flagged sentence's one citation (shared with fieldMode).
+    function citedTargetFor(key) { return citedTargetIn(key, segments, cache, tipById); }
     // The citation a source cited for this sentence takes the place of, or null (added beside).
-    function replaceFor(hash) {
-      if (citedFallback.has(hash)) return citedFallback.get(hash);
-      const seg = segments.find((s) => s.hash === hash);
-      return seg ? flaggedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
-    }
+    function replaceFor(hash) { return citationReplacedIn(hash, segments, cache, citedFallback); }
     function refreshCited(key) {
       render();
       if (popEl && popHash === key) paintPop();
@@ -7248,7 +9264,7 @@
       }
       if (tip?.kind === "nolist" && canEditDoc()) {
         const lb = listBuilds.get(key);
-        buttons.push(editBtnHtml(`list:${key}`, lb?.loading ? "Looking up the cited works…" : `Add ${REF_HEADINGS[settings.citationStyle] ?? REF_HEADINGS.mla}`, `data-tip-list="${esc(key)}"${lb?.loading ? " disabled" : ""}`));
+        buttons.push(editBtnHtml(`list:${key}`, lb?.loading ? "Looking up the cited works…" : `Add ${refHeadingFor(settings.citationStyle)}`, `data-tip-list="${esc(key)}"${lb?.loading ? " disabled" : ""}`));
       }
       let html = fixBtn ? editNoteHtml(`del:${key}`) : "";
       if (tip?.kind === "nolist") html += editNoteHtml(`list:${key}`) + (listBuildNote(listBuilds.get(key)) ? `<div class="src-snip">${esc(listBuildNote(listBuilds.get(key)))}</div>` : "");
@@ -7258,7 +9274,9 @@
       if (isTip && buttons.length) card.insertAdjacentHTML("beforeend", `<div class="row">${buttons.join("")}</div>${html}`);
       else if (buttons.length || html) {
         const row = card.querySelector(".row");
-        if (row && buttons.length) row.insertAdjacentHTML("beforeend", buttons.join(""));
+        // Before the copy icon, which closes the row.
+        const copyIcon = row?.querySelector?.(".act.icon");
+        if (row && buttons.length) (copyIcon ?? row).insertAdjacentHTML(copyIcon ? "beforebegin" : "beforeend", buttons.join(""));
         const at = card.querySelector(".sources") ?? card.querySelector(".cite-url");
         if (html) { if (at) at.insertAdjacentHTML("beforebegin", html); else card.insertAdjacentHTML("beforeend", html); }
       }
@@ -7556,7 +9574,8 @@
         return false;
       }
       docBusy = true;
-      if (previewDocEdit && !job.previewed && !editGate.approved.has(key)) {
+      // Settings → Checking → Preview each edit off: the click is the go-ahead, and Undo takes it back.
+      if (previewDocEdit && prefs.previewEdits !== false && !job.previewed && !editGate.approved.has(key)) {
         let accepted = false;
         try { accepted = await previewDocEdit(key, job); } catch { accepted = false; }
         if (!accepted) {
@@ -7592,12 +9611,18 @@
       };
       try {
         for (const step of job.steps) {
-          const { hint, ...payload } = step;
-          const r = await docApply(payload, hint, path);
+          // freshHint: where the sentence is on screen NOW. The preview before
+          // this can take seconds, and the page may have scrolled under it.
+          const { hint, freshHint, ...payload } = step;
+          let fresh = null;
+          try { fresh = freshHint?.() ?? null; } catch { fresh = null; }
+          // Rects that can't be measured now (the underline is being redrawn) stay as they were.
+          const r = await docApply(payload, fresh ? (fresh.rects || !hint?.rects ? fresh : { ...fresh, rects: hint.rects }) : hint, path);
           // One line per step, so "it didn't work" can be read off the console
           // rather than guessed at. No document text: the action, the path
           // and the hook's answer only.
-          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
+          console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"}${r.check ? `: ${r.check}` : ""})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
+          if (typeof noteDiag === "function") noteDiag({ edit: key.split(":")[0], action: payload.action, via: r.via ?? path, ok: Boolean(r.ok), ...(r.ok ? {} : { reason: r.reason ?? "?", ...(r.check ? { check: r.check } : {}) }) });
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
@@ -7697,7 +9722,7 @@
     // anchor: the underline bar a popover was opened from (null from the panel).
     // revision: "Explain in depth"'s own fix (deepRevision), in place of the
     // card's — its own button, so its own edit key ("deepfix:").
-    async function docFix(hash, anchor = null, revision = null) {
+    async function docFix(hash, anchor = null, revision = null, { key = null, afterApplied = null } = {}) {
       const seg = segments.find((s) => s.hash === hash);
       const f = cache.get(hash);
       const rev = revision || f?.revision;
@@ -7706,8 +9731,8 @@
       // Another copy stays in the doc, flagged exactly as before: keep its
       // verdict and its underline (hiding the hash would hide every copy).
       const repeated = hint.occurrences > 1;
-      return runDocEdit(`${revision ? "deepfix" : "fix"}:${hash}`, {
-        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, rev), hint }],
+      return runDocEdit(key ?? `${revision ? "deepfix" : "fix"}:${hash}`, {
+        steps: [{ action: "replace", find: seg.text, replacement: withMarkers(seg.text, rev), hint, freshHint: () => segHint(seg, anchor) }],
         copy: rev,
         doneMsg: "fixed in doc",
         notes: repeated && !anchor ? { ambiguous: REPEATED_NOTE } : null,
@@ -7716,6 +9741,7 @@
             cache.delete(hash); // the rewritten sentence gets re-verified on the next read
             markEdited(hash);
           }
+          try { afterApplied?.(); } catch { /* a hook never undoes the edit */ }
           persistCaches();
         },
         onUndone: () => {
@@ -7724,6 +9750,37 @@
           persistCaches();
         },
       });
+    }
+
+    /* Remove the one detail no source backs (TRIM_COPY): the click handlers
+       call docFix(hash, null, plan.trimmed, plan.opts) themselves (edits only
+       ever start from a click; ext-docs-edit.test.js), so the sentence becomes
+       the server's trimmed one with Fix in doc's preview, Undo and read-back,
+       and the source that backs what is left is ready to cite under it. */
+    function trimPlan(hash) {
+      const src = sourcesMap.get(hash)?.partial;
+      const seg = segments.find((x) => x.hash === hash);
+      if (!src?.partial?.trimmed || !seg) return null;
+      const trimmed = src.partial.trimmed;
+      return {
+        trimmed,
+        opts: {
+          key: `trim:${hash}`,
+          afterApplied: () => {
+            // Keyed as the new sentence will be, with or without the original's citation marks.
+            for (const t of new Set([trimmed, withMarkers(seg.text, trimmed)])) sourcesMap.set(hashText(t), trimmedSourceEntry(src));
+          },
+        },
+      };
+    }
+    // Keep the detail: the card goes, the "nothing backs it" note is back, Find a source again from there.
+    function keepDetail(hash) {
+      const st = sourcesMap.get(hash);
+      if (!st?.partial) return;
+      sourcesMap.set(hash, { ...st, partial: null });
+      persistCaches();
+      render();
+      renderPopSources(hash);
     }
 
     /* A note's own fix, where the note has one the editor can make: Delete
@@ -7757,6 +9814,80 @@
         onApplied: tipDone(tipId, key),
         onUndone: () => popSteps.delete(tipId),
       });
+    }
+    /* A study Tracely can't find (unfoundStudy): the sentence goes — the
+       same one-replace delete a note's Delete makes — or, on Student and
+       Pro, the evidence found on its point takes its place, with its
+       reference entry, as one group with one Undo (citePlan). */
+    async function docDeleteSentence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const plan = seg ? deleteEditFor(docText, seg.text) : null;
+      if (!plan || docBusy) return false;
+      return runDocEdit(`del:${hash}`, {
+        steps: [{ action: "replace", find: plan.find, replacement: plan.replacement, hint: { occurrence: plan.occurrence, occurrences: plan.occurrences } }],
+        copy: null,
+        doneMsg: "deleted it from the doc",
+        notes: { "not-found": "the passage has changed since the last read — delete it in the doc yourself" },
+        onApplied: () => markEdited(hash),
+      });
+    }
+    async function findReplacement(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      if (!seg || !canRecommend() || replaceMap.get(hash)?.loading) return false;
+      const claim = studyFinding(seg.text);
+      if (!claim) { replaceMap.set(hash, { none: true }); render(); renderPopSources(hash); return false; }
+      replaceMap.set(hash, { loading: true });
+      render();
+      renderPopSources(hash);
+      try {
+        // The point, not the study: a source can back what it is said to have found, never the study itself.
+        const data = await searchSources({ claim, context: docText.slice(0, 6000), model: CHECK_MODEL }, () => {});
+        const pick = pickReplacement(backingSources(data.sources, "questionable").list, settings.citationStyle || "mla");
+        replaceMap.set(hash, pick ?? { none: true });
+      } catch (err) {
+        replaceMap.set(hash, { failed: searchFailureNote(err) });
+      }
+      render();
+      renderPopSources(hash);
+      return true;
+    }
+    async function docReplaceWithEvidence(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      const rep = replaceMap.get(hash);
+      if (!seg || !rep?.text || docBusy) return false;
+      const styled = formatCitation(rep.src, settings.citationStyle || "mla");
+      const { steps, retry, hint, pasteEntry, listName } = await citePlan(seg, styled, rep.src, { swapped: rep.text });
+      if (!steps.length) return false;
+      return runDocEdit(`rep:${hash}`, {
+        steps,
+        retry,
+        copy: rep.text,
+        doneMsg: pasteEntry ? `replaced it with the evidence — paste its reference into ${listName}` : "replaced it with the evidence",
+        notes: hint.occurrences > 1 ? { ambiguous: "that sentence is in the doc more than once — paste the replacement over the one you mean" } : null,
+        onApplied: () => {
+          markEdited(hash);
+          // The new sentence quotes the source that backs it: its sources are that one, no second search.
+          const newHash = hashText(rep.text);
+          if (!sourcesMap.has(newHash)) sourcesMap.set(newHash, { loading: false, list: [rep.src], unbacked: 0, unread: [], partial: null, copiedUrl: null, citedUrl: rep.src.url });
+          if (pasteEntry) copyFallback(pasteEntry);
+          persistCaches();
+        },
+      });
+    }
+    // Under a card (panel): Delete, or the evidence that can take the sentence's place.
+    function unfoundActionsHtml(hash) {
+      const rep = replaceMap.get(hash);
+      const paid = canRecommend();
+      if (!canEditDoc()) {
+        // Docs can't be edited from here: the replacement can still be copied; deleting is the writer's.
+        const copy = rep?.text ? `<button class="act primary" data-unfound-copy="${hash}">${esc(UNFOUND_COPY.copy)}</button>` : "";
+        const find = paid && !rep ? `<button class="act" data-unfound-find="${hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+        return copy + find;
+      }
+      const del = editBtnHtml(`del:${hash}`, UNFOUND_COPY.delete, `data-unfound-del="${hash}"`);
+      if (rep?.text) return editBtnHtml(`rep:${hash}`, UNFOUND_COPY.apply, `data-unfound-apply="${hash}"`) + `<button class="act" data-unfound-del="${hash}"${docBusy ? " disabled" : ""}>${esc(UNFOUND_COPY.delete)}</button>`;
+      const find = paid && !rep ? `<button class="act" data-unfound-find="${hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+      return del + find;
     }
     async function docAddPage(tipId, page) {
       const tip = anyTipById(tipId);
@@ -7894,7 +10025,7 @@
       const hint = segHint(seg, anchor);
       const style = settings.citationStyle || "mla";
       const marker = styled.marker;
-      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const heading = refHeadingFor(style);
       const list = worksCitedBlock(docText);
       const doi = String(src.doi ?? "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
       // By address WITHOUT its scheme: MLA prints "example.com/wall", APA
@@ -7946,14 +10077,15 @@
       const pasteEntry = entryLine && !canAppend ? (list ? entryLine : `${heading}\n${entryLine}`) : null;
       // The marker first: it is the step most likely to be refused (the
       // sentence changed), and refusing before anything landed needs no rollback.
+      const freshHint = () => segHint(seg, anchor);
       if (swapped) {
         replacement = swapped;
-        steps.push({ action: "replace", find: seg.text, replacement, hint });
+        steps.push({ action: "replace", find: seg.text, replacement, hint, freshHint });
       } else if (!seg.text.includes(marker)) {
         const punct = seg.text.match(/[.!?]+["'’”)\]]*$/);
         const at = punct ? seg.text.length - punct[0].length : seg.text.length;
         replacement = seg.text.slice(0, at).replace(/\s+$/, "") + ` ${marker}` + seg.text.slice(at);
-        steps.push({ action: "replace", find: seg.text, replacement, hint });
+        steps.push({ action: "replace", find: seg.text, replacement, hint, freshHint });
       }
       if (entryLine && canAppend) {
         if (over) steps.push({ action: "replace", find: over, replacement: entryLine, hint: overHint });
@@ -8092,7 +10224,7 @@
       const built = await buildWorksCited(tipId);
       if (!built || built.loading || worksCitedBlock(docText)) return false;
       const style = settings.citationStyle || "mla";
-      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const heading = refHeadingFor(style);
       const lines = [heading, ...built.entries];
       const key = `list:${tipId}`;
       // Docs' end of document has to be one the hook can append to (its text API, and a dry run that
@@ -8211,7 +10343,14 @@
        that list is the preview (editGate.approved). */
     const TP_GLIDE_MS = 350, TP_CLICK_MS = 300, TP_STRIKE_MS = 200, TP_FADE_MS = 120, TP_CHAR_MS = 30, TP_TYPE_MAX_MS = 1200;
     const TP_FLOW_MAX_LINES = 15;
-    const TP_WASH = "rgba(28,28,28,0.07)"; // ink at 7%: the struck and the inserted words alike, never a hue
+    const TP_WASH = "rgba(28,28,28,0.07)"; // ink at 7%, under the struck words
+    /* What Tracely writes, highlighted until it is accepted. Owner, 2026-10-13:
+       "please highlight what tracely writes before I accept" — the ink wash it
+       shared with the struck words was too faint to see. Tracely's own orange
+       (the brand accent, #f97316), not a finding's colour: it says who wrote
+       these words, not what is wrong with them. "Let Tracely fix these" uses
+       the same (FIX_INSERT). */
+    const TP_INSERT = "rgba(249,115,22,0.24)";
     const TP_RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
     const TP_COPY = {
       typing: "Typing a preview — click it to skip", ready: "Only you can see this until you accept",
@@ -8337,7 +10476,7 @@
         else left++;
       }
       for (const n of notes ?? []) {
-        const act = n.deletes ? "delete" : n.kind === "vague" && n.claim ? "name" : n.kind === "nolist" ? "list" : null;
+        const act = n.deletes ? "delete" : (n.kind === "vague" || n.kind === "uncited") && n.claim ? "name" : n.kind === "nolist" ? "list" : null;
         if (act) items.push({ key: n.key, start: n.start, act, kind: n.kind });
         else left++;
       }
@@ -8398,10 +10537,10 @@
       Object.assign(arrow.style, { position: "absolute", left: "-2px", top: "-2px", overflow: "visible", transformOrigin: "2px 2px" });
       const path = document.createElementNS(ns, "path");
       path.setAttribute("d", "M2 2 L2 19.5 L6.6 15.2 L9.6 22 L12.9 20.6 L9.9 13.9 L16.2 13.9 Z");
-      path.setAttribute("fill", DM.ink); path.setAttribute("stroke", "#fff"); path.setAttribute("stroke-width", "1.5"); path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("fill", DOC_INK); path.setAttribute("stroke", "#fff"); path.setAttribute("stroke-width", "1.5"); path.setAttribute("stroke-linejoin", "round");
       arrow.appendChild(path);
       const pill = el("div", {
-        position: "absolute", left: "13px", top: "19px", background: DM.ink, color: "#fff", fontFamily: APP.font, fontSize: "11.5px",
+        position: "absolute", left: "13px", top: "19px", background: DOC_INK, color: "#fff", fontFamily: APP.font, fontSize: "11.5px",
         fontWeight: "600", lineHeight: "18px", padding: "0 7px", borderRadius: "6px", whiteSpace: "nowrap", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
       }, "Tracely");
       root.append(ring, arrow, pill);
@@ -8426,6 +10565,25 @@
     function tcCursorHide() {
       if (tcCur) tcCur.root.remove();
       tcCur = null;
+      tcAnchor = null;
+    }
+    /* Pinned, the cursor rides a point of the page — the change it is at, the
+       words it is typing — not a spot on the screen: after a scroll it comes
+       back where its words are, and is out of sight while they are outside
+       the document's box (owner, 2026-10-15: "the cursor and stuff clips out
+       of frame"). tcFollow places it; docSettle and followDocLayout call it. */
+    let tcAnchor = null;
+    function tcPin(anchor) {
+      tcAnchor = anchor;
+      tcFollow();
+    }
+    function tcFollow() {
+      if (!tcAnchor || !tcCur) return;
+      const p = tcAnchor();
+      const c = docClip();
+      if (p) tcCursorAt(p.x, p.y);
+      const vis = p && p.x >= c.left && p.x <= c.right && p.y >= c.top && p.y <= c.bottom ? "visible" : "hidden";
+      if (tcCur.root.style.visibility !== vis) tcCur.root.style.visibility = vis;
     }
 
     /* The change's paragraph, for typing in the line: its runs on screen,
@@ -8533,11 +10691,8 @@
       const under = plan.lines.find((l) => l.before) ?? null; // an entry going in above another
       const locateMain = () => (main ? svgRangeRects(main.find, span[0], span[1], near) : null);
       const locateUnder = () => (under ? svgRangeRects(under.before, 0, nrm(under.before).length) : null);
-      const scroller = document.querySelector(".kix-appview-editor");
-      const clip = () => {
-        const r = scroller && scroller.isConnected ? scroller.getBoundingClientRect() : null;
-        return { top: Math.max(0, r ? r.top : 0), bottom: Math.min(innerHeight, r ? r.bottom : innerHeight) };
-      };
+      let clipNow = null; // the document's box, read once a frame (frame)
+      const clip = () => clipNow ?? docClip(); // left, top, right, bottom, width, height
       const pointOf = (g) => {
         const r = g.at.node.getBoundingClientRect();
         return { x: r.left + g.at.f * r.width, y: r.top, h: r.height || 18 };
@@ -8568,7 +10723,10 @@
       const tl = tpTimeline({ inDoc, glide: Boolean(from), strike: Boolean(span && span[1] > span[0]), chars: ins.length });
 
       /* ── build (detached, so a failure here leaves nothing behind) ── */
-      const layer = el("div", { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "902" });
+      // The document's box, clipping what is drawn in the text (owner, 2026-10-15: "clips out of frame");
+      // inside it a position is the client's less its corner (fitLayer, every frame it is placed).
+      const layer = el("div", { position: "fixed", left: "0", top: "0", width: `${innerWidth}px`, height: `${innerHeight}px`, overflow: "hidden", contain: "layout paint", pointerEvents: "none", zIndex: "902" });
+      if (!reducedMotion()) layer.style.transition = "opacity 90ms ease";
       layer.setAttribute("data-tracely-type-preview", "");
       layer.setAttribute("data-tracely-type-mode", mode);
       // The re-flowed paragraph is painted on a canvas, as Docs paints it: same font, same metrics.
@@ -8595,14 +10753,15 @@
 
       // Typing in the line, Accept / Reject sit on a card in the right margin beside the change, the
       // way Docs puts a suggestion's card in its margin: opaque, so nothing ever shows through it.
+      // Its own fixed box, not in the clipped layer: off screen it sits beside the panel's card.
       const bubble = el("div", compact ? {
-        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
+        position: "fixed", left: "0", top: "0", zIndex: "902", pointerEvents: "auto", boxSizing: "border-box", width: "max-content", minWidth: "200px", maxWidth: "280px",
         padding: "8px 10px 10px", background: "#fff", border: "1px solid #dadce0", borderRadius: "8px",
         boxShadow: "0 1px 3px rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)",
         fontFamily: APP.font, color: DM.ink, display: "none", flexDirection: "column", gap: "8px", opacity: "1", outline: "none", WebkitFontSmoothing: "antialiased",
       } : {
-        position: "absolute", left: "0", top: "0", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
-        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DM.ink}`,
+        position: "fixed", left: "0", top: "0", zIndex: "902", pointerEvents: "auto", boxSizing: "border-box", width: "max-content",
+        minWidth: "240px", maxWidth: "380px", padding: "10px 12px 12px", background: "#fff", border: `1.5px dashed ${DOC_INK}`,
         borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", fontFamily: APP.font, color: DM.ink,
         display: "none", flexDirection: "column", gap: "8px", opacity: "0", outline: "none", WebkitFontSmoothing: "antialiased",
       });
@@ -8611,7 +10770,7 @@
       bubble.setAttribute("data-tracely-type-bubble", "");
       bubble.tabIndex = -1;
       const head = el("div", { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" });
-      head.appendChild(el("span", { background: DM.ink, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
+      head.appendChild(el("span", { background: DOC_INK, color: "#fff", fontSize: "11px", fontWeight: "600", lineHeight: "16px", padding: "0 6px", borderRadius: "4px", whiteSpace: "nowrap" }, "Tracely"));
       if (mode === "strike" && diff) head.appendChild(el("span", { fontSize: "12px", color: DM.ink }, diff.removed.trim() ? TP_COPY.deletes : TP_COPY.same));
       const status = el("span", { fontSize: "11.5px", color: DM.body }, TP_COPY.typing);
       head.appendChild(status);
@@ -8622,7 +10781,7 @@
         ? { position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
         : { fontSize: "15px", lineHeight: "1.45", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: family ? `${family}, ${APP.font}` : "inherit" });
       text.setAttribute("aria-hidden", "true"); // read whole from the description, not letter by letter
-      const typed = el("span", { color: DM.ink });
+      const typed = el("span", { color: DM.ink, background: TP_INSERT, borderRadius: "2px" }); // what Tracely writes, highlighted
       typed.setAttribute("data-tracely-type-typed", "");
       const typingCaret = el("span", { display: "inline-block", width: "2px", height: "1.1em", marginLeft: "1px", verticalAlign: "text-bottom", background: DM.ink, borderRadius: "1px" });
       const struck = (s) => el("span", { textDecoration: "line-through", textDecorationThickness: "2px", color: DM.body, background: TP_WASH, borderRadius: "2px" }, s);
@@ -8677,7 +10836,7 @@
       bubble.setAttribute("aria-describedby", desc.id);
       bubble.appendChild(desc);
       layer.appendChild(caret);
-      layer.appendChild(bubble);
+      if (!reducedMotion()) bubble.style.transition = "opacity 90ms ease";
 
       /* ── state ── */
       const t0 = performance.now();
@@ -8702,6 +10861,7 @@
         window.removeEventListener("pointerdown", onDown, true);
         window.removeEventListener("pagehide", onHide);
         layer.remove();
+        bubble.remove();
         if (pop) pop.style.visibility = popVis;
         tcCursorHide(); // the edit's cursor goes with it
         if (tpOpen === handle) tpOpen = null;
@@ -8709,7 +10869,8 @@
         console.debug(`[tracely] type preview ${ok ? "accepted" : "rejected"}`);
         resolve(Boolean(ok));
       };
-      const handle = { finish };
+      // What noteDocScroll steps aside, and how docSettle places it again.
+      const handle = { finish, layer, bubble, place: () => frame() };
       const onKey = (e) => {
         if (e.key === "Escape") { tpStop(e); finish(false); return; }
         if (e.key === "Enter" && !e.isComposing) {
@@ -8746,28 +10907,31 @@
         };
       };
       const measure = (s) => tpMeasurer().measureText(s).width;
-      const drawFlow = (t) => {
-        flowNow = null;
-        if (!cv) return;
+      let drawnSig = null; // what the canvas shows: drawn again only when it would differ
+      const drawFlow = (t, c) => {
+        if (!cv) { flowNow = null; return; }
         const dpr = typeof devicePixelRatio === "number" && devicePixelRatio > 0 ? devicePixelRatio : 1;
-        // The layer's own box, not innerWidth: a page scrollbar narrows it, and a
-        // bitmap sized to innerWidth would be squeezed to fit — every x off a little.
-        const cw = layer.clientWidth || innerWidth, ch = layer.clientHeight || innerHeight;
+        // The layer's own box (the document's): a bitmap sized to anything else is
+        // squeezed to fit — every x off a little. Drawn in client coordinates,
+        // shifted by the box's corner.
+        const cw = layer.clientWidth || c.width || innerWidth, ch = layer.clientHeight || c.height || innerHeight;
         const W = Math.round(cw * dpr), H = Math.round(ch * dpr);
+        const g = t < tl.showAt ? null : paraLive();
+        const sig = g ? [W, H, c.left, c.top, typed.textContent.length, g.end.x, g.end.y, g.left, g.right, g.bottom, ...g.mask.map((r) => r.top)].map((v) => Math.round(v * 10)).join("|") : `${W}|${H}|none`;
+        if (sig === drawnSig) return; // nothing moved and nothing typed since the last frame
+        drawnSig = sig;
+        flowNow = null;
         if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
         const ctx = cv.getContext("2d");
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, cw, ch);
-        if (t < tl.showAt) return; // the original line, untouched, until the click lands
-        const g = paraLive();
-        if (!g) return;
+        ctx.setTransform(dpr, 0, 0, dpr, -c.left * dpr, -c.top * dpr);
+        ctx.clearRect(c.left, c.top, cw, ch);
+        if (!g) return; // the original line, untouched, until the click lands
         tpMeasurer().font = para.font;
         const flow = previewFlow([{ text: typed.textContent, ins: true }, { text: para.rest, ins: false }], measure,
           { startX: g.end.x + para.gap, left: g.left, right: g.right, top: g.end.y, pitch: para.pitch });
-        const c = clip();
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, c.top, innerWidth, c.bottom - c.top);
+        ctx.rect(c.left, c.top, c.width, c.height);
         ctx.clip();
         // Page white over the original words after the change, and under every line drawn
         // (lines past the paragraph's own overlay what is below it).
@@ -8812,8 +10976,8 @@
         ctx.textBaseline = "alphabetic";
         for (const l of flow) {
           for (const s of l.spans) {
-            if (s.ins) { ctx.fillStyle = TP_WASH; ctx.fillRect(s.x, l.top, measure(s.text.replace(/\s+$/, "")), para.h); }
-            ctx.fillStyle = s.ins ? DM.ink : "#000";
+            if (s.ins) { ctx.fillStyle = TP_INSERT; ctx.fillRect(s.x, l.top, measure(s.text.replace(/\s+$/, "")), para.h); }
+            ctx.fillStyle = s.ins ? DOC_INK : "#000";
             ctx.fillText(s.text, s.x, l.top + para.base);
           }
         }
@@ -8839,11 +11003,12 @@
       };
       /* Parked, the cursor never covers a word. The words on screen: Docs' runs (re-read at
          most every 300 ms), the re-flowed lines as they will be once typed, and the bar. */
-      let runsCache = null, runsAt = -Infinity;
+      let runsCache = null, runsAt = -Infinity, runsSeq = docScrollSeq;
       const visibleRuns = () => {
         const now = performance.now();
-        if (!runsCache || now - runsAt > 300) {
+        if (!runsCache || now - runsAt > 300 || runsSeq !== docScrollSeq) { // a scroll moved every word
           runsAt = now;
+          runsSeq = docScrollSeq;
           runsCache = svgLineNodes().map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0)
             .map((r) => ({ left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height }));
         }
@@ -8916,7 +11081,8 @@
         }
         tcCursorPress(t >= tl.clickAt && t < clickEnd ? (t - tl.clickAt) / tl.clickMs : 1);
         tcCursorAt(at.x, at.y);
-        const off = t >= tl.glideMs && (at.y < c.top || at.y > c.bottom);
+        // Once it is in the text, never outside the document's box: no arrow over Docs' toolbar or rulers.
+        const off = t >= tl.glideMs && (at.y < c.top || at.y + 21 > c.bottom || at.x < c.left || at.x + 15 > c.right);
         const cur = tcCursor();
         cur.root.style.visibility = off ? "hidden" : "visible";
         // Its name shows only where it covers nothing; settled, the arrow steps back to 60%.
@@ -8932,7 +11098,7 @@
         const c = clip();
         caret.style.display = e.y + h < c.top || e.y > c.bottom ? "none" : "block";
         caret.style.height = `${h}px`;
-        caret.style.transform = `translate(${e.x}px, ${e.y}px)`;
+        caret.style.transform = `translate(${e.x - c.left}px, ${e.y - c.top}px)`; // in the layer: less its corner
       };
       const placeStrikes = (t) => {
         const pieces = inDoc && main && geo ? geo.pieces : [];
@@ -8946,7 +11112,7 @@
           const r = rects[i];
           if (!r || r.top + r.height < c.top || r.top > c.bottom) { s.box.style.display = "none"; return; }
           const share = r.width / total;
-          Object.assign(s.box.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, opacity: String(tpClamp(k * 2, 0, 1)) });
+          Object.assign(s.box.style, { display: "block", left: `${r.left - c.left}px`, top: `${r.top - c.top}px`, width: `${r.width}px`, height: `${r.height}px`, opacity: String(tpClamp(k * 2, 0, 1)) });
           s.line.style.transform = `scaleX(${share ? tpClamp((k - run) / share, 0, 1) : 1})`;
           run += share;
         });
@@ -8960,7 +11126,7 @@
         const left = Math.min(...first.map((r) => r.left)), right = Math.max(...first.map((r) => r.left + r.width));
         const c = clip();
         if (top < c.top || top > c.bottom) { mark.style.display = "none"; return; }
-        Object.assign(mark.style, { display: "block", left: `${left}px`, top: `${top - 4}px`, width: `${Math.max(24, right - left)}px` });
+        Object.assign(mark.style, { display: "block", left: `${left - c.left}px`, top: `${top - 4 - c.top}px`, width: `${Math.max(24, right - left)}px` });
       };
       const placeBubble = (t) => {
         if (t < tl.showAt) { bubble.style.display = "none"; return; }
@@ -8996,7 +11162,8 @@
               left = Math.min(...rects.map((r) => r.left), p.x);
             }
             top = lastBottom + (compact ? 8 : 10);
-            if (top + h > innerHeight - 8 && firstTop - 10 - h >= clip().top) top = firstTop - 10 - h;
+            const cb = clip();
+            if (top + h > cb.bottom - 8 && firstTop - 10 - h >= cb.top) top = firstTop - 10 - h;
           }
         } else {
           // Beside the card: the open popover, else the panel card that was pressed.
@@ -9010,8 +11177,11 @@
             top = innerHeight - h - 96;
           }
         }
-        left = tpClamp(left, 8, Math.max(8, innerWidth - w - 8));
-        top = tpClamp(top, 8, Math.max(8, innerHeight - h - 8));
+        // In the text: inside the document's box — its line scrolled away, it waits at the box's
+        // edge, never over Docs' toolbar. Pinned beside a card: inside the window.
+        const box = inDoc ? clip() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+        left = tpClamp(left, box.left + 8, Math.max(box.left + 8, box.right - w - 8));
+        top = tpClamp(top, box.top + 8, Math.max(box.top + 8, box.bottom - h - 8));
         bubble.style.left = `${left}px`;
         bubble.style.top = `${top}px`;
         barBox = { left, top, right: left + w, bottom: top + h, bar: true };
@@ -9039,8 +11209,12 @@
         if (tmr) { clearTimeout(tmr); tmr = 0; }
         if (done) return;
         if (orphaned || location.pathname !== path0) { finish(false); return; }
+        // While the page scrolls it has stepped aside (noteDocScroll): nothing is measured until docSettle places it.
+        if (docScrolling()) { tmr = setTimeout(frame, SCROLL_SETTLE_MS); return; }
+        const t = skipped ? Infinity : performance.now() - t0;
         try {
-          const t = skipped ? Infinity : performance.now() - t0;
+          clipNow = docClip(); // read once a frame
+          fitLayer(layer, clipNow);
           // Docs recycles a tile's annotation rects as it scrolls: find the
           // sentence again (a few times a second at most) when ours went.
           const gone = (g) => g && (!g.at.node.isConnected || g.pieces.some((p) => !p.node.isConnected));
@@ -9052,7 +11226,7 @@
             if (paraGone && geo) para = tpParagraph(main, diff, geo) ?? para;
           }
           paintText(t);
-          drawFlow(t);
+          drawFlow(t, clipNow);
           placeStrikes(t);
           placeMark();
           placeCaret(t);
@@ -9061,11 +11235,19 @@
           markReady(t);
         } catch (err) {
           console.debug(`[tracely] type preview frame: ${err?.message ?? err}`);
+        } finally {
+          clipNow = null;
         }
-        // A frame, or 50 ms, whichever comes first: a pane that is not
-        // compositing never runs rAF (renderer/src/frameScheduler.ts).
-        raf = requestAnimationFrame(frame);
-        tmr = setTimeout(frame, 50);
+        // Gliding, clicking, typing, settling: a frame, or 50 ms, whichever comes first (a pane that is
+        // not compositing never runs rAF; renderer/src/frameScheduler.ts). After — the arrow stepped back
+        // to 60% — only FIX_PLACE_TICK_MS apart, to follow Docs re-laying out; a scroll brings it back at once.
+        const settleAt = Math.max(tl.readyAt, tl.clickAt + tl.clickMs + 150);
+        if (!ready || t < settleAt + 1200) {
+          raf = requestAnimationFrame(frame);
+          tmr = setTimeout(frame, 50);
+        } else {
+          tmr = setTimeout(frame, FIX_PLACE_TICK_MS);
+        }
       }
 
       /* ── on screen ── */
@@ -9073,6 +11255,7 @@
       // Out of Docs' editor frame, whose keystrokes this page never hears.
       if (document.activeElement?.tagName === "IFRAME") document.activeElement.blur();
       document.documentElement.appendChild(layer);
+      document.documentElement.appendChild(bubble);
       if (inDoc) tcCursor();
       window.addEventListener("keydown", onKey, true);
       window.addEventListener("pointerdown", onDown, true);
@@ -9080,6 +11263,102 @@
       console.debug(`[tracely] type preview · ${mode} · ${main ? `${nrm(diff.removed).length} struck, ${ins.length} typed` : "no sentence change"} · ${plan.lines.length} line(s)`);
       frame();
       return handle;
+    }
+
+    /* ── while the page scrolls ──────────────────────────────────────────
+       Owner, 2026-10-15: "when you scroll up and down when tracely is typing
+       suggestions, it is really laggy and the cursor and stuff clips out of
+       frame". What Tracely draws over the text while it types — the struck
+       words, the chips, the margin cards, the Type preview, the cursor — sat
+       in fixed layers that chased Docs' text every frame: each one read the
+       page's geometry and then wrote its own, so Chrome laid the whole Doc
+       out again several times a frame while Docs was scrolling it; a layer
+       on the screen can only follow a scroll a frame or two behind; and the
+       layers covered the whole window, so a half-scrolled chip or strike
+       painted over Docs' toolbar. Now:
+         • while the page moves, all of it steps aside (a 90 ms fade, inert)
+           and nothing is measured; SCROLL_SETTLE_MS after the last scroll it
+           is placed once, where its words now are, and comes back
+           (docSettle) — Grammarly's cards do the same;
+         • each layer is the editor's own box with overflow hidden
+           (clipLayer, docClip): nothing of ours paints outside the document;
+         • placing reads every rect first and writes after, only what
+           changed, and nothing runs a frame loop once its animation is over:
+           whatever re-locates the underlines places them too
+           (followDocLayout, from requestDocsMarks). */
+    const SCROLL_SETTLE_MS = 140;
+    const FIX_PLACE_TICK_MS = 250;
+    let docScrollAt = -Infinity, docScrollSeq = 0, docSettleTmr = 0;
+    const scrollClock = () => (typeof performance === "object" ? performance.now() : Date.now());
+    const docScrolling = () => scrollClock() - docScrollAt < SCROLL_SETTLE_MS;
+    // The document's box on screen: the editor's scroll area, inside the window, short of its own scrollbars (clientWidth).
+    function docClip() {
+      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
+      const r = docsScroller ? docsScroller.getBoundingClientRect() : null;
+      const left = Math.max(0, r ? r.left : 0), top = Math.max(0, r ? r.top : 0);
+      const right = Math.min(innerWidth, r ? r.left + (docsScroller.clientWidth || r.right - r.left) : innerWidth);
+      const bottom = Math.min(innerHeight, r ? r.top + (docsScroller.clientHeight || r.bottom - r.top) : innerHeight);
+      return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    }
+    // A layer that is the document's box and clips what is in it; inside, a position is the client's less its corner.
+    function clipLayer(attr, z) {
+      const layer = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", overflow: "hidden", contain: "layout paint", zIndex: z, pointerEvents: "none" });
+      layer.setAttribute(attr, "");
+      if (!reducedMotion()) layer.style.transition = "opacity 90ms ease";
+      document.documentElement.appendChild(layer);
+      return layer;
+    }
+    const layerBoxes = new WeakMap(); // each layer's box as last written
+    function fitLayer(layer, c) {
+      const box = `${c.left}|${c.top}|${c.width}|${c.height}`;
+      if (layerBoxes.get(layer) === box) return;
+      layerBoxes.set(layer, box);
+      Object.assign(layer.style, { left: `${c.left}px`, top: `${c.top}px`, width: `${c.width}px`, height: `${c.height}px` });
+    }
+    // Out of the way while the page moves (and nothing in it can be pressed), back once it is still.
+    function stepAside(node, away) {
+      if (!node) return;
+      const op = away ? "0" : "1";
+      if (node.style.opacity !== op) node.style.opacity = op;
+      node.inert = away;
+    }
+    const docMovers = () => [fixMarksEl, fixCardsEl, tcCur?.root, tpOpen?.layer, tpOpen?.bubble].filter(Boolean);
+    function noteDocScroll() {
+      const movers = docMovers();
+      if (!movers.length) return;
+      docScrollAt = scrollClock();
+      docScrollSeq++;
+      for (const n of movers) stepAside(n, true);
+      if (!docSettleTmr) docSettleTmr = setTimeout(docSettle, SCROLL_SETTLE_MS);
+    }
+    function docSettle() {
+      docSettleTmr = 0;
+      if (docScrolling()) { docSettleTmr = setTimeout(docSettle, SCROLL_SETTLE_MS); return; }
+      placeFixMarks();
+      placeFixCards();
+      tcFollow();
+      tpOpen?.place();
+      for (const n of docMovers()) stepAside(n, false);
+    }
+    // One placing a frame at most, a frame or 50 ms whichever comes first (a pane not compositing runs no frames).
+    let fixPlaceRaf = 0, fixPlaceTmr = 0;
+    function scheduleFixPlace() {
+      if (fixPlaceRaf || fixPlaceTmr) return;
+      const go = () => {
+        if (fixPlaceRaf) cancelAnimationFrame(fixPlaceRaf);
+        if (fixPlaceTmr) clearTimeout(fixPlaceTmr);
+        fixPlaceRaf = fixPlaceTmr = 0;
+        placeFixMarks();
+        placeFixCards();
+      };
+      fixPlaceRaf = requestAnimationFrame(go);
+      fixPlaceTmr = setTimeout(go, 50);
+    }
+    // Docs laid the page out again (zoom, an edit above, the underlines' 900 ms re-locate): placed again, once.
+    function followDocLayout() {
+      if (docScrolling() || (!fixMarks.size && !fixCardsEl?.isConnected)) return;
+      scheduleFixPlace();
+      tcFollow();
     }
 
     /* ── "Let Tracely fix these": everything prepared, then the writer picks ──
@@ -9110,9 +11389,9 @@
     let fixSearchStarts = [];   // when this page's batch searches started (the minute's pace)
     let fixSearchesRunning = 0;
     const FIX_COPY = {
-      go: "Let Tracely fix these", stop: "Stop", done: "Done", accept: "Accept", skip: "Skip",
-      all: (n) => `Accept all ${n}`,
-      offer: (n) => `Tracely can prepare ${n === 1 ? "this fix" : `${n} of these fixes`} at once — then you choose what goes in`,
+      go: "Review all", stop: "Stop", done: "Done", accept: "Accept", skip: "Skip",
+      offer: (n) => `${n} ${n === 1 ? "fix" : "fixes"} to review`,
+      how: "Tracely prepares every fix at once, then you accept or reject each one",
       preparing: (ready, n) => `Preparing ${n} ${n === 1 ? "fix" : "fixes"} · ${ready} ready`,
       ready: (n) => `${n} ${n === 1 ? "fix" : "fixes"} ready — accept what you want`,
       finished: (n) => `${n} ${n === 1 ? "change" : "changes"} in your doc`,
@@ -9121,6 +11400,13 @@
       applying: "Putting it in…", applied: "In your doc", skipped: "Skipped",
       couldNot: (n, why) => `${n} couldn't be prepared (${why}) — ${n === 1 ? "its card is" : "their cards are"} still there`,
       left: (n) => `${n} more ${n === 1 ? "needs" : "need"} you — open ${n === 1 ? "its card" : "their cards"}`,
+      // The bar above the launcher while the panel is closed (fixPingHtml).
+      barPreparing: (ready, n) => `Preparing fixes · ${ready} of ${n} ready`,
+      barReady: (n) => `${n} ${n === 1 ? "fix" : "fixes"} to review in your doc`,
+      barAway: (n) => `${n} out of view`,
+      stopHow: "Stop preparing (Esc) — what's ready stays",
+      seeAll: "See all",
+      seeAllHow: "Open the list: every fix, with Accept and Skip",
     };
     const FIX_ACT = { fix: "Fix", cite: "Cite", name: "Name the source", delete: "Delete", list: "Add the list" };
     const tcSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -9131,7 +11417,7 @@
       }));
       const notes = [...tipMarkById.values()].map((tip) => ({
         key: tip.id, kind: tip.kind, start: Math.max(0, docText.indexOf(tip.quote)),
-        deletes: canDeleteTip(tip), claim: tip.kind === "vague" && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0,
+        deletes: canDeleteTip(tip), claim: (tip.kind === "vague" || tip.kind === "uncited") && claimSentenceIndex(tip.kind, tip.quote, segments) >= 0,
       }));
       // No underline to hang it on: the missing list sits after everything else.
       const nolist = FEATURES.refList && genreWantsList(docGenre) ? allTips().find((t) => t.kind === "nolist") : null;
@@ -9170,6 +11456,7 @@
     }
     // One batch search, paced; resolves once the claim has an answer (or has none to give).
     async function fixSearch(hash, b) {
+      if (needsSignIn()) return; // nothing to wait for: signed out, no search runs
       for (let tries = 0; tries < 2; tries++) {
         for (;;) {
           if (fixBatch !== b || b.stopped) return;
@@ -9210,7 +11497,7 @@
           if (fixBatch !== b || b.stopped) return;
         }
         const st = sourcesMap.get(item.claim);
-        if (!st?.list) return fixSettle(item, "none", "the search didn't answer");
+        if (!st?.list) return fixSettle(item, "none", needsSignIn() ? "sign in to find sources" : searchesOut ? "you're out of source searches" : "the search didn't answer");
         const top = walkSource(st.list, cache.get(item.claim)?.verdict);
         if (!top) return fixSettle(item, "none", "no source backs it");
         item.srcIndex = st.list.indexOf(top);
@@ -9229,7 +11516,7 @@
       const plan = walkInputs();
       const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "", dropped: false })), left: plan.left, preparing: true, stopped: false, applying: false };
       fixBatch = b;
-      fixTour = { queue: [], running: false };
+      fixTour = { queue: [], running: false, instant: prefs.reviewTyping === false }; // Settings → Checking: typed, or in place at once
       expanded = false; // the panel gets out of the way: the suggestions go in the doc
       render();
       Promise.allSettled(b.items.map((it) => prepareFix(it, b).catch((err) => {
@@ -9242,11 +11529,17 @@
         render();
       });
     }
+    /* Stop (the bar's, the list's, or Esc): nothing more is prepared, and the
+       cursor stops at once — what is ready is put in its place without the
+       glide and the typing (owner, 2026-10-16: "make it easier to stop the
+       auto run"). */
     function stopFixes() {
       const b = fixBatch;
       if (!b) return;
       b.stopped = true; // searches already running finish into the cache; nothing more is prepared
       b.preparing = false;
+      if (fixTour) fixTour.instant = true;
+      tcCursorHide();
       for (const it of b.items) if (["waiting", "searching", "working"].includes(it.status)) { it.status = "none"; it.why = "stopped"; }
       render();
     }
@@ -9279,37 +11572,6 @@
       fixSettle(it, ok ? "applied" : "failed", ok ? "" : docEditState.get(it.editKey)?.note || "the doc changed — use its card");
       return ok;
     }
-    // After a change goes in, the next waits for the doc's export to show it (it lags a little).
-    async function fixFreshRead(before) {
-      const t0 = Date.now();
-      while (Date.now() - t0 < 8000) {
-        await tcSleep(600);
-        if (inflight) continue;
-        await cycle();
-        if (docText !== before) return true;
-      }
-      return false;
-    }
-    async function acceptAllFixes() {
-      const b = fixBatch;
-      if (!b || b.applying) return;
-      b.applying = true;
-      let toured = false; // the cursor came out to click: it goes again at the end
-      render();
-      try {
-        for (let i = 0; i < b.items.length; i++) {
-          if (fixBatch !== b) break;
-          if (b.items[i].status !== "ready") continue;
-          if (await fixClickAccept(b.items[i])) toured = true;
-          const before = docText;
-          if (await acceptFix(i)) await fixFreshRead(before);
-        }
-      } finally {
-        b.applying = false;
-        if (toured) tcCursorHide();
-        render();
-      }
-    }
     // What a prepared change does, in the writer's words: the sentence before → after, and any line it adds.
     function fixChangeHtml(job) {
       const plan = previewPlan(job);
@@ -9324,7 +11586,7 @@
     }
     function fixRowHtml(it, i) {
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
-      const dot = it.verdict ? `d-${it.verdict === "false" ? "false" : it.verdict === "questionable" ? "quest" : it.verdict === "needs_citation" ? "cite" : "inco"}` : tipDot({ kind: it.kind });
+      const dot = it.verdict ? `d-${it.verdict === "false" ? "false" : it.verdict === "questionable" ? "quest" : it.verdict === "needs_citation" || it.verdict === "wrong_source" ? "cite" : "inco"}` : tipDot({ kind: it.kind });
       const state = { waiting: FIX_COPY.waiting, searching: it.act === "list" ? "Looking up the cited works…" : FIX_COPY.searching, working: FIX_COPY.working, applying: FIX_COPY.applying, applied: FIX_COPY.applied, skipped: FIX_COPY.skipped, failed: it.why }[it.status] ?? "";
       const busy = ["waiting", "searching", "working", "applying"].includes(it.status);
       const src = it.src ? `<div class="fx-src">${faviconUrl(it.src.url) ? `<img src="${esc(faviconUrl(it.src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}<span>${esc(it.src.title)}</span></div>` : "";
@@ -9350,9 +11612,9 @@
        writer answers each — or all, from the note above the launcher. Accept
        is acceptFix, the panel list's own (it lists the same changes). */
     const FIX_CARD_W = 248;
+    const FIX_EDGE = 2; // a suggestion keeps this far inside the document's box, or waits out of view
     let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
     let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
-    let fixCardsRaf = 0;
     const fixCardsShown = new Set(); // the suggestions already on the page: only a new one slides in
     function fixBarFor(key) {
       let best = null, top = Infinity;
@@ -9368,17 +11630,35 @@
       fixTour.queue.push(item);
       if (!fixTour.running) runFixTour(fixTour);
     }
-    async function fixGlide(x, y) {
+    // A frame, or 32 ms whichever comes first: a glide paced by the display, never by a queue of timers.
+    const tcFrame = () => new Promise((r) => {
+      let done = false;
+      const go = () => { if (!done) { done = true; r(); } };
+      requestAnimationFrame(go);
+      setTimeout(go, 32);
+    });
+    // To `target()` — read again every frame, so a scroll mid-glide lands on the words, not where they were.
+    async function fixGlide(target) {
       const c = tcCursor();
+      tcPin(null); // the glide moves it now
+      const first = target();
+      if (!first) return;
       const x0 = c.x < 0 ? innerWidth - 60 : c.x, y0 = c.y < 0 ? innerHeight - 60 : c.y; // from the launcher the first time
-      if (reducedMotion()) { tcCursorAt(x, y); return; }
-      const steps = Math.round(tpClamp(Math.hypot(x - x0, y - y0) / 40, 6, 16));
-      for (let k = 1; k <= steps; k++) {
-        const e = tpEase(k / steps);
-        tcCursorAt(x0 + (x - x0) * e, y0 + (y - y0) * e);
-        await tcSleep(18);
+      if (reducedMotion()) { tcCursorAt(first.x, first.y); return; }
+      const ms = tpClamp(Math.hypot(first.x - x0, first.y - y0) * 0.45, 110, 290);
+      const t0 = Date.now();
+      for (let k = 0; k < 1;) {
+        await tcFrame();
+        if (fixTour?.instant || !tcCur) return; // stopped: the cursor is gone, and stays gone
+        k = tpClamp((Date.now() - t0) / ms, 0, 1);
+        const to = target() ?? first, e = tpEase(k);
+        tcCursorAt(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e);
       }
     }
+    // Where the change starts, for the cursor: its first struck word, else where its words go in.
+    const fixMarkPoint = (m) => () => { const s = fixMarkStart(m); return s ? { x: s.left + 2, y: s.top + s.height * 0.55 } : null; };
+    // Inside the document's box, whole.
+    const inDocBox = (r) => { const c = docClip(); return Boolean(r) && r.width >= 0 && r.top >= c.top && r.top + (r.height || 0) <= c.bottom && r.left >= c.left && r.left <= c.right; };
     async function runFixTour(t) {
       t.running = true;
       try {
@@ -9390,24 +11670,27 @@
           if (geo) {
             it.inline = true;
             const m = fixMarkMake(it, fixBatch.items.indexOf(it), geo);
-            const start = fixMarkStart(m);
-            const seen = Boolean(start && start.top >= 0 && start.top <= innerHeight && !document.hidden);
+            // Shown being made only where it is in the document's box and the page is still; else it simply appears.
+            const seen = inDocBox(fixMarkStart(m)) && !docScrolling() && !document.hidden && !t.instant;
             if (seen) {
-              await fixGlide(start.left + 2, start.top + start.height * 0.55);
-              for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
+              await fixGlide(fixMarkPoint(m));
+              for (let k = 1; k <= 4 && !t.instant; k++) { tcCursorPress(k / 4); await tcSleep(30); }
+              if (!t.instant) tcPin(fixMarkPoint(m));
             }
             it.dropped = true;
-            await fixMarkReveal(m, seen);
+            await fixMarkReveal(m, seen && !t.instant);
             paintFixCards();
             if (seen) await tcSleep(120);
             continue;
           }
           const bar = fixBarFor(it.key);
+          const barPoint = () => { const r = bar?.el.isConnected ? bar.el.getBoundingClientRect() : null; return r && r.width > 0 ? { x: r.left + Math.min(r.width / 2, 30), y: r.top - (bar.size || 14) * 0.45 } : null; };
           const r = bar?.el.getBoundingClientRect();
-          const seen = Boolean(r && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && !document.hidden);
+          const seen = Boolean(r && r.width > 0) && inDocBox({ left: r.left, top: r.top, width: r.width, height: r.height }) && !docScrolling() && !document.hidden && !t.instant;
           if (seen) {
-            await fixGlide(r.left + Math.min(r.width / 2, 30), r.top - (bar.size || 14) * 0.45);
-            for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
+            await fixGlide(barPoint);
+            for (let k = 1; k <= 4 && !t.instant; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
+            if (!t.instant) tcPin(barPoint);
           }
           it.dropped = true;
           paintFixCards();
@@ -9424,7 +11707,7 @@
       const flag = it.verdict ? VERDICT_LABEL[it.verdict] : TIP_LABEL[it.kind] ?? "Note";
       const card = el("div", {
         position: "absolute", left: "0", top: "0", width: `${FIX_CARD_W}px`, boxSizing: "border-box", padding: "10px 12px 12px",
-        background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
+        background: DM.surface, border: `1.5px solid ${DM.ink}`, borderRadius: "12px", boxShadow: "0 6px 18px rgba(0,0,0,.14)",
         pointerEvents: "auto", display: "flex", flexDirection: "column", gap: "6px", fontFamily: APP.font, color: DM.ink,
         fontSize: "12.5px", lineHeight: "1.45", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
@@ -9440,8 +11723,8 @@
         const d = previewDiff(e.find, e.next);
         const diff = el("div", { color: DM.body });
         diff.append(document.createTextNode(tpClip(d.keepBefore, 46, true)));
-        if (d.removed.trim()) diff.appendChild(el("span", { textDecoration: "line-through", color: "#8a8b90" }, d.removed));
-        if (d.inserted.trim()) diff.appendChild(el("span", { fontWeight: "600", color: DM.ink, background: "#efeff2", borderRadius: "3px", padding: "0 2px" }, d.inserted));
+        if (d.removed.trim()) diff.appendChild(el("span", { textDecoration: "line-through", color: DM.faint }, d.removed));
+        if (d.inserted.trim()) diff.appendChild(el("span", { fontWeight: "600", color: DM.ink, background: DM.ins, borderRadius: "3px", padding: "0 2px" }, d.inserted));
         diff.append(document.createTextNode(tpClip(d.keepAfter, 30, false)));
         card.appendChild(diff);
       }
@@ -9479,14 +11762,10 @@
         fixCardsEl?.remove();
         fixCardsEl = null;
         fixCardsShown.clear();
-        if (fixCardsRaf) { cancelAnimationFrame(fixCardsRaf); fixCardsRaf = 0; }
         return;
       }
-      if (!fixCardsEl?.isConnected) {
-        fixCardsEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "901", pointerEvents: "none" });
-        fixCardsEl.setAttribute("data-tracely-fix-cards", "");
-        document.documentElement.appendChild(fixCardsEl);
-      }
+      // The document's box, clipping the cards: a card beside a line half scrolled away never covers Docs' toolbar.
+      if (!fixCardsEl?.isConnected) fixCardsEl = clipLayer("data-tracely-fix-cards", "901");
       const sig = items.map(([it, i]) => `${i}:${it.status}:${it.why}`).join("|") + (docBusy || b.applying ? "|busy" : "");
       if (fixCardsEl.dataset.sig !== sig) {
         fixCardsEl.dataset.sig = sig;
@@ -9498,42 +11777,67 @@
           // New in the margin: it slides in from the page's edge (`translate` — placement owns transform).
           if (!fixCardsShown.has(it.key)) {
             fixCardsShown.add(it.key);
-            if (!reducedMotion() && typeof card.animate === "function") card.animate([{ opacity: 0, translate: "10px 0" }, { opacity: 1, translate: "0 0" }], { duration: 200, delay: 40 + 70 * k++, easing: POP_SPRING, fill: "backwards" });
+            // 6px: less than the 8 a card keeps from the box's edge, so the slide never crosses it.
+            if (!reducedMotion() && typeof card.animate === "function") card.animate([{ opacity: 0, translate: "6px 0" }, { opacity: 1, translate: "0 0" }], { duration: 200, delay: 40 + 70 * k++, easing: POP_SPRING, fill: "backwards" });
           }
         }
       }
-      if (!fixCardsRaf) fixCardsRaf = requestAnimationFrame(placeFixCards);
+      scheduleFixPlace();
     }
-    // Beside each line, in the page's right margin; stacked so none covers another; only while its line is in view.
+    /* Beside each line, in the page's right margin; stacked so none covers
+       another; only while its line is in the document's box. Like the
+       chips: not while the page scrolls, not in a loop, reads before writes. */
+    /* Kept inside the document's box, not the window's: with a side panel
+       open (comments, Gemini) the box ends before the window does, and a
+       card placed by the window's edge was cut in two — its ✕ Reject with it
+       (owner, 2026-10-16). Narrow margins put it over the page's right edge
+       instead. Shown whole or not at all, like the chips. */
+    let fixCardsAway = 0;
     function placeFixCards() {
-      fixCardsRaf = 0;
-      if (!fixCardsEl?.isConnected || !fixCardsEl.children.length) return;
-      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
-      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-      const placed = [];
+      if (!fixCardsEl?.isConnected || !fixCardsEl.children.length || docScrolling()) return;
+      const clip = docClip();
+      const inBox = (x) => Math.max(clip.left + 8, Math.min(x, clip.right - FIX_CARD_W - 8));
+      // ── reads ──
+      const placed = [], hidden = [];
       for (const card of fixCardsEl.children) {
         const bar = fixBarFor(card.dataset.key);
         const r = bar ? bar.el.getBoundingClientRect() : null;
+        const h = card.offsetHeight;
         if (!r && card.dataset.loose) { // the missing Works Cited: at the foot of the margin, where the list will go
           const pg = document.querySelector(".kix-page-paginated")?.getBoundingClientRect();
-          placed.push({ card, x: Math.max(8, Math.min((pg ? pg.right : innerWidth - FIX_CARD_W - 40) + 14, innerWidth - FIX_CARD_W - 12)), want: clip.bottom - card.offsetHeight - 16 });
+          placed.push({ card, h, x: inBox((pg ? pg.right : clip.right - FIX_CARD_W - 40) + 14), want: clip.bottom - h - 16 });
           continue;
         }
-        if (!r || r.bottom < clip.top || r.top > clip.bottom) { card.style.visibility = "hidden"; continue; }
+        if (!r || r.bottom < clip.top || r.top > clip.bottom) { hidden.push(card); continue; }
         const page = bar.el.closest?.(".kix-page-paginated");
         const right = page ? page.getBoundingClientRect().right : r.right;
-        placed.push({ card, x: Math.max(8, Math.min(right + 14, innerWidth - FIX_CARD_W - 12)), want: r.top - 10 });
+        placed.push({ card, h, x: inBox(right + 14), want: r.top - 10 });
       }
+      // ── writes ──
+      fitLayer(fixCardsEl, clip);
+      for (const card of hidden) setStyle(card, { visibility: "hidden" });
       placed.sort((a, b) => a.want - b.want);
-      let floor = clip.top + 6;
+      let floor = clip.top + 6, cut = 0;
       for (const p of placed) {
         const top = Math.max(p.want, floor);
-        const h = p.card.offsetHeight;
-        p.card.style.visibility = top + Math.min(h, 60) > clip.bottom ? "hidden" : "visible";
-        p.card.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(top)}px)`;
-        floor = top + h + 8;
+        const whole = top + p.h <= clip.bottom - FIX_EDGE;
+        if (!whole) cut++;
+        setStyle(p.card, {
+          visibility: whole ? "visible" : "hidden",
+          transform: `translate(${Math.round(p.x - clip.left)}px, ${Math.round(top - clip.top)}px)`,
+        });
+        if (whole) floor = top + p.h + 8;
       }
-      fixCardsRaf = requestAnimationFrame(placeFixCards);
+      if (hidden.length + cut !== fixCardsAway) { fixCardsAway = hidden.length + cut; noteFixAway(); }
+    }
+    // Out of view, all told: the chips and the cards waiting where the page doesn't show them.
+    const fixAway = () => fixMarksAway + fixCardsAway;
+    let fixAwayShown = 0;
+    // The bar above the launcher says it; a render only when the number changes.
+    function noteFixAway() {
+      if (fixAway() === fixAwayShown) return;
+      fixAwayShown = fixAway();
+      if (!expanded && fixBatch) render();
     }
     /* ── each change IN the text (owner, 2026-10-09: "when you click accept
        all there is no cursor but I want tracely cursor to go around and change
@@ -9543,12 +11847,15 @@
        struck through on their exact runs (svgRangeRects, the Type preview's
        own locating), and what it puts in, typed into a chip right under the
        change with ✓ Accept and ✕ Reject. Nothing reaches the Doc until Accept
-       (acceptFix, as before), and Accept all sends the cursor round again to
-       click each ✓. A change the page can't show in place — the Works Cited
+       (acceptFix, as before), one change at a time: there is no Accept all
+       (owner, 2026-10-13: "it shouldnt replace more than one sentence at
+       once"). A change the page can't show in place — the Works Cited
        list, a sentence Docs isn't drawing whole — keeps its card in the margin
-       (fixCardEl). Ink only: colour is for findings. */
+       (fixCardEl). Ink, but for the words Tracely writes: those are highlighted
+       in its own orange until accepted (FIX_INSERT; owner, 2026-10-13). */
     const FIX_WASH = "rgba(28,28,28,0.07)", FIX_STRIKE = "rgba(28,28,28,0.78)";
-    let fixMarksEl = null, fixMarksRaf = 0;
+    const FIX_INSERT = "rgba(249,115,22,0.24)"; // what Tracely writes, highlighted until accepted: the Type preview's TP_INSERT
+    let fixMarksEl = null;
     const fixMarks = new Map(); // item key → { key, i, geo, strikes, chip, words, accept, text, typed, sig }
     // Where a change is on the page now — its struck pieces and where its new words go — or null.
     function fixInlineGeo(it) {
@@ -9565,30 +11872,42 @@
     }
     // What its chip says: the words that go in, else that the words go.
     const fixMarkText = (geo) => (geo.inserted ? tpClip(geo.inserted, 90, false) : geo.lines.length ? `+ ${tpClip(geo.lines[geo.lines.length - 1], 70, false)}` : "Delete");
+    // One struck run's mark, in the layer.
+    function fixStrikeEl() {
+      const s = el("div", { position: "absolute", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
+        background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
+      fixMarksEl.appendChild(s);
+      return s;
+    }
+    /* Whether a change's place on the page has gone: a run Docs took away,
+       or one it now uses for other words. Docs reuses its runs when it
+       redraws a line, so a run that is still there can be showing a
+       different line — and a strike or chip placed by it lands on words that
+       are not the change's (owner, 2026-10-16: the chips "clip randomly and
+       off of the response"). */
+    const fixGeoStale = (geo) => [geo.at, ...geo.pieces].some((p) => p.node.isConnected === false
+      || (p.raw != null && typeof p.node.getAttribute === "function" && p.node.getAttribute("aria-label") !== p.raw));
+    // As many strikes as the change has runs now: a re-wrapped line can split or join them.
+    function fitStrikes(m) {
+      while (m.strikes.length > m.geo.pieces.length) m.strikes.pop().remove();
+      while (m.strikes.length < m.geo.pieces.length) m.strikes.push(fixStrikeEl());
+    }
     function fixMarkMake(it, i, geo) {
-      if (!fixMarksEl?.isConnected) {
-        fixMarksEl = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", zIndex: "900", pointerEvents: "none" });
-        fixMarksEl.setAttribute("data-tracely-fix-marks", "");
-        document.documentElement.appendChild(fixMarksEl);
-      }
+      // The document's box, clipping its strikes and chips: none ever paints over Docs' toolbar or rulers.
+      if (!fixMarksEl?.isConnected) fixMarksEl = clipLayer("data-tracely-fix-marks", "900");
       fixMarks.get(it.key)?.chip.remove();
-      const strikes = geo.pieces.map(() => {
-        const s = el("div", { position: "fixed", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
-          background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
-        fixMarksEl.appendChild(s);
-        return s;
-      });
+      const strikes = geo.pieces.map(() => fixStrikeEl());
       const chip = el("div", {
-        position: "fixed", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
-        padding: "3px 3px 3px 7px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
+        position: "absolute", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
+        padding: "3px 3px 3px 7px", background: DM.surface, border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
         fontFamily: APP.font, fontSize: "12px", lineHeight: "1.3", color: DM.ink, pointerEvents: "auto", visibility: "hidden", WebkitFontSmoothing: "antialiased",
       });
       chip.setAttribute("data-tracely-fix-chip", "");
       chip.dataset.key = it.key;
       fixMarksEl.appendChild(chip);
-      const m = { key: it.key, i, geo, strikes, chip, words: null, accept: null, text: fixMarkText(geo), typed: 0, sig: "", shown: false };
+      const m = { key: it.key, i, geo, strikes, chip, words: null, accept: null, text: fixMarkText(geo), typed: 0, sig: "", shown: false, size: null };
       fixMarks.set(it.key, m);
-      if (!fixMarksRaf) fixMarksRaf = requestAnimationFrame(placeFixMarks);
+      scheduleFixPlace();
       return m;
     }
     // Where the change starts on screen (the cursor's stop): its first struck run, else where the words go in.
@@ -9609,12 +11928,16 @@
       if (!animate || reducedMotion()) return;
       for (const sEl of m.strikes) if (typeof sEl.animate === "function") sEl.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: TP_STRIKE_MS, easing: "ease-out" });
       await tcSleep(m.strikes.length ? TP_STRIKE_MS : 0);
+      // The cursor rides the end of the words as they go in (and stays there, pinned, after) — unless the run was stopped.
+      if (!fixTour?.instant) tcPin(() => { const wr = m.words?.isConnected !== false ? m.words?.getBoundingClientRect?.() : null; return wr && wr.width > 0 ? { x: wr.left + wr.width + 2, y: wr.top + wr.height * 0.55 } : null; });
       const per = Math.max(8, Math.min(TP_CHAR_MS, TP_TYPE_MAX_MS / Math.max(1, m.text.length)));
       for (let k = 1; k <= m.text.length && fixBatch?.items[m.i] === it; k++) {
+        if (fixTour?.instant) k = m.text.length; // stopped: the rest of the words at once
         m.typed = k;
         if (m.words) m.words.textContent = m.text.slice(0, k);
-        const wr = m.words?.getBoundingClientRect?.();
-        if (wr && wr.width > 0) tcCursorAt(wr.left + wr.width + 2, wr.top + wr.height * 0.55);
+        m.size = null; // wider now: measured again where it is placed
+        if (!docScrolling()) tcFollow();
+        scheduleFixPlace();
         await tcSleep(per);
       }
     }
@@ -9623,8 +11946,9 @@
       m.chip.textContent = "";
       m.words = null;
       m.accept = null;
+      m.size = null;
       if (it.status === "ready") {
-        m.words = el("span", { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: "600", background: FIX_WASH, borderRadius: "3px", padding: "1px 4px" }, m.text.slice(0, m.typed));
+        m.words = el("span", { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: "600", background: m.geo.inserted ? FIX_INSERT : FIX_WASH, borderRadius: "3px", padding: "1px 4px" }, m.text.slice(0, m.typed));
         m.words.setAttribute("title", m.geo.inserted || m.geo.removed);
         const busy = docBusy || Boolean(fixBatch?.applying);
         const yes = dmBtn("✓ Accept", true, { disabled: busy });
@@ -9666,69 +11990,89 @@
       if (!fixMarks.size) {
         fixMarksEl?.remove();
         fixMarksEl = null;
-        if (fixMarksRaf) { cancelAnimationFrame(fixMarksRaf); fixMarksRaf = 0; }
-      } else if (!fixMarksRaf) fixMarksRaf = requestAnimationFrame(placeFixMarks);
+      } else scheduleFixPlace();
     }
-    // Every frame: the strikes on their runs, each chip under its change, none on another, only while in view.
+    // A style written only when it changes: an unchanged write still costs the page a style pass.
+    const setStyle = (node, styles) => { for (const k in styles) if (node.style[k] !== styles[k]) node.style[k] = styles[k]; };
+    /* The strikes on their runs, each chip by its change, none on another,
+       only in the document's box. Never while the page scrolls (docSettle
+       places it after), and never in a loop: scheduleFixPlace, followDocLayout.
+       Every rect and every chip's size is read before anything is written.
+
+       A chip is shown whole or not at all (owner, 2026-10-16: "the accept vs
+       reject tabs next to the fixes, they clip randomly"). It goes under its
+       change, down past anything it would cover; where that runs out of the
+       box, over the change, up past the same; and where neither fits, it
+       waits out of view, counted in the bar above the launcher (fixAway). */
+    let fixMarksAway = 0;
     function placeFixMarks() {
-      fixMarksRaf = 0;
-      if (!fixMarksEl?.isConnected || !fixMarks.size) return;
-      if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
-      const clip = docsScroller ? docsScroller.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-      const chips = [], struck = [];
+      if (!fixMarksEl?.isConnected || !fixMarks.size || docScrolling()) return;
+      const clip = docClip();
+      const onScreen = (r) => r && r.top + r.height > clip.top && r.top < clip.bottom;
+      const inView = (r) => r && r.width > 0 && onScreen(r);
+      // ── reads ──
+      const plan = [];
       for (const m of fixMarks.values()) {
-        // Docs redrew the line: find the change again (its pieces' runs are gone).
-        if (![m.geo.at.node, ...m.geo.pieces.map((p) => p.node)].every((n) => n.isConnected !== false) && Date.now() - m.geo.found > 200) {
+        // Docs redrew the line, or reused its runs for other words: find the change again.
+        if (fixGeoStale(m.geo) && Date.now() - m.geo.found > 200) {
           const it = fixBatch?.items[m.i];
           const again = it ? fixInlineGeo(it) : null;
-          if (again && again.pieces.length === m.strikes.length) m.geo = again;
-          else m.geo.found = Date.now();
+          if (again) { m.geo = again; fitStrikes(m); } else m.geo.found = Date.now();
         }
-        const rects = m.geo.pieces.map((p) => barTextRect(p));
-        const onScreen = (r) => r && r.top + r.height > clip.top && r.top < clip.bottom;
-        const inView = (r) => r && r.width > 0 && onScreen(r);
+        // Still gone (scrolled away, or not drawn yet): nothing of it is placed by runs that now show other words.
+        const stale = fixGeoStale(m.geo);
+        const rects = m.geo.pieces.map((p) => (stale ? null : barTextRect(p)));
+        const last = stale ? null : [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
+        if (m.shown && last && !m.size) m.size = { w: m.chip.offsetWidth || 220, h: m.chip.offsetHeight || 30 };
+        plan.push({ m, rects, last, first: rects.find(inView) ?? last });
+      }
+      // ── where each goes ──
+      const struck = [];
+      for (const { m, rects } of plan) for (const r of rects) if (m.shown && inView(r)) struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
+      const chips = plan.filter((p) => p.m.shown && p.last).map((p) => ({ m: p.m, left: p.first.left, below: p.last.top + p.last.height + 4, above: p.first.top - 4 }));
+      chips.sort((p, q) => p.below - q.below || p.left - q.left);
+      const placed = [];
+      const fits = (top, h) => top >= clip.top + FIX_EDGE && top + h <= clip.bottom - FIX_EDGE;
+      for (const c of chips) {
+        const { w, h } = c.m.size ?? { w: 220, h: 30 };
+        const left = Math.max(clip.left + 8, Math.min(c.left, clip.right - w - 8));
+        // What it would cover there — another chip, or words another change strikes.
+        const covers = (top) => [...placed, ...struck].find((p) => left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) ?? null;
+        let top = c.below;
+        for (let n = 0, p; n < 12 && (p = covers(top)); n++) top = p.top + p.h + 4;
+        if (!fits(top, h) || covers(top)) {
+          let up = c.above - h;
+          for (let n = 0, p; n < 12 && (p = covers(up)); n++) up = p.top - h - 4;
+          top = fits(up, h) && !covers(up) ? up : fits(top, h) ? top : null;
+        }
+        Object.assign(c, { left, top, h });
+        if (top != null) placed.push({ left, top, w, h });
+      }
+      // ── writes: in the layer, a position is the client's less the box's corner ──
+      fitLayer(fixMarksEl, clip);
+      for (const { m, rects, last } of plan) {
         m.strikes.forEach((sEl, k) => {
           const r = rects[k];
-          if (!m.shown || !inView(r)) { sEl.style.visibility = "hidden"; return; }
-          Object.assign(sEl.style, { visibility: "visible", left: `${Math.round(r.left)}px`, top: `${Math.round(r.top)}px`, width: `${Math.round(r.width)}px`, height: `${Math.round(r.height)}px` });
-          struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
+          if (!m.shown || !inView(r)) { setStyle(sEl, { visibility: "hidden" }); return; }
+          setStyle(sEl, { visibility: "visible", left: `${Math.round(r.left - clip.left)}px`, top: `${Math.round(r.top - clip.top)}px`, width: `${Math.round(r.width)}px`, height: `${Math.round(r.height)}px` });
         });
-        const last = [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
-        if (!m.shown || !last) { m.chip.style.visibility = "hidden"; continue; }
-        const first = rects.find(inView) ?? last;
-        chips.push({ m, left: first.left, top: last.top + last.height + 4 });
+        if (!m.shown || !last) setStyle(m.chip, { visibility: "hidden" });
       }
-      chips.sort((p, q) => p.top - q.top || p.left - q.left);
-      const placed = [];
       for (const c of chips) {
-        const w = c.m.chip.offsetWidth || 220, h = c.m.chip.offsetHeight || 30;
-        const left = Math.max(8, Math.min(c.left, innerWidth - w - 8));
-        let top = c.top;
-        // Down past anything it would cover — another chip, or words another change strikes — until it covers none.
-        for (let moved = true, n = 0; moved && n < 12; n++) {
-          moved = false;
-          for (const p of [...placed, ...struck]) {
-            if (left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) { top = p.top + p.h + 4; moved = true; }
-          }
-        }
-        c.m.chip.style.left = `${Math.round(left)}px`;
-        c.m.chip.style.top = `${Math.round(top)}px`;
-        c.m.chip.style.visibility = top + Math.min(h, 24) > clip.bottom ? "hidden" : "visible";
-        placed.push({ left, top, w, h });
+        if (c.top == null) { setStyle(c.m.chip, { visibility: "hidden" }); continue; }
+        setStyle(c.m.chip, { left: `${Math.round(c.left - clip.left)}px`, top: `${Math.round(c.top - clip.top)}px`, visibility: "visible" });
       }
-      fixMarksRaf = requestAnimationFrame(placeFixMarks);
-    }
-    // Accept all, one by one: the cursor goes to the change's ✓ and clicks it when the page shows it. True when it did.
-    async function fixClickAccept(it) {
-      const btn = fixMarks.get(it.key)?.accept;
-      const r = btn?.isConnected && btn.getBoundingClientRect ? btn.getBoundingClientRect() : null;
-      if (!r || !(r.width > 0) || r.top < 0 || r.bottom > innerHeight || document.hidden) return false;
-      await fixGlide(r.left + r.width / 2, r.top + r.height / 2);
-      for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
-      return true;
+      // Waiting out of view: the bar says how many.
+      const away = plan.filter(({ m, last }) => m.shown && !last).length + chips.filter((c) => c.top == null).length;
+      if (away !== fixMarksAway) { fixMarksAway = away; noteFixAway(); }
     }
 
-    // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
+    /* Above the launcher while the panel is closed: the run's one control.
+       While it prepares: how far along, and Stop (or Esc). After: how many
+       wait in the doc and how many of those are out of view, See all (the
+       panel's list, where every fix has Accept and Skip) and Reject all.
+       Owner, 2026-10-16: "make it easier to stop the auto run … make it
+       overall better and more managable and less confusing". */
     let fixPingShown = false;
     function fixPingHtml() {
       const b = fixBatch;
@@ -9738,22 +12082,30 @@
       const enter = fixPingShown ? "" : " enter";
       fixPingShown = true;
       const busy = docBusy || b.applying ? " disabled" : "";
-      const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
-      return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
-        + `${ready > 1 ? `<button class="act primary" data-fxp-all="1"${busy}>Accept all</button>` : ""}${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
+      const away = Math.min(ready, typeof fixAway === "function" ? fixAway() : 0);
+      const text = b.preparing ? FIX_COPY.barPreparing(ready, b.items.length) : FIX_COPY.barReady(ready);
+      const acts = b.preparing
+        ? `<button class="act primary" data-fxp-stop="1" title="${esc(FIX_COPY.stopHow)}">${FIX_COPY.stop}</button>`
+        // No "Accept all": one sentence at a time, each accepted on its own (owner, 2026-10-13).
+        : `<button class="act" data-fxp-list="1" title="${esc(FIX_COPY.seeAllHow)}">${FIX_COPY.seeAll}</button><button class="act" data-fxp-none="1"${busy}>Reject all</button>`;
+      return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}<span>${esc(text)}${away && !b.preparing ? `<span class="fix-away"> · ${esc(FIX_COPY.barAway(away))}</span>` : ""}</span></span>${acts}</div>`;
+    }
+    /* The offer sits in the panel's footer (owner, 2026-10-14, the clean
+       frame: "28 fixes … Review all"); the batch, once started, in the list. */
+    function walkOfferHtml() {
+      if (fixBatch || !walkOffered()) return "";
+      const text = esc(FIX_COPY.offer(walkInputs().items.length)).replace(/^\d+/, "<b>$&</b>");
+      return `<span class="foot-ready">${text}</span><button class="act primary" data-walk-go="1" title="${esc(FIX_COPY.how)}"${docBusy ? " disabled" : ""}>${FIX_COPY.go}</button>`;
     }
     function walkStripHtml() {
       const b = fixBatch;
-      if (!b) {
-        if (!walkOffered()) return "";
-        return `<div class="walk-strip"><span>${esc(FIX_COPY.offer(walkInputs().items.length))}</span><button class="act primary" data-walk-go="1"${docBusy ? " disabled" : ""}>${FIX_COPY.go}</button></div>`;
-      }
+      if (!b) return "";
       const ready = b.items.filter((it) => it.status === "ready").length;
       const applied = b.items.filter((it) => it.status === "applied").length;
       const none = b.items.filter((it) => it.status === "none");
       const rows = b.items.map((it, i) => (it.status === "none" ? "" : fixRowHtml(it, i))).join("");
       const title = b.preparing ? FIX_COPY.preparing(ready, b.items.length) : ready ? FIX_COPY.ready(ready) : applied ? FIX_COPY.finished(applied) : FIX_COPY.nothing;
-      const lead = ready > 1 ? `<button class="act primary" data-fx-all="1"${docBusy || b.applying ? " disabled" : ""}>${FIX_COPY.all(ready)}</button>` : "";
+      const lead = ""; // no "Accept all": each change is accepted on its own (owner, 2026-10-13)
       const end = b.preparing ? `<button class="act" data-walk-stop="1">${FIX_COPY.stop}</button>` : `<button class="act" data-fx-close="1"${b.applying ? " disabled" : ""}>${FIX_COPY.done}</button>`;
       const whys = [...new Set(none.map((it) => it.why).filter(Boolean))].join("; ");
       return `<div class="fixes">
@@ -9766,8 +12118,13 @@
 
     if (FEATURES.typePreview) {
       previewDocEdit = (key, job) => (harness && harness.typePreview !== true ? Promise.resolve(true) : showTypePreview(key, job));
+      // Esc stops a fix-all run that is still preparing (the bar's Stop) — not while a preview has the key: heard first, before it.
+      window.addEventListener("keydown", function fixStopKey(e) { if (e.key === "Escape" && fixBatch?.preparing && !tpOpen) stopFixes(); }, true);
       window.addEventListener("pointerdown", tpNotePress, true);
       window.addEventListener("keydown", tpNotePress, true);
+      // Docs scrolls its editor, not the window: heard in the capture phase, as the marks hear it.
+      window.addEventListener("scroll", noteDocScroll, { capture: true, passive: true });
+      window.addEventListener("resize", noteDocScroll, { passive: true });
     }
 
     // ── widget UI ──
@@ -9793,7 +12150,7 @@
       root.innerHTML = `
         ${expanded ? `
         <div class="panel opening">
-          <div class="head"><span class="plane">${PLANE_SVG}</span><span class="name">Tracely</span></div>
+          <div class="head">${MARK_SOLID_SVG}<span class="name">Tracely</span></div>
           <div class="list">
             <div class="card">
               <div class="top"><span class="dot"></span><span class="ctitle">Check this document with Tracely?</span></div>
@@ -9806,7 +12163,7 @@
           </div>
           <div class="foot"><span>Nothing is sent until you turn it on.</span><a href="https://github.com/Tracely-app/Tracely/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink);text-decoration:none">Privacy</a></div>
         </div>` : ""}
-        <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}"><span class="plane">${PLANE_SVG}</span>Turn on Tracely for Docs</div>`;
+        <div class="pill quiet" id="pill" title="${esc(DOCS_CONSENT_TEXT)}">${PILL_MARK}Turn on Tracely for Docs</div>`;
       shadow.getElementById("pill").addEventListener("click", () => { expanded = !expanded; render(); });
       shadow.getElementById("docsOn")?.addEventListener("click", () => {
         expanded = false;
@@ -9817,16 +12174,24 @@
 
     function render() {
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
+      placeRoot(root);
       if (!docsOn) { renderDocsConsent(); return; }
+      if (docQuiet()) {
+        const onlyHere = !tracelyPaused(); // never checked here, and not paused: its button checks this Doc again
+        root.innerHTML = pausedHtml(expanded, onlyHere);
+        pausedWire(shadow, () => { expanded = !expanded; render(); }, onlyHere ? () => setDocPref(DOC_ID, { never: false }) : resumeTracely, onlyHere ? "documents" : "general");
+        return;
+      }
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(docText, review.findings, dismissed) : [];
-      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(docText, settings.citationStyle, dismissed, docGenre) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? withoutCarriedNotes(citationTips(docText, settings.citationStyle, dismissed, docGenre), issues) : [];
       const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(docText, review.findings, dismissed) : [];
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
       const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
       const tally = tallyOf(issues.map(({ f }) => f.verdict), [...citeTips, ...refTips, ...essayNotes, ...offTopic, ...resumeList]);
+      if (statusKind === "idle" && !inflight) noteDocIndex(tally); // Settings → Documents: this Doc's line
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -9847,7 +12212,7 @@
             : `<button class="act primary" data-flow-go="${esc(h)}">Copy transition</button>`;
           return `
             <div class="card">
-              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}">✕</button></div>
+              <div class="top"><span class="dot d-flow"></span><span class="ctitle">Flow issue</span><button class="x" data-flow-x="${esc(h)}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button></div>
               <div class="quote">${esc(fi.passage.slice(0, 160))}</div>
               <div class="fix">
                 <div class="fix-label">Why it jumps</div>
@@ -9861,10 +12226,26 @@
         const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
-          if (st?.loading) {
+          const failed = st ? null : sourceFailures.get(seg.hash);
+          if (failed && !failed.auto) {
+            // The writer's search failed: why, in the card (its button searches again).
+            sourcesHtml = searchGateHtml(failed) || `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
+          } else if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
+          } else if (st?.partial && !st.list?.length) {
+            // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
+            const trimActs = (canEditDoc() ? editBtnHtml(`trim:${seg.hash}`, TRIM_COPY.remove, `data-doc-trim="${seg.hash}"`)
+              : `<button class="act primary" data-trim-copy="${seg.hash}">${copiedTrimHash === seg.hash ? "Copied ✓" : esc(TRIM_COPY.copy)}</button>`) +
+              `<button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
+            sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${editNoteHtml(`trim:${seg.hash}`)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (unfoundStudy(seg.text, st)) {
+            // A study nothing like it could be found: delete it, or (Student, Pro) put evidence in its place.
+            sourcesHtml = `<div class="sources">${unfoundHtml(replaceMap.get(seg.hash), unfoundActionsHtml(seg.hash), !canRecommend())}${editNoteHtml(`del:${seg.hash}`)}${editNoteHtml(`rep:${seg.hash}`)}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
+            // "Needs evidence" searched and nothing came back: say what to do next.
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(EVIDENCE_COPY.none(st))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
               st.list.map((src, i) => `
@@ -9873,7 +12254,7 @@
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
-                    <div class="src-meta">${esc(src.publisher)}</div>
+                    <div class="src-meta">${sourceMetaHtml(src)}</div>
                     ${sourceSaysHtml(src)}
                     <div class="src-actions">
                       ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : nameTheSource(seg.text, src, settings.citationStyle || "mla") ? POP_COPY.name : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
@@ -9886,35 +12267,42 @@
           return sourcesHtml;
         };
         cardSources = sourcesFor;
+        /* A card (owner, 2026-10-14, the clean frame): its kind, the
+           sentence, why, the suggested fix, then Apply fix · Find a source ·
+           Copy. Where Docs can't be edited, Copy fix is the button. "Or paste
+           a URL" waits until a search has run for the sentence. */
         const cards = issues.map(({ seg, f }) => {
-          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          // A study nothing like it could be found: its block (sourcesFor) is the card's one set of buttons.
+          const unfound = unfoundStudy(seg.text, sourcesMap.get(seg.hash));
+          const copied = copiedFixHash === seg.hash;
+          const lead = !f.revision ? ""
+            : canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Apply fix", `data-doc-fix="${seg.hash}"`)
+            : `<button class="act primary" data-copy-fix="${seg.hash}">${copied ? "Copied ✓" : "Copy fix"}</button>`;
+          const copyIcon = f.revision && canEditDoc()
+            ? `<button class="act icon" data-copy-fix="${seg.hash}" title="${copied ? "Copied" : "Copy fix"}" aria-label="Copy fix">${copied ? COPIED_SVG : COPY_SVG}</button>` : "";
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
-              <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              ${kindIcoHtml(verdictCat(f.verdict))}<span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
+              ${neverBtnHtml("data-never", seg.hash)}<button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
-            ${deepHtml(seg.hash, f.verdict, (h) => (canEditDoc() ? editBtnHtml(`deepfix:${h}`, "Fix in doc", `data-deep-fix="${h}"`) + editNoteHtml(`deepfix:${h}`) : ""))}
-            ${f.revision ? `
+            ${deepHtml(seg.hash, f.verdict, (h) => (canEditDoc() ? editBtnHtml(`deepfix:${h}`, "Apply fix", `data-deep-fix="${h}"`) + editNoteHtml(`deepfix:${h}`) : ""))}
+            ${f.revision && !unfound ? `
             <div class="fix">
-              <div class="fix-label">Suggested revision</div>
+              <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
-              <div class="row">
-                ${canEditDoc() ? editBtnHtml(`fix:${seg.hash}`, "Fix in doc", `data-doc-fix="${seg.hash}"`) : ""}
-                <button class="act${canEditDoc() ? "" : " primary"}" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
-              </div>
-              ${editNoteHtml(`fix:${seg.hash}`)}
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : ""}
+            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>`}
+            ${f.revision ? editNoteHtml(`fix:${seg.hash}`) : ""}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>
+            ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>` : ""}
           </div>` };
         });
-        const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, docText, settings.citationStyle) : "";
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, docText, settings.citationStyle, docKind) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
            citation notes and the reference list's), then the writing (the
@@ -9926,7 +12314,7 @@
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, docText) : [])
             : "");
         const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
-          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
+          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash), !canRecommend())
           : "";
 
         // The last edit's Undo outlives its card: a fixed sentence's card goes
@@ -9934,18 +12322,24 @@
         const undoStrip = lastDocEdit && !undoShown
           ? `<div class="undo-strip"><span>${esc(lastDocEdit.label.charAt(0).toUpperCase() + lastDocEdit.label.slice(1))}</span><button class="act" data-doc-undo="1"${docBusy ? " disabled" : ""}>Undo</button></div>`
           : "";
+        /* What the kind of writing means sits on its chip's hover; only a
+           kind Tracely stays quiet on says it in the list, where it explains
+           the empty panel. Turn off is the header's power button, beside
+           Settings; the footer is the fix-all offer, or nothing. */
+        const offer = typeof walkOfferHtml === "function" ? walkOfferHtml() : ""; /* (absent from server/test's slices of render) */
+        const power = `<button class="hbtn" id="turnOff" title="Turn off: stop checking Google Docs. Turn it back on from Tracely's button or Settings." aria-label="Turn off Tracely for Google Docs">${POWER_SVG}</button>`;
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", kindTitle(docShown, docText), { note: genreNote(docGenre, docText, settings.citationStyle, docShown), power })}
           <div class="list">
-            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${genreHtml}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
+            ${undoStrip}${typeof walkStripHtml === "function" ? walkStripHtml() : "" /* (absent from server/test's slices of render) */}${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${flowCards}${claimsHtml || flowCards || tipsHtml || GENRE_QUIET.has(docGenre) ? "" : `<div class="empty">${statusKind === "offline" ? "Start the Tracely server, then reopen this doc." : "Nothing flagged. Keep writing — sentences are checked as you finish them."}</div>`}${evidenceHtml}
           </div>
-          <div class="foot">
+          <div class="foot${offer || FEATURES.citeHintsToggle || FEATURES.autoSources ? "" : " empty"}">
             <span class="foot-left">
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act" id="turnOff" title="Stop checking Google Docs. Turn it back on from Tracely's button or Settings.">Turn off</button>
+            ${offer}
           </div>
         </div>`;
       }
@@ -9979,20 +12373,21 @@
       // (noteSourcesReady) and Let Tracely fix these's suggestions (fixPingHtml).
       shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
       shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
-      shadow.querySelector("[data-fxp-all]")?.addEventListener("click", () => acceptAllFixes());
       shadow.querySelector("[data-fxp-none]")?.addEventListener("click", () => rejectAllFixes());
+      shadow.querySelector("[data-fxp-stop]")?.addEventListener("click", () => stopFixes());
+      shadow.querySelector("[data-fxp-list]")?.addEventListener("click", () => { expanded = true; render(); });
       if (typeof paintFixCards === "function") paintFixCards(); // the suggestions in the doc follow every change of state
       if (expanded) {
         shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);
         // "Let Tracely fix these" (the Type preview block): start, and Stop.
         shadow.querySelector("[data-walk-go]")?.addEventListener("click", () => prepareFixes());
         shadow.querySelector("[data-walk-stop]")?.addEventListener("click", () => stopFixes());
-        shadow.querySelector("[data-fx-all]")?.addEventListener("click", () => acceptAllFixes());
         shadow.querySelector("[data-fx-close]")?.addEventListener("click", () => closeFixes());
         for (const b of shadow.querySelectorAll("[data-fx-accept]")) b.addEventListener("click", () => acceptFix(Number(b.dataset.fxAccept)));
         for (const b of shadow.querySelectorAll("[data-fx-skip]")) b.addEventListener("click", () => skipFix(Number(b.dataset.fxSkip)));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const b of shadow.querySelectorAll("[data-rec-plans]")) b.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
           btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); requestDocsMarks(); });
         }
@@ -10012,8 +12407,21 @@
             render();
           });
         }
+        // "Never flag this": the sentence, or a note's own words, goes on Settings → Memory's list, for every document (neverFlag).
+        for (const btn of shadow.querySelectorAll("[data-never]")) btn.addEventListener("click", () => neverFlag(segments.find((s) => s.hash === btn.dataset.never)?.text));
+        for (const btn of shadow.querySelectorAll("[data-never-tip]")) btn.addEventListener("click", () => neverFlag(tipById(btn.dataset.neverTip)?.quote));
+        // A search that needs a sign-in, or ran out (searchGateHtml): sign in and run it, or see the plans.
+        for (const btn of shadow.querySelectorAll("[data-signin]")) btn.addEventListener("click", () => signInThenSearch());
+        for (const btn of shadow.querySelectorAll("[data-upgrade]")) btn.addEventListener("click", () => openOrderPage());
         // A note's own fix (decorateCard): Delete, Rewrite in doc, the page box.
         for (const btn of shadow.querySelectorAll("[data-tip-del]")) btn.addEventListener("click", () => armOrDelete(btn.dataset.tipDel));
+        // A study Tracely can't find: delete it, find evidence for its point, put that evidence in, or copy it.
+        for (const btn of shadow.querySelectorAll("[data-unfound-del]")) btn.addEventListener("click", () => docDeleteSentence(btn.dataset.unfoundDel));
+        for (const btn of shadow.querySelectorAll("[data-unfound-find]")) btn.addEventListener("click", () => findReplacement(btn.dataset.unfoundFind));
+        for (const btn of shadow.querySelectorAll("[data-unfound-apply]")) btn.addEventListener("click", () => docReplaceWithEvidence(btn.dataset.unfoundApply));
+        for (const btn of shadow.querySelectorAll("[data-unfound-copy]")) {
+          btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundCopy); if (r?.text) { copyText(r.text); btn.textContent = "Copied ✓"; } });
+        }
         for (const btn of shadow.querySelectorAll("[data-tip-list]")) btn.addEventListener("click", () => docAddWorksCited(btn.dataset.tipList));
         for (const btn of shadow.querySelectorAll("[data-tip-rewrite]")) btn.addEventListener("click", () => docRewriteTip(btn.dataset.tipRewrite));
         for (const input of shadow.querySelectorAll("[data-page-input]")) {
@@ -10078,6 +12486,18 @@
         }
         for (const btn of shadow.querySelectorAll("[data-doc-fix]")) {
           btn.addEventListener("click", () => docFix(btn.dataset.docFix));
+        }
+        for (const btn of shadow.querySelectorAll("[data-doc-trim]")) {
+          btn.addEventListener("click", () => { const plan = trimPlan(btn.dataset.docTrim); if (plan) docFix(btn.dataset.docTrim, null, plan.trimmed, plan.opts); });
+        }
+        for (const btn of shadow.querySelectorAll("[data-trim-keep]")) {
+          btn.addEventListener("click", () => keepDetail(btn.dataset.trimKeep));
+        }
+        for (const btn of shadow.querySelectorAll("[data-trim-copy]")) {
+          btn.addEventListener("click", () => {
+            const src = sourcesMap.get(btn.dataset.trimCopy)?.partial;
+            if (src?.partial?.trimmed) { copiedTrimHash = btn.dataset.trimCopy; copyText(src.partial.trimmed); }
+          });
         }
         // "Explain in depth"'s own revision, applied like the card's.
         for (const btn of shadow.querySelectorAll("[data-deep-fix]")) {
@@ -10197,7 +12617,7 @@
     // removed with the dismissals when it is switched off.
     const FIELD_CACHE_KEY = "tracely.widget.vcache.field";
     const FIELD_CACHE_MAX = 400;
-    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "no_claim"]);
+    const STORED_VERDICTS = new Set(["accurate", "false", "questionable", "incoherent", "needs_citation", "wrong_source", "no_claim"]);
 
     // Per-site enable lives in chrome.storage.local ("enabledSites": [origin])
     // so the options page can list and manage it. The old per-site localStorage
@@ -10250,14 +12670,29 @@
     // ── state (mirrors docs mode) ──
     const storedVerdicts = jsonParse(lsGet(FIELD_CACHE_KEY) ?? "[]", []); // the site can write this key too: trust nothing
     const cache = new Map((Array.isArray(storedVerdicts) ? storedVerdicts : [])
-      .filter((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && e[1] && typeof e[1] === "object" && STORED_VERDICTS.has(e[1].verdict)));
+      .filter((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && e[1] && typeof e[1] === "object" && STORED_VERDICTS.has(e[1].verdict))
+      .map(([h, v]) => [h, v.revision ? { ...v, revision: oneSentenceFix(v.revision) } : v])); // one sentence, as a fresh one is
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
+    // Settings (prefs), as in Docs mode: a pause draws nothing and checks nothing; "Clear saved checks" empties this page too.
+    prefsListeners.add(() => {
+      if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); }
+      if (newMark("tracely.undismissedAt", prefs.undismissedAt)) { dismissed.clear(); lsDel(DISMISS_KEY); } // Settings → Memory: dismissed notes back everywhere
+      adoptStylePick(settings);
+      if (fieldText) { readFieldKind(); settings.citationStyle = citeStyleFor(fieldText); }
+      refilterSources(sourcesMap);
+      render();
+    });
+    panelTogglers.add(() => { if (!tracked) return; expanded = !expanded; render(); });
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
+    let sourceAttr = new Map(); // sentence hash → "named" | "unnamed" (attributionBySentence)
     let inflight = false;
-    let sourcesInflight = false;
+    let sourcesInflight = 0; // the writer's own searches in flight, as in Docs mode
+    const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote)
+    let searchesOut = false; // the last search was refused for the plan's allowance (plan_limit)
+    const replaceMap = new Map(); // hash → the evidence an unfound study can be replaced with (findReplacement): { loading } | { src, text } | { none } | { failed }
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // see nextReadGap
     let lastCheckFailed = false;
@@ -10269,6 +12704,13 @@
     let expanded = false;
     let showEvidence = false; // the evidence section starts folded: offered, never pushed
     let docGenre = "prose";   // detectGenre of the last read: "resume" turns on Resume tips
+    let docKind = "essay";    // detectKind of the last read (WRITING_KINDS)
+    let docShown = "";        // the kind the header names, "" when unsure (readKind)
+    // The kind of writing (readKind, the site counting too), or the model's when it has named one; its genre decides the checks.
+    function readFieldKind() {
+      ({ kind: docKind, shown: docShown } = kindWithUsual(kindWithModel(readKind(fieldText, location.hostname + location.pathname), fieldText), location.hostname + location.pathname));
+      docGenre = WRITING_KINDS[docKind].genre;
+    }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
     const persistReview = () => {}; // a field has no identity a later page load could find it by
     let copiedTipId = null;
@@ -10530,7 +12972,7 @@
     }
 
     function drawMarks() {
-      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; }
+      if (orphaned || tracelyPaused()) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; } // paused: nothing drawn
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
       const layer = ensureOverlay();
       layer.textContent = "";
@@ -10559,10 +13001,11 @@
       const seen = new Set();
       const liveSegs = segmentText(liveText);
       const liveCovered = coveredByLaterCitation(liveText, liveSegs);
+      const liveAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(liveText, liveSegs) : new Map();
       // One underline per span (tipCoversSentence): a note over the whole of a
       // flagged sentence is not drawn — the sentence's mark opens the panel,
       // where both cards are.
-      const flaggedText = liveSegs.filter((seg) => seg.checkable && !dismissed.has(seg.hash) && flagShown(cache.get(seg.hash), settings, docGenre, seg.text, liveCovered.has(seg.hash))).map((seg) => seg.text);
+      const flaggedText = liveSegs.filter((seg) => seg.checkable && !dismissed.has(seg.hash) && flagShown(cache.get(seg.hash), settings, docGenre, seg.text, liveCovered.has(seg.hash), liveAttr.get(seg.hash))).map((seg) => seg.text);
       for (const tip of tips) {
         if (flaggedText.some((t) => tipCoversSentence(t, tip.mark))) continue;
         const rects = isTa ? taRects(tracked, tip.start, tip.end) : ceRects(tracked, index, tip.start, tip.end);
@@ -10575,7 +13018,7 @@
         let color = null;
         let pattern = "solid";
         let pending = false;
-        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash))) {
+        if (flagShown(f, settings, docGenre, seg.text, liveCovered.has(seg.hash), liveAttr.get(seg.hash))) {
           color = MARK_COLORS[f.verdict];
           pattern = MARK_PATTERN[f.verdict];
         } else if (!f && inflight) {
@@ -10685,20 +13128,7 @@
     // the verdict it had (smallEdit). The counts are for the console.
     let verdictsReused = 0, sentencesChecked = 0;
     function inheritVerdicts(before) {
-      const live = new Set(segments.map((sg) => sg.hash));
-      const taken = new Set();
-      let n = 0;
-      for (const seg of segments) {
-        if (!seg.checkable || cache.has(seg.hash)) continue;
-        const old = inheritedVerdict(seg, before, live, cache, taken);
-        if (!old) continue;
-        cache.set(seg.hash, cache.get(old.hash));
-        if (dismissed.has(old.hash) && !dismissed.has(seg.hash)) {
-          dismissed.add(seg.hash);
-          lsSet(DISMISS_KEY, JSON.stringify([...dismissed]));
-        }
-        n++;
-      }
+      const n = inheritVerdictsInto(segments, before, cache, dismissed, () => lsSet(DISMISS_KEY, JSON.stringify([...dismissed])));
       if (n) {
         verdictsReused += n;
         console.debug(`[tracely] reused ${n} verdict(s) after a small edit — ${verdictsReused} reused, ${sentencesChecked} sent to be checked on this page`);
@@ -10728,14 +13158,14 @@
         if (!seg.checkable || seen.has(seg.hash)) continue;
         seen.add(seg.hash);
         const f = cache.get(seg.hash);
-        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash))) continue;
+        if (!f || dismissed.has(seg.hash) || !flagShown(f, settings, docGenre, seg.text, citedLater.has(seg.hash), sourceAttr.get(seg.hash))) continue;
         out.push({ seg, f });
       }
       return out;
     }
 
     async function cycle() {
-      if (orphaned || inflight || document.hidden) return;
+      if (orphaned || inflight || document.hidden || tracelyPaused()) return; // paused from Settings: nothing read or sent
       if (!tracked || !tracked.isConnected) {
         statusKind = "idle";
         statusMsg = "click into a text field first";
@@ -10748,8 +13178,9 @@
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
         fieldText = newText;
-        docGenre = FEATURES.resumeTips ? detectGenre(fieldText) : "prose";
-        if (!settings.styleChosen) settings.citationStyle = docCitationStyle(fieldText) ?? "mla";
+        readFieldKind(); // the site counts too (placeKind)
+        askKind(fieldText, location.hostname + location.pathname, api, () => { readFieldKind(); render(); });
+        settings.citationStyle = citeStyleFor(fieldText);
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
           statusMsg = `field under ${MIN_FIELD_CHARS} characters — keep writing`;
@@ -10760,6 +13191,7 @@
         segments = segmentText(fieldText);
         if (inheritVerdicts(before)) persistFieldCache();
         citedLater = coveredByLaterCitation(fieldText, segments);
+        sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(fieldText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
         if (todo.length > 0) {
@@ -10771,6 +13203,7 @@
             text: fieldText.slice(0, MAX_INPUT_CHARS),
             sentences: todo.map((s) => ({ id: s.hash, text: s.text })),
             model: CHECK_MODEL, // no effort: the server decides (the fast model at medium)
+            ...(FEATURES.citeFit ? { citeFit: true } : {}), // and whether each cited source fits its claim (wrong_source)
           });
           checkedOnce = true;
           for (const f of data.findings ?? []) {
@@ -10812,12 +13245,45 @@
       lsSet(FIELD_CACHE_KEY, JSON.stringify(keep));
     }
 
+    // A study Tracely can't find: evidence for its point (Docs mode's findReplacement, over the field's text).
+    async function findReplacement(hash) {
+      const seg = segments.find((s) => s.hash === hash);
+      if (!seg || !canRecommend() || replaceMap.get(hash)?.loading) return false;
+      const claim = studyFinding(seg.text);
+      if (!claim) { replaceMap.set(hash, { none: true }); render(); return false; }
+      replaceMap.set(hash, { loading: true });
+      render();
+      try {
+        const data = await searchSources({ claim, context: fieldText.slice(0, 6000), model: CHECK_MODEL }, () => {});
+        replaceMap.set(hash, pickReplacement(backingSources(data.sources, "questionable").list, settings.citationStyle || "mla") ?? { none: true });
+      } catch (err) {
+        replaceMap.set(hash, { failed: searchFailureNote(err) });
+      }
+      render();
+      return true;
+    }
+    // Signed in from a card: the searches the writer asked for run now.
+    async function signInThenSearch() {
+      if (!(await signInFromCard())) return;
+      for (const [h, f] of [...sourceFailures]) if (f.kind === "signin") { sourceFailures.delete(h); fetchSources(h); }
+      render();
+    }
     async function fetchSources(hash, auto = false) {
-      if (sourcesInflight) return;
+      // As in Docs mode: the writer's press always runs; an automatic search
+      // waits for the writer's (it was the other way round, and a press
+      // during one did nothing).
+      if (sourcesMap.get(hash)?.list?.length || sourcesMap.get(hash)?.loading) return; // found or running: never pay twice
+      // Signed out (needsSignIn), as in Docs mode: the card says to sign in, and nothing automatic runs.
+      if (needsSignIn()) {
+        if (!auto) { sourceFailures.set(hash, { note: SIGNIN_COPY.body, auto: false, kind: "signin" }); render(); }
+        return;
+      }
+      if (auto && sourcesInflight) return;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return;
       const f = cache.get(hash);
-      sourcesInflight = true;
+      if (!auto) sourcesInflight++;
+      sourceFailures.delete(hash);
       sourcesMap.set(hash, { loading: true, list: null, copiedUrl: null });
       render();
       try {
@@ -10829,14 +13295,17 @@
           // on searches and runs the vendor's default.
           model: CHECK_MODEL,
         });
-        const { list, unbacked, unread } = backingSources(data.sources, f?.verdict);
-        sourcesMap.set(hash, { loading: false, list, unbacked, unread, copiedUrl: null });
+        const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
+        sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
+        searchesOut = false;
       } catch (err) {
         sourcesMap.delete(hash);
-        if (!auto) statusKind = "error";
-        statusMsg = err?.message ?? "source search failed";
+        searchesOut = err?.kind === "plan_limit";
+        sourceFailures.set(hash, { note: searchFailureNote(err), auto, kind: err?.kind });
+        if (!auto && !searchesOut) statusKind = "error";
+        if (!auto && !searchesOut) statusMsg = err?.message ?? "source search failed";
       } finally {
-        sourcesInflight = false;
+        if (!auto) sourcesInflight = Math.max(0, sourcesInflight - 1);
         render();
       }
     }
@@ -10844,18 +13313,20 @@
     // Auto-sources — same toggle and rolling-hour guard as docs mode. Only
     // reachable after a check, which on a non-enabled site takes a click.
     async function autoFindSources(findings) {
-      if (!FEATURES.autoSources || settings.autoSources !== true) return; // cost: auto web-search is opt-in
-      let started = 0;
-      for (const f of findings) {
-        if (started >= 3) break;
-        if (!AUTO_SOURCE_VERDICTS.includes(f.verdict)) continue;
-        if (sourcesMap.has(f.id) || dismissed.has(f.id)) continue;
-        if (!segments.some((s) => s.hash === f.id)) continue;
+      if (prefs.autoEvidence === false) return; // Settings → Checking: the writer searches when they choose
+      const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
+      const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
+      const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
+        skip: (f) => sourcesMap.has(f.id) || !shown.has(f.id) || citedClaim(f.verdict, segments.find((s) => s.hash === f.id)?.text) });
+      for (const f of picks) {
         autoSourceTimes = autoSourceTimes.filter((t) => Date.now() - t < 3_600_000);
         if (autoSourceTimes.length >= 15) { statusMsg = "auto-sources paused — hourly cap"; break; }
+        for (let i = 0; sourcesInflight && i < 120; i++) await new Promise((r) => setTimeout(r, 500));
+        if (sourcesMap.has(f.id) || sourcesInflight) continue;
         autoSourceTimes.push(Date.now()); // stamp BEFORE the call
-        started++;
+        autoSinceUsage++;
         await fetchSources(f.id, true); // sequential: one paid search at a time
+        if (!sourcesMap.has(f.id)) break; // failed: stop, and say nothing — nobody asked
       }
     }
 
@@ -10894,28 +13365,14 @@
     let tipsMemo = null;
     function allTips() {
       if (!isArgumentGenre(docGenre)) return [];
-      const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
+      const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle, kinds: JSON.stringify(tipKindsOn()), genre: docGenre };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
-      const list = [
-        ...citationTips(fieldText, settings.citationStyle, dismissed, docGenre),
-        ...(FEATURES.refList ? referenceTips(fieldText, dismissed, docGenre, settings.citationStyle) : []),
-        ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : []),
-      ];
-      tipsMemo = { k, list };
-      return list;
+      tipsMemo = { k, list: tipsOf(fieldText, docGenre, dismissed, review, settings.citationStyle) };
+      return tipsMemo.list;
     }
     function tipById(id) { return allTips().find((t) => t.id === id) ?? null; }
-    function citedTargetFor(key) {
-      if (String(key).startsWith("tip:")) return tipCitedTarget(tipById(key), segments);
-      const seg = segments.find((s) => s.hash === key);
-      const c = seg ? flaggedCitationOf(cache.get(key)?.verdict, seg.text) : null;
-      return c ? { kind: "sentence", raw: c.raw, inner: c.inner, segHash: seg.hash, sentence: seg.text } : null;
-    }
-    function replaceFor(hash) {
-      if (citedFallback.has(hash)) return citedFallback.get(hash);
-      const seg = segments.find((s) => s.hash === hash);
-      return seg ? flaggedCitationOf(cache.get(hash)?.verdict, seg.text)?.raw ?? null : null;
-    }
+    function citedTargetFor(key) { return citedTargetIn(key, segments, cache, tipById); }
+    function replaceFor(hash) { return citationReplacedIn(hash, segments, cache, citedFallback); }
     function startClaimSources(key, claimHash, claimText) {
       claimSearch.set(key, { hash: claimHash, text: claimText });
       if (!sourcesMap.get(claimHash)?.list?.length) fetchSources(claimHash);
@@ -10970,7 +13427,9 @@
       if (isTip && buttons.length) card.insertAdjacentHTML("beforeend", `<div class="row">${buttons.join("")}</div>${html}`);
       else if (buttons.length || html) {
         const row = card.querySelector(".row");
-        if (row && buttons.length) row.insertAdjacentHTML("beforeend", buttons.join(""));
+        // Before the copy icon, which closes the row.
+        const copyIcon = row?.querySelector?.(".act.icon");
+        if (row && buttons.length) (copyIcon ?? row).insertAdjacentHTML(copyIcon ? "beforebegin" : "beforeend", buttons.join(""));
         const at = card.querySelector(".sources") ?? card.querySelector(".cite-url");
         if (html) { if (at) at.insertAdjacentHTML("beforebegin", html); else card.insertAdjacentHTML("beforeend", html); }
       }
@@ -11207,6 +13666,13 @@
         root.innerHTML = orphanPillHtml();
         return;
       }
+      placeRoot(root);
+      if (tracelyPaused()) { // paused from Settings: where the pill would be, saying so
+        root.style.display = tracked && (expanded || fieldEligible()) ? "" : "none";
+        root.innerHTML = pausedHtml(expanded);
+        pausedWire(shadow, () => { expanded = !expanded; render(); });
+        return;
+      }
       const enabled = siteEnabled();
       const show = Boolean(tracked && (expanded || fieldEligible() || segments.length > 0));
       root.style.display = show ? "" : "none";
@@ -11215,7 +13681,7 @@
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(fieldText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(fieldText, dismissed, docGenre, settings.citationStyle) : [];
       const essayNotes = FEATURES.essayFeedback && isArgumentGenre(docGenre) && review.kind === "essay" ? essayFeedbackTips(fieldText, review.findings, dismissed) : [];
-      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? citationTips(fieldText, settings.citationStyle, dismissed, docGenre) : [];
+      const citeTips = FEATURES.quoteTips && isArgumentGenre(docGenre) ? withoutCarriedNotes(citationTips(fieldText, settings.citationStyle, dismissed, docGenre), issues) : [];
       const resumeList = FEATURES.resumeTips && docGenre === "resume" ? resumeTips(fieldText, review.findings, dismissed) : [];
       const quiet = !enabled && !checkedOnce && !inflight && statusKind === "idle";
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
@@ -11232,10 +13698,27 @@
         const sourcesFor = (seg) => {
           const st = sourcesMap.get(seg.hash);
           let sourcesHtml = "";
-          if (st?.loading) {
+          const failed = st ? null : sourceFailures.get(seg.hash);
+          if (failed && !failed.auto) {
+            sourcesHtml = searchGateHtml(failed) || `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
+          } else if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
+          } else if (st?.partial && !st.list?.length) {
+            // Backs all but one small detail (TRIM_COPY): remove it here, or keep it.
+            const trimActs = `<button class="act primary" data-field-trim="${seg.hash}">${esc(TRIM_COPY.remove)}</button><button class="act" data-trim-keep="${seg.hash}">${esc(TRIM_COPY.keep)}</button>`;
+            sourcesHtml = `<div class="sources">${partialSourceHtml(seg.text, st.partial, trimActs)}${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (unfoundStudy(seg.text, st)) {
+            // A study nothing like it could be found: as in Docs, but a field cannot delete a sentence, so it says to.
+            const rep = replaceMap.get(seg.hash);
+            const acts = rep?.text
+              ? `<button class="act primary" data-unfound-apply="${seg.hash}">${fieldFixed.has(seg.hash) ? "Replaced ✓" : esc(UNFOUND_COPY.applyField)}</button><button class="act" data-unfound-copy="${seg.hash}">${esc(UNFOUND_COPY.copy)}</button>`
+              : canRecommend() && !rep ? `<button class="act" data-unfound-find="${seg.hash}">${esc(UNFOUND_COPY.replace)}</button>` : "";
+            sourcesHtml = `<div class="sources">${unfoundHtml(rep, acts, !canRecommend())}</div>`;
           } else if ((st?.unbacked || st?.unread?.length) && !st.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(st.unbacked ? UNBACKED_NOTE(st.unbacked) : RECEIPT_COPY.unreadOnly(st.unread.length))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(unbackedNote(st, cache.get(seg.hash)?.verdict))}</div>${unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen)}</div>`;
+          } else if (st && !st.list?.length && isEvidenceFirst(cache.get(seg.hash)?.verdict)) {
+            // "Needs evidence" searched and nothing came back: say what to do next.
+            sourcesHtml = `<div class="sources"><div class="loading">${esc(EVIDENCE_COPY.none(st))}</div></div>`;
           } else if (st?.list?.length) {
             sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
               st.list.map((src, i) => `
@@ -11244,7 +13727,7 @@
                   <span class="stance st-${esc(src.stance)}">${esc(src.stance)}</span>
                   <div class="src-body">
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
-                    <div class="src-meta">${esc(src.publisher)}</div>
+                    <div class="src-meta">${sourceMetaHtml(src)}</div>
                     ${sourceSaysHtml(src)}
                     <div class="src-actions">
                       ${replaceFor(seg.hash) ? `<button class="act primary" data-src-replace="${seg.hash}" data-i="${i}">${esc(CITED_COPY.replace)}</button>` : ""}
@@ -11256,34 +13739,35 @@
           return sourcesHtml;
         };
         cardSources = sourcesFor;
+        // A card: the Docs panel's (the clean frame), with Apply fix writing into the field.
         const cards = issues.map(({ seg, f }) => {
-          const kind = f.verdict === "false" ? "false" : f.verdict === "questionable" ? "quest" : f.verdict === "needs_citation" ? "cite" : "inco";
           const sourcesHtml = sourcesFor(seg);
+          // A study nothing like it could be found: its block (sourcesFor) is the card's one set of buttons.
+          const unfound = unfoundStudy(seg.text, sourcesMap.get(seg.hash));
+          const copied = copiedFixHash === seg.hash;
+          const lead = f.revision ? `<button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Apply fix"}</button>` : "";
+          const copyIcon = f.revision ? `<button class="act icon" data-copy-fix="${seg.hash}" title="${copied ? "Copied" : "Copy fix"}" aria-label="Copy fix">${copied ? COPIED_SVG : COPY_SVG}</button>` : "";
           return { hash: seg.hash, html: `
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
-              <span class="dot d-${kind}"></span><span class="ctitle">${VERDICT_LABEL[f.verdict]}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss">✕</button>
+              ${kindIcoHtml(verdictCat(f.verdict))}<span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
+              ${neverBtnHtml("data-never", seg.hash)}<button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
-            ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Fix in field"}</button>`)}
-            ${f.revision ? `
+            ${deepHtml(seg.hash, f.verdict, (h) => `<button class="act primary" data-deep-fix="${h}">${fieldFixed.has(h) ? "Fixed ✓" : "Apply fix"}</button>`)}
+            ${f.revision && !unfound ? `
             <div class="fix">
-              <div class="fix-label">Suggested revision</div>
+              <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
-              <div class="row">
-                <button class="act primary" data-field-fix="${seg.hash}">${fieldFixed.has(seg.hash) ? "Fixed ✓" : "Fix in field"}</button>
-                <button class="act" data-copy-fix="${seg.hash}">${copiedFixHash === seg.hash ? "Copied ✓" : "Copy fix"}</button>
-                <button class="act" data-sources="${seg.hash}">Find sources</button>
-              </div>
-            </div>` : `<div class="row"><button class="act" data-sources="${seg.hash}">Find sources</button></div>`}
+            </div>` : ""}
+            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>`}
             ${sourcesHtml}
-            <div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>
+            ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>` : ""}
           </div>` };
         });
-        const cardsHtml = cards.length ? cardListHtml(cards) + legendHtml() : "";
-        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, fieldText, settings.citationStyle) : "";
+        const cardsHtml = cards.length ? cardListHtml(cards) : "";
+        const genreHtml = FEATURES.resumeTips || FEATURES.quoteTips ? genreLineHtml(docGenre, fieldText, settings.citationStyle, docKind) : "";
         /* The list, most serious first (owner, 2026-10-08: "make this more
            organized … restructure it"): the claims, then the citations (the
            citation notes and the reference list's), then the writing (the
@@ -11295,7 +13779,7 @@
             ? citationTipsHtml([...citeTips, ...refTips], copiedTipId) + essayFeedbackHtml([...essayNotes, ...offTopic], review.inflight && review.kind === "essay", copiedTipId, review.kind === "essay" ? resolvedNotes(review.seen, essayNotes, fieldText) : [])
             : "");
         const evidenceHtml = FEATURES.evidenceHints && genreWantsList(docGenre)
-          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash))
+          ? evidenceSectionHtml(evidenceCandidates(segments, cache, dismissed), showEvidence, sourcesFor, (seg) => sourcesMap.has(seg.hash), !canRecommend())
           : "";
 
         const emptyMsg = statusKind === "offline"
@@ -11304,18 +13788,24 @@
             ? "Nothing flagged. Sentences are checked as you finish them, while this field is focused."
             : "Tracely is off on this site, and nothing is sent. Turn it on to check what you write here.";
 
+        /* The site's switch: on, it is the header's power button ("Turn off
+           on this site"); off, the footer's one button, since turning it on
+           is then all the panel can do. */
+        const siteSwitch = enabled
+          ? `<button class="hbtn" id="siteSwitch" title="Turn off on this site" aria-label="Turn off on this site">${POWER_SVG}</button>`
+          : `<button class="act primary" id="siteSwitch">Turn on for this site</button>`;
         panelHtml = `
         <div class="panel${panelOpening ? " opening" : ""}">
-          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline")}
+          ${panelHeadHtml(tally, statusMsg, statusKind === "error" || statusKind === "offline", kindTitle(docShown, fieldText), { note: genreNote(docGenre, fieldText, settings.citationStyle, docShown), power: enabled ? siteSwitch : "" })}
           <div class="list">
-            ${genreHtml}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
+            ${GENRE_QUIET.has(docGenre) ? genreHtml : ""}${claimsHtml}${tipsHtml}${claimsHtml || tipsHtml ? "" : `<div class="empty">${emptyMsg}</div>`}${evidenceHtml}
           </div>
-          <div class="foot">
+          <div class="foot${!enabled || FEATURES.citeHintsToggle || FEATURES.autoSources ? "" : " empty"}">
             <span class="foot-left">
               <label class="autosrc" title="Underline sentences that are accurate but would benefit from a citation. Off: only false, unverifiable or incoherent sentences are marked."><input type="checkbox" id="citeTgl"${settings.citeHints !== false ? " checked" : ""} /><span>Citation suggestions</span></label>
               <label class="autosrc" title="Automatically look up sources for flagged claims (capped)"><input type="checkbox" id="autoSrcTgl"${settings.autoSources === true ? " checked" : ""} /><span>Auto-src</span></label>
             </span>
-            <button class="act${enabled ? "" : " primary"}" id="siteSwitch">${enabled ? "Turn off on this site" : "Turn on for this site"}</button>
+            ${enabled ? "" : siteSwitch}
           </div>
         </div>`;
       }
@@ -11324,7 +13814,7 @@
       root.innerHTML = `
         ${panelHtml}
         ${quiet
-          ? `<div class="pill quiet" id="pill"><span class="plane">${PLANE_SVG}</span>Tracely is off here</div>`
+          ? `<div class="pill quiet" id="pill">${PILL_MARK}Tracely is off here</div>`
           : launcherHtml(countCls, countTxt, issues.length ? `Tracely — ${issues.length} flagged` : "Tracely")}
       `;
       // "Find the cited work" and a note's "Find a source", added to the cards now they exist.
@@ -11341,6 +13831,7 @@
         shadow.getElementById("siteSwitch").addEventListener("click", () => setSiteEnabled(!enabled));
         wireDeep(shadow, explainSentence, render);
         shadow.getElementById("evidenceToggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+        for (const b of shadow.querySelectorAll("[data-rec-plans]")) b.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-tip-x]")) {
           btn.addEventListener("click", () => { dismissed.add(btn.dataset.tipX); lsSet(DISMISS_KEY, JSON.stringify([...dismissed])); render(); scheduleMarks(); });
         }
@@ -11360,8 +13851,31 @@
             render();
           });
         }
+        // "Never flag this": the sentence, or a note's own words, goes on Settings → Memory's list, for every document (neverFlag).
+        for (const btn of shadow.querySelectorAll("[data-never]")) btn.addEventListener("click", () => neverFlag(segments.find((s) => s.hash === btn.dataset.never)?.text));
+        for (const btn of shadow.querySelectorAll("[data-never-tip]")) btn.addEventListener("click", () => neverFlag(tipById(btn.dataset.neverTip)?.quote));
+        // A search that needs a sign-in, or ran out (searchGateHtml): sign in and run it, or see the plans.
+        for (const btn of shadow.querySelectorAll("[data-signin]")) btn.addEventListener("click", () => signInThenSearch());
+        for (const btn of shadow.querySelectorAll("[data-upgrade]")) btn.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-field-fix]")) {
           btn.addEventListener("click", () => fixInField(btn.dataset.fieldFix));
+        }
+        // Remove the one detail no source backs (TRIM_COPY), in place like Fix in field;
+        // the source that backs what is left is then this sentence's to cite.
+        for (const btn of shadow.querySelectorAll("[data-field-trim]")) {
+          btn.addEventListener("click", () => {
+            const hash = btn.dataset.fieldTrim;
+            const src = sourcesMap.get(hash)?.partial;
+            if (!src?.partial?.trimmed) return;
+            sourcesMap.set(hashText(src.partial.trimmed), trimmedSourceEntry(src));
+            fixInField(hash, src.partial.trimmed);
+          });
+        }
+        for (const btn of shadow.querySelectorAll("[data-trim-keep]")) {
+          btn.addEventListener("click", () => {
+            const st = sourcesMap.get(btn.dataset.trimKeep);
+            if (st?.partial) { sourcesMap.set(btn.dataset.trimKeep, { ...st, partial: null }); render(); }
+          });
         }
         // "Explain in depth"'s own revision, put in like the card's.
         for (const btn of shadow.querySelectorAll("[data-deep-fix]")) {
@@ -11375,6 +13889,14 @@
         }
         for (const btn of shadow.querySelectorAll("[data-sources]")) {
           btn.addEventListener("click", () => fetchSources(btn.dataset.sources));
+        }
+        // A study Tracely can't find: evidence for its point, put in the field, or copied.
+        for (const btn of shadow.querySelectorAll("[data-unfound-find]")) btn.addEventListener("click", () => findReplacement(btn.dataset.unfoundFind));
+        for (const btn of shadow.querySelectorAll("[data-unfound-apply]")) {
+          btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundApply); if (r?.text) { fixInField(btn.dataset.unfoundApply, r.text); fieldFixed.add(btn.dataset.unfoundApply); } });
+        }
+        for (const btn of shadow.querySelectorAll("[data-unfound-copy]")) {
+          btn.addEventListener("click", () => { const r = replaceMap.get(btn.dataset.unfoundCopy); if (r?.text) { navigator.clipboard?.writeText(r.text).catch(() => {}); btn.textContent = "Copied ✓"; } });
         }
         for (const btn of shadow.querySelectorAll("[data-copy-src]")) {
           btn.addEventListener("click", () => {

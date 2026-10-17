@@ -1192,7 +1192,8 @@ Danielle Ortiz`,
   // ───────────────────────────── letter ─────────────────────────────
   {
     name: "Letter to the editor about library hours",
-    expect: "letter",
+    // Was "letter". Since 2.21.57 it names its sources in the sentence, like a news article (owner, 2026-10-15).
+    expect: "news",
     text: `To the Editor:
 
 I was disappointed to read in last week's Gazette that the county plans to close the Maple Street branch library on Saturdays beginning in January in order to save money.
@@ -1759,7 +1760,8 @@ Regulations, subsidies and voluntary pledges all have a role, but none of them u
   },
   {
     name: "Blog post starting 'Hi everyone!' with no sign-off",
-    expect: "prose",
+    // Was "prose". Since 2.21.57 it names its sources in the sentence, like a news article (owner, 2026-10-15).
+    expect: "news",
     text: `Hi everyone! Welcome back to the blog.
 
 Today I want to talk about something I've struggled with for basically my whole life: procrastination. If you've ever opened a document to start an essay and then somehow ended up forty minutes deep in videos about how cargo ships work, this post is for you.

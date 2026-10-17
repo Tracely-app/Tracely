@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { CitationStyle, Claim, DocumentOutline, DocumentRecord, Source } from '@shared/types'
+import type { CitationStyle, Claim, DocumentOutline, DocumentPrefs, DocumentRecord, Source } from '@shared/types'
+import { ALL_FINDINGS, type FindingFilter } from '@shared/findingFilter'
+import { documentCitationStyle } from '@shared/citationPrefs'
+import { neverFlagSet, withNeverFlag } from '@shared/neverFlag'
 import { splitParagraphs } from '@shared/paragraphSplit'
+import { DESKTOP_FEATURES } from '@shared/desktopFeatures'
 import { clientToLayout, contentOffset, readZoom } from '@shared/zoomLayout'
 import { iconUrlFor } from '@shared/sourceIcon'
 import { createHoverCloser, hoverIntent, inSafeZone, stepPending, type PendingHover } from '@shared/hoverIntent'
@@ -448,12 +452,52 @@ function DocumentEditor({
   // open, and defaulting to MLA on a failed read is better than blocking the
   // citation flow on a settings call.
   const [citationStyle, setCitationStyle] = useState<CitationStyle>('MLA')
+  // Settings → Checking and Citations (2026-10-16), read with the style. This
+  // view remounts on every visit, so a change made in Settings is here the
+  // next time a document opens.
+  const [checkPrefs, setCheckPrefs] = useState<{ findings: FindingFilter; matchStyle: boolean; heading: string; neverList?: string[] }>({
+    findings: ALL_FINDINGS,
+    matchStyle: false,
+    heading: ''
+  })
   useEffect(() => {
     void tracelyApi
       .getSettings()
-      .then((s) => setCitationStyle(s.defaultCitationStyle))
+      .then((s) => {
+        setCitationStyle(s.defaultCitationStyle)
+        const neverList = s.neverFlagSentences ?? []
+        setCheckPrefs({
+          findings: {
+            evidence: s.showEvidenceKinds,
+            citations: s.showCitationKinds,
+            strictness: s.checkingStrictness,
+            ...(neverList.length > 0 ? { never: neverFlagSet(neverList) } : {})
+          },
+          matchStyle: s.matchDocumentStyle,
+          heading: s.worksCitedHeading,
+          neverList
+        })
+      })
       .catch(() => {})
   }, [])
+  // Settings → Documents: this document's own settings, read when it opens.
+  // "Never check" stops live detection, the grade and the underlines; the line
+  // above the word count turns it back on.
+  const [docPrefs, setDocPrefs] = useState<DocumentPrefs>(initialDoc?.prefs ?? { citationStyle: null, neverCheck: false })
+  const neverCheckRef = useRef(docPrefs.neverCheck)
+  neverCheckRef.current = docPrefs.neverCheck
+  async function checkThisDocument(): Promise<void> {
+    setDocPrefs((p) => ({ ...p, neverCheck: false }))
+    neverCheckRef.current = false
+    if (docIdRef.current) await tracelyApi.setDocumentPrefs(docIdRef.current, { neverCheck: false }).catch(() => {})
+    lastDetectRef.current = null
+    setTextTick((n) => n + 1)
+  }
+  // The style a citation flow opens in: the document's own when it has one;
+  // else the style it shows when Settings says to match it; else the default.
+  const flowStyle = (): CitationStyle =>
+    docPrefs.citationStyle ??
+    (checkPrefs.matchStyle ? (documentCitationStyle(bodyText()) ?? citationStyle) : citationStyle)
 
   const [wordCount, setWordCount] = useState(0)
   const [fontFamily, setFontFamily] = useState('Arial')
@@ -830,13 +874,15 @@ function DocumentEditor({
     const wrap = wrapRef.current
     if (!body || !wrap) return
     return scheduleFrame(window, () => {
-      const live = (claims ?? []).filter((claim) => !dismissed.has(claim.id))
-      setMarks(measureMarks(body, wrap, live, articleCounts, offTopicIds))
+      // "Never check this document" (Settings → Documents): nothing is drawn.
+      const live = docPrefs.neverCheck ? [] : (claims ?? []).filter((claim) => !dismissed.has(claim.id))
+      setMarks(measureMarks(body, wrap, live, articleCounts, offTopicIds, checkPrefs.findings))
       // In the same frame as the claim marks, not behind a debounce of its own:
       // findProseIssues is pure and local — a thousand-word draft is a few
       // milliseconds — and measuring both together is what keeps the two layers
       // agreeing about where the document's characters are.
-      setProseMarks(measureProseMarks(body, wrap))
+      // Off with the rest of the writing tips (DESKTOP_FEATURES, owner 2026-10-13).
+      setProseMarks(DESKTOP_FEATURES.proseMarks ? measureProseMarks(body, wrap) : [])
       // The claims currently being searched, measured in the same frame for the
       // same reason: three layers drawing over one document have to agree about
       // where its characters are. Only while a sweep is actually running —
@@ -858,7 +904,7 @@ function DocumentEditor({
     // `checking` is in the deps so the pending lines appear when a sweep starts
     // and clear when it ends — without it they would only ever be measured on
     // the next keystroke.
-  }, [claims, dismissed, articleCounts, measureTick, fontFamily, fontSize, align, checking, offTopicIds])
+  }, [claims, dismissed, articleCounts, measureTick, fontFamily, fontSize, align, checking, offTopicIds, checkPrefs.findings, docPrefs.neverCheck])
 
   // The editor reflows on window resize, which does not go through
   // handleInput.
@@ -1177,7 +1223,8 @@ function DocumentEditor({
     const worksCited = addWorksCitedEntry(body, {
       entry: citation,
       sourceTitle: source.title,
-      style
+      style,
+      heading: checkPrefs.heading // Settings → Citations; the style's own when empty
     })
 
     // Formatted here rather than through an IPC round-trip: formatInTextCitation
@@ -1343,7 +1390,7 @@ function DocumentEditor({
                 // cited — see checkReceipts.
                 selectedId: null,
                 receipts: candidates.length ? { status: 'checking' } : { status: 'checked', byId: {} },
-                style: citationStyle,
+                style: flowStyle(),
                 preview: null
               }
             }
@@ -1682,7 +1729,7 @@ function DocumentEditor({
                 step: 'results',
                 response,
                 selectedRef: response.candidates[0]?.ref ?? null,
-                style: citationStyle
+                style: flowStyle()
               }
             }
       )
@@ -1731,7 +1778,8 @@ function DocumentEditor({
         oldEntry,
         entry: worksCitedEntry,
         sourceTitle: candidate.title,
-        style
+        style,
+        heading: checkPrefs.heading
       })
       if (!replaceCitationText(body, claim, flow.citation, inTextCitation)) {
         // Roll the list back out: an entry for a citation that never reached
@@ -1818,6 +1866,8 @@ function DocumentEditor({
    * exactly that.
    */
   async function runStructure(): Promise<void> {
+    // Off for this document: nothing is read or sent until "Check this document".
+    if (neverCheckRef.current) return
     setOutlineLoading(true)
     setOutlineError(null)
     try {
@@ -1983,7 +2033,7 @@ function DocumentEditor({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const body = editorRef.current
-      if (!body || detectingRef.current) return
+      if (!body || detectingRef.current || neverCheckRef.current) return
       const text = body.innerText
       if (
         !shouldDetectNow({
@@ -2036,7 +2086,8 @@ function DocumentEditor({
    */
   useEffect(() => {
     const body = editorRef.current
-    if (!body || !claims || claims.length === 0) {
+    // Off-topic marks are a writing tip, and those are off (DESKTOP_FEATURES).
+    if (!DESKTOP_FEATURES.offTopicMarks || !body || !claims || claims.length === 0) {
       setOffTopicIds(null)
       return
     }
@@ -2474,13 +2525,15 @@ function DocumentEditor({
           only one that can edit the draft — an affordance that writes into the
           text belongs next to the other things that do.
         */}
-        <button
-          className="docedit-tracer"
-          onClick={() => setTracerOpen((open) => !open)}
-          title="Chat with Tracer about this draft"
-        >
-          Tracer
-        </button>
+        {DESKTOP_FEATURES.tracerChat ? (
+          <button
+            className="docedit-tracer"
+            onClick={() => setTracerOpen((open) => !open)}
+            title="Chat with Tracer about this draft"
+          >
+            Tracer
+          </button>
+        ) : null}
         <button
           className="docedit-insights"
           onClick={() => {
@@ -2784,6 +2837,16 @@ function DocumentEditor({
             setDismissed((prev) => new Set(prev).add(mark.claim.id))
             setActiveMark(null)
           }}
+          onNeverFlag={(mark) => {
+            // Gone here at once; the list in settings keeps it gone everywhere (Screen Watch on its next tick).
+            setDismissed((prev) => new Set(prev).add(mark.claim.id))
+            setActiveMark(null)
+            setCheckPrefs((prev) => {
+              const list = withNeverFlag([...(prev.neverList ?? [])], mark.claim.text)
+              return { ...prev, neverList: list, findings: { ...prev.findings, never: neverFlagSet(list) } }
+            })
+            void tracelyApi.setSettings({ neverFlagAdd: mark.claim.text }).catch(() => {})
+          }}
           onPopoverEnter={() => {
             insidePopoverRef.current = true
             hoverCloser.current.cancel()
@@ -2806,6 +2869,14 @@ function DocumentEditor({
       {checking ? (
         <div className="docedit-checking">
           Checking sources · {checking.done} of {checking.total}
+        </div>
+      ) : docPrefs.neverCheck ? (
+        // Settings → Documents → "Never check this document", said where the missing underlines would be.
+        <div className="docedit-checking docedit-off">
+          Tracely is off for this document ·{' '}
+          <button className="docedit-off-btn" onClick={() => void checkThisDocument()}>
+            Check this document
+          </button>
         </div>
       ) : null}
       <div className="docedit-wordcount docedit-menu-wrap" ref={wordMenuRef}>
@@ -2857,7 +2928,7 @@ function DocumentEditor({
         />
       ) : null}
 
-      {tracerOpen ? (
+      {DESKTOP_FEATURES.tracerChat && tracerOpen ? (
 
         <TracerChat
           onClose={() => {
@@ -2878,7 +2949,8 @@ function DocumentEditor({
           paragraphTexts={paragraphTexts}
           loading={insightsLoading || outlineLoading}
           error={outlineError}
-          citationStyle={citationStyle}
+          citationStyle={scoreOpen ? flowStyle() : citationStyle}
+          findings={checkPrefs.findings}
           onInsertCitation={insertCitation}
           onReanalyze={() => void runStructure()}
           // Re-read the claims the moment the report searches one. This is what

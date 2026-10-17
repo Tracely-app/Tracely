@@ -3,6 +3,7 @@ import { registerAuthHandlers } from './authHandlers'
 import { registerCitationHandlers } from './citationHandlers'
 import { registerClipboardHandlers } from './clipboardHandlers'
 import { registerCritiqueHandlers } from './critiqueHandlers'
+import { registerDataHandlers } from './dataHandlers'
 import { registerEvidenceHandlers } from './evidenceHandlers'
 import { registerSourcesHandlers } from './sourcesHandlers'
 import { registerHistoryHandlers } from './historyHandlers'
@@ -26,6 +27,7 @@ export function registerIpcHandlers(): void {
   registerCritiqueHandlers()
   registerCitationHandlers()
   registerDocumentsHandlers()
+  registerDataHandlers() // Settings → Privacy and data → Export my data
   registerStructureHandlers()
   registerTracerHandlers()
   registerLibraryHandlers()

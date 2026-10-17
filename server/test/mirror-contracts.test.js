@@ -90,15 +90,21 @@ test("the extension's plan copies agree with the plan", () => {
   const bg = read("extension", "background.js");
   assert.match(bg, /const PLANS = \["free", "student", "pro"\];/);
   // 2.20.0 has no stop ladder in either file (the server picks the model per
-  // route). What content.js and options.js still copy from the plan is which
-  // plans get a Thorough allowance — the gate on "Explain in depth".
+  // route). What content.js still copies from the plan is which plans get a
+  // Thorough allowance — the gate on "Explain in depth" (switched off
+  // 2026-10-13, kept behind FEATURES.deepDive).
   const thorough = srvPlan.PLANS.filter((p) => srvPlan.thoroughMonthlyUsd(p) > 0);
   assert.ok(thorough.length > 0);
-  for (const f of ["options.js", "content.js"]) {
-    const m = read("extension", f).match(/const DEEP_PLANS = \[([^\]]*)\]/);
-    assert.ok(m, `${f}: DEEP_PLANS not found`);
-    assert.deepEqual([...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]), thorough, `${f}: DEEP_PLANS`);
-  }
+  const listed = (f, name) => {
+    const m = read("extension", f).match(new RegExp(`const ${name} = \\[([^\\]]*)\\]`));
+    assert.ok(m, `${f}: ${name} not found`);
+    return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  };
+  assert.deepEqual(listed("content.js", "DEEP_PLANS"), thorough, "content.js: DEEP_PLANS");
+  // Evidence recommendations come with every paid plan (owner, 2026-10-13),
+  // in the widget and on the Settings page alike.
+  const paid = srvPlan.PLANS.filter((p) => p !== "free");
+  for (const f of ["options.js", "content.js"]) assert.deepEqual(listed(f, "RECOMMEND_PLANS"), paid, `${f}: RECOMMEND_PLANS`);
 });
 
 test("the plans' advertised allowances are the ones the server meters", { skip: SKIP }, () => {

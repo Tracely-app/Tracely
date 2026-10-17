@@ -270,7 +270,7 @@ test("the options page names tiers, never models", () => {
   // reads were not. Nothing in the code has to touch that copy, which is
   // exactly why a provider swap does not reach it — so this test does.
   const html = read("options.html").replace(/<!--[\s\S]*?-->/g, "");
-  const section = html.slice(html.indexOf("<h2>Checking model</h2>"), html.indexOf("<h2>Sites with auto-check on</h2>"));
+  const section = html.slice(html.indexOf("<h3 class=\"group\">The checking model</h3>"), html.indexOf("<section class=\"panel-content\" id=\"sec-citations\""));
   assert.ok(section.length > 200, "the Checking model section is missing");
   for (const bad of [...Object.values(MODEL_TIERS), "haiku", "sonnet", "opus", "gpt-", "claude", "gemini"]) {
     assert.ok(!section.toLowerCase().includes(bad.toLowerCase()), `the checking-model copy names ${bad}`);

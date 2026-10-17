@@ -59,6 +59,37 @@ panels and the Docs hover card; Cite in doc and Copy cite exist only on the
 backing list. A server without receipts (no `verified`) behaves as before.
 The server half is `server/lib/sourceVerify.js` (`server/CLAUDE.md`).
 
+Since 2.21.41 every source row says how citable it is, beside its publisher:
+Peer-reviewed, Official, Reference work, News of record, Encyclopedia, or
+Check this one, with the reason on hover. The text is the meta's own grey,
+because colour means a finding. `backingSources` offers the most citable
+first, a stable sort, so within a tier the server's order stands.
+`credibilityOf` (the "source credibility" block in the shared helpers) is a
+copy of the desktop's `src/shared/sourceCredibility.ts`, decided from the
+publisher and never by the model. Tests:
+`server/test/ext-source-credibility.test.js`, including a check that the
+two copies agree.
+
+**Remove a detail.** Owner, 2026-10-13: only a small part or detail, never
+the claim. When nothing backs a sentence but the server found a source that
+backs all of it except one small detail (a source with `partial: { quote,
+missing, trimmed }`, `server/lib/claimTrim.js` decides what counts),
+`backingSources` returns it as `partial`, never in the backing list. Both
+panels and the Docs hover card then show `TRIM_COPY`: the source, what it
+says, the detail it doesn't mention, the sentence with that detail struck
+through, and three buttons:
+- **Remove the detail** goes through `docFix` with the trimmed sentence
+  (`trimPlan`, key `trim:<hash>`), or `fixInField` in a field. The click
+  handlers call `docFix` themselves, because edits only start from a click
+  (`ext-docs-edit.test.js`).
+- **Copy it without the detail** replaces Remove when Docs cannot be edited.
+- **Keep as is** drops the card, and "nothing backs it" is back.
+
+Once the detail is removed, the new sentence's sources are that source,
+backing, with its receipt (`trimmedSourceEntry`): no second search. A
+partial result is saved with the doc like a source list. Tests:
+`server/test/ext-trim-detail.test.js`.
+
 ## Every card ends in a fix
 
 Owner, 2026-10-08: a card with only Dismiss is a comment, not help. Since
@@ -113,6 +144,97 @@ citation notes too. A citation that is only a surname after a reported claim
 ("(Shiraishi)", no Works Cited entry) is "Citation names no work" and runs the
 author lookup, not "Unnamed source". Tests: `server/test/ext-panel-layout.test.js`.
 
+Since 2.21.54 (owner, 2026-10-14: "remake this extension widget overlay but
+more clean. Right now too cluttered, confusing, not well structured, wordy
+… include the tracely logo somewhere but make it a solid color") the panel
+follows the Figma frame **Overlay Mockup - Widget (Clean)** (Real Tracely
+UI, node `627:165`; its components are on the board beside it, `626:147`).
+From top to bottom:
+- **The header:** the Tracely mark in solid brand orange
+  (`MARK_SOLID_SVG`, traced from the store icon and inlined, so no page
+  policy can refuse it), the name, and the kind-of-writing chip. What that
+  kind means for citations is the chip's hover (`genreNote`). Then Turn off
+  (a power icon; in a field it is "Turn off on this site"), Settings and
+  Close.
+- **One row of tabs** is the count, the filter and the legend at once
+  (`panelHeadHtml`): All, then Errors, Evidence and Citations. Each has
+  its kind's icon in its line's colour (`kindIcoHtml`, `.k-*` from
+  `MARK_COLORS`) and its count, and the long words ("4 factual errors") are
+  its title. A tab leaves only its kind's cards (`panelFilter`, in
+  `foldCards`), with its first card open. All, or the same tab again,
+  shows every kind. There is no legend row and no "Claims (N)" heading: the
+  groups are named for screen readers only.
+- **The list:** the open card shows its kind, the sentence (two lines),
+  why, the suggested fix, then Apply fix · Find a source · a copy icon (Copy
+  fix where Docs can't be edited). "Or paste a URL" appears only once a
+  search has run for that sentence. Folded cards are one row each: a
+  tinted icon tile, the title, one line of the sentence and a chevron.
+  `decorateCard`'s buttons go before the copy icon. The "Reading this as …"
+  line stays only for a kind Tracely is quiet on, where it explains the
+  empty panel.
+- **The footer** is drawn only when it offers something: "N fixes to
+  review" · Review all (`walkOfferHtml`, the old "Let Tracely fix these"
+  strip), or a site's "Turn on for this site".
+
+Buttons are 8px rounded rectangles and the panel is 440px wide.
+
+## A named source is a citation issue; an unnamed one needs evidence
+
+Owner, 2026-10-14, on the flawed AI paper: "According to a 2023 study
+conducted by Harvard University, approximately 87% …" should be a citation
+issue, not "Needs evidence". "A survey of 25 students at a California high
+school found …" should be "Needs evidence", not a citation issue, "as the
+survey hasnt been verified, so you cant classify the claim as correct but
+improperly cited".
+
+`citationHygieneTips` gives each source it doesn't cite one of two kinds:
+- **`uncited`, "Source not cited" (amber, a citation issue).** The sentence
+  names who did the work (`sourceNamedIn`): the study's own "by" or "from"
+  ("study conducted by Harvard University", "research from Stanford"),
+  "according to the National Education Association", or a name in the study
+  itself ("a 2024 Pew survey"). It never counts a place ("at a California
+  high school") or a kind of body ("leading universities"). Its fix is
+  Find a source, then cite.
+- **`vague`, "Needs evidence" (blue).** Nobody is named. It is counted with
+  "need evidence" (`EVIDENCE_TIP_KINDS`), drawn blue (`markKind`
+  questionable) and listed under "Unnamed sources".
+
+The note decides the sentence's kind (`attributionBySentence` →
+`sourceAttr`, passed to `flagShown`). For a named source, the model's
+"needs evidence" and "missing citation" verdicts give way. For an unnamed
+one, only "missing citation" does: the model's own "Needs evidence" card
+stays (with its explanation and its search first) and carries the note
+(`withoutCarriedNotes`, one card, not two). A false or incoherent verdict
+never gives way.
+
+Across the 124 argument-genre documents in the repo, 82 unnamed-source
+notes turn from amber to blue. Only the paper's Harvard and Pew sentences
+are named and uncited. Tests: `server/test/ext-source-attribution.test.js`.
+
+## A reference list made as a list
+
+Owner, 2026-10-14: Tracely flagged the National Education Association
+entry as "Not cited in your text" though the paper cites "(NEA, 2024)", and
+also underlined the paper's title. The plain text of that paper was already
+right, so the difference was in the document. With the References as a
+list, each entry arrives with its marker ("* …", "1. …"), which the page
+does not show:
+- **The entry no longer matched its citation.** `worksCitedBlock` now takes
+  the marker off every entry (`LIST_MARK`: bullets, dashes, "1." "1)" "(1)").
+  A list numbered for layout, under a paper that cites (Author, year), is
+  checked like any other. A list cited by number, (1) or [1], is not traced
+  by name. "[1]" and MLA's "---." are kept as they are. A page break or a
+  no-break space beside the heading no longer hides the list.
+- **The underline fell on the title.** The quote, with its marker, was not
+  on the page. `svgLocate` then matched line by line, and the title's first
+  line sits inside the entry's own title. A line wholly inside a quote now
+  counts only beside the rest of it, on the line above or below.
+
+Which glyph Google Docs' text export uses for a bullet was not checked
+against a real export, so every common one is taken off. Across 240
+documents in the repo (16 with a reference list), no flags changed. Tests:
+`server/test/ext-reference-list-markers.test.js`.
+
 ## Let Tracely fix these, and the panel's header
 
 Since 2.21.33 (owner, 2026-10-08: "it waits a while when it clicks find
@@ -131,12 +253,197 @@ nothing drives it through the flags any more. Tests:
 `server/test/ext-fix-all.test.js`.
 
 The header counts each kind with its own icon in its finding's colour —
-factual errors (red), to double-check (orange), citation issues (amber),
-writing notes (orange) — and a count opens the first card of its kind; "All
+factual errors (red), need evidence (blue), citation issues (amber), and
+writing notes when they are on (they are off: see below) — as tabs that
+filter the list since 2.21.54 (above, "The panel"); "All
 clear" only when nothing is open and the check is done. There is no "next
 check in" countdown. The panel drags by its header, stays on screen, is
 remembered per site (`tracely.widget.panelPos`), and a double-click puts it
 back. Tests: `server/test/ext-panel-layout.test.js`.
+
+Beside the name, a neutral chip says what Tracely reads the writing as
+(owner, 2026-10-13). Since 2.21.57 it names one of 56 kinds, and only when
+Tracely is sure (`readKind` → `docShown`, `kindTitle`; "56 kinds, named only
+when sure", below). An essay's own kind needs 40 words. It is display only:
+what is checked follows the kind's genre. Tests:
+`server/test/ext-writing-kind.test.js`.
+
+## No overreach: one sentence at a time, no writing tips
+
+Owner, 2026-10-13: "make tracely extension and app both not overpower stuff.
+Like for example right now it shouldnt replace more than one sentence at once
+which it currently does. It shouldnt help with general writing tips either, so
+please remove writing tips in general. That said, from now on needs evidence
+should be blue instead of orange."
+
+- **A fix is one sentence for one sentence.** `usableRevision` drops a
+  revision of more than one sentence (`oneSentenceFix`, counted with
+  `splitLineSentences`), for a card's fix and the "Explain in depth" fix
+  alike. A fix saved by an earlier build is held to the same rule when the
+  verdict caches load.
+- **"Let Tracely fix these" has no Accept all.** Each change is accepted on
+  its own; Reject all stays. This replaces the 2026-10-09 Accept all
+  cursor tour.
+- **No writing tips:** `FEATURES.essayFeedback`, `resumeTips` and `offTopic`
+  are false. No `/api/review` call is made, and no essay notes, resume tips,
+  off-topic lines or leftover-correction notes are shown. `detectGenre` still
+  runs on every read, since the kind of writing decides what is checked.
+  There is no "Writing note" in the legend.
+- **"Needs evidence" is blue** (`#2563eb`): its underline, icon, dot and card
+  wash. The launcher's count badge keeps the brand orange; it counts
+  findings and is none of them.
+
+Tests: `server/test/ext-no-overreach.test.js`, `ext-fix-all.test.js`.
+
+## "Needs evidence" is searched first
+
+Owner, 2026-10-13: "instead of having it say six to double check, please
+search for it first and say like look for evidence to back it up". A
+`questionable` sentence (the card and legend say "Needs evidence", the chip
+"N need evidence") is searched automatically. `EVIDENCE_FIRST` sets the
+limits: up to 3 of a check's new, shown flags, one at a time, and never the
+writer's last 2 searches of the day. The limit uses the `limits.sources` and
+`usage.sources` from the entitlement answer (`noteSearchUsage`), less the
+automatic searches started since that answer. When nothing backs the
+sentence, the card says so and adds "Look for evidence to back it up, or
+narrow the claim." (`EVIDENCE_COPY`). In Docs, the first card says what the
+search found and opens it with "See the sources", never with a second
+search. When it found nothing, "Find a source" searches again (below). A
+failed automatic search stops the rest and is not reported. Every
+other flag's automatic search is still behind the opt-in Auto-src switch
+(`FEATURES.autoSources`, off). Tests: `server/test/ext-evidence-first.test.js`.
+
+## A study Tracely can't find
+
+Owner, 2026-10-15, on "A study involving 12 college students found that 10
+participants reported positive experiences using AI": "something like this
+should be flagged as should be deleted, as tracely cant find anything like
+this. Furthermore, make it where pro and student plans has tracely find
+evidence on the web to replace this with, that fits the text".
+
+- **Which sentences.** A sentence that reports what an unnamed study found
+  (`STUDY_REPORTS`, with no one named by `sourceNamedIn` and no citation in
+  it), once its search has come back with nothing that backs it
+  (`unfoundStudy`). "Nothing" means no source, no detail to trim, and no
+  source it couldn't open: an unread page might be that study, so it never
+  says "can't find" over one. A named source stays a citation issue.
+- **What it says.** The card (both panels, the Docs hover card's problem
+  card and its sources step) reads "Tracely couldn't find this study" with
+  **Delete the sentence**. That is the note's one-replace delete
+  (`docDeleteSentence`, through the preview, with Undo). The card's own fix
+  row goes, so it has one set of buttons. A field can't delete a sentence,
+  so there it says to.
+- **Student and Pro: Replace with evidence.** The owner chose this over a
+  reworded sentence: no model writes it, so every word is the source's or
+  names it.
+  - Tracely searches the point the study is said to have found, without the
+    study: no counts, no figures, and "participants" become who it was of
+    (`studyFinding`: "College students reported positive experiences using
+    AI.").
+  - It takes the first source that backs that point and has a one-sentence
+    receipt of at most 45 words, and offers its words quoted, with who said
+    them, in the doc's style (`evidenceReplacement`): "According to Lee and
+    Park (2023), “…”". In MLA, a body that published its own work is cited
+    by title, and the body is still named in the sentence.
+  - **Replace in doc** puts the sentence and its reference entry in as one
+    group with one Undo (`citePlan` with `swapped`). In a field it is
+    Replace in field, or Copy.
+  - It spends one of the plan's source searches. On Free the card has one
+    line on what Student and Pro add, and See plans (`canRecommend`).
+
+Not seen in a browser: the mock server's search always returns a source it
+couldn't open, so it never comes back empty. Tests:
+`server/test/ext-unfound-study.test.js`.
+
+## "Find a source" always does something
+
+Owner, 2026-10-13: "find a source action button doesnt work properly".
+Three things made it look dead, and each is fixed:
+
+- **A press never waits.** `sourcesInflight` counts only the writer's own
+  searches. An automatic one (`EVIDENCE_FIRST`) waits for the writer's,
+  never the other way round. Before, a press during the automatic "Needs
+  evidence" search found the one slot taken, and the card flipped back
+  without a word. Two presses on two sentences both run; the server allows
+  a caller 4 a minute.
+- **A failed search says why, in the card that asked** (`sourceFailures`,
+  `searchFailureNote`). The server's limit messages are shown as they are.
+  `no_key`, `server` and 5xx answers read "Tracely's source search isn't
+  working on our side right now". Offline reads "Couldn't reach Tracely".
+  An automatic search's failure shows only in its own hover card, when the
+  writer opens it.
+- **A "Needs evidence" card whose own search found nothing searches again**
+  on Find a source. It used to reopen the same empty answer.
+
+Field mode also no longer re-searches a sentence that already has sources.
+Tests: `server/test/ext-find-source.test.js`.
+
+## Signed out, and out of searches
+
+Owner, 2026-10-16. On being signed out: "it just says it can't find
+sources and doesn't cite anything, without explaining why, so it sounds
+like Tracely is glitching. Please add a little pop-up beforehand that says
+you need to be logged in." On running out: "show an alert like 'Uh-oh, you
+ran out of free searches,' and prompt users to 'Get Pro for more' or 'Get
+Student plan for more.'"
+- **Signed out** (`needsSignIn`, from the worker's `signedIn` and
+  `configured` on `tier`):
+  - **What runs:** nothing is searched. A search the writer asks for puts a
+    `signin` entry in `sourceFailures`. No automatic or Review all search
+    runs.
+  - **What the cards show:** the panel cards show "Sign in to find sources"
+    with Sign in with Google (`searchGateHtml`). The Docs hover card shows
+    the same, with Not now.
+  - **Signing in:** the worker's own Google window (`signInFromCard` →
+    `tracely-signIn`). Then the searches that were asked for run
+    (`signInThenSearch`). Anything but a cancel opens Settings → Account.
+  - **Where it never asks:** without accounts (`unenforced`, no project), on
+    a test build's Pro grant, before the worker answers, or on a page with no
+    worker (tests, `/try`).
+  - **It is cosmetic.** The server still answers a signed-out search, on the
+    free allowance counted per install id.
+- **Out of searches** (the server's 429 `plan_limit`):
+  - The card reads "Uh-oh, you ran out of free searches" (or "…of
+    searches" on a paid plan), with the server's own words under it, which
+    say when the searches come back.
+  - The buttons are Get Pro for more and Get Student plan for more on Free,
+    and Get Pro for more on Student (`upgradesFor`, `openOrderPage`). Pro, a
+    test build and a server that sells nothing get no plans.
+  - It is not an error in the panel's header, and the hover card no longer
+    offers "Search again" for it.
+- **Colour:** neither block is red, because colour means a finding. The
+  hover card's title wraps for these (`dmHead`'s `wrap`).
+
+Tests: `server/test/ext-search-gates.test.js`.
+
+## What each plan gets
+
+Owner, 2026-10-13: "it should not say explain in depth for pro, the only
+things that pro users should need is extra evidence recommendations, so
+extra evidence that tracely thinks will make their essay or writing BETTER.
+Normal tracely only helps with their mistakes and bad parts, pro and
+student plans allow for tracely to give recommendations."
+
+- **Free (Starter)** gets the flags, their one-sentence fixes and their
+  sources, "Needs evidence" searched first included.
+- **Student and Pro** also get **evidence recommendations**
+  (`evidenceCandidates`, `RECOMMEND_COPY`). These are up to three accurate
+  sentences that make a causal or arguing point and carry no source. They
+  sit folded at the foot of the panel, under "Evidence recommendations".
+  Nothing is searched until Find evidence, which spends one of the plan's
+  source searches. The gate is `canRecommend` / `RECOMMEND_PLANS`
+  (content.js) and `RECOMMEND_PLANS` (options.js); `mirror-contracts`
+  keeps both equal to the paid plans. Like `canDeep`, it is cosmetic.
+- **On Free**, the section is one line saying what Student and Pro add,
+  with See plans (`openOrderPage`). It has no card, quote or search.
+- **"Explain in depth" is off** (`FEATURES.deepDive` false). The hover card
+  draws nothing, and the panel's row is hidden by its CSS. The server's
+  `deep: true` path stays for installed builds.
+
+Settings shows an Evidence recommendations tile or the locked line. The
+Thorough meter is gone from the extension's Settings, because Thorough now
+only serves desktop critiques. Tests: `server/test/ext-evidence.test.js`,
+`ext-2-20.test.js`, `ext-settings-page.test.js`, `extension-beta.test.js`.
 
 ## Underlines hold while the text holds
 
@@ -162,8 +469,8 @@ and never colour alone. Since 2.21.34 every line is one solid line (owner,
 2026-10-09: "make them all solid and straight line"); the kind is an icon in
 the page's left margin beside the line where each mark starts (`MARK_ICON`,
 `drawMarginIcons`: one a line, the most serious; drawn in Docs' SVG so it
-scrolls and zooms with the text) and in the legend. Colour only ever means a
-finding. Tests: `server/test/ext-mark-patterns.test.js`.
+scrolls and zooms with the text) and in the panel's header tabs, which are
+its legend since 2.21.54. Colour only ever means a finding. Tests: `server/test/ext-mark-patterns.test.js`.
 
 ## The hover card, and fix-all's suggestions in the doc
 
@@ -247,12 +554,158 @@ is made IN ITS PLACE: the cursor goes to it, strikes the words it takes out
 on their exact runs (`fixInlineGeo` → `svgRangeRects`, the Type preview's own
 locating) and types the new words into a chip right under the change with
 ✓ Accept and ✕ Reject (`fixMarkMake`, `fixMarkReveal`, `fillFixChip`,
-`placeFixMarks`: every frame, chips keep clear of each other and of struck
-words). Nothing reaches the Doc until Accept; Accept all sends the cursor
+`placeFixMarks`: chips keep clear of each other and of struck words).
+Nothing reaches the Doc until Accept; Accept all sends the cursor
 round again to click each ✓ (`fixClickAccept`). A change the page can't show
 in place — the Works Cited list, a sentence Docs isn't drawing whole — keeps
 its card in the margin. A test page opts in with `harness.canEdit` (its edits
 go nowhere: "Docs' editor isn't ready").
+
+## While the page scrolls
+
+Since 2.21.55 (owner, 2026-10-15: "when you scroll up and down when tracely
+is typing suggestions, it is really laggy and the cursor and stuff clips out
+of frame"). The struck words, the chips, the margin cards, the Type preview
+and the cursor are all overlays over the text, and each of them used to
+follow it every frame. Each frame they read the page's geometry, then wrote
+their own, then read again, so Chrome laid the document out several times a
+frame while Docs was scrolling it. Their layers also covered the whole
+window, so a half-scrolled strike or chip painted over Docs' toolbar. Now
+(the "while the page scrolls" block in content.js):
+
+- **While the page moves, they step aside.** A scroll (`noteDocScroll`, heard
+  in the capture phase) fades every layer out in 90 ms and makes it inert.
+  Nothing is measured until `SCROLL_SETTLE_MS` (140 ms) after the last
+  scroll; then `docSettle` places each once, where its words now are, and
+  fades it back. Grammarly's cards do the same.
+- **Every layer is the document's box.** `clipLayer` / `docClip` give the
+  editor's scroll area with `overflow: hidden`. Inside it a position is the
+  client's less the box's corner, so nothing of Tracely's paints outside the
+  document. The Type preview's card is its own fixed box: in the text it is
+  clamped inside the document's box, and off screen it sits beside the
+  panel's card. Once the cursor is in the text, it is hidden while its words
+  are outside the box (`tcPin` / `tcFollow`).
+- **No frame loop once the animation is over.** Placing reads every rect and
+  every chip's size first, then writes only what changed (`setStyle`). The
+  chips and cards are placed when something changes (`scheduleFixPlace`)
+  and whenever the underlines are re-located (`followDocLayout`, from
+  `requestDocsMarks`). The Type preview runs a frame at a time only while it
+  glides, strikes and types; after that it runs every `FIX_PLACE_TICK_MS`.
+  Its canvas is redrawn only when its words moved or one more letter went
+  in. The tour's glide re-reads its target every frame (`fixGlide`), so a
+  scroll mid-glide lands on the words, not where they were.
+
+Measured on a Docs stand-in (an SVG annotation layer like Docs', a scrolling
+editor box under a toolbar, 12,000 laid-out nodes). Each of 150 scroll steps
+was timed, with that step's frame callbacks and the layout it left behind:
+- **Review all, three chips on the page:** 23.8 / 31.7 / 45.8 ms (p50 /
+  p95 / max) before, 4.4 / 6.2 / 10.6 ms after. Rect reads per step went
+  from 32.6 to 0.
+- **A Type preview open:** 12.5 / 19 / 29.4 ms before, 5.0 / 5.9 / 7.6 ms
+  after. Rect reads went from 33 to 0.
+- **The toolbar:** with a struck line half under it, a strike painted over
+  it before and nothing does after.
+
+Not measured in real Docs. Tests: `server/test/ext-fix-all.test.js`,
+`server/test/ext-type-preview.test.js`.
+
+## Review all: never cut, easy to stop
+
+Owner, 2026-10-16: "it clips randomly, please make it easier to stop the
+auto run and for the accept vs reject tabs next to the fixes, they clip
+randomly and off of the response … make it overall better and more
+managable and less confusing". What was found, on a Docs stand-in with a
+side panel open:
+- **Margin cards were cut in two.** A card was kept on screen against the
+  window's edge, while its layer clips to the document's box, which a side
+  panel (comments, Gemini) narrows. The card for "Add the list" ran 103px
+  past the box, and its ✕ Reject with it. Cards now stay inside the box
+  (`placeFixCards`), short of the editor's own scrollbar (`docClip` uses
+  `clientWidth`). Narrow margins put a card over the page's right edge
+  instead.
+- **Nothing is shown half.** A chip goes under its change; where that runs
+  out of the box, over it; where neither fits, it waits out of view
+  (`placeFixMarks`). A card that can't fit whole waits too. Both are
+  counted, and the bar says "N out of view".
+- **A run Docs reuses never places a mark.** Docs reuses its text runs when
+  it redraws a line, so a run that was still there could be showing other
+  words. Each strike's run now remembers its words (`raw`, `fixGeoStale`):
+  a changed run means the change is found again, and its strikes re-fit
+  when the line re-wraps (`fitStrikes`). If it can't be found, nothing of
+  it is drawn.
+- **The bar above the launcher is the run's one control** (`fixPingHtml`).
+  While preparing, it reads "Preparing fixes · 2 of 7 ready" with Stop;
+  Esc stops it too (`fixStopKey`). After, it reads "N fixes to review in
+  your doc", plus "· N out of view", with See all (the panel's list, where
+  every fix has Accept and Skip) and Reject all.
+- **Stop stops the cursor at once** (`fixTour.instant`). Nothing more is
+  prepared, and what is ready appears in its place without the glide and
+  the typing.
+
+Tests: `server/test/ext-fix-all.test.js`.
+
+## A wrong source, and a named source not cited
+
+Owner, 2026-10-15, with an answer key for a twenty-sentence test sheet
+(`server/test/fixtures/citation-key.js`). Tracely got 11 of the 20 right:
+every false sentence and three of the four overstated ones, and none of
+the eight citation problems. The owner chose:
+- **"Correct fact, wrong citation" is an amber "Wrong source cited" card.**
+  Examples: Venus cited to the OECD, PISA cited to NASA. The fact check
+  judges only the claim, and any citation counts as one. So the server
+  asks a separate question after it: could the cited source be where this
+  claim comes from? (`server/lib/citeFit.js`, its own pinned prompt.) It
+  answers `wrong_source` only to a build that sends `citeFit: true`.
+  - **Behind `FEATURES.citeFit`, which is off** until `eval/citefit/run.mjs`
+    has measured it against production.
+  - **The card:** amber, under Citations, with Find a source. A source cited
+    from it replaces the wrong citation (`replacedCitationOf`), and "Find the
+    cited work" is not offered, because it is the wrong work.
+- **"Correct fact, missing citation": named sources only.** A sentence that
+  credits a named organisation with a finding, a recommendation or a
+  publication, with no citation, gets "Source not cited". Examples: "The
+  Centers for Disease Control and Prevention recommends …", "In 2023,
+  UNESCO published …" (`orgCredited`).
+  - An organisation is an acronym or a name with a body's word in it, never
+    a person.
+  - It applies only in writing that cites its sources, and not when the
+    reference list names the body: that is MLA's signal phrase.
+  - Across the 387 essays and papers in the test corpora it adds two notes,
+    both right.
+  - Basic facts and general claims (the key's 5 and 11) are still not asked
+    for a source. That is the owner's choice, against underlining every
+    sentence.
+- **An acronym is a name.** UNESCO, NASA or COVID in a sentence means it is
+  not a general statement, whose "Needs evidence" `flagShown` hides. "AI"
+  and "US" are still words.
+
+Tests: `server/test/ext-wrong-source.test.js`, `server/test/cite-fit.test.js`.
+
+## When Docs is slow to select
+
+Owner, 2026-10-15: "Couldn't apply (Tracely couldn't select that sentence
+safely, so nothing was changed)", "says this sometimes". It was not
+reproduced in real Docs, so the three likely causes were fixed in
+docs-hook.js and content.js:
+- **Docs settles a selection late.** Selecting a sentence Docs hasn't laid
+  out yet (far off screen, from the panel), or copying it, can lag. A
+  refusal now runs the read → select → check block again every 25 ms, for
+  up to 600 ms (`settled`, `SELECT_SETTLE_MS`). Each block is still
+  synchronous, and only one whose checks all pass pastes. Text that changed
+  in the meantime is read again.
+- **Without the text API, a click lands a character off.** The clicks come
+  from the underline's measured edges, and the full stop at the end is
+  about 2px wide. Docs' copy of the selection now guides the keys: the
+  start moves with the caret, the end with Shift+Arrow, up to 6 characters
+  (`mendSelection`). The selection must be the sentence with no space at
+  either end, so a paste no longer swallows the space beside it.
+- **The hint was measured before the Type preview.** The preview waits for
+  Accept, and the page can scroll in the meantime. A step's `freshHint`
+  measures the underline again when the step is sent.
+
+A refusal names the check that failed (`check`: selection, text, copy or
+plan) in the console line `[tracely] edit …`. Tests:
+`server/test/ext-docs-edit.test.js`.
 
 ## Kinds of writing, and how each is cited
 
@@ -274,15 +727,126 @@ a news story names its source in the sentence ("According to … in 2021, …",
 `attributeAloud`) and has no list; `genreWantsList` (prose, research,
 literary, lab) keeps a Works Cited. A literary essay quotes a poem by line,
 a play by act.scene.line, a novel by page (`literaryForm`). Tracely cites in
-the style the doc already uses (`docCitationStyle`) unless the writer picked
-one (`settings.styleChosen`); MLA when it says nothing. The panel says what it
+the style the doc already uses (`docCitationStyle`) unless Settings names
+one (`prefs.citeStyle`, `citeStyleFor`, since 2.21.63); MLA when it says
+nothing. The panel says what it
 is reading and what that means (`genreLineHtml`). Measured on invented
 documents (`server/test/fixtures/`): the 67 it was tuned on, all right (main:
 20); 50 written blind by another author, 40 right before any tuning (main:
 11), 49 after general fixes; and 40 more written blind after those, scored
 once and left untuned: 38 right (main: 8) — keep that set untuned, it is the
 honest number. Both blind sets must stay at 90% or better. Tests:
-`server/test/ext-writing-types.test.js`.
+`server/test/ext-writing-types.test.js`. Since 2.21.57 these 18 are the
+genres under 56 kinds (below).
+
+## 56 kinds, named only when sure
+
+Since 2.21.57 (owner, 2026-10-15: "Fix it for a plethora of writing, so it
+is very unlikely that tracely will detect something wrong. Before
+incorporating, list all things that could be labeled."). The owner approved
+56 kinds in five groups by what they change. `WRITING_KINDS` (content.js)
+holds each kind's header title, its genre (which decides the checks, so a
+new kind is checked like its group's old kind), its "Reading this as …"
+label, and the broader kind a near miss falls back to.
+- **Checked, with a Works Cited:** argumentative, informative, compare and
+  contrast, cause and effect, problem and solution, rhetorical analysis,
+  summary or response, literary analysis, book report, research paper,
+  literature review, proposal, lab report, case study, and "Essay" when it
+  is none of them.
+- **Checked, sources named in the sentence:** speech, debate case,
+  presentation script, news article, op-ed or editorial, feature or
+  interview, press release, blog post, discussion post.
+- **Cites its own documents:** DBQ, synthesis essay ("(Source A)").
+- **The writer's own account:** personal essay, college or scholarship
+  essay, reflection, journal entry, review, bio, social media post, email,
+  letter, cover letter, recommendation letter, memo, resume, notes, outline,
+  study guide, meeting notes, peer review, instructions or recipe, lesson
+  plan, annotated bibliography, and a reference list on its own.
+- **Quiet:** homework, math work, survey, code, poem, song lyrics, story,
+  script.
+
+Three kinds moved group on the owner's yes. A blog post and an op-ed (a
+letter to the editor included) name their sources in the sentence, with no
+Works Cited. A reference list on its own (`workscited`, genre `annotated`)
+is never asked where each entry is cited.
+
+**How it decides** (`readKind` → `kindScores`). Every kind is scored and
+the highest wins, so one stray cue no longer decides. Before, a "Source B"
+made an AP Lang synthesis essay a DBQ.
+- **9.5 and up:** a shape that is nothing else (code, "[Chorus]", "FOR
+  IMMEDIATE RELEASE", "Resolved:"), or the document naming itself in its
+  title block ("Rhetorical Analysis", "Peer Review for Kenji's Essay"). A
+  title naming a kind of document (outline, peer review, reflection,
+  proposal, study guide, lesson plan, summary) outranks one naming an essay
+  kind, so "Argument essay outline" is an outline.
+- **8 to 9:** strong forms: a letter's two ends or its signature block, a
+  memo's head, minutes, a lesson plan, slide cues, a survey's choices, a
+  reference list, an interview's questions.
+- **6 to 8:** the old order's shapes as strengths, earlier ones stronger
+  (homework, script, resume, DBQ, annotated bibliography, speech, lab, poem,
+  notes).
+- **4 to 6:** the essays' and the voices' cues (research, literary,
+  rhetorical, summary, news, feature, story, personal, college essay,
+  reflection).
+- **1:** only an essay's own words (`essayKindOf`). A sub-kind is named only
+  when its words clearly lead; two close together, or none leading, is
+  "essay".
+
+In a field the site counts too (`placeKind`). A mail client's box is an
+email (a cover letter or a reference sent by mail stays one), a class
+discussion board a discussion post, a social site a post, a review site a
+review, an opinion page an op-ed, LinkedIn's About a bio. Docs passes no
+place.
+
+**The header names a kind only when very sure** (`KIND_SURE`, a score of 7
+or more; `docShown`). The checks follow the kind's genre either way
+(`docKind`), and a quiet kind still says why it is quiet. Owner, 2026-10-15,
+chose this over a chip on every document. Measured on the first 625
+documents, before the fresh set was written: from 7 up a kind was wrong 2%
+of the time, from 4 to 7 one time in six, and read off an essay's words
+alone (score 1) 43% of the time, often not an essay at all. So a plain
+essay usually shows no chip.
+
+**Measured** on invented documents, five or more of every kind in each set,
+by 24 writers who never saw the detector (`server/test/fixtures/`):
+- **Tuned on (313):** 86.9% the exact kind, 3.2% in a group that changes
+  the checks; the header names 63% and is wrong on 0.3%.
+- **Scored blind once, then learned from (312):** 75.0% exact and 13.1% in
+  the wrong group blind (main: 37.2%); 80.1% and 8.7% after; the header
+  names 63% and is wrong on 1.6%.
+- **Fresh, scored once and untuned (312), the honest number:** 72.1% exact,
+  13.5% in the wrong group (5 checked documents read as quiet). The header
+  was wrong on 13.8% naming every document; naming only what it is sure of,
+  it names 57% and is wrong on 3.2%. Main on the same: 37.5% in the wrong
+  group, 12 read as quiet. Keep it untuned.
+- **The 157 older documents:** as main, but for the moves above, and two of
+  main's misses now right.
+- **Cost:** about 1 ms a read, 18 ms for 8,500 words; an unchanged text is
+  not read again (`kindRead`).
+
+What it still misses on new writing is a long tail: a first-person story
+read as a personal essay, an op-ed with no byline or masthead read as an
+argument, a prose poem, a document in a shape no rule knows yet (a recall
+notice, an R script with long comments).
+
+**The model's kind** (owner, 2026-10-15: "model next"; `askKind`,
+`kindWithModel`, server `/api/kind`). It is behind `FEATURES.modelKind`,
+which is off until the model is measured on the same corpora
+(`eval/kinds/run.mjs` against production, then `eval/kinds/score.mjs`). When
+on:
+- **When it asks:** once per document, and again only when the opening or
+  the size changes a lot (`kindPrint`), at most every 30 s. Never for under
+  40 words, and never where the site already says (`placeKind`).
+- **What it sends:** the first 3,600 and last 400 characters.
+- **What it uses:** a kind the model names decides the checks and the
+  header. "Unsure", a failure, a limit or an older server (404, never asked
+  again) leaves the rules' answer.
+- **Before turning it on:** add the 4,000 characters to PRIVACY.md's
+  "Checking" paragraph and the reads to its usage-count row.
+
+Not checked in a browser: the harness page stands down while the browser
+pane is hidden. Tests: `server/test/ext-writing-kinds.test.js`,
+`server/test/ext-writing-kind.test.js`.
 
 ## Works Cited when the writing needs one
 
@@ -316,7 +880,12 @@ Beta badge, `acctBeta`), what the plan includes from the SERVER's own limits
 meters nothing), the usage lines, and one link (See plans signed out, else the
 account's own: Upgrade or the subscription). Google Docs is the desktop's
 switch row; deleting the account is a danger row under Privacy, signed in
-only. The widget's header has a gear (`panelSettings` → `openSettings` →
+only. The sidebar's brand is the Tracely mark (`icons/mark.png`: the
+desktop's `figma-logo.png` cut to 96px, the logo the launcher draws), not
+the paper plane (owner, 2026-10-13). So are the toolbar icons
+(`icon16/48/128.png`, owner, 2026-10-14): orange on transparent, 128 with
+Chrome's 16px of padding (`server/test/ext-icons.test.js` reads their
+pixels). The widget's header has a gear (`panelSettings` → `openSettings` →
 background.js `tracely-openSettings`): the worker opens Settings with
 `openOptionsPage`, which brings an open Settings tab forward, and a section,
 when one is named, travels through storage (`settingsOpenAt`, honoured for a
@@ -328,6 +897,173 @@ day: "it looks like a big card and a lot of empty space, fix this to
 actually fit in the entire frame") it fills the tab: no card, the sidebar
 the window's height and sticky, the section a centred 680px column. Tests:
 `server/test/ext-settings-page.test.js`.
+
+Since 2.21.62 (owner, 2026-10-16: "revamp settings to include more that
+typical settings has", then "yes to all, go ahead with phase 1") the
+sections are **General, Checking, Account and billing, Privacy and data,
+Help**, with General first. A bookmark to `#docs` or `#sites` opens
+General (`SECTION_MOVED`).
+- **General.**
+  - **On, paused or off:** Pause for an hour, Pause for today (until
+    midnight), Resume, and the on switch.
+  - **Where Tracely checks:** the Google Docs switch and the auto-check
+    sites.
+  - **The Tracely button:** its corner (right or left), "Open the panel on
+    a new Doc", and the keyboard shortcut. The shortcut is manifest
+    `commands` `toggle-panel`, Alt+Shift+K by default. Chrome owns the key,
+    so Change opens `chrome://extensions/shortcuts`. background.js relays
+    the command to the active tab as `tracely-toggle-panel`.
+- **Account and billing.** The plan card, what's been used as bars (the
+  server's own source-search counts against the plan's limits,
+  `renderUsage`, hidden when the server meters nothing), and a line on
+  where receipts and cancelling live (`billingNote`).
+- **Privacy and data.** What leaves the browser, in plain lines.
+  - **Export my data:** a JSON file of the extension's storage, without the
+    sign-in tokens (`EXPORT_LEAVE_OUT`).
+  - **Clear saved checks** (below).
+  - **Delete the account.**
+- **Help.** What's new (`WHATS_NEW`, newest first: add a line with each
+  bump that changes what a writer sees), the keys, Copy diagnostics and
+  Email us. Diagnostics hold the version, browser, server, plan, settings,
+  and what the last 20 in-doc edits answered (`noteDiag`: step, path, ok,
+  the failed check). They never hold a word of the document.
+
+**The widget reads one storage key, `prefs`**, as `{ pausedUntil,
+launcherSide, panelOpen, clearedAt }` ("Settings → the widget" in
+content.js). `PREF_DEFAULTS` there and in options.js must match, and a test
+checks it. `pausedUntil` is 0 for running, a time for paused until then, or
+-1 for off.
+- **Paused or off,** neither mode reads, sends or draws anything. Docs
+  makes no export read; a field sends no check. The underlines and the open
+  card go at once.
+- **The launcher's pill** says "Paused" or "Tracely is off". Opened, it is
+  one card with Resume now (or Turn on) and Settings.
+- **A pause ends by itself,** on a timer set to its end. Per-site off and
+  the Docs switch work as before, underneath this.
+
+**Clear saved checks** writes `clearedAt`. Each page compares it with its
+own `tracely.clearedAt` and removes its `tracely.*` localStorage: the
+verdict and review caches, saved sources, dismissals. It keeps the widget's
+settings and its panel position (`clearTracelyStore`). A page that is open
+clears at once, in either mode; any other clears when it next loads. Tests:
+`server/test/ext-settings-page.test.js`,
+`server/test/ext-settings-prefs.test.js`.
+
+Since 2.21.63 (phase 1, PR 2) **Checking** has its own controls, and
+**Citations** is a new section after it. Their settings live in the same
+`prefs` key, and every default is the widget as it was before them.
+- **What Tracely flags:** `showEvidence` and `showCitations`. A kind that is
+  off loses its underlines, cards and counts (`kindShown` in `flagShown`,
+  `tipKindShown` in `tipsOf`). An unnamed-source note goes with evidence,
+  the citation notes with citations. A factual error is never switched off.
+- **How strict:** `strictness`.
+  - `clear` shows only a confidence of "high". The server says "medium"
+    when the model gives none. The page says this can hide a real mistake.
+  - `balanced` is as before.
+  - `thorough` also asks for a source on a general statement, and on a
+    figure a later citation in its paragraph might carry.
+  - How much `clear` hides is not measured.
+- **My writing is usually…:** `usualKind`, read only where the rules
+  aren't sure and the site doesn't say (`kindWithUsual`). Its list is
+  options.html's, 14 checked kinds, named as `WRITING_KINDS` names them; a
+  test keeps the two the same.
+- **Sources and fixes:**
+  - `autoEvidence` gates `autoFindSources` in both modes.
+  - `previewEdits` off makes Apply fix in Docs go in at once, with Undo
+    (the gate in `runDocEdit`).
+  - `reviewTyping` off starts Review all `instant`, the way Stop leaves it.
+- **Citation style:** `citeStyle` ("match", or mla, apa, chicago) decides the
+  style in both modes (`citeStyleFor`).
+  - The widget's style picker writes it (`setPrefs`), so the page and the
+    widget never disagree.
+  - A pick saved with a site before 2.21.63 (`styleChosen`) moves in once
+    (`adoptStylePick`).
+- **Heading:** `listHeading`, for every list Tracely names or adds
+  (`refHeadingFor`; never `REF_HEADINGS[style]` directly).
+- **Links and access dates:** `citeLinks` and `citeAccessed`
+  (`citeEntryEnd`). An access date goes only on a web page: MLA "Accessed
+  …" at the end, APA "Retrieved …, from" with the link only, Chicago
+  "Accessed …." before the link. It is off by default. Owner history: 2.19.4
+  removed the old formatter's date stamped on every source, so the clock is
+  read only behind this switch (`ext-citations.test.js`).
+- **Sources:** `citableOnly` (the citable tiers of `credibilityOf`) and
+  `avoidSites` (a site and every part of it).
+  - Both filter in `backingSources` (`sourceAllowed`), as if never found.
+  - Sources already found are filtered again (`refilterSources`).
+  - A link the writer pasted is always kept.
+
+Tests: `server/test/ext-settings-checking.test.js`,
+`server/test/ext-settings-page.test.js`.
+
+Since 2.21.64 (phase 1, PR 3) two more sections follow Citations:
+**Documents** and **Memory**.
+- **The document list.** Docs mode writes one line per Doc to extension
+  storage (`noteDocIndex`).
+  - It goes under its own key, `doc.<id>`, so two open Docs never write over
+    each other.
+  - The line holds the title, link, open counts, when it was checked, and the
+    bytes it keeps in the page.
+  - It is written only when the line changes, or every 10 minutes. Never on a
+    test page, in a quiet Doc, or from a field.
+  - The page lists the newest 50 and keeps 100. Only a
+    `https://docs.google.com/document/` address becomes a link.
+- **Each Doc's own settings** are in `docPrefs[id]`, read through `docPref`:
+  - `style` comes before Settings' (`citeStyleFor(text, own)`);
+  - `kind` replaces the kind read, sure or not (`kindForDoc`);
+  - `never` makes the Doc quiet (`docQuiet`: nothing read, sent or drawn).
+    The paused card then says "Off for this document" with "Check this
+    document" (`quietCopy`, `pausedWire`'s `resume`).
+- **Marks.** The Settings page can't reach a Doc's own storage, so a reset
+  (`resetAt`), dismissed notes brought back (`undismissAt`) and Memory's
+  "Bring back" in every document (`prefs.undismissedAt`) are marks.
+  - Each page takes a mark once per new time (`newMark`, its time kept in
+    `tracely.resetAt.<id>` and the like).
+  - Clear saved checks keeps the marks (`MARK_KEEP`). Otherwise a reset
+    already done would run again over newer checks.
+- **Never flag this.** The struck-through eye beside Dismiss is on every
+  claim card in both modes, and on a note with words of its own
+  (`neverBtnHtml`). It adds the sentence, as written, to `ignoreList`
+  (`neverFlag`, 500 at most).
+  - The sentence is compared whatever its case, spacing, quote marks or end
+    stop (`ignoreKey`), and only as a whole sentence (`neverFlagged`, in
+    `flagShown` and `tipKindShown`).
+  - Not in the Docs hover card yet; its buttons are full.
+- **Memory** shows and clears each part: saved checks (Clear saved checks),
+  dismissed notes, the document list with each Doc's settings, diagnostics,
+  and settings back to defaults (which keeps marks the pages are still to
+  take). It also lists the never-flag sentences, each with Remove.
+  PRIVACY.md's on-device paragraph names all of it.
+
+Tests: `server/test/ext-settings-documents.test.js`,
+`server/test/ext-settings-page.test.js`.
+
+Since 2.21.66 **Appearance** (General, "The Tracely button") sets
+`prefs.appearance`: `light` (the default), `dark` or `system` (the
+browser's choice, followed as it changes; `themeDark`). This Settings page
+follows the browser on its own.
+- **The panel.** `applyTheme` puts `.tracely-dark` on the shadow host (and
+  `makeWidget` does for a widget made later). WIDGET_CSS's
+  `:host(.tracely-dark)` redefines the app's tokens and the widget's own
+  neutrals (`--w-*`), with `color-scheme: dark`.
+  - Every neutral in WIDGET_CSS is a token. Only these are written as
+    colours: the finding colours, the brand orange, the "still checking"
+    grey, white on a mark, and the launcher (`--w-launcher`, dark in both:
+    it sits on the page). A test fails on any other hex.
+- **The cards in the page** (the Docs hover card, Review all's chips and
+  margin cards) read Docs mode's `DM` when they are drawn.
+  - A theme change swaps it between `DM_LIGHT` and `DM_DARK`
+    (`themeListeners`) and closes an open card.
+  - `ink` is text and the primary fill; `onInk` sits on it; `surface` and
+    `frame` are a card's fill and edge.
+  - The `const DM = {` line is a test anchor and keeps the light values.
+- **The document's own text keeps the page's ink** (`DOC_INK`): the Tracely
+  cursor, the Type preview's card and canvas. The page stays light whatever
+  the theme.
+
+Checked in the browser pane on a page that runs the real WIDGET_CSS (from
+content.js) on a sample panel, and the real `DM` palette and `dm*` helpers
+on a sample hover card, in both themes. Not checked in real Docs. Tests:
+`server/test/ext-dark-theme.test.js`.
 
 ## Measuring
 

@@ -10,6 +10,8 @@ chasing a number nobody is measuring any more.
 | `models/harness/` | The model eval behind every tier, effort and prompt decision. Sets: `checkset.json`, `checkset-hard.json`, `checkset-long.json`, `checkset-narrative.json`. Results are gitignored; conclusions go in `models/FINDINGS.md`. | `models/harness/README.md` |
 | `models/FINDINGS.md` | The dated log of what was measured and decided. Append a dated section; never rewrite an old one. | — |
 | `revision/` | Fix-in-doc revision checks. | its README |
+| `kinds/` | The model's kind of writing (`/api/kind`) on the extension's three corpora of 937 documents, beside the rules (`readKind`). About 0.1¢ a document: $0.31 for the fresh set, $0.94 for all three. | `kinds/run.mjs` (against production, beta pool), then `kinds/score.mjs` (free) |
+| `citefit/` | The wrong-source check (`/api/check` with `citeFit: true`) on 90 cited sentences written blind and the owner's twenty-sentence answer key. Nine checks, a few cents. The bar for `FEATURES.citeFit` is at the top of the script. | `citefit/run.mjs --out …` (against production; beta pool with the token, else one anonymous free install), then `--score` (free) |
 | `annotations/` + `scripts/validate-annotations.mjs` | Hand labels for the desktop retrieval eval and their validator. | `npm run eval:validate` |
 | `RUBRIC.md` | The grading rubric the server's `/api/grade` prompt is built from (`server/shared/rubric.js`; `server/test/rubric.test.js` pins the port). | — |
 

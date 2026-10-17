@@ -11,6 +11,7 @@ import type {
   ScreenWatchStructure,
   ScreenWatchStatus,
 } from '@shared/ipc-contract'
+import { CHECKING_CITATION_DEFAULTS } from '@shared/citationPrefs'
 import type {
   Analysis,
   AppSettings,
@@ -69,7 +70,11 @@ export const settings: AppSettings = {
   autoCritiqueCited: true,
   // The stored request, not what runs: the harness's default scenario is a free
   // account, so Preferences resolves this to Fast with the other two locked.
-  modelTier: 'thorough'
+  modelTier: 'thorough',
+  // Settings → Checking and Citations, at their defaults.
+  ...CHECKING_CITATION_DEFAULTS,
+  // Settings → Memory's "Never flag these", with two to show.
+  neverFlagSentences: ['My grandmother was born in 1890 in Lagos.', 'Our robotics team won the 2025 regional final.']
 }
 
 export const sources: Source[] = [

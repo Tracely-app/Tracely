@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type { Claim, ClaimType, CritiqueVerdict, ScoreBreakdown } from '@shared/types'
 import { queryAll, queryOne, run, transaction } from './db'
 import { rescoreFromBreakdown } from '../search/scoring'
+import { oneSentenceRevision } from '../ai/oneSentence'
 import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
 
 interface ClaimRow {
@@ -44,7 +45,9 @@ function toDomain(row: ClaimRow): Claim {
     // sql.js hands back `undefined` for a column a row predates. `undefined`
     // would then travel to the renderer as a MISSING key, where every check on
     // them is `!== null`.
-    suggestedRevision: row.suggested_revision ?? null,
+    // Held to one sentence for one sentence, as a fresh one is (oneSentence.ts):
+    // a revision saved before 2026-10-13 may be two.
+    suggestedRevision: oneSentenceRevision(row.text, row.suggested_revision),
     citationFix: row.citation_fix ?? null,
     // SQLite has no boolean. `== null` rather than `=== undefined`, so a row
     // that predates the column and a row whose lookup has not run both arrive

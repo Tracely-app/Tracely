@@ -77,8 +77,9 @@ test("the tip: dismissable by id, in its own section, and only when there is one
   assert.equal(X.essayFeedbackHtml([], false, null), "");
 });
 
-test("wired: essays and papers only, in both panels, and counted on the launcher", () => {
-  assert.match(SRC, /offTopic: true,/);
+test("off (no writing tips); still wired for essays and papers only, in both panels, and counted on the launcher", () => {
+  // Off since 2026-10-13: a writing tip, and Tracely gives none (owner: "remove writing tips in general"). The wiring stays for a switch back on.
+  assert.match(SRC, /offTopic: false,/);
   assert.equal((SRC.match(/const offTopic = FEATURES\.offTopic && isArgumentGenre\(docGenre\) \? offTopicTips\((?:docText|fieldText), dismissed\) : \[\];/g) || []).length, 2, "never on a resume or a letter");
   assert.equal((SRC.match(/const flagged = issues\.length \+ offTopic\.length \+ refTips\.length \+ essayNotes\.length \+ citeTips\.length;/g) || []).length, 2, "a ✓ never sits over a stray line");
 });

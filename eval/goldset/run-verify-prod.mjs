@@ -6,7 +6,11 @@
 // a deploy. App route: the desktop's pool and limiter, metered on an install id
 // (no token; one fast-model call per claim, about 0.15 cent — 36 claims ≈ 5¢).
 //
-//   node eval/goldset/run-verify-prod.mjs eval/goldset/judged/2026-10-09-extension-prod.json eval/goldset/runs/<date>-verify-prod-on-1009.json [--base URL]
+//   node eval/goldset/run-verify-prod.mjs eval/goldset/judged/2026-10-09-extension-prod.json eval/goldset/runs/<date>-verify-prod-on-1009.json [--base URL] [--partial]
+//
+// --partial asks for the detail check too (sourceVerify.js coverDetail): each
+// claim's paragraph goes as `context`, and a receipt that backs all but one
+// small detail comes back with `trim` { quote, missing, trimmed }, recorded here.
 //
 // Recorded, 2026-10-10, production 6974306 (the one-verdict judge), on the 310
 // sources of judged/2026-10-07 and 2026-10-09: of its 48 "backs" the judges'
@@ -15,15 +19,18 @@
 // Most disagreements are two-part sentences, decided both ways.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { goldClaims } from "./claims.mjs";
 
 const [JUDGED, OUT] = process.argv.slice(2);
 const argv = process.argv.slice(2);
 const BASE = argv.includes("--base") ? argv[argv.indexOf("--base") + 1] : "https://api.jointracely.com";
+const PARTIAL = argv.includes("--partial");
+const PARAGRAPH = new Map(goldClaims().map((c) => [c.id, c.paragraph]));
 if (!JUDGED || !OUT) { console.error("usage: run-verify-prod.mjs <judged.json> <out.json>"); process.exit(2); }
 const items = JSON.parse(readFileSync(JUDGED, "utf8")).items;
 const prev = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : null;
 const results = prev?.results ?? {};
-const meta = { what: "production /api/verify-sources on a judged run's sources", base: BASE, judged: JUDGED.split(/[\\/]/).pop(), install: prev?.meta?.install ?? randomUUID(), startedAt: prev?.meta?.startedAt ?? new Date().toISOString() };
+const meta = { what: "production /api/verify-sources on a judged run's sources" + (PARTIAL ? ", with the detail check" : ""), base: BASE, partial: PARTIAL, judged: JUDGED.split(/[\\/]/).pop(), install: prev?.meta?.install ?? randomUUID(), startedAt: prev?.meta?.startedAt ?? new Date().toISOString() };
 const save = () => writeFileSync(OUT, JSON.stringify({ meta, results }, null, 1));
 
 const byClaim = new Map();
@@ -31,14 +38,14 @@ for (const it of items) { if (!byClaim.has(it.claimId)) byClaim.set(it.claimId, 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 for (const [cid, list] of byClaim) {
   if (list.every((it) => results[it.id])) continue;
-  const body = { claim: list[0].sentence, sources: list.map((it) => ({ id: it.id, title: it.title ?? "", url: it.url ?? "", doi: it.doi ?? "", venue: it.venue ?? "", year: Number.isInteger(it.year) ? it.year : undefined })) };
+  const body = { claim: list[0].sentence, ...(PARTIAL ? { partial: true, context: PARAGRAPH.get(cid) ?? "" } : {}), sources: list.map((it) => ({ id: it.id, title: it.title ?? "", url: it.url ?? "", doi: it.doi ?? "", venue: it.venue ?? "", year: Number.isInteger(it.year) ? it.year : undefined })) };
   for (let attempt = 1; attempt <= 3; attempt++) {
     const t0 = Date.now();
     const res = await fetch(`${BASE}/api/verify-sources`, { method: "POST", headers: { "Content-Type": "application/json", "X-Tracely-Install": meta.install }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: String(e) }) }));
     const j = await res.json().catch(() => ({}));
     if (res.status === 429 && attempt < 3) { await sleep(60_000); continue; }
     if (!res.ok) { console.log(`${cid} ${res.status} ${JSON.stringify(j).slice(0, 200)}`); break; }
-    for (const r of j.receipts ?? []) results[r.id] = { verdict: r.verdict, quote: r.quote ?? null, readFrom: r.readFrom ?? null, model: j.model };
+    for (const r of j.receipts ?? []) results[r.id] = { verdict: r.verdict, quote: r.quote ?? null, readFrom: r.readFrom ?? null, ...(r.trim ? { trim: r.trim } : {}), model: j.model };
     save();
     console.log(`${cid} ${res.status} ${(j.receipts ?? []).map((r) => r.verdict[0]).join("")} ${Date.now() - t0}ms`);
     break;
@@ -56,3 +63,11 @@ console.log("\nverifier verdict → judges' majority", JSON.stringify(M));
 const backs = rows.filter((r) => r.v === "backs");
 console.log(`verifier backs: ${backs.length}; judges agree ${backs.filter((r) => r.maj === "backs").length}`);
 console.log(`judges' backs: ${rows.filter((r) => r.maj === "backs").length}; verifier backs ${rows.filter((r) => r.maj === "backs" && r.v === "backs").length}, topic ${rows.filter((r) => r.maj === "backs" && r.v === "topic").length}, unread ${rows.filter((r) => r.maj === "backs" && r.v === "unread").length}`);
+
+if (PARTIAL) {
+  const trims = items.filter((it) => results[it.id]?.trim);
+  console.log(`
+trims: ${trims.length}`);
+  for (const it of trims) console.log(`- [${it.majority ?? "split"}] ${it.id} remove "${results[it.id].trim.missing}"
+    ${results[it.id].trim.trimmed}`);
+}

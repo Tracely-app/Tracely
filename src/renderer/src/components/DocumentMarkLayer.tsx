@@ -27,6 +27,7 @@ import { popoverRoute } from '@shared/citationAction'
 import type { EntryOutcome } from '@shared/citedWork'
 import SourceIconBox from './SourceIconBox'
 import { useFavicons } from '../lib/useFavicons'
+import { EyeOffIcon } from './icons'
 import { critiqueIssues } from '../critiqueIssues'
 // Shared with the overlay, which draws the same card over other applications.
 import {
@@ -373,6 +374,8 @@ export interface DocumentMarkLayerProps {
   /** Opens Tracer with a question about this sentence's paragraph, unsent. */
   onAskTracer: (mark: DocumentMark) => void
   onDismiss: (mark: DocumentMark) => void
+  /** "Never flag this": the sentence is never flagged again, in any document (shared/neverFlag.ts). */
+  onNeverFlag?: (mark: DocumentMark) => void
   /** Keeps the popover open while the pointer is inside it. */
   onPopoverEnter: () => void
   onPopoverLeave: () => void
@@ -811,6 +814,7 @@ export default function DocumentMarkLayer({
   onFindCitedWork,
   onAskTracer,
   onDismiss,
+  onNeverFlag,
   onPopoverEnter,
   onPopoverLeave
 }: DocumentMarkLayerProps): JSX.Element {
@@ -880,6 +884,7 @@ export default function DocumentMarkLayer({
           onFindCitedWork={() => onFindCitedWork(active.mark)}
           onAskTracer={() => onAskTracer(active.mark)}
           onDismiss={() => onDismiss(active.mark)}
+          onNeverFlag={onNeverFlag ? () => onNeverFlag(active.mark) : undefined}
           onMouseEnter={onPopoverEnter}
           onMouseLeave={onPopoverLeave}
         />
@@ -902,6 +907,7 @@ function MarkPopover({
   onFindCitedWork,
   onAskTracer,
   onDismiss,
+  onNeverFlag,
   onMouseEnter,
   onMouseLeave
 }: {
@@ -918,6 +924,7 @@ function MarkPopover({
   onFindCitedWork: () => void
   onAskTracer: () => void
   onDismiss: () => void
+  onNeverFlag?: () => void
   onMouseEnter: () => void
   onMouseLeave: () => void
 }): JSX.Element {
@@ -1079,6 +1086,16 @@ function MarkPopover({
           <button className="docmark-btn-secondary" onClick={onDismiss}>
             Dismiss
           </button>
+          {onNeverFlag ? (
+            <button
+              className="docmark-btn-secondary docmark-btn-icon"
+              onClick={onNeverFlag}
+              title="Never flag this sentence again. Bring it back under Settings → Memory."
+              aria-label="Never flag this"
+            >
+              <EyeOffIcon />
+            </button>
+          ) : null}
         </div>
           </>
         )}

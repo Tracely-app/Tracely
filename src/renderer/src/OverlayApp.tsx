@@ -50,6 +50,7 @@ import {
 import { useDrawIn, useMarkArrivals, useMarkDepartures, type MarkItem } from './components/markArrivals'
 import figmaLogo from './assets/figma-logo.png'
 import MarkdownText from './components/MarkdownText'
+import { EyeOffIcon } from './components/icons'
 // The Essay Grade report and the pieces the frame builds it from. It used to
 // live in this file; it is shared with the document editor now, so Tracely's
 // own drafts get the same breakdown Screen Watch shows. Inline styles, so it
@@ -241,6 +242,17 @@ const SECONDARY_BTN_STYLE: CSSProperties = {
   color: INK,
   background: '#fff',
   cursor: 'pointer'
+}
+
+// "Never flag this": square, after Dismiss, its words in the title.
+const NEVER_BTN_STYLE: CSSProperties = {
+  ...SECONDARY_BTN_STYLE,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '8px 10px',
+  marginLeft: 'auto',
+  color: MUTED
 }
 
 const BUCKET_COLOR: Record<Bucket, string> = {
@@ -2435,7 +2447,8 @@ function ProblemCard({
   onSuggestFix,
   onStartCitationFlow,
   onFindCitedWork,
-  onDismiss
+  onDismiss,
+  onNeverFlag
 }: {
   claim: ScreenWatchClaimSummary
   /** The first problem not yet dismissed — the only one this card shows. */
@@ -2447,6 +2460,8 @@ function ProblemCard({
   onStartCitationFlow: (mode: FlowMode) => void
   onFindCitedWork: () => void
   onDismiss: () => void
+  /** "Never flag this": every problem on the sentence, here and in every document (shared/neverFlag.ts). */
+  onNeverFlag: () => void
 }): JSX.Element {
   // Read, not re-derived. This card and the underline disagreeing about what
   // is wrong with the same sentence was the whole defect.
@@ -2534,14 +2549,24 @@ function ProblemCard({
         ) : null}
       </div>
       <MarkdownText style={POPOVER_BODY}>{description}</MarkdownText>
-      {/* The design's action row is exactly two buttons — fix it, or dismiss
-          it — and at 320 wide that is all that fits on one line. */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      {/* The design's action row is two buttons — fix it, or dismiss it —
+          and at 320 wide that is all that fits beside the one square icon,
+          "Never flag this" (the extension's eye). It wraps rather than clip. */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="tracely-btn-primary" onClick={onPrimary} style={PRIMARY_BTN_STYLE}>
           {primaryLabel}
         </button>
         <button className="tracely-btn-secondary" onClick={onDismiss} style={SECONDARY_BTN_STYLE}>
           Dismiss
+        </button>
+        <button
+          className="tracely-btn-secondary"
+          onClick={onNeverFlag}
+          title="Never flag this sentence again. Bring it back in Tracely's Settings → Memory."
+          aria-label="Never flag this"
+          style={NEVER_BTN_STYLE}
+        >
+          <EyeOffIcon />
         </button>
       </div>
     </>
@@ -3958,6 +3983,12 @@ export default function OverlayApp(): JSX.Element {
     if (remaining <= 1) setDismissedIds((prev) => new Set(prev).add(claimId))
   }
 
+  /** "Never flag this": the whole sentence goes at once; main keeps it gone from its next tick, in every document. */
+  function neverFlagClaim(claimId: string, text: string): void {
+    setDismissedIds((prev) => new Set(prev).add(claimId))
+    void window.tracely.settings.set({ neverFlagAdd: text }).catch(() => {})
+  }
+
   function selectClaim(claimId: string): void {
     setSelectedClaimId(claimId)
     showSingle()
@@ -4076,7 +4107,7 @@ export default function OverlayApp(): JSX.Element {
     setCitedWork(claimId, null)
     setFlow(claimId, { step: 'searching' })
     try {
-      const { candidates, cited } = await window.tracely.screenWatch.findSource({ claimId })
+      const { candidates, cited, style } = await window.tracely.screenWatch.findSource({ claimId })
       // The user may have cancelled (flow entry removed) while this was in
       // flight — a stale result landing after that shouldn't reopen it, and
       // nothing should be paid for on a card nobody is looking at.
@@ -4091,7 +4122,8 @@ export default function OverlayApp(): JSX.Element {
           // Nothing is pre-selected until the receipts say what may be cited.
           selectedRef: null,
           receipts: candidates.length ? { status: 'checking' } : { status: 'checked', byId: {} },
-          style: defaultStyle,
+          // The document's own style when Settings matches it (main knows the text); this window's default otherwise.
+          style: style ?? defaultStyle,
           preview: null
         })
         return next
@@ -4288,7 +4320,7 @@ export default function OverlayApp(): JSX.Element {
           step: 'results',
           response,
           selectedRef: response.candidates[0]?.ref ?? null,
-          style: defaultStyle,
+          style: response.style ?? defaultStyle,
           copied: null
         })
       })
@@ -5257,6 +5289,7 @@ export default function OverlayApp(): JSX.Element {
                     onDismiss={() =>
                       dismissIssue(claimHoveredSummary.id, hoveredActiveKind, hoveredRemaining)
                     }
+                    onNeverFlag={() => neverFlagClaim(claimHoveredSummary.id, claimHoveredSummary.text)}
                   />
                 )}
                 </div>

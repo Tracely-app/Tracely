@@ -29,6 +29,7 @@ Read it with the Figma MCP (`get_metadata` on `0:1` to list frames, then
 | `Find a Source (Searching / Results)`, `Add Citation (Choose Source / Inserted)` | `CitationFlowCard` |
 | `Collapsed Launcher` | the 56px circle and its 31px count badge |
 | `Inline Detection (Resting State)` | the underline marks with nothing hovered |
+| `Overlay Mockup - Widget (Clean)` (`627:165`), components on `Widget (clean) / Components` (`626:147`) | the extension's panel since 2.21.54 (owner, 2026-10-14: "more clean … not … wordy"): the solid mark, filter tabs, one open card, the fix-all footer (`extension/CLAUDE.md`, "The panel") |
 
 **Three underline colours, not thirteen.** `#ff5900` for an unverified figure,
 `#ffb800` for a missing citation, `#d93636` for weak reasoning — read off the
@@ -147,9 +148,10 @@ solid and straight line." The extension's lines are all solid now (the
 still-checking line a faint solid grey), and the non-colour cue moved off the
 line: an icon in the page's left margin beside the line where each mark starts
 (`MARK_ICON`, `drawMarginIcons` — the panel header's own icons: a red ⓘ for
-wrong, an orange magnifier for worth checking, an amber quote for a citation,
-an orange pencil for a writing note), and the legend shows each line with its
-icon. Text fields have no margin: there the panel's cards and legend name the
+wrong, a blue magnifier for needs evidence (orange until 2026-10-13), an
+amber quote for a citation, and a pencil for a writing note when writing tips
+are on (they are off since 2026-10-13)), and the legend shows each line with
+its icon. Text fields have no margin: there the panel's cards and legend name the
 kind. The desktop half should take the icons, not the old line patterns.
 
 - **One colour vocabulary, the desktop's.** The meanings are `PROBLEM_COLOR`

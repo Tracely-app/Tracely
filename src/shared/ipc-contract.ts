@@ -218,6 +218,8 @@ export interface ScreenWatchFindCitedWorkResponse extends CitationFindCitedWorkR
    * is about, and guessing would look up the wrong work.
    */
   target: 'one' | 'none' | 'several'
+  /** Settings → Citations: the style to cite in — the document's own when matching, else the default. Absent from an older main. */
+  style?: CitationStyle
 }
 
 export interface CritiqueGenerateRequest {
@@ -296,6 +298,20 @@ export interface SettingsSetRequest {
   autoCritiqueCited?: boolean
   /** Requested model tier. Clamped to the plan on every call — see AppSettings. */
   modelTier?: ModelTier
+  // Settings → Checking and Citations (CheckingCitationSettings).
+  showEvidenceKinds?: boolean
+  showCitationKinds?: boolean
+  checkingStrictness?: 'clear' | 'balanced' | 'thorough'
+  matchDocumentStyle?: boolean
+  worksCitedHeading?: '' | 'Works Cited' | 'References' | 'Bibliography'
+  citationLinks?: boolean
+  citationAccessDates?: boolean
+  citableOnlySources?: boolean
+  avoidSourceSites?: string[]
+  /** The whole list, as Settings → Memory edits it. */
+  neverFlagSentences?: string[]
+  /** One more, from a card's "Never flag this": added in main, so two windows cannot lose each other's. */
+  neverFlagAdd?: string
 }
 export type SettingsSetResponse = AppSettings
 
@@ -450,8 +466,16 @@ export interface ScreenWatchStatus {
   // a signed-out app looked exactly like a slow one, right down to claims
   // simply never appearing.
   authRequired: boolean
+  // Paused from Settings → General (Pause for 1 hour / for today): off, and
+  // back on by itself at this time (epoch ms). Absent or 0 when it is simply on
+  // or off. Optional so an older status, and the preview's fixture, still fit.
+  resumeAt?: number
 }
 export type ScreenWatchSetEnabledResponse = ScreenWatchStatus
+export interface ScreenWatchPauseRequest {
+  until: number
+}
+export type ScreenWatchPauseResponse = ScreenWatchStatus
 export type ScreenWatchGetStatusRequest = Record<string, never>
 export type ScreenWatchGetStatusResponse = ScreenWatchStatus
 
@@ -691,6 +715,8 @@ export interface ScreenWatchFindSourceResponse {
    * look one up by later, only the in-memory claim this call already has.
    */
   cited: ResolvedCitedWork | null
+  /** Settings → Citations: the style to cite in (see ScreenWatchFindCitedWorkResponse.style). */
+  style?: CitationStyle
 }
 
 /**
@@ -1272,3 +1298,67 @@ export interface SourcesVerifyRequest {
 export type SourcesVerifyResponse =
   | { status: 'checked'; receipts: SourceReceipt[] }
   | { status: 'unavailable'; reason: string }
+
+/**
+ * What the server has counted for this caller, as GET /api/entitlement
+ * reports it (the same answer the extension's Settings reads): source
+ * searches used today and this month against the plan's limits, and the
+ * plan's daily allowance of AI actions. Null when the server is unreachable,
+ * meters nothing, or is too old to say — Settings then shows no bars rather
+ * than guess.
+ */
+export interface UsageInfo {
+  sources: { today: number; month: number; day: number | null; monthLimit: number | null } | null
+  aiActionsPerDay: number | null
+}
+export interface AuthGetUsageResponse {
+  usage: UsageInfo | null
+}
+
+/** Settings → Privacy and data → Export my data: written where the user chose, or not at all. */
+export type DataExportResponse =
+  | { ok: true; path: string }
+  | { ok: false; canceled: true }
+  | { ok: false; canceled: false; message: string }
+
+/** Settings → Documents: one document's own settings; a field left out is unchanged. */
+export interface DocumentsSetPrefsRequest {
+  id: string
+  citationStyle?: CitationStyle | null
+  neverCheck?: boolean
+}
+export interface DocumentsSetPrefsResponse {
+  /** The document with its settings as stored now; null when it no longer exists. */
+  document: DocumentRecord | null
+}
+export interface DocumentsForgetGradeRequest {
+  id: string
+}
+export interface DocumentsForgetGradeResponse {
+  ok: true
+}
+
+/** Settings → Memory: what this machine keeps, each part counted (main's db.memoryCounts). */
+export interface MemoryInfo {
+  /** Kept answers and searches, so the same words are never asked or paid for twice. */
+  answers: number
+  /** Checks of the editor's documents (analyses, with their claims and evidence). */
+  checks: number
+  /** Documents with a kept grade. */
+  grades: number
+  tracerChats: number
+  /** Documents with settings of their own (Settings → Documents). */
+  documentSettings: number
+  /** Saved sources; cleared only from the Library or Privacy's Delete everything. */
+  library: number
+}
+/** The parts Memory clears; never-flag sentences are removed one by one through settings. */
+export type MemoryPart = 'checks' | 'tracer' | 'documentSettings' | 'settings'
+export interface MemoryClearRequest {
+  part: MemoryPart
+}
+export interface MemoryClearResponse {
+  memory: MemoryInfo
+  /** Settings as they are now (changed only by the `settings` part). */
+  settings: AppSettings
+}

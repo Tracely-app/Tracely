@@ -84,6 +84,30 @@ something else was the product vouching for a citation it never read.
   score and `problemKind.ts`'s kinds still read retrieval relevance and the
   local NLI stance; receipts exist only for a list someone opened.
 
+## No overreach: one sentence at a time, no writing tips (2026-10-13)
+
+Owner: "make tracely extension and app both not overpower stuff … it shouldnt
+replace more than one sentence at once … remove writing tips in general …
+needs evidence should be blue instead of orange."
+
+- **"Apply revision" replaces one sentence with one sentence**
+  (`main/services/ai/oneSentence.ts`). `generateCritique` drops a revision of
+  two or more sentences, or one for a claim that spans two, both fresh and
+  cached. `claimsRepo` applies the same rule to revisions saved before this
+  change. `reconstructClaim` keeps only the first sentence index detection
+  names. There is no batch apply on the desktop.
+- **Writing help is off** (`shared/desktopFeatures.ts`, switches, not
+  deletions):
+  - grammar and style marks;
+  - off-topic marks (no `evidence.offTopic` call);
+  - Tracer chat (Home's launcher and the editor's button; it is the base of
+    #330);
+  - the writing guides (Home keeps "Finding Credible Sources").
+  The essay grade (AI Insights) stays; the owner kept it.
+- **"Needs evidence" is blue** (`DESIGN_BLUE`, `problemCopy.ts`): the five
+  evidence kinds, mirrored in `server/shared/marks.js` (`mirror-contracts`
+  checks the pair). Orange is the brand accent only.
+
 ## Nobody signs in, and the app still has an account
 
 There is no sign-in screen, no sign-up, no Google button, no name prompt, no
@@ -254,6 +278,118 @@ reported the difference between their builds as a bug in one of them.
 - **This cannot fix an install retroactively.** A tester already running an
   older preview has to install one build by hand; every one after that is
   automatic. Auto-update can only be delivered *by* an update.
+
+## Settings mirrors the extension's (2026-10-16)
+
+Owner: "start the desktop settings mirror", after the extension's Settings
+revamp (`extension/CLAUDE.md`, "Settings (options.html)").
+
+- **The sections** (`SettingsView.tsx`) follow the extension's: General,
+  Checking, Citations, Account and billing, Privacy and data, Help. The
+  desktop's own Appearance and Profile stay.
+  - The disabled Notifications, Security and Integrations are gone, by the
+    owner's choice.
+  - A link can open Settings at a section (`initialSection`). Home's "You
+    choose where Tracely works" opens General.
+- **General → Pause for 1 hour / for today** lives in main
+  (`pauseScreenWatch` → `stopScreenWatch(until)`), not the view.
+  - The time is the `screenWatchResumeAt` setting, so a pause outlives a
+    restart, and one that ended while the app was closed starts Screen Watch
+    at launch (`initScreenWatch`).
+  - The switch, the tray and the shortcut end a pause: off means off until
+    turned on.
+  - `ScreenWatchStatus.resumeAt` says when a pause ends.
+- **Account and billing's bars** come from `/api/entitlement`
+  (`fetchUsage` → `settingsHelp.usageFromEntitlement`): source searches
+  today and this month against the plan's limits. They show nothing when
+  the server doesn't say.
+- **Privacy and data → Export my data** (`main/ipc/dataHandlers.ts`): a save
+  dialog, then one JSON file with the documents, the library with its
+  citations, and the settings. It leaves out the bookkeeping rows
+  (`EXPORT_SETTINGS_LEAVE_OUT`), and never includes the avatar, the cache or
+  the session.
+- **Help:** the version on every build, `WHATS_NEW` (newest first, dated),
+  the shortcuts as set, Copy diagnostics (`buildDiagnostics`: never a word
+  of writing, a name or learned names), and Email us.
+- **Wording follows the owner's rules here:** sentence case (the field labels
+  and the plan badge no longer upper-case themselves) and no dots on the plan
+  list. The rest of the app's small-caps labels are untouched.
+- **Checking** (PR 2): which kinds show, and how strict. It is decided in
+  ONE place, `problemKindsFor`'s `findings` input (`findingFilter.ts`), which
+  all three callers pass:
+  - Screen Watch (main, `getSetting` live, so within a poll tick);
+  - the editor's `measureMarks`;
+  - the report's `gradeClaims`. AnalyzeView reads the settings on mount, and
+    it remounts on every visit.
+  - **The switches follow the colours.** Blue (the five evidence kinds) is
+    "Needs evidence", amber is "Citation issues", and red (contradicted,
+    invented) is never switched off.
+  - **"Only clear errors"** keeps the kinds certain by nature
+    (`CLEAR_KINDS`), because desktop verdicts carry no confidence.
+    **"Thorough"** lifts the `citationWorthy` gate. Neither touches
+    `claimSensitivity` (whether a sentence is a claim) or
+    `MIN_CLAIM_CONFIDENCE`.
+  - **No "look for evidence automatically" switch on the desktop.** The
+    search is free (scholarly indexes), and every underline waits for it, so
+    off would leave the editor blank and Screen Watch on "Searching…". The
+    paid web fallback is already capped (`webBudget.ts`).
+- **Citations** (PR 2, `citationPrefs.ts`):
+  - **"Match each document's style"** is `documentCitationStyle`, a port of
+    the extension's `docCitationStyle`.
+    - The editor applies it where a flow opens (`flowStyle`).
+    - Screen Watch's main applies it from the text it holds
+      (`citationStyleHere` → the `style` on the find-source and
+      find-cited-work answers). The overlay never has the whole text.
+  - **The list's heading** is `worksCitedHeading` → `planWorksCited`'s
+    `heading`. It is for a new list only; an existing list keeps its own.
+  - **Links and access dates** are applied in main's `formatCitation`, read
+    live. An access date goes on a web page only (`isWebPage`).
+  - **Which sources are offered** (`citableOnlySources`, `avoidSourceSites`)
+    is `services/search/sourceFilter.ts`, applied where the lists people
+    pick from are served: `evidenceHandlers`' find, get-for-claim and
+    for-text, and Screen Watch's `findSourceForClaim` (before it numbers
+    the list). It never touches the score or the critique.
+  - **Not changed:** the web bridge's own formatter copy (`bridge/adapters.ts`,
+    an experiment), and the "WORKS CITED" wording on the cards.
+- **Never flag this** (PR 3, `neverFlag.ts`): the eye after Dismiss on the
+  editor's card (`DocumentMarkLayer`'s `onNeverFlag`) and on Screen Watch's
+  (`ProblemCard`). The owner chose a durable list over the session-only
+  dismissals (`AnalyzeView`'s note); plain Dismiss stays per session.
+  - The list is the `neverFlagSentences` setting (JSON, newest last, 500 at
+    most). A card sends `neverFlagAdd`, so main appends and two windows
+    can't drop each other's. Settings → Memory removes one by one.
+  - A sentence matches whatever its case, spacing, quote marks or end stop
+    (`neverFlagKey`, the extension's `ignoreKey`).
+  - It is honoured in `problemKindsFor` (`findings.never` → no kinds at all,
+    not even a factual error or "searching"), so all three callers obey it.
+    Screen Watch reads it live; the editor adds it to its own copy at once.
+- **Documents** (PR 3): the editor's own documents, each with its own
+  citation style and "Check this document". The kind of writing isn't
+  mirrored: the desktop has no kind detection to override.
+  - They live in `document_prefs` (a new table, so `SCHEMA_SQL` makes it for
+    everyone; it cascades with the document). `DocumentRecord.prefs` comes on
+    every read (`PREFS_JOIN`); no row means "as Settings says".
+  - The editor reads them when the document opens. The document's style
+    comes first in `flowStyle`. "Never check" stops live detection and the
+    grade (`neverCheckRef`) and draws no underlines. The pill where
+    "Checking sources" sits says so, with Check this document.
+  - **Forget grade** deletes the document's `document_structure` row.
+  - **No "bring back dismissed".** Desktop dismissals are per session, so
+    there is nothing kept to bring back.
+- **Memory** (PR 3, `dataHandlers.ts`): each part counted
+  (`db.memoryCounts`) and cleared on its own.
+  - **Saved checks** (`clearSavedChecks`): analyses, kept answers, grades.
+    It keeps the sources table, as Privacy's clear does.
+  - **Tracer chats** (`clearTracerChats`) and **document settings**.
+  - **Settings → Reset** (`resetSettingsToDefaults`) runs the defaults
+    through the same `applySettingsPatch` a change takes, so the hotkeys
+    register again. It keeps Screen Watch's apps and its on/off, the
+    never-flag list and the profile.
+  - The library is counted, never cleared here. Privacy's Clear analysis
+    history and Delete everything stay the one-press versions.
+
+Tests: `src/shared/settingsHelp.test.ts`, `src/shared/findingFilter.test.ts`,
+`src/shared/citationPrefs.test.ts`.
 
 ## Previewing the UI (`npm run preview:ui`, or `/preview`)
 

@@ -55,8 +55,12 @@ function reconstructClaim(candidate: ServerClaim, sentences: SentenceSpan[], tex
   )
   if (indices.length === 0) return null
 
-  const start = Math.min(...indices.map((i) => sentences[i - 1].start))
-  const end = Math.max(...indices.map((i) => sentences[i - 1].end))
+  // One sentence, always: the schema allows one index (detect.js maxItems 1),
+  // and a claim spanning several is a span "Apply revision" would replace whole
+  // (owner, 2026-10-13: "it shouldnt replace more than one sentence at once").
+  // The first named sentence is the claim.
+  const start = sentences[indices[0] - 1].start
+  const end = sentences[indices[0] - 1].end
   const claimText = text.slice(start, end).trim()
   if (!claimText) return null
 

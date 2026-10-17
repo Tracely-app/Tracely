@@ -63,7 +63,7 @@ const allNodes = (n) => [n, ...n.children.flatMap(allNodes)];
 
 function load({ nolist = false, inline = [] } = {}) {
   const clock = { t: 1_000_000 };
-  const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0 };
+  const log = { sent: [], previews: [], starts: [], active: 0, maxActive: 0, cycles: 0, cursor: [], hides: 0, rafs: 0 };
   const document = fakeDocument();
   // Every flag's underline on screen, one line apart, on a page whose right edge is at 900px.
   const page = { getBoundingClientRect: () => ({ right: 900 }) };
@@ -72,7 +72,8 @@ function load({ nolist = false, inline = [] } = {}) {
   const ctx = vm.createContext({
     clock, log, console, document, docsBars, innerWidth: 1400, innerHeight: 900,
     Date: { now: () => clock.t },
-    requestAnimationFrame: () => 1, cancelAnimationFrame: () => {},
+    requestAnimationFrame: () => { log.rafs++; return 1; }, cancelAnimationFrame: () => {}, clearTimeout: () => {},
+    performance: { now: () => clock.t },
     // A timer jumps the clock and fires on the next turn: nothing here really waits.
     setTimeout: (fn, ms = 0) => { clock.t += ms; setImmediate(fn); return 0; },
   });
@@ -80,6 +81,8 @@ function load({ nolist = false, inline = [] } = {}) {
   const X = vm.runInContext(`
     const harness = null;
     const FEATURES = { typePreview: true, refList: true };
+    let prefs = { previewEdits: true, reviewTyping: true, autoEvidence: true }; // Settings → Checking, at its defaults (content.js PREF_DEFAULTS)
+    let searchesOut = false; const needsSignIn = () => false; // signed in, searches left
     let docGenre = "prose";
     // An essay that cites works and has no list: its note, and "Add Works Cited" as far as the batch sees it.
     const NOLIST = { id: "tip:nolist", kind: "nolist", quote: "", label: "No Works Cited" };
@@ -106,6 +109,10 @@ function load({ nolist = false, inline = [] } = {}) {
     function tcCursorAt(x, y) { tcCur.x = x; tcCur.y = y; log.cursor.push([Math.round(x), Math.round(y)]); }
     function tcCursorPress() {}
     function tcCursorHide() { tcCur.x = tcCur.y = -100; log.hides++; }
+    // Pinned to a point of the page (the cursor section): placed there now.
+    function tcPin(anchor) { const p = anchor?.(); if (p) tcCursorAt(p.x, p.y); }
+    function tcFollow() {}
+    let tpOpen = null; // no Type preview open while the suggestions are made
     // The page's text runs: the changes named in \`inline\` are drawn whole on screen, one line each; the rest are not found.
     const INLINE = ${JSON.stringify(inline)};
     const nrm = (s) => String(s).toLowerCase().replace(/\\s+/g, "");
@@ -187,11 +194,13 @@ function load({ nolist = false, inline = [] } = {}) {
       for (const { job } of log.sent.splice(0)) for (const st of job.steps) if (st.action === "replace") docText = docText.replace(st.find, st.replacement);
       reseg();
     }
+    ${sliceBetween(SRC, "    /* ── while the page scrolls", '    /* ── "Let Tracely fix these": everything prepared')}
     ${sliceBetween(SRC, '    /* ── "Let Tracely fix these": everything prepared', "    if (FEATURES.typePreview) {")}
-    ({ prepareFixes, stopFixes, closeFixes, acceptFix, acceptAllFixes, skipFix, rejectAllFixes, walkStripHtml, fixPingHtml, placeFixCards, runDocEdit,
+    ({ prepareFixes, stopFixes, closeFixes, acceptFix, skipFix, rejectAllFixes, cycle, walkStripHtml, walkOfferHtml, fixPingHtml, placeFixCards, runDocEdit,
        batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
        cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null,
-       marks: () => fixMarks, placeFixMarks })`, ctx);
+       marks: () => fixMarks, placeFixMarks, noteDocScroll, docSettle, marksLayer: () => fixMarksEl, cardsLayer: () => fixCardsEl,
+       setScroller: (s) => { docsScroller = s; }, setInline: (list) => { INLINE.splice(0, INLINE.length, ...list); } })`, ctx);
   return { X, log, clock, document };
 }
 // Let every chain of jumps run out.
@@ -200,8 +209,11 @@ const statuses = (X) => plain(X.batch().items).map((it) => `${it.key}:${it.statu
 
 test("one press prepares every change: searches at once, nothing reaches the doc, no preview — then they wait for the writer", async () => {
   const { X, log } = load();
-  assert.match(X.walkStripHtml(), /Tracely can prepare 6 of these fixes at once — then you choose what goes in.*data-walk-go="1">Let Tracely fix these</s);
+  // The offer is the panel's footer since 2026-10-14 (the clean frame); the list carries only a batch.
+  assert.match(X.walkOfferHtml(), /^<span class="foot-ready"><b>6<\/b> fixes to review<\/span><button class="act primary" data-walk-go="1" title="Tracely prepares every fix at once, then you accept or reject each one">Review all<\/button>$/);
+  assert.equal(X.walkStripHtml(), "");
   X.prepareFixes();
+  assert.equal(X.walkOfferHtml(), "", "no second offer while a batch is out");
   assert.equal(X.expanded(), false, "the panel gets out of the way");
   assert.match(X.walkStripHtml(), /Preparing 6 fixes · 0 ready/, "(and lists the same changes when it is opened)");
   await drain(() => !X.batch().preparing);
@@ -214,14 +226,15 @@ test("one press prepares every change: searches at once, nothing reaches the doc
   assert.deepEqual(plain(X.batch().items.filter((it) => it.src).map((it) => it.src.url)), ["src-c0", "src-c1", "src-c3"], "the source that BACKS each sentence, never the first one listed");
   const html = X.walkStripHtml();
   assert.match(html, /5 fixes ready — accept what you want/);
-  assert.match(html, /data-fx-all="1">Accept all 5</);
+  // No "Accept all" (owner, 2026-10-13: "it shouldnt replace more than one sentence at once").
+  assert.doesNotMatch(html, /Accept all|data-fx-all/);
   assert.match(html, /The Mongols <del>invented the American dollar<\/del><ins>used paper money<\/ins>\./, "what changes, before → after");
   assert.match(html, /\+<\/span> Lee, Ann\. Backs c0\. 2021\./, "and the line a citation adds");
   assert.match(html, /1 couldn't be prepared \(no source backs it\) — its card is still there/);
   assert.equal((html.match(/data-fx-accept=/g) || []).length, 5);
 });
 
-test("Accept goes in without a second preview; Accept all goes one at a time, each after a fresh read", async () => {
+test("Accept goes in without a second preview; each change is accepted on its own, never all at once", async () => {
   const { X, log } = load();
   X.prepareFixes();
   await drain(() => !X.batch().preparing);
@@ -230,10 +243,10 @@ test("Accept goes in without a second preview; Accept all goes one at a time, ea
   assert.deepEqual(log.sent.map((s) => s.key), ["fix:s1"]);
   assert.equal(log.previews.length, 0, "the list was the preview");
   assert.equal(X.gate.approved.size, 0, "approval lasts one edit");
-  await X.acceptAllFixes();
+  for (const i of [1, 2, 5]) { await X.cycle(); assert.equal(await X.acceptFix(i), true, `change ${i}`); }
+  await X.cycle();
   assert.deepEqual(statuses(X), ["s1:applied", "c0:applied", "c1:applied", "c2:none (no source backs it)", "c3:skipped", "tip:x:applied"]);
   assert.equal(log.previews.length, 0);
-  assert.ok(log.cycles >= 3, "a read of the doc after each one");
   const doc = X.doc();
   assert.ok(doc.startsWith(REV) && doc.includes("Trade grew by 40 percent under the Mongols (Lee 2021).") && doc.includes("Merchants paid 3 percent tax (Lee 2021).")
     && !doc.includes("Paper money circulated in 1260 (Lee") && !doc.includes(STRAY), doc);
@@ -292,7 +305,9 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
   const { X, log } = load();
   X.prepareFixes();
   assert.match(X.fixPingHtml(), /class="ready-ping fix-ping enter"/, "it rises in the render that brings it");
-  assert.match(X.fixPingHtml(), /Preparing fixes · 0 ready/, "the note above the launcher says it is working");
+  assert.match(X.fixPingHtml(), /Preparing fixes · 0 of 6 ready/, "the bar above the launcher says it is working");
+  assert.match(X.fixPingHtml(), /data-fxp-stop="1"[^>]*>Stop</, "and it can be stopped from there (owner, 2026-10-16)");
+  assert.doesNotMatch(X.fixPingHtml(), /data-fxp-none/, "nothing to reject yet");
   assert.match(X.fixPingHtml(), /class="ready-ping fix-ping"/, "and not again on every re-render after");
   await drain(() => !X.batch().preparing);
   await drain(() => false, 500);
@@ -311,7 +326,9 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
   assert.match(allNodes(cards[1]).map((n) => n._text).join("|"), /Source: Backs c0/);
   const buttons = (c) => allNodes(c).filter((n) => n.tagName === "button");
   assert.deepEqual(plain(buttons(cards[0]).map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
-  assert.match(X.fixPingHtml(), /5 suggestions in your doc.*data-fxp-all="1">Accept all<.*data-fxp-none="1">Reject all</s);
+  assert.match(X.fixPingHtml(), /5 fixes to review in your doc.*data-fxp-list="1"[^>]*>See all<.*data-fxp-none="1">Reject all</s);
+  assert.doesNotMatch(X.fixPingHtml(), /data-fxp-stop/, "done preparing: nothing to stop");
+  assert.doesNotMatch(X.fixPingHtml(), /Accept all|data-fxp-all/, "each is accepted on its own");
   // Placed beside their lines, in the page's right margin, none on another.
   X.placeFixCards();
   const ys = cards.map((c) => Number(c.style.transform.match(/translate\((\d+)px, (\d+)px\)/)[2]));
@@ -332,7 +349,7 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
 test("a missing Works Cited is one of the suggestions: looked up while the rest prepare, added at the end on Accept", async () => {
   // Owner, 2026-10-09: "when it needs to its still not automatically inserting works cited".
   const { X, log } = load({ nolist: true });
-  assert.match(X.walkStripHtml(), /Tracely can prepare 7 of these fixes at once/);
+  assert.match(X.walkOfferHtml(), /<b>7<\/b> fixes to review/);
   X.prepareFixes();
   await drain(() => !X.batch().preparing);
   assert.equal(log.lookups, 1, "the cited works are looked up once");
@@ -351,7 +368,7 @@ test("a missing Works Cited is one of the suggestions: looked up while the rest 
   assert.deepEqual(plain(log.sent.at(-1).job.steps.map((st) => st.line)), ["Works Cited", "Weatherford, Jack. Genghis Khan and the Making of the Modern World. 2004."]);
 });
 
-test("Tracely's cursor makes each change in its place — struck, typed — with Accept and Reject beside it; Accept all goes round and clicks each", async () => {
+test("Tracely's cursor makes each change in its place — struck, typed — with Accept and Reject beside it, each answered on its own", async () => {
   // Owner, 2026-10-09: "when you click accept all there is no cursor but I want tracely cursor to go around and
   // change each one and leave the accept or reject choice next to each change that it makes".
   const { X, log } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
@@ -366,6 +383,7 @@ test("Tracely's cursor makes each change in its place — struck, typed — with
   assert.equal(fix.strikes.length, 1);
   assert.deepEqual([fix.strikes[0].style.left, fix.strikes[0].style.width, fix.strikes[0].style.visibility], ["200px", "200px", "visible"], "struck where the words are");
   assert.equal(fix.words._text, "used paper money");
+  assert.equal(fix.words.style.background, "rgba(249,115,22,0.24)", "what Tracely writes is highlighted until accepted (owner, 2026-10-13)");
   assert.deepEqual(plain(allNodes(fix.chip).filter((n) => n.tagName === "button").map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
   assert.equal(fix.chip.style.top, "122px", "right under the change (its line's bottom, 118, + 4)");
   // The citation only adds words: nothing struck, the marker typed in its chip.
@@ -380,11 +398,139 @@ test("Tracely's cursor makes each change in its place — struck, typed — with
   allNodes(cite.chip).filter((n) => n.tagName === "button")[1].click();
   assert.equal(X.batch().items[1].status, "skipped");
   assert.equal(X.marks().has("c0"), false);
-  // Accept all: the cursor goes to the fix's ✓ and clicks it; it goes in; the rest follow; the cursor leaves.
-  const before = log.cursor.length, hides = log.hides;
-  await X.acceptAllFixes();
-  assert.ok(log.cursor.slice(before).some(([x, y]) => x === 532 && y === 312), "it went to the ✓ (500 + 64/2, 300 + 24/2)");
-  assert.deepEqual(statuses(X), ["s1:applied", "c0:skipped", "c1:applied", "c2:none (no source backs it)", "c3:applied", "tip:x:applied"], "every one it was left goes in, one at a time");
-  assert.equal(X.marks().size, 0, "every change answered: nothing left in the text");
-  assert.ok(log.hides > hides, "and the cursor is gone when it is done");
+  // Accept one beside its change: that one goes in, and only that one (no Accept all, owner 2026-10-13).
+  allNodes(fix.chip).filter((n) => n.tagName === "button")[0].click();
+  await drain(() => X.batch().items[0].status === "applied");
+  assert.deepEqual(statuses(X), ["s1:applied", "c0:skipped", "c1:ready", "c2:none (no source backs it)", "c3:ready", "tip:x:ready"], "the rest wait for their own answer");
+  assert.deepEqual(plain(log.sent.map((x) => x.key)), ["fix:s1"]);
+});
+
+/* Owner, 2026-10-15: "when you scroll up and down when tracely is typing
+ * suggestions, it is really laggy and the cursor and stuff clips out of frame".
+ * The changes' layers are the document's box and clip what is in them; while
+ * the page scrolls everything steps aside and nothing is measured; nothing
+ * places itself every frame. */
+test("the changes sit in the document's box, step aside while the page scrolls, and never run a frame loop", async () => {
+  const { X, log, clock } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  const fix = X.marks().get("s1"), cite = X.marks().get("c0");
+  // The editor's box: under a 120px toolbar and 40px in. The fix's line (top 100) is under the toolbar; the citation's (140) is in it.
+  X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 40, top: 120, right: 1400, bottom: 900 }) });
+  X.placeFixMarks();
+  const layer = X.marksLayer();
+  assert.deepEqual([layer.style.position, layer.style.overflow, layer.style.left, layer.style.top, layer.style.width, layer.style.height],
+    ["fixed", "hidden", "40px", "120px", "1360px", "780px"], "the layer is the document's box, and clips");
+  assert.equal(fix.strikes[0].style.visibility, "hidden", "a line under the toolbar is not struck over the toolbar");
+  assert.equal(fix.chip.style.visibility, "hidden");
+  assert.deepEqual([cite.chip.style.visibility, cite.chip.style.left, cite.chip.style.top], ["visible", "360px", "42px"],
+    "in the layer, its position less the box's corner: under its line (140 + 18 + 4 = 162 → 42), where its words go in (400 → 360)");
+  // The page scrolls: out of the way at once, and not measured until it is still.
+  const placedAt = cite.chip.style.top;
+  const t0 = clock.t;
+  X.noteDocScroll();
+  clock.t = t0 + 60; // 60 ms into the scroll (this harness's timers jump the clock when they are set)
+  assert.deepEqual([layer.style.opacity, layer.inert], ["0", true], "stepped aside, and nothing in it can be pressed");
+  X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 40, top: 80, right: 1400, bottom: 900 }) });
+  X.placeFixMarks();
+  assert.equal(cite.chip.style.top, placedAt, "nothing is placed while the page moves");
+  clock.t += 200;
+  X.docSettle();
+  assert.deepEqual([layer.style.opacity, layer.inert, layer.style.top], ["1", false, "80px"], "still: placed once, and back");
+  assert.deepEqual([fix.chip.style.visibility, fix.chip.style.top], ["visible", "42px"], "the fix's line is in the box now: its chip under it (122 − 80)");
+  assert.equal(cite.chip.style.top, "136px", "the citation's under that chip, never on it (122 + 90 + 4 = 216 − 80)");
+  // No frame loop: placing never asks for another frame by itself.
+  const before = log.rafs;
+  for (let i = 0; i < 5; i++) X.placeFixMarks();
+  assert.equal(log.rafs, before, "placed only when something moved, never every frame");
+});
+
+/* Owner, 2026-10-16: "when I click fix all and tracely goes and does all of
+ * them and leaves accept vs reject, it clips randomly, please make it easier
+ * to stop the auto run and for the accept vs reject tabs next to the fixes,
+ * they clip randomly and off of the response". */
+test("Stop is one press away while it prepares — the bar's, or Esc — and the cursor stops at once: what is ready appears whole without it", async () => {
+  const { X, log } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  X.prepareFixes();
+  await drain(() => X.marks().size > 0); // the first change is being made in its place
+  const visits = log.cursor.length, hides = log.hides;
+  X.stopFixes();
+  assert.equal(log.hides, hides + 1, "the cursor is gone at once");
+  await drain(() => false, 800);
+  assert.equal(log.cursor.length, visits, "and stays gone: no more glides, no more clicks");
+  assert.equal(X.batch().preparing, false);
+  assert.equal(X.marks().get("s1").words._text, "used paper money", "the change that was ready is in its place, its words whole");
+  assert.match(statuses(X).join(" "), /:none \(stopped\)/, "what wasn't ready is stopped");
+  assert.ok(statuses(X).every((s) => !/:(waiting|searching|working)\b/.test(s)), `nothing more is prepared: ${statuses(X)}`);
+  assert.doesNotMatch(X.fixPingHtml(), /data-fxp-stop/);
+  // Esc stops it too: heard before the Type preview's own keys, and not while a preview has them.
+  assert.match(SRC, /window\.addEventListener\("keydown", function fixStopKey\(e\) \{ if \(e\.key === "Escape" && fixBatch\?\.preparing && !tpOpen\) stopFixes\(\); \}, true\);\n\s+window\.addEventListener\("pointerdown", tpNotePress, true\);/);
+});
+
+test("a margin card stays inside the document's box: with a side panel open, it is never cut in two", async () => {
+  const { X } = load();
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  // A side panel: the document's box ends at 1000px; the window goes on to 1400.
+  X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1000, bottom: 900 }) });
+  X.placeFixCards();
+  const cards = X.cards().children;
+  assert.ok(cards.every((c) => c.style.transform.startsWith("translate(744px,")), `the page's margin (900 + 14) would cross the box's edge, so 1000 − 248 − 8: ${cards.map((c) => c.style.transform)}`);
+});
+
+test("a suggestion is shown whole or not at all; one that can't fit waits out of view, and the bar says how many", async () => {
+  // Cards: a box too short for all five stacked. The two that fit whole show; the rest wait.
+  const a = load();
+  a.X.prepareFixes();
+  await drain(() => !a.X.batch().preparing);
+  await drain(() => false, 500);
+  a.X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1400, bottom: 300 }) });
+  a.X.placeFixCards();
+  const cards = a.X.cards().children;
+  const top = (c) => Number(c.style.transform.match(/translate\(\d+px, (-?\d+)px\)/)[1]);
+  const shown = cards.filter((c) => c.style.visibility === "visible");
+  assert.equal(shown.length, 2);
+  assert.ok(shown.every((c) => top(c) + 90 <= 298), "never past the box's bottom");
+  assert.match(a.X.fixPingHtml(), /5 fixes to review in your doc<span class="fix-away"> · 3 out of view<\/span>/);
+  // Chips: under its change when that fits, over it when it doesn't, and out of view when neither does.
+  const b = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  b.X.prepareFixes();
+  await drain(() => !b.X.batch().preparing);
+  await drain(() => false, 500);
+  b.X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1400, bottom: 200 }) });
+  b.X.placeFixMarks();
+  const fix = b.X.marks().get("s1"), cite = b.X.marks().get("c0");
+  assert.deepEqual([fix.chip.style.visibility, fix.chip.style.top], ["visible", "6px"], "under its line (122) it would end at 212, past 198: over it instead (100 − 4 − 90)");
+  assert.equal(cite.chip.style.visibility, "hidden", "no room under its line, and over it is the fix's chip: it waits, never half shown");
+  assert.match(b.X.fixPingHtml(), /out of view/);
+});
+
+test("a change Docs redrew is found again; a run Docs reused for other words never places its strike or chip", async () => {
+  const { X } = load({ inline: ["invented the American dollar"] });
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  const fix = X.marks().get("s1");
+  X.placeFixMarks();
+  assert.equal(fix.chip.style.visibility, "visible");
+  // Docs reuses the run for another line, and the change is drawn again elsewhere: found again, and placed by its new runs.
+  const reuse = () => {
+    const run = fix.geo.pieces[0];
+    run.raw = "the words this run showed";
+    run.node.getAttribute = (a) => (a === "aria-label" ? "other words entirely" : null);
+    fix.geo.found = 0;
+  };
+  reuse();
+  const old = fix.geo;
+  X.placeFixMarks();
+  assert.notEqual(fix.geo, old, "found again");
+  assert.deepEqual([fix.strikes.length, fix.strikes[0].style.visibility, fix.chip.style.visibility], [1, "visible", "visible"]);
+  // Reused, and the change is not on the page now (scrolled away, not drawn): nothing of it is drawn, and the bar counts it.
+  X.setInline([]);
+  reuse();
+  X.placeFixMarks();
+  assert.deepEqual([fix.strikes[0].style.visibility, fix.chip.style.visibility], ["hidden", "hidden"], "not drawn over words that are not the change's");
+  assert.match(X.fixPingHtml(), /1 out of view/);
 });

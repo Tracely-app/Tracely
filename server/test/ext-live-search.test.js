@@ -107,8 +107,8 @@ test("server: the route is the extension's, metered and gated as a source search
     assert.ok(line.includes('"/api/sources/stream"'), `${set} names it`);
     assert.ok(line.includes('"/api/sources"'), `${set} still names /api/sources`);
   }
-  assert.match(SERVER, /"\/api\/sources": \{ input: 48_000, output: 6_000, webSearchCalls: 3 \}/);
-  assert.match(SERVER, /"\/api\/sources\/stream": \{ input: 48_000, output: 6_000, webSearchCalls: 3 \}/, "its worst case is reserved like /api/sources'");
+  assert.match(SERVER, /"\/api\/sources": \{ input: 48_000, output: 6_500, webSearchCalls: 3 \}/);
+  assert.match(SERVER, /"\/api\/sources\/stream": \{ input: 48_000, output: 6_500, webSearchCalls: 3 \}/, "its worst case is reserved like /api/sources'");
   assert.match(SERVER, /url\.pathname === "\/api\/sources" \|\| url\.pathname === "\/api\/sources\/stream"/, "one handler: one count, one window, one charge");
   assert.match(BG, /const API_PATHS = new Set\(\[[^\]]*"\/api\/sources\/stream"/);
   assert.match(SERVER, /if \(res\.headersSent\) \{ if \(!res\.writableEnded\) res\.destroy\(\); return; \}/, "a stream that sent its error and ended is not cut off");
@@ -289,7 +289,8 @@ test("card: Keep writing closes it and never cancels; the press starts the searc
   assert.match(docs, /const keep = dmBtn\(POP_COPY\.keepWriting, false\);\s+keep\.addEventListener\("click", \(\) => \{ popPinned = false; hideDocsPopover\(\); \}\);/);
   assert.match(docs, /if \(sourcesMap\.get\(hash\)\?\.loading\) return true; \/\/ already running/);
   assert.match(docs, /src\.addEventListener\("pointerdown", \(\) => prestartClaim\(tip\.id\)\);/);
-  assert.match(docs, /if \(!hasRevision && !citedHere\) action\.addEventListener\("pointerdown", \(\) => \{ fetchSources\(hash\)\.catch\(\(\) => \{\}\); \}\);/);
+  // Not for a "Needs evidence" sentence already searched by itself (`ev`, EVIDENCE_FIRST): that press opens what it found.
+  assert.match(docs, /if \(!hasRevision && !citedHere && !ev\) action\.addEventListener\("pointerdown", \(\) => \{ fetchSources\(hash\)\.catch\(\(\) => \{\}\); \}\);/);
   assert.match(docs, /btn\.addEventListener\("pointerdown", \(\) => \{ fetchSources\(btn\.dataset\.sources\)\.catch\(\(\) => \{\}\); \}\);/);
   assert.match(docs, /btn\.addEventListener\("pointerdown", \(\) => prestartClaim\(btn\.dataset\.claimSrc\)\);/);
   assert.match(docs, /const data = await searchSources\(\{/, "the Docs search is the live one");

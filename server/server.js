@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runFactCheck, findSources, runFlowCheck, runReview, hasApiKey, CheckError, checkPromptBytes, CHECK_SHARD_TIMEOUT_MS } from "./lib/factcheck.js";
 import * as ai from "./lib/ai.js";
+import { runKind, kindExcerpt, kindCacheKey, cachedKind, rememberKind } from "./lib/kind.js";
+import { citeFitCandidates, runCiteFit, applyCiteFit } from "./lib/citeFit.js";
 import * as reasoning from "./lib/reasoning.js";
 import * as evidence from "./lib/evidence.js";
 import * as store from "./lib/store.js";
@@ -14,12 +16,12 @@ import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
          billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, clientAddress, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
-         flowQuota, recordFlow, reviewQuota, recordReview, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
+         flowQuota, recordFlow, reviewQuota, recordReview, kindQuota, recordKind, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
-         THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
+         THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
          dailySourceSearchLimit, monthlySourceSearchLimit } from "./shared/plan.js";
 import { MODEL_TIERS, ALLOWED_MODELS, normalizeEffort, costMicroCents } from "./lib/llm.js";
 import { GUARDS, SPEND, rollingCounter, keyedRateLimiter, keyedRollingSum } from "./shared/guards.js";
@@ -185,7 +187,7 @@ function originAllowed(origin) {
  *   MODEL_ROUTES   — whose failures are logged as model failures
  * server/test/ext-api-paths.test.js keeps background.js's API_PATHS inside
  * EXTENSION_API. */
-const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account", "/api/compare-source", "/api/sources/stream"]);
+const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/account", "/api/compare-source", "/api/sources/stream", "/api/kind"]);
 
 /* Every route that can reach a model, and therefore spend money.
  *
@@ -202,7 +204,7 @@ const EXTENSION_API = new Set(["/api/status", "/api/check", "/api/flow", "/api/r
  */
 const PAID_ROUTES = new Set([
   "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/evidence", "/api/compare-source",
-  "/api/watch/critique", "/api/watch/fix", "/api/cite-url", "/api/sources/stream",
+  "/api/watch/critique", "/api/watch/fix", "/api/cite-url", "/api/sources/stream", "/api/kind",
 ]);
 
 /* The desktop app's AI routes. They are gated by appGate, NOT spendGate, and
@@ -229,14 +231,14 @@ const APP_AI_ROUTES = new Set([
  * handler (lib/failureLog.js): the extension's three model routes, the one
  * paid watch route, and every desktop AI route. A fixed set, so the logged
  * `route` can never be a path carrying an id. */
-const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources", "/api/sources/stream", "/api/watch/critique", ...APP_AI_ROUTES]);
+const MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/kind", "/api/sources", "/api/sources/stream", "/api/watch/critique", ...APP_AI_ROUTES]);
 
 /* The extension's model routes, which record their spend into `gate.pool`.
  * A call on one of them that fails AFTER the vendor answered (truncated,
  * refused, unparseable) was still billed; the central handler records that
  * cost from the error's tag into the same pool, so the ceiling sees it. The
  * app routes keep their own accounting (appCall), untouched. */
-const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/sources", "/api/sources/stream"]);
+const EXTENSION_MODEL_ROUTES = new Set(["/api/check", "/api/flow", "/api/review", "/api/kind", "/api/sources", "/api/sources/stream"]);
 
 // Source searches by one IDENTIFIED caller ("user:" / "install:") on a hosted
 // server: a rolling hourly window per caller, shared by the desktop's
@@ -624,6 +626,8 @@ const appRate = keyedRateLimiter(SPEND.appCallerCallsPerMinute);
 const flowRate = keyedRateLimiter(1, FLOW_MIN_INTERVAL_MS);
 // One /api/review call per caller per REVIEW_MIN_INTERVAL_MS, on a hosted server.
 const reviewRate = keyedRateLimiter(1, REVIEW_MIN_INTERVAL_MS);
+// One /api/kind call per caller per KIND_MIN_INTERVAL_MS, on a hosted server.
+const kindRate = keyedRateLimiter(1, KIND_MIN_INTERVAL_MS);
 
 function stampCallerRate(ent, id, kind) {
   if (!ent.enforced || !id) return;
@@ -676,8 +680,11 @@ const WORST_CALL = {
   // 12,000 characters of document (~4k tokens in the worst script) + the
   // prompt and schema; maxTokens 6,000 in runReview.
   "/api/review": { input: 6_000, output: 6_000, webSearchCalls: 0 },
-  "/api/sources": { input: 48_000, output: 6_000, webSearchCalls: 3 },
-  "/api/sources/stream": { input: 48_000, output: 6_000, webSearchCalls: 3 },
+  "/api/kind": { input: 3_000, output: 1_500, webSearchCalls: 0 }, // lib/kind.js: 4,000 characters + the prompt; KIND_MAX_TOKENS
+  // Output: the search's 3,000, the verifier's 2,000 and, when nothing backs
+  // the sentence, the detail check's 1,500 (sourceVerify.js COVER_MAX_TOKENS).
+  "/api/sources": { input: 48_000, output: 6_500, webSearchCalls: 3 },
+  "/api/sources/stream": { input: 48_000, output: 6_500, webSearchCalls: 3 },
   // A try-out check (server.js demoGate): its own output ceiling
   // (SPEND.demoCheckMaxTokens), and an input of at most 3,000 characters of
   // text plus 3,000 of sentences cut from it (lib/demo.js demoAdmit) and the
@@ -1032,6 +1039,7 @@ const aiLimitMessage = (q) =>
   `Starter includes ${q.limit ?? FREE_DAILY_AI_CALLS} AI actions a day, and today's are used. They reset at midnight — Student and Pro have no daily limit.`;
 const flowLimitMessage = (q) => `You've used today's ${q.limit} flow checks. They reset at midnight.`;
 const reviewLimitMessage = (q) => `You've used today's ${q.limit} resume reviews. They reset at midnight.`;
+const kindLimitMessage = (q) => `Tracely has read the kind of writing of ${q.limit} documents today. It resets at midnight.`;
 function sourceLimitMessage(q) {
   if (q.blockedBy === "month") {
     return `You've used this month's ${q.monthLimit} source searches. They reset on ${monthDayLabel(q.resetsOn)}. Checking still works.`;
@@ -1320,7 +1328,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const { text, sentences, model, effort, deep: deepFlag } = (await parseJsonBody(req)) ?? {};
+      const { text, sentences, model, effort, deep: deepFlag, citeFit } = (await parseJsonBody(req)) ?? {};
       if (typeof text !== "string" || text.length > 30_000) {
         throw new CheckError("bad_request", "text must be a string of at most 30,000 characters");
       }
@@ -1391,6 +1399,25 @@ const server = http.createServer(async (req, res) => {
         onShardFailure: (e) => console.error(modelFailureLine("/api/check", e, trace)),
       });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
+      /* The wrong-source check (lib/citeFit.js; owner, 2026-10-15): whether a
+       * cited sentence's source could be where its claim comes from. Only for
+       * a build that asks (`citeFit: true`, 2.21.60), never on "Explain in
+       * depth" or the try-out, as one more call admitted like a shard. A
+       * failure leaves the check's own answer. */
+      let findings = result.findings;
+      if (citeFit === true && !deep && !gate.demo) {
+        const items = citeFitCandidates(sentences, findings);
+        if (items.length && admitExtraCalls(gate, worstRoute, modelUsed, 1)) {
+          try {
+            const fit = await runCiteFit({ items, model: modelUsed, effort: "low", mock: MOCK });
+            if (fit.usage) chargeCall(gate, { model: fit.model ?? modelUsed, usage: fit.usage, pool: gate.pool });
+            findings = applyCiteFit(findings, fit.verdicts);
+          } catch (e) {
+            if (e?.llm?.usage) chargeCall(gate, { model: e.llm.model ?? modelUsed, usage: e.llm.usage, pool: gate.pool });
+            console.error(modelFailureLine("/api/check", e, trace));
+          }
+        }
+      }
       // `thorough` (optional, deep only, hosted): whether this answer came from
       // the thorough model, and the allowance left — a whole percent, never
       // dollars — as the meter shows it. `suspended` (only when true, as on
@@ -1407,7 +1434,7 @@ const server = http.createServer(async (req, res) => {
           ...(t.suspended ? { suspended: true } : {}),
         };
       }
-      json(res, 200, { ...result, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
+      json(res, 200, { ...result, findings, modelUsed, plan: ent.plan, ms: Date.now() - started, ...(thorough ? { thorough } : {}) }, cors);
       return;
     }
 
@@ -1520,7 +1547,7 @@ const server = http.createServer(async (req, res) => {
       // the tool fee is most of this route's cost, so the count is the number
       // to watch — 3-5 per answer was the 6-cent search of 2026-10-01.
       const actions = Object.entries(webSearchActions ?? {}).map(([k, v]) => `${k}=${v}`).join(",") || "none";
-      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
+      console.log(`[tracely] ${url.pathname} ${modelUsed}${level ? "@" + level : ""} searches=${webSearchCalls} actions=${actions} sources=${result.sources.length} enriched=${enriched} dropped=${dropped} verified=${verified?.checked ?? 0}/${verified?.changed ?? 0} quoted=${verified?.quoted ?? 0} unquoted=${verified?.unquoted ?? 0} figures=${verified?.figures ?? 0} partial=${verified?.partial ?? 0} unread=${verified?.unread ?? 0} retracted=${retracted ?? 0} wouldHit=${wouldHit ? 1 : 0} ms=${Date.now() - started}`);
       // The tool fee is most of this route's cost and is invisible in the
       // token usage, so pricing it off tokens alone would under-count the
       // expensive route ~5x on the fast tier — and a reasoning model can
@@ -1584,6 +1611,45 @@ const server = http.createServer(async (req, res) => {
      * per REVIEW_MIN_INTERVAL_MS, the fast model at low, pinned on a hosted
      * server. NOT one of the routes frozen for the Web Store review — no
      * shipped build calls it; extension 2.21.6 is the first. */
+    /* What kind of writing a document is (lib/kind.js). The extension asks once
+       per document and keeps its own rules' answer when this one says
+       "unsure", fails, or is refused. An answer the server already has for
+       the same text is returned without a call and without counting. */
+    if (req.method === "POST" && api === "/api/kind") {
+      loadEnvFile();
+      if (!hasApiKey() && !MOCK) {
+        json(res, 503, { error: { kind: "no_key", message: "No OpenAI API key configured. Add OPENAI_API_KEY to tracely/.env" } }, cors);
+        return;
+      }
+      const { text } = (await parseJsonBody(req)) ?? {};
+      if (typeof text !== "string" || !text.trim()) throw new CheckError("bad_request", "text required");
+      if (text.length > GUARDS.maxInputChars) throw new CheckError("bad_request", "text too long");
+      const key = kindCacheKey(kindExcerpt(text));
+      const known = MOCK ? null : cachedKind(key);
+      if (known) {
+        json(res, 200, { kind: known, cached: true }, cors);
+        return;
+      }
+      const { ent, callerId: who } = gate;
+      if (ent.enforced && who) {
+        if (!kindRate.ok(who)) throw new CheckError("kind_rate", "Slow down a moment — try again in a few seconds.", { status: 429, retryAfter: Math.ceil(KIND_MIN_INTERVAL_MS / 1000) });
+        const quota = kindQuota(ent, who);
+        if (!quota.allowed) throw quotaRefusal(ent, who, kindLimitMessage(quota));
+        kindRate.stamp(who);
+        recordKind(ent, who); // before the call, not after
+      }
+      const started = Date.now();
+      const choice = ent.enforced ? hostedChoice("kind", ent, who) : null;
+      const modelUsed = extensionModel(gate, "/api/kind", choice ? choice.model : allowedModel(ent, servedModel(null)));
+      const level = choice ? choice.effort : normalizeEffort("low");
+      Object.assign(trace, { model: modelUsed, effort: level });
+      const result = await runKind({ text, model: modelUsed, effort: level, mock: MOCK });
+      chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
+      if (!MOCK) rememberKind(key, result.kind);
+      json(res, 200, { kind: result.kind, modelUsed, ms: Date.now() - started }, cors);
+      return;
+    }
+
     if (req.method === "POST" && api === "/api/review") {
       loadEnvFile();
       if (!hasApiKey() && !MOCK) {
@@ -1920,7 +1986,7 @@ const server = http.createServer(async (req, res) => {
       // One line, no text (PRIVACY.md: routes and outcomes only): how many of
       // the list were read and what they said — the number that says whether
       // receipts are working.
-      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} ms=${Date.now() - started}`);
+      console.log(`[tracely] /api/verify-sources ${result.model} sources=${input.sources.length} read=${tally.read} backs=${tally.backs} contradicts=${tally.contradicts} topic=${tally.topic} unread=${tally.unread} retracted=${tally.retracted} unquoted=${tally.unquoted} figures=${tally.figures} partial=${tally.partial} ms=${Date.now() - started}`);
       json(res, 200, result, cors);
       return;
     }

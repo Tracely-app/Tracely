@@ -128,6 +128,9 @@ case "$cmd" in
   # extension and desktop talks to the moment it lands.
   *45.56.92.67*|*"systemctl restart tracely"*|*"systemctl stop tracely"*|*"/srv/tracely/"*)
     ask "This touches the production server (the Linode). Every installed extension and desktop talks to it; follow server/DEPLOY.md (snapshot, backup, verify) and update STATUS.md after." ;;
+  # The same deploy through GitHub Actions (.github/workflows/deploy-server.yml).
+  *"gh workflow run"*"deploy-server"*)
+    ask "This deploys main's server/ to production through GitHub Actions. Every installed extension and desktop talks to it; paste the run's STATUS.md row after (server/DEPLOY.md, Deploying from GitHub)." ;;
   # The extension's publishing path. The --beta zip carries the token that
   # grants testers Pro; it must never reach the Developer Dashboard.
   *"pack-extension.sh"*)

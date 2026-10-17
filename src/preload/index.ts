@@ -8,6 +8,10 @@ import type {
   AnalyzeGetResultResponse,
   AuthGetPlanResponse,
   AuthGetThoroughResponse,
+  AuthGetUsageResponse,
+  DataExportResponse,
+  ScreenWatchPauseRequest,
+  ScreenWatchPauseResponse,
   AuthGetUserResponse,
   CitationFindCitedWorkRequest,
   CitationFindCitedWorkResponse,
@@ -51,6 +55,13 @@ import type {
   DocumentsRemoveResponse,
   DocumentsSaveRequest,
   DocumentsSaveResponse,
+  DocumentsSetPrefsRequest,
+  DocumentsSetPrefsResponse,
+  DocumentsForgetGradeRequest,
+  DocumentsForgetGradeResponse,
+  MemoryInfo,
+  MemoryClearRequest,
+  MemoryClearResponse,
   LibrarySaveRequest,
   LibrarySaveResponse,
   LibraryUpdateRequest,
@@ -174,7 +185,11 @@ const api = {
     save: (req: DocumentsSaveRequest): Promise<DocumentsSaveResponse> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_SAVE, req),
     remove: (req: DocumentsRemoveRequest): Promise<DocumentsRemoveResponse> =>
-      ipcRenderer.invoke(IPC.DOCUMENTS_REMOVE, req)
+      ipcRenderer.invoke(IPC.DOCUMENTS_REMOVE, req),
+    setPrefs: (req: DocumentsSetPrefsRequest): Promise<DocumentsSetPrefsResponse> =>
+      ipcRenderer.invoke(IPC.DOCUMENTS_SET_PREFS, req),
+    forgetGrade: (req: DocumentsForgetGradeRequest): Promise<DocumentsForgetGradeResponse> =>
+      ipcRenderer.invoke(IPC.DOCUMENTS_FORGET_GRADE, req)
   },
   structure: {
     analyze: (req: StructureAnalyzeRequest): Promise<StructureAnalyzeResponse> =>
@@ -213,7 +228,15 @@ const api = {
     /** Which plan this account is on. Never throws, never answers above free. */
     getPlan: (): Promise<AuthGetPlanResponse> => ipcRenderer.invoke(IPC.AUTH_GET_PLAN, {}),
     /** Pro's Thorough allowance for the Settings meter. Never throws; null when unknown. */
-    getThorough: (): Promise<AuthGetThoroughResponse> => ipcRenderer.invoke(IPC.AUTH_GET_THOROUGH, {})
+    getThorough: (): Promise<AuthGetThoroughResponse> => ipcRenderer.invoke(IPC.AUTH_GET_THOROUGH, {}),
+    /** What the server has counted for Settings → Account and billing. Never throws; null when unknown. */
+    getUsage: (): Promise<AuthGetUsageResponse> => ipcRenderer.invoke(IPC.AUTH_GET_USAGE, {})
+  },
+  // Settings → Privacy and data → Export my data: a save dialog, then one JSON file.
+  data: {
+    export: (): Promise<DataExportResponse> => ipcRenderer.invoke(IPC.DATA_EXPORT, {}),
+    memory: (): Promise<MemoryInfo> => ipcRenderer.invoke(IPC.DATA_MEMORY, {}),
+    memoryClear: (req: MemoryClearRequest): Promise<MemoryClearResponse> => ipcRenderer.invoke(IPC.DATA_MEMORY_CLEAR, req)
   },
   history: {
     clear: (req: HistoryClearRequest): Promise<HistoryClearResponse> =>
@@ -255,6 +278,8 @@ const api = {
     setEnabled: (req: ScreenWatchSetEnabledRequest): Promise<ScreenWatchSetEnabledResponse> =>
       ipcRenderer.invoke(IPC.SCREENWATCH_SET_ENABLED, req),
     getStatus: (): Promise<ScreenWatchGetStatusResponse> => ipcRenderer.invoke(IPC.SCREENWATCH_GET_STATUS, {}),
+    /** Settings → General: off now, back on by itself at `until`. */
+    pause: (req: ScreenWatchPauseRequest): Promise<ScreenWatchPauseResponse> => ipcRenderer.invoke(IPC.SCREENWATCH_PAUSE, req),
     setWidgetExpanded: (req: ScreenWatchSetWidgetExpandedRequest): Promise<ScreenWatchSetWidgetExpandedResponse> =>
       ipcRenderer.invoke(IPC.SCREENWATCH_SET_WIDGET_EXPANDED, req),
     setWidgetViewMode: (req: ScreenWatchSetWidgetViewModeRequest): Promise<ScreenWatchSetWidgetViewModeResponse> =>

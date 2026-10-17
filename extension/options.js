@@ -1,7 +1,22 @@
-/* Tracely's Settings page (options.html) — the account (sign in, plan,
-   upgrade), the checking model, Google Docs, the per-site auto-check list,
-   privacy, and a live probe of the server; one section at a time, chosen in
-   the sidebar like the desktop's Settings.
+/* Tracely's Settings page (options.html), one section at a time, chosen in
+   the sidebar like the desktop's Settings. Since 2026-10-16 (owner: "revamp
+   settings to include more that typical settings has"):
+     General          on / paused / off, Google Docs, the auto-check sites,
+                      the button's corner, the panel on open, the shortcut
+     Checking         what is flagged, how strict, the usual kind of writing,
+                      the automatic evidence search, the edit preview,
+                      Review all typing; the model, evidence recommendations
+     Citations        the style, the list's heading, links and access dates,
+                      the sources suggested (2.21.63)
+     Documents        each Doc checked here, and its own style, kind,
+                      never-check, reset and dismissed notes (2.21.64)
+     Memory           what is kept here, clearing each part, and the
+                      sentences never to flag again (2.21.64)
+     Account and billing   sign-in, the plan card, what's been used
+     Privacy and data what leaves the browser, export, clear saved checks,
+                      delete the account
+     Help             what's new, the keys, diagnostics
+   and a live probe of the server in the sidebar.
 
    The sign-in itself lives in the background worker (it holds the token and
    the Supabase constants); this page only sends it messages. */
@@ -62,16 +77,17 @@ function orderUrl(userId) {
    CHOOSES one any more — the Faster↔Smarter slider is gone, and the server
    picks the model and effort per route (shared/plan.js modelForRoute): the
    fast model for every check, detection, flow and source search on every
-   plan, the thorough one for Pro's "Explain in depth" and desktop critiques
-   while the monthly allowance lasts.
+   plan, the thorough one for desktop critiques while Pro's monthly allowance
+   lasts. The extension's "Explain in depth" is off (owner, 2026-10-13), so
+   this page no longer shows the Thorough meter.
 
    They are still named here because this page is what a reader checks to see
    what they are buying, and a rename that misses this file is exactly how
    the slider ended up naming three Anthropic models the extension could no
    longer call. */
 const MODELS = { fast: "gpt-5.6-luna", thorough: "gpt-6-astra" };
-// Plans with a Thorough allowance (shared/plan.js THOROUGH_MONTHLY_USD).
-const DEEP_PLANS = ["pro"];
+// Plans with evidence recommendations: content.js RECOMMEND_PLANS, every paid plan.
+const RECOMMEND_PLANS = ["student", "pro"];
 
 // "2026-10-01" -> "Oct 1" (shared/plan.js monthDayLabel, mirrored).
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -107,67 +123,50 @@ let account = {
   limits: null, usage: null, thorough: null, fairUse: null,
 };
 
-// Whether this account is offered Thorough explanations at all.
-function hasThorough() {
-  return account.unenforced || account.beta === true || DEEP_PLANS.includes(account.plan);
+/* Whether this account gets evidence recommendations (content.js
+   canRecommend). Owner, 2026-10-13: Starter helps with mistakes only;
+   Student and Pro also recommend evidence that would make the writing
+   better. */
+function hasRecommendations() {
+  return account.unenforced || account.beta === true || RECOMMEND_PLANS.includes(account.plan);
 }
 
-/* The "Checking model" section: one hint everybody gets, then either the Pro
-   Thorough block with its meter or the locked line, then the source-search
+/* The "Checking model" section: one hint everybody gets, then either the
+   evidence-recommendations tile or the locked line, then the source-search
    and fair-use lines. Anything the server did not report stays hidden —
    a local server meters nothing and must not be made to look as if it does. */
 function renderPlanState() {
-  const pro = hasThorough();
-  $("thoroughPro").hidden = !pro;
-  $("thoroughLocked").hidden = pro;
+  const paid = hasRecommendations();
+  $("recommendPlan").hidden = !paid;
+  $("recommendLocked").hidden = paid;
   renderIncludes();
-  renderThoroughMeter();
-  renderSourcesLine();
+  renderUsage(); // (the bars replace the line of source-search counts)
   renderFairUseLine();
 }
 
-function renderThoroughMeter() {
-  const t = account.thorough;
-  const meter = $("thoroughMeter");
-  const text = $("thoroughMeterText");
-  if (!hasThorough() || !t) {
-    meter.hidden = true;
-    text.hidden = true;
-    return;
+/* What's been used, as bars: the server's own counts against the plan's own
+   limits (entitlementExtras relays the source searches). A server that
+   meters nothing reports neither, and the tile stays hidden. */
+function renderUsage() {
+  const l = account.limits?.sources, u = account.usage?.sources;
+  const rows = [];
+  if (l && u && !account.unenforced) {
+    if (Number.isFinite(l.day)) rows.push(["Source searches today", u.today, l.day]);
+    if (Number.isFinite(l.month)) rows.push(["Source searches this month", u.month, l.month]);
   }
-  const left = Math.max(0, Math.min(100, Math.round(t.remainingPct)));
-  const on = monthDayLabel(t.resetsOn);
-  meter.hidden = false;
-  $("thoroughFill").style.width = `${left}%`;
-  text.hidden = false;
-  /* A fair-use suspension turns the allowance OFF without spending it, so the
-     percentage alone would read as a promise the account is not getting: the
-     meter is the only thing on this page that speaks about Thorough, and the
-     fair-use line below covers checks and sources, not this. Say it is paused,
-     and say how much is waiting on the other side of the reset. */
-  if (t.suspended === true) {
-    text.textContent = `Thorough is paused while this account is over its fair-use limit — explanations use the standard model until ${pausedUntil(on)}. ${left}% of this month's allowance is still unused.`;
-    return;
-  }
-  text.textContent = left > 0
-    ? `${left}% of this month's Thorough allowance left · resets ${on}`
-    : `This month's Thorough allowance is used up. Explanations use the standard model until ${on}.`;
-}
-
-/* When the pause lifts. A daily fair-use trip clears at midnight; a monthly
-   one on the date the fair-use line names. Only if the server sent neither do
-   we fall back to the allowance's own reset. */
-function pausedUntil(allowanceResetsOn) {
-  const f = account.fairUse;
-  if (f?.state === "day") return "midnight";
-  if (f?.state === "month" && f.resetsOn) return monthDayLabel(f.resetsOn);
-  return allowanceResetsOn;
+  $("usage").innerHTML = rows.map(([label, used, of]) => {
+    const pct = of > 0 ? Math.min(100, Math.round((used / of) * 100)) : 100;
+    return `<div class="usage-row"><div class="usage-head"><span>${escHtml(label)}</span><span>${used} of ${of}</span></div>`
+      + `<span class="meter" role="meter" aria-valuemin="0" aria-valuemax="${of}" aria-valuenow="${used}" aria-label="${escHtml(label)}"><span class="meter-fill${used >= of ? " full" : ""}" style="width:${pct}%"></span></span></div>`;
+  }).join("");
+  $("usageTile").hidden = rows.length === 0;
 }
 
 /* What the plan card lists under the plan's name — the desktop's "includes"
    — from the server's own limits, never a copy of the price page: a check
-   allowance, the source searches, and Thorough where it comes with the plan.
-   A server that meters nothing reports no limits, and the list stays hidden. */
+   allowance, the source searches, and evidence recommendations where they
+   come with the plan. A server that meters nothing reports no limits, and
+   the list stays hidden. */
 const escHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 function renderIncludes() {
   const list = $("planIncludes");
@@ -183,31 +182,9 @@ function renderIncludes() {
           : `${s.month} source searches a month, up to ${s.day} a day`);
     }
   }
-  if (items.length && hasThorough()) items.push("Thorough explanations from our largest model");
+  if (items.length && hasRecommendations()) items.push("Evidence recommendations");
   list.innerHTML = items.map((t) => `<li>${escHtml(t)}</li>`).join("");
   list.hidden = items.length === 0;
-}
-
-function renderSourcesLine() {
-  const line = $("sourcesLine");
-  const limits = account.limits?.sources;
-  const used = account.usage?.sources;
-  if (!limits || !used || (limits.day === null && limits.month === null)) {
-    line.hidden = true;
-    return;
-  }
-  line.hidden = false;
-  // Free (and any account metered at Free's numbers under fair use) has a
-  // daily allowance; a paid one is sold by the month, with the day as a burst.
-  const metered = account.limits?.checksPerDay !== null || account.plan === "free";
-  const leftToday = limits.day === null ? null : Math.max(0, limits.day - used.today);
-  if (limits.month === null) {
-    line.textContent = `Source searches: ${used.today} of ${limits.day} today.`;
-    return;
-  }
-  line.textContent = metered && limits.day !== null
-    ? `Source searches: ${used.today} of ${limits.day} today · ${used.month} of ${limits.month} this month.`
-    : `Source searches: ${used.month} of ${limits.month} this month${leftToday === null ? "" : ` (${leftToday} left today)`}.`;
 }
 
 function renderFairUseLine() {
@@ -280,10 +257,14 @@ function renderAccount() {
       manage.textContent = "Email us to cancel";
       manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;
     }
+    // Billing: what the subscription page holds, where there is one to manage.
+    $("billingNote").textContent = account.plan !== "free" && PORTAL_URL
+      ? "Receipts, your payment method, changing plan and cancelling are all on the subscription page: Manage subscription. Nothing on this page charges you."
+      : "Plans are bought and cancelled on jointracely.com. Nothing on this page charges you.";
     $("acctHint").textContent = beta
       ? "This is a Tracely test build, so you're on Pro while the beta lasts. If you also pay for a plan, Manage subscription still reaches it."
       : account.plan === "free"
-        ? "You're on Starter. Student removes the daily check limit and adds 100 source searches a month and auto-sources; Pro adds Thorough explanations."
+        ? "You're on Starter, which flags mistakes and helps you fix them. Student and Pro also recommend evidence that would make your writing stronger, with more source searches."
         : "Your plan applies to the extension and the Tracely desktop app — one account covers both.";
   } else if (beta) {
     $("acctHint").textContent = "This is a Tracely test build, so every check runs on Pro while the beta lasts — no account and nothing to buy. Signing in is optional.";
@@ -344,13 +325,21 @@ $("signOut").addEventListener("click", async () => {
 /* ── load + save ─────────────────────────────────────────────────────────── */
 
 function load() {
-  chrome.storage.local.get({ enabledSites: [], docsEnabled: false }, (cfg) => { renderSites(cfg.enabledSites); $("docsTgl").checked = cfg.docsEnabled === true; });
+  chrome.storage.local.get({ enabledSites: [], docsEnabled: false, prefs: {} }, (cfg) => {
+    renderSites(cfg.enabledSites);
+    $("docsTgl").checked = cfg.docsEnabled === true;
+    prefs = readPrefs(cfg.prefs);
+    renderPrefs();
+  });
   refreshAccount(); // fills the plan meters too, once the server has answered
+  renderShortcut();
+  renderWhatsNew();
+  loadMemory(); // Documents and Memory
   // Which section to show: the address's #section (a reload, a bookmark), or
   // the one the widget asked for (background.js "tracely-openSettings"),
-  // else Account.
+  // else General.
   const asked = typeof location !== "undefined" ? location.hash.replace(/^#/, "") : "";
-  showSection(asked || "account");
+  showSection(asked || "general");
   chrome.storage.local.get({ settingsOpenAt: null }, (cfg) => takeOpenAt(cfg.settingsOpenAt));
   const version = typeof chrome.runtime.getManifest === "function" ? chrome.runtime.getManifest()?.version : null;
   if (version) $("buildVersion").textContent = `Version ${version}`;
@@ -360,9 +349,11 @@ function load() {
    One panel at a time. The address carries the section (#account …), so a
    reload or a bookmark comes back to it, and the widget's gear can open the
    page at the section it is about. */
-const SECTIONS = ["account", "checking", "docs", "sites", "privacy"];
+const SECTIONS = ["general", "checking", "citations", "documents", "memory", "account", "privacy", "help"];
+// Sections a bookmark or an older widget may still name: Google Docs and Sites are in General now.
+const SECTION_MOVED = { docs: "general", sites: "general" };
 function showSection(id) {
-  const want = SECTIONS.includes(id) ? id : "account";
+  const want = SECTIONS.includes(id) ? id : SECTION_MOVED[id] ?? "general";
   for (const panel of document.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== want;
   for (const item of document.querySelectorAll("[data-nav]")) {
     const on = item.dataset.nav === want;
@@ -388,6 +379,399 @@ function takeOpenAt(req) {
 }
 // The same switch the first Doc asks for (content.js renderDocsConsent).
 $("docsTgl").addEventListener("change", (e) => chrome.storage.local.set({ docsEnabled: e.target.checked === true }));
+
+/* ── General: on, paused or off, and the button ──────────────────────────
+   chrome.storage "prefs", which content.js reads (its PREF_DEFAULTS: the
+   same names and defaults). pausedUntil is 0 running, a time paused until
+   then, -1 off until turned back on. */
+const PREF_DEFAULTS = {
+  pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
+  showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
+  citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
+  undismissedAt: 0, appearance: "light",
+};
+let prefs = { ...PREF_DEFAULTS };
+// What storage holds, over the defaults; a list that isn't one (an older build, a bad write) reads as empty.
+function readPrefs(stored) {
+  const p = { ...PREF_DEFAULTS, ...(stored && typeof stored === "object" ? stored : {}) };
+  if (!Array.isArray(p.avoidSites)) p.avoidSites = [];
+  return p;
+}
+function savePrefs(patch) {
+  prefs = { ...prefs, ...patch };
+  chrome.storage.local.set({ prefs });
+  renderPrefs();
+}
+// "4:30 PM", or "midnight" for a pause for today.
+function untilLabel(t) {
+  const d = new Date(t);
+  return d.getHours() === 0 && d.getMinutes() === 0 ? "midnight" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+let resumeTimer = null;
+function renderGeneral() {
+  const off = prefs.pausedUntil === -1;
+  const paused = !off && prefs.pausedUntil > Date.now();
+  $("onTgl").checked = !off;
+  $("pauseLine").textContent = off ? "Off: nothing is checked or sent until you turn it back on."
+    : paused ? `Paused until ${untilLabel(prefs.pausedUntil)}: nothing is checked or sent until then.`
+      : "Checking wherever you've turned it on.";
+  $("pauseHour").hidden = off || paused;
+  $("pauseToday").hidden = off || paused;
+  $("resumeNow").hidden = !paused;
+  for (const b of document.querySelectorAll("[data-side]")) b.setAttribute("aria-pressed", String(b.dataset.side === prefs.launcherSide));
+  const look = APPEARANCES.includes(prefs.appearance) ? prefs.appearance : "light";
+  for (const b of document.querySelectorAll("[data-appearance]")) b.setAttribute("aria-pressed", String(b.dataset.appearance === look));
+  $("panelOpenTgl").checked = prefs.panelOpen === true;
+  // The page says "running" again when a pause ends, without a reload.
+  clearTimeout(resumeTimer);
+  if (paused) resumeTimer = setTimeout(renderGeneral, Math.min(prefs.pausedUntil - Date.now() + 100, 2 ** 31 - 1));
+}
+$("onTgl").addEventListener("change", (e) => savePrefs({ pausedUntil: e.target.checked ? 0 : -1 }));
+$("pauseHour").addEventListener("click", () => savePrefs({ pausedUntil: Date.now() + 60 * 60 * 1000 }));
+$("pauseToday").addEventListener("click", () => { const d = new Date(); d.setHours(24, 0, 0, 0); savePrefs({ pausedUntil: d.getTime() }); });
+$("resumeNow").addEventListener("click", () => savePrefs({ pausedUntil: 0 }));
+for (const b of document.querySelectorAll("[data-side]")) b.addEventListener("click", () => savePrefs({ launcherSide: b.dataset.side === "left" ? "left" : "right" }));
+// Appearance: the widget's panel and cards (content.js themeDark). This page follows the browser on its own.
+const APPEARANCES = ["light", "dark", "system"];
+for (const b of document.querySelectorAll("[data-appearance]")) b.addEventListener("click", () => savePrefs({ appearance: APPEARANCES.includes(b.dataset.appearance) ? b.dataset.appearance : "light" }));
+$("panelOpenTgl").addEventListener("change", (e) => savePrefs({ panelOpen: e.target.checked === true }));
+
+function renderPrefs() {
+  renderGeneral();
+  renderChecking();
+  renderCitations();
+}
+
+/* ── Checking: what is flagged, how sure, how fixes go in ────────────────
+   content.js reads each in "Settings → the widget" (flagShown's kindShown,
+   kindWithUsual, autoFindSources, runDocEdit's preview, Review all). */
+const STRICT_LINE = {
+  clear: "Shows only what Tracely is sure of, so you may miss a real mistake.",
+  balanced: "Shows everything Tracely finds.",
+  thorough: "Also asks for a source for general statements, and for a figure a later citation in its paragraph might cover.",
+};
+// The kinds a writer most often writes, named as the widget's header names them (content.js WRITING_KINDS; a test keeps them equal).
+const KIND_CHOICES = [
+  ["essay", "Essay"], ["argumentative", "Argumentative essay"], ["informative", "Informative essay"], ["literary", "Literary analysis"],
+  ["rhetorical", "Rhetorical analysis"], ["research", "Research paper"], ["lab", "Lab report"], ["dbq", "DBQ essay"],
+  ["synthesis", "Synthesis essay"], ["speech", "Speech"], ["news", "News article"], ["blog", "Blog post"],
+  ["personal", "Personal essay"], ["college", "College or scholarship essay"],
+];
+// `none` names the first choice: Tracely decides (Checking), or the Doc follows Settings (Documents).
+const kindOptionsHtml = (none, picked = "") => [["", none], ...KIND_CHOICES]
+  .map(([k, label]) => `<option value="${k}"${k === picked ? " selected" : ""}>${escHtml(label)}</option>`).join("");
+const CHECK_SWITCHES = ["showEvidence", "showCitations", "autoEvidence", "previewEdits", "reviewTyping"];
+function renderChecking() {
+  for (const id of CHECK_SWITCHES) $(id).checked = prefs[id] !== false;
+  const strict = STRICT_LINE[prefs.strictness] ? prefs.strictness : "balanced";
+  for (const b of document.querySelectorAll("[data-strict]")) b.setAttribute("aria-pressed", String(b.dataset.strict === strict));
+  $("strictLine").textContent = STRICT_LINE[strict];
+  const usual = $("usualKind");
+  if (!usual.innerHTML) usual.innerHTML = kindOptionsHtml("Let Tracely tell");
+  usual.value = KIND_CHOICES.some(([k]) => k === prefs.usualKind) ? prefs.usualKind : "";
+}
+for (const id of CHECK_SWITCHES) $(id).addEventListener("change", (e) => savePrefs({ [id]: e.target.checked === true }));
+for (const b of document.querySelectorAll("[data-strict]")) b.addEventListener("click", () => savePrefs({ strictness: b.dataset.strict }));
+$("usualKind").addEventListener("change", (e) => savePrefs({ usualKind: e.target.value }));
+
+/* ── Citations: the style, the list's heading, the entries, the sources ── */
+const MLA_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."]; // content.js CITE_MLA_MONTHS
+function renderCitations() {
+  $("citeStyle").value = ["match", "mla", "apa", "chicago"].includes(prefs.citeStyle) ? prefs.citeStyle : "match";
+  $("listHeading").value = ["Works Cited", "References", "Bibliography"].includes(prefs.listHeading) ? prefs.listHeading : "";
+  $("citeLinks").checked = prefs.citeLinks !== false;
+  $("citeAccessed").checked = prefs.citeAccessed === true;
+  $("citableOnly").checked = prefs.citableOnly === true;
+  const d = new Date();
+  $("accessedLine").textContent = `Adds the day you read a web page, which some teachers ask for. In MLA: “Accessed ${d.getDate()} ${MLA_MONTHS[d.getMonth()]} ${d.getFullYear()}.”`;
+  renderAvoidSites(prefs.avoidSites);
+}
+$("citeStyle").addEventListener("change", (e) => savePrefs({ citeStyle: e.target.value }));
+$("listHeading").addEventListener("change", (e) => savePrefs({ listHeading: e.target.value }));
+for (const id of ["citeLinks", "citeAccessed", "citableOnly"]) $(id).addEventListener("change", (e) => savePrefs({ [id]: e.target.checked === true }));
+/* A site as content.js compares it (credHost): the host, lower case, without
+   "www." — "https://www.Example.org/page" is example.org. Null when it isn't one. */
+function siteOf(input) {
+  const raw = String(input ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  let host = raw;
+  try { host = new URL(/^[a-z]+:\/\//.test(raw) ? raw : `https://${raw}`).hostname; } catch { return null; }
+  host = host.replace(/^www\./, "");
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? host : null;
+}
+function renderAvoidSites(sites) {
+  const ul = $("avoidList");
+  ul.textContent = "";
+  for (const site of Array.isArray(sites) ? sites : []) {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.className = "origin";
+    span.textContent = site;
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.addEventListener("click", () => savePrefs({ avoidSites: prefs.avoidSites.filter((s) => s !== site) }));
+    li.append(span, btn);
+    ul.appendChild(li);
+  }
+}
+$("avoidForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const site = siteOf($("avoidInput").value);
+  if (!site) { $("citationsStatus").textContent = "That isn't a site. Try one like wikipedia.org."; return; }
+  $("avoidInput").value = "";
+  $("citationsStatus").textContent = "";
+  if (!prefs.avoidSites.includes(site)) savePrefs({ avoidSites: [...prefs.avoidSites, site] });
+});
+
+/* ── Documents: each Doc Tracely has checked, and its own settings ───────
+   content.js (Docs mode) writes a line per Doc ("doc.<id>": title, url,
+   counts, checkedAt, bytes, noteDocIndex) and reads "docPrefs" (docPref).
+   This page can't reach the Doc's own storage, so a reset or the dismissed
+   notes brought back are marks the Doc takes the next time it is open. */
+let docs = [];    // [{ id, title, url, counts, checkedAt, bytes }], newest first
+let docPrefs = {};
+const DOC_ID_RE = /^[\w-]{10,}$/;
+const DOC_KEEP = 100; // lines kept; the oldest beyond go when the page opens
+function readDocs(all) {
+  const out = [];
+  for (const [k, v] of Object.entries(all ?? {})) {
+    const id = k.startsWith("doc.") ? k.slice(4) : "";
+    if (!DOC_ID_RE.test(id) || !v || typeof v !== "object") continue;
+    out.push({
+      id, title: typeof v.title === "string" && v.title.trim() ? v.title.trim() : "Untitled document",
+      // Only a Google Docs address is ever a link here.
+      url: typeof v.url === "string" && v.url.startsWith("https://docs.google.com/document/") ? v.url : "",
+      counts: v.counts && typeof v.counts === "object" ? v.counts : {}, checkedAt: Number(v.checkedAt) || 0, bytes: Number(v.bytes) || 0,
+    });
+  }
+  return out.sort((a, b) => b.checkedAt - a.checkedAt);
+}
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function countsLine(c) {
+  const parts = [];
+  if (c.wrong > 0) parts.push(plural(c.wrong, "factual error", "factual errors"));
+  if (c.check > 0) parts.push(`${c.check} ${c.check === 1 ? "needs" : "need"} evidence`);
+  if (c.cite > 0) parts.push(plural(c.cite, "citation issue", "citation issues"));
+  return parts.length ? parts.join(" · ") : "Nothing open";
+}
+function agoLine(t) {
+  if (!t) return "";
+  const min = Math.round((Date.now() - t) / 60_000);
+  if (min < 1) return "checked just now";
+  if (min < 60) return `checked ${min} min ago`;
+  if (min < 24 * 60) return `checked ${Math.round(min / 60)} h ago`;
+  return `checked ${new Date(t).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+}
+const STYLE_CHOICES = [["", "Citation style: as in Settings"], ["mla", "MLA"], ["apa", "APA"], ["chicago", "Chicago"]];
+function renderDocs() {
+  const list = docs.slice(0, 50);
+  $("noDocs").hidden = list.length > 0;
+  $("docList").innerHTML = list.map((d) => {
+    const p = docPrefs[d.id] && typeof docPrefs[d.id] === "object" ? docPrefs[d.id] : {};
+    const title = d.url ? `<a class="doc-title" href="${escHtml(d.url)}" target="_blank" rel="noopener noreferrer">${escHtml(d.title)}</a>` : `<span class="doc-title">${escHtml(d.title)}</span>`;
+    const styles = STYLE_CHOICES.map(([k, label]) => `<option value="${k}"${(p.style ?? "") === k ? " selected" : ""}>${escHtml(label)}</option>`).join("");
+    return `<div class="tile" data-doc-row="${d.id}">
+      <div class="row">
+        <div class="grow">${title}<div class="row-sub">${escHtml(p.never === true ? "Never checked" : [countsLine(d.counts), agoLine(d.checkedAt)].filter(Boolean).join(" · "))}</div></div>
+        <label class="doc-check">Check it<input type="checkbox" class="switch" data-doc-check="${d.id}"${p.never === true ? "" : " checked"} aria-label="Check ${escHtml(d.title)}" /></label>
+      </div>
+      <div class="doc-controls">
+        <select class="select" data-doc-style="${d.id}" aria-label="Citation style for ${escHtml(d.title)}">${styles}</select>
+        <select class="select" data-doc-kind="${d.id}" aria-label="Kind of writing for ${escHtml(d.title)}">${kindOptionsHtml("Kind: Tracely decides", p.kind ?? "")}</select>
+        <button class="btn btn-sm" data-doc-act="reset" data-doc="${d.id}">Reset saved checks</button>
+        <button class="btn btn-sm" data-doc-act="undismiss" data-doc="${d.id}">Bring back dismissed notes</button>
+        <button class="btn btn-sm btn-ghost" data-doc-act="forget" data-doc="${d.id}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+function saveDocPref(id, patch) {
+  docPrefs = { ...docPrefs, [id]: { ...(docPrefs[id] ?? {}), ...patch } };
+  chrome.storage.local.set({ docPrefs });
+  renderDocs();
+}
+const docTitle = (id) => docs.find((d) => d.id === id)?.title ?? "that document";
+$("docList").addEventListener("change", (e) => {
+  const t = e.target, ds = t?.dataset ?? {};
+  if (DOC_ID_RE.test(ds.docCheck ?? "")) saveDocPref(ds.docCheck, { never: t.checked !== true });
+  else if (DOC_ID_RE.test(ds.docStyle ?? "")) saveDocPref(ds.docStyle, { style: t.value });
+  else if (DOC_ID_RE.test(ds.docKind ?? "")) saveDocPref(ds.docKind, { kind: t.value });
+});
+$("docList").addEventListener("click", (e) => {
+  const ds = e.target?.dataset ?? {};
+  const id = ds.doc;
+  if (!DOC_ID_RE.test(id ?? "") || !ds.docAct) return;
+  if (ds.docAct === "reset") {
+    saveDocPref(id, { resetAt: Date.now() });
+    $("docsStatus").textContent = `“${docTitle(id)}” forgets its saved checks the next time it is open.`;
+  } else if (ds.docAct === "undismiss") {
+    saveDocPref(id, { undismissAt: Date.now() });
+    $("docsStatus").textContent = `“${docTitle(id)}” shows its dismissed notes again the next time it is open.`;
+  } else if (ds.docAct === "forget") {
+    const { [id]: _gone, ...rest } = docPrefs;
+    docPrefs = rest;
+    chrome.storage.local.remove(`doc.${id}`);
+    chrome.storage.local.set({ docPrefs });
+    docs = docs.filter((d) => d.id !== id);
+    renderDocs();
+    renderMemory();
+    $("docsStatus").textContent = "Removed from the list. It comes back, with Settings' defaults, the next time it is checked.";
+  }
+});
+
+/* ── Memory: what Tracely keeps in this browser, and clearing each part ── */
+let ignoreList = [];
+let diagCount = 0;
+const kb = (bytes) => (bytes < 1024 ? "under 1 KB" : `about ${Math.round(bytes / 1024)} KB`);
+function renderMemory() {
+  const checked = docs.reduce((n, d) => n + d.bytes, 0);
+  $("memChecks").textContent = docs.length
+    ? `The checks, sources and reviews kept with each document and site, so nothing is checked twice. ${plural(docs.length, "Google Doc", "Google Docs")}: ${kb(checked)}; other sites keep their own.`
+    : "The checks, sources and reviews kept with each document and site, so nothing is checked twice.";
+  $("memDocs").textContent = `${plural(docs.length, "document", "documents")} under Documents, and each one's own settings.`;
+  $("memDiag").textContent = `What the last ${diagCount || "few"} edits in a Doc answered, for Help's Copy diagnostics.`;
+  const ul = $("ignoreList");
+  ul.innerHTML = ignoreList.map((text, i) => `<li><span class="origin">${escHtml(text)}</span><button data-ignore-i="${i}">Remove</button></li>`).join("");
+  $("noIgnore").hidden = ignoreList.length > 0;
+  $("clearIgnore").hidden = ignoreList.length === 0;
+  if (typeof chrome.storage.local.getBytesInUse === "function") {
+    chrome.storage.local.getBytesInUse(null, (n) => { $("storageTotal").textContent = `Tracely's own storage in this browser: ${kb(n ?? 0)}.`; });
+  }
+}
+// Everything this page lists comes from one read of the extension's storage.
+function loadMemory() {
+  chrome.storage.local.get(null, (all) => {
+    docs = readDocs(all);
+    for (const d of docs.slice(DOC_KEEP)) chrome.storage.local.remove(`doc.${d.id}`);
+    docs = docs.slice(0, DOC_KEEP);
+    docPrefs = all?.docPrefs && typeof all.docPrefs === "object" && !Array.isArray(all.docPrefs) ? all.docPrefs : {};
+    ignoreList = Array.isArray(all?.ignoreList) ? all.ignoreList.filter((t) => typeof t === "string" && t.trim()) : [];
+    diagCount = Array.isArray(all?.diag?.edits) ? all.diag.edits.length : 0;
+    renderDocs();
+    renderMemory();
+  });
+}
+$("ignoreList").addEventListener("click", (e) => {
+  const i = Number(e.target?.dataset?.ignoreI);
+  if (!Number.isInteger(i) || !ignoreList[i]) return;
+  ignoreList = ignoreList.filter((_t, j) => j !== i);
+  chrome.storage.local.set({ ignoreList });
+  renderMemory();
+});
+$("clearIgnore").addEventListener("click", () => {
+  if (!confirm("Let Tracely flag all of these sentences again?")) return;
+  ignoreList = [];
+  chrome.storage.local.set({ ignoreList });
+  renderMemory();
+});
+$("memClearChecks").addEventListener("click", () => {
+  if (!confirm("Clear the checks, sources and reviews Tracely saved on this device? Your settings and sign-in stay.")) return;
+  savePrefs({ clearedAt: Date.now() });
+  $("memoryStatus").textContent = "Cleared. An open document clears now; others when you next open them.";
+});
+$("memUndismiss").addEventListener("click", () => {
+  savePrefs({ undismissedAt: Date.now() });
+  $("memoryStatus").textContent = "Dismissed notes come back in each document the next time it is open.";
+});
+$("memClearDocs").addEventListener("click", () => {
+  if (!confirm("Clear the document list and each document's own settings?")) return;
+  chrome.storage.local.remove([...docs.map((d) => `doc.${d.id}`), "docPrefs"]);
+  docs = [];
+  docPrefs = {};
+  renderDocs();
+  renderMemory();
+  $("memoryStatus").textContent = "The document list is cleared.";
+});
+$("memClearDiag").addEventListener("click", () => {
+  chrome.storage.local.remove("diag");
+  diagCount = 0;
+  renderMemory();
+  $("memoryStatus").textContent = "Diagnostics cleared.";
+});
+// Back to how Tracely starts, but never undoing a clear the pages are still to take.
+$("memResetPrefs").addEventListener("click", () => {
+  if (!confirm("Put every setting on these pages back to how Tracely starts?")) return;
+  savePrefs({ ...PREF_DEFAULTS, clearedAt: prefs.clearedAt, undismissedAt: prefs.undismissedAt });
+  $("memoryStatus").textContent = "Settings are back to how Tracely starts.";
+});
+
+/* The keyboard shortcut (manifest "commands": toggle-panel). Chrome owns the
+   key: this page shows the one set, and Change opens Chrome's own page. */
+function renderShortcut() {
+  if (typeof chrome.commands?.getAll !== "function") return;
+  chrome.commands.getAll((cmds) => {
+    const key = (cmds ?? []).find((c) => c.name === "toggle-panel")?.shortcut || "Not set";
+    $("shortcutNow").textContent = key;
+    $("shortcutKey").textContent = key;
+  });
+}
+$("changeShortcut").addEventListener("click", () => {
+  try { chrome.tabs.create({ url: "chrome://extensions/shortcuts" }); }
+  catch { $("generalStatus").textContent = "Open chrome://extensions/shortcuts to change it."; }
+});
+
+/* ── Privacy and data ──────────────────────────────────────────────────── */
+// What this browser's extension storage holds, as a file: the sign-in's tokens left out.
+const EXPORT_LEAVE_OUT = ["authToken", "refreshToken"];
+$("exportData").addEventListener("click", () => {
+  chrome.storage.local.get(null, (all) => {
+    const data = { ...(all ?? {}) };
+    for (const k of EXPORT_LEAVE_OUT) delete data[k];
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), tracely: data }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `tracely-data-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    $("dataStatus").textContent = "Exported.";
+  });
+});
+// Every page Tracely runs on clears its own saved checks when it sees this mark (content.js clearTracelyStore).
+$("clearChecks").addEventListener("click", () => {
+  if (!confirm("Clear the checks, sources and dismissed notes Tracely saved on this device? Your settings and sign-in stay.")) return;
+  savePrefs({ clearedAt: Date.now() });
+  chrome.storage.local.remove("diag");
+  $("dataStatus").textContent = "Cleared. An open document clears now; others when you next open them.";
+});
+
+/* ── Help ──────────────────────────────────────────────────────────────── */
+// What changed lately, in the words the testers' notes used (newest first).
+const WHATS_NEW = [
+  ["2.21.66", "A dark theme for the panel and Tracely's cards: Settings → General → Appearance (Light, Dark or Match system)."],
+  ["2.21.65", "Signed out, Find a source asks you to sign in first instead of coming back empty. Out of searches, it says so and shows the plans that give more."],
+  ["2.21.64", "Settings → Documents lists the Docs Tracely has checked, each with its own style, kind and switch; Memory shows what is kept and clears it. Cards have Never flag this."],
+  ["2.21.63", "Settings for what Tracely flags and how strict it is, your usual kind of writing, citation style, links and access dates, and sources to leave out."],
+  ["2.21.62", "A new Settings: pause or turn Tracely off, move its button, a keyboard shortcut, your usage, export and clear your data, and this Help."],
+  ["2.21.61", "Review all never cuts a suggestion off, says how many are out of view, and stops with one press (or Esc)."],
+  ["2.21.60", "A source named but not cited is flagged; names in capitals like UNESCO count as names."],
+  ["2.21.59", "Apply fix waits for Google Docs to settle a selection instead of refusing."],
+  ["2.21.57", "Tracely tells 56 kinds of writing apart, and names one only when it is sure."],
+];
+function renderWhatsNew() {
+  $("whatsNew").innerHTML = WHATS_NEW.map(([v, t]) => `<div class="change"><span class="change-v">${escHtml(v)}</span><span class="change-t">${escHtml(t)}</span></div>`).join("");
+}
+/* Diagnostics: what a report needs to say what happened — the version, the
+   browser, the server and plan, the settings, and what the last in-doc
+   edits answered (content.js noteDiag) — never a word of anyone's writing. */
+function diagnostics(cfg) {
+  const version = typeof chrome.runtime.getManifest === "function" ? chrome.runtime.getManifest()?.version : null;
+  return {
+    version, browser: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    server: $("serverStatusText").textContent, plan: account.plan, signedIn: account.signedIn, beta: account.beta,
+    docsEnabled: cfg.docsEnabled === true, autoCheckSites: (cfg.enabledSites ?? []).length, prefs: cfg.prefs ?? {},
+    lastEdits: cfg.diag?.edits ?? [],
+  };
+}
+$("copyDiag").addEventListener("click", () => {
+  chrome.storage.local.get({ docsEnabled: false, enabledSites: [], prefs: {}, diag: null }, async (cfg) => {
+    const text = JSON.stringify(diagnostics(cfg), null, 2);
+    try { await navigator.clipboard.writeText(text); $("helpStatus").textContent = "Copied. Paste it into your message."; }
+    catch { $("helpStatus").textContent = "Couldn't reach the clipboard — try again."; }
+    // The email carries it too, cut to what a mail link can hold.
+    $("emailUs").href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Tracely problem")}&body=${encodeURIComponent(`What happened:\n\n\n---\n${text}`.slice(0, 1800))}`;
+  });
+});
+$("emailUs").href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Tracely problem")}`;
 
 /* Account deletion: the server purges what it keeps for this account and
    deletes the sign-in account itself, then the worker forgets the session.
@@ -437,6 +821,11 @@ function renderSites(sites) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabledSites) renderSites(changes.enabledSites.newValue ?? []);
+  // Resumed or turned on from the widget's own card while this page is open.
+  if (changes.prefs) { prefs = readPrefs(changes.prefs.newValue); renderPrefs(); }
+  if (changes.docsEnabled) $("docsTgl").checked = changes.docsEnabled.newValue === true;
+  // A Doc checked, a card's "Never flag this", or another tab: Documents and Memory read again.
+  if (Object.keys(changes).some((k) => k.startsWith("doc.") || k === "docPrefs" || k === "ignoreList" || k === "diag")) loadMemory();
   // The widget's gear while this page is already open in a tab.
   if (changes.settingsOpenAt?.newValue) takeOpenAt(changes.settingsOpenAt.newValue);
   // The worker refreshes the entitlement cache on its own schedule; a plan

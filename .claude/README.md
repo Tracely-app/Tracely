@@ -25,7 +25,7 @@ also block `.env.example`, which is documentation and should stay readable.
 
 | File | Fires on | Does |
 |---|---|---|
-| `guard-bash.sh` | before any `Bash` | Denies `git commit`/`rebase` on `main`. Asks before: pushing `main`, anything that reaches the production server (the Linode, `systemctl restart tracely`), `pack-extension.sh`, `gh pr merge`, release tags, `npm run ship`, force pushes, and anything that spends on an eval. |
+| `guard-bash.sh` | before any `Bash` | Denies `git commit`/`rebase` on `main`. Asks before: pushing `main`, anything that reaches the production server (the Linode, `systemctl restart tracely`, `gh workflow run deploy-server`), `pack-extension.sh`, `gh pr merge`, release tags, `npm run ship`, force pushes, and anything that spends on an eval. |
 | `guard-edit.sh` | before any `Edit`/`Write` | Refuses edits to `src/`, `scripts/`, `server/`, `extension/`, `package.json` and the build config while on `main`. Docs and `.claude/` may be edited on `main`. |
 | `typecheck.sh` | end of turn | `npm run typecheck` if the turn touched TypeScript; `cd server && npm test` (the server AND extension suite, ~10 s) if it touched `server/` or `extension/`. `TRACELY_HOOK_NO_TESTS=1` skips the suite for a session. |
 | `autocommit.sh` | end of turn | Commits the turn's work with the PR's title as the subject (or the branch name) and pushes to the current branch. Refuses on `main`. Adds only tracked changes and new files under the project's own directories; names, and leaves alone, anything untracked at the root. Reminds you to open a draft PR when the branch has none. |

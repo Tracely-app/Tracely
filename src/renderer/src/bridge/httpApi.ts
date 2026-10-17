@@ -42,6 +42,10 @@ import type {
 } from '@shared/ipc-contract'
 import { receiptsInOrder, settleReceipts, verifyRequestBody } from '@shared/sourceReceipts'
 import { RETRIEVAL_GENERATION } from '@shared/retrievalGeneration'
+import type { CheckingCitationSettings, DocumentPrefs, DocumentRecord } from '@shared/types'
+import type { MemoryInfo } from '@shared/ipc-contract'
+import { CHECKING_CITATION_DEFAULTS, checkingCitationsOf, definedCheckingCitations } from '@shared/citationPrefs'
+import { withNeverFlag } from '@shared/neverFlag'
 import { hasInlineCitation } from '@shared/inlineCitation'
 import { parseReferences } from '@shared/citedReference'
 import { formatInTextCitation } from '@shared/citationInText'
@@ -143,7 +147,8 @@ function saveJson(key: string, value: unknown): void {
   }
 }
 
-interface SettingsExtras {
+interface SettingsExtras extends CheckingCitationSettings {
+  neverFlagSentences: string[]
   hotkeyAccelerator: string
   enableStrengthSummaries: boolean
   claimSensitivity: number
@@ -171,7 +176,9 @@ const KEYS = {
   tracer: 'tracely.web.tracer',
   outlines: 'tracely.web.outlines',
   gradedAt: 'tracely.web.gradedAt',
-  analyses: 'tracely.web.analyses'
+  analyses: 'tracely.web.analyses',
+  // Settings → Documents: each document's own settings, by id (the server has no column for them).
+  docPrefs: 'tracely.web.docPrefs'
 }
 
 const DEFAULT_EXTRAS: SettingsExtras = {
@@ -183,7 +190,9 @@ const DEFAULT_EXTRAS: SettingsExtras = {
   username: 'local',
   // Matches settingsRepo's default. It is a request either way — the relay
   // clamps it to the plan, and this build has no paid plan behind it.
-  modelTier: 'thorough'
+  modelTier: 'thorough',
+  ...CHECKING_CITATION_DEFAULTS,
+  neverFlagSentences: []
 }
 
 // ── bridge state ────────────────────────────────────────────────────────────
@@ -310,6 +319,26 @@ export function createHttpApi(): TracelyApi {
     return loadJson<Record<string, string>>(KEYS.gradedAt, {})
   }
 
+  function bridgeMemory(): MemoryInfo {
+    const tracer = tracerStore()
+    return {
+      answers: 0,
+      checks: analysesById.size,
+      grades: Object.keys(gradedAtStore()).length,
+      tracerChats: tracer.conversation ? 1 : 0,
+      documentSettings: Object.keys(docPrefsStore()).length,
+      library: 0
+    }
+  }
+
+  function docPrefsStore(): Record<string, DocumentPrefs> {
+    return loadJson<Record<string, DocumentPrefs>>(KEYS.docPrefs, {})
+  }
+  function withDocPrefs<T extends DocumentRecord>(doc: T): T {
+    const own = docPrefsStore()[doc.id]
+    return own ? { ...doc, prefs: own } : doc
+  }
+
   async function prefs(): Promise<ServerPrefs> {
     return get<ServerPrefs>('/api/prefs')
   }
@@ -338,6 +367,9 @@ export function createHttpApi(): TracelyApi {
       screenWatchAllowedApps: (p.watchApps ?? []).join(','),
       suppressSaveConfirm: extras.suppressSaveConfirm,
       modelTier: extras.modelTier,
+      // Kept in the browser, like the other extras (none of them reaches this build's server).
+      ...checkingCitationsOf({ ...DEFAULT_EXTRAS, ...extras }),
+      neverFlagSentences: Array.isArray(extras.neverFlagSentences) ? extras.neverFlagSentences : [],
       gradingLevel: p.gradingLevel ?? 12,
       autoCritiqueCited: p.autoCritique !== false
     }
@@ -709,12 +741,14 @@ export function createHttpApi(): TracelyApi {
         const gradedAt = gradedAtStore()
         // bodyHtml is '' on list items: the list endpoint returns no body and
         // the Documents/Home views render title + grade only.
-        return { documents: rows.documents.map((row) => documentListItemFromRow(row, gradedAt[row.id] ?? null)) }
+        return {
+          documents: rows.documents.map((row) => withDocPrefs(documentListItemFromRow(row, gradedAt[row.id] ?? null)))
+        }
       },
       get: async (req) => {
         try {
           const row = await get<ServerDocRow>(`/api/documents/${req.id}`)
-          return { document: documentRecordFromRow(row) }
+          return { document: withDocPrefs(documentRecordFromRow(row)) }
         } catch {
           return { document: null }
         }
@@ -724,7 +758,30 @@ export function createHttpApi(): TracelyApi {
         const first = rows.documents[0]
         if (!first) return { document: null }
         const row = await get<ServerDocRow>(`/api/documents/${first.id}`)
-        return { document: documentRecordFromRow(row) }
+        return { document: withDocPrefs(documentRecordFromRow(row)) }
+      },
+      setPrefs: async ({ id, ...patch }) => {
+        const all = docPrefsStore()
+        const base: DocumentPrefs = all[id] ?? { citationStyle: null, neverCheck: false }
+        const next: DocumentPrefs = { ...base, ...patch }
+        if (next.citationStyle === null && !next.neverCheck) delete all[id]
+        else all[id] = next
+        saveJson(KEYS.docPrefs, all)
+        try {
+          const row = await get<ServerDocRow>(`/api/documents/${id}`)
+          return { document: withDocPrefs(documentRecordFromRow(row)) }
+        } catch {
+          return { document: null }
+        }
+      },
+      forgetGrade: async (req) => {
+        const outlines = loadJson<Record<string, unknown>>(KEYS.outlines, {})
+        const gradedAt = gradedAtStore()
+        delete outlines[req.id]
+        delete gradedAt[req.id]
+        saveJson(KEYS.outlines, outlines)
+        saveJson(KEYS.gradedAt, gradedAt)
+        return OK
       },
       save: async (req) => {
         const clean = sanitizeDocHtml(req.bodyHtml)
@@ -943,6 +1000,9 @@ export function createHttpApi(): TracelyApi {
         }
         if (typeof req.suppressSaveConfirm === 'boolean') extras.suppressSaveConfirm = req.suppressSaveConfirm
         if (req.modelTier) extras.modelTier = req.modelTier
+        Object.assign(extras, definedCheckingCitations(req))
+        if (Array.isArray(req.neverFlagSentences)) extras.neverFlagSentences = req.neverFlagSentences.reduce<string[]>((acc, s) => withNeverFlag(acc, s), [])
+        if (typeof req.neverFlagAdd === 'string') extras.neverFlagSentences = withNeverFlag(extras.neverFlagSentences ?? [], req.neverFlagAdd)
         saveJson(KEYS.extras, extras)
         const updated = Object.keys(serverPatch).length
           ? await put<ServerPrefs>('/api/prefs', serverPatch)
@@ -995,6 +1055,29 @@ export function createHttpApi(): TracelyApi {
       getPlan: async () => ({ plan: 'free' as Plan }),
       // Free, so no Thorough allowance to meter.
       getThorough: async () => ({ thorough: null }),
+      // Nothing metered behind the local stub.
+      getUsage: async () => ({ usage: null })
+    },
+    // No file dialog in a browser tab: the stub says so rather than pretending to save.
+    data: {
+      export: async () => ({ ok: false as const, canceled: false as const, message: 'Export is in the desktop app.' }),
+      // Only what this build keeps in the browser; the server's own caches and library are not counted here.
+      memory: async () => bridgeMemory(),
+      memoryClear: async ({ part }) => {
+        if (part === 'checks') {
+          claimsById.clear()
+          analysesById.clear()
+          for (const key of [KEYS.analyses, KEYS.outlines, KEYS.gradedAt]) window.localStorage.removeItem(key)
+        } else if (part === 'tracer') {
+          window.localStorage.removeItem(KEYS.tracer)
+        } else if (part === 'documentSettings') {
+          window.localStorage.removeItem(KEYS.docPrefs)
+        } else {
+          const extras = loadJson<SettingsExtras>(KEYS.extras, DEFAULT_EXTRAS)
+          saveJson(KEYS.extras, { ...DEFAULT_EXTRAS, neverFlagSentences: extras.neverFlagSentences ?? [] })
+        }
+        return { memory: bridgeMemory(), settings: settingsFromServer(await prefs()) }
+      }
     },
     history: {
       clear: async (req) => {
@@ -1048,6 +1131,11 @@ export function createHttpApi(): TracelyApi {
       },
       getStatus: async () => {
         const state = await get<ServerWatchState>('/api/watch/state')
+        return watchStatusFromServer(state)
+      },
+      // No timer behind the stub: a pause is off, and on again by hand.
+      pause: async () => {
+        const state = await post<ServerWatchState>('/api/watch/toggle', { enabled: false })
         return watchStatusFromServer(state)
       },
       // The macOS watcher has no overlay window, so widget geometry, hover

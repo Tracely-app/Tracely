@@ -41,6 +41,14 @@ import { summariseCritique } from '@shared/critiqueSummary'
 export const DESIGN_ORANGE = '#ff5900'
 export const DESIGN_AMBER = '#ffb800'
 export const DESIGN_RED = '#d93636'
+/**
+ * "Needs evidence" — the evidence group below, which was the design's orange.
+ * Owner, 2026-10-13: "from now on needs evidence should be blue instead of
+ * orange", for the extension and this app alike. Blue was the grammar marks'
+ * (DocumentMarkLayer PROSE_ERROR); those are off with the other writing tips
+ * (shared/desktopFeatures.ts), so on screen it means one thing again.
+ */
+export const DESIGN_BLUE = '#2563eb'
 
 /**
  * The mark's colour, by what is wrong — never by what kind of sentence it is.
@@ -59,19 +67,20 @@ export const PROBLEM_COLOR: Record<ScreenWatchProblemKind, string> = {
   'citation-defect': DESIGN_AMBER,
   // Reasoning: the sentence does not follow, or asserts something false.
   'contradicted-claim': DESIGN_RED,
-  // Orange, with the evidence group. This was RED, the design's colour for weak
+  // The evidence group's colour — blue since 2026-10-13 (DESIGN_BLUE), orange
+  // before. Not red, the design's colour for weak
   // reasoning, and the colour was the loudest part of the mislabelling: a
   // sentence whose SOURCES do not carry it was drawn in the hue reserved for a
   // sentence that does not think straight. See the kind's note in problemKind.ts.
-  'unsupported-by-evidence': DESIGN_ORANGE,
+  'unsupported-by-evidence': DESIGN_BLUE,
   // Neither reasoning nor evidence: the claim is defensible and the
   // quantifier is not. Amber because nothing here is wrong.
   'overstated-claim': DESIGN_AMBER,
-  // Evidence: nothing found, or what was found does not carry it.
-  'unverified-statistic': DESIGN_ORANGE,
-  'no-sources': DESIGN_ORANGE,
-  'weak-evidence': DESIGN_ORANGE,
-  'partial-evidence': DESIGN_ORANGE,
+  // Evidence: nothing found, or what was found does not carry it. Blue: "Needs evidence".
+  'unverified-statistic': DESIGN_BLUE,
+  'no-sources': DESIGN_BLUE,
+  'weak-evidence': DESIGN_BLUE,
+  'partial-evidence': DESIGN_BLUE,
   // Attribution: the sentence needs a citation, or the one it has is suspect.
   'missing-citation': DESIGN_AMBER,
   'cited-unverified': DESIGN_AMBER,

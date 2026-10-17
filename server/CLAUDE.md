@@ -48,6 +48,24 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   310 judged sources, the good "backs" it kept fell from 34 to 9, and 23 of
   its 26 "contradicts" were wrong (`eval/goldset/README.md`). Measure any
   change to the judge with `eval/goldset/run-verify-prod.mjs` before it ships.
+  A "backs" whose quote does not show the figure the sentence states ("roughly
+  70 percent" backed by "8 to 10 hours") is `context`, with no model involved
+  (`lib/claimFigures.js`, tallied `figures=`). Measured free on recorded
+  runs with `eval/goldset/figures.mjs`.
+  **Trim a detail** (owner, 2026-10-13): when nothing backs the whole sentence,
+  a second, separate call (`coverDetail`, `COVER_SYSTEM`) checks whether one
+  source backs all of it but one small detail. The verdict judge and its
+  prompt are untouched. The call splits the sentence into claim / detail /
+  qualifier parts, with a quote for each part a source states.
+  `lib/claimTrim.js` then decides, without a model, whether removing the
+  missing part is safe: small, not a qualifier, scope, figure or attribution,
+  and not used later in the paragraph. If so, the source carries
+  `partial: { quote, missing, trimmed }` and stays `context`, never backing.
+  The extension's search always asks for this (never with a `correction`).
+  `/api/verify-sources` asks only with `partial: true` (receipt `trim`).
+  It is tallied `partial=`, and costs up to 1,500 more output tokens, which
+  is why `WORST_CALL["/api/sources"]` is 6,500.
+  Measure it with `eval/goldset/run-verify-prod.mjs --partial`.
 - **The desktop gets the same receipts from its own route,
   `/api/verify-sources`** (2026-10-07; `lib/reasoning.js` `verifySources` →
   the same `lib/sourceVerify.js`, never a second verifier). The desktop sends
@@ -110,6 +128,28 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
 
 ## Two products on one server: keep them apart
 
+- **`/api/kind`** (2026-10-15, `lib/kind.js`, prompt `lib/prompts/kind.js`,
+  SHA-pinned): the model names the kind of writing, one of the extension's 56
+  (`WRITING_KINDS`; `test/kind.test.js` keeps the two lists equal) or
+  "unsure". It reads the first 3,600 and last 400 characters, uses the fast
+  model at low effort, and costs about 0.1¢ a call. It has its own daily
+  count (`DAILY_KIND`) and a 2 s floor. An answer for text the server
+  already has (an in-memory cache keyed by text) is free and not counted.
+  The extension asks only when `FEATURES.modelKind` is on, and it is off
+  until `eval/kinds/run.mjs` has measured it against production.
+- **The wrong-source check** (2026-10-15, `lib/citeFit.js`, prompt
+  `lib/prompts/citeFit.js`, SHA-pinned). `/api/check` runs it only when the
+  request says `citeFit: true`, and never on Explain in depth or the try-out.
+  It asks whether the source each cited sentence names could be where its
+  claim comes from (Venus cited to the OECD, PISA to NASA).
+  - It runs as one more call, admitted like a shard, on the fast model at
+    low effort. It sees at most 12 cited sentences, and only ones the check
+    called accurate.
+  - A "wrong" turns that finding into `wrong_source`, which only a build
+    that asked for it ever receives. "fits" and "unsure" change nothing,
+    and a failure leaves the check's answer.
+  - The extension sends it only while `FEATURES.citeFit` is on. That is off
+    until `eval/citefit/run.mjs` has measured it against production.
 - **The extension's routes are FROZEN while a Web Store build is in review**:
   `/api/status /api/check /api/flow /api/sources /api/cite-url /api/docs/apply
   /api/entitlement`. Their response fields, error `kind`/`message` text, the

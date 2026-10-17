@@ -121,7 +121,16 @@ URL, only the text.
 
 On your device, in the extension's storage: your settings, the sites you have
 switched on, whether Docs is on, the install id, your session token and plan
-details. Chrome removes all of it when you uninstall. Tracely also caches
+details. Since version 2.21.62 also:
+- the outcome of the last 20 edits Tracely made in a Doc, for Help's
+  diagnostics, without any of the document's text;
+- since 2.21.64, a list of the Google Docs it has checked: each one's title,
+  link, how many findings were open, and your own settings for it;
+- the sentences you told it never to flag again.
+
+These stay on your device and are never sent to us. Settings → Memory shows
+each one and clears it, and Privacy and data exports them. Chrome removes all
+of it when you uninstall. Tracely also caches
 verdicts and source lists for each page it has checked in that page's own
 browser storage, so reopening the page does not re-check unchanged text;
 turning a site off clears its cache, and clearing the site's data in Chrome

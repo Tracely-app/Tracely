@@ -46,9 +46,9 @@ let SERVER = LOCAL_SERVER;
 // was how you enabled a site.
 chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
 // options.html's sections (its SECTIONS), the ones the widget may open it at.
-const SETTINGS_SECTIONS = new Set(["account", "checking", "docs", "sites", "privacy"]);
+const SETTINGS_SECTIONS = new Set(["general", "checking", "citations", "documents", "memory", "account", "privacy", "help"]);
 
-const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream"]);
+const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream", "/api/kind"]);
 // The routes that answer as a stream of events (relayStream, over a port).
 const STREAM_PATHS = new Set(["/api/sources/stream"]);
 
@@ -380,6 +380,17 @@ async function withBeta(headers = {}) {
 // build: the widgets clamp their stored stop to whatever plan they are shown.
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ entitlement: null }).catch(() => {});
+});
+
+/* The keyboard shortcut (manifest "commands"; Settings → General shows it):
+   the tab in front opens or closes Tracely's panel. Its id is all a query
+   without the "tabs" permission returns, and all a message needs. */
+chrome.commands?.onCommand?.addListener((cmd) => {
+  if (cmd !== "toggle-panel") return;
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const id = tabs?.[0]?.id;
+    if (id != null) chrome.tabs.sendMessage(id, { type: "tracely-toggle-panel" }).catch(() => { /* no Tracely on this tab */ });
+  });
 });
 
 /* Never throws and never answers above free — this is on the path of every
