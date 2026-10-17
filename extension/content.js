@@ -120,7 +120,9 @@
     // Delete; a verdict here would offer to find it a source.
     && !(typeof text === "string" && EXCUSE_SENTENCE.test(text))
     // Settings → Checking: the kinds the writer turned off, and how sure a finding must be.
-    && kindShown(f);
+    && kindShown(f)
+    // Settings → Memory: a sentence the writer said never to flag again, in any document.
+    && !neverFlagged(text);
   /* Settings → Checking (prefs, "Settings → the widget"). A page with no
      extension storage (a test page) reads the defaults. A factual error is
      never switched off; "Only clear errors" keeps what the check was sure
@@ -134,6 +136,13 @@
     if (f.verdict === "needs_citation" || f.verdict === "wrong_source") return checkPref("showCitations", true) !== false;
     return true;
   }
+  /* "Never flag this again" (a card's button; the list is Settings → Memory,
+     chrome.storage "ignoreList"): the sentence as it reads, whatever its case,
+     spacing, quote marks or end stop, so the same sentence in another
+     document is the same entry. Only that sentence: never a word or a phrase
+     inside others. */
+  const ignoreKey = (text) => String(text ?? "").toLowerCase().replace(/[“”"‘’']/g, "").replace(/\s+/g, " ").trim().replace(/[.!?;:,\s]+$/, "");
+  const neverFlagged = (text) => typeof ignoreSet === "object" && ignoreSet?.size > 0 && typeof text === "string" && ignoreSet.has(ignoreKey(text));
   // PRESTIGE_EXCUSE's pattern (citationHygieneTips), here because flagShown is
   // read without that section; ext-card-fixes.test.js keeps the two the same.
   const EXCUSE_SENTENCE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
@@ -537,11 +546,15 @@
        citeLinks, citeAccessed — the DOI or URL at the end of an entry, and
                      the day a web page was read (formatCitation).
        citableOnly, avoidSites — which sources are offered (sourceAllowed).
+     Memory (2.21.64):
+       undismissedAt — "Bring back dismissed notes": every page, in either
+                     mode, empties its dismissed list once (newMark).
      A plain test page has no extension storage and keeps the defaults. */
   const PREF_DEFAULTS = {
     pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
     showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
     citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
+    undismissedAt: 0,
   };
   let prefs = { ...PREF_DEFAULTS };
   let prefsStored = {}; // what storage holds, before the defaults: a style picked before 2.21.63 moves in once (citeStyleFor)
@@ -557,8 +570,58 @@
     if (left > 0) prefsResumeTmr = setTimeout(() => notePrefs(prefs), Math.min(left + 50, 2 ** 31 - 1));
     for (const fn of prefsListeners) { try { fn(); } catch { /* a mode's hook never breaks another's */ } }
   }
-  storageGet({ prefs: {} }, (st) => notePrefs(st?.prefs));
-  storageOnChanged((changes, area) => { if (area === "local" && changes.prefs) notePrefs(changes.prefs.newValue); });
+  /* Settings → Documents and Memory (2.21.64), beside prefs in the same
+     storage, heard by the same listeners:
+       docPrefs   — { [docId]: { style, kind, never, resetAt, undismissAt } }:
+                    a Doc's own citation style and kind of writing, never
+                    checking it, and the marks that reset its saved checks or
+                    bring back its dismissed notes (docPref; Docs mode).
+       ignoreList — the sentences never to flag again, in any document
+                    (ignoreKey, neverFlagged). */
+  let docPrefsAll = {};
+  let ignoreSet = new Set();
+  let ignoreGen = 0; // a new list lists the notes again (tipKindsOn)
+  const noteDocPrefs = (next) => { docPrefsAll = next && typeof next === "object" && !Array.isArray(next) ? next : {}; };
+  const noteIgnore = (list) => { ignoreSet = new Set((Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && x)); ignoreGen++; };
+  storageGet({ prefs: {}, docPrefs: {}, ignoreList: [] }, (st) => { noteDocPrefs(st?.docPrefs); noteIgnore(st?.ignoreList); notePrefs(st?.prefs); });
+  storageOnChanged((changes, area) => {
+    if (area !== "local" || !(changes.prefs || changes.docPrefs || changes.ignoreList)) return;
+    if (changes.docPrefs) noteDocPrefs(changes.docPrefs.newValue);
+    if (changes.ignoreList) noteIgnore(changes.ignoreList.newValue);
+    notePrefs(changes.prefs ? changes.prefs.newValue : prefsStored);
+  });
+  // One Doc's own settings, each checked: a style or kind this build doesn't know reads as none.
+  function docPref(id) {
+    const d = docPrefsAll[id] && typeof docPrefsAll[id] === "object" ? docPrefsAll[id] : {};
+    return {
+      style: isCiteStyle(d.style) ? d.style : "", kind: WRITING_KINDS[d.kind] ? d.kind : "", never: d.never === true,
+      resetAt: Number(d.resetAt) || 0, undismissAt: Number(d.undismissAt) || 0,
+    };
+  }
+  function setDocPref(id, patch) {
+    noteDocPrefs({ ...docPrefsAll, [id]: { ...(docPrefsAll[id] ?? {}), ...patch } });
+    storageSet({ docPrefs: docPrefsAll });
+    notePrefs(prefsStored);
+  }
+  // A card's "Never flag this": the list is the Settings page's, 500 sentences at most, the newest kept.
+  function neverFlag(text) {
+    const key = ignoreKey(text);
+    if (!key || ignoreSet.has(key)) return;
+    noteIgnore([...ignoreSet, key].slice(-500));
+    storageSet({ ignoreList: [...ignoreSet] });
+    notePrefs(prefsStored);
+  }
+  /* A mark the Settings page leaves for pages it can't reach (a reset, the
+     dismissed notes brought back): true once for each new one, its time kept
+     in this page's own storage (and kept by Clear saved checks). */
+  const MARK_KEEP = /^tracely\.(?:resetAt|undismissAt)\.|^tracely\.undismissedAt$/;
+  function newMark(key, at) {
+    try {
+      if (!(at > Number(localStorage.getItem(key) || 0))) return false;
+      localStorage.setItem(key, String(at));
+      return true;
+    } catch { return false; } // storage denied
+  }
   const tracelyPaused = () => prefs.pausedUntil === -1 || prefs.pausedUntil > Date.now();
   // "4:30 PM", or "midnight" for a pause for today (options.js untilLabel).
   const untilLabel = (t) => { const d = new Date(t); return d.getHours() === 0 && d.getMinutes() === 0 ? "midnight" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
@@ -576,7 +639,8 @@
      in the widget before 2.21.63 was kept with the site (`styleChosen`): it
      moves into Settings the first time a page sees both (adoptStylePick). */
   const isCiteStyle = (s) => CITE_STYLES.some(([k]) => k === s);
-  function citeStyleFor(text) {
+  function citeStyleFor(text, own = "") {
+    if (isCiteStyle(own)) return own; // the Doc's own (Settings → Documents)
     return isCiteStyle(prefs.citeStyle) ? prefs.citeStyle : docCitationStyle(text) ?? "mla";
   }
   function adoptStylePick(settings) {
@@ -597,6 +661,8 @@
       if (Array.isArray(st?.unread)) st.unread = st.unread.filter(sourceAllowed);
     }
   }
+  // A Doc whose kind Settings → Documents names is read as that, sure or not.
+  const kindForDoc = (read, own) => (WRITING_KINDS[own] ? { kind: own, shown: own } : read);
   function kindWithUsual(read, place = "") {
     const usual = prefs.usualKind;
     if (read.shown || !WRITING_KINDS[usual] || (place && PLACE_KINDS.some(([re]) => re.test(place)))) return read;
@@ -610,7 +676,7 @@
     try {
       if (!(prefs.clearedAt > Number(localStorage.getItem(CLEARED_KEY) || 0))) return false;
       const keep = new Set(["tracely.widget.settings", "tracely.widget.panelPos", CLEARED_KEY]);
-      for (const k of Object.keys(localStorage)) if (k.startsWith("tracely.") && !keep.has(k)) localStorage.removeItem(k);
+      for (const k of Object.keys(localStorage)) if (k.startsWith("tracely.") && !keep.has(k) && !MARK_KEEP.test(k)) localStorage.removeItem(k);
       localStorage.setItem(CLEARED_KEY, String(prefs.clearedAt));
       return true;
     } catch { return false; } // storage denied
@@ -4060,8 +4126,9 @@
   const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" || v === "wrong_source" ? "cite" : "wrong");
   const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : EVIDENCE_TIP_KINDS.includes(t?.kind) ? "check" : "writing");
   // Settings → Checking: a note of a kind the writer turned off is not listed (the verdicts' half is flagShown). No storage, no switch.
-  const tipKindsOn = () => (typeof prefs === "object" && prefs ? { check: prefs.showEvidence !== false, cite: prefs.showCitations !== false } : { check: true, cite: true });
-  const tipKindShown = (t) => tipKindsOn()[tipCat(t)] !== false;
+  // (`never`: the never-flag list's version, so the notes' memo lists them again when it changes.)
+  const tipKindsOn = () => (typeof prefs === "object" && prefs ? { check: prefs.showEvidence !== false, cite: prefs.showCitations !== false, never: typeof ignoreGen === "number" ? ignoreGen : 0 } : { check: true, cite: true, never: 0 });
+  const tipKindShown = (t) => tipKindsOn()[tipCat(t)] !== false && !neverFlagged(t.quote);
   // The header's counts: the claims' verdicts, and every note the list shows.
   function tallyOf(verdicts, tips) {
     const c = { wrong: 0, check: 0, cite: 0, writing: 0 };
@@ -4072,6 +4139,9 @@
   // Settings (options.html), the gear in the header (owner, 2026-10-11).
   const GEAR_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const CLOSE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+  // "Never flag this again" (an eye, struck through), beside Dismiss on a card.
+  const NEVER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-2.4 3.4M6.6 6.6C4.3 8 2.7 10.2 2 12c1 2.5 5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
+  const neverBtnHtml = (attr, id) => `<button class="x never" ${attr}="${id}" title="Never flag this again, in any document" aria-label="Never flag this again">${NEVER_SVG}</button>`;
   const COPY_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>`;
   const COPIED_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
   const POWER_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.6 6.6a8 8 0 1 0 10.8 0"/></svg>`;
@@ -4541,7 +4611,7 @@
     // The kind's icon where the note has an underline (tipDot), none where it has not.
     const cards = tips.map((t) => `
       <div class="card tip-card" data-card="${t.id}" data-cat="${tipCat(t)}">
-        <div class="top">${tipDot(t) ? kindIcoHtml(tipCat(t)) : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span><button class="x" data-tip-x="${t.id}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button></div>
+        <div class="top">${tipDot(t) ? kindIcoHtml(tipCat(t)) : ""}<span class="ctitle">${t.label ?? TIP_LABEL[t.kind]}</span>${t.quote ? neverBtnHtml("data-never-tip", t.id) : ""}<button class="x" data-tip-x="${t.id}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button></div>
         ${t.action || t.status ? `<div class="src-meta">${[NOTE_ACTION[t.action], t.status ? NOTE_STATUS[t.status] : ""].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
         ${t.quote ? `<div class="quote">${t.kind === "page" ? "" : "“"}${esc(t.quote.length > 160 ? t.quote.slice(0, 159) + "…" : t.quote)}${t.kind === "page" ? "" : "”"}</div>` : ""}
         ${t.message ? `<div class="expl">${esc(t.message)}</div>` : ""}
@@ -4925,25 +4995,34 @@
   /* Paused or off from Settings (prefs.pausedUntil): a quiet pill that says
      so, and, opened, one card with Resume — both modes (pausedWire). Nothing
      is read, sent or drawn while it shows. */
-  function pausedHtml(open) {
-    const line = pausedLine();
+  /* `docOff`: this Doc is set never to be checked (Settings → Documents), so
+     the same quiet card says that instead, and its button checks this Doc
+     again. A pause from Settings says its own words first. */
+  function quietCopy(docOff = false) {
+    if (docOff && !tracelyPaused()) return { title: "Off for this document", pill: "Off for this doc", hover: "Tracely never checks this document.", line: "You set Tracely never to check this document, so nothing in it is read or sent.", button: "Check this document", section: "documents" };
+    const off = prefs.pausedUntil === -1;
+    return { title: off ? "Tracely is off" : "Tracely is paused", pill: off ? "Tracely is off" : "Paused", hover: pausedLine(), line: `${pausedLine()} Nothing is checked or sent until then.`, button: off ? "Turn on" : "Resume now", section: "general" };
+  }
+  function pausedHtml(open, docOff = false) {
+    const c = quietCopy(docOff);
     return `${open ? `
       <div class="panel opening">
         <div class="head">${MARK_SOLID_SVG}<span class="name">Tracely</span></div>
         <div class="list">
           <div class="card">
-            <div class="top"><span class="dot"></span><span class="ctitle">${prefs.pausedUntil === -1 ? "Tracely is off" : "Tracely is paused"}</span></div>
-            <div class="expl">${esc(line)} Nothing is checked or sent until then.</div>
-            <div class="row"><button class="act primary" id="tracelyResume">${prefs.pausedUntil === -1 ? "Turn on" : "Resume now"}</button><button class="act" id="tracelyPausedSettings">Settings</button></div>
+            <div class="top"><span class="dot"></span><span class="ctitle">${c.title}</span></div>
+            <div class="expl">${esc(c.line)}</div>
+            <div class="row"><button class="act primary" id="tracelyResume">${c.button}</button><button class="act" id="tracelyPausedSettings">Settings</button></div>
           </div>
         </div>
       </div>` : ""}
-      <div class="pill quiet" id="pill" title="${esc(line)}">${PILL_MARK}${prefs.pausedUntil === -1 ? "Tracely is off" : "Paused"}</div>`;
+      <div class="pill quiet" id="pill" title="${esc(c.hover)}">${PILL_MARK}${c.pill}</div>`;
   }
-  function pausedWire(shadow, toggle) {
+  // `resume`: what the card's button does (Docs passes "check this Doc again" when that is what stops it).
+  function pausedWire(shadow, toggle, resume = resumeTracely, section = "general") {
     shadow.getElementById("pill")?.addEventListener("click", toggle);
-    shadow.getElementById("tracelyResume")?.addEventListener("click", () => resumeTracely());
-    shadow.getElementById("tracelyPausedSettings")?.addEventListener("click", () => openSettings("general"));
+    shadow.getElementById("tracelyResume")?.addEventListener("click", () => resume());
+    shadow.getElementById("tracelyPausedSettings")?.addEventListener("click", () => openSettings(section));
   }
 
   /* ── the app's design tokens ───────────────────────────────────────────
@@ -5207,6 +5286,8 @@
     }
     .x svg { width: 14px; height: 14px; display: block; }
     .x:hover { color: var(--text); background: #f2f2f2; }
+    /* "Never flag this" sits before Dismiss: it takes the free space, Dismiss sits beside it. */
+    .x.never + .x { margin-left: 0; }
     /* The writer's own words, quiet and two lines at most; why it is flagged, under it, is the body. */
     .quote {
       font-size: 13px; line-height: 19px; color: #6b6c72;
@@ -5457,6 +5538,9 @@
   function docsMode() {
     const DOC_ID = harness ? "harness" : (location.pathname.match(/\/document\/(?:u\/\d+\/)?d\/([^/]+)/)?.[1] ?? null);
     if (!DOC_ID) return;
+    // Settings → Documents: this Doc's own settings, and whether Tracely is quiet here — paused everywhere, or never checking this Doc.
+    const docOff = () => docPref(DOC_ID).never;
+    const docQuiet = () => tracelyPaused() || docOff();
     const ACCOUNT_PREFIX = harness ? "" : docAccountPrefix(
       (() => { try { return performance.getEntriesByType("navigation")[0]?.name; } catch { return ""; } })(),
       location.href,
@@ -5519,16 +5603,41 @@
     let prefsSeen = false;
     prefsListeners.add(() => {
       if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); requestDocsMarks(); }
-      if (!prefsSeen) { prefsSeen = true; if (prefs.panelOpen && docsOn && !tracelyPaused()) expanded = true; }
-      if (tracelyPaused()) { hideDocsPopover(); clearDocsMarks(); }
+      if (!prefsSeen) { prefsSeen = true; if (prefs.panelOpen && docsOn && !docQuiet()) expanded = true; }
+      // Settings → Documents and Memory: this Doc's saved checks reset, its dismissed notes back (here, or in every document).
+      const own = docPref(DOC_ID);
+      if (newMark(`tracely.resetAt.${DOC_ID}`, own.resetAt)) {
+        cache.clear(); sourcesMap.clear(); review.lastText = null; review.findings = [];
+        for (const k of [VCACHE_KEY, SCACHE_KEY, RCACHE_KEY, FCACHE_KEY]) lsDel(k);
+      }
+      if ([newMark(`tracely.undismissAt.${DOC_ID}`, own.undismissAt), newMark("tracely.undismissedAt", prefs.undismissedAt)].some(Boolean)) { dismissed.clear(); lsDel(DISMISS_KEY); }
+      if (docQuiet()) { hideDocsPopover(); clearDocsMarks(); }
       // Checking and Citations, on the text already read: the kind of writing, the style, the sources offered, what is underlined.
       adoptStylePick(settings);
-      if (docText) { readDocKind(); settings.citationStyle = citeStyleFor(docText); }
+      if (docText) { readDocKind(); settings.citationStyle = citeStyleFor(docText, own.style); }
       refilterSources(sourcesMap);
       render(); // (a storage answer comes after this mode is set up: the widget is there)
-      if (!tracelyPaused()) { requestDocsMarks(); cycle(); }
+      if (!docQuiet()) { requestDocsMarks(); cycle(); }
     });
     panelTogglers.add(() => { expanded = !expanded; render(); });
+    /* Settings → Documents: this Doc's line in the list — its title, where it
+       is, what is open, when it was read and how much it keeps here. Under its
+       own key ("doc.<id>"), so two open Docs never write over each other, and
+       only when the line changes or every 10 minutes. Never on a test page, in
+       a Doc Tracely is quiet in, or before the Doc has been read. */
+    let indexLine = "", indexAt = 0;
+    function noteDocIndex(tally) {
+      if (harness || !docsStorage || !docsOn || docQuiet() || !docText) return;
+      const title = String(document.title || "").replace(/\s*-\s*Google Docs\s*$/i, "").trim().slice(0, 200) || "Untitled document";
+      const counts = { wrong: tally.wrong || 0, check: tally.check || 0, cite: tally.cite || 0 };
+      const line = JSON.stringify([title, counts]);
+      if (line === indexLine && Date.now() - indexAt < 600_000) return;
+      indexLine = line;
+      indexAt = Date.now();
+      let bytes = 0;
+      for (const k of [VCACHE_KEY, SCACHE_KEY, RCACHE_KEY, FCACHE_KEY, DISMISS_KEY]) bytes += (lsGet(k) ?? "").length;
+      storageSet({ [`doc.${DOC_ID}`]: { title, url: `https://docs.google.com/document${ACCOUNT_PREFIX}/d/${DOC_ID}/edit`, counts, checkedAt: indexAt, bytes } });
+    }
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -5686,7 +5795,7 @@
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
     // The kind of writing (readKind), or the model's when it has named one (kindWithModel); its genre decides the checks.
     function readDocKind() {
-      ({ kind: docKind, shown: docShown } = kindWithUsual(kindWithModel(readKind(docText), docText)));
+      ({ kind: docKind, shown: docShown } = kindForDoc(kindWithUsual(kindWithModel(readKind(docText), docText)), docPref(DOC_ID).kind));
       docGenre = WRITING_KINDS[docKind].genre;
     }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
@@ -5804,7 +5913,7 @@
 
     async function cycle() {
       if (orphaned || inflight || document.hidden) return;
-      if (!docsOn || tracelyPaused()) return; // nothing leaves the page until Docs is turned on, or while Tracely is paused
+      if (!docsOn || docQuiet()) return; // nothing leaves the page until Docs is turned on, while Tracely is paused, or in a Doc it never checks
       inflight = true;
       lastCheckFailed = false;
       try {
@@ -5826,7 +5935,7 @@
         sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(docText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
-        settings.citationStyle = citeStyleFor(docText); // the style Settings names, else the way the doc already cites
+        settings.citationStyle = citeStyleFor(docText, docPref(DOC_ID).style); // this Doc's, else Settings', else the way the doc already cites
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -6875,7 +6984,7 @@
 
     function requestDocsMarks() {
       if (orphaned || document.hidden) return;
-      if (!docsOn || tracelyPaused()) { if (docsBars.length) clearDocsMarks(); return; } // turned off or paused: nothing drawn
+      if (!docsOn || docQuiet()) { if (docsBars.length) clearDocsMarks(); return; } // turned off, paused, or never checked here: nothing drawn
       lastLocateAt = Date.now();
       armAnnotationObserver();
       // Whatever re-locates the underlines (Docs re-laid out, the 900 ms timer) places the suggestions too.
@@ -11888,7 +11997,12 @@
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
       placeRoot(root);
       if (!docsOn) { renderDocsConsent(); return; }
-      if (tracelyPaused()) { root.innerHTML = pausedHtml(expanded); pausedWire(shadow, () => { expanded = !expanded; render(); }); return; }
+      if (docQuiet()) {
+        const onlyHere = !tracelyPaused(); // never checked here, and not paused: its button checks this Doc again
+        root.innerHTML = pausedHtml(expanded, onlyHere);
+        pausedWire(shadow, () => { expanded = !expanded; render(); }, onlyHere ? () => setDocPref(DOC_ID, { never: false }) : resumeTracely, onlyHere ? "documents" : "general");
+        return;
+      }
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : [];
@@ -11898,6 +12012,7 @@
       // A stray line counts on the launcher too: a ✓ over it would say all is well.
       const flagged = issues.length + offTopic.length + refTips.length + essayNotes.length + citeTips.length;
       const tally = tallyOf(issues.map(({ f }) => f.verdict), [...citeTips, ...refTips, ...essayNotes, ...offTopic, ...resumeList]);
+      if (statusKind === "idle" && !inflight) noteDocIndex(tally); // Settings → Documents: this Doc's line
       const countCls = statusKind === "offline" || statusKind === "error" || inflight ? "off" : flagged > 0 ? "" : "ok";
       const countTxt = statusKind === "offline" ? "off" : inflight ? "…" : flagged > 0 ? String(flagged) : "✓";
 
@@ -11991,7 +12106,7 @@
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               ${kindIcoHtml(verdictCat(f.verdict))}<span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
+              ${neverBtnHtml("data-never", seg.hash)}<button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
@@ -12113,6 +12228,9 @@
             render();
           });
         }
+        // "Never flag this": the sentence, or a note's own words, goes on Settings → Memory's list, for every document (neverFlag).
+        for (const btn of shadow.querySelectorAll("[data-never]")) btn.addEventListener("click", () => neverFlag(segments.find((s) => s.hash === btn.dataset.never)?.text));
+        for (const btn of shadow.querySelectorAll("[data-never-tip]")) btn.addEventListener("click", () => neverFlag(tipById(btn.dataset.neverTip)?.quote));
         // A note's own fix (decorateCard): Delete, Rewrite in doc, the page box.
         for (const btn of shadow.querySelectorAll("[data-tip-del]")) btn.addEventListener("click", () => armOrDelete(btn.dataset.tipDel));
         // A study Tracely can't find: delete it, find evidence for its point, put that evidence in, or copy it.
@@ -12378,6 +12496,7 @@
     // Settings (prefs), as in Docs mode: a pause draws nothing and checks nothing; "Clear saved checks" empties this page too.
     prefsListeners.add(() => {
       if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); }
+      if (newMark("tracely.undismissedAt", prefs.undismissedAt)) { dismissed.clear(); lsDel(DISMISS_KEY); } // Settings → Memory: dismissed notes back everywhere
       adoptStylePick(settings);
       if (fieldText) { readFieldKind(); settings.citationStyle = citeStyleFor(fieldText); }
       refilterSources(sourcesMap);
@@ -13436,7 +13555,7 @@
           <div class="card" data-card="${seg.hash}" data-cat="${verdictCat(f.verdict)}">
             <div class="top">
               ${kindIcoHtml(verdictCat(f.verdict))}<span class="ctitle">${esc(verdictLabel(f.verdict, seg.text))}</span>
-              <button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
+              ${neverBtnHtml("data-never", seg.hash)}<button class="x" data-dismiss="${seg.hash}" title="Dismiss" aria-label="Dismiss">${CLOSE_SVG}</button>
             </div>
             <div class="quote">“${esc(seg.text.length > 140 ? seg.text.slice(0, 139) + "…" : seg.text)}”</div>
             ${f.explanation ? `<div class="expl">${esc(f.explanation)}</div>` : ""}
@@ -13536,6 +13655,9 @@
             render();
           });
         }
+        // "Never flag this": the sentence, or a note's own words, goes on Settings → Memory's list, for every document (neverFlag).
+        for (const btn of shadow.querySelectorAll("[data-never]")) btn.addEventListener("click", () => neverFlag(segments.find((s) => s.hash === btn.dataset.never)?.text));
+        for (const btn of shadow.querySelectorAll("[data-never-tip]")) btn.addEventListener("click", () => neverFlag(tipById(btn.dataset.neverTip)?.quote));
         for (const btn of shadow.querySelectorAll("[data-field-fix]")) {
           btn.addEventListener("click", () => fixInField(btn.dataset.fieldFix));
         }

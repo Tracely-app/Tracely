@@ -360,7 +360,7 @@ function renderDocsPanel(tier) {
     const canEditDoc = () => false;
     const editBtnHtml = () => "", editNoteHtml = () => "";
     const orphanPillHtml = () => "<div class='pill'></div>";
-    const tracelyPaused = () => false, placeRoot = () => {}; // Settings' pause and corner (content.js prefs): running, bottom right
+    const tracelyPaused = () => false, docQuiet = () => false, placeRoot = () => {}, noteDocIndex = () => {}; // Settings' pause, this Doc never checked, the corner, the document list: running, bottom right
     const settings = { citationStyle: "apa", autoSources: false };
     const formatCitation = () => ({ ref: "", inText: "" });
     const CITE_STYLES = [];
@@ -417,7 +417,7 @@ function renderFieldPanel(tier) {
     const fieldEligible = () => true;
     const currentIssues = () => [${JSON.stringify(ISSUE)}];
     const orphanPillHtml = () => "<div class='pill'></div>";
-    const tracelyPaused = () => false, placeRoot = () => {}; // Settings' pause and corner (content.js prefs): running, bottom right
+    const tracelyPaused = () => false, docQuiet = () => false, placeRoot = () => {}, noteDocIndex = () => {}; // Settings' pause, this Doc never checked, the corner, the document list: running, bottom right
     const settings = { citationStyle: "apa", autoSources: false };
     const formatCitation = () => ({ ref: "", inText: "" });
     const persistSettings = () => {};

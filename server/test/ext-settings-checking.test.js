@@ -205,7 +205,7 @@ test("wired: the evidence search, the preview and Review all follow Settings; a 
   assert.match(SRC, /fixTour = \{ queue: \[\], running: false, instant: prefs\.reviewTyping === false \};/);
   const docs = SRC.slice(SRC.indexOf("  function docsMode()"), SRC.indexOf("  function fieldMode()"));
   const field = SRC.slice(SRC.indexOf("  function fieldMode()"));
-  assert.match(docs, /adoptStylePick\(settings\);\n\s+if \(docText\) \{ readDocKind\(\); settings\.citationStyle = citeStyleFor\(docText\); \}\n\s+refilterSources\(sourcesMap\);\n\s+render\(\);[^\n]*\n\s+if \(!tracelyPaused\(\)\) \{ requestDocsMarks\(\); cycle\(\); \}/);
+  assert.match(docs, /adoptStylePick\(settings\);\n\s+if \(docText\) \{ readDocKind\(\); settings\.citationStyle = citeStyleFor\(docText, own\.style\); \}\n\s+refilterSources\(sourcesMap\);\n\s+render\(\);[^\n]*\n\s+if \(!docQuiet\(\)\) \{ requestDocsMarks\(\); cycle\(\); \}/);
   assert.match(field, /adoptStylePick\(settings\);\n\s+if \(fieldText\) \{ readFieldKind\(\); settings\.citationStyle = citeStyleFor\(fieldText\); \}\n\s+refilterSources\(sourcesMap\);\n\s+render\(\);/);
   // The notes' memo knows the switches and the kind: a change lists the notes again.
   assert.equal((SRC.match(/kinds: JSON\.stringify\(tipKindsOn\(\)\), genre: docGenre \};/g) || []).length, 2);

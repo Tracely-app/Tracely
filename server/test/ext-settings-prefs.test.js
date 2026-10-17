@@ -122,11 +122,12 @@ test("paused: the launcher says so, and opened, one card with Resume (or Turn on
   const X = vm.runInContext(`
     let prefs = { pausedUntil: -1 };
     const pausedLine = () => prefs.pausedUntil === -1 ? "Tracely is off until you turn it back on." : "Tracely is paused until 4:30 PM.";
+    const tracelyPaused = () => prefs.pausedUntil === -1 || prefs.pausedUntil > Date.now();
     const resumeTracely = () => { log.push("resume"); }, openSettings = (s) => { log.push("settings:" + s); };
     const MARK_SOLID_SVG = "<svg/>", PILL_MARK = "<img/>";
     const esc = (s) => String(s);
     const log = [];
-    ${sliceBetween(SRC, "  function pausedHtml(open) {", "  /* ── the app's design tokens")}
+    ${sliceBetween(SRC, "  function quietCopy(docOff = false) {", "  /* ── the app's design tokens")}
     ({ pausedHtml, pausedWire, log, set: (p) => { prefs = p; } })`, vm.createContext({}));
   assert.match(X.pausedHtml(false), /^\s*<div class="pill quiet" id="pill" title="Tracely is off until you turn it back on\."><img\/>Tracely is off<\/div>$/);
   const off = X.pausedHtml(true);
@@ -139,16 +140,29 @@ test("paused: the launcher says so, and opened, one card with Resume (or Turn on
   X.pausedWire({ getElementById: (id) => (btns[id] ??= { addEventListener: (_t, fn) => { btns[id].fn = fn; } }) }, () => X.log.push("toggle"));
   btns.tracelyResume.fn(); btns.tracelyPausedSettings.fn(); btns.pill.fn();
   assert.deepEqual(plain(X.log), ["resume", "settings:general", "toggle"]);
+  // A Doc set never to be checked (Settings → Documents): the same card says so, and its button checks this Doc again.
+  X.set({ pausedUntil: 0 });
+  const doc = X.pausedHtml(true, true);
+  assert.match(doc, /<span class="ctitle">Off for this document<\/span>[\s\S]*You set Tracely never to check this document, so nothing in it is read or sent\.[\s\S]*id="tracelyResume">Check this document</);
+  assert.match(X.pausedHtml(false, true), /title="Tracely never checks this document\."><img\/>Off for this doc<\/div>$/);
+  X.set({ pausedUntil: -1 });
+  assert.match(X.pausedHtml(true, true), /Tracely is off<\/span>/, "a pause everywhere says its own words first");
+  const again = {};
+  X.pausedWire({ getElementById: (id) => (again[id] ??= { addEventListener: (_t, fn) => { again[id].fn = fn; } }) }, () => {}, () => X.log.push("check this doc"), "documents");
+  again.tracelyResume.fn(); again.tracelyPausedSettings.fn();
+  assert.deepEqual(plain(X.log).slice(-2), ["check this doc", "settings:documents"]);
 });
 
 test("wired in both modes: paused, nothing is read, sent or drawn, and the launcher says so", () => {
   const docs = SRC.slice(SRC.indexOf("  function docsMode()"), SRC.indexOf("  function fieldMode()"));
   const field = SRC.slice(SRC.indexOf("  function fieldMode()"));
-  assert.match(docs, /if \(!docsOn \|\| tracelyPaused\(\)\) return; \/\/ nothing leaves the page/, "Docs: no export read, no check");
-  assert.match(docs, /if \(!docsOn \|\| tracelyPaused\(\)\) \{ if \(docsBars\.length\) clearDocsMarks\(\); return; \}/, "Docs: no underline");
-  assert.match(docs, /if \(tracelyPaused\(\)\) \{ root\.innerHTML = pausedHtml\(expanded\); pausedWire\(shadow, \(\) => \{ expanded = !expanded; render\(\); \}\); return; \}/);
-  assert.match(docs, /if \(tracelyPaused\(\)\) \{ hideDocsPopover\(\); clearDocsMarks\(\); \}/, "a pause takes the open card and the underlines at once");
-  assert.match(docs, /if \(!prefsSeen\) \{ prefsSeen = true; if \(prefs\.panelOpen && docsOn && !tracelyPaused\(\)\) expanded = true; \}/, "the panel open on a new Doc, once");
+  // Docs: quiet when paused, or in a Doc Settings → Documents never checks (docQuiet).
+  assert.match(docs, /const docQuiet = \(\) => tracelyPaused\(\) \|\| docOff\(\);/);
+  assert.match(docs, /if \(!docsOn \|\| docQuiet\(\)\) return; \/\/ nothing leaves the page/, "Docs: no export read, no check");
+  assert.match(docs, /if \(!docsOn \|\| docQuiet\(\)\) \{ if \(docsBars\.length\) clearDocsMarks\(\); return; \}/, "Docs: no underline");
+  assert.match(docs, /if \(docQuiet\(\)\) \{\n\s+const onlyHere = !tracelyPaused\(\);[^\n]*\n\s+root\.innerHTML = pausedHtml\(expanded, onlyHere\);\n\s+pausedWire\(shadow, \(\) => \{ expanded = !expanded; render\(\); \}, onlyHere \? \(\) => setDocPref\(DOC_ID, \{ never: false \}\) : resumeTracely, onlyHere \? "documents" : "general"\);\n\s+return;/);
+  assert.match(docs, /if \(docQuiet\(\)\) \{ hideDocsPopover\(\); clearDocsMarks\(\); \}/, "a pause takes the open card and the underlines at once");
+  assert.match(docs, /if \(!prefsSeen\) \{ prefsSeen = true; if \(prefs\.panelOpen && docsOn && !docQuiet\(\)\) expanded = true; \}/, "the panel open on a new Doc, once");
   assert.match(field, /async function cycle\(\) \{\n\s+if \(orphaned \|\| inflight \|\| document\.hidden \|\| tracelyPaused\(\)\) return;/, "field: nothing read or sent");
   assert.match(field, /function drawMarks\(\) \{\n\s+if \(orphaned \|\| tracelyPaused\(\)\) \{ if \(overlayEl\) overlayEl\.textContent = ""; markRects\.clear\(\); markParts\.clear\(\); return; \}/, "field: no underline");
   assert.match(field, /if \(tracelyPaused\(\)\) \{ \/\/ paused from Settings[\s\S]{0,200}root\.innerHTML = pausedHtml\(expanded\);/);

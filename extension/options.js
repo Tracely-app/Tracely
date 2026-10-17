@@ -383,6 +383,7 @@ const PREF_DEFAULTS = {
   pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
   showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
   citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
+  undismissedAt: 0,
 };
 let prefs = { ...PREF_DEFAULTS };
 // What storage holds, over the defaults; a list that isn't one (an older build, a bad write) reads as empty.
