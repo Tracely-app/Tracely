@@ -30,12 +30,12 @@
    `grep -n` when you move things; the anchors themselves must not move):
         63  Verdicts, card copy, colours, FEATURES switches
        385  Settings and plan gate; what the Settings page sets (prefs, docPrefs, ignoreList)
-       907  Shared helpers: hashing, bibliography, citation formatting
-      1335  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1630  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      4085  Widget chrome, API transport, design tokens
-      5541  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     12429  Field mode (textareas and contenteditables on any site)
+       917  Shared helpers: hashing, bibliography, citation formatting
+      1345  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1640  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      4142  Widget chrome, API transport, design tokens
+      5603  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12535  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -427,7 +427,17 @@
 
   // `provisional`: the worker had no real answer (server unreachable or
   // erroring on the test build) — shown, never acted on as a downgrade.
-  let tier = { plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false };
+  let tier = { plan: "free", byoKey: false, unenforced: false, beta: false, provisional: false, signedIn: false, configured: false };
+  /* Source searches need an account (owner, 2026-10-16: signed out, "it just
+     says it can't find sources and doesn't cite anything, without explaining
+     why, so it sounds like Tracely is glitching. Please add a little pop-up
+     beforehand that says you need to be logged in."). Signed out, the
+     writer's search asks them to sign in first (SIGNIN_COPY) and no automatic
+     one runs. Never where there are no accounts (a server that meters
+     nothing, a build with no project), for a test build's Pro grant, before
+     the worker has answered, or on a page with no worker. Cosmetic like the
+     plan gate: the server still answers a signed-out search. */
+  const needsSignIn = () => useRelay && tierResolved && tier.configured && !tier.signedIn && !tier.beta && !tier.unenforced;
   const tierListeners = []; // widget re-renders to run when the tier resolves
   function tierChanged() {
     forgetDeepLocks();
@@ -492,9 +502,9 @@
     pending.then((r) => {
       if (!r?.ok) return;
       noteSearchUsage(r);
-      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true };
+      const next = { plan: r.plan ?? "free", byoKey: Boolean(r.byoKey), unenforced: Boolean(r.unenforced), beta: r.beta === true, provisional: r.provisional === true, signedIn: r.signedIn === true, configured: r.configured === true };
       if (tierResolved && next.plan === tier.plan && next.byoKey === tier.byoKey && next.beta === tier.beta
-          && next.unenforced === tier.unenforced && next.provisional === tier.provisional) return;
+          && next.unenforced === tier.unenforced && next.provisional === tier.provisional && next.signedIn === tier.signedIn && next.configured === tier.configured) return;
       tier = next;
       tierResolved = true;
       tierChanged(); // first resolve fires too: the widgets repaint the Explain in depth button
@@ -4028,6 +4038,53 @@
      the writer and are said as they are. Anything on Tracely's side, such as
      a rejected OpenAI key ("no_key", 2026-10-13) or a server error, says so
      plainly, so the writer is not left thinking it is their sentence. */
+  /* Two things a search can't do, said as what they are rather than as a
+     failure (owner, 2026-10-16):
+     - Signed out (needsSignIn): "add a little pop-up beforehand that says you
+       need to be logged in". Nothing is searched; the card asks for a
+       sign-in, and a sign-in from it runs the search that was asked for.
+     - Out of searches (the server's 429 plan_limit): "have it show an alert
+       like 'Uh-oh, you ran out of free searches,' and prompt users to 'Get
+       Pro for more' or 'Get Student plan for more.'" The server's own words
+       under it say when they come back. Neither is red: colour means a
+       finding. */
+  const SIGNIN_COPY = {
+    head: "Sign in to find sources",
+    body: "Tracely finds sources with your free Tracely account. Signing in takes a few seconds with Google, and checking keeps working without it.",
+    button: "Sign in with Google",
+    later: "Not now",
+  };
+  const OUT_COPY = {
+    head: (plan) => (plan === "free" ? "Uh-oh, you ran out of free searches" : "Uh-oh, you ran out of searches"),
+    pro: "Get Pro for more",
+    student: "Get Student plan for more",
+  };
+  // More searches to offer: Pro and Student from Free, Pro from Student, none from Pro or where nothing is sold.
+  const upgradesFor = () => (tier.beta || tier.unenforced || tier.plan === "pro" ? [] : tier.plan === "student" ? ["pro"] : ["pro", "student"]);
+  // The panel card's block for a search that needs a sign-in or ran out (a sourceFailures entry's kind); "" for any other failure.
+  function searchGateHtml(failed) {
+    if (failed?.kind === "signin") {
+      return `<div class="sources gate"><div class="gate-head">${esc(SIGNIN_COPY.head)}</div><div class="gate-body">${esc(SIGNIN_COPY.body)}</div><div class="row"><button class="act primary" data-signin="1">${esc(SIGNIN_COPY.button)}</button></div></div>`;
+    }
+    if (failed?.kind === "plan_limit") {
+      const ups = upgradesFor();
+      return `<div class="sources gate"><div class="gate-head">${esc(OUT_COPY.head(tier.plan))}</div><div class="gate-body">${esc(failed.note)}</div>${ups.length ? `<div class="row">${ups.map((p, i) => `<button class="act${i === 0 ? " primary" : ""}" data-upgrade="${p}">${esc(OUT_COPY[p])}</button>`).join("")}</div>` : ""}</div>`;
+    }
+    return "";
+  }
+  /* "Sign in with Google" on a card: the worker opens Google's own sign-in
+     window (background.js signIn), as Settings does. Anything but a cancel
+     opens Settings → Account to finish there. True once signed in. */
+  async function signInFromCard() {
+    const r = await Promise.resolve(sendMsg({ type: "tracely-signIn" })).catch(() => null);
+    if (r?.ok) {
+      tier = { ...tier, signedIn: true }; // at once: the search it was for runs now; refreshTier brings the plan
+      refreshTier();
+      return true;
+    }
+    if (!/cancel/i.test(String(r?.message ?? ""))) openSettings("account");
+    return false;
+  }
   function searchFailureNote(err) {
     const kind = err?.kind;
     const msg = String(err?.message ?? "").trim();
@@ -5458,6 +5515,11 @@
     .src-unread-toggle:hover { color: var(--ink); text-decoration: underline; }
     .src a.src-open { display: inline-block; font-size: 12px; font-weight: 500; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--r-btn); padding: 4px 10px; }
     .loading { font-size: 13px; color: var(--body); }
+    /* A search that needs a sign-in, or ran out (searchGateHtml): grey, never a finding's colour. */
+    .gate { margin-top: 8px; padding: 12px; border-radius: 10px; background: #f7f7f8; display: flex; flex-direction: column; gap: 6px; }
+    .gate-head { font-size: 13px; font-weight: 600; color: #1a1a1f; }
+    .gate-body { font-size: 12px; line-height: 1.45; color: #6b6c72; }
+    .gate .row { margin-top: 4px; flex-wrap: wrap; }
     .cite-url { display: flex; gap: 8px; }
     .cite-url input {
       flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--r-btn);
@@ -5784,6 +5846,7 @@
     // never counts here, so it can never make a press wait or do nothing.
     let sourcesInflight = 0;
     const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote), until the next one
+    let searchesOut = false; // the last search was refused for the plan's allowance (plan_limit): Review all says so
     const replaceMap = new Map(); // hash → the evidence an unfound study can be replaced with (findReplacement): { loading } | { src, text } | { none } | { failed }
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // drives nextReadGap: read fast while the doc is changing
@@ -7223,10 +7286,11 @@
       if (text != null) n.textContent = text;
       return n;
     }
-    function dmHead(color, title, right = null) {
+    // `wrap`: a title too long for one line keeps all its words (the out-of-searches card's).
+    function dmHead(color, title, right = null, { wrap = false } = {}) {
       const h = el("div", { display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" });
       h.appendChild(el("span", { width: "8px", height: "8px", borderRadius: "50%", flexShrink: "0", background: color }));
-      h.appendChild(el("span", { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
+      h.appendChild(el("span", wrap ? { fontSize: "14px", fontWeight: "600", color: DM.ink, lineHeight: "1.3" } : { fontSize: "14px", fontWeight: "600", color: DM.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, title));
       if (right) { right.style.marginLeft = "auto"; h.appendChild(right); }
       return h;
     }
@@ -8209,6 +8273,27 @@
       // Searching.
       if (!s || s.loading) {
         const failed = !s && st.searched ? sourceFailures.get(hash) : null;
+        // Signed out, or out of searches: what it is, and the way on (searchGateHtml's words), never "Search failed".
+        if (failed?.kind === "signin" || failed?.kind === "plan_limit") {
+          const signin = failed.kind === "signin";
+          put(dmHead(DM.hint, signin ? SIGNIN_COPY.head : OUT_COPY.head(tier.plan), null, { wrap: true }), dmBody(failed.note), noteEl());
+          const later = dmBtn(SIGNIN_COPY.later, false);
+          later.addEventListener("click", back);
+          if (signin) {
+            const go = dmBtn(SIGNIN_COPY.button, true);
+            go.addEventListener("click", async () => {
+              if (!(await signInFromCard())) return;
+              sourceFailures.delete(hash);
+              const p = fetchSources(hash);
+              setStep(stepKey, { searched: true });
+              p.catch(() => {});
+            });
+            put(dmActions(go, later));
+          } else {
+            put(dmActions(...upgradesFor().map((plan, i) => { const b = dmBtn(OUT_COPY[plan], i === 0); b.addEventListener("click", () => openOrderPage()); return b; }), later));
+          }
+          return;
+        }
         if (failed || (!s && !sourcesInflight && st.searched)) {
           put(dmHead(DM.red, POP_COPY.searchFailed), dmBody(failed?.note || "The search did not answer — try again."), noteEl());
           const again = dmBtn(POP_COPY.searchAgain, true);
@@ -8722,6 +8807,12 @@
       standDown("extension reloaded");
     }, 900) : 0;
 
+    // Signed in from a card: the searches the writer asked for run now.
+    async function signInThenSearch() {
+      if (!(await signInFromCard())) return;
+      for (const [h, f] of [...sourceFailures]) if (f.kind === "signin") { sourceFailures.delete(h); fetchSources(h); }
+      render();
+    }
     async function fetchSources(hash, auto = false, { batch = false } = {}) {
       // Returns false when NOTHING was started (another claim's search holds
       // the slot, or the sentence vanished) so callers can restore their UI
@@ -8731,6 +8822,14 @@
       // status line (the list says it).
       if (sourcesMap.get(hash)?.list?.length) return true; // cached — never re-search
       if (sourcesMap.get(hash)?.loading) return true; // already running: started on the press (prestartSearch)
+      // Signed out (needsSignIn): nothing is searched. The card that asked says to sign in; an automatic or batch search doesn't run.
+      if (needsSignIn()) {
+        if (auto || batch) return false;
+        sourceFailures.set(hash, { note: SIGNIN_COPY.body, auto: false, kind: "signin" });
+        render();
+        renderPopSources(hash);
+        return true;
+      }
       /* An automatic search waits for the writer's; the writer's waits for
          nothing. Owner, 2026-10-13: "find a source action button doesnt work
          properly". A press while the automatic "Needs evidence" search ran
@@ -8781,15 +8880,18 @@
         }, onEvent);
         const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
         sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
+        searchesOut = false;
         persistCaches();
         noteSourcesReady(hash, list.length, auto);
       } catch (err) {
         sourcesMap.delete(hash);
         // Said in the card that was waiting on it; an automatic search's
         // failure only where the writer opened its card (the panel stays quiet).
-        if (!batch) sourceFailures.set(hash, { note: searchFailureNote(err), auto });
-        if (!auto) statusKind = "error";
-        if (!batch && !auto) statusMsg = err?.message ?? "source search failed";
+        // Out of searches (plan_limit) is the card's own block (searchGateHtml), not an error in the header.
+        searchesOut = err?.kind === "plan_limit";
+        if (!batch) sourceFailures.set(hash, { note: searchFailureNote(err), auto, kind: err?.kind });
+        if (!auto && !searchesOut) statusKind = "error";
+        if (!batch && !auto && !searchesOut) statusMsg = err?.message ?? "source search failed";
       } finally {
         if (mine) sourcesInflight = Math.max(0, sourcesInflight - 1);
         render();
@@ -11283,6 +11385,7 @@
     }
     // One batch search, paced; resolves once the claim has an answer (or has none to give).
     async function fixSearch(hash, b) {
+      if (needsSignIn()) return; // nothing to wait for: signed out, no search runs
       for (let tries = 0; tries < 2; tries++) {
         for (;;) {
           if (fixBatch !== b || b.stopped) return;
@@ -11323,7 +11426,7 @@
           if (fixBatch !== b || b.stopped) return;
         }
         const st = sourcesMap.get(item.claim);
-        if (!st?.list) return fixSettle(item, "none", "the search didn't answer");
+        if (!st?.list) return fixSettle(item, "none", needsSignIn() ? "sign in to find sources" : searchesOut ? "you're out of source searches" : "the search didn't answer");
         const top = walkSource(st.list, cache.get(item.claim)?.verdict);
         if (!top) return fixSettle(item, "none", "no source backs it");
         item.srcIndex = st.list.indexOf(top);
@@ -12055,7 +12158,7 @@
           const failed = st ? null : sourceFailures.get(seg.hash);
           if (failed && !failed.auto) {
             // The writer's search failed: why, in the card (its button searches again).
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
+            sourcesHtml = searchGateHtml(failed) || `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
           } else if (st?.loading) {
             sourcesHtml = `<div class="sources">${liveSourcesHtml(st.live)}</div>`;
           } else if (st?.partial && !st.list?.length) {
@@ -12236,6 +12339,9 @@
         // "Never flag this": the sentence, or a note's own words, goes on Settings → Memory's list, for every document (neverFlag).
         for (const btn of shadow.querySelectorAll("[data-never]")) btn.addEventListener("click", () => neverFlag(segments.find((s) => s.hash === btn.dataset.never)?.text));
         for (const btn of shadow.querySelectorAll("[data-never-tip]")) btn.addEventListener("click", () => neverFlag(tipById(btn.dataset.neverTip)?.quote));
+        // A search that needs a sign-in, or ran out (searchGateHtml): sign in and run it, or see the plans.
+        for (const btn of shadow.querySelectorAll("[data-signin]")) btn.addEventListener("click", () => signInThenSearch());
+        for (const btn of shadow.querySelectorAll("[data-upgrade]")) btn.addEventListener("click", () => openOrderPage());
         // A note's own fix (decorateCard): Delete, Rewrite in doc, the page box.
         for (const btn of shadow.querySelectorAll("[data-tip-del]")) btn.addEventListener("click", () => armOrDelete(btn.dataset.tipDel));
         // A study Tracely can't find: delete it, find evidence for its point, put that evidence in, or copy it.
@@ -12514,6 +12620,7 @@
     let inflight = false;
     let sourcesInflight = 0; // the writer's own searches in flight, as in Docs mode
     const sourceFailures = new Map(); // hash → why its last search failed (searchFailureNote)
+    let searchesOut = false; // the last search was refused for the plan's allowance (plan_limit)
     const replaceMap = new Map(); // hash → the evidence an unfound study can be replaced with (findReplacement): { loading } | { src, text } | { none } | { failed }
     let lastCheckEnd = Date.now();
     let lastTextChangeAt = Date.now(); // see nextReadGap
@@ -13084,11 +13191,22 @@
       render();
       return true;
     }
+    // Signed in from a card: the searches the writer asked for run now.
+    async function signInThenSearch() {
+      if (!(await signInFromCard())) return;
+      for (const [h, f] of [...sourceFailures]) if (f.kind === "signin") { sourceFailures.delete(h); fetchSources(h); }
+      render();
+    }
     async function fetchSources(hash, auto = false) {
       // As in Docs mode: the writer's press always runs; an automatic search
       // waits for the writer's (it was the other way round, and a press
       // during one did nothing).
       if (sourcesMap.get(hash)?.list?.length || sourcesMap.get(hash)?.loading) return; // found or running: never pay twice
+      // Signed out (needsSignIn), as in Docs mode: the card says to sign in, and nothing automatic runs.
+      if (needsSignIn()) {
+        if (!auto) { sourceFailures.set(hash, { note: SIGNIN_COPY.body, auto: false, kind: "signin" }); render(); }
+        return;
+      }
       if (auto && sourcesInflight) return;
       const seg = segments.find((s) => s.hash === hash);
       if (!seg) return;
@@ -13108,11 +13226,13 @@
         });
         const { list, unbacked, unread, partial } = backingSources(data.sources, f?.verdict);
         sourcesMap.set(hash, { loading: false, list, unbacked, unread, partial, copiedUrl: null });
+        searchesOut = false;
       } catch (err) {
         sourcesMap.delete(hash);
-        sourceFailures.set(hash, { note: searchFailureNote(err), auto });
-        if (!auto) statusKind = "error";
-        if (!auto) statusMsg = err?.message ?? "source search failed";
+        searchesOut = err?.kind === "plan_limit";
+        sourceFailures.set(hash, { note: searchFailureNote(err), auto, kind: err?.kind });
+        if (!auto && !searchesOut) statusKind = "error";
+        if (!auto && !searchesOut) statusMsg = err?.message ?? "source search failed";
       } finally {
         if (!auto) sourcesInflight = Math.max(0, sourcesInflight - 1);
         render();
@@ -13509,7 +13629,7 @@
           let sourcesHtml = "";
           const failed = st ? null : sourceFailures.get(seg.hash);
           if (failed && !failed.auto) {
-            sourcesHtml = `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
+            sourcesHtml = searchGateHtml(failed) || `<div class="sources"><div class="loading">${esc(failed.note)}</div></div>`;
           } else if (st?.loading) {
             sourcesHtml = `<div class="sources"><div class="loading">Searching the web for sources…</div></div>`;
           } else if (st?.partial && !st.list?.length) {
@@ -13663,6 +13783,9 @@
         // "Never flag this": the sentence, or a note's own words, goes on Settings → Memory's list, for every document (neverFlag).
         for (const btn of shadow.querySelectorAll("[data-never]")) btn.addEventListener("click", () => neverFlag(segments.find((s) => s.hash === btn.dataset.never)?.text));
         for (const btn of shadow.querySelectorAll("[data-never-tip]")) btn.addEventListener("click", () => neverFlag(tipById(btn.dataset.neverTip)?.quote));
+        // A search that needs a sign-in, or ran out (searchGateHtml): sign in and run it, or see the plans.
+        for (const btn of shadow.querySelectorAll("[data-signin]")) btn.addEventListener("click", () => signInThenSearch());
+        for (const btn of shadow.querySelectorAll("[data-upgrade]")) btn.addEventListener("click", () => openOrderPage());
         for (const btn of shadow.querySelectorAll("[data-field-fix]")) {
           btn.addEventListener("click", () => fixInField(btn.dataset.fieldFix));
         }

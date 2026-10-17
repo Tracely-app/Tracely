@@ -92,8 +92,9 @@ test("wired in both modes: the picker, the allowance, a quiet failure", () => {
   assert.equal((SRC.match(/const shown = new Set\(currentIssues\(\)\.map\(\(\{ seg \}\) => seg\.hash\)\);/g) || []).length, 2, "only flags the writer can see");
   assert.equal((SRC.match(/autoSinceUsage\+\+;/g) || []).length, 2);
   assert.equal((SRC.match(/if \(!sourcesMap\.has\(f\.id\)\) break; \/\/ failed/g) || []).length, 2, "a failed search stops the rest");
-  assert.match(SRC, /if \(!batch && !auto\) statusMsg = err\?\.message \?\? "source search failed";/, "Docs: nobody asked, so no error line");
-  assert.match(SRC, /if \(!auto\) statusMsg = err\?\.message \?\? "source search failed";/, "field");
+  // (Out of searches is the card's own block, searchGateHtml: no error line for it either.)
+  assert.match(SRC, /if \(!batch && !auto && !searchesOut\) statusMsg = err\?\.message \?\? "source search failed";/, "Docs: nobody asked, so no error line");
+  assert.match(SRC, /if \(!auto && !searchesOut\) statusMsg = err\?\.message \?\? "source search failed";/, "field");
   assert.match(SRC, /if \(!r\?\.ok\) return;\n\s+noteSearchUsage\(r\);/, "every entitlement answer, before the no-change return");
   assert.equal((SRC.match(/\$\{esc\(unbackedNote\(st, cache\.get\(seg\.hash\)\?\.verdict\)\)\}/g) || []).length, 2, "both panels");
   assert.equal((SRC.match(/\} else if \(st && !st\.list\?\.length && isEvidenceFirst\(cache\.get\(seg\.hash\)\?\.verdict\)\) \{/g) || []).length, 2, "a search that found nothing at all says so too");

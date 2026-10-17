@@ -378,6 +378,44 @@ Three things made it look dead, and each is fixed:
 Field mode also no longer re-searches a sentence that already has sources.
 Tests: `server/test/ext-find-source.test.js`.
 
+## Signed out, and out of searches
+
+Owner, 2026-10-16. On being signed out: "it just says it can't find
+sources and doesn't cite anything, without explaining why, so it sounds
+like Tracely is glitching. Please add a little pop-up beforehand that says
+you need to be logged in." On running out: "show an alert like 'Uh-oh, you
+ran out of free searches,' and prompt users to 'Get Pro for more' or 'Get
+Student plan for more.'"
+- **Signed out** (`needsSignIn`, from the worker's `signedIn` and
+  `configured` on `tier`):
+  - **What runs:** nothing is searched. A search the writer asks for puts a
+    `signin` entry in `sourceFailures`. No automatic or Review all search
+    runs.
+  - **What the cards show:** the panel cards show "Sign in to find sources"
+    with Sign in with Google (`searchGateHtml`). The Docs hover card shows
+    the same, with Not now.
+  - **Signing in:** the worker's own Google window (`signInFromCard` →
+    `tracely-signIn`). Then the searches that were asked for run
+    (`signInThenSearch`). Anything but a cancel opens Settings → Account.
+  - **Where it never asks:** without accounts (`unenforced`, no project), on
+    a test build's Pro grant, before the worker answers, or on a page with no
+    worker (tests, `/try`).
+  - **It is cosmetic.** The server still answers a signed-out search, on the
+    free allowance counted per install id.
+- **Out of searches** (the server's 429 `plan_limit`):
+  - The card reads "Uh-oh, you ran out of free searches" (or "…of
+    searches" on a paid plan), with the server's own words under it, which
+    say when the searches come back.
+  - The buttons are Get Pro for more and Get Student plan for more on Free,
+    and Get Pro for more on Student (`upgradesFor`, `openOrderPage`). Pro, a
+    test build and a server that sells nothing get no plans.
+  - It is not an error in the panel's header, and the hover card no longer
+    offers "Search again" for it.
+- **Colour:** neither block is red, because colour means a finding. The
+  hover card's title wraps for these (`dmHead`'s `wrap`).
+
+Tests: `server/test/ext-search-gates.test.js`.
+
 ## What each plan gets
 
 Owner, 2026-10-13: "it should not say explain in depth for pro, the only

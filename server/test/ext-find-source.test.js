@@ -25,7 +25,8 @@ const HELPERS = `${fn("  function offlineError(err) {")}${fn("  function searchF
 // The search the page would make, held open until the test settles it.
 const STUBS = `
   const sourceFailures = new Map(), sourcesMap = new Map(), cache = new Map();
-  let sourcesInflight = 0, statusKind = "idle", statusMsg = "";
+  let sourcesInflight = 0, statusKind = "idle", statusMsg = "", searchesOut = false;
+  const needsSignIn = () => false; // signed in (content.js tier): ext-search-gates.test.js has the signed-out half
   const segments = [{ hash: "a", text: "Sleep improves memory." }, { hash: "b", text: "Teenagers sleep less than adults." }];
   const docText = "doc", fieldText = "field", CHECK_MODEL = "m";
   const render = () => {}, renderPopSources = () => {}, persistCaches = () => {}, noteSourcesReady = () => {};
@@ -127,7 +128,8 @@ test("the reason is in the writer's words: limits as the server says them, Trace
 });
 
 test("the cards say it: the hover card's failed state and both panels read the reason", () => {
-  assert.match(SRC, /const failed = !s && st\.searched \? sourceFailures\.get\(hash\) : null;\n\s+if \(failed \|\| \(!s && !sourcesInflight && st\.searched\)\) \{\n\s+put\(dmHead\(DM\.red, POP_COPY\.searchFailed\), dmBody\(failed\?\.note \|\| /);
+  // (Between them since 2.21.65: signed out, or out of searches, says that instead — ext-search-gates.test.js.)
+  assert.match(SRC, /const failed = !s && st\.searched \? sourceFailures\.get\(hash\) : null;\n\s+\/\/ Signed out, or out of searches:[\s\S]{0,1600}?\n\s+if \(failed \|\| \(!s && !sourcesInflight && st\.searched\)\) \{\n\s+put\(dmHead\(DM\.red, POP_COPY\.searchFailed\), dmBody\(failed\?\.note \|\| /);
   // The panels show the writer's own failures, not an automatic one nobody asked for.
   assert.equal((SRC.match(/const failed = st \? null : sourceFailures\.get\(seg\.hash\);\n\s+if \(failed && !failed\.auto\) \{/g) || []).length, 2);
 });

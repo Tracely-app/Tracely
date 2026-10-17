@@ -732,6 +732,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.65", "Signed out, Find a source asks you to sign in first instead of coming back empty. Out of searches, it says so and shows the plans that give more."],
   ["2.21.64", "Settings → Documents lists the Docs Tracely has checked, each with its own style, kind and switch; Memory shows what is kept and clears it. Cards have Never flag this."],
   ["2.21.63", "Settings for what Tracely flags and how strict it is, your usual kind of writing, citation style, links and access dates, and sources to leave out."],
   ["2.21.62", "A new Settings: pause or turn Tracely off, move its button, a keyboard shortcut, your usage, export and clear your data, and this Help."],
