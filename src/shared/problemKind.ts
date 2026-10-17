@@ -2,6 +2,7 @@ import type { ClaimType, CritiqueVerdict, ScoreBreakdown } from '@shared/types'
 import type { OutOfScopeReason } from './retrievalScope'
 import { citationWorthy } from './citationWorthy.ts'
 import { filterKinds, type FindingFilter } from './findingFilter.ts'
+import { neverFlagKey } from './neverFlag.ts'
 
 /**
  * What is actually wrong with a claim — decided once, in main, and sent to the
@@ -382,6 +383,8 @@ export function problemKindsFor({
   onTopic = null,
   findings = null
 }: ProblemKindInput): ScreenWatchProblemKind[] {
+  // "Never flag this" (neverFlag.ts): the writer said so, so nothing at all, not even "searching".
+  if (claimText != null && findings?.never?.has(neverFlagKey(claimText))) return []
   // Nothing is known yet, so nothing else can be asserted. Sole kind.
   if (!evidence) return ['searching']
 

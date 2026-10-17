@@ -10,6 +10,7 @@
 // draws the same line: its "Needs evidence" and "Citation issues" switches,
 // and a "false" verdict always shown.
 import type { ScreenWatchProblemKind } from './problemKind'
+import { neverFlagList, neverFlagSet } from './neverFlag.ts'
 
 export type Strictness = 'clear' | 'balanced' | 'thorough'
 
@@ -19,6 +20,8 @@ export interface FindingFilter {
   /** The amber kinds ("Citation issues"). */
   citations: boolean
   strictness: Strictness
+  /** "Never flag this": sentences by neverFlagKey, never flagged at all, a factual error included (neverFlag.ts). */
+  never?: ReadonlySet<string>
 }
 
 /** As the app was before these settings: everything shown, balanced. */
@@ -61,11 +64,18 @@ export function filterKinds(kinds: ScreenWatchProblemKind[], filter: FindingFilt
 }
 
 /** The stored settings strings (settingsRepo), read safely: anything unknown is the default. */
-export function findingFilterFrom(raw: { showEvidenceKinds?: string; showCitationKinds?: string; checkingStrictness?: string }): FindingFilter {
+export function findingFilterFrom(raw: {
+  showEvidenceKinds?: string
+  showCitationKinds?: string
+  checkingStrictness?: string
+  neverFlagSentences?: string
+}): FindingFilter {
   const s = raw.checkingStrictness
+  const never = neverFlagList(raw.neverFlagSentences)
   return {
     evidence: raw.showEvidenceKinds !== 'false',
     citations: raw.showCitationKinds !== 'false',
-    strictness: s === 'clear' || s === 'thorough' ? s : 'balanced'
+    strictness: s === 'clear' || s === 'thorough' ? s : 'balanced',
+    ...(never.length > 0 ? { never: neverFlagSet(never) } : {})
   }
 }
