@@ -9,8 +9,8 @@ deploys or ships, in the same PR or right after. Dates are UTC.
 | **Chrome extension** (Web Store, id `dffmoeebkkghhgcklkbmaibfhgiegmdm`) | **2.21.1** published | early October 2026 (store zip of 10-01) | store zip from `server/scripts/pack-extension.sh` | Sam (publisher account) |
 | Chrome extension — store draft | 2.21.18 **submitted from the beta zip — cancel it**; `Tracely-2.21.27-store.zip` is built from main `a71e4aa` and waits in Sam's Downloads | 2026-10-09 | Developer Dashboard | Sam |
 | Chrome extension — testers | 2.21.18-beta (Merrick's zip); main is 2.21.27 | 2026-10-04 | `pack-extension.sh --beta` + Load unpacked | either (beta token is in the server's `.env`) |
-| **Desktop app** stable | v0.3.100 (main `61a1379`) | 2026-10-08 00:25 | `npm run release:win` from Merrick's Windows box with the gh CLI's token (#296 had already bumped to 0.3.100 and nothing was published from it, so `ship` would have bumped again) | Merrick |
-| Desktop app preview | `v0.3.100-preview.294` | 2026-10-07 | `preview.yml` on push | CI |
+| **Desktop app** stable | v0.3.101 (main `35fc760`; the Settings mirror #373–#375, Never flag this) | 2026-10-17 18:44 | `npm run ship` passed preflight, bumped (#376) and built, then the publish got a 403 from the `.env.release` token (it cannot create releases on Tracely-app/Tracely); published with `npm run release:win` and the gh CLI's token, `TRACELY_ENV=production`. `latest.yml` checked: 0.3.101 | Merrick |
+| Desktop app preview | `v0.3.101-preview.364` | 2026-10-17 | `preview.yml` on push | CI |
 | **Website** `jointracely.com` | main `f0deb13` (#15) | 2026-10-12 04:48 | Vercel — live again (the live files matched main 34 s after the merge; possibly a manual `vercel` deploy — ask Merrick) | Merrick (Vercel) |
 
 ## Not yet deployed / pending
