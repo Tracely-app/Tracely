@@ -225,6 +225,6 @@ test("the model's kind: off by default, and only the start and end of the docume
   const { kindExcerpt } = await import("../lib/kind.js");
   for (const t of ["short", "x".repeat(4_000), `HEAD ${"y".repeat(9_000)} TAIL`]) assert.equal(ON.kindExcerptOf(t), kindExcerpt(t), "the same excerpt on both sides");
   // Both modes read with it, and ask after the read.
-  assert.equal((SRC.match(/\(\{ kind: docKind, shown: docShown \} = kindWithModel\(readKind\((?:docText|fieldText, location\.hostname \+ location\.pathname)\), (?:docText|fieldText)\)\);/g) || []).length, 2);
+  assert.equal((SRC.match(/\(\{ kind: docKind, shown: docShown \} = kindWithUsual\(kindWithModel\(readKind\((?:docText|fieldText, location\.hostname \+ location\.pathname)\), (?:docText|fieldText)\)(?:, location\.hostname \+ location\.pathname)?\)\);/g) || []).length, 2);
   assert.equal((SRC.match(/askKind\((?:docText, ""|fieldText, location\.hostname \+ location\.pathname), api, \(\) => \{ read(?:Doc|Field)Kind\(\); render\(\); \}\);/g) || []).length, 2);
 });

@@ -238,6 +238,7 @@ function loadGate({ features = { typePreview: true }, harness = null, respond = 
   const code = `
     const harness = ${harness === null ? "null" : JSON.stringify(harness)};
     const FEATURES = ${JSON.stringify(features)};
+    let prefs = { previewEdits: true, reviewTyping: true, autoEvidence: true }; // Settings → Checking, at its defaults (content.js PREF_DEFAULTS)
     const IS_DOCS = true, DOC_ID = "doc123", CHECK_INTERVAL_MS = 10000;
     let orphaned = false, bridgeReady = false, docBusy = false;
     let inDoc = { api: true, editable: true, editor: true, ok: true };
@@ -342,7 +343,7 @@ test("undo never shows a preview, and neither does the in-order retry of an acce
 
 test("the gate sits before the steps loop, and the preview is installed only by the switch", () => {
   const run = slice("    async function runDocEdit(key, job) {", "    async function undoLastDocEdit() {");
-  const gate = run.indexOf("if (previewDocEdit && !job.previewed && !editGate.approved.has(key)) {");
+  const gate = run.indexOf("if (previewDocEdit && prefs.previewEdits !== false && !job.previewed && !editGate.approved.has(key)) {"); // Settings → Checking can turn it off
   assert.ok(gate > 0 && gate < run.indexOf("setEditState(key, { state: \"applying\" });"), "asked before Applying…");
   // "Let Tracely fix these" (ext-fix-all.test.js): while preparing, an edit is only recorded — before docBusy, before any step.
   const collect = run.indexOf("if (editGate.collect && key.startsWith(editGate.collect.prefix)) {");

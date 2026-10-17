@@ -46,7 +46,7 @@ let SERVER = LOCAL_SERVER;
 // was how you enabled a site.
 chrome.action?.onClicked?.addListener(() => chrome.runtime.openOptionsPage());
 // options.html's sections (its SECTIONS), the ones the widget may open it at.
-const SETTINGS_SECTIONS = new Set(["general", "checking", "account", "privacy", "help"]);
+const SETTINGS_SECTIONS = new Set(["general", "checking", "citations", "account", "privacy", "help"]);
 
 const API_PATHS = new Set(["/api/status", "/api/check", "/api/flow", "/api/review", "/api/sources", "/api/cite-url", "/api/docs/apply", "/api/entitlement", "/api/compare-source", "/api/sources/stream", "/api/kind"]);
 // The routes that answer as a stream of events (relayStream, over a port).

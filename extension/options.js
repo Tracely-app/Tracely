@@ -3,7 +3,11 @@
    settings to include more that typical settings has"):
      General          on / paused / off, Google Docs, the auto-check sites,
                       the button's corner, the panel on open, the shortcut
-     Checking         the checking model, evidence recommendations
+     Checking         what is flagged, how strict, the usual kind of writing,
+                      the automatic evidence search, the edit preview,
+                      Review all typing; the model, evidence recommendations
+     Citations        the style, the list's heading, links and access dates,
+                      the sources suggested (2.21.63)
      Account and billing   sign-in, the plan card, what's been used
      Privacy and data what leaves the browser, export, clear saved checks,
                       delete the account
@@ -320,8 +324,8 @@ function load() {
   chrome.storage.local.get({ enabledSites: [], docsEnabled: false, prefs: {} }, (cfg) => {
     renderSites(cfg.enabledSites);
     $("docsTgl").checked = cfg.docsEnabled === true;
-    prefs = { ...PREF_DEFAULTS, ...(cfg.prefs && typeof cfg.prefs === "object" ? cfg.prefs : {}) };
-    renderGeneral();
+    prefs = readPrefs(cfg.prefs);
+    renderPrefs();
   });
   refreshAccount(); // fills the plan meters too, once the server has answered
   renderShortcut();
@@ -340,7 +344,7 @@ function load() {
    One panel at a time. The address carries the section (#account …), so a
    reload or a bookmark comes back to it, and the widget's gear can open the
    page at the section it is about. */
-const SECTIONS = ["general", "checking", "account", "privacy", "help"];
+const SECTIONS = ["general", "checking", "citations", "account", "privacy", "help"];
 // Sections a bookmark or an older widget may still name: Google Docs and Sites are in General now.
 const SECTION_MOVED = { docs: "general", sites: "general" };
 function showSection(id) {
@@ -375,12 +379,22 @@ $("docsTgl").addEventListener("change", (e) => chrome.storage.local.set({ docsEn
    chrome.storage "prefs", which content.js reads (its PREF_DEFAULTS: the
    same names and defaults). pausedUntil is 0 running, a time paused until
    then, -1 off until turned back on. */
-const PREF_DEFAULTS = { pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0 };
+const PREF_DEFAULTS = {
+  pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
+  showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
+  citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
+};
 let prefs = { ...PREF_DEFAULTS };
+// What storage holds, over the defaults; a list that isn't one (an older build, a bad write) reads as empty.
+function readPrefs(stored) {
+  const p = { ...PREF_DEFAULTS, ...(stored && typeof stored === "object" ? stored : {}) };
+  if (!Array.isArray(p.avoidSites)) p.avoidSites = [];
+  return p;
+}
 function savePrefs(patch) {
   prefs = { ...prefs, ...patch };
   chrome.storage.local.set({ prefs });
-  renderGeneral();
+  renderPrefs();
 }
 // "4:30 PM", or "midnight" for a pause for today.
 function untilLabel(t) {
@@ -410,6 +424,81 @@ $("pauseToday").addEventListener("click", () => { const d = new Date(); d.setHou
 $("resumeNow").addEventListener("click", () => savePrefs({ pausedUntil: 0 }));
 for (const b of document.querySelectorAll("[data-side]")) b.addEventListener("click", () => savePrefs({ launcherSide: b.dataset.side === "left" ? "left" : "right" }));
 $("panelOpenTgl").addEventListener("change", (e) => savePrefs({ panelOpen: e.target.checked === true }));
+
+function renderPrefs() {
+  renderGeneral();
+  renderChecking();
+  renderCitations();
+}
+
+/* ── Checking: what is flagged, how sure, how fixes go in ────────────────
+   content.js reads each in "Settings → the widget" (flagShown's kindShown,
+   kindWithUsual, autoFindSources, runDocEdit's preview, Review all). */
+const STRICT_LINE = {
+  clear: "Shows only what Tracely is sure of, so you may miss a real mistake.",
+  balanced: "Shows everything Tracely finds.",
+  thorough: "Also asks for a source for general statements, and for a figure a later citation in its paragraph might cover.",
+};
+const CHECK_SWITCHES = ["showEvidence", "showCitations", "autoEvidence", "previewEdits", "reviewTyping"];
+function renderChecking() {
+  for (const id of CHECK_SWITCHES) $(id).checked = prefs[id] !== false;
+  const strict = STRICT_LINE[prefs.strictness] ? prefs.strictness : "balanced";
+  for (const b of document.querySelectorAll("[data-strict]")) b.setAttribute("aria-pressed", String(b.dataset.strict === strict));
+  $("strictLine").textContent = STRICT_LINE[strict];
+  $("usualKind").value = typeof prefs.usualKind === "string" ? prefs.usualKind : ""; // its options are options.html's, named as content.js WRITING_KINDS names them
+}
+for (const id of CHECK_SWITCHES) $(id).addEventListener("change", (e) => savePrefs({ [id]: e.target.checked === true }));
+for (const b of document.querySelectorAll("[data-strict]")) b.addEventListener("click", () => savePrefs({ strictness: b.dataset.strict }));
+$("usualKind").addEventListener("change", (e) => savePrefs({ usualKind: e.target.value }));
+
+/* ── Citations: the style, the list's heading, the entries, the sources ── */
+const MLA_MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."]; // content.js CITE_MLA_MONTHS
+function renderCitations() {
+  $("citeStyle").value = ["match", "mla", "apa", "chicago"].includes(prefs.citeStyle) ? prefs.citeStyle : "match";
+  $("listHeading").value = ["Works Cited", "References", "Bibliography"].includes(prefs.listHeading) ? prefs.listHeading : "";
+  $("citeLinks").checked = prefs.citeLinks !== false;
+  $("citeAccessed").checked = prefs.citeAccessed === true;
+  $("citableOnly").checked = prefs.citableOnly === true;
+  const d = new Date();
+  $("accessedLine").textContent = `Adds the day you read a web page, which some teachers ask for. In MLA: “Accessed ${d.getDate()} ${MLA_MONTHS[d.getMonth()]} ${d.getFullYear()}.”`;
+  renderAvoidSites(prefs.avoidSites);
+}
+$("citeStyle").addEventListener("change", (e) => savePrefs({ citeStyle: e.target.value }));
+$("listHeading").addEventListener("change", (e) => savePrefs({ listHeading: e.target.value }));
+for (const id of ["citeLinks", "citeAccessed", "citableOnly"]) $(id).addEventListener("change", (e) => savePrefs({ [id]: e.target.checked === true }));
+/* A site as content.js compares it (credHost): the host, lower case, without
+   "www." — "https://www.Example.org/page" is example.org. Null when it isn't one. */
+function siteOf(input) {
+  const raw = String(input ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  let host = raw;
+  try { host = new URL(/^[a-z]+:\/\//.test(raw) ? raw : `https://${raw}`).hostname; } catch { return null; }
+  host = host.replace(/^www\./, "");
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? host : null;
+}
+function renderAvoidSites(sites) {
+  const ul = $("avoidList");
+  ul.textContent = "";
+  for (const site of Array.isArray(sites) ? sites : []) {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.className = "origin";
+    span.textContent = site;
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.addEventListener("click", () => savePrefs({ avoidSites: prefs.avoidSites.filter((s) => s !== site) }));
+    li.append(span, btn);
+    ul.appendChild(li);
+  }
+}
+$("avoidForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const site = siteOf($("avoidInput").value);
+  if (!site) { $("citationsStatus").textContent = "That isn't a site. Try one like wikipedia.org."; return; }
+  $("avoidInput").value = "";
+  $("citationsStatus").textContent = "";
+  if (!prefs.avoidSites.includes(site)) savePrefs({ avoidSites: [...prefs.avoidSites, site] });
+});
 
 /* The keyboard shortcut (manifest "commands": toggle-panel). Chrome owns the
    key: this page shows the one set, and Change opens Chrome's own page. */
@@ -453,6 +542,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.63", "Settings for what Tracely flags and how strict it is, your usual kind of writing, citation style, links and access dates, and sources to leave out."],
   ["2.21.62", "A new Settings: pause or turn Tracely off, move its button, a keyboard shortcut, your usage, export and clear your data, and this Help."],
   ["2.21.61", "Review all never cuts a suggestion off, says how many are out of view, and stops with one press (or Esc)."],
   ["2.21.60", "A source named but not cited is flagged; names in capitals like UNESCO count as names."],
@@ -534,7 +624,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabledSites) renderSites(changes.enabledSites.newValue ?? []);
   // Resumed or turned on from the widget's own card while this page is open.
-  if (changes.prefs) { prefs = { ...PREF_DEFAULTS, ...(changes.prefs.newValue ?? {}) }; renderGeneral(); }
+  if (changes.prefs) { prefs = readPrefs(changes.prefs.newValue); renderPrefs(); }
   if (changes.docsEnabled) $("docsTgl").checked = changes.docsEnabled.newValue === true;
   // The widget's gear while this page is already open in a tab.
   if (changes.settingsOpenAt?.newValue) takeOpenAt(changes.settingsOpenAt.newValue);

@@ -81,6 +81,7 @@ function load({ nolist = false, inline = [] } = {}) {
   const X = vm.runInContext(`
     const harness = null;
     const FEATURES = { typePreview: true, refList: true };
+    let prefs = { previewEdits: true, reviewTyping: true, autoEvidence: true }; // Settings → Checking, at its defaults (content.js PREF_DEFAULTS)
     let docGenre = "prose";
     // An essay that cites works and has no list: its note, and "Add Works Cited" as far as the batch sees it.
     const NOLIST = { id: "tip:nolist", kind: "nolist", quote: "", label: "No Works Cited" };

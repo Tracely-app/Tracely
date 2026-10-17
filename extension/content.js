@@ -105,9 +105,10 @@
     // when a citation later in the same paragraph already carries it
     // (`covered`, coveredByLaterCitation): a generalization followed by its
     // cited evidence is how essays are written.
-    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || covered))
-    // "Worth checking" is for something specific that cannot be verified.
-    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text))
+    && !(f.verdict === "needs_citation" && typeof text === "string" && (!citationWorthy(text) || (covered && !checkThorough())))
+    // "Worth checking" is for something specific that cannot be verified
+    // (Settings → Checking → Thorough asks a source for a general one too).
+    && !(f.verdict === "questionable" && typeof text === "string" && isGeneralStatement(text) && !checkThorough())
     // On a resume or letter, "questionable" is the same mistake in a softer
     // word — an unverifiable claim about the author (seen on a contact line).
     // The server's genre clause: "never questionable". "false" still shows.
@@ -117,7 +118,22 @@
     // writer's note, not a claim: owner, 2026-10-08, "tracely is trying to
     // cite this instead of remove it". Its own note (kind "excuse") offers
     // Delete; a verdict here would offer to find it a source.
-    && !(typeof text === "string" && EXCUSE_SENTENCE.test(text));
+    && !(typeof text === "string" && EXCUSE_SENTENCE.test(text))
+    // Settings → Checking: the kinds the writer turned off, and how sure a finding must be.
+    && kindShown(f);
+  /* Settings → Checking (prefs, "Settings → the widget"). A page with no
+     extension storage (a test page) reads the defaults. A factual error is
+     never switched off; "Only clear errors" keeps what the check was sure
+     of (confidence "high"; the server says "medium" when the model says
+     nothing), so it can hide a real mistake, which the setting says. */
+  const checkPref = (k, d) => (typeof prefs === "object" && prefs ? prefs[k] ?? d : d);
+  const checkThorough = () => checkPref("strictness", "balanced") === "thorough";
+  function kindShown(f) {
+    if (checkPref("strictness", "balanced") === "clear" && (f.confidence ?? "medium") !== "high") return false;
+    if (f.verdict === "questionable") return checkPref("showEvidence", true) !== false;
+    if (f.verdict === "needs_citation" || f.verdict === "wrong_source") return checkPref("showCitations", true) !== false;
+    return true;
+  }
   // PRESTIGE_EXCUSE's pattern (citationHygieneTips), here because flagShown is
   // read without that section; ext-card-fixes.test.js keeps the two the same.
   const EXCUSE_SENTENCE = /\b(?:does not|doesn't|do not|don't|did not|didn't) need (?:a |an |the |any )?(?:publication |publishing )?(?:date|author|citation|page(?: number)?|year|source)\b/i;
@@ -500,13 +516,40 @@
        panelOpen   — Docs opens with the panel open.
        clearedAt   — "Clear saved checks": this page's saved checks, sources
                      and dismissed notes go the next time it looks (clearTracelyStore).
+     Checking (2.21.63):
+       showEvidence, showCitations — whether "Needs evidence" and the citation
+                     findings show at all (kindShown). A factual error always does.
+       strictness  — "clear" shows only what the check was sure of (confidence
+                     "high"); "balanced" is as before; "thorough" also asks a
+                     source for a general statement, and for a figure a later
+                     citation in its paragraph may carry (flagShown).
+       usualKind   — "My writing is usually…": the kind read when the rules
+                     aren't sure (kindWithUsual); "" lets Tracely tell.
+       autoEvidence, previewEdits, reviewTyping — the automatic evidence
+                     search, the preview before an edit goes in, the cursor
+                     typing Review all's suggestions.
+     Citations (2.21.63):
+       citeStyle   — "match" each document's own style (MLA when it says
+                     nothing), or one style everywhere (citeStyleFor). The
+                     widget's style picker writes it too.
+       listHeading — the reference list's heading; "" is the style's own (refHeadingFor).
+       citeLinks, citeAccessed — the DOI or URL at the end of an entry, and
+                     the day a web page was read (formatCitation).
+       citableOnly, avoidSites — which sources are offered (sourceAllowed).
      A plain test page has no extension storage and keeps the defaults. */
-  const PREF_DEFAULTS = { pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0 };
+  const PREF_DEFAULTS = {
+    pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0,
+    showEvidence: true, showCitations: true, strictness: "balanced", usualKind: "", autoEvidence: true, previewEdits: true, reviewTyping: true,
+    citeStyle: "match", listHeading: "", citeLinks: true, citeAccessed: false, citableOnly: false, avoidSites: [],
+  };
   let prefs = { ...PREF_DEFAULTS };
+  let prefsStored = {}; // what storage holds, before the defaults: a style picked before 2.21.63 moves in once (citeStyleFor)
   const prefsListeners = new Set();
   let prefsResumeTmr = 0;
   function notePrefs(next) {
-    prefs = { ...PREF_DEFAULTS, ...(next && typeof next === "object" ? next : {}) };
+    prefsStored = next && typeof next === "object" ? next : {};
+    prefs = { ...PREF_DEFAULTS, ...prefsStored };
+    if (!Array.isArray(prefs.avoidSites)) prefs.avoidSites = [];
     // A pause with an end: wake when it ends, so the checking comes back on its own.
     clearTimeout(prefsResumeTmr);
     const left = prefs.pausedUntil > 0 ? prefs.pausedUntil - Date.now() : 0;
@@ -522,6 +565,42 @@
   const resumeTracely = () => storageSet({ prefs: { ...prefs, pausedUntil: 0 } });
   // The launcher's corner, on the widget's root.
   const placeRoot = (root) => root?.classList?.toggle("left", prefs.launcherSide === "left");
+  // A change made in the widget (the style picker) is the Settings page's too: written, and heard here at once.
+  function setPrefs(patch) {
+    notePrefs({ ...prefsStored, ...patch });
+    storageSet({ prefs: { ...prefsStored } });
+  }
+  /* The style a document is cited in: the one Settings names, else the
+     document's own (docCitationStyle), else MLA. A style the writer picked
+     in the widget before 2.21.63 was kept with the site (`styleChosen`): it
+     moves into Settings the first time a page sees both (adoptStylePick). */
+  const isCiteStyle = (s) => CITE_STYLES.some(([k]) => k === s);
+  function citeStyleFor(text) {
+    return isCiteStyle(prefs.citeStyle) ? prefs.citeStyle : docCitationStyle(text) ?? "mla";
+  }
+  function adoptStylePick(settings) {
+    if ("citeStyle" in prefsStored || !settings?.styleChosen || !isCiteStyle(settings.citationStyle)) return;
+    // Called from a prefs listener: noted here without running the listeners again; storage tells every page.
+    prefsStored = { ...prefsStored, citeStyle: settings.citationStyle };
+    prefs.citeStyle = settings.citationStyle;
+    storageSet({ prefs: prefsStored });
+  }
+  /* "My writing is usually…": where the rules aren't sure of the kind (the
+     header names none) and the site doesn't say (placeKind), the writer's
+     usual kind is read instead. A shape Tracely is sure of — a letter, code,
+     a poem — is never overridden. */
+  // Sources already found: what Settings now leaves out goes from them too (backingSources filters the new ones).
+  function refilterSources(map) {
+    for (const st of map.values()) {
+      if (Array.isArray(st?.list)) st.list = st.list.filter(sourceAllowed);
+      if (Array.isArray(st?.unread)) st.unread = st.unread.filter(sourceAllowed);
+    }
+  }
+  function kindWithUsual(read, place = "") {
+    const usual = prefs.usualKind;
+    if (read.shown || !WRITING_KINDS[usual] || (place && PLACE_KINDS.some(([re]) => re.test(place)))) return read;
+    return { kind: usual, shown: usual };
+  }
   /* "Clear saved checks" (Settings → Privacy and data): this origin's saved
      checks, sources, dismissed notes and reviews go. The settings, the panel's
      place and the clear's own mark stay. True when it cleared something new. */
@@ -817,6 +896,9 @@
      number to parse, and deduping only needs to know whether a source's
      address is already in one. */
   const REF_HEADINGS = { mla: "Works Cited", apa: "References", chicago: "References" };
+  // The heading a list Tracely adds gets: the one Settings → Citations names, else the style's own.
+  const LIST_HEADINGS = ["Works Cited", "References", "Bibliography"];
+  const refHeadingFor = (style) => (typeof prefs === "object" && LIST_HEADINGS.includes(prefs?.listHeading) ? prefs.listHeading : REF_HEADINGS[style] ?? REF_HEADINGS.mla);
   /* The order a reference list is kept in: by its first word, the way MLA,
      APA and Chicago all alphabetise — opening quotes and brackets ignored, and
      a leading "A", "An" or "The" skipped (a title-first entry files under its
@@ -1031,6 +1113,22 @@
     return s;
   }
 
+  /* Settings → Citations: the DOI or URL at an entry's end (citeLinks), and
+     the day a web page was read (citeAccessed), in each style's words: MLA
+     "Accessed 16 Oct. 2026." at the end, Chicago "Accessed October 16,
+     2026." before the link, APA "Retrieved October 16, 2026, from" the
+     link (APA dates a retrieval only with its address). A page with no
+     extension storage keeps the defaults: the link, no date. */
+  function citeEntryEnd({ doc, ref, marker }, style, locator, webPage) {
+    const o = typeof prefs === "object" && prefs ? prefs : {};
+    const links = o.citeLinks !== false && Boolean(locator);
+    if (o.citeAccessed !== true || !webPage) return { doc, ref: links ? ref : doc, marker };
+    const now = new Date();
+    if (style === "mla") return { doc, ref: `${links ? ref : doc} Accessed ${now.getDate()} ${CITE_MLA_MONTHS[now.getMonth()]} ${now.getFullYear()}.`, marker };
+    const day = `${CITE_MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    if (style === "chicago") return { doc, ref: `${doc} Accessed ${day}.${links ? ` ${citeEndDot(locator)}` : ""}`, marker };
+    return { doc, ref: links ? `${doc} Retrieved ${day}, from ${locator}` : doc, marker };
+  }
   function formatCitation(src, style) {
     const url = citeStr(src.url);
     const title = citeStr(src.title || src.url).replace(/[.]\s*$/, "") || url;
@@ -1052,6 +1150,7 @@
     const doi = citeStr(src.doi).replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
     const permalink = citeStr(src.permalink);
     const locator = doi ? `https://doi.org/${doi}` : (isRef && permalink && hasDay ? permalink : url);
+    const webPage = !doi && !isJournal && !isBookLike && !isChapter; // what an access date is for
     const vol = citeStr(src.volume), iss = citeStr(src.issue), pages = citeStr(src.pages);
     const join = (parts) => parts.filter(Boolean).join(" ");
     const edList = (fmt, amp) => (editors.length === 2
@@ -1087,7 +1186,7 @@
       else if (people.length > 2) lead = `${people[0].family} et al.`;
       else if (group && !authorIsPublisher) lead = group;
       else lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
-      return { doc, ref, marker: `(${lead})` };
+      return citeEntryEnd({ doc, ref, marker: `(${lead})` }, style, locator, webPage);
     }
 
     if (style === "chicago") {
@@ -1125,7 +1224,7 @@
       const doc = join(parts);
       const ref = join([doc, citeEndDot(locator)]);
       if (!lead) lead = standalone ? citeShortTitle(title) : `“${citeShortTitle(title)}”`;
-      return { doc, ref, marker: `(${lead} ${y})` };
+      return citeEntryEnd({ doc, ref, marker: `(${lead} ${y})` }, style, locator, webPage);
     }
 
     // APA 7
@@ -1158,7 +1257,7 @@
     const ref = join([...parts, locator]);
     if (!lead) lead = standalone || (!isRef && kind !== "news" && !isJournal && !isChapter) ? citeShortTitle(title) : `“${citeShortTitle(title)},”`;
     const marker = lead.endsWith(",”") ? `(${lead} ${year ?? "n.d."})` : `(${lead}, ${year ?? "n.d."})`;
-    return { doc, ref, marker };
+    return citeEntryEnd({ doc, ref, marker }, style, locator, webPage);
   }
 
   /* ── sentence boundaries: the server's rules, inlined ─────────────────
@@ -3085,8 +3184,20 @@
      (`verified: false`) is never backing, whatever its stance: it goes to
      `unread`, shown collapsed with Open only — never Cite or Copy cite. An
      older server sends no `verified`, and its sources behave as before. */
+  /* Settings → Citations → Sources: a site the writer never wants suggested
+     (avoidSites: the site or any part of it), and with "Only sources
+     teachers usually accept" (citableOnly) only the citable tiers
+     (credibilityOf). Left out entirely, as if the search never found them.
+     A source the writer pasted (stance "manual") is theirs and always kept;
+     a page with no extension storage filters nothing. */
+  function sourceAllowed(s) {
+    if (!s || s.stance === "manual" || typeof prefs !== "object" || !prefs) return true;
+    const host = credHost(s.url);
+    if (host && (prefs.avoidSites ?? []).some((d) => host === d || host.endsWith(`.${d}`))) return false;
+    return !prefs.citableOnly || credibilityOf(s).citable === true;
+  }
   function backingSources(list, verdict) {
-    const all = Array.isArray(list) ? list : [];
+    const all = (Array.isArray(list) ? list : []).filter(sourceAllowed);
     const unread = all.filter((s) => s && s.verified === false);
     const keep = all.filter((s) => s && s.verified !== false && (s.stance === undefined || s.stance === "manual" || s.stance === "supports" ||
       (s.stance === "refutes" && (verdict === "false" || verdict === "incoherent"))));
@@ -3947,6 +4058,9 @@
   ];
   const verdictCat = (v) => (v === "questionable" ? "check" : v === "needs_citation" || v === "wrong_source" ? "cite" : "wrong");
   const tipCat = (t) => (CITE_TIP_KINDS.includes(t?.kind) ? "cite" : EVIDENCE_TIP_KINDS.includes(t?.kind) ? "check" : "writing");
+  // Settings → Checking: a note of a kind the writer turned off is not listed (the verdicts' half is flagShown). No storage, no switch.
+  const tipKindsOn = () => (typeof prefs === "object" && prefs ? { check: prefs.showEvidence !== false, cite: prefs.showCitations !== false } : { check: true, cite: true });
+  const tipKindShown = (t) => tipKindsOn()[tipCat(t)] !== false;
   // The header's counts: the claims' verdicts, and every note the list shows.
   function tallyOf(verdicts, tips) {
     const c = { wrong: 0, check: 0, cite: 0, writing: 0 };
@@ -4098,7 +4212,7 @@
       ...citationTips(text, style, dismissed, genre),
       ...(FEATURES.refList ? referenceTips(text, dismissed, genre, style) : []),
       ...(FEATURES.essayFeedback && review.kind === "essay" ? essayFeedbackTips(text, review.findings, dismissed) : []),
-    ];
+    ].filter(tipKindShown);
   }
   // The citation notes and the reference list's, as one group: both are about citing.
   // Sources nobody could find are claims that need evidence: a group of their own, before the citations.
@@ -4182,7 +4296,7 @@
     if (!genreWantsList(genre)) return [];
     const works = citedWorksWithoutList(text);
     if (!works.length) return [];
-    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    const list = refHeadingFor(style);
     const named = works.slice(0, 3).map((w) => w.raw).join(", ") + (works.length > 3 ? ` and ${works.length - 3} more` : "");
     return [{
       id: "tip:" + hashText(`nolist|${works.map((w) => w.key).join(",")}`), quote: "", kind: "nolist", label: `No ${list}`, suggestion: "",
@@ -4344,7 +4458,7 @@
     script: "This reads as a script — nothing in it needs a source, so Tracely is staying quiet.",
   };
   function genreCiteNote(genre, text, style) {
-    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    const list = refHeadingFor(style);
     switch (genre) {
       case "dbq": return "cite the documents by number, like (Doc 3); outside evidence needs no source, and a DBQ has no Works Cited";
       case "research": return `every finding needs an in-text citation and an entry in your ${list}`;
@@ -4372,7 +4486,7 @@
     lyrics: "This reads as song lyrics — nothing in them needs a source, so Tracely is staying quiet.",
   };
   function kindCiteNote(kind, style) {
-    const list = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+    const list = refHeadingFor(style);
     switch (kind) {
       case "rhetorical": return `quote the text you're analyzing and list it in your ${list}`;
       case "summary": return `cite the work you're responding to and list it in your ${list}`;
@@ -5406,8 +5520,12 @@
       if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); requestDocsMarks(); }
       if (!prefsSeen) { prefsSeen = true; if (prefs.panelOpen && docsOn && !tracelyPaused()) expanded = true; }
       if (tracelyPaused()) { hideDocsPopover(); clearDocsMarks(); }
+      // Checking and Citations, on the text already read: the kind of writing, the style, the sources offered, what is underlined.
+      adoptStylePick(settings);
+      if (docText) { readDocKind(); settings.citationStyle = citeStyleFor(docText); }
+      refilterSources(sourcesMap);
       render(); // (a storage answer comes after this mode is set up: the widget is there)
-      if (!tracelyPaused()) cycle();
+      if (!tracelyPaused()) { requestDocsMarks(); cycle(); }
     });
     panelTogglers.add(() => { expanded = !expanded; render(); });
     /* ── flow coaching state ──────────────────────────────────────────────
@@ -5567,7 +5685,7 @@
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
     // The kind of writing (readKind), or the model's when it has named one (kindWithModel); its genre decides the checks.
     function readDocKind() {
-      ({ kind: docKind, shown: docShown } = kindWithModel(readKind(docText), docText));
+      ({ kind: docKind, shown: docShown } = kindWithUsual(kindWithModel(readKind(docText), docText)));
       docGenre = WRITING_KINDS[docKind].genre;
     }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
@@ -5707,7 +5825,7 @@
         sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(docText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
-        if (!settings.styleChosen) settings.citationStyle = docCitationStyle(docText) ?? "mla"; // cite the way the doc already does
+        settings.citationStyle = citeStyleFor(docText); // the style Settings names, else the way the doc already cites
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -7594,7 +7712,7 @@
       scroll.appendChild(rows);
       const yn = citedYearNote(src.year, c.plan?.citedYear);
       if (yn) scroll.appendChild(dmBlock("THE YEAR", dmBlockBody(yn)));
-      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; settings.styleChosen = true; saveSettings(); paintPop(); render(); }));
+      scroll.appendChild(dmStyles(style, (k) => { settings.citationStyle = k; settings.styleChosen = true; saveSettings(); setPrefs({ citeStyle: k }); paintPop(); render(); }));
       const { marker, entry } = citedWorkEntry(src, style);
       const swapped = t?.kind === "sentence" && t.raw ? swapCitation(t.sentence, t.raw, marker, style) : null;
       // The sentence already cites it as the style would ("(Shiraishi)" in
@@ -7945,7 +8063,7 @@
           : s.replaced
             ? `${c ? c.marker : "The source"} now stands where the citation that couldn't be traced was. ${CITE_STYLE_LABEL[style]} in-text citation.`
             : `This claim is now backed by a source in your document. ${CITE_STYLE_LABEL[style]} in-text citation inserted.`));
-        const listName = s.citedList || REF_HEADINGS[style] || "Works Cited";
+        const listName = s.citedList || refHeadingFor(style);
         if (paste) put(dmBlock(`ADD THIS TO YOUR ${listName.toUpperCase()}`, dmBlockBody(paste)));
         else if (c) put(dmBlock(`ADDED TO ${listName.toUpperCase()}`, dmBlockBody(c.ref)));
         const left = segments.filter((x) => x.hash !== hash && flagShown(cache.get(x.hash), settings, docGenre, x.text, citedLater.has(x.hash), sourceAttr.get(x.hash)) && !dismissed.has(x.hash)).length;
@@ -8070,7 +8188,7 @@
       // under the line, and with these fixed the list was what collapsed —
       // to nothing. Its own rule decides it: the header and the buttons
       // never move, everything between them gives.
-      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; settings.styleChosen = true; persistSettings(settings, SETTINGS_KEY); paintPop(); }));
+      scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; settings.styleChosen = true; persistSettings(settings, SETTINGS_KEY); setPrefs({ citeStyle: key }); paintPop(); }));
       // Naming the source rewrites the writer's words, so what the sentence
       // will say is shown without asking, not behind Preview.
       const named = src && !replace ? nameTheSource(seg.text, src, style) : null;
@@ -8686,6 +8804,7 @@
     // Auto-sources for flagged claims — capped per cycle and per rolling hour.
     // "Needs evidence" always (EVIDENCE_FIRST); the rest only with Auto-src on (cost).
     async function autoFindSources(findings) {
+      if (prefs.autoEvidence === false) return; // Settings → Checking: the writer searches when they choose
       const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
       const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
       const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
@@ -8748,7 +8867,7 @@
     let tipsMemo = null;
     function allTips() {
       if (!isArgumentGenre(docGenre)) return [];
-      const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
+      const k = { text: docText, gone: dismissed.size, review: review.findings, style: settings.citationStyle, kinds: JSON.stringify(tipKindsOn()), genre: docGenre };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
       tipsMemo = { k, list: tipsOf(docText, docGenre, dismissed, review, settings.citationStyle) };
       return tipsMemo.list;
@@ -8857,7 +8976,7 @@
       }
       if (tip?.kind === "nolist" && canEditDoc()) {
         const lb = listBuilds.get(key);
-        buttons.push(editBtnHtml(`list:${key}`, lb?.loading ? "Looking up the cited works…" : `Add ${REF_HEADINGS[settings.citationStyle] ?? REF_HEADINGS.mla}`, `data-tip-list="${esc(key)}"${lb?.loading ? " disabled" : ""}`));
+        buttons.push(editBtnHtml(`list:${key}`, lb?.loading ? "Looking up the cited works…" : `Add ${refHeadingFor(settings.citationStyle)}`, `data-tip-list="${esc(key)}"${lb?.loading ? " disabled" : ""}`));
       }
       let html = fixBtn ? editNoteHtml(`del:${key}`) : "";
       if (tip?.kind === "nolist") html += editNoteHtml(`list:${key}`) + (listBuildNote(listBuilds.get(key)) ? `<div class="src-snip">${esc(listBuildNote(listBuilds.get(key)))}</div>` : "");
@@ -9167,7 +9286,8 @@
         return false;
       }
       docBusy = true;
-      if (previewDocEdit && !job.previewed && !editGate.approved.has(key)) {
+      // Settings → Checking → Preview each edit off: the click is the go-ahead, and Undo takes it back.
+      if (previewDocEdit && prefs.previewEdits !== false && !job.previewed && !editGate.approved.has(key)) {
         let accepted = false;
         try { accepted = await previewDocEdit(key, job); } catch { accepted = false; }
         if (!accepted) {
@@ -9617,7 +9737,7 @@
       const hint = segHint(seg, anchor);
       const style = settings.citationStyle || "mla";
       const marker = styled.marker;
-      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const heading = refHeadingFor(style);
       const list = worksCitedBlock(docText);
       const doi = String(src.doi ?? "").replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/i, "");
       // By address WITHOUT its scheme: MLA prints "example.com/wall", APA
@@ -9816,7 +9936,7 @@
       const built = await buildWorksCited(tipId);
       if (!built || built.loading || worksCitedBlock(docText)) return false;
       const style = settings.citationStyle || "mla";
-      const heading = REF_HEADINGS[style] ?? REF_HEADINGS.mla;
+      const heading = refHeadingFor(style);
       const lines = [heading, ...built.entries];
       const key = `list:${tipId}`;
       // Docs' end of document has to be one the hook can append to (its text API, and a dry run that
@@ -11107,7 +11227,7 @@
       const plan = walkInputs();
       const b = { items: plan.items.map((it) => ({ ...it, status: "waiting", why: "", dropped: false })), left: plan.left, preparing: true, stopped: false, applying: false };
       fixBatch = b;
-      fixTour = { queue: [], running: false };
+      fixTour = { queue: [], running: false, instant: prefs.reviewTyping === false }; // Settings → Checking: typed, or in place at once
       expanded = false; // the panel gets out of the way: the suggestions go in the doc
       render();
       Promise.allSettled(b.items.map((it) => prepareFix(it, b).catch((err) => {
@@ -12257,6 +12377,9 @@
     // Settings (prefs), as in Docs mode: a pause draws nothing and checks nothing; "Clear saved checks" empties this page too.
     prefsListeners.add(() => {
       if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); }
+      adoptStylePick(settings);
+      if (fieldText) { readFieldKind(); settings.citationStyle = citeStyleFor(fieldText); }
+      refilterSources(sourcesMap);
       render();
     });
     panelTogglers.add(() => { if (!tracked) return; expanded = !expanded; render(); });
@@ -12282,7 +12405,7 @@
     let docShown = "";        // the kind the header names, "" when unsure (readKind)
     // The kind of writing (readKind, the site counting too), or the model's when it has named one; its genre decides the checks.
     function readFieldKind() {
-      ({ kind: docKind, shown: docShown } = kindWithModel(readKind(fieldText, location.hostname + location.pathname), fieldText));
+      ({ kind: docKind, shown: docShown } = kindWithUsual(kindWithModel(readKind(fieldText, location.hostname + location.pathname), fieldText), location.hostname + location.pathname));
       docGenre = WRITING_KINDS[docKind].genre;
     }
     const review = { lastText: null, findings: [], at: 0, okAt: 0, inflight: false, unavailable: false, serving: null, kind: null, seen: new Map() };
@@ -12754,7 +12877,7 @@
         fieldText = newText;
         readFieldKind(); // the site counts too (placeKind)
         askKind(fieldText, location.hostname + location.pathname, api, () => { readFieldKind(); render(); });
-        if (!settings.styleChosen) settings.citationStyle = docCitationStyle(fieldText) ?? "mla";
+        settings.citationStyle = citeStyleFor(fieldText);
         if (fieldText.trim().length < MIN_FIELD_CHARS) {
           statusKind = "idle";
           statusMsg = `field under ${MIN_FIELD_CHARS} characters — keep writing`;
@@ -12874,6 +12997,7 @@
     // Auto-sources — same toggle and rolling-hour guard as docs mode. Only
     // reachable after a check, which on a non-enabled site takes a click.
     async function autoFindSources(findings) {
+      if (prefs.autoEvidence === false) return; // Settings → Checking: the writer searches when they choose
       const optIn = FEATURES.autoSources && settings.autoSources === true ? AUTO_SOURCE_VERDICTS : [];
       const shown = new Set(currentIssues().map(({ seg }) => seg.hash));
       const picks = autoSearchPicks(findings, { optIn, left: searchesLeft(),
@@ -12925,7 +13049,7 @@
     let tipsMemo = null;
     function allTips() {
       if (!isArgumentGenre(docGenre)) return [];
-      const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle };
+      const k = { text: fieldText, gone: dismissed.size, review: review.findings, style: settings.citationStyle, kinds: JSON.stringify(tipKindsOn()), genre: docGenre };
       if (tipsMemo && Object.keys(k).every((x) => tipsMemo.k[x] === k[x])) return tipsMemo.list;
       tipsMemo = { k, list: tipsOf(fieldText, docGenre, dismissed, review, settings.citationStyle) };
       return tipsMemo.list;

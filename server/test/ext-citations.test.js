@@ -364,10 +364,13 @@ test("no citation carries a retrieval or access date, and n.d. appears only when
       }
     }
   }
-  // The formatter no longer reads the clock at all — a date in a citation is
-  // the source's, never today's.
+  // A date in a citation is the source's, never today's (2.19.4: the old
+  // formatter stamped today's on every source). The one clock read is an
+  // access date the writer asked for in Settings → Citations (citeAccessed,
+  // off by default), on a web page only (ext-settings-checking.test.js).
   const src = contentSlice("  // ── citation formatting ──", "  function segmentText(");
-  assert.ok(!/new Date\(|Date\.now\(/.test(src), "formatCitation reads the clock again");
+  assert.equal((src.match(/new Date\(|Date\.now\(/g) || []).length, 1, "formatCitation reads the clock again");
+  assert.match(src, /if \(o\.citeAccessed !== true \|\| !webPage\) return \{ doc, ref: links \? ref : doc, marker \};\n\s+const now = new Date\(\);/, "only behind the switch");
 });
 
 test("every doc line stays one line that sourcesBlock parses back to its url", () => {

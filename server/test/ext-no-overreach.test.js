@@ -61,7 +61,7 @@ test("no writing tips: no review is asked for, no tip is shown", () => {
 test("the kind of writing is still read, whatever tips are on: it decides what is checked", () => {
   // Since 2.21.57 the kind (readKind) decides the genre, and the header names what it is sure of.
   assert.equal((SRC.match(/read(?:Doc|Field)Kind\(\); \/\/ (?:always, tips or none|the site counts too \(placeKind\))/g) || []).length, 2);
-  assert.equal((SRC.match(/\(\{ kind: docKind, shown: docShown \} = kindWithModel\(readKind\((?:docText|fieldText, location\.hostname \+ location\.pathname)\), (?:docText|fieldText)\)\);\n\s+docGenre = WRITING_KINDS\[docKind\]\.genre;/g) || []).length, 2);
+  assert.equal((SRC.match(/\(\{ kind: docKind, shown: docShown \} = kindWithUsual\(kindWithModel\(readKind\((?:docText|fieldText, location\.hostname \+ location\.pathname)\), (?:docText|fieldText)\)(?:, location\.hostname \+ location\.pathname)?\)\);\n\s+docGenre = WRITING_KINDS\[docKind\]\.genre;/g) || []).length, 2);
   assert.doesNotMatch(SRC, /docGenre = FEATURES\.resumeTips \?/);
   assert.equal(X.detectGenre("Hi Ms. Carter,\n\nI was absent on Friday and wanted to ask about the essay due tomorrow. Please let me know.\n\nBest,\nMaya"), "email");
 });

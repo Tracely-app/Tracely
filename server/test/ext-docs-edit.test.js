@@ -909,6 +909,7 @@ function loadWiring({ harness = null, respond = () => undefined, clipboard = "ok
   });
   const code = `
     const harness = ${harness ? "{ getText: () => '' }" : "null"};
+    let prefs = { previewEdits: true, reviewTyping: true, autoEvidence: true }; // Settings → Checking, at its defaults (content.js PREF_DEFAULTS)
     const IS_DOCS = true;
     const DOC_ID = "doc123";
     const CHECK_INTERVAL_MS = 10000;

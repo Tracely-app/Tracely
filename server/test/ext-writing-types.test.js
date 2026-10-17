@@ -137,8 +137,9 @@ test("Tracely cites the way the document already does — and MLA when it says n
   assert.equal(X.docCitationStyle("Trade grew.¹ Cities followed.²\nBibliography\nAllsen, Thomas. Culture and Conquest. 2001."), "chicago");
   assert.equal(X.docCitationStyle("An essay with no citations at all."), null);
   assert.match(SRC, /settings\.styleChosen = obj\.styleChosen \?\? Boolean\(obj\.citationStyle && obj\.citationStyle !== "mla"\);/, "a style picked before this build still counts as picked");
-  assert.equal((SRC.match(/if \(!settings\.styleChosen\) settings\.citationStyle = docCitationStyle\((?:docText|fieldText)\) \?\? "mla";/g) || []).length, 2, "both modes, every read");
-  assert.equal((SRC.match(/settings\.citationStyle = (?:k|key); settings\.styleChosen = true;/g) || []).length, 2, "a pick in the card wins from then on");
+  // Since 2.21.63 the style is Settings' (prefs.citeStyle), else the document's own (citeStyleFor; ext-settings-checking.test.js).
+  assert.equal((SRC.match(/settings\.citationStyle = citeStyleFor\((?:docText|fieldText)\);/g) || []).length, 4, "both modes, every read and when Settings changes");
+  assert.equal((SRC.match(/settings\.citationStyle = (?:k|key); settings\.styleChosen = true; (?:saveSettings\(\)|persistSettings\(settings, SETTINGS_KEY\)); setPrefs\(\{ citeStyle: (?:k|key) \}\);/g) || []).length, 2, "a pick in the card is Settings' style from then on");
 });
 
 test("no Works Cited: the cited works, the note, and only a record that plainly is the cited work", () => {

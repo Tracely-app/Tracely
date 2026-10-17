@@ -597,7 +597,7 @@ const PAID = { signedIn: true, email: "p@example.com", plan: "pro", unenforced: 
 
 test("options: the checking-model hint says every plan runs the same model", () => {
   const html = read("options.html");
-  assert.match(html, /<h2>Checking model<\/h2>/);
+  assert.match(html, /<h3 class="group">The checking model<\/h3>/); // under Checking since 2.21.63
   assert.match(html, /Every plan checks with the same model/);
   assert.match(html, /Bigger models weren’t better at catching false or uncited claims/);
   // Owner, 2026-10-13: Pro's extra is evidence recommendations, not "Explain in depth".

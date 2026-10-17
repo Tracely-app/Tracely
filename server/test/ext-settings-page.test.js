@@ -32,7 +32,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 // Since 2026-10-16 (owner: "revamp settings"): Google Docs and Sites live in General, and Help is new.
-const SECTIONS = ["general", "checking", "account", "privacy", "help"];
+const SECTIONS = ["general", "checking", "citations", "account", "privacy", "help"];
 
 test("one sidebar item and one panel per section, in the same order — and options.js and the worker name the same sections", () => {
   assert.deepEqual([...HTML.matchAll(/class="nav-item" data-nav="(\w+)"/g)].map((m) => m[1]), SECTIONS);
@@ -73,6 +73,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
   const panels = SECTIONS.map((s) => el(`sec-${s}`, { dataset: { panel: s } }));
   const navs = SECTIONS.map((s) => el(`nav-${s}`, { dataset: { nav: s } }));
   const sides = ["left", "right"].map((s) => el(`side-${s}`, { dataset: { side: s } }));
+  const stricts = ["clear", "balanced", "thorough"].map((s) => el(`strict-${s}`, { dataset: { strict: s } }));
   const storageListeners = [];
   const sets = [];
   const copied = [];
@@ -90,7 +91,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
     commands: { getAll: (cb) => cb([{ name: "toggle-panel", shortcut: "Alt+Shift+K" }]) },
   };
   vm.runInContext(OPTIONS, vm.createContext({
-    chrome, console, setInterval: () => 0, setTimeout: () => 0, clearTimeout() {}, AbortSignal, encodeURIComponent, Date,
+    chrome, console, setInterval: () => 0, setTimeout: () => 0, clearTimeout() {}, AbortSignal, encodeURIComponent, Date, URL,
     fetch: async () => { throw new TypeError("offline"); },
     location, history, window: { addEventListener() {} },
     confirm: () => true,
@@ -98,7 +99,7 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
     document: {
       getElementById: (id) => el(id),
       createElement: () => ({ textContent: "", className: "", append() {}, appendChild() {}, addEventListener() {} }),
-      querySelectorAll: (sel) => (sel === "[data-panel]" ? panels : sel === "[data-nav]" ? navs : sel === "[data-side]" ? sides : []),
+      querySelectorAll: (sel) => (sel === "[data-panel]" ? panels : sel === "[data-nav]" ? navs : sel === "[data-side]" ? sides : sel === "[data-strict]" ? stricts : []),
     },
   }), { filename: "options.js" });
   await tick(); await tick();
@@ -108,6 +109,9 @@ async function openPage(answer, { hash = "", stored = {} } = {}) {
   return {
     $: el, shown, active, location, removed: removed.filter((k) => k === "settingsOpenAt"), removedAll: removed, nav: (s) => navs[SECTIONS.indexOf(s)],
     storageChange: (c) => storageListeners.forEach((fn) => fn(c, "local")), sets, stored, copied, change, side: (s) => sides.find((b) => b.dataset.side === s),
+    strict: (s) => stricts.find((b) => b.dataset.strict === s),
+    pick: (id, value) => { const e = el(id); e.value = value; for (const fn of e.listeners.change ?? []) fn({ target: e }); },
+    submit: (id) => { for (const fn of el(id).listeners.submit ?? []) fn({ preventDefault() {} }); },
   };
 }
 
@@ -263,8 +267,62 @@ test("General: the button's corner, the panel on open, and the shortcut Chrome h
   assert.equal(p.$("shortcutNow").textContent, "Alt+Shift+K");
   assert.equal(p.$("shortcutKey").textContent, "Alt+Shift+K", "and in Help's keys");
   // The defaults are the widget's own.
-  const prefsOf = (src, re) => JSON.parse(src.match(re)[1].replace(/(\w+):/g, '"$1":'));
+  const prefsOf = (src, re) => JSON.parse(src.match(re)[1].replace(/(\w+):/g, '"$1":').replace(/,\s*\}$/, "}"));
   assert.deepEqual(prefsOf(OPTIONS, /const PREF_DEFAULTS = (\{[^}]*\});/), prefsOf(SRC, /const PREF_DEFAULTS = (\{[^}]*\});/), "options.js and content.js: one set of names and defaults");
+});
+
+test("Checking: each kind, how strict, the usual kind of writing, the evidence search, the preview and Review all — saved where the widget reads them", async () => {
+  const p = await openPage({ signedIn: false, plan: "free" });
+  for (const id of ["showEvidence", "showCitations", "autoEvidence", "previewEdits", "reviewTyping"]) assert.equal(p.$(id).checked, true, `${id}: on, as the widget was`);
+  assert.equal(p.strict("balanced").getAttribute("aria-pressed"), "true");
+  assert.equal(p.$("strictLine").textContent, "Shows everything Tracely finds.");
+  assert.equal(p.$("usualKind").value, "");
+  p.change("showEvidence", false);
+  assert.equal(lastPrefs(p).showEvidence, false);
+  p.change("reviewTyping", false);
+  assert.equal(lastPrefs(p).reviewTyping, false);
+  assert.equal(lastPrefs(p).showEvidence, false, "one change keeps the rest");
+  p.strict("clear").click();
+  assert.equal(lastPrefs(p).strictness, "clear");
+  assert.match(p.$("strictLine").textContent, /you may miss a real mistake/, "the cost, said where it is chosen");
+  p.pick("usualKind", "research");
+  assert.equal(lastPrefs(p).usualKind, "research");
+  // Factual errors: a switch that says so, and cannot be turned off.
+  assert.match(HTML, /<input type="checkbox" class="switch" id="showErrors" checked disabled \/>/);
+});
+
+test("Citations: the style, the heading, links and access dates, and the sources Tracely suggests", async () => {
+  const p = await openPage({ signedIn: false, plan: "free" }, { stored: { prefs: { avoidSites: "not a list" } } });
+  assert.equal(p.$("citeStyle").value, "match");
+  assert.equal(p.$("listHeading").value, "");
+  assert.equal(p.$("citeLinks").checked, true);
+  assert.equal(p.$("citeAccessed").checked, false);
+  assert.equal(p.$("citableOnly").checked, false);
+  assert.match(p.$("accessedLine").textContent, /In MLA: “Accessed \d+ \S+ \d{4}\.”$/);
+  p.pick("citeStyle", "apa");
+  assert.equal(lastPrefs(p).citeStyle, "apa");
+  p.pick("listHeading", "Bibliography");
+  assert.equal(lastPrefs(p).listHeading, "Bibliography");
+  p.change("citeAccessed", true);
+  assert.equal(lastPrefs(p).citeAccessed, true);
+  p.change("citableOnly", true);
+  assert.equal(lastPrefs(p).citableOnly, true);
+  // A site, however it is typed, as content.js compares it; a broken list in storage reads as empty.
+  p.$("avoidInput").value = "https://www.Wikipedia.org/wiki/Sleep";
+  p.submit("avoidForm");
+  assert.deepEqual(lastPrefs(p).avoidSites, ["wikipedia.org"]);
+  assert.equal(p.$("avoidInput").value, "");
+  p.$("avoidInput").value = "wikipedia.org";
+  p.submit("avoidForm");
+  assert.deepEqual(lastPrefs(p).avoidSites, ["wikipedia.org"], "once");
+  const n = p.sets.length;
+  p.$("avoidInput").value = "not a site";
+  p.submit("avoidForm");
+  assert.equal(p.sets.length, n, "nothing saved");
+  assert.match(p.$("citationsStatus").textContent, /isn't a site/);
+  // Another tab, or the widget's style picker, changes it: the page follows.
+  p.storageChange({ prefs: { newValue: { citeStyle: "chicago" } } });
+  assert.equal(p.$("citeStyle").value, "chicago");
 });
 
 test("the shortcut is a manifest command that asks for no permission, and the worker hands it to the tab in front", async () => {
@@ -306,7 +364,11 @@ test("Privacy and data: export leaves the sign-in out, and Clear marks every pag
 test("Help: what's new, and diagnostics that carry the version, the settings and the last edits — never writing", async () => {
   const edits = [{ at: "2026-10-16T10:00:00.000Z", edit: "fix", action: "replace", via: "hook", ok: false, reason: "selection-mismatch", check: "copy" }];
   const p = await openPage({ signedIn: true, email: "m@example.com", plan: "pro" }, { stored: { docsEnabled: true, enabledSites: ["https://a.example"], diag: { edits }, prefs: { launcherSide: "left" } } });
-  assert.match(p.$("whatsNew").innerHTML, /^<div class="change"><span class="change-v">2\.21\.62<\/span>/);
+  // Newest first, and never older than this build: a bump that changes what a writer sees adds its line.
+  const listed = [...p.$("whatsNew").innerHTML.matchAll(/<span class="change-v">([\d.]+)<\/span>/g)].map((m) => m[1].split(".").map(Number));
+  const newer = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  assert.ok(listed.length >= 3 && listed.every((v, i) => i === 0 || newer(listed[i - 1], v) > 0), "newest first");
+  assert.ok(newer(listed[0], JSON.parse(read("manifest.json")).version.split(".").map(Number)) >= 0, "what's new is behind the manifest");
   p.$("copyDiag").click();
   await tick(); await tick();
   const d = JSON.parse(p.copied[0]);
