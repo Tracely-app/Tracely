@@ -250,15 +250,20 @@ async function boot(env, { preload } = {}) {
   throw new Error("could not find a free port for a test server");
 }
 
-let A, B, C, D, E, G, H;
+let A, B, C, D, E, G, H, I, J, K;
 const G_LOG = path.join(TMP, "openai-g.jsonl");
 writeFileSync(G_LOG, "");
+// I and J (2026-10-17): bursts against the FREE pools, which used to reserve nothing.
+const I_LOG = path.join(TMP, "openai-i.jsonl");
+writeFileSync(I_LOG, "");
+const J_LOG = path.join(TMP, "openai-j.jsonl");
+writeFileSync(J_LOG, "");
 const H_LOG = path.join(TMP, "openai-h.jsonl");
 writeFileSync(H_LOG, "");
 test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
-  [A, B, C, D, E, G, H] = await Promise.all([
+  [A, B, C, D, E, G, H, I, J, K] = await Promise.all([
     boot({ ...hosted, TRACELY_MOCK: "1" }),
     boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: " old-token , right-token ", TRACELY_BETA_DAILY_BUDGET_USD: "0.01" }),
     boot({ TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token" }),
@@ -269,13 +274,23 @@ test.before(async () => {
       TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "4000,2000",
     }, { preload: STUB }),
     boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.02", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
+    boot({
+      ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_DAILY_BUDGET_USD: "0.1",
+      TRACELY_TEST_OPENAI_LOG: I_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "4000,2000",
+    }, { preload: STUB }),
+    boot({
+      ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_APP_DAILY_BUDGET_USD: "0.05",
+      TRACELY_TEST_OPENAI_LOG: J_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "4000,2000",
+    }, { preload: STUB }),
+    // K: a DEPLOYED box whose Supabase lines went missing (TRACELY_HOSTED stands in for release.json).
+    boot({ TRACELY_HOSTED: "1", TRACELY_MOCK: "1" }),
   ]).catch((err) => {
     for (const child of booted) child.kill(); // or the run never exits
     throw err;
   });
 });
 test.after(() => {
-  for (const s of [A, B, C, D, E, G, H]) s?.child.kill();
+  for (const s of [A, B, C, D, E, G, H, I, J, K]) s?.child.kill();
   supabase.close();
 });
 
@@ -843,4 +858,51 @@ test("a burst of beta checks with rotating install ids cannot overspend the beta
   const st = await status(G);
   // At most the pool plus the one call admitted last (its worst case, 15 cents).
   assert.ok(st.betaBudget.spentUsd <= 1 + 0.15, `beta pool spent $${st.betaBudget.spentUsd} of $1`);
+});
+
+// ── I, J: bursts against the free pools (2026-10-17) ─────────────────────
+// The extension and app pools used to check spend on disk only, so every
+// request admitted before the first charge landed ran; an install id rotates
+// freely, so the caller windows bounded nothing, and the overshoot was
+// concurrency x worst case. Now each admission holds the route's worst case
+// on the fast model and a pool admits only while it has room for what is in
+// flight, refusing with the budget 503 every installed build already knows.
+
+test("a burst of free checks with rotating install ids is refused once what is in flight fills the extension pool", async () => {
+  // $0.10 pool; a check's worst case on gpt-5.6-luna is ~2.52 cents, so four
+  // admissions fill it, and the pool admits while anything is left unheld.
+  const burst = await Promise.all(Array.from({ length: 30 }, (_, i) => check(I, {}, { install: `i-burst-${i}` })));
+  const ok = burst.filter((r) => r.status === 200).length;
+  const refused = burst.filter((r) => r.status === 503);
+  assert.ok(ok >= 1, "the pool still served someone");
+  assert.ok(ok <= 4, `${ok} checks admitted against a $0.10 pool at once`);
+  assert.equal(ok + refused.length, 30, "every other call is the budget refusal");
+  assert.ok(refused.every((r) => r.body.error.kind === "budget"), "the kind installed builds already handle");
+  assert.equal(readFileSync(I_LOG, "utf8").split("\n").filter(Boolean).length, ok, "no refused call reached the model");
+  // Spent once the burst is over: the reservations are released, so a check is admitted again.
+  assert.equal((await check(I, {}, { install: "i-after" })).status, 200, "a released reservation frees the pool");
+});
+
+test("a burst of desktop calls with rotating install ids is refused once what is in flight fills the app pool", async () => {
+  // $0.05 pool; detect-claims' worst case (WORST_CALL) is ~2.17 cents: three fit.
+  const body = { draft: "Water boils at 100 degrees Celsius at sea level. Paris is the capital of France." };
+  const burst = await Promise.all(Array.from({ length: 20 }, (_, i) => call(J, "POST", "/api/detect-claims", { body, install: `j-burst-${i}` })));
+  const ok = burst.filter((r) => r.status === 200).length;
+  assert.ok(ok >= 1 && ok <= 3, `${ok} desktop calls admitted against a $0.05 pool at once`);
+  assert.ok(burst.filter((r) => r.status !== 200).every((r) => r.status === 503 && r.body.error.kind === "budget"));
+  assert.equal(readFileSync(J_LOG, "utf8").split("\n").filter(Boolean).length, ok, "no refused call reached the model");
+});
+
+test("a deployed server missing its Supabase settings refuses what spends, instead of running unmetered", async () => {
+  // Metering hung on SUPABASE_URL/SUPABASE_ANON_KEY alone, so a blank line in
+  // the box's .env (re-read live) put the public server in LOCAL mode: no
+  // pools, no quotas, the client's model honoured, PUT /api/prefs open.
+  const r = await check(K, {}, { install: "k-1" });
+  assert.equal(r.status, 503);
+  assert.equal(r.body.error.kind, "budget", "a refusal installed builds already show as final");
+  const app = await call(K, "POST", "/api/detect-claims", { body: { draft: "Water boils at 100 degrees Celsius." }, install: "k-2" });
+  assert.equal(app.status, 503);
+  const prefs = await call(K, "PUT", "/api/prefs", { body: { modelStrategy: "uniform", model: "gpt-6-astra" } });
+  assert.equal(prefs.status, 403, "the shared prefs row stays closed");
+  assert.equal((await call(K, "GET", "/api/status")).status, 200, "status still answers, for the healthcheck");
 });

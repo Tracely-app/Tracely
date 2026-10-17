@@ -33,7 +33,18 @@ export const openai = {
    * the facade treats a 400 that blames the parameter as "turn it off" rather
    * than as a failed request (isEffortError). */
   supportsEffort: (m) => /^(gpt-5|gpt-6|o\d)/.test(String(m)),
-  isEffortError: (err) => /reasoning|effort/i.test(String(err?.message ?? "")),
+  /* A rejection of the effort PARAMETER: a 400 (bad_request) that names it.
+   * The vendor's `param` says which field when it says one; the message text
+   * alone also matched refusals that merely link to the reasoning guide,
+   * which a prompt chosen by any caller could draw (2026-10-17). The facade
+   * still disables effort only once the same call succeeds without it. */
+  isEffortError: (err) => {
+    if (err?.kind !== "bad_request") return false;
+    if (err.param) return /^reasoning/i.test(String(err.param));
+    return /reasoning|effort/i.test(String(err?.message ?? ""));
+  },
+  // A 400 that names `max_tool_calls` (lib/llm.js retries once without it).
+  isToolCapError: (err) => err?.kind === "bad_request" && (/max_tool_calls/i.test(String(err.param ?? "")) || /max_tool_calls/i.test(String(err?.message ?? ""))),
 
   structuredBody({ model, system, user, schema, maxTokens, name, effort }) {
     const body = {
@@ -60,7 +71,11 @@ export const openai = {
     return body;
   },
 
-  webSearchBody({ model, system, user, maxTokens, effort, schema, name }) {
+  /* `maxSearches` caps the web_search calls one answer may make
+   * (`max_tool_calls`): each is billed on top of the tokens and reads its
+   * pages back as input, and before 2026-10-17 only the prompt kept a search
+   * to the two or three its spend reservation assumes. */
+  webSearchBody({ model, system, user, maxTokens, effort, schema, name, maxSearches }) {
     const body = {
       model,
       instructions: system,
@@ -68,6 +83,7 @@ export const openai = {
       max_output_tokens: maxTokens,
       tools: [{ type: "web_search" }],
     };
+    if (maxSearches) body.max_tool_calls = maxSearches;
     if (schema) body.text = { format: { type: "json_schema", name, schema, strict: true } };
     if (effort) body.reasoning = { effort };
     return body;
@@ -79,7 +95,7 @@ export const openai = {
    * writes. The relay forced it for a measured reason: offered the tool and
    * allowed to decline, the model wrote plausible URLs from memory, and a
    * student cannot tell an invented link from a real one. */
-  webSearchStructuredBody({ model, system, user, schema, name, maxTokens, effort }) {
+  webSearchStructuredBody({ model, system, user, schema, name, maxTokens, effort, maxSearches }) {
     const body = {
       model,
       instructions: system,
@@ -89,6 +105,7 @@ export const openai = {
       tool_choice: "required",
       text: { format: { type: "json_schema", name, schema, strict: true } },
     };
+    if (maxSearches) body.max_tool_calls = maxSearches;
     if (effort) body.reasoning = { effort };
     return body;
   },
@@ -136,7 +153,11 @@ export const openai = {
       return new CheckError("server", `OpenAI does not recognise that model. Fix MODEL_TIERS in lib/llm.js (OpenAI said: ${msg.slice(0, 120)})`, { status: 500 });
     }
     if (status >= 500) return new CheckError("server", "OpenAI had a server error — try again.", { status: 502 });
-    return new CheckError("bad_request", msg || `OpenAI returned ${status}.`, { status: 502 });
+    const e = new CheckError("bad_request", msg || `OpenAI returned ${status}.`, { status: 502 });
+    // Which request field the vendor blamed, when it names one (isEffortError,
+    // isToolCapError). Never serialised: the wire body is kind/message/retryAfter.
+    if (json?.error?.param) Object.defineProperty(e, "param", { value: String(json.error.param), enumerable: false });
+    return e;
   },
 
   checkComplete(json, what) {

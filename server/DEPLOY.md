@@ -272,14 +272,13 @@ it, and until 2026-09-21 that row chose the model every extension user's
 `/api/check` ran at. `GET /api/prefs` still answers. Its only writers are the
 web renderer bridge and the vanilla web app, both built for a LOCAL server
 (the hosted box refuses their browser Origin anyway), so nothing hosted loses
-anything. Hosted `/api/check` and `/api/sources` now run the model the client
-asks for, clamped to the caller's plan — the prefs row drives the model only
-on a local server. `/api/sources` sends the client's reasoning effort when it
-sends one and otherwise none, i.e. the vendor's default, exactly as every
-source search from the store build always has. No shipped widget sends one:
-2.19.3 and later send their stop's effort on `/api/check` (the slider is gone since 2.20.0; `STATUS.md` says which version is on the store)
-only (the route it was measured on), and `/api/flow` and `/api/sources` get
-the model alone.
+anything. On a hosted server the SERVER picks the model and effort for every
+route (`shared/plan.js` `modelForRoute`; server/CLAUDE.md, "The server picks
+the model per route"). The client's model id only chooses Pro's thorough model
+on a thorough route, and its effort is never read. The prefs row drives the
+model only on a local server. (This paragraph used to say hosted routes run
+the client's model and effort; that stopped being true on 2026-09-21. Do not
+restore it.)
 
 Watch it with:
 

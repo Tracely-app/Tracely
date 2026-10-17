@@ -220,9 +220,12 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   const rejected = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
   const partial = rejected.length > 0 && done.length > 0 && shardTimeoutMs !== undefined && rejected.every((e) => e?.kind === "timeout");
   if (rejected.length && !partial) {
-    // Every shard that answered was billed, and so was whatever the failing
-    // one managed — the route records only what the error it catches carries.
-    const billed = done.reduce((acc, r) => addUsage(acc, r.usage), null);
+    // Every shard that answered was billed, and so was whatever each failing
+    // one managed — the route records only what the error it catches carries,
+    // so the OTHER failures' cost rides on it too. Only the first failure's
+    // used to: five billed refusals were recorded as one (2026-10-17).
+    const billed = [...done.map((r) => r.usage), ...rejected.slice(1).map((e) => e?.llm?.usage)]
+      .reduce((acc, u) => addUsage(acc, u), null);
     throw withBilledUsage(rejected[0], billed, rejected[0]?.llm);
   }
   for (const e of rejected) {
@@ -442,6 +445,10 @@ export async function findSources({ claim, correction, context, model, effort, m
     effort,
     schema: SOURCES_SCHEMA,
     name: "sources",
+    // The searches one answer may make (2026-10-17): what server.js
+    // WORST_CALL["/api/sources"] reserves. Before, only the prompt kept it to
+    // two or three, and the claim is the caller's text.
+    maxSearches: 3,
   });
 
   let sources = [];

@@ -13,12 +13,12 @@ import * as store from "./lib/store.js";
 import * as watch from "./lib/watch.js";
 import { noteClaimSeen } from "./lib/seenClaims.js";
 import { db, uuid, cacheGet, cacheSet, hashKey, upsertSource,
-         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, accountPurge, usagePurgeBefore } from "./lib/db.js";
+         billingEventSeen, billingEventRecord, billingCustomerLink, billingCustomerLookup, billingPendingByCustomer, billingPendingPut, billingPendingDelete, billingOrderGet, billingOrderPut, accountPurge, usagePurgeBefore } from "./lib/db.js";
 import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, recordCheck, aiQuota, recordAi,
          callerId, clientAddress, entitlementConfigured, forgetCachedPlans, withBetaGrant, betaTokens, isDailyQuotaKey,
          flowQuota, recordFlow, reviewQuota, recordReview, kindQuota, recordKind, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
-import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
+import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
@@ -34,6 +34,21 @@ import { DEMO_MESSAGES, demoSecret, demoPublicOrigin, demoOff, visitorOf, mintVi
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // What is deployed, as the runbook stamped it (lib/release.js); null on a laptop.
 const RELEASE = readReleaseStamp(ROOT);
+/* A DEPLOYED server: both deploy paths write release.json (server/DEPLOY.md,
+ * .github/workflows/deploy-server.yml), and a developer's checkout has none.
+ * Metering used to hang on Supabase's two variables alone (entitlement.js
+ * isConfigured), so a blank or missing line in the box's .env — re-read live
+ * by loadEnvFile — silently put the public server in LOCAL mode: no pools,
+ * no quotas, no limits, the client's model and effort honoured, and PUT
+ * /api/prefs open again (2026-10-17). Deployed, that state now refuses every
+ * route that spends (refuseUnmetered) instead. TRACELY_HOSTED=1 says the
+ * same on a box deployed some other way. */
+const HOSTED = Boolean(RELEASE) || process.env.TRACELY_HOSTED === "1";
+function refuseUnmetered(ent) {
+  if (HOSTED && !ent.enforced) {
+    throw new CheckError("budget", "Tracely's checks are paused while the server is being set up. Please try again a little later.", { status: 503 });
+  }
+}
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4477;
 const MOCK = process.env.TRACELY_MOCK === "1";
 
@@ -429,6 +444,8 @@ const webSearchCounter = rollingCounter(GUARDS.maxWebSearchesPerHour);
 const betaWebSearchCounter = rollingCounter(SPEND.betaWebSearchesPerHour);
 // The try-out's source searches: their own window, for the same reason.
 const demoWebSearchCounter = rollingCounter(SPEND.demoWebSearchesPerHour);
+// The desktop's /api/find-sources across every caller (SPEND.appWebSearchesPerHour).
+const appWebSearchCounter = rollingCounter(SPEND.appWebSearchesPerHour);
 const critiqueCounter = rollingCounter(60);
 
 // ── model tiering (token optimization) ─────────────────────────────────
@@ -564,9 +581,10 @@ async function handleStripeWebhook(req, res) {
   // purchase keyed on the Stripe customer until an event or a sign-in names
   // the account. That record is why `pending` is answered 200 and recorded:
   // the purchase is safe in our ledger, so Stripe need not keep retrying.
-  const settled = await settleChange({ ...change, eventId: event.id }, {
+  const settled = await settleChange({ ...change, eventId: event.id, created: Number(event.created) }, {
     link: billingCustomerLink, lookup: billingCustomerLookup, findByEmail: findUserIdByEmail, writePlan: writePlanToSupabase,
     pendingGet: billingPendingByCustomer, pendingPut: billingPendingPut, pendingDelete: billingPendingDelete, forget: forgetCachedPlans,
+    orderGet: billingOrderGet, orderPut: billingOrderPut,
   });
   const { outcome, userId } = settled;
 
@@ -692,6 +710,21 @@ const WORST_CALL = {
   // 8,000 covers that twice over, and a CJK text at ~1 token a character.
   // ~0.92 cents on gpt-5.6-luna, against 2.52 for an extension check.
   "/api/demo/check": { input: 8_000, output: SPEND.demoCheckMaxTokens, webSearchCalls: 0 },
+  // The desktop's routes (APP_AI_ROUTES), held against the app pool by
+  // appGate since 2026-10-17: each route's output ceiling (lib/reasoning.js
+  // MAX_OUTPUT, sourceVerify.js) and its input clamps (reasoning.js LIMITS,
+  // VERIFY_LIMITS; ai.js for a custom-rubric grade) counted as one token a
+  // character, plus the prompt. find-sources is a forced web search: the
+  // pages it reads back are an allowance, like /api/sources', and its search
+  // calls are capped at FIND_SOURCES_MAX_SEARCHES (lib/reasoning.js).
+  "/api/detect-claims": { input: 10_000, output: 16_000, webSearchCalls: 0 },
+  "/api/critique": { input: 10_000, output: 16_000, webSearchCalls: 0 },
+  "/api/correction": { input: 8_000, output: 8_000, webSearchCalls: 0 },
+  "/api/structure": { input: 12_000, output: 8_000, webSearchCalls: 0 },
+  "/api/grade": { input: 56_000, output: 16_000, webSearchCalls: 0 },
+  "/api/tracer": { input: 36_000, output: 8_000, webSearchCalls: 0 },
+  "/api/find-sources": { input: 48_000, output: 16_000, webSearchCalls: 4 },
+  "/api/verify-sources": { input: 24_000, output: 3_500, webSearchCalls: 0 },
 };
 function worstCallMicroCents(route, model) {
   const w = WORST_CALL[route];
@@ -763,6 +796,7 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
     return { ent, holder: ent, callerId: id, budget: null, pool: null, reservation: null, modelCeiling: null };
   }
 
+  refuseUnmetered(ent);
   let pick = null;
   let modelCeiling = null;
   // The plan the caller HOLDS on this route (Pro for a beta tester), whichever
@@ -781,13 +815,17 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
   }
 
   if (!pick) {
-    const budget = spendState({ enforced: ent.enforced });
-    if (!budget.allowed) {
+    // Room counts the calls in flight (poolRoom), as on every other pool. It
+    // used to read spend on disk only, so every request admitted before the
+    // first charge landed ran: an install id rotates freely, so the caller
+    // windows bounded nothing, and the overshoot was concurrency x worst case.
+    const { budget, room } = poolRoom({ enforced: ent.enforced });
+    if (!room) {
       // Deliberately not "try again later" — it resets at midnight, and a
       // string that implies minutes when it means hours is a lie users notice.
       throw new CheckError("budget", "Tracely has hit its daily usage limit. It resets at midnight.", { status: 503 });
     }
-    if (kind === "sources" && !budget.sourcesAllowed) {
+    if (kind === "sources" && !sourcesRoom(budget, "extension")) {
       throw new CheckError("budget", "Source search is paused for today to keep fact-checking available. Checking still works.", { status: 503 });
     }
     pick = { ent, pool: "extension", budget };
@@ -795,16 +833,38 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
 
   stampCallerRate(pick.ent, id, kind);
 
-  /* The FAST model's worst case, whatever the plan: every extension route
-   * runs it on a hosted server (modelForRoute), and the one call that may run
-   * the thorough model — "Explain in depth" — holds its own worst case on top
-   * before it runs (admitThorough). This used to reserve the plan's ceiling,
-   * ~$1.10 per Pro check, which ran a paid pool dry on reservations alone. */
-  const reservation = pick.pool !== "extension" && pick.budget.enforced
+  /* The FAST model's worst case, whatever the plan and whatever the pool:
+   * every extension route runs it on a hosted server (modelForRoute), and the
+   * one call that may run the thorough model — "Explain in depth" — holds its
+   * own worst case on top before it runs (admitThorough). This used to reserve
+   * the plan's ceiling, ~$1.10 per Pro check, which ran a paid pool dry on
+   * reservations alone. Since 2026-10-17 the extension pool reserves too (see
+   * lib/spend.js), so a burst is refused once what is in flight fills the
+   * day, and a split or an extra shard needs room like everywhere else. */
+  const reservation = pick.budget.enforced
     ? reserveSpend(pick.pool, worstCallMicroCents(route, MODEL_TIERS.fast))
     : null;
+  if (reservation && req.method === "POST") bodyDeadline(req, GATED_BODY_DEADLINE_MS);
   return { ent: pick.ent, holder: granted, callerId: id, budget: pick.budget, pool: pick.pool, reservation, modelCeiling };
 }
+
+/* Whether a pool may still start a source search: room above the shed line
+ * (SPEND.shedSourcesAtRemainingPct), counting what is in flight, so a burst
+ * of searches cannot all be admitted past the line the first one crossed. */
+function sourcesRoom(budget, pool) {
+  if (!budget.enforced) return true;
+  const free = budget.remaining - reservedMicroCents(pool);
+  return free > 0 && free / budget.budget > SPEND.shedSourcesAtRemainingPct;
+}
+
+/* A gate that holds a reservation holds it until the handler's `finally`, and
+ * the handler cannot run before its body has arrived. A sender that trickles
+ * its body a byte at a time would hold the reservation for as long as Node's
+ * request timeout (300 s) — the demo's probe closed a 5-cent pool with two
+ * such sockets and nothing spent. So past this deadline, measured from the
+ * gate, the request is destroyed with a 408 (bodyDeadline). Every client
+ * body is a few to a few hundred KB, sent at once. */
+const GATED_BODY_DEADLINE_MS = 15_000;
 
 /* The model an extension model route runs at: appModelFor's rule (the client's
  * request clamped to the plan when hosted, pickModel locally), then the
@@ -884,12 +944,18 @@ function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
 }
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
- * the app limiter. Budget first, then velocity, both before the body is read. */
-async function appGate(req) {
+ * the app limiter. Budget first, then velocity, both before the body is read;
+ * then the route's worst case on the fast model is held against the pool
+ * (WORST_CALL), as spendGate holds it, so a burst of desktop calls with
+ * rotating install ids cannot all be admitted against the same unspent money.
+ * A thorough call (critique) holds its own worst case on top (admitThorough,
+ * which extends this reservation). The central handler releases it. */
+async function appGate(req, route = null) {
   const ent = await planForRequest(req);
+  refuseUnmetered(ent);
   const id = callerId(req, ent);
-  const budget = spendState({ enforced: ent.enforced, pool: "app" });
-  if (!budget.allowed) {
+  const { budget, room } = poolRoom({ enforced: ent.enforced, pool: "app" });
+  if (!room) {
     throw new CheckError("budget", "Tracely's writing checks have hit their daily usage limit. They reset at midnight.", { status: 503 });
   }
   if (ent.enforced && id) {
@@ -898,7 +964,9 @@ async function appGate(req) {
     }
     appRate.stamp(id);
   }
-  return { ent, callerId: id, budget, pool: "app" };
+  const reservation = budget.enforced ? reserveSpend("app", worstCallMicroCents(route, MODEL_TIERS.fast)) : null;
+  if (reservation && req.method === "POST") bodyDeadline(req, GATED_BODY_DEADLINE_MS);
+  return { ent, callerId: id, budget, pool: "app", reservation };
 }
 
 /* The try-out's gate (lib/demo.js has the whole rule): the same shape as
@@ -1183,7 +1251,7 @@ const server = http.createServer(async (req, res) => {
     // of the route it aliases: `api` is the path those handlers match on.
     const api = DEMO_ALIAS[url.pathname] ?? url.pathname;
     if (APP_AI_ROUTES.has(url.pathname)) {
-      gate = await appGate(req);
+      gate = await appGate(req, url.pathname);
     } else if (DEMO_ALIAS[url.pathname] && req.method === "POST") {
       // POST only: another method reaches no handler (404), so it must not
       // take an address-window slot on its way there.
@@ -1462,9 +1530,9 @@ const server = http.createServer(async (req, res) => {
        * (callerSearchRate, shared with the desktop's /api/find-sources), ON
        * TOP of a global window for the pool that pays:
        *   - extension pool: the process-wide 15/hour counter, for EVERY
-       *     caller. An install id is the client's to rotate, and this pool
-       *     holds no reservation (spendState sees only spend already on
-       *     disk), so this counter is the only bound on a burst of fresh ids;
+       *     caller. An install id is the client's to rotate; the pool's
+       *     reservations (since 2026-10-17) bound the dollars in flight, and
+       *     this counter bounds how many searches a burst of fresh ids gets;
        *   - beta pool: its own global window, for the same reason;
        *   - paid pool: none — every call reserves its worst case first, so
        *     the pool itself is the bound, and its callers are paying accounts.
@@ -1934,6 +2002,12 @@ const server = http.createServer(async (req, res) => {
       requireKey();
       const body = (await parseJsonBody(req)) ?? {};
       if (typeof body.claim !== "string" || !body.claim.trim()) throw new CheckError("bad_request", "claim required");
+      // The global window first (every caller: an install id rotates freely),
+      // asked before the quota is counted and stamped only when a search runs
+      // (a cached answer costs nothing), then the caller's own window.
+      if (gate.ent.enforced && !appWebSearchCounter.ok()) {
+        throw new CheckError("rate_limit", "Web-search hourly cap reached — try again later.", { status: 429, retryAfter: 600 });
+      }
       if (gate.ent.enforced && gate.callerId) {
         if (!callerSearchRate.ok(gate.callerId)) {
           throw new CheckError("rate_limit", "Source search is limited to a few dozen an hour — try again later.", { status: 429, retryAfter: 600 });
@@ -1953,7 +2027,10 @@ const server = http.createServer(async (req, res) => {
           kind: "find-sources", maxAgeMs: 7 * 24 * 3600_000,
           key: (model) => hashKey(["src", model, body.claim, body.context ?? ""].join("|")),
         },
-        run: (model, effort) => reasoning.findSources({ claim: body.claim, context: body.context, model, effort }),
+        run: (model, effort) => {
+          if (gate.ent.enforced) appWebSearchCounter.stamp(); // before the call, not after
+          return reasoning.findSources({ claim: body.claim, context: body.context, model, effort });
+        },
       });
       json(res, 200, result, cors);
       return;
@@ -2114,7 +2191,7 @@ const server = http.createServer(async (req, res) => {
        * the browser's Origin is already refused before this line. A local,
        * single-user server keeps it exactly as it was. */
       loadEnvFile();
-      if (entitlementConfigured()) {
+      if (entitlementConfigured() || HOSTED) {
         throw new CheckError("forbidden", "Preferences cannot be changed on a hosted Tracely server.", { status: 403 });
       }
       json(res, 200, store.prefs.set((await parseJsonBody(req)) ?? {}), cors);

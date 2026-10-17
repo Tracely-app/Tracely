@@ -14,7 +14,7 @@
  *
  * MOCK MODE (TRACELY_MOCK=1) returns deterministic canned output.
  */
-import { CheckError } from "./errors.js";
+import { CheckError, billedFailure } from "./errors.js";
 import { ALLOWED_MODELS, DEFAULT_MODEL, structuredCall as llmCall } from "./llm.js";
 import { GUARDS } from "../shared/guards.js";
 import { MAX_CUSTOM_COMPONENTS, normalizeCustomComponents } from "../shared/rubric.js";
@@ -116,7 +116,10 @@ export async function gradeWithCustomRubric({ text, rubric, level, model } = {})
     // Honest failure over a silent fallback to the built-in rubric: the user
     // asked for THEIR rubric, and grading with a different one unannounced is
     // worse than saying this one could not be read.
-    throw new CheckError("bad_request", "Could not find any scorable components in that rubric. Check the pasted text in Settings.");
+    // The answer was billed: carry its cost (lib/llm.js tagFailure's `llm`
+    // tag) so the central handler charges it. Untagged, a rubric with nothing
+    // to score was a free 16,000-token call, any number of times (2026-10-17).
+    throw billedFailure(new CheckError("bad_request", "Could not find any scorable components in that rubric. Check the pasted text in Settings."), usedModel, usage);
   }
   return { components, custom: true, model: usedModel, usage };
 }

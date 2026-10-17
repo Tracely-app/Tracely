@@ -232,8 +232,28 @@ export async function writePlanToSupabase(userId, plan) {
  *   failed:<reason>   the Supabase write failed — retryable
  */
 export async function settleChange(change, deps) {
-  const { link, lookup, findByEmail, writePlan, pendingGet, pendingPut, pendingDelete, forget = () => {} } = deps;
+  const { link, lookup, findByEmail, writePlan, pendingGet, pendingPut, pendingDelete, forget = () => {}, orderGet = () => null, orderPut = () => {} } = deps;
   link(change); // learn customer → email/user first: later events carry a customer and nothing else
+  /* Stale (2026-10-17): an event that NAMES a plan, older than the newest
+   * plan-naming event already applied for this customer, writes nothing.
+   * Stripe does not promise order and retries a 500'd event later, so an old
+   * "active, Pro" landing after the cancellation used to re-grant Pro for
+   * good. Same-second events still apply in arrival order (strictly older
+   * only), and an event that names no plan — a checkout adopting the pending
+   * plan of a newer subscription event — is never stale. The link above
+   * still runs: who a customer is does not go out of date. */
+  const named = change.plan != null && change.customerId && Number.isFinite(change.created);
+  if (named) {
+    const last = orderGet(change.customerId);
+    if (last != null && change.created < last) return { outcome: "stale", userId: change.userId ?? null, plan: change.plan };
+  }
+  const settled = await settleInOrder(change, { link, lookup, findByEmail, writePlan, pendingGet, pendingPut, pendingDelete, forget });
+  if (named && !settled.outcome.startsWith("failed:") && settled.outcome !== "no_user") orderPut(change.customerId, change.created);
+  return settled;
+}
+
+async function settleInOrder(change, deps) {
+  const { link, lookup, findByEmail, writePlan, pendingGet, pendingPut, pendingDelete, forget } = deps;
   const known = change.customerId ? lookup(change.customerId) : null;
   let userId = change.userId ?? known?.user_id ?? null;
   const email = change.email ?? known?.email ?? null;
@@ -268,9 +288,13 @@ export async function settleChange(change, deps) {
  * plan written, or null when there was nothing to claim or the write failed
  * (the record stays; the next resolve tries again).
  */
-export async function claimPendingForUser({ userId, email }, deps) {
+export async function claimPendingForUser({ userId, email, emailConfirmed = false }, deps) {
   const { pendingByEmail, writePlan, link, pendingDelete, forget = () => {} } = deps;
-  if (!userId || !email) return null;
+  // Only an address the auth provider has CONFIRMED is trusted to name the
+  // payer (2026-10-17). An account whose email nobody proved — an email
+  // sign-up with confirmations off, an anonymous user given an address — must
+  // not be able to take a purchase made with someone else's address.
+  if (!userId || !email || !emailConfirmed) return null;
   const row = pendingByEmail(email);
   if (!row?.plan || row.plan === DEFAULT_PLAN) return null;
   const written = await writePlan(userId, row.plan);
@@ -344,7 +368,9 @@ export async function findUserIdByEmail(email, { maxPages = 5, perPage = 200 } =
       const body = await res.json();
       const users = Array.isArray(body?.users) ? body.users : Array.isArray(body) ? body : [];
       if (users.length === 0) return null;
-      const hit = users.find((u) => typeof u?.email === "string" && u.email.toLowerCase() === wanted);
+      // Confirmed, non-anonymous accounts only, as claimPendingForUser: an
+      // address nobody proved must not receive someone else's purchase.
+      const hit = users.find((u) => typeof u?.email === "string" && u.email.toLowerCase() === wanted && u.email_confirmed_at && u.is_anonymous !== true);
       if (hit?.id) return hit.id;
       if (users.length < perPage) return null;
     }

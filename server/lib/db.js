@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS billing_pending (
 CREATE INDEX IF NOT EXISTS billing_pending_email ON billing_pending (email);
 `);
   },
+  // v4 — the order of plan changes per Stripe customer (2026-10-17). Stripe
+  // does not promise delivery order and retries an event it got a 500 for,
+  // so an older "active, Pro" could land after the cancellation and re-grant
+  // the plan for good. Each plan-writing event's `created` is kept here, and
+  // an older one is answered `stale` and writes nothing (billing.js).
+  () => {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS billing_event_order (
+  customer_id TEXT PRIMARY KEY, created INTEGER NOT NULL
+);
+`);
+  },
 ];
 
 export function migrate() {
@@ -238,6 +250,20 @@ export function billingCustomerLink({ customerId, userId, email }) {
     "ON CONFLICT(customer_id) DO UPDATE SET " +
     "user_id = COALESCE(excluded.user_id, user_id), email = COALESCE(excluded.email, email), updated_at = excluded.updated_at"
   ).run(customerId, userId ?? null, email ?? null, Date.now());
+}
+
+/* The newest plan-writing event applied for a customer, in Stripe's `created`
+ * seconds (billing_event_order), and recording one. Only ever moves forward. */
+export function billingOrderGet(customerId) {
+  if (!customerId) return null;
+  return db.prepare("SELECT created FROM billing_event_order WHERE customer_id = ?").get(customerId)?.created ?? null;
+}
+export function billingOrderPut(customerId, created) {
+  if (!customerId || !Number.isFinite(created)) return;
+  db.prepare(
+    "INSERT INTO billing_event_order (customer_id, created) VALUES (?,?) " +
+    "ON CONFLICT(customer_id) DO UPDATE SET created = MAX(created, excluded.created)"
+  ).run(customerId, Math.trunc(created));
 }
 
 export function billingCustomerLookup(customerId) {

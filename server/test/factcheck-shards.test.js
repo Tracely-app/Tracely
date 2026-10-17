@@ -210,7 +210,12 @@ test("a hung shard gives up at the shard deadline and the check answers with the
   assert.deepEqual(r.findings.map((f) => f.id), ["s1", "s2", "s3", "s7"], "the hung shard's ids are omitted, for the client to re-send");
   assert.deepEqual(Object.keys(r).sort(), ["findings", "model", "shards", "usage"], "the response shape is unchanged");
   assert.equal(r.shards, 3);
-  assert.deepEqual(r.usage, { input: 20, output: 10, cached: 0, cacheWrite: 0 }, "the shards that answered are billed");
+  // The shards that answered (20 in, 10 out), and the hung one at its worst
+  // case: it was sent, and a dropped request runs and bills to its end, so it
+  // is no longer free (2026-10-17) — its bytes as input priced as cache
+  // writes, and its whole 16,000-token output ceiling.
+  assert.equal(r.usage.output, 10 + 16_000, "answered shards + the hung shard's output ceiling");
+  assert.ok(r.usage.input > 20 && r.usage.cacheWrite === r.usage.input - 20, `the hung shard's request bytes, as cache writes (${r.usage.input})`);
   assert.deepEqual(logged, ["timeout"], "the dropped shard is still reported for the failure log");
 });
 

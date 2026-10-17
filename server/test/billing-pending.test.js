@@ -66,7 +66,7 @@ test("the tester's case: paid from the website signed out, then signed in with t
   assert.equal(s.outcome, "pending", "the second event re-records, it does not error");
   assert.deepEqual(f.pending.get("cus_2"), { customer_id: "cus_2", email: "tester@example.com", plan: "pro" }, "the email is learned from the checkout and kept lower-case");
   // Four days later the tester signs in. Stripe stopped retrying on day three.
-  const claimed = await claimPendingForUser({ userId: "user-T", email: "tester@example.com" }, f.deps);
+  const claimed = await claimPendingForUser({ userId: "user-T", email: "tester@example.com", emailConfirmed: true }, f.deps);
   assert.equal(claimed, "pro");
   assert.deepEqual(f.written, [["user-T", "pro"]]);
   assert.equal(f.pending.size, 0);
@@ -90,12 +90,12 @@ test("a never-claimed subscription that ends is dropped, not retried", async () 
 test("claiming is case-insensitive, never claims a free record, and leaves the record when the write fails", async () => {
   const f = fakes({ writeOk: false });
   await settleChange(checkout("cus_4", { email: "Mixed.Case@Example.com", plan: "student" }), f.deps);
-  assert.equal(await claimPendingForUser({ userId: "user-M", email: "mixed.case@example.com" }, f.deps), null, "the write failed");
+  assert.equal(await claimPendingForUser({ userId: "user-M", email: "mixed.case@example.com", emailConfirmed: true }, f.deps), null, "the write failed");
   assert.equal(f.pending.size, 1, "still there for the next resolve");
   const ok = fakes();
   ok.pending.set("cus_5", { customer_id: "cus_5", email: "free@example.com", plan: "free" });
-  assert.equal(await claimPendingForUser({ userId: "user-F", email: "free@example.com" }, ok.deps), null, "a free record grants nothing");
-  assert.equal(await claimPendingForUser({ userId: "user-N", email: "nobody@example.com" }, ok.deps), null);
+  assert.equal(await claimPendingForUser({ userId: "user-F", email: "free@example.com", emailConfirmed: true }, ok.deps), null, "a free record grants nothing");
+  assert.equal(await claimPendingForUser({ userId: "user-N", email: "nobody@example.com", emailConfirmed: true }, ok.deps), null);
   assert.equal(await claimPendingForUser({ userId: null, email: "x@example.com" }, ok.deps), null);
 });
 
@@ -180,4 +180,47 @@ test("db: usagePurgeBefore drops day and month rows older than the cutoff, and r
   assert.equal(db.usagePurgeBefore("2025-08-01"), 2);
   assert.equal(db.usageCount("user:R", "2026-09-24", "check"), 1);
   assert.equal(db.usageCount("user:R", "2026-09", "source_search"), 1);
+});
+
+// 2026-10-17: an older event must not undo a newer one. Stripe does not
+// promise delivery order and retries a 500'd event later, so a late "active,
+// Pro" used to land after the cancellation and grant Pro for good.
+test("an older plan event arriving after a newer one is stale and writes nothing", async () => {
+  const f = fakes();
+  const order = new Map();
+  f.deps.orderGet = (id) => order.get(id) ?? null;
+  f.deps.orderPut = (id, created) => order.set(id, Math.max(order.get(id) ?? 0, created));
+  await settleChange(checkout("cus_9", { userId: "user-Z", email: "z@example.com" }), f.deps);
+  const live = await settleChange(created("cus_9", "pro", { created: 1_000 }), f.deps);
+  assert.equal(live.outcome, "applied");
+  const ended = await settleChange({ type: "customer.subscription.deleted", userId: null, customerId: "cus_9", email: null, plan: "free", created: 3_000 }, f.deps);
+  assert.equal(ended.outcome, "applied");
+  // The retry of an update from before the cancellation:
+  const late = await settleChange({ type: "customer.subscription.updated", userId: null, customerId: "cus_9", email: null, plan: "pro", created: 2_000 }, f.deps);
+  assert.equal(late.outcome, "stale");
+  assert.deepEqual(f.written.at(-1), ["user-Z", "free"], "the cancellation stands");
+  // A genuinely newer event still applies, and a same-second one too.
+  assert.equal((await settleChange(created("cus_9", "student", { created: 3_000 }), f.deps)).outcome, "applied");
+  assert.equal((await settleChange(created("cus_9", "pro", { created: 4_000 }), f.deps)).outcome, "applied");
+});
+
+test("a checkout that names no plan is never stale: it adopts the newer subscription's pending plan", async () => {
+  const f = fakes();
+  const order = new Map([["cus_10", 5_000]]);
+  f.deps.orderGet = (id) => order.get(id) ?? null;
+  f.deps.orderPut = (id, created) => order.set(id, created);
+  await settleChange(created("cus_10", "pro", { created: 5_000 }), f.deps);
+  const c = await settleChange({ ...checkout("cus_10", { userId: "user-Y" }), created: 4_999 }, f.deps);
+  assert.equal(c.outcome, "applied");
+  assert.deepEqual(f.written, [["user-Y", "pro"]]);
+});
+
+test("an unconfirmed email never claims someone else's purchase", async () => {
+  const f = fakes();
+  await settleChange(checkout("cus_11", { email: "payer@example.com", plan: "pro" }), f.deps);
+  assert.equal(await claimPendingForUser({ userId: "user-X", email: "payer@example.com" }, f.deps), null, "no proof of the address");
+  assert.equal(await claimPendingForUser({ userId: "user-X", email: "payer@example.com", emailConfirmed: false }, f.deps), null);
+  assert.deepEqual(f.written, []);
+  assert.equal(f.pending.size, 1, "the purchase waits for its real owner");
+  assert.equal(await claimPendingForUser({ userId: "user-P", email: "payer@example.com", emailConfirmed: true }, f.deps), "pro");
 });

@@ -179,6 +179,30 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   is admitted the same way, `reservation.extend`) and fall back — to the fast
   model, or to the caller's own plan — instead of ever 503ing. A pool that
   can reach expensive models must never share a day with free users.
+- **Every pool reserves before it admits** (2026-10-17 spend audit). The
+  `extension` and `app` pools used to read spend on disk only, so a burst
+  with rotating install ids all ran before the first charge landed. Now
+  `spendGate` and `appGate` hold the route's fast-model worst case
+  (`WORST_CALL`, which lists the desktop routes too) and refuse with the
+  `budget` 503 when what is in flight fills the day. A gate that holds a
+  reservation gives the body `GATED_BODY_DEADLINE_MS` to arrive. The same
+  audit made these rules, each with a test (`test/spend-hardening.test.js`,
+  `test/beta-grant.test.js` I–K):
+  - A call that **times out** is charged its worst case (`lib/llm.js` post →
+    `timedOutUsage`): the vendor runs and bills a dropped request to its end.
+  - Every failure **after the vendor answered** carries its cost
+    (`tagFailure`, `lib/errors.js` `billedFailure`), all failed shards included.
+  - **Web searches are capped per answer** (`max_tool_calls`: 3 on
+    `/api/sources`, 4 on `/api/find-sources`), and find-sources has a
+    global hourly window (`SPEND.appWebSearchesPerHour`).
+  - **Effort is switched off for a model only after the same call succeeds
+    without it** (`isEffortError` reads the vendor's `param`).
+  - **A deployed server never runs unmetered**: with `release.json` present
+    (or `TRACELY_HOSTED=1`) and Supabase unset, spending routes answer 503
+    and `PUT /api/prefs` 403 (`refuseUnmetered`).
+  - **Stripe:** a plan event older than the newest one applied for that
+    customer is `stale` (`billing_event_order`), and only a confirmed,
+    non-anonymous email claims an unclaimed purchase.
 - **The public try-out page (`/try`) is a third product with its own fence**
   (`lib/demo.js`, `demoGate`; DEPLOY.md "The try-out page"): `DEMO_ROUTES`
   (`/api/demo/check|sources|review|status`) sit in NO other set — not

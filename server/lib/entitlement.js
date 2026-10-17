@@ -106,7 +106,10 @@ async function resolveToken(token) {
     // (lib/billing.js claimPendingForUser). One indexed lookup on the
     // uncached path; nothing when the account already holds a plan.
     if (value.plan === DEFAULT_PLAN && value.email) {
-      const claimed = await claimPendingForUser(value, {
+      // Confirmed and not anonymous: Google sign-ins arrive with
+      // email_confirmed_at set (billing.js claimPendingForUser says why).
+      const emailConfirmed = Boolean(user.email_confirmed_at) && user.is_anonymous !== true;
+      const claimed = await claimPendingForUser({ ...value, emailConfirmed }, {
         pendingByEmail: billingPendingByEmail, writePlan: writePlanToSupabase, link: billingCustomerLink, pendingDelete: billingPendingDelete, forget: forgetCachedPlans,
       });
       if (claimed) value.plan = claimed;

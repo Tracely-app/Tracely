@@ -156,12 +156,20 @@ test("a split whose second half truncates still reports every call it was billed
   assert.equal(Object.keys(err).includes("llm"), false, "the tag stays off the wire");
 });
 
-test("a split whose half fails with nothing billed still carries what the calls before it cost", async () => {
+test("a split whose half times out carries what the calls before it cost, and the timed-out call's worst case", async () => {
+  // A timeout came back with no usage and used to be recorded as free, though
+  // the vendor runs and bills a dropped request to its end (2026-10-17). Now
+  // it carries its worst case: the request's bytes as input (priced as cache
+  // writes) and every output token it allowed.
   const calls = scriptedFetch(["trunc", "ok", "timeout"]);
   const err = await runFactCheck({ text: "a b", sentences: TWO, model: "gpt-6-astra", effort: "low" }).catch((e) => e);
   assert.equal(calls(), 3);
-  assert.equal(err.kind, "timeout");
-  assert.deepEqual(err.llm.usage, { input: 2000, output: 32000, cached: 0, cacheWrite: 0 }, "the truncated call + half 1");
+  assert.equal(err.kind, "timeout", "the wire error is unchanged");
+  const u = err.llm.usage;
+  assert.equal(u.output, 32000 + 16000, "the truncated call + half 1 + the timed-out half's whole output ceiling");
+  assert.ok(u.input > 2000, `the timed-out request's bytes are counted as input (${u.input})`);
+  assert.equal(u.cacheWrite, u.input - 2000, "priced as cold cache writes, the dearest way input is billed");
+  assert.equal(err.llm.estimated, true);
   assert.deepEqual({ model: err.llm.model, effort: err.llm.effort }, { model: "gpt-6-astra", effort: "low" });
 });
 

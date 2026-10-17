@@ -24,13 +24,13 @@
  * migration — the table was already (account_id, day, kind, count).
  *
  * Spend is recorded AFTER a call, because the cost is not knowable until the
- * usage comes back. That means the budget can be overshot by at most the
- * in-flight calls at the moment it trips. On the extension pool that is
- * bounded by the per-caller rate limits and, at fast-model prices, worth a
- * fraction of a cent. The pools that serve the expensive models (`beta`,
- * `paid`) cannot lean on that — a beta caller rotates its install id freely —
- * so their admissions RESERVE a worst-case cost first (reserveSpend below)
- * and the ceiling is checked against spend plus what is still in flight.
+ * usage comes back, so every pool's admissions RESERVE a worst-case cost first
+ * (reserveSpend below) and the ceiling is checked against spend plus what is
+ * still in flight. The extension and app pools did not, until 2026-10-17: their
+ * overshoot was said to be "bounded by the per-caller rate limits", but an
+ * install id rotates freely, so it was concurrency x worst case — a check's
+ * worst case is ~2.5 cents a call and up to five shards, not a fraction of
+ * a cent. Now no pool admits a call it has no room to pay for.
  */
 import { usageCount, usageAdd } from "./db.js";
 import { costMicroCents } from "./llm.js";

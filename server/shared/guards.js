@@ -202,6 +202,12 @@ export const SPEND = {
   // The try-out's own web-search window, so it never takes the hour the
   // extension's store users share (GUARDS.maxWebSearchesPerHour).
   demoWebSearchesPerHour: 10,
+  // The desktop's forced web search (/api/find-sources) across EVERY caller on
+  // the app pool, 2026-10-17. Its per-caller window is keyed on an install id
+  // the client rotates freely, so without this a script with fresh ids could
+  // run searches until the app pool's day was spent. Wide enough for every
+  // desktop user at their own 25-an-hour window several times over.
+  appWebSearchesPerHour: 60,
 };
 
 /**

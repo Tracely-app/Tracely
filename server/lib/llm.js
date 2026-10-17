@@ -167,7 +167,37 @@ export function assertStrictSchema(schema, where = "schema") {
 async function post(p, body, { timeoutMs = 120_000 } = {}) {
   const key = apiKey(p);
   if (!key) throw new CheckError("no_key", p.missingKeyMessage, { status: 503 });
-  return p.send(body, { key, timeoutMs });
+  try {
+    return await p.send(body, { key, timeoutMs });
+  } catch (err) {
+    // A call WE gave up on was still sent, and the vendor does not cancel a
+    // request the client drops: it runs, and bills, to its end. It came back
+    // with no usage, so it was recorded as free: past every pool, the caller's
+    // fair-use total and the try-out's dollar window, and a prompt written to
+    // make the model think past the 30 s check deadline was free (2026-10-17).
+    // So a timeout carries what the call could have cost at most: the request's
+    // UTF-8 size as input tokens (a byte-level token covers at least a byte),
+    // every output token it allowed, and every search it allowed. tagFailure
+    // reads it; the central handler charges it like any billed failure.
+    if (err instanceof CheckError && err.kind === "timeout" && !err.timedOutUsage) {
+      Object.defineProperty(err, "timedOutUsage", { value: worstUsageOf(body), enumerable: false, configurable: true });
+    }
+    throw err;
+  }
+}
+
+/* The most a request body could be billed (post above): input and output in
+ * tokens, priced as cold cache writes like every reservation, plus its web
+ * searches. Over-counting is the safe direction for a spend cap. */
+const PAGES_PER_SEARCH_TOKENS = 12_000; // what one search reads back as input, the allowance WORST_CALL uses
+function worstUsageOf(body) {
+  const searching = Array.isArray(body?.tools) && body.tools.some((t) => t?.type === "web_search");
+  const searches = searching ? Number(body?.max_tool_calls) || 3 : 0;
+  const input = Buffer.byteLength(JSON.stringify({ instructions: body?.instructions, input: body?.input }), "utf8") + searches * PAGES_PER_SEARCH_TOKENS;
+  return {
+    usage: { input, cacheWrite: input, output: Number(body?.max_output_tokens) || 16_000, cached: 0 },
+    webSearchCalls: searches,
+  };
 }
 
 /* Kept as an export with its (status, json) signature. It maps the ACTIVE
@@ -249,6 +279,11 @@ function tagFailure(err, sent, p = null, json = null) {
       // A failed answer that searched was billed per search too.
       const searches = webSearchCallsOf(p, json);
       if (searches > 0) tag.webSearchCalls = searches;
+    } else if (err.timedOutUsage) {
+      // Timed out: no answer to read, so its worst case (post above).
+      tag.usage = err.timedOutUsage.usage;
+      if (err.timedOutUsage.webSearchCalls > 0) tag.webSearchCalls = err.timedOutUsage.webSearchCalls;
+      tag.estimated = true;
     }
     Object.defineProperty(err, "llm", { value: tag, enumerable: false, configurable: true });
   }
@@ -298,9 +333,14 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
       json = await post(p, body, { timeoutMs });
     } catch (err) {
       if (!withEffort || !p.isEffortError(err)) throw err;
-      effortDisabled.add(effortKey(p, chosen));
       sent.effort = null;
       json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }), { timeoutMs });
+      // Only now — the same request answered WITHOUT effort — is "this model
+      // refuses effort" a fact. It used to be latched before the retry, so a
+      // rejection that was about something else (a prompt the vendor refused,
+      // which any caller can send) switched effort off for every caller of the
+      // model until restart, onto the vendor's costlier default (2026-10-17).
+      effortDisabled.add(effortKey(p, chosen));
     }
     p.checkComplete(json, what);
     const text = p.extractText(json);
@@ -343,13 +383,31 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
  * onto the expensive no-effort path described above. */
 const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
 
+/* The cap on web_search calls per answer (`max_tool_calls`, 2026-10-17). It
+ * was added without a key to probe the vendor with, so a 400 that names it is
+ * answered like the effort fallback: the same call once more without the cap,
+ * and only when THAT answers is the cap switched off for the model. A search
+ * must not break over a spend guard. */
+const toolCapDisabled = new Set();
+const toolCapFor = (p, model, maxSearches) => (maxSearches && !toolCapDisabled.has(effortKey(p, model)) ? maxSearches : undefined);
+async function postCapped(p, model, build, effort, cap, opts) {
+  try {
+    return await post(p, build(effort, cap), opts);
+  } catch (err) {
+    if (!cap || typeof p.isToolCapError !== "function" || !p.isToolCapError(err)) throw err;
+    const json = await post(p, build(effort, null), opts); // null, not undefined: build's default would put the cap back
+    toolCapDisabled.add(effortKey(p, model));
+    return json;
+  }
+}
+
 /** A call that may search the web before answering. Returns raw text.
  *
  * `schema` (optional) constrains that text to strict JSON; the search stays
  * the model's choice, unlike webSearchStructuredCall below, and the text is
  * still returned raw for the caller to parse. /api/sources passes one so the
  * citation fields come back in every source, empty when the page is silent. */
-export async function webSearchCall({ model, system, user, maxTokens, what, effort, schema, name = "result" }) {
+export async function webSearchCall({ model, system, user, maxTokens, what, effort, schema, name = "result", maxSearches = undefined }) {
   if (schema) assertStrictSchema(schema, what);
   const p = provider();
   const chosen = chooseModel(model);
@@ -368,14 +426,15 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
   let json = null;
   try {
     // Searching then writing is slower than writing, hence the longer timeout.
-    const build = (e) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e, schema, name });
+    const cap = toolCapFor(p, chosen, maxSearches);
+    const build = (e, c = cap) => p.webSearchBody({ model: chosen, system, user, maxTokens, effort: e, schema, name, maxSearches: c });
     try {
-      json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+      json = await postCapped(p, chosen, build, withEffort ? level : undefined, cap, { timeoutMs: 180_000 });
     } catch (err) {
       if (!withEffort || !p.isEffortError(err)) throw err;
-      effortDisabled.add(webEffortKey(p, chosen));
       sent.effort = null;
-      json = await post(p, build(undefined), { timeoutMs: 180_000 });
+      json = await postCapped(p, chosen, build, undefined, cap, { timeoutMs: 180_000 });
+      effortDisabled.add(webEffortKey(p, chosen)); // after the retry answered (structuredCall says why)
     }
     p.checkComplete(json, what);
     return {
@@ -398,7 +457,7 @@ export async function webSearchCall({ model, system, user, maxTokens, what, effo
  * backstop. This is the desktop's source finder, which forces
  * the search and parses a strict schema, exactly as the relay did.
  */
-export async function webSearchStructuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT }) {
+export async function webSearchStructuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT, maxSearches = undefined }) {
   assertStrictSchema(schema, what);
   const p = provider();
   if (!p.webSearchStructuredBody) throw new CheckError("server", `Provider "${p.name}" cannot run a forced web search.`, { status: 500 });
@@ -408,14 +467,15 @@ export async function webSearchStructuredCall({ model, system, user, schema, max
   const sent = { model: chosen, effort: withEffort ? level : null };
   let json = null;
   try {
-    const build = (e) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e });
+    const cap = toolCapFor(p, chosen, maxSearches);
+    const build = (e, c = cap) => p.webSearchStructuredBody({ model: chosen, system, user, schema, name, maxTokens, effort: e, maxSearches: c });
     try {
-      json = await post(p, build(withEffort ? level : undefined), { timeoutMs: 180_000 });
+      json = await postCapped(p, chosen, build, withEffort ? level : undefined, cap, { timeoutMs: 180_000 });
     } catch (err) {
       if (!withEffort || !p.isEffortError(err)) throw err;
-      effortDisabled.add(effortKey(p, chosen));
       sent.effort = null;
-      json = await post(p, build(undefined), { timeoutMs: 180_000 });
+      json = await postCapped(p, chosen, build, undefined, cap, { timeoutMs: 180_000 });
+      effortDisabled.add(effortKey(p, chosen)); // after the retry answered (structuredCall says why)
     }
     p.checkComplete(json, what);
     const text = p.extractText(json);

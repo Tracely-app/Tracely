@@ -33,7 +33,7 @@
  * whole product runs keyless for shape checks and tests.
  */
 import { structuredCall, textCall, webSearchStructuredCall, DEFAULT_MODEL } from "./llm.js";
-import { CheckError } from "./errors.js";
+import { CheckError, billedFailure } from "./errors.js";
 import { CLAIM_DETECTION_SYSTEM_PROMPT, CLAIM_DETECTION_SCHEMA } from "./prompts/detect.js";
 import { CRITIQUE_SYSTEM_PROMPT, CRITIQUE_SCHEMA } from "./prompts/critique.js";
 import { CORRECTION_SYSTEM_PROMPT, CORRECTION_SCHEMA } from "./prompts/correction.js";
@@ -72,6 +72,8 @@ export const LIMITS = {
 /* Output ceilings for the reasoning models (see the header for why these are
  * not the relay's numbers). */
 const MAX_OUTPUT = { detect: 16_000, critique: 16_000, correction: 8_000, structure: 8_000, grade: 16_000, tracer: 8_000, sources: 16_000 };
+// The web_search calls one find-sources answer may make (lib/llm.js max_tool_calls).
+export const FIND_SOURCES_MAX_SEARCHES = 4;
 
 /* ── numbering: the ONE format the prompts read ─────────────────────────
  * Sentences for detection are "[1] First. [2] Second." — joined by a space,
@@ -388,7 +390,8 @@ export async function tracerReply({ message, history, context, model, effort }) 
   if (isMock()) return { reply: mockTracer(msg, turns.length), model: mockModel(model), usage: zeroUsage() };
   const out = await textCall({ model, effort, system: TRACER_SYSTEM_PROMPT, messages, maxTokens: MAX_OUTPUT.tracer, what: "tracer" });
   const reply = String(out.text ?? "").trim();
-  if (!reply) throw new CheckError("server", "Tracer did not return a reply. Try asking again.", { status: 502 });
+  // Billed even when empty, so the failure carries the cost (lib/errors.js billedFailure).
+  if (!reply) throw billedFailure(new CheckError("server", "Tracer did not return a reply. Try asking again.", { status: 502 }), out.model, out.usage);
   return { reply, model: out.model, usage: out.usage };
 }
 
@@ -408,6 +411,9 @@ export async function findSources({ claim, context, model, effort }) {
     system: SOURCE_SEARCH_SYSTEM_PROMPT, user,
     schema: SOURCE_SEARCH_SCHEMA.schema, name: SOURCE_SEARCH_SCHEMA.name,
     what: "source search",
+    // The prompt asks for "several" site-restricted queries; this bounds them
+    // (2026-10-17), at what server.js WORST_CALL["/api/find-sources"] holds.
+    maxSearches: FIND_SOURCES_MAX_SEARCHES,
   });
   return { ...out.parsed, model: out.model, usage: out.usage, webSearchCalls: out.webSearchCalls };
 }
