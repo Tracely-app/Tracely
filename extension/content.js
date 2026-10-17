@@ -29,13 +29,13 @@
    Sections, by the line their anchor sits on (regenerate the numbers with
    `grep -n` when you move things; the anchors themselves must not move):
         63  Verdicts, card copy, colours, FEATURES switches
-       359  Settings and plan gate
-       698  Shared helpers: hashing, bibliography, citation formatting
-      1106  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1401  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      3844  Widget chrome, API transport, design tokens
-      5253  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     12078  Field mode (textareas and contenteditables on any site)
+       360  Settings and plan gate; what the Settings page sets (pause, corner, clear)
+       756  Shared helpers: hashing, bibliography, citation formatting
+      1164  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1459  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      3902  Widget chrome, API transport, design tokens
+      5340  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12185  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -335,6 +335,7 @@
   const storageOnChanged = (cb) => extCall(() => chrome.storage.onChanged.addListener(cb));
   const sendMsg = (msg) => extCall(() => chrome.runtime.sendMessage(msg), Promise.resolve(null));
 
+
   /* Flow flags — passage-level coaching, drawn as a margin bracket rather
      than an underline (Figma "Overlay Mockup — Inline Flow Flag"). Colors
      sampled from that file: bracket/badge, then the chip + link accent. */
@@ -487,6 +488,63 @@
       });
       tierTimer = setInterval(refreshTier, 5 * 60_000); // matches the worker's entitlement TTL
     } catch { /* harness page: no chrome.* — stays free tier */ }
+  }
+
+  /* ── Settings → the widget (owner, 2026-10-16: "revamp settings") ───────
+     What the Settings page sets, in chrome.storage "prefs" (options.js
+     PREF_DEFAULTS keeps the same names and defaults):
+       pausedUntil — 0 runs; a time pauses until then; -1 is off until it is
+                     turned back on. Paused: nothing is read or sent, nothing
+                     is drawn, and the launcher says so (pausedHtml).
+       launcherSide — "right" or "left": the corner the launcher sits in.
+       panelOpen   — Docs opens with the panel open.
+       clearedAt   — "Clear saved checks": this page's saved checks, sources
+                     and dismissed notes go the next time it looks (clearTracelyStore).
+     A plain test page has no extension storage and keeps the defaults. */
+  const PREF_DEFAULTS = { pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0 };
+  let prefs = { ...PREF_DEFAULTS };
+  const prefsListeners = new Set();
+  let prefsResumeTmr = 0;
+  function notePrefs(next) {
+    prefs = { ...PREF_DEFAULTS, ...(next && typeof next === "object" ? next : {}) };
+    // A pause with an end: wake when it ends, so the checking comes back on its own.
+    clearTimeout(prefsResumeTmr);
+    const left = prefs.pausedUntil > 0 ? prefs.pausedUntil - Date.now() : 0;
+    if (left > 0) prefsResumeTmr = setTimeout(() => notePrefs(prefs), Math.min(left + 50, 2 ** 31 - 1));
+    for (const fn of prefsListeners) { try { fn(); } catch { /* a mode's hook never breaks another's */ } }
+  }
+  storageGet({ prefs: {} }, (st) => notePrefs(st?.prefs));
+  storageOnChanged((changes, area) => { if (area === "local" && changes.prefs) notePrefs(changes.prefs.newValue); });
+  const tracelyPaused = () => prefs.pausedUntil === -1 || prefs.pausedUntil > Date.now();
+  // "4:30 PM", or "midnight" for a pause for today (options.js untilLabel).
+  const untilLabel = (t) => { const d = new Date(t); return d.getHours() === 0 && d.getMinutes() === 0 ? "midnight" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+  const pausedLine = () => (prefs.pausedUntil === -1 ? "Tracely is off until you turn it back on." : `Tracely is paused until ${untilLabel(prefs.pausedUntil)}.`);
+  const resumeTracely = () => storageSet({ prefs: { ...prefs, pausedUntil: 0 } });
+  // The launcher's corner, on the widget's root.
+  const placeRoot = (root) => root?.classList?.toggle("left", prefs.launcherSide === "left");
+  /* "Clear saved checks" (Settings → Privacy and data): this origin's saved
+     checks, sources, dismissed notes and reviews go. The settings, the panel's
+     place and the clear's own mark stay. True when it cleared something new. */
+  const CLEARED_KEY = "tracely.clearedAt";
+  function clearTracelyStore() {
+    try {
+      if (!(prefs.clearedAt > Number(localStorage.getItem(CLEARED_KEY) || 0))) return false;
+      const keep = new Set(["tracely.widget.settings", "tracely.widget.panelPos", CLEARED_KEY]);
+      for (const k of Object.keys(localStorage)) if (k.startsWith("tracely.") && !keep.has(k)) localStorage.removeItem(k);
+      localStorage.setItem(CLEARED_KEY, String(prefs.clearedAt));
+      return true;
+    } catch { return false; } // storage denied
+  }
+  // The keyboard shortcut (manifest "commands", background.js): each mode opens or closes its panel.
+  const panelTogglers = new Set();
+  extCall(() => chrome.runtime.onMessage.addListener((m) => { if (m?.type === "tracely-toggle-panel") for (const fn of panelTogglers) fn(); }));
+  /* What the last edits did, for Settings → Help → Copy diagnostics: the
+     action, the path and the hook's answer — never a word of the document. */
+  const diagEdits = [];
+  function noteDiag(entry) {
+    diagEdits.push({ at: new Date().toISOString(), ...entry });
+    while (diagEdits.length > 20) diagEdits.shift();
+    storageSet({ diag: { edits: diagEdits } });
   }
 
   /* ── "Explain in depth" (2.20.0) ─────────────────────────────────────────
@@ -4749,6 +4807,29 @@
      plane was not the logo. A page whose policy refuses data: images gets
      the plane in a circle instead (makeWidget), never a broken image. */
   const PILL_MARK = `<img class="pill-mark" src="${MARK_PNG}" alt="" draggable="false" />`;
+  /* Paused or off from Settings (prefs.pausedUntil): a quiet pill that says
+     so, and, opened, one card with Resume — both modes (pausedWire). Nothing
+     is read, sent or drawn while it shows. */
+  function pausedHtml(open) {
+    const line = pausedLine();
+    return `${open ? `
+      <div class="panel opening">
+        <div class="head">${MARK_SOLID_SVG}<span class="name">Tracely</span></div>
+        <div class="list">
+          <div class="card">
+            <div class="top"><span class="dot"></span><span class="ctitle">${prefs.pausedUntil === -1 ? "Tracely is off" : "Tracely is paused"}</span></div>
+            <div class="expl">${esc(line)} Nothing is checked or sent until then.</div>
+            <div class="row"><button class="act primary" id="tracelyResume">${prefs.pausedUntil === -1 ? "Turn on" : "Resume now"}</button><button class="act" id="tracelyPausedSettings">Settings</button></div>
+          </div>
+        </div>
+      </div>` : ""}
+      <div class="pill quiet" id="pill" title="${esc(line)}">${PILL_MARK}${prefs.pausedUntil === -1 ? "Tracely is off" : "Paused"}</div>`;
+  }
+  function pausedWire(shadow, toggle) {
+    shadow.getElementById("pill")?.addEventListener("click", toggle);
+    shadow.getElementById("tracelyResume")?.addEventListener("click", () => resumeTracely());
+    shadow.getElementById("tracelyPausedSettings")?.addEventListener("click", () => openSettings("general"));
+  }
 
   /* ── the app's design tokens ───────────────────────────────────────────
      The extension is meant to read as the same product as the Tracely app,
@@ -4804,6 +4885,12 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: ${JAKARTA}; -webkit-font-smoothing: antialiased; }
     .root { position: fixed; right: 22px; bottom: 22px; z-index: 2147483647; }
+    /* Settings → General → the launcher's corner (prefs.launcherSide, placeRoot): the bottom left, everything in it mirrored. */
+    .root.left { right: auto; left: 22px; }
+    .root.left .launcher { margin-left: 0; margin-right: auto; }
+    .root.left .panel { right: auto; left: 0; }
+    .root.left .ready-ping { margin-left: 0; margin-right: auto; }
+    .root.left .pill { margin-left: 0; margin-right: auto; }
     /* ── Pill ─────────────────────────────────────────────────────────── */
     .pill {
       display: flex; align-items: center; gap: 8px; height: 40px;
@@ -5282,15 +5369,18 @@
     const docsStorage = useRelay && typeof chrome !== "undefined" && Boolean(chrome.storage?.local);
     let docsOn = harness || !docsStorage;
     if (docsStorage) {
+      // (`widget` was read here, a name this mode never declares: unless the page had an element
+      // with that id, the answer threw before render and cycle, and a Doc just turned on waited for
+      // the next tick. A storage answer comes after this mode is set up: the widget is there by then.)
       storageGet({ docsEnabled: false }, (st) => {
         docsOn = st.docsEnabled === true;
-        if (widget) render();
+        render();
         if (docsOn) cycle();
       });
       storageOnChanged((changes, area) => {
         if (area !== "local" || !changes.docsEnabled) return;
         docsOn = changes.docsEnabled.newValue === true;
-        if (widget) render();
+        render();
         if (docsOn) cycle();
       });
     }
@@ -5306,6 +5396,20 @@
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map(jsonParse(lsGet(SCACHE_KEY) ?? "[]", [])
       .map(([h, st]) => [h, { loading: false, list: backingSources(st.list, cache.get(h)?.verdict).list, unread: backingSources(st.unread, cache.get(h)?.verdict).unread, partial: typeof st.partial?.partial?.trimmed === "string" ? st.partial : null, copiedUrl: null, citedUrl: st.citedUrl ?? null }]));
+    /* Settings (prefs): a pause takes the underlines and the open card at once
+       and the checking stops; the end of one starts it again. "Clear saved
+       checks" empties what this page holds too, not only what it saved. The
+       first answer opens the panel when Settings asks for it on a new Doc.
+       The keyboard shortcut opens and closes the panel. */
+    let prefsSeen = false;
+    prefsListeners.add(() => {
+      if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); requestDocsMarks(); }
+      if (!prefsSeen) { prefsSeen = true; if (prefs.panelOpen && docsOn && !tracelyPaused()) expanded = true; }
+      if (tracelyPaused()) { hideDocsPopover(); clearDocsMarks(); }
+      render(); // (a storage answer comes after this mode is set up: the widget is there)
+      if (!tracelyPaused()) cycle();
+    });
+    panelTogglers.add(() => { expanded = !expanded; render(); });
     /* ── flow coaching state ──────────────────────────────────────────────
        Flow is judged on the SHAPE of the document, so it re-runs only when
        the paragraph structure actually changes — not on every keystroke like
@@ -5581,7 +5685,7 @@
 
     async function cycle() {
       if (orphaned || inflight || document.hidden) return;
-      if (!docsOn) return; // nothing leaves the page until Docs is turned on
+      if (!docsOn || tracelyPaused()) return; // nothing leaves the page until Docs is turned on, or while Tracely is paused
       inflight = true;
       lastCheckFailed = false;
       try {
@@ -6652,7 +6756,7 @@
 
     function requestDocsMarks() {
       if (orphaned || document.hidden) return;
-      if (!docsOn) { if (docsBars.length) clearDocsMarks(); return; } // turned off: nothing drawn
+      if (!docsOn || tracelyPaused()) { if (docsBars.length) clearDocsMarks(); return; } // turned off or paused: nothing drawn
       lastLocateAt = Date.now();
       armAnnotationObserver();
       // Whatever re-locates the underlines (Docs re-laid out, the 900 ms timer) places the suggestions too.
@@ -9110,6 +9214,7 @@
           // rather than guessed at. No document text: the action, the path
           // and the hook's answer only.
           console.debug(`[tracely] edit ${key.split(":")[0]} · ${payload.action} via ${r.via ?? path} → ${r.ok ? "ok" : `failed (${r.reason ?? "?"}${r.check ? `: ${r.check}` : ""})`}${r.noop ? " noop" : ""}${r.undoToken ? "" : " untracked"}${r.endShape ? ` · ${r.endShape}` : ""}`);
+          if (typeof noteDiag === "function") noteDiag({ edit: key.split(":")[0], action: payload.action, via: r.via ?? path, ok: Boolean(r.ok), ...(r.ok ? {} : { reason: r.reason ?? "?", ...(r.check ? { check: r.check } : {}) }) });
           if (r.undoToken) tokens.unshift(r.undoToken);
           else if (r.ok && !r.noop) untracked++;
           if (r.rollbackOnly) rollbackOnly = true;
@@ -11660,7 +11765,9 @@
 
     function render() {
       if (orphaned) { root.innerHTML = orphanPillHtml(); return; }
+      placeRoot(root);
       if (!docsOn) { renderDocsConsent(); return; }
+      if (tracelyPaused()) { root.innerHTML = pausedHtml(expanded); pausedWire(shadow, () => { expanded = !expanded; render(); }); return; }
       const issues = currentIssues();
       const offTopic = FEATURES.offTopic && isArgumentGenre(docGenre) ? offTopicTips(docText, dismissed) : [];
       const refTips = FEATURES.refList && isArgumentGenre(docGenre) ? referenceTips(docText, dismissed, docGenre, settings.citationStyle) : [];
@@ -12147,6 +12254,12 @@
     const dismissed = new Set(jsonParse(lsGet(DISMISS_KEY) ?? "[]", []));
     const sourcesMap = new Map();
     let settings = loadSettings(SETTINGS_KEY);
+    // Settings (prefs), as in Docs mode: a pause draws nothing and checks nothing; "Clear saved checks" empties this page too.
+    prefsListeners.add(() => {
+      if (clearTracelyStore()) { cache.clear(); dismissed.clear(); sourcesMap.clear(); }
+      render();
+    });
+    panelTogglers.add(() => { if (!tracked) return; expanded = !expanded; render(); });
     let segments = [];
     let citedLater = new Set(); // sentences a later citation in their paragraph covers
     let sourceAttr = new Map(); // sentence hash → "named" | "unnamed" (attributionBySentence)
@@ -12433,7 +12546,7 @@
     }
 
     function drawMarks() {
-      if (orphaned) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; }
+      if (orphaned || tracelyPaused()) { if (overlayEl) overlayEl.textContent = ""; markRects.clear(); markParts.clear(); return; } // paused: nothing drawn
       if (!overlayEl && !(tracked && tracked.isConnected)) return; // nothing drawn, nothing to clear
       const layer = ensureOverlay();
       layer.textContent = "";
@@ -12626,7 +12739,7 @@
     }
 
     async function cycle() {
-      if (orphaned || inflight || document.hidden) return;
+      if (orphaned || inflight || document.hidden || tracelyPaused()) return; // paused from Settings: nothing read or sent
       if (!tracked || !tracked.isConnected) {
         statusKind = "idle";
         statusMsg = "click into a text field first";
@@ -13111,6 +13224,13 @@
         // Shown where the counting pill would have been, never anywhere new.
         root.style.display = tracked && (fieldEligible() || segments.length > 0) ? "" : "none";
         root.innerHTML = orphanPillHtml();
+        return;
+      }
+      placeRoot(root);
+      if (tracelyPaused()) { // paused from Settings: where the pill would be, saying so
+        root.style.display = tracked && (expanded || fieldEligible()) ? "" : "none";
+        root.innerHTML = pausedHtml(expanded);
+        pausedWire(shadow, () => { expanded = !expanded; render(); });
         return;
       }
       const enabled = siteEnabled();

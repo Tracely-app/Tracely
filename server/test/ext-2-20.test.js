@@ -360,6 +360,7 @@ function renderDocsPanel(tier) {
     const canEditDoc = () => false;
     const editBtnHtml = () => "", editNoteHtml = () => "";
     const orphanPillHtml = () => "<div class='pill'></div>";
+    const tracelyPaused = () => false, placeRoot = () => {}; // Settings' pause and corner (content.js prefs): running, bottom right
     const settings = { citationStyle: "apa", autoSources: false };
     const formatCitation = () => ({ ref: "", inText: "" });
     const CITE_STYLES = [];
@@ -416,6 +417,7 @@ function renderFieldPanel(tier) {
     const fieldEligible = () => true;
     const currentIssues = () => [${JSON.stringify(ISSUE)}];
     const orphanPillHtml = () => "<div class='pill'></div>";
+    const tracelyPaused = () => false, placeRoot = () => {}; // Settings' pause and corner (content.js prefs): running, bottom right
     const settings = { citationStyle: "apa", autoSources: false };
     const formatCitation = () => ({ ref: "", inText: "" });
     const persistSettings = () => {};
@@ -624,21 +626,25 @@ test("options: Free gets the locked line instead", async () => {
   assert.match(read("options.js"), /const RECOMMEND_PLANS = \["student", "pro"\];/);
 });
 
-test("options: the source-search line is the server's own counting", async () => {
+// Since 2026-10-16 the counts are bars under "Used so far" (Account and billing), not a line of text.
+const usageRows = (html) => [...String(html).matchAll(/<div class="usage-head"><span>([^<]+)<\/span><span>([^<]+)<\/span><\/div>/g)].map((m) => `${m[1]}: ${m[2]}`);
+test("options: what's been used is the server's own counting, as bars", async () => {
   const free = await renderOptions({
     signedIn: false, plan: "free",
     limits: { checksPerDay: 400, aiActionsPerDay: 150, flowPerDay: 40, sources: { day: 5, month: 40 } },
     usage: { sources: { today: 2, month: 12 } },
   });
-  assert.equal(free("sourcesLine").hidden, false);
-  assert.equal(free("sourcesLine").textContent, "Source searches: 2 of 5 today · 12 of 40 this month.");
+  assert.equal(free("usageTile").hidden, false);
+  assert.deepEqual(usageRows(free("usage").innerHTML), ["Source searches today: 2 of 5", "Source searches this month: 12 of 40"]);
+  assert.match(free("usage").innerHTML, /aria-valuenow="2"[^>]*><span class="meter-fill" style="width:40%">/, "2 of 5 is 40% of the bar");
 
   const pro = await renderOptions({
     ...PAID,
     limits: { checksPerDay: null, aiActionsPerDay: null, flowPerDay: 150, sources: { day: 40, month: 250 } },
-    usage: { sources: { today: 3, month: 120 } },
+    usage: { sources: { today: 40, month: 120 } },
   });
-  assert.equal(pro("sourcesLine").textContent, "Source searches: 120 of 250 this month (37 left today).");
+  assert.deepEqual(usageRows(pro("usage").innerHTML), ["Source searches today: 40 of 40", "Source searches this month: 120 of 250"]);
+  assert.match(pro("usage").innerHTML, /meter-fill full" style="width:100%"/, "a spent allowance is marked");
 });
 
 test("options: a fair-use period says so, and says the plan is unchanged", async () => {
@@ -658,7 +664,7 @@ test("options: a server that meters nothing is not made to look as if it does", 
   // A plain `node server.js` (no Supabase) reports no limits, usage, thorough
   // or fairUse — and gates nothing, so Thorough is not locked either.
   const $ = await renderOptions({ signedIn: false, plan: "free", unenforced: true });
-  assert.equal($("sourcesLine").hidden, true);
+  assert.equal($("usageTile").hidden, true);
   assert.equal($("fairUseLine").hidden, true);
   assert.equal($("recommendPlan").hidden, false);
   assert.equal($("recommendLocked").hidden, true);
@@ -778,7 +784,7 @@ test("options: a plan with a daily source allowance and no monthly one still rea
     limits: { checksPerDay: 400, aiActionsPerDay: 150, flowPerDay: 40, sources: { day: 5, month: null } },
     usage: { sources: { today: 4, month: 9 } },
   });
-  assert.equal($("sourcesLine").textContent, "Source searches: 4 of 5 today.");
+  assert.deepEqual(usageRows($("usage").innerHTML), ["Source searches today: 4 of 5"], "no month row for a plan with no monthly allowance");
 });
 
 /* The server reports per-CALLER metering on /api/entitlement — the Thorough

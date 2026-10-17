@@ -125,9 +125,9 @@ test("the orphan pill names what happened and the fix, and carries no count", ()
 
 test("every pill and panel head that names Tracely shows its mark; the plane is only the fallback", () => {
   const CONTENT = read("content.js");
-  assert.equal((CONTENT.match(/\$\{PILL_MARK\}/g) || []).length, 3, "orphan, Docs consent pill, 'Tracely is off here'");
+  assert.equal((CONTENT.match(/\$\{PILL_MARK\}/g) || []).length, 4, "orphan, Docs consent pill, 'Tracely is off here', paused from Settings (2026-10-16)");
   // A panel's head draws the mark in one solid colour (owner, 2026-10-14: "make it a solid color").
-  assert.equal((CONTENT.match(/\$\{MARK_SOLID_SVG\}/g) || []).length, 2, "the panel's head and the Docs consent card's");
+  assert.equal((CONTENT.match(/\$\{MARK_SOLID_SVG\}/g) || []).length, 3, "the panel's head, the Docs consent card's, and the paused card's");
   assert.equal((CONTENT.match(/<span class="plane">\$\{PLANE_SVG\}<\/span>/g) || []).length, 1, "the plane in a circle only as the fallback");
   assert.match(CONTENT, /shadow\.addEventListener\("error", \(e\) => \{\n\s+if \(e\.target\?\.classList\?\.contains\("pill-mark"\)\) e\.target\.outerHTML = `<span class="plane">\$\{PLANE_SVG\}<\/span>`;\n\s+\}, true\);/, "a page that refuses data: images");
 });

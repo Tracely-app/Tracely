@@ -1,7 +1,14 @@
-/* Tracely's Settings page (options.html) — the account (sign in, plan,
-   upgrade), the checking model, Google Docs, the per-site auto-check list,
-   privacy, and a live probe of the server; one section at a time, chosen in
-   the sidebar like the desktop's Settings.
+/* Tracely's Settings page (options.html), one section at a time, chosen in
+   the sidebar like the desktop's Settings. Since 2026-10-16 (owner: "revamp
+   settings to include more that typical settings has"):
+     General          on / paused / off, Google Docs, the auto-check sites,
+                      the button's corner, the panel on open, the shortcut
+     Checking         the checking model, evidence recommendations
+     Account and billing   sign-in, the plan card, what's been used
+     Privacy and data what leaves the browser, export, clear saved checks,
+                      delete the account
+     Help             what's new, the keys, diagnostics
+   and a live probe of the server in the sidebar.
 
    The sign-in itself lives in the background worker (it holds the token and
    the Supabase constants); this page only sends it messages. */
@@ -125,8 +132,26 @@ function renderPlanState() {
   $("recommendPlan").hidden = !paid;
   $("recommendLocked").hidden = paid;
   renderIncludes();
-  renderSourcesLine();
+  renderUsage(); // (the bars replace the line of source-search counts)
   renderFairUseLine();
+}
+
+/* What's been used, as bars: the server's own counts against the plan's own
+   limits (entitlementExtras relays the source searches). A server that
+   meters nothing reports neither, and the tile stays hidden. */
+function renderUsage() {
+  const l = account.limits?.sources, u = account.usage?.sources;
+  const rows = [];
+  if (l && u && !account.unenforced) {
+    if (Number.isFinite(l.day)) rows.push(["Source searches today", u.today, l.day]);
+    if (Number.isFinite(l.month)) rows.push(["Source searches this month", u.month, l.month]);
+  }
+  $("usage").innerHTML = rows.map(([label, used, of]) => {
+    const pct = of > 0 ? Math.min(100, Math.round((used / of) * 100)) : 100;
+    return `<div class="usage-row"><div class="usage-head"><span>${escHtml(label)}</span><span>${used} of ${of}</span></div>`
+      + `<span class="meter" role="meter" aria-valuemin="0" aria-valuemax="${of}" aria-valuenow="${used}" aria-label="${escHtml(label)}"><span class="meter-fill${used >= of ? " full" : ""}" style="width:${pct}%"></span></span></div>`;
+  }).join("");
+  $("usageTile").hidden = rows.length === 0;
 }
 
 /* What the plan card lists under the plan's name — the desktop's "includes"
@@ -152,28 +177,6 @@ function renderIncludes() {
   if (items.length && hasRecommendations()) items.push("Evidence recommendations");
   list.innerHTML = items.map((t) => `<li>${escHtml(t)}</li>`).join("");
   list.hidden = items.length === 0;
-}
-
-function renderSourcesLine() {
-  const line = $("sourcesLine");
-  const limits = account.limits?.sources;
-  const used = account.usage?.sources;
-  if (!limits || !used || (limits.day === null && limits.month === null)) {
-    line.hidden = true;
-    return;
-  }
-  line.hidden = false;
-  // Free (and any account metered at Free's numbers under fair use) has a
-  // daily allowance; a paid one is sold by the month, with the day as a burst.
-  const metered = account.limits?.checksPerDay !== null || account.plan === "free";
-  const leftToday = limits.day === null ? null : Math.max(0, limits.day - used.today);
-  if (limits.month === null) {
-    line.textContent = `Source searches: ${used.today} of ${limits.day} today.`;
-    return;
-  }
-  line.textContent = metered && limits.day !== null
-    ? `Source searches: ${used.today} of ${limits.day} today · ${used.month} of ${limits.month} this month.`
-    : `Source searches: ${used.month} of ${limits.month} this month${leftToday === null ? "" : ` (${leftToday} left today)`}.`;
 }
 
 function renderFairUseLine() {
@@ -246,6 +249,10 @@ function renderAccount() {
       manage.textContent = "Email us to cancel";
       manage.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Cancel my Tracely subscription")}`;
     }
+    // Billing: what the subscription page holds, where there is one to manage.
+    $("billingNote").textContent = account.plan !== "free" && PORTAL_URL
+      ? "Receipts, your payment method, changing plan and cancelling are all on the subscription page: Manage subscription. Nothing on this page charges you."
+      : "Plans are bought and cancelled on jointracely.com. Nothing on this page charges you.";
     $("acctHint").textContent = beta
       ? "This is a Tracely test build, so you're on Pro while the beta lasts. If you also pay for a plan, Manage subscription still reaches it."
       : account.plan === "free"
@@ -310,13 +317,20 @@ $("signOut").addEventListener("click", async () => {
 /* ── load + save ─────────────────────────────────────────────────────────── */
 
 function load() {
-  chrome.storage.local.get({ enabledSites: [], docsEnabled: false }, (cfg) => { renderSites(cfg.enabledSites); $("docsTgl").checked = cfg.docsEnabled === true; });
+  chrome.storage.local.get({ enabledSites: [], docsEnabled: false, prefs: {} }, (cfg) => {
+    renderSites(cfg.enabledSites);
+    $("docsTgl").checked = cfg.docsEnabled === true;
+    prefs = { ...PREF_DEFAULTS, ...(cfg.prefs && typeof cfg.prefs === "object" ? cfg.prefs : {}) };
+    renderGeneral();
+  });
   refreshAccount(); // fills the plan meters too, once the server has answered
+  renderShortcut();
+  renderWhatsNew();
   // Which section to show: the address's #section (a reload, a bookmark), or
   // the one the widget asked for (background.js "tracely-openSettings"),
-  // else Account.
+  // else General.
   const asked = typeof location !== "undefined" ? location.hash.replace(/^#/, "") : "";
-  showSection(asked || "account");
+  showSection(asked || "general");
   chrome.storage.local.get({ settingsOpenAt: null }, (cfg) => takeOpenAt(cfg.settingsOpenAt));
   const version = typeof chrome.runtime.getManifest === "function" ? chrome.runtime.getManifest()?.version : null;
   if (version) $("buildVersion").textContent = `Version ${version}`;
@@ -326,9 +340,11 @@ function load() {
    One panel at a time. The address carries the section (#account …), so a
    reload or a bookmark comes back to it, and the widget's gear can open the
    page at the section it is about. */
-const SECTIONS = ["account", "checking", "docs", "sites", "privacy"];
+const SECTIONS = ["general", "checking", "account", "privacy", "help"];
+// Sections a bookmark or an older widget may still name: Google Docs and Sites are in General now.
+const SECTION_MOVED = { docs: "general", sites: "general" };
 function showSection(id) {
-  const want = SECTIONS.includes(id) ? id : "account";
+  const want = SECTIONS.includes(id) ? id : SECTION_MOVED[id] ?? "general";
   for (const panel of document.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== want;
   for (const item of document.querySelectorAll("[data-nav]")) {
     const on = item.dataset.nav === want;
@@ -354,6 +370,120 @@ function takeOpenAt(req) {
 }
 // The same switch the first Doc asks for (content.js renderDocsConsent).
 $("docsTgl").addEventListener("change", (e) => chrome.storage.local.set({ docsEnabled: e.target.checked === true }));
+
+/* ── General: on, paused or off, and the button ──────────────────────────
+   chrome.storage "prefs", which content.js reads (its PREF_DEFAULTS: the
+   same names and defaults). pausedUntil is 0 running, a time paused until
+   then, -1 off until turned back on. */
+const PREF_DEFAULTS = { pausedUntil: 0, launcherSide: "right", panelOpen: false, clearedAt: 0 };
+let prefs = { ...PREF_DEFAULTS };
+function savePrefs(patch) {
+  prefs = { ...prefs, ...patch };
+  chrome.storage.local.set({ prefs });
+  renderGeneral();
+}
+// "4:30 PM", or "midnight" for a pause for today.
+function untilLabel(t) {
+  const d = new Date(t);
+  return d.getHours() === 0 && d.getMinutes() === 0 ? "midnight" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+let resumeTimer = null;
+function renderGeneral() {
+  const off = prefs.pausedUntil === -1;
+  const paused = !off && prefs.pausedUntil > Date.now();
+  $("onTgl").checked = !off;
+  $("pauseLine").textContent = off ? "Off: nothing is checked or sent until you turn it back on."
+    : paused ? `Paused until ${untilLabel(prefs.pausedUntil)}: nothing is checked or sent until then.`
+      : "Checking wherever you've turned it on.";
+  $("pauseHour").hidden = off || paused;
+  $("pauseToday").hidden = off || paused;
+  $("resumeNow").hidden = !paused;
+  for (const b of document.querySelectorAll("[data-side]")) b.setAttribute("aria-pressed", String(b.dataset.side === prefs.launcherSide));
+  $("panelOpenTgl").checked = prefs.panelOpen === true;
+  // The page says "running" again when a pause ends, without a reload.
+  clearTimeout(resumeTimer);
+  if (paused) resumeTimer = setTimeout(renderGeneral, Math.min(prefs.pausedUntil - Date.now() + 100, 2 ** 31 - 1));
+}
+$("onTgl").addEventListener("change", (e) => savePrefs({ pausedUntil: e.target.checked ? 0 : -1 }));
+$("pauseHour").addEventListener("click", () => savePrefs({ pausedUntil: Date.now() + 60 * 60 * 1000 }));
+$("pauseToday").addEventListener("click", () => { const d = new Date(); d.setHours(24, 0, 0, 0); savePrefs({ pausedUntil: d.getTime() }); });
+$("resumeNow").addEventListener("click", () => savePrefs({ pausedUntil: 0 }));
+for (const b of document.querySelectorAll("[data-side]")) b.addEventListener("click", () => savePrefs({ launcherSide: b.dataset.side === "left" ? "left" : "right" }));
+$("panelOpenTgl").addEventListener("change", (e) => savePrefs({ panelOpen: e.target.checked === true }));
+
+/* The keyboard shortcut (manifest "commands": toggle-panel). Chrome owns the
+   key: this page shows the one set, and Change opens Chrome's own page. */
+function renderShortcut() {
+  if (typeof chrome.commands?.getAll !== "function") return;
+  chrome.commands.getAll((cmds) => {
+    const key = (cmds ?? []).find((c) => c.name === "toggle-panel")?.shortcut || "Not set";
+    $("shortcutNow").textContent = key;
+    $("shortcutKey").textContent = key;
+  });
+}
+$("changeShortcut").addEventListener("click", () => {
+  try { chrome.tabs.create({ url: "chrome://extensions/shortcuts" }); }
+  catch { $("generalStatus").textContent = "Open chrome://extensions/shortcuts to change it."; }
+});
+
+/* ── Privacy and data ──────────────────────────────────────────────────── */
+// What this browser's extension storage holds, as a file: the sign-in's tokens left out.
+const EXPORT_LEAVE_OUT = ["authToken", "refreshToken"];
+$("exportData").addEventListener("click", () => {
+  chrome.storage.local.get(null, (all) => {
+    const data = { ...(all ?? {}) };
+    for (const k of EXPORT_LEAVE_OUT) delete data[k];
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), tracely: data }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `tracely-data-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    $("dataStatus").textContent = "Exported.";
+  });
+});
+// Every page Tracely runs on clears its own saved checks when it sees this mark (content.js clearTracelyStore).
+$("clearChecks").addEventListener("click", () => {
+  if (!confirm("Clear the checks, sources and dismissed notes Tracely saved on this device? Your settings and sign-in stay.")) return;
+  savePrefs({ clearedAt: Date.now() });
+  chrome.storage.local.remove("diag");
+  $("dataStatus").textContent = "Cleared. An open document clears now; others when you next open them.";
+});
+
+/* ── Help ──────────────────────────────────────────────────────────────── */
+// What changed lately, in the words the testers' notes used (newest first).
+const WHATS_NEW = [
+  ["2.21.62", "A new Settings: pause or turn Tracely off, move its button, a keyboard shortcut, your usage, export and clear your data, and this Help."],
+  ["2.21.61", "Review all never cuts a suggestion off, says how many are out of view, and stops with one press (or Esc)."],
+  ["2.21.60", "A source named but not cited is flagged; names in capitals like UNESCO count as names."],
+  ["2.21.59", "Apply fix waits for Google Docs to settle a selection instead of refusing."],
+  ["2.21.57", "Tracely tells 56 kinds of writing apart, and names one only when it is sure."],
+];
+function renderWhatsNew() {
+  $("whatsNew").innerHTML = WHATS_NEW.map(([v, t]) => `<div class="change"><span class="change-v">${escHtml(v)}</span><span class="change-t">${escHtml(t)}</span></div>`).join("");
+}
+/* Diagnostics: what a report needs to say what happened — the version, the
+   browser, the server and plan, the settings, and what the last in-doc
+   edits answered (content.js noteDiag) — never a word of anyone's writing. */
+function diagnostics(cfg) {
+  const version = typeof chrome.runtime.getManifest === "function" ? chrome.runtime.getManifest()?.version : null;
+  return {
+    version, browser: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    server: $("serverStatusText").textContent, plan: account.plan, signedIn: account.signedIn, beta: account.beta,
+    docsEnabled: cfg.docsEnabled === true, autoCheckSites: (cfg.enabledSites ?? []).length, prefs: cfg.prefs ?? {},
+    lastEdits: cfg.diag?.edits ?? [],
+  };
+}
+$("copyDiag").addEventListener("click", () => {
+  chrome.storage.local.get({ docsEnabled: false, enabledSites: [], prefs: {}, diag: null }, async (cfg) => {
+    const text = JSON.stringify(diagnostics(cfg), null, 2);
+    try { await navigator.clipboard.writeText(text); $("helpStatus").textContent = "Copied. Paste it into your message."; }
+    catch { $("helpStatus").textContent = "Couldn't reach the clipboard — try again."; }
+    // The email carries it too, cut to what a mail link can hold.
+    $("emailUs").href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Tracely problem")}&body=${encodeURIComponent(`What happened:\n\n\n---\n${text}`.slice(0, 1800))}`;
+  });
+});
+$("emailUs").href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Tracely problem")}`;
 
 /* Account deletion: the server purges what it keeps for this account and
    deletes the sign-in account itself, then the worker forgets the session.
@@ -403,6 +533,9 @@ function renderSites(sites) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.enabledSites) renderSites(changes.enabledSites.newValue ?? []);
+  // Resumed or turned on from the widget's own card while this page is open.
+  if (changes.prefs) { prefs = { ...PREF_DEFAULTS, ...(changes.prefs.newValue ?? {}) }; renderGeneral(); }
+  if (changes.docsEnabled) $("docsTgl").checked = changes.docsEnabled.newValue === true;
   // The widget's gear while this page is already open in a tab.
   if (changes.settingsOpenAt?.newValue) takeOpenAt(changes.settingsOpenAt.newValue);
   // The worker refreshes the entitlement cache on its own schedule; a plan

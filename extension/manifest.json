@@ -43,6 +43,14 @@
       "world": "MAIN"
     }
   ],
+  "commands": {
+    "toggle-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+K"
+      },
+      "description": "Open or close the Tracely panel"
+    }
+  },
   "minimum_chrome_version": "111",
   "background": {
     "service_worker": "background.js"

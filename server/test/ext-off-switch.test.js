@@ -77,7 +77,7 @@ test("Check now is gone; Docs has Turn off, other sites Turn off / Turn on for t
   assert.match(SRC, /panelHeadHtml\(tally, [^\n]*\{ note: genreNote\(docGenre, docText, settings\.citationStyle, docShown\), power \}\)/, "drawn in the Docs header");
   assert.match(SRC, /shadow\.getElementById\("turnOff"\)\.addEventListener\("click", turnDocsOff\);/);
   assert.match(SRC, /function turnDocsOff\(\) \{\n\s+docsOn = false;\n\s+expanded = false;\n\s+storageSet\(\{ docsEnabled: false \}\);\n\s+hideDocsPopover\(\);\n\s+clearDocsMarks\(\);/);
-  assert.match(SRC, /if \(!docsOn\) \{ if \(docsBars\.length\) clearDocsMarks\(\); return; \}/, "no underline is redrawn while off");
+  assert.match(SRC, /if \(!docsOn \|\| tracelyPaused\(\)\) \{ if \(docsBars\.length\) clearDocsMarks\(\); return; \}/, "no underline is redrawn while off, or paused from Settings");
   // On: the header's power button. Off: the footer's one button, the only thing the panel can then do.
   assert.match(SRC, /const siteSwitch = enabled\n\s+\? `<button class="hbtn" id="siteSwitch" title="Turn off on this site" aria-label="Turn off on this site">\$\{POWER_SVG\}<\/button>`\n\s+: `<button class="act primary" id="siteSwitch">Turn on for this site<\/button>`;/);
   assert.match(SRC, /power: enabled \? siteSwitch : "" \}\)/);

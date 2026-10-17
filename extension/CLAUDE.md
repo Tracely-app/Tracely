@@ -859,6 +859,57 @@ actually fit in the entire frame") it fills the tab: no card, the sidebar
 the window's height and sticky, the section a centred 680px column. Tests:
 `server/test/ext-settings-page.test.js`.
 
+Since 2.21.62 (owner, 2026-10-16: "revamp settings to include more that
+typical settings has", then "yes to all, go ahead with phase 1") the
+sections are **General, Checking, Account and billing, Privacy and data,
+Help**, with General first. A bookmark to `#docs` or `#sites` opens
+General (`SECTION_MOVED`).
+- **General.**
+  - **On, paused or off:** Pause for an hour, Pause for today (until
+    midnight), Resume, and the on switch.
+  - **Where Tracely checks:** the Google Docs switch and the auto-check
+    sites.
+  - **The Tracely button:** its corner (right or left), "Open the panel on
+    a new Doc", and the keyboard shortcut. The shortcut is manifest
+    `commands` `toggle-panel`, Alt+Shift+K by default. Chrome owns the key,
+    so Change opens `chrome://extensions/shortcuts`. background.js relays
+    the command to the active tab as `tracely-toggle-panel`.
+- **Account and billing.** The plan card, what's been used as bars (the
+  server's own source-search counts against the plan's limits,
+  `renderUsage`, hidden when the server meters nothing), and a line on
+  where receipts and cancelling live (`billingNote`).
+- **Privacy and data.** What leaves the browser, in plain lines.
+  - **Export my data:** a JSON file of the extension's storage, without the
+    sign-in tokens (`EXPORT_LEAVE_OUT`).
+  - **Clear saved checks** (below).
+  - **Delete the account.**
+- **Help.** What's new (`WHATS_NEW`, newest first: add a line with each
+  bump that changes what a writer sees), the keys, Copy diagnostics and
+  Email us. Diagnostics hold the version, browser, server, plan, settings,
+  and what the last 20 in-doc edits answered (`noteDiag`: step, path, ok,
+  the failed check). They never hold a word of the document.
+
+**The widget reads one storage key, `prefs`**, as `{ pausedUntil,
+launcherSide, panelOpen, clearedAt }` ("Settings → the widget" in
+content.js). `PREF_DEFAULTS` there and in options.js must match, and a test
+checks it. `pausedUntil` is 0 for running, a time for paused until then, or
+-1 for off.
+- **Paused or off,** neither mode reads, sends or draws anything. Docs
+  makes no export read; a field sends no check. The underlines and the open
+  card go at once.
+- **The launcher's pill** says "Paused" or "Tracely is off". Opened, it is
+  one card with Resume now (or Turn on) and Settings.
+- **A pause ends by itself,** on a timer set to its end. Per-site off and
+  the Docs switch work as before, underneath this.
+
+**Clear saved checks** writes `clearedAt`. Each page compares it with its
+own `tracely.clearedAt` and removes its `tracely.*` localStorage: the
+verdict and review caches, saved sources, dismissals. It keeps the widget's
+settings and its panel position (`clearTracelyStore`). A page that is open
+clears at once, in either mode; any other clears when it next loads. Tests:
+`server/test/ext-settings-page.test.js`,
+`server/test/ext-settings-prefs.test.js`.
+
 ## Measuring
 
 Prompt and model changes go through `eval/models/harness` and get a dated
