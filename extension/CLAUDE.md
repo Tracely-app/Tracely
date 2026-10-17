@@ -571,6 +571,41 @@ was timed, with that step's frame callbacks and the layout it left behind:
 Not measured in real Docs. Tests: `server/test/ext-fix-all.test.js`,
 `server/test/ext-type-preview.test.js`.
 
+## Review all: never cut, easy to stop
+
+Owner, 2026-10-16: "it clips randomly, please make it easier to stop the
+auto run and for the accept vs reject tabs next to the fixes, they clip
+randomly and off of the response … make it overall better and more
+managable and less confusing". What was found, on a Docs stand-in with a
+side panel open:
+- **Margin cards were cut in two.** A card was kept on screen against the
+  window's edge, while its layer clips to the document's box, which a side
+  panel (comments, Gemini) narrows. The card for "Add the list" ran 103px
+  past the box, and its ✕ Reject with it. Cards now stay inside the box
+  (`placeFixCards`), short of the editor's own scrollbar (`docClip` uses
+  `clientWidth`). Narrow margins put a card over the page's right edge
+  instead.
+- **Nothing is shown half.** A chip goes under its change; where that runs
+  out of the box, over it; where neither fits, it waits out of view
+  (`placeFixMarks`). A card that can't fit whole waits too. Both are
+  counted, and the bar says "N out of view".
+- **A run Docs reuses never places a mark.** Docs reuses its text runs when
+  it redraws a line, so a run that was still there could be showing other
+  words. Each strike's run now remembers its words (`raw`, `fixGeoStale`):
+  a changed run means the change is found again, and its strikes re-fit
+  when the line re-wraps (`fitStrikes`). If it can't be found, nothing of
+  it is drawn.
+- **The bar above the launcher is the run's one control** (`fixPingHtml`).
+  While preparing, it reads "Preparing fixes · 2 of 7 ready" with Stop;
+  Esc stops it too (`fixStopKey`). After, it reads "N fixes to review in
+  your doc", plus "· N out of view", with See all (the panel's list, where
+  every fix has Accept and Skip) and Reject all.
+- **Stop stops the cursor at once** (`fixTour.instant`). Nothing more is
+  prepared, and what is ready appears in its place without the glide and
+  the typing.
+
+Tests: `server/test/ext-fix-all.test.js`.
+
 ## A wrong source, and a named source not cited
 
 Owner, 2026-10-15, with an answer key for a twenty-sentence test sheet

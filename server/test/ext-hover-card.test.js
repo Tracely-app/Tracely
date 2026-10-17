@@ -173,8 +173,9 @@ test("motion: calm — a fade and a 4px rise on open, a cross-fade between cards
   // Reduced motion: no movement at all, only the dimming that says it is leaving.
   assert.match(SRC, /if \(reducedMotion\(\)\) \{ popEl\.style\.opacity = on \? "0\.6" : ""; return; \}/);
   assert.match(SRC, /function stepIn\(card, delay = 0\) \{\n\s+if \(!card \|\| reducedMotion\(\)\) return;/);
-  // The suggestions in the margin slide in once each; the notes above the launcher rise in once.
-  assert.match(SRC, /if \(!fixCardsShown\.has\(it\.key\)\) \{\n\s+fixCardsShown\.add\(it\.key\);\n\s+if \(!reducedMotion\(\) && typeof card\.animate === "function"\) card\.animate\(\[\{ opacity: 0, translate: "10px 0" \}/);
+  // The suggestions in the margin slide in once each — 6px, inside the 8 they keep from the document's edge (2026-10-16) —
+  // and the notes above the launcher rise in once.
+  assert.match(SRC, /if \(!fixCardsShown\.has\(it\.key\)\) \{\n\s+fixCardsShown\.add\(it\.key\);\n(?:\s+\/\/[^\n]*\n)?\s+if \(!reducedMotion\(\) && typeof card\.animate === "function"\) card\.animate\(\[\{ opacity: 0, translate: "6px 0" \}/);
   assert.match(SRC, /\.ready-ping\.enter \{ animation: tracely-ping-in 200ms cubic-bezier\(0\.2, 0\.8, 0\.2, 1\)/);
   assert.match(SRC, /@media \(prefers-reduced-motion: reduce\) \{ \.ready-ping\.enter \{ animation: none; \} \}/);
 });

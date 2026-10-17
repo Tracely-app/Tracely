@@ -34,8 +34,8 @@
       1106  Sentence boundaries (ported from server/shared/sentenceSplit.js)
       1401  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
       3844  Widget chrome, API transport, design tokens
-      5249  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     11999  Field mode (textareas and contenteditables on any site)
+      5253  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12078  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -5083,6 +5083,10 @@
     .ready-ping .ready-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ready-ping button.act { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
     .fix-ping .ready-text { display: inline-flex; align-items: center; gap: 6px; }
+    /* The fix-all bar: wider, and its words wrap rather than lose "out of view" to an ellipsis. */
+    .ready-ping.fix-ping { max-width: 400px; }
+    .fix-ping .ready-text { white-space: normal; line-height: 1.35; }
+    .fix-ping .fix-away { color: var(--muted); }
     /* A note rises in out of the launcher the first time it shows (not on
        every re-render: the class is only on the render that brings it). */
     .ready-ping.enter { animation: tracely-ping-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 100% 100%; }
@@ -5877,7 +5881,7 @@
           if (e <= lo || s >= hi) continue;
           const f0 = lo > s ? frac(run, svgRawIndexAt(run.raw, lo - s)) : 0;
           const f1 = hi < e ? frac(run, svgRawIndexAt(run.raw, hi - s)) : 1;
-          if (f1 - f0 > 0.005) out.push({ node: run.node, f0, f1 });
+          if (f1 - f0 > 0.005) out.push({ node: run.node, f0, f1, raw: run.raw }); // raw: the run's words, to tell a redrawn run (fixGeoStale)
         }
         return out;
       };
@@ -5897,8 +5901,8 @@
       let point = null;
       for (const [s, e, run] of runs) {
         if (a === b && a > 0) {
-          if (lo - 1 >= s && lo - 1 < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - 1 - s) + 1) }; break; }
-        } else if (lo >= s && lo < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - s)) }; break; }
+          if (lo - 1 >= s && lo - 1 < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - 1 - s) + 1), raw: run.raw }; break; }
+        } else if (lo >= s && lo < e) { point = { node: run.node, f: frac(run, svgRawIndexAt(run.raw, lo - s)), raw: run.raw }; break; }
       }
       return point ? { pieces: piecesOf(lo, at + b), at: point } : null;
     }
@@ -10774,12 +10778,13 @@
     let docScrollAt = -Infinity, docScrollSeq = 0, docSettleTmr = 0;
     const scrollClock = () => (typeof performance === "object" ? performance.now() : Date.now());
     const docScrolling = () => scrollClock() - docScrollAt < SCROLL_SETTLE_MS;
-    // The document's box on screen: the editor's scroll area, inside the window.
+    // The document's box on screen: the editor's scroll area, inside the window, short of its own scrollbars (clientWidth).
     function docClip() {
       if (!docsScroller || !docsScroller.isConnected) docsScroller = document.querySelector(".kix-appview-editor");
       const r = docsScroller ? docsScroller.getBoundingClientRect() : null;
       const left = Math.max(0, r ? r.left : 0), top = Math.max(0, r ? r.top : 0);
-      const right = Math.min(innerWidth, r ? r.right : innerWidth), bottom = Math.min(innerHeight, r ? r.bottom : innerHeight);
+      const right = Math.min(innerWidth, r ? r.left + (docsScroller.clientWidth || r.right - r.left) : innerWidth);
+      const bottom = Math.min(innerHeight, r ? r.top + (docsScroller.clientHeight || r.bottom - r.top) : innerHeight);
       return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
     }
     // A layer that is the document's box and clips what is in it; inside, a position is the client's less its corner.
@@ -10882,6 +10887,13 @@
       applying: "Putting it in…", applied: "In your doc", skipped: "Skipped",
       couldNot: (n, why) => `${n} couldn't be prepared (${why}) — ${n === 1 ? "its card is" : "their cards are"} still there`,
       left: (n) => `${n} more ${n === 1 ? "needs" : "need"} you — open ${n === 1 ? "its card" : "their cards"}`,
+      // The bar above the launcher while the panel is closed (fixPingHtml).
+      barPreparing: (ready, n) => `Preparing fixes · ${ready} of ${n} ready`,
+      barReady: (n) => `${n} ${n === 1 ? "fix" : "fixes"} to review in your doc`,
+      barAway: (n) => `${n} out of view`,
+      stopHow: "Stop preparing (Esc) — what's ready stays",
+      seeAll: "See all",
+      seeAllHow: "Open the list: every fix, with Accept and Skip",
     };
     const FIX_ACT = { fix: "Fix", cite: "Cite", name: "Name the source", delete: "Delete", list: "Add the list" };
     const tcSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -11003,11 +11015,17 @@
         render();
       });
     }
+    /* Stop (the bar's, the list's, or Esc): nothing more is prepared, and the
+       cursor stops at once — what is ready is put in its place without the
+       glide and the typing (owner, 2026-10-16: "make it easier to stop the
+       auto run"). */
     function stopFixes() {
       const b = fixBatch;
       if (!b) return;
       b.stopped = true; // searches already running finish into the cache; nothing more is prepared
       b.preparing = false;
+      if (fixTour) fixTour.instant = true;
+      tcCursorHide();
       for (const it of b.items) if (["waiting", "searching", "working"].includes(it.status)) { it.status = "none"; it.why = "stopped"; }
       render();
     }
@@ -11080,6 +11098,7 @@
        writer answers each — or all, from the note above the launcher. Accept
        is acceptFix, the panel list's own (it lists the same changes). */
     const FIX_CARD_W = 248;
+    const FIX_EDGE = 2; // a suggestion keeps this far inside the document's box, or waits out of view
     let fixTour = null;       // { queue, running }: the cursor's visits, in the order the changes got ready
     let fixCardsEl = null;    // the layer the suggestions sit in (page DOM, like the hover card)
     const fixCardsShown = new Set(); // the suggestions already on the page: only a new one slides in
@@ -11116,6 +11135,7 @@
       const t0 = Date.now();
       for (let k = 0; k < 1;) {
         await tcFrame();
+        if (fixTour?.instant || !tcCur) return; // stopped: the cursor is gone, and stays gone
         k = tpClamp((Date.now() - t0) / ms, 0, 1);
         const to = target() ?? first, e = tpEase(k);
         tcCursorAt(x0 + (to.x - x0) * e, y0 + (to.y - y0) * e);
@@ -11137,14 +11157,14 @@
             it.inline = true;
             const m = fixMarkMake(it, fixBatch.items.indexOf(it), geo);
             // Shown being made only where it is in the document's box and the page is still; else it simply appears.
-            const seen = inDocBox(fixMarkStart(m)) && !docScrolling() && !document.hidden;
+            const seen = inDocBox(fixMarkStart(m)) && !docScrolling() && !document.hidden && !t.instant;
             if (seen) {
               await fixGlide(fixMarkPoint(m));
-              for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); }
-              tcPin(fixMarkPoint(m));
+              for (let k = 1; k <= 4 && !t.instant; k++) { tcCursorPress(k / 4); await tcSleep(30); }
+              if (!t.instant) tcPin(fixMarkPoint(m));
             }
             it.dropped = true;
-            await fixMarkReveal(m, seen);
+            await fixMarkReveal(m, seen && !t.instant);
             paintFixCards();
             if (seen) await tcSleep(120);
             continue;
@@ -11152,11 +11172,11 @@
           const bar = fixBarFor(it.key);
           const barPoint = () => { const r = bar?.el.isConnected ? bar.el.getBoundingClientRect() : null; return r && r.width > 0 ? { x: r.left + Math.min(r.width / 2, 30), y: r.top - (bar.size || 14) * 0.45 } : null; };
           const r = bar?.el.getBoundingClientRect();
-          const seen = Boolean(r && r.width > 0) && inDocBox({ left: r.left, top: r.top, width: r.width, height: r.height }) && !docScrolling() && !document.hidden;
+          const seen = Boolean(r && r.width > 0) && inDocBox({ left: r.left, top: r.top, width: r.width, height: r.height }) && !docScrolling() && !document.hidden && !t.instant;
           if (seen) {
             await fixGlide(barPoint);
-            for (let k = 1; k <= 4; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
-            tcPin(barPoint);
+            for (let k = 1; k <= 4 && !t.instant; k++) { tcCursorPress(k / 4); await tcSleep(30); } // the click that leaves it
+            if (!t.instant) tcPin(barPoint);
           }
           it.dropped = true;
           paintFixCards();
@@ -11243,7 +11263,8 @@
           // New in the margin: it slides in from the page's edge (`translate` — placement owns transform).
           if (!fixCardsShown.has(it.key)) {
             fixCardsShown.add(it.key);
-            if (!reducedMotion() && typeof card.animate === "function") card.animate([{ opacity: 0, translate: "10px 0" }, { opacity: 1, translate: "0 0" }], { duration: 200, delay: 40 + 70 * k++, easing: POP_SPRING, fill: "backwards" });
+            // 6px: less than the 8 a card keeps from the box's edge, so the slide never crosses it.
+            if (!reducedMotion() && typeof card.animate === "function") card.animate([{ opacity: 0, translate: "6px 0" }, { opacity: 1, translate: "0 0" }], { duration: 200, delay: 40 + 70 * k++, easing: POP_SPRING, fill: "backwards" });
           }
         }
       }
@@ -11252,9 +11273,16 @@
     /* Beside each line, in the page's right margin; stacked so none covers
        another; only while its line is in the document's box. Like the
        chips: not while the page scrolls, not in a loop, reads before writes. */
+    /* Kept inside the document's box, not the window's: with a side panel
+       open (comments, Gemini) the box ends before the window does, and a
+       card placed by the window's edge was cut in two — its ✕ Reject with it
+       (owner, 2026-10-16). Narrow margins put it over the page's right edge
+       instead. Shown whole or not at all, like the chips. */
+    let fixCardsAway = 0;
     function placeFixCards() {
       if (!fixCardsEl?.isConnected || !fixCardsEl.children.length || docScrolling()) return;
       const clip = docClip();
+      const inBox = (x) => Math.max(clip.left + 8, Math.min(x, clip.right - FIX_CARD_W - 8));
       // ── reads ──
       const placed = [], hidden = [];
       for (const card of fixCardsEl.children) {
@@ -11263,27 +11291,39 @@
         const h = card.offsetHeight;
         if (!r && card.dataset.loose) { // the missing Works Cited: at the foot of the margin, where the list will go
           const pg = document.querySelector(".kix-page-paginated")?.getBoundingClientRect();
-          placed.push({ card, h, x: Math.max(8, Math.min((pg ? pg.right : innerWidth - FIX_CARD_W - 40) + 14, innerWidth - FIX_CARD_W - 12)), want: clip.bottom - h - 16 });
+          placed.push({ card, h, x: inBox((pg ? pg.right : clip.right - FIX_CARD_W - 40) + 14), want: clip.bottom - h - 16 });
           continue;
         }
         if (!r || r.bottom < clip.top || r.top > clip.bottom) { hidden.push(card); continue; }
         const page = bar.el.closest?.(".kix-page-paginated");
         const right = page ? page.getBoundingClientRect().right : r.right;
-        placed.push({ card, h, x: Math.max(8, Math.min(right + 14, innerWidth - FIX_CARD_W - 12)), want: r.top - 10 });
+        placed.push({ card, h, x: inBox(right + 14), want: r.top - 10 });
       }
       // ── writes ──
       fitLayer(fixCardsEl, clip);
       for (const card of hidden) setStyle(card, { visibility: "hidden" });
       placed.sort((a, b) => a.want - b.want);
-      let floor = clip.top + 6;
+      let floor = clip.top + 6, cut = 0;
       for (const p of placed) {
         const top = Math.max(p.want, floor);
+        const whole = top + p.h <= clip.bottom - FIX_EDGE;
+        if (!whole) cut++;
         setStyle(p.card, {
-          visibility: top + Math.min(p.h, 60) > clip.bottom ? "hidden" : "visible",
+          visibility: whole ? "visible" : "hidden",
           transform: `translate(${Math.round(p.x - clip.left)}px, ${Math.round(top - clip.top)}px)`,
         });
-        floor = top + p.h + 8;
+        if (whole) floor = top + p.h + 8;
       }
+      if (hidden.length + cut !== fixCardsAway) { fixCardsAway = hidden.length + cut; noteFixAway(); }
+    }
+    // Out of view, all told: the chips and the cards waiting where the page doesn't show them.
+    const fixAway = () => fixMarksAway + fixCardsAway;
+    let fixAwayShown = 0;
+    // The bar above the launcher says it; a render only when the number changes.
+    function noteFixAway() {
+      if (fixAway() === fixAwayShown) return;
+      fixAwayShown = fixAway();
+      if (!expanded && fixBatch) render();
     }
     /* ── each change IN the text (owner, 2026-10-09: "when you click accept
        all there is no cursor but I want tracely cursor to go around and change
@@ -11318,16 +11358,31 @@
     }
     // What its chip says: the words that go in, else that the words go.
     const fixMarkText = (geo) => (geo.inserted ? tpClip(geo.inserted, 90, false) : geo.lines.length ? `+ ${tpClip(geo.lines[geo.lines.length - 1], 70, false)}` : "Delete");
+    // One struck run's mark, in the layer.
+    function fixStrikeEl() {
+      const s = el("div", { position: "absolute", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
+        background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
+      fixMarksEl.appendChild(s);
+      return s;
+    }
+    /* Whether a change's place on the page has gone: a run Docs took away,
+       or one it now uses for other words. Docs reuses its runs when it
+       redraws a line, so a run that is still there can be showing a
+       different line — and a strike or chip placed by it lands on words that
+       are not the change's (owner, 2026-10-16: the chips "clip randomly and
+       off of the response"). */
+    const fixGeoStale = (geo) => [geo.at, ...geo.pieces].some((p) => p.node.isConnected === false
+      || (p.raw != null && typeof p.node.getAttribute === "function" && p.node.getAttribute("aria-label") !== p.raw));
+    // As many strikes as the change has runs now: a re-wrapped line can split or join them.
+    function fitStrikes(m) {
+      while (m.strikes.length > m.geo.pieces.length) m.strikes.pop().remove();
+      while (m.strikes.length < m.geo.pieces.length) m.strikes.push(fixStrikeEl());
+    }
     function fixMarkMake(it, i, geo) {
       // The document's box, clipping its strikes and chips: none ever paints over Docs' toolbar or rulers.
       if (!fixMarksEl?.isConnected) fixMarksEl = clipLayer("data-tracely-fix-marks", "900");
       fixMarks.get(it.key)?.chip.remove();
-      const strikes = geo.pieces.map(() => {
-        const s = el("div", { position: "absolute", left: "0", top: "0", width: "0", height: "0", borderRadius: "2px", pointerEvents: "none", visibility: "hidden", zIndex: "1",
-          background: `linear-gradient(transparent calc(50% - 1px), ${FIX_STRIKE} calc(50% - 1px), ${FIX_STRIKE} calc(50% + 0.5px), transparent calc(50% + 0.5px)), ${FIX_WASH}`, transformOrigin: "0 50%" });
-        fixMarksEl.appendChild(s);
-        return s;
-      });
+      const strikes = geo.pieces.map(() => fixStrikeEl());
       const chip = el("div", {
         position: "absolute", left: "0", top: "0", zIndex: "2", display: "flex", alignItems: "center", gap: "5px", maxWidth: "380px", boxSizing: "border-box",
         padding: "3px 3px 3px 7px", background: "#fff", border: `1.5px solid ${DM.ink}`, borderRadius: "9px", boxShadow: "0 4px 14px rgba(0,0,0,.16)",
@@ -11359,10 +11414,11 @@
       if (!animate || reducedMotion()) return;
       for (const sEl of m.strikes) if (typeof sEl.animate === "function") sEl.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: TP_STRIKE_MS, easing: "ease-out" });
       await tcSleep(m.strikes.length ? TP_STRIKE_MS : 0);
-      // The cursor rides the end of the words as they go in (and stays there, pinned, after).
-      tcPin(() => { const wr = m.words?.isConnected !== false ? m.words?.getBoundingClientRect?.() : null; return wr && wr.width > 0 ? { x: wr.left + wr.width + 2, y: wr.top + wr.height * 0.55 } : null; });
+      // The cursor rides the end of the words as they go in (and stays there, pinned, after) — unless the run was stopped.
+      if (!fixTour?.instant) tcPin(() => { const wr = m.words?.isConnected !== false ? m.words?.getBoundingClientRect?.() : null; return wr && wr.width > 0 ? { x: wr.left + wr.width + 2, y: wr.top + wr.height * 0.55 } : null; });
       const per = Math.max(8, Math.min(TP_CHAR_MS, TP_TYPE_MAX_MS / Math.max(1, m.text.length)));
       for (let k = 1; k <= m.text.length && fixBatch?.items[m.i] === it; k++) {
+        if (fixTour?.instant) k = m.text.length; // stopped: the rest of the words at once
         m.typed = k;
         if (m.words) m.words.textContent = m.text.slice(0, k);
         m.size = null; // wider now: measured again where it is placed
@@ -11424,10 +11480,17 @@
     }
     // A style written only when it changes: an unchanged write still costs the page a style pass.
     const setStyle = (node, styles) => { for (const k in styles) if (node.style[k] !== styles[k]) node.style[k] = styles[k]; };
-    /* The strikes on their runs, each chip under its change, none on another,
+    /* The strikes on their runs, each chip by its change, none on another,
        only in the document's box. Never while the page scrolls (docSettle
        places it after), and never in a loop: scheduleFixPlace, followDocLayout.
-       Every rect and every chip's size is read before anything is written. */
+       Every rect and every chip's size is read before anything is written.
+
+       A chip is shown whole or not at all (owner, 2026-10-16: "the accept vs
+       reject tabs next to the fixes, they clip randomly"). It goes under its
+       change, down past anything it would cover; where that runs out of the
+       box, over the change, up past the same; and where neither fits, it
+       waits out of view, counted in the bar above the launcher (fixAway). */
+    let fixMarksAway = 0;
     function placeFixMarks() {
       if (!fixMarksEl?.isConnected || !fixMarks.size || docScrolling()) return;
       const clip = docClip();
@@ -11436,37 +11499,40 @@
       // ── reads ──
       const plan = [];
       for (const m of fixMarks.values()) {
-        // Docs redrew the line: find the change again (its pieces' runs are gone).
-        if (![m.geo.at.node, ...m.geo.pieces.map((p) => p.node)].every((n) => n.isConnected !== false) && Date.now() - m.geo.found > 200) {
+        // Docs redrew the line, or reused its runs for other words: find the change again.
+        if (fixGeoStale(m.geo) && Date.now() - m.geo.found > 200) {
           const it = fixBatch?.items[m.i];
           const again = it ? fixInlineGeo(it) : null;
-          if (again && again.pieces.length === m.strikes.length) m.geo = again;
-          else m.geo.found = Date.now();
+          if (again) { m.geo = again; fitStrikes(m); } else m.geo.found = Date.now();
         }
-        const rects = m.geo.pieces.map((p) => barTextRect(p));
-        const last = [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
+        // Still gone (scrolled away, or not drawn yet): nothing of it is placed by runs that now show other words.
+        const stale = fixGeoStale(m.geo);
+        const rects = m.geo.pieces.map((p) => (stale ? null : barTextRect(p)));
+        const last = stale ? null : [...rects].reverse().find(inView) ?? (() => { const s0 = fixMarkStart(m); return onScreen(s0) ? s0 : null; })(); // an insertion: where its words go in
         if (m.shown && last && !m.size) m.size = { w: m.chip.offsetWidth || 220, h: m.chip.offsetHeight || 30 };
         plan.push({ m, rects, last, first: rects.find(inView) ?? last });
       }
       // ── where each goes ──
       const struck = [];
       for (const { m, rects } of plan) for (const r of rects) if (m.shown && inView(r)) struck.push({ left: r.left, top: r.top, w: r.width, h: r.height });
-      const chips = plan.filter((p) => p.m.shown && p.last).map((p) => ({ m: p.m, left: p.first.left, top: p.last.top + p.last.height + 4 }));
-      chips.sort((p, q) => p.top - q.top || p.left - q.left);
+      const chips = plan.filter((p) => p.m.shown && p.last).map((p) => ({ m: p.m, left: p.first.left, below: p.last.top + p.last.height + 4, above: p.first.top - 4 }));
+      chips.sort((p, q) => p.below - q.below || p.left - q.left);
       const placed = [];
+      const fits = (top, h) => top >= clip.top + FIX_EDGE && top + h <= clip.bottom - FIX_EDGE;
       for (const c of chips) {
         const { w, h } = c.m.size ?? { w: 220, h: 30 };
         const left = Math.max(clip.left + 8, Math.min(c.left, clip.right - w - 8));
-        let top = c.top;
-        // Down past anything it would cover — another chip, or words another change strikes — until it covers none.
-        for (let moved = true, n = 0; moved && n < 12; n++) {
-          moved = false;
-          for (const p of [...placed, ...struck]) {
-            if (left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) { top = p.top + p.h + 4; moved = true; }
-          }
+        // What it would cover there — another chip, or words another change strikes.
+        const covers = (top) => [...placed, ...struck].find((p) => left < p.left + p.w && left + w > p.left && top < p.top + p.h + 4 && top + h > p.top) ?? null;
+        let top = c.below;
+        for (let n = 0, p; n < 12 && (p = covers(top)); n++) top = p.top + p.h + 4;
+        if (!fits(top, h) || covers(top)) {
+          let up = c.above - h;
+          for (let n = 0, p; n < 12 && (p = covers(up)); n++) up = p.top - h - 4;
+          top = fits(up, h) && !covers(up) ? up : fits(top, h) ? top : null;
         }
         Object.assign(c, { left, top, h });
-        placed.push({ left, top, w, h });
+        if (top != null) placed.push({ left, top, w, h });
       }
       // ── writes: in the layer, a position is the client's less the box's corner ──
       fitLayer(fixMarksEl, clip);
@@ -11479,14 +11545,20 @@
         if (!m.shown || !last) setStyle(m.chip, { visibility: "hidden" });
       }
       for (const c of chips) {
-        setStyle(c.m.chip, {
-          left: `${Math.round(c.left - clip.left)}px`, top: `${Math.round(c.top - clip.top)}px`,
-          visibility: c.top + Math.min(c.h, 24) > clip.bottom ? "hidden" : "visible",
-        });
+        if (c.top == null) { setStyle(c.m.chip, { visibility: "hidden" }); continue; }
+        setStyle(c.m.chip, { left: `${Math.round(c.left - clip.left)}px`, top: `${Math.round(c.top - clip.top)}px`, visibility: "visible" });
       }
+      // Waiting out of view: the bar says how many.
+      const away = plan.filter(({ m, last }) => m.shown && !last).length + chips.filter((c) => c.top == null).length;
+      if (away !== fixMarksAway) { fixMarksAway = away; noteFixAway(); }
     }
 
-    // Above the launcher while the panel is closed: how many wait, and the answer to all of them.
+    /* Above the launcher while the panel is closed: the run's one control.
+       While it prepares: how far along, and Stop (or Esc). After: how many
+       wait in the doc and how many of those are out of view, See all (the
+       panel's list, where every fix has Accept and Skip) and Reject all.
+       Owner, 2026-10-16: "make it easier to stop the auto run … make it
+       overall better and more managable and less confusing". */
     let fixPingShown = false;
     function fixPingHtml() {
       const b = fixBatch;
@@ -11496,10 +11568,13 @@
       const enter = fixPingShown ? "" : " enter";
       fixPingShown = true;
       const busy = docBusy || b.applying ? " disabled" : "";
-      const text = b.preparing ? `Preparing fixes · ${ready} ready` : `${ready} ${ready === 1 ? "suggestion" : "suggestions"} in your doc`;
-      return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}${esc(text)}</span>`
+      const away = Math.min(ready, typeof fixAway === "function" ? fixAway() : 0);
+      const text = b.preparing ? FIX_COPY.barPreparing(ready, b.items.length) : FIX_COPY.barReady(ready);
+      const acts = b.preparing
+        ? `<button class="act primary" data-fxp-stop="1" title="${esc(FIX_COPY.stopHow)}">${FIX_COPY.stop}</button>`
         // No "Accept all": one sentence at a time, each accepted on its own (owner, 2026-10-13).
-        + `${ready ? `<button class="act" data-fxp-none="1"${busy}>Reject all</button>` : ""}</div>`;
+        : `<button class="act" data-fxp-list="1" title="${esc(FIX_COPY.seeAllHow)}">${FIX_COPY.seeAll}</button><button class="act" data-fxp-none="1"${busy}>Reject all</button>`;
+      return `<div class="ready-ping fix-ping${enter}" role="status"><span class="ready-text">${b.preparing ? `<span class="deep-spin"></span>` : ""}<span>${esc(text)}${away && !b.preparing ? `<span class="fix-away"> · ${esc(FIX_COPY.barAway(away))}</span>` : ""}</span></span>${acts}</div>`;
     }
     /* The offer sits in the panel's footer (owner, 2026-10-14, the clean
        frame: "28 fixes … Review all"); the batch, once started, in the list. */
@@ -11529,6 +11604,8 @@
 
     if (FEATURES.typePreview) {
       previewDocEdit = (key, job) => (harness && harness.typePreview !== true ? Promise.resolve(true) : showTypePreview(key, job));
+      // Esc stops a fix-all run that is still preparing (the bar's Stop) — not while a preview has the key: heard first, before it.
+      window.addEventListener("keydown", function fixStopKey(e) { if (e.key === "Escape" && fixBatch?.preparing && !tpOpen) stopFixes(); }, true);
       window.addEventListener("pointerdown", tpNotePress, true);
       window.addEventListener("keydown", tpNotePress, true);
       // Docs scrolls its editor, not the window: heard in the capture phase, as the marks hear it.
@@ -11775,6 +11852,8 @@
       shadow.querySelector("[data-ready-show]")?.addEventListener("click", () => { const p = readyPing; readyPing = null; if (p) showSourcesFor(p.hash); });
       shadow.querySelector("[data-ready-x]")?.addEventListener("click", () => { readyPing = null; render(); });
       shadow.querySelector("[data-fxp-none]")?.addEventListener("click", () => rejectAllFixes());
+      shadow.querySelector("[data-fxp-stop]")?.addEventListener("click", () => stopFixes());
+      shadow.querySelector("[data-fxp-list]")?.addEventListener("click", () => { expanded = true; render(); });
       if (typeof paintFixCards === "function") paintFixCards(); // the suggestions in the doc follow every change of state
       if (expanded) {
         shadow.getElementById("turnOff").addEventListener("click", turnDocsOff);

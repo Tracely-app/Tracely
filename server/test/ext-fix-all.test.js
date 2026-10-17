@@ -198,7 +198,7 @@ function load({ nolist = false, inline = [] } = {}) {
        batch: () => fixBatch, gate: editGate, doc: () => docText, setBusy: (v) => { docBusy = v; }, expanded: () => expanded, setExpanded: (v) => { expanded = v; },
        cards: () => document.documentElement.children.find((n) => "data-tracely-fix-cards" in n.attrs) ?? null,
        marks: () => fixMarks, placeFixMarks, noteDocScroll, docSettle, marksLayer: () => fixMarksEl, cardsLayer: () => fixCardsEl,
-       setScroller: (s) => { docsScroller = s; } })`, ctx);
+       setScroller: (s) => { docsScroller = s; }, setInline: (list) => { INLINE.splice(0, INLINE.length, ...list); } })`, ctx);
   return { X, log, clock, document };
 }
 // Let every chain of jumps run out.
@@ -303,7 +303,9 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
   const { X, log } = load();
   X.prepareFixes();
   assert.match(X.fixPingHtml(), /class="ready-ping fix-ping enter"/, "it rises in the render that brings it");
-  assert.match(X.fixPingHtml(), /Preparing fixes · 0 ready/, "the note above the launcher says it is working");
+  assert.match(X.fixPingHtml(), /Preparing fixes · 0 of 6 ready/, "the bar above the launcher says it is working");
+  assert.match(X.fixPingHtml(), /data-fxp-stop="1"[^>]*>Stop</, "and it can be stopped from there (owner, 2026-10-16)");
+  assert.doesNotMatch(X.fixPingHtml(), /data-fxp-none/, "nothing to reject yet");
   assert.match(X.fixPingHtml(), /class="ready-ping fix-ping"/, "and not again on every re-render after");
   await drain(() => !X.batch().preparing);
   await drain(() => false, 500);
@@ -322,7 +324,8 @@ test("it goes to each one, then leaves: a suggestion beside every change in the 
   assert.match(allNodes(cards[1]).map((n) => n._text).join("|"), /Source: Backs c0/);
   const buttons = (c) => allNodes(c).filter((n) => n.tagName === "button");
   assert.deepEqual(plain(buttons(cards[0]).map((b) => b._text)), ["✓ Accept", "✕ Reject"]);
-  assert.match(X.fixPingHtml(), /5 suggestions in your doc.*data-fxp-none="1">Reject all</s);
+  assert.match(X.fixPingHtml(), /5 fixes to review in your doc.*data-fxp-list="1"[^>]*>See all<.*data-fxp-none="1">Reject all</s);
+  assert.doesNotMatch(X.fixPingHtml(), /data-fxp-stop/, "done preparing: nothing to stop");
   assert.doesNotMatch(X.fixPingHtml(), /Accept all|data-fxp-all/, "each is accepted on its own");
   // Placed beside their lines, in the page's right margin, none on another.
   X.placeFixCards();
@@ -439,4 +442,93 @@ test("the changes sit in the document's box, step aside while the page scrolls, 
   const before = log.rafs;
   for (let i = 0; i < 5; i++) X.placeFixMarks();
   assert.equal(log.rafs, before, "placed only when something moved, never every frame");
+});
+
+/* Owner, 2026-10-16: "when I click fix all and tracely goes and does all of
+ * them and leaves accept vs reject, it clips randomly, please make it easier
+ * to stop the auto run and for the accept vs reject tabs next to the fixes,
+ * they clip randomly and off of the response". */
+test("Stop is one press away while it prepares — the bar's, or Esc — and the cursor stops at once: what is ready appears whole without it", async () => {
+  const { X, log } = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  X.prepareFixes();
+  await drain(() => X.marks().size > 0); // the first change is being made in its place
+  const visits = log.cursor.length, hides = log.hides;
+  X.stopFixes();
+  assert.equal(log.hides, hides + 1, "the cursor is gone at once");
+  await drain(() => false, 800);
+  assert.equal(log.cursor.length, visits, "and stays gone: no more glides, no more clicks");
+  assert.equal(X.batch().preparing, false);
+  assert.equal(X.marks().get("s1").words._text, "used paper money", "the change that was ready is in its place, its words whole");
+  assert.match(statuses(X).join(" "), /:none \(stopped\)/, "what wasn't ready is stopped");
+  assert.ok(statuses(X).every((s) => !/:(waiting|searching|working)\b/.test(s)), `nothing more is prepared: ${statuses(X)}`);
+  assert.doesNotMatch(X.fixPingHtml(), /data-fxp-stop/);
+  // Esc stops it too: heard before the Type preview's own keys, and not while a preview has them.
+  assert.match(SRC, /window\.addEventListener\("keydown", function fixStopKey\(e\) \{ if \(e\.key === "Escape" && fixBatch\?\.preparing && !tpOpen\) stopFixes\(\); \}, true\);\n\s+window\.addEventListener\("pointerdown", tpNotePress, true\);/);
+});
+
+test("a margin card stays inside the document's box: with a side panel open, it is never cut in two", async () => {
+  const { X } = load();
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  // A side panel: the document's box ends at 1000px; the window goes on to 1400.
+  X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1000, bottom: 900 }) });
+  X.placeFixCards();
+  const cards = X.cards().children;
+  assert.ok(cards.every((c) => c.style.transform.startsWith("translate(744px,")), `the page's margin (900 + 14) would cross the box's edge, so 1000 − 248 − 8: ${cards.map((c) => c.style.transform)}`);
+});
+
+test("a suggestion is shown whole or not at all; one that can't fit waits out of view, and the bar says how many", async () => {
+  // Cards: a box too short for all five stacked. The two that fit whole show; the rest wait.
+  const a = load();
+  a.X.prepareFixes();
+  await drain(() => !a.X.batch().preparing);
+  await drain(() => false, 500);
+  a.X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1400, bottom: 300 }) });
+  a.X.placeFixCards();
+  const cards = a.X.cards().children;
+  const top = (c) => Number(c.style.transform.match(/translate\(\d+px, (-?\d+)px\)/)[1]);
+  const shown = cards.filter((c) => c.style.visibility === "visible");
+  assert.equal(shown.length, 2);
+  assert.ok(shown.every((c) => top(c) + 90 <= 298), "never past the box's bottom");
+  assert.match(a.X.fixPingHtml(), /5 fixes to review in your doc<span class="fix-away"> · 3 out of view<\/span>/);
+  // Chips: under its change when that fits, over it when it doesn't, and out of view when neither does.
+  const b = load({ inline: ["invented the American dollar", "Trade grew by 40 percent"] });
+  b.X.prepareFixes();
+  await drain(() => !b.X.batch().preparing);
+  await drain(() => false, 500);
+  b.X.setScroller({ isConnected: true, getBoundingClientRect: () => ({ left: 0, top: 0, right: 1400, bottom: 200 }) });
+  b.X.placeFixMarks();
+  const fix = b.X.marks().get("s1"), cite = b.X.marks().get("c0");
+  assert.deepEqual([fix.chip.style.visibility, fix.chip.style.top], ["visible", "6px"], "under its line (122) it would end at 212, past 198: over it instead (100 − 4 − 90)");
+  assert.equal(cite.chip.style.visibility, "hidden", "no room under its line, and over it is the fix's chip: it waits, never half shown");
+  assert.match(b.X.fixPingHtml(), /out of view/);
+});
+
+test("a change Docs redrew is found again; a run Docs reused for other words never places its strike or chip", async () => {
+  const { X } = load({ inline: ["invented the American dollar"] });
+  X.prepareFixes();
+  await drain(() => !X.batch().preparing);
+  await drain(() => false, 500);
+  const fix = X.marks().get("s1");
+  X.placeFixMarks();
+  assert.equal(fix.chip.style.visibility, "visible");
+  // Docs reuses the run for another line, and the change is drawn again elsewhere: found again, and placed by its new runs.
+  const reuse = () => {
+    const run = fix.geo.pieces[0];
+    run.raw = "the words this run showed";
+    run.node.getAttribute = (a) => (a === "aria-label" ? "other words entirely" : null);
+    fix.geo.found = 0;
+  };
+  reuse();
+  const old = fix.geo;
+  X.placeFixMarks();
+  assert.notEqual(fix.geo, old, "found again");
+  assert.deepEqual([fix.strikes.length, fix.strikes[0].style.visibility, fix.chip.style.visibility], [1, "visible", "visible"]);
+  // Reused, and the change is not on the page now (scrolled away, not drawn): nothing of it is drawn, and the bar counts it.
+  X.setInline([]);
+  reuse();
+  X.placeFixMarks();
+  assert.deepEqual([fix.strikes[0].style.visibility, fix.chip.style.visibility], ["hidden", "hidden"], "not drawn over words that are not the change's");
+  assert.match(X.fixPingHtml(), /1 out of view/);
 });

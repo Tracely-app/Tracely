@@ -780,8 +780,8 @@ test("Accept is focused when it appears; Enter accepts, and everything is remove
   assert.equal(t.layer(), null, "nothing left behind");
   assert.equal(cursorOf(t), null);
   assert.equal(t.doc.activeElement, before, "focus goes back where it was");
-  // The installer's own stay: the press it notes, and the scroll everything Tracely draws steps aside for.
-  assert.deepEqual(t.winListeners.map((l) => l.fn.name), ["tpNotePress", "tpNotePress", "noteDocScroll", "noteDocScroll"], "no listener of the preview outlives it");
+  // The installer's own stay: Esc to stop a fix-all run (2026-10-16), the press it notes, and the scroll everything Tracely draws steps aside for.
+  assert.deepEqual(t.winListeners.map((l) => l.fn.name), ["fixStopKey", "tpNotePress", "tpNotePress", "noteDocScroll", "noteDocScroll"], "no listener of the preview outlives it");
 });
 
 test("Esc, a click anywhere else, Reject, and leaving the page all reject", async () => {
