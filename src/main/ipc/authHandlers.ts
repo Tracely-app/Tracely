@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
-import type { AuthGetPlanResponse, AuthGetThoroughResponse, AuthGetUserResponse } from '@shared/ipc-contract'
-import { fetchThoroughAllowance } from '../services/ai/client'
+import type { AuthGetPlanResponse, AuthGetThoroughResponse, AuthGetUsageResponse, AuthGetUserResponse } from '@shared/ipc-contract'
+import { fetchThoroughAllowance, fetchUsage } from '../services/ai/client'
 import { getCurrentUser, isAuthConfigured } from '../services/auth/client'
 import { getCurrentPlan } from '../services/auth/plan'
 
@@ -39,5 +39,10 @@ export function registerAuthHandlers(): void {
   // The Settings meter's numbers (Pro's Thorough allowance). Display only.
   ipcMain.handle(IPC.AUTH_GET_THOROUGH, async (): Promise<AuthGetThoroughResponse> => {
     return { thorough: await fetchThoroughAllowance() }
+  })
+
+  // Settings → Account and billing: what has been used, as the server counts it. Display only.
+  ipcMain.handle(IPC.AUTH_GET_USAGE, async (): Promise<AuthGetUsageResponse> => {
+    return { usage: await fetchUsage() }
   })
 }

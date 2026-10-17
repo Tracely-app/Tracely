@@ -450,8 +450,16 @@ export interface ScreenWatchStatus {
   // a signed-out app looked exactly like a slow one, right down to claims
   // simply never appearing.
   authRequired: boolean
+  // Paused from Settings → General (Pause for 1 hour / for today): off, and
+  // back on by itself at this time (epoch ms). Absent or 0 when it is simply on
+  // or off. Optional so an older status, and the preview's fixture, still fit.
+  resumeAt?: number
 }
 export type ScreenWatchSetEnabledResponse = ScreenWatchStatus
+export interface ScreenWatchPauseRequest {
+  until: number
+}
+export type ScreenWatchPauseResponse = ScreenWatchStatus
 export type ScreenWatchGetStatusRequest = Record<string, never>
 export type ScreenWatchGetStatusResponse = ScreenWatchStatus
 
@@ -1272,3 +1280,25 @@ export interface SourcesVerifyRequest {
 export type SourcesVerifyResponse =
   | { status: 'checked'; receipts: SourceReceipt[] }
   | { status: 'unavailable'; reason: string }
+
+/**
+ * What the server has counted for this caller, as GET /api/entitlement
+ * reports it (the same answer the extension's Settings reads): source
+ * searches used today and this month against the plan's limits, and the
+ * plan's daily allowance of AI actions. Null when the server is unreachable,
+ * meters nothing, or is too old to say — Settings then shows no bars rather
+ * than guess.
+ */
+export interface UsageInfo {
+  sources: { today: number; month: number; day: number | null; monthLimit: number | null } | null
+  aiActionsPerDay: number | null
+}
+export interface AuthGetUsageResponse {
+  usage: UsageInfo | null
+}
+
+/** Settings → Privacy and data → Export my data: written where the user chose, or not at all. */
+export type DataExportResponse =
+  | { ok: true; path: string }
+  | { ok: false; canceled: true }
+  | { ok: false; canceled: false; message: string }

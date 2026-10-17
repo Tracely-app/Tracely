@@ -995,6 +995,12 @@ export function createHttpApi(): TracelyApi {
       getPlan: async () => ({ plan: 'free' as Plan }),
       // Free, so no Thorough allowance to meter.
       getThorough: async () => ({ thorough: null }),
+      // Nothing metered behind the local stub.
+      getUsage: async () => ({ usage: null })
+    },
+    // No file dialog in a browser tab: the stub says so rather than pretending to save.
+    data: {
+      export: async () => ({ ok: false as const, canceled: false as const, message: 'Export is in the desktop app.' })
     },
     history: {
       clear: async (req) => {
@@ -1048,6 +1054,11 @@ export function createHttpApi(): TracelyApi {
       },
       getStatus: async () => {
         const state = await get<ServerWatchState>('/api/watch/state')
+        return watchStatusFromServer(state)
+      },
+      // No timer behind the stub: a pause is off, and on again by hand.
+      pause: async () => {
+        const state = await post<ServerWatchState>('/api/watch/toggle', { enabled: false })
         return watchStatusFromServer(state)
       },
       // The macOS watcher has no overlay window, so widget geometry, hover

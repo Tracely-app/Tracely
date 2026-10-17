@@ -1,4 +1,6 @@
 import type { ServerModel } from '@shared/plan'
+import type { UsageInfo } from '@shared/ipc-contract'
+import { usageFromEntitlement } from '@shared/settingsHelp'
 import { getInstallId } from '../storage/config'
 import { getAccessToken } from './identity'
 import { modelForCall } from './modelTier'
@@ -123,6 +125,26 @@ export async function fetchThoroughAllowance(): Promise<{ remainingPct: number; 
     const t = ((await response.json()) as { thorough?: { remainingPct?: unknown; resetsOn?: unknown } | null })?.thorough
     if (!t || typeof t.remainingPct !== 'number' || typeof t.resetsOn !== 'string') return null
     return { remainingPct: t.remainingPct, resetsOn: t.resetsOn }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What the server has counted for this caller, off the same GET
+ * /api/entitlement (Settings → Account and billing's bars). Display only, and
+ * null on any failure or an answer without the fields: a server that meters
+ * nothing, or one too old to say. Read by usageFromEntitlement, a leaf so the
+ * test runner can reach it.
+ */
+export async function fetchUsage(): Promise<UsageInfo | null> {
+  if (!__API_URL__) return null
+  try {
+    const headers = await requestHeaders()
+    delete headers['Content-Type']
+    const response = await fetch(`${__API_URL__}/api/entitlement`, { headers, signal: AbortSignal.timeout(8000) })
+    if (!response.ok) return null
+    return usageFromEntitlement(await response.json())
   } catch {
     return null
   }

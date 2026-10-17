@@ -635,7 +635,21 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
       getPlan: () => ok('auth.getPlan', { plan: scenario.plan }),
       // A Pro scenario shows the Settings meter part-used.
       getThorough: () =>
-        ok('auth.getThorough', { thorough: scenario.plan === 'pro' ? { remainingPct: 64, resetsOn: '2026-10-01' } : null })
+        ok('auth.getThorough', { thorough: scenario.plan === 'pro' ? { remainingPct: 64, resetsOn: '2026-10-01' } : null }),
+      // Settings → Account and billing: the plan's source searches, part-used.
+      getUsage: () =>
+        ok('auth.getUsage', {
+          usage:
+            scenario.plan === 'free'
+              ? { sources: { today: 2, month: 17, day: 5, monthLimit: 40 }, aiActionsPerDay: 150 }
+              : scenario.plan === 'student'
+                ? { sources: { today: 4, month: 31, day: 20, monthLimit: 100 }, aiActionsPerDay: null }
+                : { sources: { today: 6, month: 58, day: 40, monthLimit: 250 }, aiActionsPerDay: null }
+        })
+    },
+    // Settings → Privacy and data: the save dialog is the main process's; here it "saves".
+    data: {
+      export: () => ok('data.export', { ok: true as const, path: 'C:\\Users\\preview\\Documents\\tracely-data-2026-10-16.json' })
     },
     history: {
       clear: () => ok('history.clear', { ok: true as const })
@@ -675,6 +689,8 @@ export function createMockApi(scenario: Scenario, log: (method: string) => void)
     screenWatch: {
       setEnabled: () => ok('screenWatch.setEnabled', fx.screenWatchStatus),
       getStatus: () => ok('screenWatch.getStatus', fx.screenWatchStatus),
+      // Settings → General's pause: off, with the time it comes back.
+      pause: (req) => ok('screenWatch.pause', { ...fx.screenWatchStatus, enabled: false, active: false, resumeAt: req.until }),
       // These two re-emit the overlay payload rather than only logging.
       // In production the service owns widget geometry and pushes a new
       // payload back, so the panel's own Back / Show all / score chip / close

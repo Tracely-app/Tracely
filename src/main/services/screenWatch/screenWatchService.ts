@@ -130,6 +130,9 @@ function getMinClaimConfidence(): number {
 
 let enabled = false
 let timer: ReturnType<typeof setTimeout> | null = null
+// Paused from Settings → General: off until resumeAt, then started again by resumeTimer.
+let resumeAt = 0
+let resumeTimer: ReturnType<typeof setTimeout> | null = null
 let ticking = false
 let detecting = false
 
@@ -1920,19 +1923,49 @@ export function isScreenWatchEnabled(): boolean {
   return enabled
 }
 
+/** A pause ends: by its own timer, by being turned on, or by being turned off for good. */
+function clearResume(): void {
+  if (resumeTimer) {
+    clearTimeout(resumeTimer)
+    resumeTimer = null
+  }
+  if (resumeAt) {
+    resumeAt = 0
+    setSetting('screenWatchResumeAt', '0')
+  }
+}
+
+function scheduleResume(at: number): void {
+  resumeAt = at
+  setSetting('screenWatchResumeAt', String(at))
+  // setTimeout's ceiling is about 24.8 days; a pause "for today" is under one.
+  resumeTimer = setTimeout(() => {
+    resumeTimer = null
+    startScreenWatch()
+  }, Math.min(Math.max(0, at - Date.now()), 2 ** 31 - 1))
+}
+
 export function startScreenWatch(): void {
+  clearResume()
   if (enabled) return
   enabled = true
   setSetting('screenWatchEnabled', 'true')
   resetTrackingState()
   resetScreenWatchLog()
   lastError = null
-  lastStatus = { ...lastStatus, enabled: true, lastError: null }
+  lastStatus = { ...lastStatus, enabled: true, lastError: null, resumeAt: 0 }
   startHoverTracking()
   void tick()
 }
 
-export function stopScreenWatch(): void {
+/**
+ * Off. With `nextResumeAt` in the future it is a pause (Settings → General):
+ * the same off, plus a timer that turns it back on then, kept across restarts.
+ * Without one — the switch, the tray, the shortcut — it is off until turned on.
+ */
+export function stopScreenWatch(nextResumeAt = 0): void {
+  clearResume()
+  if (nextResumeAt > Date.now()) scheduleResume(nextResumeAt)
   enabled = false
   setSetting('screenWatchEnabled', 'false')
   if (timer) {
@@ -1954,18 +1987,37 @@ export function stopScreenWatch(): void {
     claimCount: 0,
     lastError: null,
     authRequired,
-    blockedApp: null
+    blockedApp: null,
+    resumeAt
   })
+}
+
+/** Settings → General → Pause for 1 hour / for today. */
+export function pauseScreenWatch(until: number): void {
+  stopScreenWatch(until)
 }
 
 export function initScreenWatch(): void {
   if (getSetting('screenWatchEnabled') === 'true') {
+    startScreenWatch()
+    return
+  }
+  // A pause from the last session: still running, or over while the app was closed.
+  const at = Number(getSetting('screenWatchResumeAt')) || 0
+  if (at > Date.now()) {
+    scheduleResume(at)
+    lastStatus = { ...lastStatus, resumeAt: at }
+  } else if (at > 0) {
     startScreenWatch()
   }
 }
 
 export function shutdownScreenWatch(): void {
   enabled = false
+  if (resumeTimer) {
+    clearTimeout(resumeTimer) // the stored time stays: the next launch picks the pause up
+    resumeTimer = null
+  }
   if (timer) {
     clearTimeout(timer)
     timer = null

@@ -12,14 +12,22 @@ import type {
   AppGetBuildInfoResponse,
   ProfileInfo,
   ScannedApp,
-  ScreenWatchStatus
+  ScreenWatchStatus,
+  UsageInfo
 } from '@shared/ipc-contract'
 import Button from '../components/Button'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ConfirmSheet from '../components/ConfirmSheet'
 import SettingsField from '../components/SettingsField'
-import SettingsUnavailable from '../components/SettingsUnavailable'
-import { Bell, CreditCard, Link2, ShieldCheck } from 'lucide-react'
+import { CheckCheck, CircleHelp, CreditCard, Quote } from 'lucide-react'
+import {
+  WHATS_NEW,
+  buildDiagnostics,
+  pauseForHour,
+  pauseForToday,
+  resumeLabel,
+  usageRows
+} from '@shared/settingsHelp'
 import {
   UserIcon,
   SunIcon,
@@ -123,36 +131,53 @@ function HotkeyField({
 // code, no OAuth provider, no payments. If any of that is ever built, add the
 // section back with the feature, not before it.
 //
-// Billing is the first one to come back on those terms: three plans now exist,
+// Billing was the first one to come back on those terms: three plans now exist,
 // the app reads which one the account is on, and the model tier is gated
-// against it. The other three still have nothing behind them.
-type Section =
-  | 'profile'
+// against it.
+//
+// 2026-10-16 (owner: the extension's new Settings, "desktop mirrors later:
+// yes"): the sections follow the extension's — General, Checking, Citations,
+// Account and billing, Privacy and data, Help — with the desktop's own
+// Appearance and Profile kept. Notifications, Security and Integrations, drawn
+// disabled since 2026-08-15, are gone: the owner chose to remove them rather
+// than keep sections with nothing behind them in the sidebar.
+export type SettingsSection =
+  | 'general'
+  | 'checking'
+  | 'citations'
   | 'appearance'
-  | 'preferences'
-  | 'notifications'
-  | 'security'
-  | 'integrations'
-  | 'billing'
+  | 'profile'
+  | 'account'
   | 'privacy'
+  | 'help'
 
-const NAV: { id: Section; label: string; icon: (props: { size?: number }) => JSX.Element }[] = [
-  { id: 'profile', label: 'Profile', icon: UserIcon },
+const NAV: { id: SettingsSection; label: string; icon: (props: { size?: number }) => JSX.Element }[] = [
+  { id: 'general', label: 'General', icon: SlidersIcon },
+  { id: 'checking', label: 'Checking', icon: (p) => <CheckCheck size={p.size ?? 15} /> },
+  { id: 'citations', label: 'Citations', icon: (p) => <Quote size={p.size ?? 15} /> },
   { id: 'appearance', label: 'Appearance', icon: SunIcon },
-  { id: 'preferences', label: 'Preferences', icon: SlidersIcon },
-  { id: 'notifications', label: 'Notifications', icon: (p) => <Bell size={p.size ?? 15} /> },
-  { id: 'security', label: 'Security', icon: (p) => <ShieldCheck size={p.size ?? 15} /> },
-  { id: 'integrations', label: 'Integrations', icon: (p) => <Link2 size={p.size ?? 15} /> },
-  { id: 'billing', label: 'Billing', icon: (p) => <CreditCard size={p.size ?? 15} /> },
+  { id: 'profile', label: 'Profile', icon: UserIcon },
+  { id: 'account', label: 'Account and billing', icon: (p) => <CreditCard size={p.size ?? 15} /> },
   // NOT in the Figma frames, which list seven sections and no Privacy. Kept
   // anyway: it is the only way to reach "clear history" and "delete all local
   // data", both of which work. Deleting a real, reachable feature to match a
   // mockup is a different thing from making the app look like the mockup.
-  { id: 'privacy', label: 'Privacy', icon: ShieldIcon }
+  { id: 'privacy', label: 'Privacy and data', icon: ShieldIcon },
+  { id: 'help', label: 'Help', icon: (p) => <CircleHelp size={p.size ?? 15} /> }
 ]
 
-export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) => void }): JSX.Element {
-  const [section, setSection] = useState<Section>('profile')
+// Where "Something went wrong?" writes to (the extension's Help has the same).
+const SUPPORT_EMAIL = 'hello@jointracely.com'
+
+export default function SettingsView({
+  onNavigate,
+  initialSection
+}: {
+  onNavigate: (tab: Tab) => void
+  /** Opened at a section (Home's "You choose where Tracely works" → General); General otherwise. */
+  initialSection?: SettingsSection
+}): JSX.Element {
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'general')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   // The provider caches the level for every letter in this window, and there
   // is no settings-changed event to invalidate it — so the dropdown tells it
@@ -177,12 +202,57 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
       .catch(() => setThorough(null))
   }, [plan])
 
+  // Account and billing's bars: what the server has counted (GET /api/entitlement). Null — no bars — when unknown.
+  const [usage, setUsage] = useState<UsageInfo | null>(null)
+  useEffect(() => {
+    tracelyApi
+      .getUsage()
+      .then((res) => setUsage(res.usage))
+      .catch(() => setUsage(null))
+  }, [plan])
+
   useEffect(() => {
     tracelyApi
       .getSettings()
       .then(setSettings)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
+
+  // Privacy and data → Export my data: the main process asks where, then writes one JSON file.
+  const [exportStatus, setExportStatus] = useState<string | null>(null)
+  async function exportData(): Promise<void> {
+    setExportStatus(null)
+    try {
+      const res = await tracelyApi.exportData()
+      if (res.ok) setExportStatus(`Saved to ${res.path}.`)
+      else if (!res.canceled) setExportStatus(`Couldn't export: ${res.message}`)
+    } catch (err) {
+      setExportStatus(`Couldn't export: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Help → Copy diagnostics: what a report needs (settingsHelp.buildDiagnostics), never a word of anyone's writing.
+  const [helpStatus, setHelpStatus] = useState<string | null>(null)
+  async function copyDiagnostics(): Promise<void> {
+    const text = JSON.stringify(
+      buildDiagnostics({
+        version: buildInfo?.version ?? null,
+        isPreview: buildInfo?.isPreview ?? false,
+        platform: navigator.userAgent,
+        plan,
+        settings: (settings ?? {}) as unknown as Record<string, unknown>,
+        screenWatch: (screenWatch ?? null) as unknown as Record<string, unknown> | null
+      }),
+      null,
+      2
+    )
+    try {
+      await tracelyApi.writeClipboard(text)
+      setHelpStatus('Copied. Paste it into your message.')
+    } catch {
+      setHelpStatus("Couldn't reach the clipboard. Try again.")
+    }
+  }
 
   // Preview-only: the app has no OS title bar (windows are frameless), so
   // without this a beta build and a real release look identical while you're
@@ -381,8 +451,22 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
     }
   }
 
+  /* General → Pause for 1 hour / for today (the extension's pause). Main keeps
+     the time and turns Screen Watch back on by itself, across a restart;
+     the switch, the tray or the shortcut end a pause early. */
+  async function pauseScreenWatch(until: number): Promise<void> {
+    if (screenWatchToggling) return
+    setScreenWatchToggling(true)
+    try {
+      setScreenWatch(await tracelyApi.pauseScreenWatch(until))
+    } finally {
+      setScreenWatchToggling(false)
+    }
+  }
+  const pausedUntil = screenWatch?.resumeAt && screenWatch.resumeAt > Date.now() ? screenWatch.resumeAt : 0
+
   useEffect(() => {
-    if (section !== 'preferences' || installedApps !== null) return
+    if (section !== 'general' || installedApps !== null) return
     tracelyApi
       .scanInstalledApps()
       .then((res) => setInstalledApps(res.found))
@@ -612,17 +696,21 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
             </div>
           ) : null}
 
-          {section === 'preferences' ? (
-            <div key="preferences" className="settings-panel-content">
+          {section === 'general' ? (
+            <div key="general" className="settings-panel-content">
               <div className="settings-panel-header">
-                <h3>Preferences</h3>
-                <p>Turn Screen Watch on or off, and choose which apps it's allowed to read text from.</p>
+                <h3>General</h3>
+                <p>Turn Screen Watch on, off or pause it, choose the apps it reads, and set the shortcuts.</p>
               </div>
               <label className="settings-toggle-row">
                 <div>
                   <div className="settings-toggle-row-title">Screen Watch</div>
                   <div className="settings-toggle-row-subtitle">
-                    {screenWatch?.enabled ? 'On — reading focused apps for flagged claims.' : 'Off.'}
+                    {screenWatch?.enabled
+                      ? 'On — reading focused apps for flagged claims.'
+                      : pausedUntil
+                        ? `Paused until ${resumeLabel(pausedUntil)}, then back on by itself. Nothing is read until then.`
+                        : 'Off.'}
                   </div>
                 </div>
                 <input
@@ -632,6 +720,24 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   onChange={toggleScreenWatch}
                 />
               </label>
+              <div className="settings-pause-row">
+                {screenWatch?.enabled ? (
+                  <>
+                    <Button variant="secondary" onClick={() => void pauseScreenWatch(pauseForHour(Date.now()))} disabled={screenWatchToggling}>
+                      Pause for 1 hour
+                    </Button>
+                    <Button variant="secondary" onClick={() => void pauseScreenWatch(pauseForToday(Date.now()))} disabled={screenWatchToggling}>
+                      Pause for today
+                    </Button>
+                  </>
+                ) : pausedUntil ? (
+                  <Button variant="secondary" onClick={toggleScreenWatch} disabled={screenWatchToggling}>
+                    Resume now
+                  </Button>
+                ) : null}
+              </div>
+
+              <h4 className="settings-group-title">Apps Screen Watch reads</h4>
               <div className="settings-app-grid">
                 {installedApps === null ? (
                   <p className="muted">Scanning installed apps…</p>
@@ -673,12 +779,14 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
               </p>
 
               {/*
-                Everything below already worked end to end — persisted, and read
-                by a real consumer — and simply had no control anywhere in the
-                app. screenWatchService.ts even carried a comment pointing at
-                "Settings > General > sensitivity", a section that never existed.
+                The shortcuts, and Checking's sensitivity, already worked end to
+                end — persisted, and read by a real consumer — and simply had no
+                control anywhere in the app. screenWatchService.ts carried a
+                comment pointing at "Settings > General > sensitivity" before
+                there was a General; the sensitivity is under Checking.
               */}
-              <div className="settings-panel-grid settings-panel-grid-spaced">
+              <h4 className="settings-group-title">Shortcuts</h4>
+              <div className="settings-panel-grid">
                 <SettingsField label="Analyze clipboard shortcut">
                   <HotkeyField
                     value={settings.hotkeyAccelerator}
@@ -691,6 +799,18 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                     onCapture={(a) => void saveHotkey('screenWatchHotkeyAccelerator', a)}
                   />
                 </SettingsField>
+              </div>
+              {hotkeyError ? <p className="error-text">{hotkeyError}</p> : null}
+            </div>
+          ) : null}
+
+          {section === 'citations' ? (
+            <div key="citations" className="settings-panel-content">
+              <div className="settings-panel-header">
+                <h3>Citations</h3>
+                <p>How the citations Tracely writes look.</p>
+              </div>
+              <div className="settings-panel-grid">
                 <SettingsField label="Default citation style">
                   <select
                     value={settings.defaultCitationStyle}
@@ -701,6 +821,17 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                     <option value="Chicago">Chicago</option>
                   </select>
                 </SettingsField>
+              </div>
+            </div>
+          ) : null}
+
+          {section === 'checking' ? (
+            <div key="checking" className="settings-panel-content">
+              <div className="settings-panel-header">
+                <h3>Checking</h3>
+                <p>How Tracely checks your claims and grades your writing, and what it spends doing it.</p>
+              </div>
+              <div className="settings-panel-grid">
                 {/*
                   The school year the LETTER is graded against.
 
@@ -811,7 +942,6 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   />
                 </SettingsField>
               </div>
-              {hotkeyError ? <p className="error-text">{hotkeyError}</p> : null}
               <p className="muted settings-app-note">
                 Grading level moves the letter, not the score out of 100 — the rubric measures the same six
                 things at every level. The same draft that earns an A in grade 7 is a C in grade 12, because the
@@ -836,70 +966,21 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
             </div>
           ) : null}
 
-          {/* The four sections the Figma file draws and the product does not
-              have. Labels and order are each frame's own; the values are not —
-              see SettingsUnavailable for why. */}
-          {section === 'notifications' ? (
-            <SettingsUnavailable
-              key="notifications"
-              title="Notifications"
-              description="Choose what Tracely tells you about."
-              note="Tracely does not send notifications yet — there is no notification code behind this screen, so nothing here can be switched on."
-              fields={[
-                { label: 'Email notifications' },
-                { label: 'Push notifications' },
-                { label: 'SMS alerts' },
-                { label: 'Notification schedule', full: true },
-                { label: 'Time zone', full: true }
-              ]}
-            />
-          ) : null}
-
-          {section === 'security' ? (
-            <SettingsUnavailable
-              key="security"
-              title="Security"
-              description="Keep your account protected."
-              note="Sign-in is handled by Supabase and these controls are not wired to it. Two-factor, recovery email and session management are not built."
-              fields={[
-                { label: 'Two-factor authentication' },
-                { label: 'Recovery email' },
-                { label: 'Password', full: true },
-                { label: 'Active sessions', full: true },
-                { label: 'Recent login activity', full: true }
-              ]}
-            />
-          ) : null}
-
-          {section === 'integrations' ? (
-            <SettingsUnavailable
-              key="integrations"
-              title="Integrations"
-              description="Connect the tools you use every day."
-              note="Nothing is connected, and nothing can be — there is no OAuth provider behind this screen. The frame shows Google Calendar, Nextdoor and Gmail as connected; none of those integrations exist."
-              fields={[
-                { label: 'Google Calendar' },
-                { label: 'Nextdoor' },
-                { label: 'Gmail', full: true },
-                { label: 'Available integrations', full: true }
-              ]}
-            />
-          ) : null}
-
           {/*
-            The one of those four frames that now has a feature behind it, so
-            it is a real panel rather than a SettingsUnavailable — the rule at
-            the top of this file is to add the section back WITH the feature.
+            The one of the Figma file's four extra frames that had a feature
+            behind it, so it became a real panel — the rule at the top of this
+            file is to add a section WITH its feature. Named "Account and
+            billing" since 2026-10-16, as the extension's is.
             What it still does not have is payments: the checkout, the card and
             the invoices all live on jointracely.com, so this reads the plan and
             hands off to the browser rather than reproducing the frame's payment
             method and billing-history boxes over nothing.
           */}
-          {section === 'billing' ? (
-            <div key="billing" className="settings-panel-content">
+          {section === 'account' ? (
+            <div key="account" className="settings-panel-content">
               <div className="settings-panel-header">
-                <h3>Billing</h3>
-                <p>Your plan, and what it unlocks.</p>
+                <h3>Account and billing</h3>
+                <p>Your plan, what it unlocks, and what you have used.</p>
               </div>
               <div className="settings-plan-card">
                 <div className="settings-plan-head">
@@ -915,6 +996,35 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
                   ))}
                 </ul>
               </div>
+              {/* What has been used, as the server counts it (GET /api/entitlement,
+                  settingsHelp.usageRows): bars only for the limits it named. */}
+              {usageRows(usage).length ? (
+                <div className="settings-usage">
+                  <div className="settings-toggle-row-title">Used so far</div>
+                  {usageRows(usage).map((row) => (
+                    <div key={row.label} className="settings-usage-row">
+                      <div className="settings-usage-head">
+                        <span>{row.label}</span>
+                        <span>
+                          {row.used} of {row.of}
+                        </span>
+                      </div>
+                      <meter
+                        className="settings-usage-meter"
+                        min={0}
+                        max={row.of}
+                        value={Math.min(row.used, row.of)}
+                        aria-label={`${row.label}: ${row.used} of ${row.of}`}
+                      />
+                    </div>
+                  ))}
+                  {usage?.aiActionsPerDay ? (
+                    <div className="settings-toggle-row-subtitle">
+                      Checks, grades and critiques: up to {usage.aiActionsPerDay} AI actions a day on this plan.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {plan === 'free' ? (
                 <div className="settings-plan-upgrade">
                   <div>
@@ -950,12 +1060,47 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
           {section === 'privacy' ? (
             <div key="privacy" className="settings-panel-content">
               <div className="settings-panel-header">
-                <h3>Privacy</h3>
+                <h3>Privacy and data</h3>
+                <p>What stays on this computer, what leaves it, and how to take your data with you or delete it.</p>
+              </div>
+              {/* Plain lines, no bullet list (the owner's rule for this UI), each
+                  one checked against what the code does: src/CLAUDE.md "What it
+                  is", favicon.ts, PRIVACY.md's server section. */}
+              <div className="settings-privacy-lines">
+                <h4 className="settings-group-title">What leaves this computer</h4>
                 <p>
-                  Everything Tracely stores lives on this machine. These delete it — there is no copy anywhere
-                  else, and neither can be undone.
+                  Your documents, library and settings live only on this computer, in Tracely's own database.
+                </p>
+                <p>
+                  When Tracely checks a claim, grades an essay or critiques an argument, the text it needs goes to
+                  Tracely's server, which checks it and does not keep it. Evidence searches go to scholarly
+                  indexes such as OpenAlex, Crossref and Semantic Scholar.
+                </p>
+                <p>
+                  Screen Watch reads text only in the apps you tick under General. Its source icons come from
+                  Google's public icon service, which sees the site of each source it shows.
                 </p>
               </div>
+              <div className="settings-danger-list">
+                <div className="settings-danger-row">
+                  <div>
+                    <div className="settings-toggle-row-title">Export my data</div>
+                    <div className="settings-toggle-row-subtitle">
+                      One file with your documents, your library and its citations, and your settings. You choose
+                      where it is saved; nothing is sent anywhere.
+                    </div>
+                  </div>
+                  <Button variant="secondary" onClick={() => void exportData()}>
+                    Export
+                  </Button>
+                </div>
+              </div>
+              {exportStatus ? <p className="muted">{exportStatus}</p> : null}
+              <h4 className="settings-group-title">Delete</h4>
+              <p className="muted settings-app-note">
+                These delete what Tracely keeps on this computer. There is no copy anywhere else, and neither can be
+                undone.
+              </p>
               <div className="settings-danger-list">
                 <div className="settings-danger-row">
                   <div>
@@ -986,19 +1131,63 @@ export default function SettingsView({ onNavigate }: { onNavigate: (tab: Tab) =>
           ) : null}
 
           {/*
-            Notifications, Security, Integrations and Billing were four static
-            Figma mockups: hardcoded text, selects bound to local state nothing
-            ever read, and "Save changes" buttons with no onClick at all. There
-            was no notification code, no OAuth provider and no plans anywhere in
-            this repo, so none of them could have done anything.
-
-            Each was also rendered TWICE — once in a keyed <div>, then again
-            byte-identically in a fragment, both testing the same `section` —
-            so selecting Billing painted the panel twice with two dead buttons.
-
-            Billing left that list when the three plans became real. The other
-            three have not.
+            Help (2026-10-16, the extension's Help mirrored): the version, what
+            changed lately, the shortcuts as they are set, and a way to report a
+            problem with what it needs attached. The version used to show on
+            preview builds only; someone writing in needs it on any build.
           */}
+          {section === 'help' ? (
+            <div key="help" className="settings-panel-content">
+              <div className="settings-panel-header">
+                <h3>Help</h3>
+                <p>What's new, the shortcuts, and how to tell us when something goes wrong.</p>
+              </div>
+              <div className="settings-toggle-row-subtitle">
+                Tracely {buildInfo?.version ?? ''}
+                {buildInfo?.isPreview ? ' · preview build' : ''}
+              </div>
+              <h4 className="settings-group-title">What's new</h4>
+              <div className="settings-changes">
+                {WHATS_NEW.map((change) => (
+                  <div key={change.date + change.text} className="settings-change">
+                    <span className="settings-change-date">{change.date}</span>
+                    <span>{change.text}</span>
+                  </div>
+                ))}
+              </div>
+              <h4 className="settings-group-title">Shortcuts</h4>
+              <div className="settings-keys">
+                <div className="settings-key-row">
+                  <span>Analyze what you copied</span>
+                  <kbd className="settings-kbd">{settings.hotkeyAccelerator}</kbd>
+                </div>
+                <div className="settings-key-row">
+                  <span>Turn Screen Watch on or off</span>
+                  <kbd className="settings-kbd">{settings.screenWatchHotkeyAccelerator}</kbd>
+                </div>
+              </div>
+              <p className="muted settings-app-note">Change them under General.</p>
+              <h4 className="settings-group-title">Something went wrong?</h4>
+              <p className="muted settings-app-note">
+                Copy diagnostics puts Tracely's version, your settings and what Screen Watch is doing on your
+                clipboard, never a word of your writing. Paste it into your message.
+              </p>
+              <div className="settings-pause-row">
+                <Button variant="secondary" onClick={() => void copyDiagnostics()}>
+                  Copy diagnostics
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void tracelyApi.openExternal(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Tracely problem')}`)
+                  }
+                >
+                  Email us
+                </Button>
+              </div>
+              {helpStatus ? <p className="muted">{helpStatus}</p> : null}
+            </div>
+          ) : null}
 
           {error ? <p className="error-text">{error}</p> : null}
         </div>

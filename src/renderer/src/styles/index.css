@@ -3147,6 +3147,113 @@ textarea:disabled {
   white-space: nowrap;
 }
 
+/* ── Settings, 2026-10-16 (the extension's Settings mirrored): a group's
+   heading inside a section, General's pause buttons, Account and billing's
+   usage bars, Privacy and data's plain lines, Help's changes and keys. ── */
+.settings-group-title {
+  margin: 22px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.settings-pause-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+
+.settings-pause-row:empty {
+  display: none;
+}
+
+.settings-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-usage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-usage-meter {
+  display: block;
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+
+.settings-privacy-lines p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.settings-privacy-lines .settings-group-title {
+  margin-top: 0;
+}
+
+.settings-changes,
+.settings-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-change {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.settings-change-date {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.settings-kbd {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
 /* Document editor — autosave indicator. Deliberately quiet: it confirms the
    work is safe without asking to be looked at. */
 .docedit-savestate {
@@ -4504,22 +4611,8 @@ textarea:disabled {
 /* No width. The frame's buttons hug their text — see 361:335/361:337. */
 
 
-/* The one line that says why a Figma-accurate settings page cannot be used. */
-.settings-unavailable-note {
-  margin: 0 0 18px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--muted-2);
-}
-
-.settings-static-value.is-unavailable {
-  color: var(--muted);
-  font-style: italic;
-}
+/* (The disabled "Not available yet" sections and their note went on
+   2026-10-16, with SettingsUnavailable.tsx: the owner removed them.) */
 
 /* ---- Document toolbar menus (Figma 226:95 / 226:104 / 234:46 / 234:67 /
    234:74 / 234:85) — chrome read off 226:95 with get_design_context. ------- */

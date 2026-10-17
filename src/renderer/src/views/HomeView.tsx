@@ -7,6 +7,7 @@ import { greetingFor } from '@shared/greeting'
 import SourceFinderPanel from '../components/SourceFinderPanel'
 import type { CitationStyle } from '@shared/types'
 import type { Tab } from '../App'
+import type { SettingsSection } from './SettingsView'
 import figmaLogo from '../assets/figma-logo.png'
 import tracerBadge from '../assets/tracer-badge.png'
 import iconPersuasive from '../assets/resource-persuasive.svg'
@@ -87,10 +88,13 @@ function openedLabel(iso: string, now: Date): string {
 
 export default function HomeView({
   onNavigate,
+  onOpenSettingsAt,
   onNewDocument,
   onOpenDocument
 }: {
   onNavigate: (tab: Tab) => void
+  /** Settings at one section: "You choose where Tracely works" is General, where the apps are chosen. */
+  onOpenSettingsAt: (section: SettingsSection) => void
   onNewDocument: () => void
   /**
    * Open one draft in the editor. The same callback the Documents list uses, so
@@ -371,7 +375,7 @@ export default function HomeView({
             </button>
           </div>
           ) : null}
-          <button className="home-worklink" onClick={() => onNavigate('settings')}>
+          <button className="home-worklink" onClick={() => onOpenSettingsAt('general')}>
             You choose where Tracely works
             <img src={homeArrow} alt="" width={17} height={22} />
           </button>

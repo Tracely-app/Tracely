@@ -55,7 +55,11 @@ const DEFAULTS: Record<string, string> = {
   // Bookkeeping, not a preference: it exists so a crash cannot make
   // session-scoped name learning permanent. Read and cleared at startup — see
   // recoverLearnedNames in spellcheck.ts.
-  learnedNamesForCleanup: '[]'
+  learnedNamesForCleanup: '[]',
+  // Settings → General → Pause for 1 hour / for today: when Screen Watch comes
+  // back on by itself (epoch ms), or '0'. Kept here so a pause outlives a
+  // restart, and a pause that ended while the app was closed starts it again.
+  screenWatchResumeAt: '0'
 }
 
 export function getSetting(key: string): string {

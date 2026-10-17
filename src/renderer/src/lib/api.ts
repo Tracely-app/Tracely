@@ -87,6 +87,8 @@ export const tracelyApi = {
 
   getScreenWatchStatus: () => call(window.tracely.screenWatch.getStatus()),
   setScreenWatchEnabled: (enabled: boolean) => call(window.tracely.screenWatch.setEnabled({ enabled })),
+  /** Settings → General → Pause for 1 hour / for today: off now, back on by itself at `until`. */
+  pauseScreenWatch: (until: number) => call(window.tracely.screenWatch.pause({ until })),
   onScreenWatchStatus: (cb: Parameters<typeof window.tracely.onScreenWatchStatus>[0]) =>
     window.tracely.onScreenWatchStatus(cb),
 
@@ -96,6 +98,10 @@ export const tracelyApi = {
   getPlan: () => call(window.tracely.auth.getPlan()),
   /** Pro's Thorough allowance (Settings > Preferences meter); `thorough` is null when unknown. */
   getThorough: () => call(window.tracely.auth.getThorough()),
+  /** What the server has counted (Settings → Account and billing's bars); `usage` is null when unknown. */
+  getUsage: () => call(window.tracely.auth.getUsage()),
+  /** Settings → Privacy and data → Export my data. */
+  exportData: () => call(window.tracely.data.export()),
   onAuthStateChanged: (cb: Parameters<typeof window.tracely.onAuthStateChanged>[0]) =>
     window.tracely.onAuthStateChanged(cb)
 }

@@ -7,6 +7,7 @@ import type {
   ScreenWatchFindSourceResponse,
   ScreenWatchGetStatusResponse,
   ScreenWatchInsertCitationResponse,
+  ScreenWatchPauseResponse,
   ScreenWatchPreviewCitationResponse,
   ScreenWatchRefreshEvidenceResponse,
   ScreenWatchSetActivePopoverRectResponse,
@@ -23,6 +24,7 @@ import {
   findSourceWithCited,
   getScreenWatchStatus,
   insertCitationForClaim,
+  pauseScreenWatch,
   previewCitationForClaim,
   refreshEvidenceForClaim,
   setActivePopoverRect,
@@ -42,6 +44,7 @@ const widgetDragEndSchema = z.object({ x: z.number(), y: z.number() })
 const rectSchema = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })
 const setActivePopoverRectSchema = z.object({ claimId: z.string().nullable(), rect: rectSchema.nullable() })
 const claimIdSchema = z.object({ claimId: z.string() })
+const pauseSchema = z.object({ until: z.number().int().positive() })
 const findSourceSchema = z.object({ claimId: z.string(), query: z.string().optional() })
 const insertCitationSchema = z.object({
   claimId: z.string(),
@@ -58,6 +61,13 @@ export function registerScreenWatchHandlers(): void {
   })
 
   ipcMain.handle(IPC.SCREENWATCH_GET_STATUS, (): ScreenWatchGetStatusResponse => {
+    return getScreenWatchStatus()
+  })
+
+  // Settings → General: off now, back on by itself at `until` (at most a day away).
+  ipcMain.handle(IPC.SCREENWATCH_PAUSE, (_event, raw): ScreenWatchPauseResponse => {
+    const { until } = pauseSchema.parse(raw)
+    pauseScreenWatch(Math.min(until, Date.now() + 24 * 60 * 60 * 1000))
     return getScreenWatchStatus()
   })
 
