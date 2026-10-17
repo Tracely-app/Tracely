@@ -29,13 +29,13 @@
    Sections, by the line their anchor sits on (regenerate the numbers with
    `grep -n` when you move things; the anchors themselves must not move):
         63  Verdicts, card copy, colours, FEATURES switches
-       360  Settings and plan gate; what the Settings page sets (pause, corner, clear)
-       756  Shared helpers: hashing, bibliography, citation formatting
-      1164  Sentence boundaries (ported from server/shared/sentenceSplit.js)
-      1459  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
-      3902  Widget chrome, API transport, design tokens
-      5340  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
-     12185  Field mode (textareas and contenteditables on any site)
+       376  Settings and plan gate; what the Settings page sets (prefs: General, Checking, Citations)
+       835  Shared helpers: hashing, bibliography, citation formatting
+      1263  Sentence boundaries (ported from server/shared/sentenceSplit.js)
+      1558  Kinds of writing (56: readKind, WRITING_KINDS), evidence suggestions, local checks
+      4013  Widget chrome, API transport, design tokens
+      5454  Docs mode (Google Docs: export reads, marks, cards, in-doc edits)
+     12305  Field mode (textareas and contenteditables on any site)
    Rules that keep two agents out of each other's way:
    • The lines marked "TEST ANCHOR" below, and every marker in
      server/test/helpers/anchors.js, are fixtures: server/test slices this
@@ -405,7 +405,8 @@
      the sites with auto-check on. A content script cannot open an extension
      page, so the worker does (background.js "tracely-openSettings") — bringing
      an open Settings tab forward rather than stacking another — at `section`
-     ("account", "checking", "docs", "sites", "privacy") when one is given. */
+     ("general", "checking", "citations", "account", "privacy", "help") when
+     one is given. */
   function openSettings(section) {
     return Promise.resolve(sendMsg({ type: "tracely-openSettings", section: section ?? null })).catch(() => null);
   }

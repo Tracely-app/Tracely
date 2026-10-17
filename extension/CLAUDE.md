@@ -689,8 +689,9 @@ a news story names its source in the sentence ("According to … in 2021, …",
 `attributeAloud`) and has no list; `genreWantsList` (prose, research,
 literary, lab) keeps a Works Cited. A literary essay quotes a poem by line,
 a play by act.scene.line, a novel by page (`literaryForm`). Tracely cites in
-the style the doc already uses (`docCitationStyle`) unless the writer picked
-one (`settings.styleChosen`); MLA when it says nothing. The panel says what it
+the style the doc already uses (`docCitationStyle`) unless Settings names
+one (`prefs.citeStyle`, `citeStyleFor`, since 2.21.63); MLA when it says
+nothing. The panel says what it
 is reading and what that means (`genreLineHtml`). Measured on invented
 documents (`server/test/fixtures/`): the 67 it was tuned on, all right (main:
 20); 50 written blind by another author, 40 right before any tuning (main:
@@ -909,6 +910,52 @@ settings and its panel position (`clearTracelyStore`). A page that is open
 clears at once, in either mode; any other clears when it next loads. Tests:
 `server/test/ext-settings-page.test.js`,
 `server/test/ext-settings-prefs.test.js`.
+
+Since 2.21.63 (phase 1, PR 2) **Checking** has its own controls, and
+**Citations** is a new section after it. Their settings live in the same
+`prefs` key, and every default is the widget as it was before them.
+- **What Tracely flags:** `showEvidence` and `showCitations`. A kind that is
+  off loses its underlines, cards and counts (`kindShown` in `flagShown`,
+  `tipKindShown` in `tipsOf`). An unnamed-source note goes with evidence,
+  the citation notes with citations. A factual error is never switched off.
+- **How strict:** `strictness`.
+  - `clear` shows only a confidence of "high". The server says "medium"
+    when the model gives none. The page says this can hide a real mistake.
+  - `balanced` is as before.
+  - `thorough` also asks for a source on a general statement, and on a
+    figure a later citation in its paragraph might carry.
+  - How much `clear` hides is not measured.
+- **My writing is usually…:** `usualKind`, read only where the rules
+  aren't sure and the site doesn't say (`kindWithUsual`). Its list is
+  options.html's, 14 checked kinds, named as `WRITING_KINDS` names them; a
+  test keeps the two the same.
+- **Sources and fixes:**
+  - `autoEvidence` gates `autoFindSources` in both modes.
+  - `previewEdits` off makes Apply fix in Docs go in at once, with Undo
+    (the gate in `runDocEdit`).
+  - `reviewTyping` off starts Review all `instant`, the way Stop leaves it.
+- **Citation style:** `citeStyle` ("match", or mla, apa, chicago) decides the
+  style in both modes (`citeStyleFor`).
+  - The widget's style picker writes it (`setPrefs`), so the page and the
+    widget never disagree.
+  - A pick saved with a site before 2.21.63 (`styleChosen`) moves in once
+    (`adoptStylePick`).
+- **Heading:** `listHeading`, for every list Tracely names or adds
+  (`refHeadingFor`; never `REF_HEADINGS[style]` directly).
+- **Links and access dates:** `citeLinks` and `citeAccessed`
+  (`citeEntryEnd`). An access date goes only on a web page: MLA "Accessed
+  …" at the end, APA "Retrieved …, from" with the link only, Chicago
+  "Accessed …." before the link. It is off by default. Owner history: 2.19.4
+  removed the old formatter's date stamped on every source, so the clock is
+  read only behind this switch (`ext-citations.test.js`).
+- **Sources:** `citableOnly` (the citable tiers of `credibilityOf`) and
+  `avoidSites` (a site and every part of it).
+  - Both filter in `backingSources` (`sourceAllowed`), as if never found.
+  - Sources already found are filtered again (`refilterSources`).
+  - A link the writer pasted is always kept.
+
+Tests: `server/test/ext-settings-checking.test.js`,
+`server/test/ext-settings-page.test.js`.
 
 ## Measuring
 
