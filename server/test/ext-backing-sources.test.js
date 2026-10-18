@@ -28,7 +28,7 @@ const FACTCHECK = readFileSync(path.join(HERE, "..", "lib", "factcheck.js"), "ut
 function load() {
   return vm.runInContext(`const CHECK_INTERVAL_MS = 10000; function hashText(s) { return s; }
     ${sliceBetween(SRC, "  // Bibliography block", "  function wireChrome(")}
-    ({ backingSources, UNBACKED_NOTE, RECEIPT_COPY, sourceSaysHtml, unreadSourcesHtml })`, vm.createContext({}));
+    ({ backingSources, UNBACKED_NOTE, RECEIPT_COPY, sourceSaysHtml, unreadSourcesHtml, claimIsWrong, citableHere, DISAGREE_COPY })`, vm.createContext({}));
 }
 const X = load();
 const urls = (list) => Array.from(list, (s) => s.url);
@@ -155,4 +155,35 @@ test("wired: the Docs hover card puts the receipt in each source row and the unr
 test("the search is told what 'supports' means", () => {
   assert.match(FACTCHECK, /"supports" only when the result itself states the claim's point — the same subject, direction and figures; a source on the same topic that makes a different point is "context", however relevant\. When unsure, "context"\./);
   assert.match(FACTCHECK, /"snippet": one sentence \(max 30 words\) saying what the source itself states — never the claim's words unless the source uses them\./);
+});
+
+// ── a wrong sentence's refuting sources are shown, never cited for it ─────
+// Owner, 2026-10-18, on "…findings demonstrate that replacing all classroom
+// teachers with AI systems would produce better academic outcomes for every
+// student" (flagged "Doesn't make sense"): "the sources it found say that it
+// refutes this, so why would we cite it in the doc?" Cite in doc cites the
+// sentence as written, so a refuting source keeps its receipt and its Open
+// link, and loses Cite in doc and Copy cite, in every surface.
+
+test("a refuting source is never citable for the sentence it contradicts; the card says why and points to the fix", () => {
+  assert.equal(X.claimIsWrong("false"), true);
+  assert.equal(X.claimIsWrong("incoherent"), true);
+  for (const v of ["questionable", "needs_citation", "wrong_source", "accurate", undefined]) assert.equal(X.claimIsWrong(v), false, String(v));
+  assert.equal(X.citableHere(AGAINST), false);
+  for (const s of [BACKS, PASTED, { ...PASTED, stance: "manual" }, READ]) assert.equal(X.citableHere(s), true, s.title);
+  assert.equal(X.DISAGREE_COPY.find, "See what sources say", "a wrong sentence's button does not promise something to cite");
+  assert.match(X.DISAGREE_COPY.fix, /can't be cited for it as written\. Apply the fix/);
+  assert.match(X.DISAGREE_COPY.noFix, /Rewrite it to match what they say/);
+});
+
+test("every surface hides Cite in doc and Copy cite on a refuting source, and renames the wrong sentence's search", () => {
+  const count = (needle) => SRC.split(needle).length - 1;
+  // The Docs panel and the field panel draw a source's actions only when it is citable.
+  assert.equal(count('${citableHere(src) ? `<div class="src-actions">'), 2, "both panels gate their source actions");
+  assert.equal(count('claimIsWrong(f.verdict) ? DISAGREE_COPY.find : "Find a source"'), 2, "both panels rename the button");
+  // The Docs hover card: a refuting source's primary is the fix (or Open), never Cite in doc.
+  assert.equal(count("primary = dmBtn(f?.revision ? POP_COPY.suggestFix : POP_COPY.openArticle, true);"), 1);
+  assert.equal(count("if (src && !citable) {"), 1);
+  assert.equal(count("const named = citable && !replace ? nameTheSource(seg.text, src, style) : null;"), 1, "nor is a refuting source named in the sentence");
+  assert.equal(count("claimIsWrong(f.verdict) ? DISAGREE_COPY.find : POP_COPY.findSource"), 1, "the hover card renames its search too");
 });

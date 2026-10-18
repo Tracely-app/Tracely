@@ -331,6 +331,10 @@ function widgetContext(tier) {
       GENRE_QUIET: new Set(), // a kind Tracely stays quiet on says so in the list (ext-off-switch.test.js)
       turnDocsOff: () => {}, // the Turn off button's handler (ext-off-switch.test.js)
       unfoundStudy: () => false, // a study Tracely can't find (ext-unfound-study.test.js)
+      // A wrong sentence's refuting sources, shown and never cited (ext-backing-sources.test.js).
+      claimIsWrong: (v) => v === "false" || v === "incoherent",
+      citableHere: (s) => s?.stance !== "refutes",
+      DISAGREE_COPY: { find: "See what sources say", title: "Sources that disagree with your sentence", fix: "", noFix: "" },
       FEATURES: { evidenceHints: false }, // the evidence section is tested in ext-evidence.test.js
       showEvidence: false,
       lastTextChangeAt: 0,

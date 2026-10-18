@@ -3311,6 +3311,26 @@
     if (host && (prefs.avoidSites ?? []).some((d) => host === d || host.endsWith(`.${d}`))) return false;
     return !prefs.citableOnly || credibilityOf(s).citable === true;
   }
+  /* A sentence the check found WRONG (false) or that doesn't make sense
+     (incoherent) is not one to cite as written. Owner, 2026-10-18, on "…
+     findings demonstrate that replacing all classroom teachers with AI
+     systems would produce better academic outcomes for every student": "it
+     flagged this as not making sense, yet it wants to find sources for it to
+     cite … the sources it found say that it refutes this, so why would we
+     cite it in the doc?" A source that refutes the sentence is still shown —
+     it is the record disagreeing, with its receipt — but never with Cite in
+     doc or Copy cite on the sentence it contradicts (Cite in doc cites the
+     sentence as written). The card's fix is the way forward; the fixed
+     sentence is checked afresh, and its Find a source then looks for sources
+     that back it. */
+  const claimIsWrong = (verdict) => verdict === "false" || verdict === "incoherent";
+  const citableHere = (src) => src?.stance !== "refutes";
+  const DISAGREE_COPY = {
+    find: "See what sources say",
+    title: "Sources that disagree with your sentence",
+    fix: "They contradict your sentence, so they can't be cited for it as written. Apply the fix, and Tracely checks the new sentence.",
+    noFix: "They contradict your sentence, so they can't be cited for it as written. Rewrite it to match what they say.",
+  };
   function backingSources(list, verdict) {
     const all = (Array.isArray(list) ? list : []).filter(sourceAllowed);
     const unread = all.filter((s) => s && s.verified === false);
@@ -8145,7 +8165,7 @@
         setStep(hash, { step: "sources", searched: true });
         started.then((ok) => { if (ok === false) setStep(hash, { step: "problem" }); }).catch(() => {});
       };
-      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : evOpen ? EVIDENCE_COPY.see(evFound || 1) : POP_COPY.findSource, true);
+      const action = dmBtn(hasRevision ? POP_COPY.suggestFix : citedHere ? CITED_COPY.find : evOpen ? EVIDENCE_COPY.see(evFound || 1) : claimIsWrong(f.verdict) ? DISAGREE_COPY.find : POP_COPY.findSource, true);
       if (!hasRevision && !citedHere && !ev) action.addEventListener("pointerdown", () => { fetchSources(hash).catch(() => {}); });
       action.addEventListener("click", () => {
         if (hasRevision) { setStep(hash, { step: "fix" }); return; }
@@ -8454,14 +8474,17 @@
       // Results.
       const selected = st.selected ?? list[0]?.url ?? null;
       const src = list.find((x) => x.url === selected) ?? null;
+      // A wrong sentence's refuting sources: shown with their receipts, never cited for it (claimIsWrong).
+      const disagree = claimIsWrong(f?.verdict) && list.some((x) => !citableHere(x));
+      const citable = Boolean(src) && citableHere(src);
       const styleChip = dmChip(CITE_STYLE_LABEL[style]);
-      put(dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
+      put(disagree ? dmHead(DM.red, DISAGREE_COPY.title, null, { wrap: true }) : dmHead(DM.green, `${list.length} source${list.length === 1 ? "" : "s"} found`, styleChip));
       styleChip.style.marginLeft = "0"; // beside the title, as the frame draws it
       const scroll = el("div", { flex: "1 1 auto", minHeight: "0", overflowY: "auto", display: "flex", flexDirection: "column", gap: "12px" });
       scroll.setAttribute("data-pop-sources", "");
       const note = noteEl();
       if (note) scroll.appendChild(note);
-      scroll.appendChild(dmBody(`Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
+      scroll.appendChild(dmBody(disagree ? (f?.revision ? DISAGREE_COPY.fix : DISAGREE_COPY.noFix) : `Ranked by how directly each source supports “${truncateClaim(seg.text)}.”`));
       const rows = el("div", { display: "flex", flexDirection: "column", gap: "4px" });
       for (const item of list) rows.appendChild(dmRow(item, item.url === selected, () => setStep(stepKey, { selected: item.url })));
       scroll.appendChild(rows);
@@ -8476,13 +8499,13 @@
       scroll.appendChild(dmStyles(style, (key) => { settings.citationStyle = key; settings.styleChosen = true; persistSettings(settings, SETTINGS_KEY); setPrefs({ citeStyle: key }); paintPop(); }));
       // Naming the source rewrites the writer's words, so what the sentence
       // will say is shown without asking, not behind Preview.
-      const named = src && !replace ? nameTheSource(seg.text, src, style) : null;
+      const named = citable && !replace ? nameTheSource(seg.text, src, style) : null;
       if (named && !st.preview) scroll.appendChild(dmBlock("YOUR SENTENCE WILL READ", dmBlockBody(named), dmBlockBody(formatCitation(src, style).ref)));
       // Behind "Preview", as in Figma "Find a Source (Results)": the card is
       // usually capped to the room under the line, and the citation is the
       // part a writer checks once, not on every source they click through.
       // "Open article" lives in it, so the action row is the frame's two.
-      if (src && st.preview) {
+      if (citable && st.preview) {
         const c = formatCitation(src, style);
         const open = dmLink(POP_COPY.openArticle);
         Object.assign(open.style, { marginLeft: "0", alignSelf: "flex-start" });
@@ -8498,7 +8521,11 @@
       const key = src ? citedKey(src.url) : null;
       const inserting = key ? editState(key) === "applying" : false;
       let primary;
-      if (canEditDoc()) {
+      if (src && !citable) {
+        // It contradicts the sentence: the fix is the way forward, never a citation on what it refutes.
+        primary = dmBtn(f?.revision ? POP_COPY.suggestFix : POP_COPY.openArticle, true);
+        primary.addEventListener("click", () => { if (f?.revision) setStep(hash, { step: "fix" }); else window.open(src.url, "_blank", "noopener,noreferrer"); });
+      } else if (canEditDoc()) {
         // In place of the sentence's faulty citation when a card found one; beside it otherwise.
         primary = dmBtn(inserting ? POP_COPY.inserting : replace ? CITED_COPY.replace : named ? POP_COPY.name : POP_COPY.insert, true, { disabled: !src || inserting || docBusy });
         primary.addEventListener("click", () => { if (i >= 0) { popPinned = true; docCite(hash, i, popAnchor, replaceFor(hash)); } });
@@ -8506,7 +8533,7 @@
         primary = dmBtn(POP_COPY.copyCite, true, { disabled: !src });
         primary.addEventListener("click", () => { if (!src) return; try { navigator.clipboard.writeText(formatCitation(src, style).ref); } catch { /* denied */ } primary.textContent = POP_COPY.copied; });
       }
-      const preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !src });
+      const preview = dmBtn(st.preview ? POP_COPY.hidePreview : POP_COPY.preview, false, { disabled: !citable });
       preview.addEventListener("click", () => setStep(stepKey, { preview: !st.preview }));
       put(dmActions(primary, preview));
       const again = dmBtn(POP_COPY.searchAgain, false, { wide: true });
@@ -12261,7 +12288,11 @@
             // "Needs evidence" searched and nothing came back: say what to do next.
             sourcesHtml = `<div class="sources"><div class="loading">${esc(EVIDENCE_COPY.none(st))}</div></div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — pick one to cite</div>` +
+            // A wrong sentence's refuting sources: shown, never cited for it (claimIsWrong).
+            const f = cache.get(seg.hash);
+            const disagree = claimIsWrong(f?.verdict) && st.list.some((src) => !citableHere(src));
+            sourcesHtml = `<div class="sources"><div class="sources-title">${disagree ? DISAGREE_COPY.title : "Sources — pick one to cite"}</div>` +
+              (disagree ? `<div class="loading">${esc(f?.revision ? DISAGREE_COPY.fix : DISAGREE_COPY.noFix)}</div>` : "") +
               st.list.map((src, i) => `
                 <div class="src">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
@@ -12270,10 +12301,10 @@
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
                     <div class="src-meta">${sourceMetaHtml(src)}</div>
                     ${sourceSaysHtml(src)}
-                    <div class="src-actions">
+                    ${citableHere(src) ? `<div class="src-actions">
                       ${canEditDoc() ? editBtnHtml(`cite:${seg.hash}:${src.url}`, st.citedUrl === src.url ? "Cited ✓" : replaceFor(seg.hash) ? CITED_COPY.replace : nameTheSource(seg.text, src, settings.citationStyle || "mla") ? POP_COPY.name : "Cite in doc", `data-doc-cite="${seg.hash}" data-i="${i}"`) : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
-                    </div>
+                    </div>` : ""}
                     ${editNoteHtml(`cite:${seg.hash}:${src.url}`)}
                   </div>
                 </div>`).join("") + unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen) + `</div>`;
@@ -12309,7 +12340,7 @@
               <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
             </div>` : ""}
-            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>`}
+            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">${claimIsWrong(f.verdict) ? DISAGREE_COPY.find : "Find a source"}</button>${copyIcon}</div>`}
             ${f.revision ? editNoteHtml(`fix:${seg.hash}`) : ""}
             ${sourcesHtml}
             ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}"${docBusy ? " disabled" : ""}>Cite</button></div>` : ""}
@@ -13737,7 +13768,11 @@
             // "Needs evidence" searched and nothing came back: say what to do next.
             sourcesHtml = `<div class="sources"><div class="loading">${esc(EVIDENCE_COPY.none(st))}</div></div>`;
           } else if (st?.list?.length) {
-            sourcesHtml = `<div class="sources"><div class="sources-title">Sources — copy one to cite</div>` +
+            // A wrong sentence's refuting sources: shown, never cited for it (claimIsWrong).
+            const f = cache.get(seg.hash);
+            const disagree = claimIsWrong(f?.verdict) && st.list.some((src) => !citableHere(src));
+            sourcesHtml = `<div class="sources"><div class="sources-title">${disagree ? DISAGREE_COPY.title : "Sources — copy one to cite"}</div>` +
+              (disagree ? `<div class="loading">${esc(f?.revision ? DISAGREE_COPY.fix : DISAGREE_COPY.noFix)}</div>` : "") +
               st.list.map((src, i) => `
                 <div class="src">
                   <span class="src-ico">${faviconUrl(src.url) ? `<img src="${esc(faviconUrl(src.url))}" alt="" referrerpolicy="no-referrer" />` : ""}</span>
@@ -13746,10 +13781,10 @@
                     <a href="${esc(src.url)}" target="_blank" rel="noopener noreferrer">${esc(src.title)}</a>
                     <div class="src-meta">${sourceMetaHtml(src)}</div>
                     ${sourceSaysHtml(src)}
-                    <div class="src-actions">
+                    ${citableHere(src) ? `<div class="src-actions">
                       ${replaceFor(seg.hash) ? `<button class="act primary" data-src-replace="${seg.hash}" data-i="${i}">${esc(CITED_COPY.replace)}</button>` : ""}
                       <button class="act" data-copy-src="${seg.hash}" data-i="${i}">${st.copiedUrl === src.url ? "Copied ✓" : "Copy cite"}</button>
-                    </div>
+                    </div>` : ""}
                   </div>
                 </div>`).join("") + unreadSourcesHtml(seg.hash, st.unread, st.unreadOpen) + `</div>`;
           }
@@ -13778,7 +13813,7 @@
               <div class="fix-label">Suggested fix</div>
               <div class="fix-text">${esc(f.revision)}</div>
             </div>` : ""}
-            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">Find a source</button>${copyIcon}</div>`}
+            ${unfound ? "" : `<div class="row">${lead}<button class="act" data-sources="${seg.hash}">${claimIsWrong(f.verdict) ? DISAGREE_COPY.find : "Find a source"}</button>${copyIcon}</div>`}
             ${sourcesHtml}
             ${sourcesMap.has(seg.hash) || sourceFailures.has(seg.hash) ? `<div class="cite-url"><input type="url" placeholder="Or paste a URL you found…" data-url-input="${seg.hash}" /><button class="act" data-url-add="${seg.hash}">Cite</button></div>` : ""}
           </div>` };

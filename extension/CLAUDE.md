@@ -59,6 +59,24 @@ panels and the Docs hover card; Cite in doc and Copy cite exist only on the
 backing list. A server without receipts (no `verified`) behaves as before.
 The server half is `server/lib/sourceVerify.js` (`server/CLAUDE.md`).
 
+**A refuting source is never cited for the sentence it contradicts**
+(2.21.68). Owner, 2026-10-18: "the sources it found say that it refutes
+this, so why would we cite it in the doc?" `backingSources` still keeps a
+`refutes` source for a sentence flagged false or incoherent, because it shows
+why the sentence is wrong. But Cite in doc cites the sentence as written, so:
+- **No cite buttons on it.** Such a source shows its receipt and its link,
+  never Cite in doc or Copy cite (`citableHere`). That holds in the Docs
+  panel, the field panel and the hover card, where a refuting source's
+  primary is Suggest fix, or Open article when there is no fix.
+- **The list says why.** Its title is "Sources that disagree with your
+  sentence", with a line that points to the fix (`DISAGREE_COPY`).
+- **The search button is renamed.** On a wrong sentence it reads "See what
+  sources say", not "Find a source" (`claimIsWrong`).
+- **After the fix,** the fixed sentence is checked afresh, and its own Find
+  a source looks for sources that back it.
+
+Tests: `server/test/ext-backing-sources.test.js`.
+
 Since 2.21.41 every source row says how citable it is, beside its publisher:
 Peer-reviewed, Official, Reference work, News of record, Encyclopedia, or
 Check this one, with the reason on hover. The text is the meta's own grey,
