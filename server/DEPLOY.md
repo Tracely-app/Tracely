@@ -73,8 +73,12 @@ configured. The copy is whatever main is at deploy time, which may be ahead
 of the Web Store build.
 
 Verify after every deploy with `server/scripts/healthcheck.sh` (the status
-shape, a bad token served as free, the extension's CORS allow and deny, the
-prefs route refused; exits non-zero on the first failure), then **replace the
+shape; that OpenAI accepts the key — `/api/status?keyCheck=1` has the server
+try it with a free `GET /v1/models`, because `hasKey` only says a key is set
+and said `true` through the 2026-10-13 outage of 503 `no_key` on every model
+call; a bad token served as free, the extension's CORS allow and deny, the
+prefs route refused; exits non-zero on the first failure, and on a rejected
+key — a probe that cannot tell is a `WARN`), then **replace the
 server row in `STATUS.md`** with the commit, the time and the backup name.
 That row is how the other developer's agent learns the deploy happened.
 

@@ -135,6 +135,60 @@ function apiKey(p) {
   return cachedKeys.get(p.name) ?? null;
 }
 
+/* Does the provider ACCEPT the key? hasApiKey() only says one is set. On
+ * 2026-10-13 production answered hasKey:true and healthcheck.sh said healthy
+ * while OpenAI 401'd every call (503 no_key on /api/check and /api/review).
+ *
+ * One verdict, the newest of two sources:
+ *   - every real call: post() records the key accepted when the provider
+ *     answers, rejected when it answers no_key (its 401). Free and instant.
+ *   - a probe: the provider's free key check (OpenAI: GET /v1/models, no
+ *     tokens), run only when asked — server.js asks for
+ *     GET /api/status?keyCheck=1, which healthcheck.sh sends and the extension
+ *     never does, so the extension's 1.5 s status probe never waits on the
+ *     provider. At most one probe a minute per key, however many ask: the
+ *     route is public and must not become a way to hammer the provider.
+ * A verdict belongs to one key: a key changed in .env (server.js
+ * loadEnvFile) is unjudged until a call or a probe tries it. */
+const KEY_PROBE_EVERY_MS = 60_000;
+const KEY_PROBE_TIMEOUT_MS = 5_000;
+let keyVerdict = null; // { provider, key, valid, at, by, status }
+let keyProbe = { provider: null, key: null, at: 0, running: null };
+
+function noteKey(p, key, valid, by, status = null) {
+  // A call or probe that outlived its key (replaced in .env meanwhile) says
+  // nothing about the current one, and must not displace its verdict.
+  if (apiKey(p) !== key) return;
+  keyVerdict = { provider: p.name, key, valid, at: Date.now(), by, status };
+}
+
+/**
+ * `{ valid: true|false|null, checkedAt, by: "call"|"probe", status? }` for the
+ * current key, or null when nothing has tried it yet (or there is no key).
+ * `valid: null` is a probe that could not tell; `status` is the provider's
+ * HTTP answer when a probe got one that was not a 200. With `probe`, runs the
+ * provider's probe first unless one ran for this key in the last minute.
+ */
+export async function keyStatus({ probe = false } = {}) {
+  const p = provider();
+  const key = apiKey(p);
+  if (!key) return null;
+  if (probe && typeof p.probeKey === "function") {
+    const same = keyProbe.provider === p.name && keyProbe.key === key;
+    if (!(same && (keyProbe.running || Date.now() - keyProbe.at < KEY_PROBE_EVERY_MS))) {
+      const running = p.probeKey({ key, timeoutMs: KEY_PROBE_TIMEOUT_MS })
+        .catch(() => ({ valid: null, status: null }))
+        .then((r) => noteKey(p, key, r.valid, "probe", r.valid === true ? null : r.status))
+        .finally(() => { if (keyProbe.running === running) keyProbe.running = null; });
+      keyProbe = { provider: p.name, key, at: Date.now(), running };
+    }
+    if (keyProbe.running) await keyProbe.running;
+  }
+  const v = keyVerdict;
+  if (!v || v.provider !== p.name || v.key !== key) return null;
+  return { valid: v.valid, checkedAt: new Date(v.at).toISOString(), by: v.by, ...(v.status ? { status: v.status } : {}) };
+}
+
 /* OpenAI's strict mode is stricter than Anthropic's was: EVERY property must
  * appear in `required`, and every object needs additionalProperties:false. A
  * schema that breaks either is a 400 at call time, in production, on a path
@@ -167,9 +221,13 @@ export function assertStrictSchema(schema, where = "schema") {
 async function post(p, body, { timeoutMs = 120_000 } = {}) {
   const key = apiKey(p);
   if (!key) throw new CheckError("no_key", p.missingKeyMessage, { status: 503 });
+  let json;
   try {
-    return await p.send(body, { key, timeoutMs });
+    json = await p.send(body, { key, timeoutMs });
   } catch (err) {
+    // no_key out of send() is the provider refusing the key; a missing key
+    // never got this far. Other failures say nothing about the key.
+    if (err instanceof CheckError && err.kind === "no_key") noteKey(p, key, false, "call");
     // A call WE gave up on was still sent, and the vendor does not cancel a
     // request the client drops: it runs, and bills, to its end. It came back
     // with no usage, so it was recorded as free: past every pool, the caller's
@@ -184,6 +242,8 @@ async function post(p, body, { timeoutMs = 120_000 } = {}) {
     }
     throw err;
   }
+  noteKey(p, key, true, "call");
+  return json;
 }
 
 /* The most a request body could be billed (post above): input and output in
