@@ -19,6 +19,7 @@ import { planForRequest, sourceSearchQuota, recordSourceSearch, checkQuota, reco
          flowQuota, recordFlow, reviewQuota, recordReview, kindQuota, recordKind, recordAccountSpend, recordThorough, reserveThorough, thoroughState,
          fairUseState, effectivePlan } from "./lib/entitlement.js";
 import { spendState, recordSpend, spendSummary, poolRoom, reserveSpend, reservedMicroCents, dailyBudgetMicroCents, MICRO_CENTS_PER_USD } from "./lib/spend.js";
+import { tallyCall, takeUsageLines } from "./lib/usageTally.js";
 import { verifyStripeSignature, planChangeForEvent, writePlanToSupabase, findUserIdByEmail, webhookConfigured, settleChange, redactStripeEvent, deleteSupabaseUser } from "./lib/billing.js";
 import { clampModel, currentModelId, planRank, DEFAULT_PLAN, FREE_DAILY_AI_CALLS, modelForRoute, THOROUGH_RESERVE_USD,
          THOROUGH_MAX_TOKENS, FLOW_MIN_INTERVAL_MS, REVIEW_MIN_INTERVAL_MS, KIND_MIN_INTERVAL_MS, monthDayLabel, dailyCheckLimit, dailyAiLimit, dailyFlowLimit,
@@ -845,7 +846,7 @@ async function spendGate(req, { kind = "check", extension = false, route = null 
     ? reserveSpend(pick.pool, worstCallMicroCents(route, MODEL_TIERS.fast))
     : null;
   if (reservation && req.method === "POST") bodyDeadline(req, GATED_BODY_DEADLINE_MS);
-  return { ent: pick.ent, holder: granted, callerId: id, budget: pick.budget, pool: pick.pool, reservation, modelCeiling };
+  return { ent: pick.ent, holder: granted, callerId: id, budget: pick.budget, pool: pick.pool, reservation, modelCeiling, route };
 }
 
 /* Whether a pool may still start a source search: room above the shed line
@@ -940,8 +941,28 @@ function chargeCall(gate, { model, usage, webSearchCalls = 0, pool }) {
   if (gate.thoroughHold || base === MODEL_TIERS.thorough) recordThorough(gate.callerId, cost);
   // The try-out's dollar window per address (demoGate), failed calls included.
   if (gate.demo?.addr) demoAddressSpend.add(gate.demo.addr, cost);
+  tallyCall(gate.route, { usage, webSearchCalls, cost });
   return cost;
 }
+
+/* OpenAI's prompt_cache_key for a caller's checks (2026-10-17), OFF unless
+ * TRACELY_PROMPT_CACHE_KEY=caller. With it, one caller's /api/check calls
+ * are routed to where their instructions and document were last cached, so a
+ * student's next check reads the cache (a tenth of the input price) instead of
+ * writing it (1.25x). It is off by default because a cache WRITE costs more
+ * than plain input: for a caller who checks once and leaves, keying them away
+ * from everyone's shared copy of the instructions could cost more, not less.
+ * Turn it on, compare the hourly usage lines' cached/write shares for
+ * /api/check (lib/usageTally.js), and keep it only if it pays. The key is a
+ * hash: OpenAI never sees a caller id. It changes where a call runs, never what
+ * it answers. */
+function promptCacheKey(gate) {
+  if (process.env.TRACELY_PROMPT_CACHE_KEY !== "caller" || !gate?.callerId) return undefined;
+  return `tc-${hashKey(`tracely-cache:${gate.callerId}`).slice(0, 32)}`;
+}
+
+// Once an hour, what the charged calls cost by route, cache reads and writes included (lib/usageTally.js).
+setInterval(() => { for (const line of takeUsageLines()) console.log(line); }, 3_600_000).unref?.();
 
 /* The app routes' gate: the same shape as spendGate, over the APP pool and
  * the app limiter. Budget first, then velocity, both before the body is read;
@@ -966,7 +987,7 @@ async function appGate(req, route = null) {
   }
   const reservation = budget.enforced ? reserveSpend("app", worstCallMicroCents(route, MODEL_TIERS.fast)) : null;
   if (reservation && req.method === "POST") bodyDeadline(req, GATED_BODY_DEADLINE_MS);
-  return { ent, callerId: id, budget, pool: "app", reservation };
+  return { ent, callerId: id, budget, pool: "app", reservation, route };
 }
 
 /* The try-out's gate (lib/demo.js has the whole rule): the same shape as
@@ -1054,7 +1075,7 @@ async function demoGate(req, route) {
   // `reserve`: what demoAdmit calls for the first call's hold, once the body
   // is in — a check's on its own worst case (WORST_CALL "/api/demo/check").
   const worst = worstCallMicroCents(route === "/api/check" ? "/api/demo/check" : route, MODEL_TIERS.fast);
-  return { ent, holder: ent, callerId: id, budget, pool: "demo", reservation: null, modelCeiling: null,
+  return { ent, holder: ent, callerId: id, budget, pool: "demo", reservation: null, modelCeiling: null, route: `/api/demo${route.slice(4)}`,
     demo: { kind, addr, reserve: () => demoReservation(addr, worst) } };
 }
 
@@ -1465,6 +1486,7 @@ const server = http.createServer(async (req, res) => {
         // on "Explain in depth": the thorough model was not measured for it.
         shardTimeoutMs: deep ? undefined : CHECK_SHARD_TIMEOUT_MS,
         onShardFailure: (e) => console.error(modelFailureLine("/api/check", e, trace)),
+        cacheKey: promptCacheKey(gate),
       });
       chargeCall(gate, { model: result.model ?? modelUsed, usage: result.usage, pool: gate.pool });
       /* The wrong-source check (lib/citeFit.js; owner, 2026-10-15): whether a

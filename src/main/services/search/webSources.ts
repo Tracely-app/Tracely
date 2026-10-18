@@ -66,6 +66,28 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7
  */
 const EMPTY_TTL_MS = 1000 * 60 * 10
 
+/*
+ * The query a claim's sources were found with, kept as long as those sources
+ * are (2026-10-17). The `context` sent here is the search query claim
+ * detection wrote, and detection rewrites it on every re-read of the draft —
+ * Screen Watch re-detects as often as every 20 s while someone types — so the
+ * cache key changed with the wording and the same claim paid for its web
+ * search again. Pinned, an unchanged claim gets exactly the sources it got
+ * before, from the cache. Only a search that FOUND something is pinned: after
+ * an empty one the next query is tried as it always was, in case new wording
+ * finds what the old did not. Cleared with the rest of request_cache.
+ */
+function pinKey(claimText: string): string {
+  return createHash('sha256').update(`search:webpin::v1::${claimText}`).digest('hex')
+}
+function pinnedContext(claimText: string, context: string): string {
+  const pinned = getCached<{ context: string }>(pinKey(claimText))
+  return pinned && typeof pinned.context === 'string' ? pinned.context : context
+}
+function pinContext(claimText: string, context: string): void {
+  setCached(pinKey(claimText), 'search:webpin', { context }, CACHE_TTL_MS)
+}
+
 /**
  * How much of the claim a source actually carries — the relay's own honest
  * answer, not a similarity score.
@@ -235,6 +257,9 @@ export async function findWebSources(
   if (!claimText.trim()) return empty
 
   const model = await modelForCall()
+  // The query a claim was last FOUND with, not the one detection wrote this
+  // time (pinnedContext below), so a reworded query reads the week-long cache.
+  context = pinnedContext(claimText, context)
   const key = cacheKey(claimText, context, model)
   const cached = getCached<WebSourceResult>(key)
   if (cached) return cached
@@ -311,5 +336,6 @@ export async function findWebSources(
   const result: WebSourceResult = { sources, note: response.note ?? '', dropped }
   // Minutes for an empty answer, a week for a real one — see EMPTY_TTL_MS.
   setCached(key, 'search:web', result, sources.length === 0 ? EMPTY_TTL_MS : CACHE_TTL_MS)
+  if (sources.length > 0) pinContext(claimText, context)
   return result
 }

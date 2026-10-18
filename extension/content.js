@@ -3090,6 +3090,17 @@
     if (now >= until) { held.delete(hash); return false; }
     return true;
   }
+  /* A check the MODEL failed on — a refusal, a truncation, an answer it could
+     not parse, a timeout, a request the vendor rejected — is billed, and the
+     same batch fails the same way: it used to be re-sent on every read (10 s
+     after a failure), paying each time (2026-10-17). Its sentences are held
+     like omitted ids. An outage, a pacing or a quota refusal costs nothing
+     and is not held: those clear by themselves. */
+  const BILLED_FAILURE_KINDS = new Set(["refusal", "truncated", "server", "timeout", "bad_request"]);
+  function holdFailed(held, sent, err, now) {
+    if (!BILLED_FAILURE_KINDS.has(err?.kind)) return;
+    for (const s of sent ?? []) held.set(s.hash, now + OMITTED_HOLD_MS);
+  }
 
   /* A line or sentence that has nothing to do with the rest of the document.
      Owner, 2026-10-04, on a Model UN position paper about youth and peace
@@ -6036,6 +6047,7 @@
       if (!docsOn || docQuiet()) return; // nothing leaves the page until Docs is turned on, while Tracely is paused, or in a Doc it never checks
       inflight = true;
       lastCheckFailed = false;
+      let sent = []; // what this cycle sends, for the catch: a billed failure holds it (holdFailed)
       try {
         const readAt = Date.now();
         const newText = await getDocText();
@@ -6055,6 +6067,7 @@
         sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(docText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash)); // after todo: this read is "previous" from here on
+        sent = todo;
         settings.citationStyle = citeStyleFor(docText, docPref(DOC_ID).style); // this Doc's, else Settings', else the way the doc already cites
         if (todo.length > 0) {
           statusKind = "checking";
@@ -6081,6 +6094,7 @@
         requestReview(docText); // fire-and-forget; resumes only, gated on stillness, a real change and the floors
       } catch (err) {
         lastCheckFailed = true;
+        holdFailed(heldHashes, sent, err, Date.now());
         if (err?.kind === "rate_limited") {
           statusKind = "idle"; // not an error the writer can do anything about
           statusMsg = `Google is pacing reads of this doc — checking again in ${Math.round(exportBackoff / 1000)}s`;
@@ -13174,6 +13188,7 @@
       }
       inflight = true;
       lastCheckFailed = false;
+      let sent = []; // for the catch (holdFailed)
       try {
         const newText = readField(tracked);
         if (newText !== fieldText) lastTextChangeAt = Date.now();
@@ -13194,6 +13209,7 @@
         sourceAttr = FEATURES.quoteTips && isArgumentGenre(docGenre) ? attributionBySentence(fieldText, segments) : new Map();
         const todo = uncheckedSegments().slice(0, MAX_SENTENCES_PER_CHECK);
         prevHashes = new Set(segments.map((sg) => sg.hash));
+        sent = todo;
         if (todo.length > 0) {
           statusKind = "checking";
           statusMsg = `checking ${todo.length}…`;
@@ -13219,6 +13235,7 @@
         requestReview(fieldText); // fire-and-forget; resumes only
       } catch (err) {
         lastCheckFailed = true;
+        holdFailed(heldHashes, sent, err, Date.now());
         if (err?.kind === "no_engine") {
           statusKind = "offline";
           statusMsg = err.message;

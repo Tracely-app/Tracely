@@ -204,7 +204,7 @@ export function shardSentences(sentences, size = CHECK_SHARD_SENTENCES) {
  * raises nothing. `onShardFailure(err)` is told of each shard so dropped,
  * so the failure log still counts it. Any other failure, or every shard
  * timing out, fails the check exactly as before. */
-export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, admitCalls = null, maxTokens = undefined, shardTimeoutMs = undefined, onShardFailure = null }) {
+export async function runFactCheck({ text, sentences, model, effort, mock = false, admitSplit = null, admitCalls = null, maxTokens = undefined, shardTimeoutMs = undefined, onShardFailure = null, cacheKey = undefined }) {
   const chosenModel = chooseModel(model);
   if (mock) return mockFindings(sentences, chosenModel);
   const context = checkContext(text);
@@ -213,9 +213,9 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   // DEFAULT_EFFORT rather than to OpenAI's much costlier default.
   const shards = shardSentences(sentences);
   if (shards.length === 1 || !callsAdmitted(admitCalls, shards.length - 1)) {
-    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs });
+    return checkBatch({ text: context, sentences, model: chosenModel, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, cacheKey });
   }
-  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs })));
+  const settled = await Promise.allSettled(shards.map((s) => checkBatch({ text: context, sentences: s, model: chosenModel, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, cacheKey })));
   const done = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
   const rejected = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
   const partial = rejected.length > 0 && done.length > 0 && shardTimeoutMs !== undefined && rejected.every((e) => e?.kind === "timeout");
@@ -243,7 +243,7 @@ export async function runFactCheck({ text, sentences, model, effort, mock = fals
   };
 }
 
-async function checkBatch({ text, sentences, model, effort, admitSplit, admitCalls = null, maxTokens, shardTimeoutMs, retryMissing = true }) {
+async function checkBatch({ text, sentences, model, effort, admitSplit, admitCalls = null, maxTokens, shardTimeoutMs, cacheKey = undefined, retryMissing = true }) {
   let result;
   try {
     result = await structuredCall({
@@ -257,6 +257,10 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, admitCal
       what: "fact check",
       name: "findings",
       timeoutMs: sentences.length <= CHECK_SHARD_SENTENCES ? shardTimeoutMs : undefined,
+      // OpenAI's prompt_cache_key (server.js promptCacheKey; off unless the
+      // operator turns it on): one caller's checks routed to where their
+      // instructions and document were last cached.
+      cacheKey,
     });
   } catch (err) {
     // Output budget exhausted — split the batch so each retry makes progress.
@@ -265,8 +269,8 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, admitCal
       const mid = Math.ceil(sentences.length / 2);
       let first = null;
       try {
-        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs });
-        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs });
+        first = await checkBatch({ text, sentences: sentences.slice(0, mid), model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, cacheKey });
+        const second = await checkBatch({ text, sentences: sentences.slice(mid), model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, cacheKey });
         // The truncated attempt was billed too — every output token it was
         // allowed — so its usage (lib/llm.js tags it on the error) is part of
         // what this check cost and of what the route records.
@@ -300,7 +304,7 @@ async function checkBatch({ text, sentences, model, effort, admitSplit, admitCal
   const answered = new Set(findings.map((f) => f.id));
   const missed = sentences.filter((s) => !answered.has(s.id));
   if (missed.length && missed.length < sentences.length && retryMissing && callsAdmitted(admitCalls, 1)) {
-    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, retryMissing: false });
+    const again = await checkBatch({ text, sentences: missed, model, effort, admitSplit, admitCalls, maxTokens, shardTimeoutMs, cacheKey, retryMissing: false });
     return { findings: [...findings, ...again.findings], model: again.model, usage: addUsage(result.usage, again.usage) };
   }
 

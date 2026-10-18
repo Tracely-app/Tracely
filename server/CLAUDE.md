@@ -203,6 +203,17 @@ is the whole toolchain, and it also runs the extension's tests (`test/ext-*`).
   - **Stripe:** a plan event older than the newest one applied for that
     customer is `stale` (`billing_event_order`), and only a confirmed,
     non-anonymous email claims an unclaimed purchase.
+- **What the calls cost, by route, once an hour** (`lib/usageTally.js`,
+  2026-10-17): `[tracely] usage route=… calls in cached (n%) write (n%) out
+  searches cost`. The `cached` and `write` shares are the prompt cache's
+  reads (a tenth of input) and writes (1.25×), which nothing recorded before,
+  so measure any caching change against these lines. Counts and dollars only.
+  - **`TRACELY_PROMPT_CACHE_KEY=caller`** (off by default) sends a hashed
+    per-caller `prompt_cache_key` on `/api/check`. It changes where a call
+    runs, never what it answers. It is off because a cache write costs more
+    than plain input, so for one-off callers it could cost more. Keep it only
+    if the usage lines show it pays. A vendor that refuses the field is
+    answered without it (`postOptional`).
 - **The public try-out page (`/try`) is a third product with its own fence**
   (`lib/demo.js`, `demoGate`; DEPLOY.md "The try-out page"): `DEMO_ROUTES`
   (`/api/demo/check|sources|review|status`) sit in NO other set — not

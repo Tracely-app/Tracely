@@ -318,7 +318,7 @@ const effortFor = (p, model) => !effortDisabled.has(effortKey(p, model)) && p.su
 /** A call that must return JSON matching `schema`. `timeoutMs`, when given,
  * replaces post()'s 120 s deadline for this call alone (lib/factcheck.js's
  * per-shard deadline on /api/check); absent, every caller keeps 120 s. */
-export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT, timeoutMs = undefined }) {
+export async function structuredCall({ model, system, user, schema, maxTokens, what, name = "result", effort = DEFAULT_EFFORT, timeoutMs = undefined, cacheKey = undefined }) {
   assertStrictSchema(schema, what);
   const p = provider();
   const chosen = chooseModel(model);
@@ -327,14 +327,14 @@ export async function structuredCall({ model, system, user, schema, maxTokens, w
   const sent = { model: chosen, effort: withEffort ? level : null };
   let json = null;
   try {
-    const body = p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: withEffort ? level : undefined });
+    const build = (e) => (key) => p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: e, cacheKey: key ?? undefined });
 
     try {
-      json = await post(p, body, { timeoutMs });
+      json = await postOptional(p, chosen, "prompt_cache_key", build(withEffort ? level : undefined), cacheKey, { timeoutMs });
     } catch (err) {
       if (!withEffort || !p.isEffortError(err)) throw err;
       sent.effort = null;
-      json = await post(p, p.structuredBody({ model: chosen, system, user, schema, maxTokens, name, effort: undefined }), { timeoutMs });
+      json = await postOptional(p, chosen, "prompt_cache_key", build(undefined), cacheKey, { timeoutMs });
       // Only now — the same request answered WITHOUT effort — is "this model
       // refuses effort" a fact. It used to be latched before the retry, so a
       // rejection that was about something else (a prompt the vendor refused,
@@ -382,6 +382,24 @@ export async function textCall({ model, system, messages, maxTokens, what, effor
  * model's structured calls — which would put every /api/check on that model
  * onto the expensive no-effort path described above. */
 const webEffortKey = (p, model) => `${effortKey(p, model)}:web_search`;
+
+/* An optional request field the vendor may not accept (2026-10-17: the
+ * prompt cache key). Sent when given; a 400 that names it is answered with
+ * the same call once more without it, and only when THAT answers is the field
+ * switched off for the model. Optional means a call must never fail over it. */
+const optionalOff = new Set();
+async function postOptional(p, model, field, build, value, opts) {
+  const offKey = `${field}:${effortKey(p, model)}`;
+  const on = value && !optionalOff.has(offKey) ? value : null;
+  try {
+    return await post(p, build(on), opts);
+  } catch (err) {
+    if (!on || typeof p.isParamError !== "function" || !p.isParamError(err, field)) throw err;
+    const json = await post(p, build(null), opts);
+    optionalOff.add(offKey);
+    return json;
+  }
+}
 
 /* The cap on web_search calls per answer (`max_tool_calls`, 2026-10-17). It
  * was added without a key to probe the vendor with, so a 400 that names it is

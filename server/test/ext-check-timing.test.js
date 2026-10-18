@@ -27,7 +27,7 @@ function load() {
     const CHECK_INTERVAL_MS = 10000;
     function hashText(s) { const norm = s.toLowerCase().replace(/\\s+/g, " ").trim(); let h = 5381; for (let i = 0; i < norm.length; i++) h = ((h << 5) + h + norm.charCodeAt(i)) >>> 0; return "s" + h.toString(36); }
     ${src.slice(a, b)}
-    ({ segmentText, readyToSend, nextReadGap, holdOmitted, isHeld, READ_INTERVAL_MS, ACTIVE_WINDOW_MS, OMITTED_HOLD_MS })`;
+    ({ segmentText, readyToSend, nextReadGap, holdOmitted, holdFailed, isHeld, READ_INTERVAL_MS, ACTIVE_WINDOW_MS, OMITTED_HOLD_MS })`;
   return vm.runInContext(code, vm.createContext({}));
 }
 const X = load();
@@ -68,6 +68,24 @@ test("an id the server leaves out is held, not re-sent on every read", () => {
   assert.equal(X.isHeld(held, "b", 1), true);
   assert.equal(X.isHeld(held, "b", X.OMITTED_HOLD_MS), false, "and released after the hold");
   assert.equal(held.has("b"), false);
+});
+
+test("a check the model failed on is held like an omitted id; an outage or a quota refusal is not (2026-10-17)", () => {
+  // The model's failures are billed and repeat: the same batch used to be
+  // re-sent on every read after one, paying each time.
+  const sent = [{ hash: "a" }, { hash: "b" }];
+  for (const kind of ["refusal", "truncated", "server", "timeout", "bad_request"]) {
+    const held = new Map();
+    X.holdFailed(held, sent, { kind }, 0);
+    assert.equal(X.isHeld(held, "a", 1) && X.isHeld(held, "b", 1), true, `${kind}: both held`);
+    assert.equal(X.isHeld(held, "a", X.OMITTED_HOLD_MS), false, `${kind}: released after the hold`);
+  }
+  // Free, and clear by themselves: no hold, so checking resumes as soon as they do.
+  for (const err of [{ kind: "budget" }, { kind: "plan_limit" }, { kind: "rate_limit" }, { kind: "rate_limited" }, { kind: "no_engine" }, new TypeError("Failed to fetch"), null]) {
+    const held = new Map();
+    X.holdFailed(held, sent, err, 0);
+    assert.equal(held.size, 0, `no hold for ${err?.kind ?? String(err)}`);
+  }
 });
 
 /* ── simulation: the old timer against the new one ─────────────────────────

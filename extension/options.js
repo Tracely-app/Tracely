@@ -737,6 +737,7 @@ $("clearChecks").addEventListener("click", () => {
 /* ── Help ──────────────────────────────────────────────────────────────── */
 // What changed lately, in the words the testers' notes used (newest first).
 const WHATS_NEW = [
+  ["2.21.67", "A sentence Tracely can't check right now waits half a minute before it is tried again, instead of being sent over and over."],
   ["2.21.66", "A dark theme for the panel and Tracely's cards: Settings → General → Appearance (Light, Dark or Match system)."],
   ["2.21.65", "Signed out, Find a source asks you to sign in first instead of coming back empty. Out of searches, it says so and shows the plans that give more."],
   ["2.21.64", "Settings → Documents lists the Docs Tracely has checked, each with its own style, kind and switch; Memory shows what is kept and clears it. Cards have Never flag this."],

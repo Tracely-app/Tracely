@@ -43,10 +43,12 @@ export const openai = {
     if (err.param) return /^reasoning/i.test(String(err.param));
     return /reasoning|effort/i.test(String(err?.message ?? ""));
   },
+  // A 400 that names one optional request field (lib/llm.js retries once without it).
+  isParamError: (err, name) => err?.kind === "bad_request" && (String(err.param ?? "") === name || String(err?.message ?? "").includes(name)),
   // A 400 that names `max_tool_calls` (lib/llm.js retries once without it).
   isToolCapError: (err) => err?.kind === "bad_request" && (/max_tool_calls/i.test(String(err.param ?? "")) || /max_tool_calls/i.test(String(err?.message ?? ""))),
 
-  structuredBody({ model, system, user, schema, maxTokens, name, effort }) {
+  structuredBody({ model, system, user, schema, maxTokens, name, effort, cacheKey }) {
     const body = {
       model,
       instructions: system,
@@ -55,6 +57,9 @@ export const openai = {
       text: { format: { type: "json_schema", name, schema, strict: true } },
     };
     if (effort) body.reasoning = { effort };
+    // Routes the request to where a prompt with the same key was last cached
+    // (OpenAI `prompt_cache_key`). Changes where it runs, never what it says.
+    if (cacheKey) body.prompt_cache_key = cacheKey;
     return body;
   },
 
