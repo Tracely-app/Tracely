@@ -12,9 +12,9 @@
  *      make a call truncate / refuse / return garbage on demand
  *   E  hosted (enforced), mock model, a 1-cent PAID pool and a 1.2-cent beta
  *      pool — where the pools' edges are
- *   G  hosted (enforced), the stubbed path again, but every call is slow and
- *      costs real money at thorough-model prices — a concurrent burst of
- *      "Explain in depth" checks
+ *   G  hosted (enforced), the stubbed path again, but every call is held
+ *      until the test lets it go and costs real money at thorough-model
+ *      prices — a concurrent burst of "Explain in depth" checks
  *   H  hosted (enforced), the stubbed path with a 2-cent beta pool — smaller
  *      than one check's worst case (~2.5 cents on luna), so a check is
  *      admitted but its split is not
@@ -178,11 +178,12 @@ const emptyFor = (s) => {
   }
   return out;
 };
-const DELAY = Number(process.env.TRACELY_TEST_OPENAI_DELAY_MS || 0);
+// G's calls wait on the test's openaiHold server until it answers.
+const HOLD = process.env.TRACELY_TEST_OPENAI_HOLD;
 const [IN, OUT] = String(process.env.TRACELY_TEST_OPENAI_USAGE || "1,1").split(",").map(Number);
 globalThis.fetch = async (url, init = {}) => {
   if (!String(url).startsWith("https://api.openai.com/")) return real(url, init);
-  if (DELAY) await new Promise((r) => setTimeout(r, DELAY));
+  if (HOLD) await real(HOLD, { method: "POST" }).then((r) => r.text());
   const body = JSON.parse(init.body);
   appendFileSync(process.env.TRACELY_TEST_OPENAI_LOG, JSON.stringify({ model: body.model, effort: body.reasoning?.effort ?? null, webSearch: Array.isArray(body.tools) }) + "\\n");
   const input = JSON.stringify(body.input);
@@ -201,6 +202,27 @@ globalThis.fetch = async (url, init = {}) => {
 };
 `);
 const openaiLog = () => readFileSync(OPENAI_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+/* G's OpenAI calls park here (TRACELY_TEST_OPENAI_HOLD) until the test lets
+ * them go, so a burst is in flight AT ONCE by construction. A fixed 400 ms
+ * delay was not: on a slow runner the burst's last admissions came after its
+ * first calls had answered and released their holds, and the room that freed
+ * admitted a seventh thorough call (PR #350's CI, 2026-10-14). Rightly so: a
+ * stub that answers in 5 ms does it every time, with never more than five in
+ * flight and $0.98 of the $1 spent. */
+const parked = [];
+let onPark = () => {};
+const openaiHold = http.createServer((req, res) => { parked.push(res); onPark(); });
+/** How many calls are parked once `n` are, or after `ms` if they never are. */
+function parkedCalls(n, ms = 20_000) {
+  return new Promise((resolve) => {
+    const settle = () => { clearTimeout(timer); onPark = () => {}; resolve(parked.length); };
+    const timer = setTimeout(settle, ms);
+    onPark = () => { if (parked.length >= n) settle(); };
+    onPark();
+  });
+}
+const releaseParked = () => { for (const res of parked.splice(0)) res.end(); };
 
 // Everything that could change these servers' behaviour is cleared, so a
 // developer's shell cannot make the suite pass or fail.
@@ -262,6 +284,7 @@ const H_LOG = path.join(TMP, "openai-h.jsonl");
 writeFileSync(H_LOG, "");
 test.before(async () => {
   await new Promise((r) => supabase.listen(0, "127.0.0.1", r));
+  await new Promise((r) => openaiHold.listen(0, "127.0.0.1", r));
   const hosted = { SUPABASE_URL: `http://127.0.0.1:${supabase.address().port}`, SUPABASE_ANON_KEY: "anon" };
   [A, B, C, D, E, G, H, I, J, K] = await Promise.all([
     boot({ ...hosted, TRACELY_MOCK: "1" }),
@@ -271,7 +294,7 @@ test.before(async () => {
     boot({ ...hosted, TRACELY_MOCK: "1", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.012", TRACELY_PAID_DAILY_BUDGET_USD: "0.01" }),
     boot({
       ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "1",
-      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_DELAY_MS: "400", TRACELY_TEST_OPENAI_USAGE: "4000,2000",
+      TRACELY_TEST_OPENAI_LOG: G_LOG, TRACELY_TEST_OPENAI_HOLD: `http://127.0.0.1:${openaiHold.address().port}/`, TRACELY_TEST_OPENAI_USAGE: "4000,2000",
     }, { preload: STUB }),
     boot({ ...hosted, OPENAI_API_KEY: "sk-test-not-a-real-key", TRACELY_BETA_TOKENS: "right-token", TRACELY_BETA_DAILY_BUDGET_USD: "0.02", TRACELY_TEST_OPENAI_LOG: H_LOG }, { preload: STUB }),
     boot({
@@ -292,6 +315,8 @@ test.before(async () => {
 test.after(() => {
   for (const s of [A, B, C, D, E, G, H, I, J, K]) s?.child.kill();
   supabase.close();
+  releaseParked();
+  openaiHold.close();
 });
 
 function call(srv, method, p, { body, install = "install-default", token, headers = {} } = {}) {
@@ -841,16 +866,29 @@ test("beta source searches have their own hourly window, apart from the one stor
 
 test("a burst of beta checks with rotating install ids cannot overspend the beta pool", async () => {
   // The review's case, on the only check that still reaches the thorough
-  // model: "Explain in depth" (deep:true). $1 pool, calls slow and priced at
-  // 4k in / 2k out ($0.14 on gpt-6-astra, inside its 15-cent reservation), a
-  // fresh install id — so a fresh Thorough allowance — per request. The
-  // allowance cannot bound a tester who rotates ids; the POOL must: each
-  // astra admission holds luna's check worst case (~2.5 cents) plus astra's
-  // 15 cents: five fit in $1, and a pool admits while anything is left
-  // unheld, so at most six at once.
+  // model: "Explain in depth" (deep:true). $1 pool, calls priced at 4k in /
+  // 2k out ($0.14 on gpt-6-astra, inside its 15-cent reservation), a fresh
+  // install id — so a fresh Thorough allowance — per request. The allowance
+  // cannot bound a tester who rotates ids; the POOL must: each astra
+  // admission holds luna's check worst case (~2.5 cents) plus astra's 15
+  // cents: five fit in $1, and a pool admits while anything is left unheld,
+  // so at most six at once. Every call is held (openaiHold) until all forty
+  // are in flight, so no hold is released, and no room freed, mid-burst.
+  //
+  // The first check goes alone, so the pool has served a thorough call
+  // whatever order the other 39 are gated in: forty luna holds come to
+  // $1.008 by themselves, and an order that gated all forty before any read
+  // its body would admit none.
   const text = "Water boils at 100 degrees Celsius at sea level.";
-  const burst = await Promise.all(Array.from({ length: 40 }, (_, i) =>
-    call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], deep: true, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` })));
+  const deepCheck = (i) => call(G, "POST", "/api/check", { body: { text, sentences: [{ id: "s1", text }], deep: true, model: "gpt-6-astra", effort: "high" }, headers: BETA, install: `g-burst-${i}` });
+  const first = deepCheck(0);
+  const firstParked = await parkedCalls(1);
+  const rest = Array.from({ length: 39 }, (_, i) => deepCheck(i + 1));
+  const inFlight = await parkedCalls(40);
+  releaseParked();
+  const burst = await Promise.all([first, ...rest]);
+  assert.equal(firstParked, 1, "the first check reached the model on its own");
+  assert.equal(inFlight, 40, `${inFlight} of 40 checks were in flight at once`);
   assert.ok(burst.every((r) => r.status === 200), "beta never refuses: the overflow falls back");
   const astra = burst.filter((r) => r.body.modelUsed === "gpt-6-astra").length;
   assert.ok(astra >= 1, "the pool still served someone");
